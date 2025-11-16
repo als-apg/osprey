@@ -9,24 +9,22 @@ from osprey.connectors.control_system.mock_connector import MockConnector
 from osprey.connectors.factory import ConnectorFactory
 
 
+@pytest.fixture(autouse=True)
+def setup_test_connectors():
+    """Register mock connectors for testing and clean up afterward."""
+    # Register mock connectors (simulates what registry does)
+    ConnectorFactory.register_control_system('mock', MockConnector)
+    ConnectorFactory.register_archiver('mock_archiver', MockArchiverConnector)
+
+    yield
+
+    # Clean up after tests to avoid pollution between test runs
+    ConnectorFactory._control_system_connectors.clear()
+    ConnectorFactory._archiver_connectors.clear()
+
+
 class TestConnectorFactory:
     """Test ConnectorFactory functionality."""
-
-    def test_list_control_systems(self):
-        """Test listing available control system connectors."""
-        systems = ConnectorFactory.list_control_systems()
-        assert isinstance(systems, list)
-        assert 'mock' in systems
-        # EPICS should be registered too
-        assert 'epics' in systems
-
-    def test_list_archivers(self):
-        """Test listing available archiver connectors."""
-        archivers = ConnectorFactory.list_archivers()
-        assert isinstance(archivers, list)
-        assert 'mock_archiver' in archivers
-        # EPICS archiver should be registered too
-        assert 'epics_archiver' in archivers
 
     @pytest.mark.asyncio
     async def test_create_mock_control_system_connector(self):

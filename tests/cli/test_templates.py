@@ -29,10 +29,10 @@ class TestTemplateManager:
         manager = TemplateManager()
         templates = manager.list_app_templates()
 
-        # Should have at least the three main templates
+        # Should have at least the main templates
         assert "minimal" in templates
         assert "hello_world_weather" in templates
-        assert "wind_turbine" in templates
+        assert "control_assistant" in templates
         assert len(templates) >= 3
 
     def test_create_project_minimal_compact(self, tmp_path):
@@ -75,22 +75,6 @@ class TestTemplateManager:
         assert (project_dir / "src" / "weather_app" / "capabilities" / "current_weather.py").exists()
         assert (project_dir / "src" / "weather_app" / "context_classes.py").exists()
         assert (project_dir / "src" / "weather_app" / "mock_weather_api.py").exists()
-
-    def test_create_project_wind_turbine(self, tmp_path):
-        """Test creating project with wind_turbine template."""
-        manager = TemplateManager()
-
-        project_dir = manager.create_project(
-            project_name="turbine-monitor",
-            output_dir=tmp_path,
-            template_name="wind_turbine"
-        )
-
-        # Verify turbine-specific structure
-        assert (project_dir / "src" / "turbine_monitor" / "capabilities" / "turbine_analysis.py").exists()
-        assert (project_dir / "src" / "turbine_monitor" / "capabilities" / "weather_data_retrieval.py").exists()
-        assert (project_dir / "src" / "turbine_monitor" / "data_sources" / "knowledge_provider.py").exists()
-        assert (project_dir / "src" / "turbine_monitor" / "framework_prompts" / "response_generation.py").exists()
 
     def test_duplicate_project_raises_error(self, tmp_path):
         """Test that creating duplicate project raises error."""
@@ -149,28 +133,6 @@ class TestGeneratedRegistries:
         assert '"current_weather"' in content
         assert "CurrentWeatherCapability" in content
 
-    def test_wind_turbine_uses_helper_with_exclusions(self, tmp_path):
-        """Test that wind_turbine uses helper with exclusions."""
-        manager = TemplateManager()
-        project_dir = manager.create_project("turbine", tmp_path, "wind_turbine")
-
-        registry_file = project_dir / "src" / "turbine" / "registry.py"
-        content = registry_file.read_text()
-
-        # Should use helper
-        assert "extend_framework_registry" in content
-        assert "return extend_framework_registry(" in content
-
-        # Should have exclusions
-        assert "exclude_capabilities" in content
-        assert '"python"' in content
-
-        # Should NOT have old framework_exclusions dict hack
-        assert "framework_exclusions" not in content
-
-        # Should have turbine capabilities
-        assert "turbine_analysis" in content
-        assert "weather_data_retrieval" in content
 
 
 class TestCLIIntegration:

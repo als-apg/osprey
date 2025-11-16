@@ -260,32 +260,6 @@ class TestE2EWorkflow:
         assert 'gateways:' not in config_content  # No EPICS gateway configuration
         assert 'writes_enabled:' not in config_content  # No EPICS writes configuration
 
-    def test_wind_turbine_template_generates_correctly(self, tmp_path):
-        """Test that wind_turbine template generates with all its components."""
-        runner = CliRunner()
-
-        result = runner.invoke(init, [
-            'turbine-app',
-            '--template', 'wind_turbine',
-            '--output-dir', str(tmp_path)
-        ])
-
-        assert result.exit_code == 0
-
-        project_dir = tmp_path / "turbine-app"
-        app_dir = project_dir / "src" / "turbine_app"
-
-        # Verify wind_turbine specific files
-        assert (app_dir / "registry.py").exists()
-        assert (app_dir / "capabilities").is_dir()
-        assert (app_dir / "data_sources").is_dir()
-        assert (app_dir / "mock_apis.py").exists()
-
-        # Verify registry uses helper with exclusions
-        registry_code = (app_dir / "registry.py").read_text()
-        assert 'extend_framework_registry' in registry_code
-        assert 'exclude_capabilities' in registry_code
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

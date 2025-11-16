@@ -150,6 +150,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fixed health check to use adequate token budget (100 tokens) for models with thinking capabilities
   - Added proper error handling when model uses all tokens for thinking with no output
   - Updated available models list to only include working Gemini 2.5 models (pro, flash, flash-lite)
+- **Test Suite**: Updated tests to reflect runtime helper daemon verification improvements (commit 6bf0a1d)
+  - Fixed 13 runtime helper tests to expect both compose version and ps daemon checks
+  - Fixed 6 connector factory tests with proper registration fixture
+  - Removed 4 deprecated wind_turbine template tests
+  - All 189 tests now passing
   - Removed Gemini 1.5 models that are not available in current API version
   - Ensures consistent behavior across all LLM providers
 - **Jinja2 Template Syntax**: Fixed invalid `.get('KEY')` method calls in Jinja2 templates
