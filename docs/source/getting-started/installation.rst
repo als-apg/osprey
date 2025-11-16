@@ -425,12 +425,11 @@ If you want to build and serve the documentation locally:
 
 .. code-block:: bash
 
-   # Install documentation dependencies
-   pip install -r docs/requirements.txt
+   # Install documentation dependencies using optional dependencies
+   pip install -e ".[docs]"
 
    # Build and serve documentation
-   cd docs/
-   python launch_docs.py
+   python docs/launch_docs.py
 
 Once running, you can view the documentation at http://localhost:8082
 
@@ -504,6 +503,8 @@ Check that services are running properly:
 Once services are running, access the web interface at:
 
 - OpenWebUI: `http://localhost:8080 <http://localhost:8080>`_
+
+.. _openwebui-configuration:
 
 OpenWebUI Configuration
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -698,7 +699,7 @@ Next Steps
    :doc:`hello-world-tutorial`
       Build your first simple weather agent
 
-   :doc:`control-assistant-entry`
+   :doc:`control-assistant`
       Production control system assistant with channel finding and comprehensive tooling
 
    :doc:`../developer-guides/02_quick-start-patterns/00_cli-reference`

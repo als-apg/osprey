@@ -6,6 +6,18 @@ ALS Accelerator Assistant
 
    This system is described in detail in the research paper `"Agentic AI for Multi-Stage Physics Experiments at a Large-Scale User Facility Particle Accelerator" <https://arxiv.org/abs/2509.17255>`_ (arXiv:2509.17255), which presents the first deployment of a language-model-driven agentic AI system executing multi-stage physics experiments on a production synchrotron light source.
 
+.. admonition:: 🎓 Learn by Building
+   :class: tip
+
+   Want to build your own control system assistant? The :doc:`../getting-started/control-assistant` provides a comprehensive walkthrough using a production-ready template based on this deployment. You'll learn:
+
+   - Channel finding with in-context and hierarchical pipelines
+   - Service layer architecture patterns
+   - Mock services for hardware-free development
+   - Comprehensive benchmarking and CLI tools
+
+   Perfect for particle accelerators, and other large-scale scientific control systems.
+
 Production Deployment in High-Stakes Scientific Environments
 ------------------------------------------------------------
 
@@ -22,7 +34,7 @@ Particle accelerator facilities like the Advanced Light Source present unique ch
 
 **System Response to Operational Challenges:**
 
-To address these demanding operational requirements, the ALS Accelerator Assistant implements a comprehensive suite of specialized capabilities that bridge the gap between natural language requests and executable scientific procedures. Unlike the :doc:`Hello World Tutorial <../getting-started/hello-world-tutorial>` and :doc:`Wind Turbine Example <../getting-started/build-your-first-agent>`, this system demonstrates production-grade patterns:
+To address these demanding operational requirements, the ALS Accelerator Assistant implements a comprehensive suite of specialized capabilities that bridge the gap between natural language requests and executable scientific procedures. Unlike simpler tutorial examples like the :doc:`Hello World Tutorial <../getting-started/hello-world-tutorial>`, this system demonstrates production-grade patterns at scale:
 
 * **External Service Integration**: Microservices architecture with MongoDB and specialized PV discovery services
 * **Complex Data Orchestration**: 7 interconnected capabilities managing real-time and historical scientific data
@@ -39,9 +51,9 @@ This production deployment demonstrates our proposed architecture for advanced a
    :name: transferability-discussion
 
    **Broader Applicability Beyond ALS**
-   
+
    The ALS Accelerator Assistant demonstrates architectural patterns and design principles that extend well beyond the Advanced Light Source, providing a blueprint for agentic AI integration across diverse scientific infrastructures.
-   
+
    The majority of the system's codebase is designed for direct deployment across different facilities with minimal modifications. The core framework capabilities, orchestration logic, data analysis workflows, and user interfaces require no facility-specific changes. **The primary adaptation requirement centers on the PV Address Finder subsystem**, which handles the translation between natural language queries and facility-specific control system addresses.
 
    .. tab-set::
@@ -50,7 +62,7 @@ This production deployment demonstrates our proposed architecture for advanced a
          :sync: mml-integration
 
          For synchrotron light source facilities, the system's foundation on the `MATLAB Middle Layer (MML) <https://www2.als.lbl.gov/als_physics/csteier/uspas15/lectures/Intro_Matlab_MiddleLayer.pdf>`_ Accelerator Object provides the most direct transferability route for facilities already using MML:
-         
+
          * **Established Infrastructure**: MML is implemented at most synchrotron light sources worldwide, providing a consistent data model
          * **Direct Database Integration**: The normalized PV database structure from MML can be adapted with minimal refinement for the `PV Address Finder`_
          * **Proven Patterns**: The same PV discovery and resolution algorithms apply across different MML-enabled facilities
@@ -59,16 +71,16 @@ This production deployment demonstrates our proposed architecture for advanced a
          :sync: alternative-strategies
 
          For facilities without the MATLAB Middle Layer available, several adaptation approaches can provide the required address organization and metadata. While "PV" terminology is EPICS-specific, the underlying address resolution patterns translate directly to other control systems (TANGO, DOOCS, etc.):
-         
+
          * **Consistent Naming Schemes**: Facilities with well-structured control system naming conventions can bypass complex PV discovery through direct semantic matching
          * **Other Middle Layer Frameworks**: The MML-based approach is directly transferable to other accelerator middle layer implementations that provide similar address organization and metadata
          * **Simple Dictionary Approach**: Small control systems with just a few hundred PVs can use a straightforward dictionary mapping each address to descriptive sentences, with a simple search engine (e.g. RAG) built on top for natural language queries
          * **Knowledge Graph-Based Organization**: Large control systems can implement knowledge graphs to organize control system address structures, enabling sophisticated semantic queries and relationship discovery
-   
+
    **Large-Scale Scientific Infrastructure Applications**
-   
+
    The core architectural principles demonstrated here apply to other complex scientific facilities:
-   
+
    * **Multi-Domain Expertise**: Any facility requiring coordination across specialized subsystems
    * **Safety-Critical Operations**: Environments where mistakes have high operational costs
    * **Complex Control Systems**: Facilities with large numbers of controllable parameters and monitoring points
@@ -97,10 +109,10 @@ Such procedures present several operational challenges:
 
 .. code-block:: text
 
-   "Get the minimum and maximum value of all ID gap values in the last three days. 
-   Then write a script which moves each ID from maximum to minimum gap and back 
-   while measuring the vertical beam size at beamline 3.1. Sample the gap range 
-   with 30 points, wait 5s after each new setpoint for the ID to settle and 
+   "Get the minimum and maximum value of all ID gap values in the last three days.
+   Then write a script which moves each ID from maximum to minimum gap and back
+   while measuring the vertical beam size at beamline 3.1. Sample the gap range
+   with 30 points, wait 5s after each new setpoint for the ID to settle and
    measure the beam size 5 times at 5Hz. Return a hysteresis plot beam size vs gap."
 
 **Automated Framework Execution:**
@@ -115,13 +127,13 @@ Such procedures present several operational challenges:
 
 5. **Machine Operation** → Executes 30-point bidirectional gap sweep with synchronized measurements using analysis-derived parameters
 
-6. **Data Visualization** → Produces professional, annotated hysteresis plots from collected measurement data 
+6. **Data Visualization** → Produces professional, annotated hysteresis plots from collected measurement data
 
 .. figure:: /_static/resources/als_assistant/fig_ALS_experiment.png
    :alt: ALS Accelerator Assistant Multi-Stage Physics Experiment Results
    :align: center
    :width: 90%
-   
+
    **Automated Physics Experiment Results**: Hysteresis plots showing beam size variations across insertion device gap ranges, demonstrating the framework's ability to orchestrate complex multi-stage physics experiments from natural language instructions.
 
 **Result:** Complete experimental procedure automated from natural language while maintaining operator-standard safety protocols. In this representative case, preparation time was reduced by two orders of magnitude compared to manual scripting, demonstrating the system's ability to bridge the gap between complex user objectives and executable scientific procedures.
@@ -135,13 +147,13 @@ The ALS Accelerator Assistant demonstrates a production-grade architecture for s
    :alt: ALS Accelerator Assistant System Architecture
    :align: center
    :width: 90%
-   
+
    **System Architecture**: Multiple users can access the same system simultaneously either remotely or from the control room via web interface (Open WebUI) or command line interface (CLI). The agent orchestrates connections to the PV database, archive data, and execution environments. Model inference uses either local Ollama or cloud providers via `CBorg <https://cborg.lbl.gov>`_ gateway, with EPICS integration ensuring safe hardware interaction.
 
 **Key Architectural Components:**
 
 * **Multi-Interface Access**: Web UI (Open WebUI) and command line for different user preferences
-* **Hybrid Inference**: Local GPU (H100) for low-latency + cloud models for advanced reasoning  
+* **Hybrid Inference**: Local GPU (H100) for low-latency + cloud models for advanced reasoning
 * **Service Integration**: PV database, archiver, and Jupyter execution environments
 * **Safety Integration**: EPICS-enforced operator-standard constraints for hardware interaction
 * **Authentication**: User identity management with personalized context and memory across sessions
@@ -149,13 +161,23 @@ The ALS Accelerator Assistant demonstrates a production-grade architecture for s
 PV Address Finder
 -----------------
 
-A critical challenge in accelerator control is translating natural language descriptions like "ID gap" or "beam current" into specific EPICS process variable names. The ALS Accelerator Assistant solves this through a structured PV Finder subsystem:
+A critical challenge in accelerator control is translating natural language descriptions like "ID gap" or "beam current" into specific EPICS process variable names. The ALS Accelerator Assistant solves this through a structured PV Finder subsystem.
+
+.. admonition:: 🔍 Deep Dive: Channel Finding Pipelines
+   :class: tip
+
+   The :doc:`../getting-started/control-assistant` tutorial provides an in-depth exploration of two different channel finding pipeline architectures:
+
+   - **In-Context Pipeline**: Semantic search for <1,000 channels (1-2s latency)
+   - **Hierarchical Pipeline**: Structured navigation for >1,000 channels (5-7s latency)
+
+   Includes complete implementations, comparative benchmarking, and adaptation guides for your facility.
 
 .. figure:: /_static/resources/als_assistant/fig_ALS_PV_finder.pdf
    :alt: PV Address Finder Subsystem Workflow
    :align: center
    :width: 90%
-   
+
    **PV Address Finder Workflow**: Natural language queries are split into atomic intents, preprocessed to extract systems and keywords, then resolved into specific EPICS PVs through a tool-bounded ReAct agent exploring a normalized MATLAB Middle Layer database.
 
 **Technical Implementation:**
@@ -173,11 +195,11 @@ This approach provides **auditability** through bounded tool access while **grou
    :name: mcp-service-integration
 
    **What is MCP (Model Context Protocol)?**
-   
+
    `Model Context Protocol <https://modelcontextprotocol.io>`__ is an open standard for connecting Language Models with tool-calling capabilities with external data sources and tools. It enables AI applications like Claude Desktop, VS Code extensions, and other MCP-compatible clients to access specialized services through a standardized interface.
 
    **PV Finder as Standalone MCP Service**
-   
+
    The ALS Assistant's PV Finder service can be deployed as a standalone MCP server, making the specialized knowledge of ALS control systems available to any MCP-compatible application:
 
    .. code-block:: python
@@ -203,7 +225,7 @@ This approach provides **auditability** through bounded tool access while **grou
           try:
               # Delegate to framework service layer
               result = await run_pv_finder_graph(user_query=query)
-              
+
               # Normalize for MCP protocol
               if hasattr(result, "model_dump"):
                   return result.model_dump()
@@ -248,7 +270,7 @@ This approach provides **auditability** through bounded tool access while **grou
          python3 deployment/container_manager.py config.yml up -d
 
       The container manager will automatically:
-      
+
       * Render the PV Finder Docker Compose template with your configuration
       * Set up the MCP service with proper networking and dependencies
       * Configure transport protocols (stdio/SSE) based on environment settings
@@ -263,7 +285,7 @@ This approach provides **auditability** through bounded tool access while **grou
    **Deployment Options:**
 
    * **Stdio Transport**: Direct integration with MCP-compatible applications like Claude Desktop
-   * **SSE Transport**: HTTP-based integration for web applications and remote clients  
+   * **SSE Transport**: HTTP-based integration for web applications and remote clients
    * **Containerized Deployment**: Docker-based deployment managed by the framework's container system
 
    The MCP server implementation is located in ``services/applications/als_assistant/pv_finder/src/main.py`` and demonstrates how framework services can participate in the broader AI ecosystem while maintaining clean architectural boundaries.
@@ -275,13 +297,13 @@ This approach provides **auditability** through bounded tool access while **grou
    :color: info
 
    **What is Langfuse?**
-   
+
    `Langfuse <https://langfuse.com>`__ is an open-source platform designed for Language Model observability, providing comprehensive tracing and monitoring capabilities. It enables developers to debug, analyze, and optimize AI applications by capturing detailed execution traces, token usage, latencies, and model interactions.
 
    **Langfuse in the ALS Accelerator Assistant Framework**
-   
+
    The PV Finder service integrates Langfuse to provide detailed observability into agent execution workflows, including:
-   
+
    * **PV Discovery Traces**: Complete workflow visibility from natural language query to EPICS address resolution
    * **Performance Monitoring**: Track execution times, token usage, and system performance metrics
    * **Debug Support**: Detailed step-by-step execution traces for troubleshooting complex agent behaviors
@@ -290,7 +312,7 @@ This approach provides **auditability** through bounded tool access while **grou
       :alt: PV Finder Service Trace in Langfuse Dashboard
       :align: center
       :width: 100%
-      
+
       **Langfuse Dashboard Example**: PV Finder service trace showing the complete workflow from natural language query to EPICS PV resolution, with detailed timing and execution context including all function calls, their arguments, and return values and model details.
 
    **Setting Up Langfuse through the Framework's Container Deployment System**
@@ -313,7 +335,7 @@ This approach provides **auditability** through bounded tool access while **grou
          python3 deployment/container_manager.py config.yml up -d
 
       The container manager will automatically:
-      
+
       * Render the Langfuse Docker Compose template with your configuration
       * Set up PostgreSQL, ClickHouse, Redis, and MinIO services
       * Configure networking between all services
@@ -324,26 +346,26 @@ This approach provides **auditability** through bounded tool access while **grou
    4. **Complete Initial Setup Flow**: Follow the setup wizard:
 
       **Step 1: Create Organization**
-      
+
       * You'll see: "Create an organization to get started"
       * Click "New Organization" and provide an organization name
 
       **Step 2: Invite Members (Optional)**
-      
+
       * Add team members or skip this step for now
       * You can always add members later
 
       **Step 3: Create Project**
-      
+
       * Enter a project name (e.g., "ALS Assistant")
       * Projects group traces, datasets, and prompts
       * Click "Create"
 
       **Step 4: Generate API Keys**
-      
-      * Click "Create API Key" 
+
+      * Click "Create API Key"
       * **Important**: Copy both keys immediately - the secret key is only shown once:
-      
+
         * **Secret Key**: ``sk-lf-42e6...`` (example)
         * **Public Key**: ``pk-lf-d6f9...`` (example)
 
@@ -355,7 +377,7 @@ This approach provides **auditability** through bounded tool access while **grou
 
       # Enable Langfuse observability
       LANGFUSE_ENABLED=true
-      
+
       # API Keys from your Langfuse project settings (replace with your actual keys)
       LANGFUSE_PUBLIC_KEY=pk-lf-d6f9...
       LANGFUSE_SECRET_KEY=sk-lf-42e6...
@@ -384,7 +406,7 @@ The ALS Accelerator Assistant translates natural language objectives into reliab
    :alt: Python Execution Pipeline
    :align: center
    :width: 90%
-   
+
    **Python Execution Pipeline**: Natural language tasks are translated into a plan, results schema, and then Python code, which can dynamically access the agent context, is statically analyzed, and may be reviewed by a human operator. Execution is typically confined to containerized Jupyter kernels with strict read/write policies, and every run produces session artifacts (context, notebooks, JSON) for full reproducibility.
 
 **Three-Stage Code Generation Process:**
@@ -431,23 +453,23 @@ The ALS Accelerator Assistant demonstrates key production patterns for scaling t
          @capability_node(name="capability_name", provides=["OUTPUT"], requires=["INPUT"])
          class ExampleCapability(BaseCapability):
              async def execute(self, state: AgentState) -> AgentState:
-                 
+
                  # Step 1: Extract inputs from current execution step
                  step = StateManager.get_current_step(state)
                  input_data = self._get_required_context(state, "INPUT")
-                 
+
                  # Step 2: Process data (delegate to service layer if complex)
                  result = await self._process_data(input_data)
-                 
+
                  # Step 3: Create framework context object
                  output_context = OutputContext(data=result)
-                 
+
                  # Step 4: Store context and return state updates
                  context_key = step.get("context_key")
                  return StateManager.store_context(
-                     state, 
-                     registry.context_types.OUTPUT, 
-                     context_key, 
+                     state,
+                     registry.context_types.OUTPUT,
+                     context_key,
                      output_context
                  )
 
@@ -466,37 +488,37 @@ The ALS Accelerator Assistant demonstrates key production patterns for scaling t
              """Resolve natural language to specific EPICS PVs via Middle Layer database."""
              # Complex NLP processing, database queries, semantic matching
              return PVSearchResult(pvs=found_addresses, description=query_context)
-         
+
          # === FRAMEWORK CAPABILITY ===
          # Focuses purely on framework orchestration and state management
          @capability_node
          class PVAddressFindingCapability(BaseCapability):
              name = "pv_address_finding"
              provides = ["PV_ADDRESSES"]
-             
+
              @staticmethod
              async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
                  # Get current step and extract task objective
                  step = StateManager.get_current_step(state)
                  search_query = step.get('task_objective', 'unknown')
-                 
+
                  # Delegate complex logic to service layer
                  response = await run_pv_finder_graph(user_query=search_query)
-                 
+
                  # Create framework context object
                  pv_finder_context = PVAddresses(
                      pvs=response.pvs,
                      description=response.description,
                  )
-                 
+
                  # Store context using StateManager
                  state_updates = StateManager.store_context(
-                     state, 
-                     registry.context_types.PV_ADDRESSES, 
-                     step.get("context_key"), 
+                     state,
+                     registry.context_types.PV_ADDRESSES,
+                     step.get("context_key"),
                      pv_finder_context
                  )
-                 
+
                  return state_updates
 
       **Result:** Independent testing, scaling, and maintenance of business logic vs. framework integration. This architecture also enables individual services to be deployed as standalone MCP servers for broader AI ecosystem integration (see :ref:`PV Finder MCP Service Integration <mcp-service-integration>`).
@@ -514,7 +536,7 @@ The ALS Accelerator Assistant demonstrates key production patterns for scaling t
              precision_ms: int                             # Data precision in milliseconds
              time_series_data: Dict[str, List[float]]      # PV name -> time series values
              available_pvs: List[str]                      # List of available PV names
-             
+
              def get_access_details(self, key_name: Optional[str] = None) -> Dict[str, Any]:
                  """Rich description of the archiver data structure."""
                  key_ref = key_name if key_name else "key_name"
@@ -545,30 +567,30 @@ The ALS Accelerator Assistant demonstrates key production patterns for scaling t
              """Data analysis capability with human approval workflow."""
              name = "data_analysis"
              provides = ["ANALYSIS_RESULTS"]
-             
+
              @staticmethod
              async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
                  step = StateManager.get_current_step(state)
                  python_service = registry.get_service("python_executor")
-                 
+
                  # ===== CHECK FOR APPROVAL RESUME =====
                  has_approval_resume, approved_payload = get_approval_resume_data(
                      state, create_approval_type("data_analysis")
                  )
-                 
+
                  if has_approval_resume:
                      # Resume execution with user's approval decision
                      resume_response = {"approved": bool(approved_payload)}
                      if approved_payload:
                          resume_response.update(approved_payload)
-                     
+
                      service_result = await python_service.ainvoke(
                          Command(resume=resume_response), config=service_config
                      )
                      approval_cleanup = clear_approval_state()
                  else:
                      # ===== NORMAL EXECUTION PATH =====
-                     
+
                      # Prepare execution request (details omitted for brevity)
                      execution_request = PythonExecutionRequest(
                          user_query=state.get("input_output", {}).get("user_query", ""),
@@ -579,7 +601,7 @@ The ALS Accelerator Assistant demonstrates key production patterns for scaling t
                          capability_context_data=state.get('capability_context_data', {}),
                          config=kwargs.get("config", {})
                      )
-                     
+
                      # Execute with centralized approval handling
                      service_result = await handle_service_with_interrupts(
                          service=python_service,
@@ -589,14 +611,14 @@ The ALS Accelerator Assistant demonstrates key production patterns for scaling t
                          capability_name="DataAnalysis"
                      )
                      approval_cleanup = None
-                 
+
                  # ===== BOTH PATHS CONVERGE HERE =====
                  analysis_context = _create_analysis_context(service_result)
                  context_updates = StateManager.store_context(
                      state, registry.context_types.ANALYSIS_RESULTS,
                      step.get("context_key"), analysis_context
                  )
-                 
+
                  # Clean up approval state if needed
                  if approval_cleanup:
                      return {**context_updates, **approval_cleanup}
@@ -618,22 +640,22 @@ The ALS Accelerator Assistant demonstrates key production patterns for scaling t
          # Implements the framework's DataSourceProvider interface
          class ExperimentDatabaseProvider(DataSourceProvider):
              """Application-specific data source for experimental data and maintenance logs."""
-             
+
              async def retrieve_data(self, request: DataSourceRequest) -> Optional[DataSourceContext]:
                  """Retrieve relevant database records for task context."""
                  # Query all equipment status and baseline measurements
                  equipment_status = self.db.query("equipment_status")
                  baseline_data = self.db.query("baseline_data")
-                 
+
                  if not (equipment_status or baseline_data):
                      return None
-                 
+
                  # Package data for LLM consumption
                  db_data = {
                      "equipment_status": equipment_status,
                      "baseline_data": baseline_data,
                  }
-                 
+
                  return DataSourceContext(
                      source_name=self.name,
                      context_type=self.context_type,
@@ -645,28 +667,28 @@ The ALS Accelerator Assistant demonstrates key production patterns for scaling t
                      },
                      provider=self
                  )
-             
+
              def format_for_prompt(self, context: DataSourceContext) -> str:
                  """Custom formatting optimized for LLM interpretation."""
                  if not context or not context.data:
                      return ""
-                 
+
                  sections = []
                  db_data = context.data
-                 
+
                  # Equipment status with visual indicators
                  if 'equipment_status' in db_data:
                      sections.append("**📊 Critical Equipment Status:**")
                      for eq in db_data['equipment_status']:
                          status_emoji = "✅" if eq['status'] == 'operational' else "⚠️"
                          sections.append(f"  {status_emoji} {eq['device']}: {eq['status']}")
-                 
+
                  # Baseline data for comparative analysis
                  if 'baseline_data' in db_data:
                      sections.append("**📏 Baseline References:**")
                      for baseline in db_data['baseline_data']:
                          sections.append(f"  • {baseline['parameter']}: {baseline['baseline_value']}")
-                 
+
                  return "\n".join(sections)
 
          # === REGISTRATION ===

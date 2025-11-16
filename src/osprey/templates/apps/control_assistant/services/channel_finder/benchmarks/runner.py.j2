@@ -1,0 +1,875 @@
+"""
+Core benchmark runner logic.
+
+Handles execution of benchmark queries, metric calculation, and result aggregation.
+"""
+
+import asyncio
+import json
+import logging
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+from typing import List
+from dataclasses import asdict
+
+from {{ package_name }}.services.channel_finder.service import ChannelFinderService
+
+# Use Osprey's config system
+from osprey.utils.config import _get_config
+
+# Use Osprey's styling system
+from osprey.cli.styles import console, Messages, Styles
+from rich.table import Table
+from rich.panel import Panel
+
+from .models import (
+    QueryBenchmarkEntry,
+    QueryRunResult,
+    QueryEvaluation,
+    BenchmarkResults
+)
+
+logger = logging.getLogger(__name__)
+
+
+class BenchmarkRunner:
+    """Runs benchmarks and evaluates channel finder performance."""
+
+    def __init__(self):
+        """Initialize benchmark runner from config."""
+        console.print(f"  [{Styles.INFO}]🔧 Initializing benchmark runner...[/{Styles.INFO}]")
+
+        config_builder = _get_config()
+        self.config = config_builder.raw_config
+        self.benchmark_config = self.config.get('channel_finder', {}).get('benchmark', {})
+
+        # Get execution settings
+        self.runs_per_query = self.benchmark_config.get('execution', {}).get('runs_per_query', 3)
+        self.delay_between_runs = self.benchmark_config.get('execution', {}).get('delay_between_runs', 0.5)
+        self.continue_on_error = self.benchmark_config.get('execution', {}).get('continue_on_error', True)
+        self.max_concurrent = self.benchmark_config.get('execution', {}).get('max_concurrent_queries', 5)
+
+        # Create locks for thread-safe operations
+        self.results_lock = asyncio.Lock()
+        self.progress_lock = asyncio.Lock()
+
+        # Initialize channel finder service (this can be slow)
+        console.print(f"  [{Styles.INFO}]🔌 Loading channel finder service...[/{Styles.INFO}]", end="")
+        try:
+            self.service = ChannelFinderService()
+            console.print(f" {Messages.success('loaded')}")
+        except Exception as e:
+            console.print()
+            console.print(f"  {Messages.error(f'Failed to load service: {e}')}")
+            raise
+
+    def load_benchmark_dataset(self, dataset_path: str) -> List[QueryBenchmarkEntry]:
+        """Load benchmark dataset from JSON file."""
+        # Resolve path relative to project root
+        config_builder = _get_config()
+        project_root = Path(config_builder.get('project_root'))
+        path_obj = Path(dataset_path)
+        path = project_root / path_obj if not path_obj.is_absolute() else path_obj
+
+        if not path.exists():
+            raise FileNotFoundError(f"Benchmark dataset not found: {path}")
+
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        entries = []
+        for item in data:
+            entries.append(QueryBenchmarkEntry(
+                user_query=item['user_query'],
+                targeted_pv=item['targeted_pv'],
+                details=item.get('details')
+            ))
+
+        logger.info(f"Loaded {len(entries)} benchmark entries from {path.name}")
+        return entries
+
+    def select_queries(self, entries: List[QueryBenchmarkEntry]) -> List[QueryBenchmarkEntry]:
+        """Select subset of queries based on configuration."""
+        query_selection = self.benchmark_config.get('execution', {}).get('query_selection', 'all')
+
+        if query_selection == 'all':
+            return entries
+        elif isinstance(query_selection, list):
+            # Specific indices
+            selected = [entries[i] for i in query_selection if i < len(entries)]
+            logger.info(f"Selected {len(selected)} queries by index")
+            return selected
+        elif isinstance(query_selection, dict):
+            # Range selection
+            start = query_selection.get('start', 0)
+            end = query_selection.get('end', len(entries))
+            selected = entries[start:end]
+            logger.info(f"Selected queries {start} to {end} ({len(selected)} total)")
+            return selected
+        else:
+            logger.warning(f"Unknown query_selection format: {query_selection}, using all queries")
+            return entries
+
+    async def run_query_once(self, query: str, run_number: int) -> QueryRunResult:
+        """Run a single query once and return results."""
+        start_time = asyncio.get_event_loop().time()
+
+        try:
+            result = await self.service.find_channels(query)
+            execution_time = asyncio.get_event_loop().time() - start_time
+
+            found_pvs = [ch.address for ch in result.channels]
+
+            return QueryRunResult(
+                run_number=run_number,
+                found_pvs=found_pvs,
+                success=True,
+                execution_time_seconds=execution_time
+            )
+        except Exception as e:
+            execution_time = asyncio.get_event_loop().time() - start_time
+            logger.error(f"Query failed: {e}")
+            return QueryRunResult(
+                run_number=run_number,
+                found_pvs=[],
+                success=False,
+                error=str(e),
+                execution_time_seconds=execution_time
+            )
+
+    async def run_query_multiple_times(
+        self,
+        query: str,
+        num_runs: int
+    ) -> List[QueryRunResult]:
+        """Run a query multiple times for statistical analysis."""
+        results = []
+
+        for run_num in range(1, num_runs + 1):
+            # Show progress indicator
+            if num_runs > 1:
+                console.print(f"  → Run {run_num}/{num_runs}...")
+
+            result = await self.run_query_once(query, run_num)
+            results.append(result)
+
+            # Show immediate feedback on this run
+            if result.success:
+                console.print(f"    [{Styles.SUCCESS}]✓[/{Styles.SUCCESS}] Found {len(result.found_pvs)} PV(s) in {result.execution_time_seconds:.2f}s")
+            else:
+                console.print(f"    [{Styles.ERROR}]✗[/{Styles.ERROR}] Failed: {result.error}")
+
+            # Delay between runs (except after last run)
+            if run_num < num_runs and self.delay_between_runs > 0:
+                await asyncio.sleep(self.delay_between_runs)
+
+        return results
+
+    def calculate_metrics(
+        self,
+        found_pvs: List[str],
+        expected_pvs: List[str]
+    ) -> tuple[int, int, int, float, float, float]:
+        """Calculate precision, recall, F1 score.
+
+        Returns:
+            (true_positives, false_positives, false_negatives, precision, recall, f1)
+        """
+        found_set = set(found_pvs)
+        expected_set = set(expected_pvs)
+
+        true_positives = len(found_set & expected_set)
+        false_positives = len(found_set - expected_set)
+        false_negatives = len(expected_set - found_set)
+
+        precision = true_positives / len(found_set) if found_set else 0.0
+        recall = true_positives / len(expected_set) if expected_set else 0.0
+        f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+
+        return true_positives, false_positives, false_negatives, precision, recall, f1
+
+    def calculate_consistency_score(self, runs: List[QueryRunResult]) -> tuple[float, int]:
+        """Calculate consistency score across runs.
+
+        Returns:
+            (consistency_score, unique_results_count)
+        """
+        successful_runs = [r for r in runs if r.success]
+
+        if len(successful_runs) <= 1:
+            return 1.0, len(successful_runs)
+
+        # Count unique result sets
+        unique_results = []
+        for run in successful_runs:
+            sorted_pvs = tuple(sorted(run.found_pvs))
+            if sorted_pvs not in unique_results:
+                unique_results.append(sorted_pvs)
+
+        # Consistency = inverse of diversity
+        # If all runs produce same result: consistency = 1.0
+        # If all runs produce different results: consistency = 1/N
+        consistency = 1.0 / len(unique_results)
+
+        return consistency, len(unique_results)
+
+    def evaluate_query(
+        self,
+        query_index: int,
+        entry: QueryBenchmarkEntry,
+        runs: List[QueryRunResult]
+    ) -> QueryEvaluation:
+        """Evaluate query results across multiple runs."""
+        successful_runs = [r for r in runs if r.success]
+        failed_runs = [r for r in runs if not r.success]
+
+        if not successful_runs:
+            # All runs failed
+            return QueryEvaluation(
+                query_index=query_index,
+                user_query=entry.user_query,
+                expected_pvs=entry.targeted_pv,
+                details=entry.details,
+                total_runs=len(runs),
+                successful_runs=0,
+                failed_runs=len(failed_runs),
+                best_run_number=0,
+                best_found_pvs=[],
+                best_true_positives=0,
+                best_false_positives=0,
+                best_false_negatives=len(entry.targeted_pv),
+                best_precision=0.0,
+                best_recall=0.0,
+                best_f1_score=0.0,
+                avg_precision=0.0,
+                avg_recall=0.0,
+                avg_f1_score=0.0,
+                consistency_score=0.0,
+                unique_results_count=0,
+                runs=runs
+            )
+
+        # Calculate metrics for each successful run
+        run_metrics = []
+        for run in successful_runs:
+            tp, fp, fn, precision, recall, f1 = self.calculate_metrics(
+                run.found_pvs, entry.targeted_pv
+            )
+            run_metrics.append({
+                'run': run,
+                'tp': tp,
+                'fp': fp,
+                'fn': fn,
+                'precision': precision,
+                'recall': recall,
+                'f1': f1
+            })
+
+        # Find best run (highest F1)
+        best = max(run_metrics, key=lambda x: x['f1'])
+
+        # Calculate averages
+        avg_precision = sum(m['precision'] for m in run_metrics) / len(run_metrics)
+        avg_recall = sum(m['recall'] for m in run_metrics) / len(run_metrics)
+        avg_f1 = sum(m['f1'] for m in run_metrics) / len(run_metrics)
+
+        # Calculate consistency
+        consistency_score, unique_count = self.calculate_consistency_score(runs)
+
+        return QueryEvaluation(
+            query_index=query_index,
+            user_query=entry.user_query,
+            expected_pvs=entry.targeted_pv,
+            details=entry.details,
+            total_runs=len(runs),
+            successful_runs=len(successful_runs),
+            failed_runs=len(failed_runs),
+            best_run_number=best['run'].run_number,
+            best_found_pvs=best['run'].found_pvs,
+            best_true_positives=best['tp'],
+            best_false_positives=best['fp'],
+            best_false_negatives=best['fn'],
+            best_precision=best['precision'],
+            best_recall=best['recall'],
+            best_f1_score=best['f1'],
+            avg_precision=avg_precision,
+            avg_recall=avg_recall,
+            avg_f1_score=avg_f1,
+            consistency_score=consistency_score,
+            unique_results_count=unique_count,
+            runs=runs
+        )
+
+    async def _process_single_query(
+        self,
+        idx: int,
+        entry: QueryBenchmarkEntry,
+        selected_entries: list,
+        evaluations: list,
+        query_times: list,
+        start_time: float,
+        dataset_name: str,
+        all_entries: list,
+        semaphore: asyncio.Semaphore,
+        stats: dict
+    ):
+        """Process a single query with concurrency control."""
+        async with semaphore:  # Limit concurrent queries
+            query_start = time.time()
+
+            async with self.progress_lock:
+                console.print()
+                console.print(f"[{Styles.HEADER}]{'─'*80}[/{Styles.HEADER}]")
+                console.print(f"[{Styles.LABEL}][{idx+1}/{len(selected_entries)}][/{Styles.LABEL}] Query: [{Styles.VALUE}]{entry.user_query}[/{Styles.VALUE}]")
+                console.print(f"[{Styles.LABEL}]Expected:[/{Styles.LABEL}] [{Styles.INFO}]{', '.join(entry.targeted_pv)}[/{Styles.INFO}]")
+                console.print(f"[{Styles.HEADER}]{'─'*80}[/{Styles.HEADER}]")
+
+            try:
+                runs = await self.run_query_multiple_times(entry.user_query, self.runs_per_query)
+                evaluation = self.evaluate_query(idx, entry, runs)
+
+                # Thread-safe update of results
+                async with self.results_lock:
+                    evaluations.append(evaluation)
+                    query_times.append(time.time() - query_start)
+
+                    # Update stats
+                    if evaluation.best_f1_score == 1.0:
+                        status_icon = f"[{Styles.SUCCESS}]✓ PERFECT[/{Styles.SUCCESS}]"
+                        stats['perfect'] += 1
+                    elif evaluation.best_f1_score >= 0.5:
+                        status_icon = f"[{Styles.WARNING}]⚠ PARTIAL[/{Styles.WARNING}]"
+                        stats['partial'] += 1
+                    else:
+                        status_icon = f"[{Styles.ERROR}]✗ FAILED[/{Styles.ERROR}]"
+                        stats['failed'] += 1
+
+                    # Print results
+                    console.print(f"\n  {status_icon} MATCH")
+                    console.print(f"  [{Styles.LABEL}]Best F1:[/{Styles.LABEL}] [{Styles.VALUE}]{evaluation.best_f1_score:.3f}[/{Styles.VALUE}] "
+                          f"(Precision: {evaluation.best_precision:.3f}, Recall: {evaluation.best_recall:.3f})")
+                    console.print(f"  [{Styles.LABEL}]Found:[/{Styles.LABEL}] [{Styles.INFO}]{', '.join(evaluation.best_found_pvs) if evaluation.best_found_pvs else 'None'}[/{Styles.INFO}]")
+
+                    if evaluation.best_f1_score < 1.0:
+                        expected_set = set(evaluation.expected_pvs)
+                        found_set = set(evaluation.best_found_pvs)
+                        missed = expected_set - found_set
+                        extra = found_set - expected_set
+                        if missed:
+                            console.print(f"  [{Styles.ERROR}]Missed:[/{Styles.ERROR}] {', '.join(missed)}")
+                        if extra:
+                            console.print(f"  [{Styles.WARNING}]Extra:[/{Styles.WARNING}] {', '.join(extra)}")
+
+                    if self.runs_per_query > 1:
+                        console.print(f"  [{Styles.LABEL}]Consistency:[/{Styles.LABEL}] [{Styles.VALUE}]{evaluation.consistency_score:.3f}[/{Styles.VALUE}] "
+                              f"({evaluation.unique_results_count} unique result(s) across {self.runs_per_query} runs)")
+
+                    # Calculate progress
+                    queries_completed = len(evaluations)
+                    queries_remaining = len(selected_entries) - queries_completed
+
+                    if queries_completed > 0 and query_times:
+                        avg_time_per_query = sum(query_times) / len(query_times)
+                        eta_seconds = avg_time_per_query * queries_remaining
+
+                        if eta_seconds < 60:
+                            eta_str = f"{eta_seconds:.0f}s"
+                        elif eta_seconds < 3600:
+                            eta_str = f"{eta_seconds/60:.1f}m"
+                        else:
+                            eta_str = f"{eta_seconds/3600:.1f}h"
+
+                        elapsed = time.time() - start_time
+                        if elapsed < 60:
+                            elapsed_str = f"{elapsed:.0f}s"
+                        elif elapsed < 3600:
+                            elapsed_str = f"{elapsed/60:.1f}m"
+                        else:
+                            elapsed_str = f"{elapsed/3600:.1f}h"
+
+                        progress_pct = (queries_completed / len(selected_entries)) * 100
+
+                        console.print(f"\n  [{Styles.INFO}]📊 Progress:[/{Styles.INFO}] "
+                              f"[{Styles.SUCCESS}]{stats['perfect']}[/{Styles.SUCCESS}] perfect, "
+                              f"[{Styles.WARNING}]{stats['partial']}[/{Styles.WARNING}] partial, "
+                              f"[{Styles.ERROR}]{stats['failed']}[/{Styles.ERROR}] failed")
+                        console.print(f"  [{Styles.INFO}]⏱️  {queries_completed}/{len(selected_entries)} completed ({progress_pct:.1f}%)[/{Styles.INFO}] | "
+                              f"Elapsed: [{Styles.VALUE}]{elapsed_str}[/{Styles.VALUE}] | ETA: [{Styles.VALUE}]{eta_str}[/{Styles.VALUE}] | "
+                              f"Avg: [{Styles.VALUE}]{avg_time_per_query:.1f}s/query[/{Styles.VALUE}]")
+
+                    # Save incremental results
+                    await self._save_incremental_results_async(
+                        dataset_name=dataset_name,
+                        all_entries=all_entries,
+                        evaluations=evaluations.copy(),  # Copy to avoid modification during save
+                        start_time=start_time,
+                        is_complete=False
+                    )
+
+            except Exception as e:
+                if self.continue_on_error:
+                    async with self.progress_lock:
+                        console.print(f"  {Messages.error(f'Error: {e}')}")
+                else:
+                    raise
+
+    async def run_benchmark(
+        self,
+        dataset_name: str,
+        dataset_path: str
+    ) -> BenchmarkResults:
+        """Run complete benchmark on dataset with parallel execution."""
+        console.print()
+        console.print(
+            Panel(
+                f"[bold]🚀 Starting Benchmark[/bold]\n[{Styles.VALUE}]{dataset_name}[/{Styles.VALUE}]",
+                border_style=Styles.BORDER_ACCENT,
+                padding=(0, 2)
+            )
+        )
+        console.print()
+
+        # Load and select queries
+        console.print(f"  [{Styles.INFO}]📂 Loading dataset...[/{Styles.INFO}]")
+        all_entries = self.load_benchmark_dataset(dataset_path)
+        console.print(f"  {Messages.success(f'Loaded {len(all_entries)} queries')}")
+        console.print()
+
+        selected_entries = self.select_queries(all_entries)
+
+        # Create execution info table
+        exec_table = Table(show_header=False, box=None, padding=(0, 2), show_edge=False)
+        exec_table.add_column("Setting", style=Styles.LABEL)
+        exec_table.add_column("Value", style=Styles.VALUE)
+        exec_table.add_row("Queries to run", str(len(selected_entries)))
+        exec_table.add_row("Runs per query", str(self.runs_per_query))
+        exec_table.add_row("Parallel execution", f"{self.max_concurrent} concurrent queries")
+
+        console.print(
+            Panel(
+                exec_table,
+                title="[bold]Execution Plan[/bold]",
+                border_style=Styles.BORDER,
+                padding=(0, 1)
+            )
+        )
+        console.print()
+
+        # Track results and timing
+        evaluations = []
+        query_times = []
+        stats = {'perfect': 0, 'partial': 0, 'failed': 0}
+        start_time = time.time()
+
+        # Create semaphore to limit concurrent queries
+        semaphore = asyncio.Semaphore(self.max_concurrent)
+
+        # Create tasks for all queries
+        tasks = [
+            self._process_single_query(
+                idx=idx,
+                entry=entry,
+                selected_entries=selected_entries,
+                evaluations=evaluations,
+                query_times=query_times,
+                start_time=start_time,
+                dataset_name=dataset_name,
+                all_entries=all_entries,
+                semaphore=semaphore,
+                stats=stats
+            )
+            for idx, entry in enumerate(selected_entries)
+        ]
+
+        # Run all tasks in parallel (limited by semaphore)
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Calculate aggregate metrics
+        successful_evals = [e for e in evaluations if e.successful_runs > 0]
+
+        if successful_evals:
+            overall_precision = sum(e.best_precision for e in successful_evals) / len(successful_evals)
+            overall_recall = sum(e.best_recall for e in successful_evals) / len(successful_evals)
+            overall_f1 = sum(e.best_f1_score for e in successful_evals) / len(successful_evals)
+            avg_consistency = sum(e.consistency_score for e in successful_evals) / len(successful_evals)
+        else:
+            overall_precision = overall_recall = overall_f1 = avg_consistency = 0.0
+
+        # Calculate success categories
+        perfect_matches = sum(1 for e in evaluations if e.best_f1_score == 1.0)
+        partial_matches = sum(1 for e in evaluations if 0 < e.best_f1_score < 1.0)
+        no_matches = sum(1 for e in evaluations if e.best_f1_score == 0.0)
+
+        # Calculate average execution time
+        all_exec_times = [
+            run.execution_time_seconds
+            for eval in evaluations
+            for run in eval.runs
+            if run.success
+        ]
+        avg_execution_time = sum(all_exec_times) / len(all_exec_times) if all_exec_times else 0.0
+
+        # Create results object
+        results = BenchmarkResults(
+            benchmark_name=dataset_name,
+            timestamp=datetime.now().isoformat(),
+            config_snapshot={
+                'model': self.config.get('model', {}),
+                'channel_finder': self.config.get('channel_finder', {}),
+                'benchmark': self.benchmark_config
+            },
+            total_queries=len(all_entries),
+            queries_evaluated=len(evaluations),
+            overall_precision=overall_precision,
+            overall_recall=overall_recall,
+            overall_f1_score=overall_f1,
+            perfect_matches=perfect_matches,
+            partial_matches=partial_matches,
+            no_matches=no_matches,
+            query_evaluations=evaluations,
+            avg_consistency_score=avg_consistency,
+            avg_execution_time=avg_execution_time
+        )
+
+        # Log final summary with visual formatting
+        console.print()
+        console.print()
+
+        # Create summary tables
+        metrics_table = Table(show_header=False, box=None, padding=(0, 2), show_edge=False)
+        metrics_table.add_column("Metric", style=Styles.LABEL)
+        metrics_table.add_column("Value", style=Styles.VALUE)
+        metrics_table.add_row("Queries Evaluated", f"{len(evaluations)}/{len(all_entries)}")
+        metrics_table.add_row("Precision", f"{overall_precision:.3f}")
+        metrics_table.add_row("Recall", f"{overall_recall:.3f}")
+        metrics_table.add_row("F1 Score", f"{overall_f1:.3f}")
+
+        breakdown_table = Table(show_header=False, box=None, padding=(0, 2), show_edge=False)
+        breakdown_table.add_column("Category", style=Styles.LABEL)
+        breakdown_table.add_column("Count", style=Styles.VALUE, justify="right")
+        breakdown_table.add_column("Percentage", style=Styles.VALUE)
+        breakdown_table.add_row(
+            f"[{Styles.SUCCESS}]✓ Perfect Matches[/{Styles.SUCCESS}]",
+            f"[{Styles.SUCCESS}]{perfect_matches}[/{Styles.SUCCESS}]",
+            f"[{Styles.SUCCESS}]{perfect_matches/len(evaluations)*100:.1f}%[/{Styles.SUCCESS}]"
+        )
+        breakdown_table.add_row(
+            f"[{Styles.WARNING}]⚠ Partial Matches[/{Styles.WARNING}]",
+            f"[{Styles.WARNING}]{partial_matches}[/{Styles.WARNING}]",
+            f"[{Styles.WARNING}]{partial_matches/len(evaluations)*100:.1f}%[/{Styles.WARNING}]"
+        )
+        breakdown_table.add_row(
+            f"[{Styles.ERROR}]✗ No Matches[/{Styles.ERROR}]",
+            f"[{Styles.ERROR}]{no_matches}[/{Styles.ERROR}]",
+            f"[{Styles.ERROR}]{no_matches/len(evaluations)*100:.1f}%[/{Styles.ERROR}]"
+        )
+
+        performance_table = Table(show_header=False, box=None, padding=(0, 2), show_edge=False)
+        performance_table.add_column("Metric", style=Styles.LABEL)
+        performance_table.add_column("Value", style=Styles.VALUE)
+        performance_table.add_row("Avg Consistency", f"{avg_consistency:.3f}")
+        performance_table.add_row("Avg Time/Query", f"{avg_execution_time:.3f}s")
+
+        console.print(
+            Panel(
+                f"[bold]🏁 Benchmark Complete[/bold]\n[{Styles.VALUE}]{dataset_name}[/{Styles.VALUE}]",
+                border_style=Styles.SUCCESS,
+                padding=(0, 2)
+            )
+        )
+        console.print()
+
+        console.print(
+            Panel(
+                metrics_table,
+                title="[bold]📊 Overall Metrics[/bold]",
+                border_style=Styles.BORDER,
+                padding=(0, 1)
+            )
+        )
+        console.print()
+
+        console.print(
+            Panel(
+                breakdown_table,
+                title="[bold]Success Breakdown[/bold]",
+                border_style=Styles.BORDER,
+                padding=(0, 1)
+            )
+        )
+        console.print()
+
+        console.print(
+            Panel(
+                performance_table,
+                title="[bold]Performance[/bold]",
+                border_style=Styles.BORDER,
+                padding=(0, 1)
+            )
+        )
+        console.print()
+
+        # Save final complete results
+        await self._save_incremental_results_async(
+            dataset_name=dataset_name,
+            all_entries=all_entries,
+            evaluations=evaluations,
+            start_time=start_time,
+            is_complete=True
+        )
+
+        # Clean up in-progress files after final files are saved
+        await self._cleanup_in_progress_files(dataset_name, start_time)
+
+        return results
+
+    async def _save_incremental_results_async(
+        self,
+        dataset_name: str,
+        all_entries: list,
+        evaluations: list,
+        start_time: float,
+        is_complete: bool
+    ):
+        """Save incremental results after each query (or final results)."""
+        if not evaluations:
+            return
+
+        # Calculate current metrics
+        successful_evals = [e for e in evaluations if e.successful_runs > 0]
+
+        if successful_evals:
+            overall_precision = sum(e.best_precision for e in successful_evals) / len(successful_evals)
+            overall_recall = sum(e.best_recall for e in successful_evals) / len(successful_evals)
+            overall_f1 = sum(e.best_f1_score for e in successful_evals) / len(successful_evals)
+            avg_consistency = sum(e.consistency_score for e in successful_evals) / len(successful_evals)
+        else:
+            overall_precision = overall_recall = overall_f1 = avg_consistency = 0.0
+
+        # Calculate success categories
+        perfect_matches = sum(1 for e in evaluations if e.best_f1_score == 1.0)
+        partial_matches = sum(1 for e in evaluations if 0 < e.best_f1_score < 1.0)
+        no_matches = sum(1 for e in evaluations if e.best_f1_score == 0.0)
+
+        # Calculate average execution time
+        all_exec_times = [
+            run.execution_time_seconds
+            for eval in evaluations
+            for run in eval.runs
+            if run.success
+        ]
+        avg_execution_time = sum(all_exec_times) / len(all_exec_times) if all_exec_times else 0.0
+
+        # Create results object
+        results = BenchmarkResults(
+            benchmark_name=dataset_name,
+            timestamp=datetime.now().isoformat(),
+            config_snapshot={
+                'model': self.config.get('model', {}),
+                'channel_finder': self.config.get('channel_finder', {}),
+                'benchmark': self.benchmark_config
+            },
+            total_queries=len(all_entries),
+            queries_evaluated=len(evaluations),
+            overall_precision=overall_precision,
+            overall_recall=overall_recall,
+            overall_f1_score=overall_f1,
+            perfect_matches=perfect_matches,
+            partial_matches=partial_matches,
+            no_matches=no_matches,
+            query_evaluations=evaluations,
+            avg_consistency_score=avg_consistency,
+            avg_execution_time=avg_execution_time
+        )
+
+        # Save results
+        output_config = self.benchmark_config.get('output', {})
+        results_dir_str = output_config.get('results_dir', 'src/{{ package_name }}/data/benchmarks/results')
+
+        # Resolve path relative to project root
+        config_builder = _get_config()
+        project_root = Path(config_builder.get('project_root'))
+        results_dir = project_root / results_dir_str
+        results_dir.mkdir(exist_ok=True, parents=True)
+
+        # Use consistent filename (will overwrite on each save)
+        timestamp = datetime.fromtimestamp(start_time).strftime("%Y%m%d_%H%M%S")
+        status_suffix = "" if is_complete else "_in_progress"
+        base_filename = f"benchmark_{results.benchmark_name}_{timestamp}{status_suffix}"
+
+        # Save JSON results
+        json_path = results_dir / f"{base_filename}.json"
+        with open(json_path, 'w', encoding='utf-8') as f:
+            json.dump(asdict(results), f, indent=2)
+
+        # Save summary text
+        summary_path = results_dir / f"{base_filename}_summary.txt"
+        with open(summary_path, 'w', encoding='utf-8') as f:
+            f.write("=" * 80 + "\n")
+            status_text = "COMPLETE" if is_complete else "IN PROGRESS"
+            f.write(f"BENCHMARK {status_text}: {results.benchmark_name}\n")
+            f.write("=" * 80 + "\n\n")
+
+            f.write(f"Timestamp: {results.timestamp}\n")
+            f.write(f"Queries Evaluated: {len(evaluations)}/{len(all_entries)}\n\n")
+
+            f.write(f"Overall Metrics:\n")
+            f.write(f"  Precision: {overall_precision:.3f}\n")
+            f.write(f"  Recall:    {overall_recall:.3f}\n")
+            f.write(f"  F1 Score:  {overall_f1:.3f}\n\n")
+
+            f.write(f"Success Breakdown:\n")
+            f.write(f"  Perfect Matches: {perfect_matches} ({perfect_matches/len(evaluations)*100:.1f}%)\n")
+            f.write(f"  Partial Matches: {partial_matches} ({partial_matches/len(evaluations)*100:.1f}%)\n")
+            f.write(f"  No Matches:      {no_matches} ({no_matches/len(evaluations)*100:.1f}%)\n\n")
+
+            f.write(f"Performance:\n")
+            f.write(f"  Avg Consistency: {avg_consistency:.3f}\n")
+            f.write(f"  Avg Time/Query:  {avg_execution_time:.3f}s\n\n")
+
+            f.write("=" * 80 + "\n")
+            f.write("Query Details\n")
+            f.write("=" * 80 + "\n\n")
+
+            for eval in evaluations:
+                status = "✓" if eval.best_f1_score == 1.0 else "⚠" if eval.best_f1_score > 0 else "✗"
+                f.write(f"{status} Query {eval.query_index + 1}: {eval.user_query}\n")
+                f.write(f"  Expected: {', '.join(eval.expected_pvs)}\n")
+                f.write(f"  Found:    {', '.join(eval.best_found_pvs) if eval.best_found_pvs else 'None'}\n")
+                f.write(f"  F1: {eval.best_f1_score:.3f} (P: {eval.best_precision:.3f}, R: {eval.best_recall:.3f})\n\n")
+
+        if not is_complete:
+            console.print(f"  [{Styles.DIM}]💾 Saved incremental results to: {json_path.name}[/{Styles.DIM}]")
+
+    async def _cleanup_in_progress_files(self, dataset_name: str, start_time: float):
+        """Delete in-progress files after final results are saved."""
+        output_config = self.benchmark_config.get('output', {})
+        results_dir_str = output_config.get('results_dir', 'src/{{ package_name }}/data/benchmarks/results')
+
+        # Resolve path relative to project root
+        config_builder = _get_config()
+        project_root = Path(config_builder.get('project_root'))
+        results_dir = project_root / results_dir_str
+
+        timestamp = datetime.fromtimestamp(start_time).strftime("%Y%m%d_%H%M%S")
+        base_filename = f"benchmark_{dataset_name}_{timestamp}_in_progress"
+
+        # Delete in-progress JSON file
+        json_path = results_dir / f"{base_filename}.json"
+        if json_path.exists():
+            json_path.unlink()
+            logger.debug(f"Deleted in-progress file: {json_path.name}")
+
+        # Delete in-progress summary file
+        summary_path = results_dir / f"{base_filename}_summary.txt"
+        if summary_path.exists():
+            summary_path.unlink()
+            logger.debug(f"Deleted in-progress file: {summary_path.name}")
+
+    def save_results(self, results: BenchmarkResults):
+        """Save benchmark results to file."""
+        output_config = self.benchmark_config.get('output', {})
+        results_dir_str = output_config.get('results_dir', 'src/{{ package_name }}/data/benchmarks/results')
+
+        # Resolve path relative to project root
+        config_builder = _get_config()
+        project_root = Path(config_builder.get('project_root'))
+        results_dir = project_root / results_dir_str
+        results_dir.mkdir(exist_ok=True, parents=True)
+
+        # Generate filename with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        base_filename = f"benchmark_{results.benchmark_name}_{timestamp}"
+
+        # Save JSON results
+        json_path = results_dir / f"{base_filename}.json"
+        with open(json_path, 'w', encoding='utf-8') as f:
+            json.dump(asdict(results), f, indent=2)
+        console.print(f"  [{Styles.INFO}]💾 Results saved to: {json_path}[/{Styles.INFO}]")
+
+        # Save summary report
+        summary_path = results_dir / f"{base_filename}_summary.txt"
+        self._save_summary_report(results, summary_path)
+        console.print(f"  [{Styles.INFO}]📄 Summary saved to: {summary_path}[/{Styles.INFO}]")
+
+    def _save_summary_report(self, results: BenchmarkResults, path: Path):
+        """Save human-readable summary report."""
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write("="*80 + "\n")
+            f.write(f"BENCHMARK RESULTS: {results.benchmark_name}\n")
+            f.write("="*80 + "\n")
+            f.write(f"Timestamp: {results.timestamp}\n")
+            f.write(f"Model: {results.config_snapshot['model'].get('model_id', 'N/A')}\n")
+            f.write(f"Runs per Query: {self.runs_per_query}\n")
+            f.write("\n")
+
+            f.write("-"*80 + "\n")
+            f.write("AGGREGATE METRICS\n")
+            f.write("-"*80 + "\n")
+            f.write(f"Queries Evaluated: {results.queries_evaluated}/{results.total_queries}\n")
+            f.write(f"Overall Precision: {results.overall_precision:.3f}\n")
+            f.write(f"Overall Recall: {results.overall_recall:.3f}\n")
+            f.write(f"Overall F1 Score: {results.overall_f1_score:.3f}\n")
+            f.write(f"Perfect Matches: {results.perfect_matches} ({results.perfect_matches/results.queries_evaluated*100:.1f}%)\n")
+            f.write(f"Partial Matches: {results.partial_matches} ({results.partial_matches/results.queries_evaluated*100:.1f}%)\n")
+            f.write(f"No Matches: {results.no_matches} ({results.no_matches/results.queries_evaluated*100:.1f}%)\n")
+            f.write(f"Average Consistency: {results.avg_consistency_score:.3f}\n")
+            f.write(f"Average Execution Time: {results.avg_execution_time:.3f}s\n")
+            f.write("\n")
+
+            f.write("-"*80 + "\n")
+            f.write("PER-QUERY RESULTS\n")
+            f.write("-"*80 + "\n")
+            for eval in results.query_evaluations:
+                f.write(f"\n[{eval.query_index}] {eval.user_query}\n")
+                f.write(f"Expected PVs: {', '.join(eval.expected_pvs)}\n")
+                f.write(f"Best Run #{eval.best_run_number}: F1={eval.best_f1_score:.3f}, P={eval.best_precision:.3f}, R={eval.best_recall:.3f}\n")
+                f.write(f"Found PVs: {', '.join(eval.best_found_pvs) if eval.best_found_pvs else 'None'}\n")
+                f.write(f"Consistency: {eval.consistency_score:.3f} ({eval.unique_results_count} unique)\n")
+                if eval.details:
+                    f.write(f"Details: {eval.details}\n")
+
+    async def run_all_enabled_benchmarks(self):
+        """Run benchmark for the active pipeline mode.
+
+        The benchmark dataset is determined by the active pipeline_mode setting.
+        Each pipeline defines its benchmark in channel_finder.pipelines.<mode>.benchmark
+        """
+        # Get active pipeline mode
+        channel_finder_config = self.config.get('channel_finder', {})
+        pipeline_mode = channel_finder_config.get('pipeline_mode')
+
+        if not pipeline_mode:
+            raise ValueError("No pipeline_mode configured in channel_finder settings")
+
+        # Get benchmark config for active pipeline
+        pipelines_config = channel_finder_config.get('pipelines', {})
+        active_pipeline_config = pipelines_config.get(pipeline_mode, {})
+        benchmark_config = active_pipeline_config.get('benchmark', {})
+
+        dataset_path = benchmark_config.get('dataset_path')
+        if not dataset_path:
+            raise ValueError(
+                f"No benchmark dataset configured for {pipeline_mode} pipeline. "
+                f"Add 'benchmark.dataset_path' to channel_finder.pipelines.{pipeline_mode}"
+            )
+
+        # Use pipeline mode as dataset name
+        dataset_name = f"{pipeline_mode}_benchmark"
+        description = benchmark_config.get('description', f'Benchmark for {pipeline_mode} pipeline')
+
+        logger.info(f"Running benchmark: {dataset_name}")
+        logger.info(f"  Pipeline: {pipeline_mode}")
+        logger.info(f"  Dataset: {dataset_path}")
+        logger.info(f"  Description: {description}\n")
+
+        try:
+            await self.run_benchmark(dataset_name, dataset_path)
+            # Note: results are already saved by run_benchmark()
+        except Exception as e:
+            logger.error(f"Benchmark {dataset_name} failed: {e}\n")
+            if not self.continue_on_error:
+                raise
+

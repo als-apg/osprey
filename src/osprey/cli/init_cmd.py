@@ -63,11 +63,11 @@ def init(project_name: str, template: str, registry_style: str, output_dir: str,
 
     \b
       - Application code (capabilities, registry, context classes)
-      - Service configurations (Jupyter, OpenWebUI, Pipelines)
-      - Configuration file with osprey imports
+      - Configuration file (config.yml)
       - Environment template (.env.example)
       - Dependencies file (pyproject.toml)
       - Documentation (README.md)
+      - Service configurations (for production templates)
 
     Examples:
 

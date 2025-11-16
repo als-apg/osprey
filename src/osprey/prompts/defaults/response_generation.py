@@ -10,6 +10,8 @@ from osprey.prompts.base import FrameworkPromptBuilder
 class DefaultResponseGenerationPromptBuilder(FrameworkPromptBuilder):
     """Default response generation prompt builder."""
 
+    PROMPT_TYPE = "response_generation"
+
     def get_role_definition(self) -> str:
         """Get the generic role definition."""
         return "You are an expert assistant for workflow automation and data analysis."

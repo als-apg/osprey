@@ -1,0 +1,468 @@
+"""
+Preview Database Presentation Script
+
+Shows how the channel database will be presented to the LLM.
+Auto-detects pipeline type (hierarchical vs in_context) and displays accordingly.
+"""
+
+import sys
+import argparse
+from pathlib import Path
+
+# Add project root to path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+
+from {{ package_name }}.services.channel_finder.utils.config import get_config, resolve_path
+from {{ package_name }}.services.channel_finder.databases import TemplateChannelDatabase, HierarchicalChannelDatabase
+
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
+from rich.tree import Tree
+from rich import box
+
+try:
+    from osprey.cli.styles import console as osprey_console, get_active_theme, Messages
+    console = osprey_console
+    theme = get_active_theme()
+except ImportError:
+    # Fallback if osprey styles not available
+    console = Console()
+    theme = None
+    Messages = None
+
+
+def detect_pipeline_config(config):
+    """Detect which pipeline is configured.
+
+    Returns:
+        tuple: (pipeline_type, db_config) where pipeline_type is 'hierarchical' or 'in_context'
+    """
+    cf_config = config.get('channel_finder', {})
+    pipelines = cf_config.get('pipelines', {})
+
+    # Check for explicit pipeline_mode setting
+    pipeline_mode = cf_config.get('pipeline_mode')
+
+    # Get pipeline configurations
+    hierarchical_config = pipelines.get('hierarchical', {})
+    in_context_config = pipelines.get('in_context', {})
+
+    # If pipeline_mode is explicitly set, use that
+    if pipeline_mode == 'in_context' and in_context_config.get('database', {}).get('path'):
+        return 'in_context', in_context_config.get('database', {})
+    elif pipeline_mode == 'hierarchical' and hierarchical_config.get('database', {}).get('path'):
+        return 'hierarchical', hierarchical_config.get('database', {})
+
+    # Otherwise, fall back to checking which database exists (prefer hierarchical)
+    if hierarchical_config.get('database', {}).get('path'):
+        return 'hierarchical', hierarchical_config.get('database', {})
+    elif in_context_config.get('database', {}).get('path'):
+        return 'in_context', in_context_config.get('database', {})
+    else:
+        return None, None
+
+
+def preview_hierarchical(db_path: str, show_full: bool = False):
+    """Preview hierarchical database with tree structure."""
+
+    # Header
+    console.print()
+    console.print(
+        Panel.fit(
+            "[bold primary]Hierarchical Database Preview[/bold primary]\n"
+            "[dim]Shows the tree structure of the hierarchical channel database[/dim]",
+            border_style="primary",
+            padding=(1, 2)
+        )
+    )
+
+    # Configuration table
+    config_table = Table(show_header=False, box=box.SIMPLE, padding=(0, 2))
+    config_table.add_column("Property", style="label")
+    config_table.add_column("Value", style="value")
+
+    resolved_path = resolve_path(db_path)
+    config_table.add_row("Database Path", db_path)
+    config_table.add_row("Resolved Path", str(resolved_path))
+
+    # Load database
+    with console.status("[bold info]Loading database...", spinner="dots"):
+        database = HierarchicalChannelDatabase(str(resolved_path))
+        stats = database.get_statistics()
+        hierarchy_levels = database.hierarchy_levels
+
+    config_table.add_row("Hierarchy Levels", " → ".join(hierarchy_levels))
+
+    console.print()
+    console.print(Panel(config_table, title="[bold]Configuration[/bold]", border_style="info"))
+
+    total_channels = stats.get('total_channels', 0)
+    console.print(f"\n[success]✓ Successfully loaded [bold]{total_channels}[/bold] channels[/success]\n")
+
+    # Statistics table
+    stats_table = Table(show_header=True, box=box.ROUNDED, padding=(0, 2))
+    stats_table.add_column("System", style="label", no_wrap=True)
+    stats_table.add_column("Channels", justify="right", style="value")
+
+    systems = stats.get('systems', [])
+    for system in systems:
+        stats_table.add_row(system['name'], str(system['channel_count']))
+
+    stats_table.add_row("[bold]Total[/bold]", f"[bold]{total_channels}[/bold]")
+
+    console.print(Panel(stats_table, title="[bold]Database Statistics[/bold]", border_style="accent"))
+
+    # Build hierarchy tree
+    console.print()
+    tree = Tree(
+        f"[bold primary]Channel Database Hierarchy[/bold primary]",
+        guide_style="info"
+    )
+
+    # Get the tree structure from database
+    db_tree = database.tree
+
+    # Limit display if not show_full
+    max_systems = None if show_full else 3
+    max_branches_per_level = None if show_full else 5
+
+    system_count = 0
+    for system_name, system_data in db_tree.items():
+        if system_name.startswith('_'):
+            continue
+
+        if max_systems and system_count >= max_systems:
+            tree.add(f"[dim]... {len([k for k in db_tree.keys() if not k.startswith('_')]) - max_systems} more systems[/dim]")
+            break
+
+        system_count += 1
+
+        # Count channels in this system
+        system_channels = [ch for ch in database.channel_map.values()
+                          if ch.get('path', {}).get('system') == system_name]
+
+        system_branch = tree.add(
+            f"[primary bold]{system_name}[/primary bold] [dim]({len(system_channels)} channels)[/dim]"
+        )
+
+        # Add subsystems or devices
+        _add_hierarchy_level(system_branch, system_data, database, hierarchy_levels, 1,
+                            max_branches_per_level, show_full)
+
+    console.print(Panel(tree, title="[bold]Hierarchy Tree[/bold]", border_style="primary", padding=(1, 2)))
+
+    if not show_full:
+        console.print()
+        console.print(
+            f"[info]💡 Tip:[/info] Use [bold]--full[/bold] flag to see complete hierarchy"
+        )
+
+    # Footer
+    console.print()
+    console.print(
+        Panel.fit(
+            f"[success]✓ Preview complete! [bold]{total_channels}[/bold] total channels across "
+            f"[bold]{len(systems)}[/bold] systems[/success]",
+            border_style="success"
+        )
+    )
+    console.print()
+
+
+def _add_hierarchy_level(parent_branch, data, database, hierarchy_levels, level_idx,
+                         max_branches, show_full):
+    """Recursively add hierarchy levels to the tree."""
+    if level_idx >= len(hierarchy_levels):
+        return
+
+    current_level = hierarchy_levels[level_idx]
+
+    # Navigate the hierarchical structure based on current level
+    if current_level == "system":
+        # Systems are direct children (non-underscore keys)
+        children = {k: v for k, v in data.items() if not k.startswith('_') and isinstance(v, dict)}
+    elif current_level == "family":
+        # Families are direct children (non-underscore keys)
+        children = {k: v for k, v in data.items() if not k.startswith('_') and isinstance(v, dict)}
+    elif current_level == "device":
+        # Devices are in the "devices" container - need to expand based on type
+        if 'devices' not in data:
+            return
+        device_config = data['devices']
+        device_type = device_config.get('_type')
+
+        if device_type == 'range':
+            pattern = device_config.get('_pattern', '{}')
+            start, end = device_config.get('_range', [1, 1])
+            # For preview, just show the range info, not all devices
+            if not show_full and (end - start + 1) > max_branches:
+                # Show just a few examples
+                for i in range(start, start + max_branches):
+                    device_name = pattern.format(i)
+                    child_channel_count = _count_channels_for_device(data, device_name)
+                    child_branch = parent_branch.add(
+                        f"[yellow]{device_name}[/yellow] [dim]({child_channel_count} channels)[/dim]"
+                    )
+                    _add_hierarchy_level(child_branch, data, database, hierarchy_levels, level_idx + 1, max_branches, show_full)
+                parent_branch.add(f"[dim]... {end - start + 1 - max_branches} more devices[/dim]")
+                return
+            else:
+                children = {}
+                for i in range(start, end + 1):
+                    device_name = pattern.format(i)
+                    children[device_name] = data  # Same data for all devices
+        elif device_type == 'list':
+            instances = device_config.get('_instances', [])
+            children = {inst: data for inst in instances}
+        else:
+            return
+    elif current_level == "field":
+        # Fields are in the "fields" container
+        if 'fields' not in data:
+            return
+        children = {k: v for k, v in data['fields'].items() if not k.startswith('_') and isinstance(v, dict)}
+    elif current_level == "subfield":
+        # Subfields are in the "subfields" container
+        if 'subfields' not in data:
+            return
+        children = {k: v for k, v in data['subfields'].items() if not k.startswith('_') and isinstance(v, dict)}
+    else:
+        return
+
+    # Add child branches
+    branch_count = 0
+    for child_name, child_data in children.items():
+        if max_branches and branch_count >= max_branches:
+            parent_branch.add(f"[dim]... {len(children) - max_branches} more {current_level}s[/dim]")
+            break
+
+        branch_count += 1
+
+        # Determine what to display based on level
+        if current_level == "subfield":
+            # Subfields are channels themselves - no count needed
+            child_branch = parent_branch.add(f"[success]{child_name}[/success]")
+        elif current_level == "field":
+            # Fields are just structural - no count needed, subfields below show the channels
+            child_branch = parent_branch.add(f"[accent]{child_name}[/accent]")
+        elif current_level == "family":
+            # For families, show number of devices
+            num_devices = _count_devices_in_family(child_data)
+            child_branch = parent_branch.add(
+                f"[accent]{child_name}[/accent] [dim]({num_devices} devices)[/dim]"
+            )
+        else:
+            # For system and device levels, show channel count
+            if current_level == "device":
+                child_channel_count = _count_channels_for_device(data, child_name)
+            else:
+                child_channel_count = _count_channels_in_branch(child_data)
+
+            child_branch = parent_branch.add(
+                f"[accent]{child_name}[/accent] [dim]({child_channel_count} channels)[/dim]"
+            )
+
+        # Recurse to next level (but not for subfields since they're the leaf)
+        if current_level != "subfield":
+            _add_hierarchy_level(child_branch, child_data, database, hierarchy_levels,
+                                level_idx + 1, max_branches, show_full)
+
+
+def _count_devices_in_family(family_data):
+    """Count number of devices in a family."""
+    if 'devices' not in family_data:
+        return 0
+
+    device_config = family_data['devices']
+    device_type = device_config.get('_type')
+
+    if device_type == 'range':
+        start, end = device_config.get('_range', [1, 1])
+        return end - start + 1
+    elif device_type == 'list':
+        return len(device_config.get('_instances', []))
+
+    return 0
+
+
+def _count_channels_for_device(family_data, device_name):
+    """Count channels for a specific device in a family."""
+    count = 0
+    if 'fields' in family_data:
+        for field_name, field_data in family_data['fields'].items():
+            if not field_name.startswith('_'):
+                if 'subfields' in field_data:
+                    count += len([k for k in field_data['subfields'].keys() if not k.startswith('_')])
+                else:
+                    count += 1  # Field itself is a channel
+    return count
+
+
+def _count_channels_in_branch(branch_data):
+    """Recursively count all channels in a branch (for family-level counting)."""
+    if not isinstance(branch_data, dict):
+        return 0
+
+    count = 0
+
+    # If this has devices, count channels for all devices
+    if 'devices' in branch_data:
+        device_config = branch_data['devices']
+        device_type = device_config.get('_type')
+
+        if device_type == 'range':
+            start, end = device_config.get('_range', [1, 1])
+            num_devices = end - start + 1
+            channels_per_device = _count_channels_for_device(branch_data, None)
+            count = num_devices * channels_per_device
+        elif device_type == 'list':
+            num_devices = len(device_config.get('_instances', []))
+            channels_per_device = _count_channels_for_device(branch_data, None)
+            count = num_devices * channels_per_device
+
+    # If this has fields directly (no devices), count them
+    elif 'fields' in branch_data:
+        for field_name, field_data in branch_data['fields'].items():
+            if not field_name.startswith('_'):
+                if isinstance(field_data, dict) and 'subfields' in field_data:
+                    count += len([k for k in field_data['subfields'].keys() if not k.startswith('_')])
+                else:
+                    count += 1
+
+    return count
+
+
+def preview_in_context(db_path: str, presentation_mode: str, show_full: bool = False):
+    """Preview in-context database with formatted channel list."""
+
+    # Header
+    console.print()
+    console.print(
+        Panel.fit(
+            "[bold primary]In-Context Database Preview[/bold primary]\n"
+            "[dim]Shows how the channel database will be presented to the LLM[/dim]",
+            border_style="primary",
+            padding=(1, 2)
+        )
+    )
+
+    # Configuration table
+    config_table = Table(show_header=False, box=box.SIMPLE, padding=(0, 2))
+    config_table.add_column("Property", style="label")
+    config_table.add_column("Value", style="value")
+
+    config_table.add_row("Database Path", db_path)
+    config_table.add_row("Presentation Mode", f"[success]{presentation_mode}[/success]")
+
+    # Load database
+    resolved_path = resolve_path(db_path)
+    config_table.add_row("Resolved Path", str(resolved_path))
+
+    console.print()
+    console.print(Panel(config_table, title="[bold]Configuration[/bold]", border_style="info"))
+
+    # Load database with spinner
+    with console.status("[bold info]Loading database...", spinner="dots"):
+        database = TemplateChannelDatabase(str(resolved_path), presentation_mode=presentation_mode)
+        all_channels = database.get_all_channels()
+        stats = database.get_statistics()
+
+    console.print(f"\n[success]✓ Successfully loaded [bold]{len(all_channels)}[/bold] channels[/success]\n")
+
+    # Statistics table
+    stats_table = Table(show_header=True, box=box.ROUNDED, padding=(0, 2))
+    stats_table.add_column("Metric", style="label", no_wrap=True)
+    stats_table.add_column("Count", justify="right", style="value")
+
+    stats_table.add_row("Total Channels", str(len(all_channels)))
+    if stats:
+        template_entries = stats.get('template_entries', 0)
+        standalone_entries = stats.get('standalone_entries', 0)
+        if template_entries > 0 or standalone_entries > 0:
+            stats_table.add_row("Template Entries", str(template_entries))
+            stats_table.add_row("Standalone Entries", str(standalone_entries))
+
+    console.print(Panel(stats_table, title="[bold]Database Statistics[/bold]", border_style="accent"))
+
+    # Generate LLM preview
+    console.print()
+    if show_full:
+        title = f"[bold]LLM Presentation[/bold] [dim](all {len(all_channels)} channels)[/dim]"
+    else:
+        title = f"[bold]LLM Presentation[/bold] [dim](first 20 channels)[/dim]"
+
+    # Show channels (all or first 20)
+    if show_full:
+        sample_channels = all_channels
+    else:
+        sample_channels = all_channels[:20]
+
+    formatted = database.format_chunk_for_prompt(sample_channels, include_addresses=False)
+
+    # Display the formatted output in a panel
+    console.print(Panel(
+        formatted,
+        title=title,
+        border_style="primary",
+        padding=(1, 2)
+    ))
+
+    if not show_full and len(all_channels) > 20:
+        console.print()
+        console.print(
+            f"[dim]... {len(all_channels) - 20} more channels not shown[/dim]\n"
+            f"[info]💡 Tip:[/info] Use [bold]--full[/bold] flag to see all channels"
+        )
+
+    # Footer
+    console.print()
+    console.print(
+        Panel.fit(
+            f"[success]✓ Preview complete! [bold]{len(all_channels)}[/bold] total channels in database[/success]",
+            border_style="success"
+        )
+    )
+    console.print()
+
+
+def preview_database(show_full: bool = False):
+    """Preview database based on configured pipeline type."""
+    config = get_config()
+
+    pipeline_type, db_config = detect_pipeline_config(config)
+
+    if not pipeline_type:
+        console.print()
+        console.print(Panel(
+            "[bold error]Error:[/bold error] No database configured\n\n"
+            "[warning]Check config.yml:[/warning] Configure either:\n"
+            "  • channel_finder.pipelines.hierarchical.database.path\n"
+            "  • channel_finder.pipelines.in_context.database.path",
+            border_style="error",
+            title="❌ Configuration Error"
+        ))
+        sys.exit(1)
+
+    db_path = db_config.get('path')
+
+    if pipeline_type == 'hierarchical':
+        preview_hierarchical(db_path, show_full)
+    else:  # in_context
+        presentation_mode = db_config.get('presentation_mode', 'template')
+        preview_in_context(db_path, presentation_mode, show_full)
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+        description='Preview channel database (auto-detects hierarchical vs in-context)',
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        '--full',
+        action='store_true',
+        help='Show complete hierarchy/all channels instead of preview'
+    )
+
+    args = parser.parse_args()
+    preview_database(show_full=args.full)

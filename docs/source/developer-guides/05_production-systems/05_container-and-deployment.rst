@@ -9,7 +9,7 @@ Container Deployment
    :icon: book
 
    **Key Concepts:**
-   
+
    - Using ``osprey deploy`` CLI for service deployment and orchestration
    - Configuring services in your project's ``config.yml``
    - Managing Jinja2 template rendering with ``docker-compose.yml.j2`` files
@@ -17,7 +17,7 @@ Container Deployment
    - Implementing development vs production deployment patterns
 
    **Prerequisites:** Understanding of Docker/container concepts and :doc:`../../api_reference/01_core_framework/04_configuration_system`
-   
+
    **Time Investment:** 30-45 minutes for complete understanding
 
 Overview
@@ -42,14 +42,14 @@ The container management system uses a simple, flat directory structure. All ser
 
 *Framework Infrastructure Services:*
    Core services used across applications:
-   
+
    - ``jupyter``: Python execution environment with EPICS support
-   - ``open-webui``: Web interface for agent interaction  
+   - ``open-webui``: Web interface for agent interaction
    - ``pipelines``: Processing pipeline infrastructure
 
 *Application-Specific Services:*
    Custom services for your particular application. Examples from the :doc:`../../example-applications/als-assistant`:
-   
+
    - ``mongo``: MongoDB database for ALS operations data
    - ``pv_finder``: EPICS Process Variable discovery MCP server
    - ``langfuse``: LLM observability and monitoring
@@ -70,7 +70,7 @@ Here's the standard pattern used by all framework projects:
 .. code-block:: yaml
 
    # config.yml - Your project configuration
-   
+
    # Define all services in a flat structure
    services:
      # Jupyter - Python execution environment
@@ -264,7 +264,7 @@ After deploying in development mode, verify the framework source was copied:
 
    # Check for osprey override directory
    ls build/services/jupyter/osprey_override/
-   
+
    # Check environment variable in container
    podman exec jupyter-read env | grep DEV_MODE
 
@@ -316,7 +316,7 @@ Templates are located at ``{service_path}/docker-compose.yml.j2``. Here's a comp
 **Template Features:**
 
 - **Configuration Access**: Full configuration available as Jinja2 variables
-  
+
   - Access services: ``{{services.service_name.option}}``
   - Access file paths: ``{{file_paths.agent_data_dir}}``
   - Access system config: ``{{system.timezone}}``
@@ -338,18 +338,18 @@ Common template patterns for accessing configuration:
    # Access service configuration
    ports:
      - "{{services.my_service.port_host}}:{{services.my_service.port_container}}"
-   
+
    # Access nested service config (like Jupyter containers)
    container_name: {{services.jupyter.containers.read.name}}
-   
+
    # Access file paths
    volumes:
      - {{project_root}}/{{file_paths.agent_data_dir}}:/data
-   
+
    # Access system configuration
    environment:
      - TZ={{system.timezone}}
-   
+
    # Access custom configuration
    environment:
      - DATABASE_URL={{database.connection_string}}
@@ -399,7 +399,7 @@ The ``status`` command displays detailed information about all deployed services
 .. code-block:: text
 
    Service Deployment Status
-   
+
    ┏━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┓
    ┃ Service       ┃ Project     ┃ Status         ┃ Ports          ┃ Image          ┃
    ┡━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━┩
@@ -493,7 +493,7 @@ Deployment Workflow Details
 When you run ``osprey deploy up``, the container manager follows this workflow:
 
 1. **Configuration Loading**: Load and merge configuration files
-2. **Service Discovery**: Read ``deployed_services`` list to identify active services  
+2. **Service Discovery**: Read ``deployed_services`` list to identify active services
 3. **Build Directory Creation**: Create clean build directories for each service
 4. **Template Processing**: Render Jinja2 templates with complete configuration context
 5. **File Copying**: Copy service files, source code, and additional directories
@@ -639,11 +639,11 @@ Copy extra directories into service build environments:
        additional_dirs:
          # Simple directory copy
          - docs
-         
+
          # Custom source -> destination mapping
          - src: "_agent_data"
            dst: "agent_data"
-         
+
          # Copy framework source (useful during development)
          - src: ../osprey/src/osprey
            dst: osprey_src/src/osprey
@@ -694,18 +694,18 @@ Each service gets a ``config.yml`` with:
 Working Examples
 ================
 
-Complete Wind Turbine Example
-------------------------------
+Complete Control Assistant Example
+----------------------------------
 
-This example shows a complete working configuration from the Wind Turbine tutorial:
+This example shows a complete working configuration from the Control Assistant tutorial:
 
 .. code-block:: yaml
 
    # config.yml
-   project_name: "wind-turbine"
+   project_name: "my-control-assistant"
    build_dir: ./build
-   project_root: /home/user/wind-turbine
-   registry_path: ./src/wind/registry.py
+   project_root: /home/user/my-control-assistant
+   registry_path: ./src/my_control_assistant/registry.py
 
    services:
      jupyter:
@@ -858,7 +858,7 @@ Troubleshooting
 
          # Review rendered Docker Compose files
          cat build/services/jupyter/docker-compose.yml
-         
+
          # Check flattened configuration
          cat build/services/pipelines/config.yml
 
@@ -986,6 +986,6 @@ Troubleshooting
 
    :doc:`../../api_reference/01_core_framework/04_configuration_system`
        Advanced configuration patterns and variable expansion
-   
+
    :doc:`../../api_reference/03_production_systems/05_container-management`
        Container management API reference

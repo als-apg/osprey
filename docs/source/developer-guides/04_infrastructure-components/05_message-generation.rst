@@ -31,6 +31,8 @@ The framework provides two message generation capabilities:
 
 Both capabilities adapt their behavior based on available context and use the framework's prompt builder system for consistent responses.
 
+.. _respond-capability:
+
 RespondCapability
 -----------------
 
@@ -118,6 +120,8 @@ System aggregates information using structured context:
            capabilities_overview = None
 
        return ResponseContext(...)
+
+.. _clarify-capability:
 
 ClarifyCapability
 -----------------

@@ -607,13 +607,13 @@ def select_template(templates: list[str]) -> str | None:
     descriptions = {
         'minimal': 'Empty project structure with TODO placeholders',
         'hello_world_weather': 'Single capability weather example (tutorial)',
-        'wind_turbine': 'Multi-capability with RAG and custom prompts (advanced example)'
+        'control_assistant': 'Control system integration with channel finder (production-grade)'
     }
 
     choices = []
     for template in templates:
         desc = descriptions.get(template, 'No description available')
-        display = f"{template:20} - {desc}"
+        display = f"{template:22} - {desc}"
         choices.append(Choice(display, value=template))
 
     return questionary.select(
@@ -636,9 +636,40 @@ def get_default_name_for_template(template: str) -> str:
     defaults = {
         'minimal': 'my-agent',
         'hello_world_weather': 'weather-agent',
-        'wind_turbine': 'turbine-agent'
+        'control_assistant': 'my-control-assistant'
     }
     return defaults.get(template, 'my-project')
+
+
+def select_channel_finder_mode() -> str | None:
+    """Interactive channel finder mode selection for control_assistant template.
+
+    Returns:
+        Selected mode ('in_context', 'hierarchical', 'both'), or None if cancelled
+    """
+    console.print("[dim]Select the channel finding approach for your control system:[/dim]\n")
+
+    choices = [
+        Choice(
+            "in_context       - Semantic search (best for few hundred channels, faster)",
+            value='in_context'
+        ),
+        Choice(
+            "hierarchical     - Structured navigation (best for >1,000 channels, scalable)",
+            value='hierarchical'
+        ),
+        Choice(
+            "both             - Include both pipelines (maximum flexibility, comparison)",
+            value='both'
+        ),
+    ]
+
+    return questionary.select(
+        "Channel finder mode:",
+        choices=choices,
+        style=custom_style,
+        instruction="(Use arrow keys to navigate)"
+    ).ask()
 
 
 # ============================================================================
@@ -971,6 +1002,14 @@ def run_interactive_init() -> str:
     if not project_name:
         return 'menu'
 
+    # 2b. Channel finder mode (only for control_assistant template)
+    channel_finder_mode = None
+    if template == 'control_assistant':
+        console.print("\n[bold]Step 3: Channel Finder Configuration[/bold]\n")
+        channel_finder_mode = select_channel_finder_mode()
+        if channel_finder_mode is None:
+            return 'menu'
+
     # Check if project directory already exists (before other configuration steps)
     project_path = Path.cwd() / project_name
     if project_path.exists():
@@ -1084,8 +1123,9 @@ def run_interactive_init() -> str:
                     input("\nPress ENTER to continue...")
                     return 'menu'
 
-    # 3. Registry style
-    console.print("\n[bold]Step 3: Registry Style[/bold]\n")
+    # 3. Registry style (step number adjusts if channel finder mode was shown)
+    step_num = 4 if template == 'control_assistant' else 3
+    console.print(f"\n[bold]Step {step_num}: Registry Style[/bold]\n")
 
     registry_style = questionary.select(
         "Select registry style:",
@@ -1100,14 +1140,16 @@ def run_interactive_init() -> str:
     if registry_style is None:
         return 'menu'
 
-    # 4. Provider selection
-    console.print("\n[bold]Step 4: AI Provider[/bold]\n")
+    # 4. Provider selection (step number adjusts)
+    step_num = 5 if template == 'control_assistant' else 4
+    console.print(f"\n[bold]Step {step_num}: AI Provider[/bold]\n")
     provider = select_provider(providers)
     if provider is None:
         return 'menu'
 
-    # 5. Model selection
-    console.print("\n[bold]Step 5: Model Selection[/bold]\n")
+    # 5. Model selection (step number adjusts)
+    step_num = 6 if template == 'control_assistant' else 5
+    console.print(f"\n[bold]Step {step_num}: Model Selection[/bold]\n")
     model = select_model(provider, providers)
     if model is None:
         return 'menu'
@@ -1116,6 +1158,8 @@ def run_interactive_init() -> str:
     console.print(f"\n{Messages.header('Configuration Summary:')}")
     console.print(f"  Project:  [value]{project_name}[/value]")
     console.print(f"  Template: [value]{template}[/value]")
+    if channel_finder_mode:
+        console.print(f"  Pipeline: [value]{channel_finder_mode}[/value]")
     console.print(f"  Registry: [value]{registry_style}[/value]")
     console.print(f"  Provider: [value]{provider}[/value]")
     console.print(f"  Model:    [value]{model}[/value]\n")
@@ -1137,10 +1181,13 @@ def run_interactive_init() -> str:
 
     try:
         # Note: force=True because we already handled directory deletion if user chose override
+        # Build context dict with optional channel_finder_mode
         context = {
             'default_provider': provider,
             'default_model': model
         }
+        if channel_finder_mode:
+            context['channel_finder_mode'] = channel_finder_mode
 
         project_path = manager.create_project(
             project_name=project_name,
@@ -1382,10 +1429,15 @@ def handle_chat_action(project_path: Path | None = None):
 
     except KeyboardInterrupt:
         console.print(f"\n\n{Messages.warning('Chat session ended.')}")
+        # No pause needed - user intentionally exited with Ctrl+C
     except Exception as e:
-        console.print(f"\n{Messages.error(str(e))}")
+        console.print(f"\n{Messages.error(f'Chat error: {e}')}")
+        if os.environ.get('DEBUG'):
+            import traceback
+            traceback.print_exc()
+        input("\nPress ENTER to continue...")
 
-    # Automatically return to menu (no need for user to press ENTER)
+    # Return to menu (with pause only for actual errors)
 
 
 def handle_deploy_action(project_path: Path | None = None):
@@ -1504,8 +1556,7 @@ def handle_deploy_action(project_path: Path | None = None):
             console.print("\n[bold]Rebuilding services (clean + build + start)...[/bold]")
         elif action == 'clean':
             console.print("\n[bold red]⚠️  Cleaning deployment...[/bold red]")
-        elif action == 'status':
-            console.print("\n[bold]Service Status:[/bold]")
+        # Note: 'status' action doesn't print a header here because show_status() prints its own
 
         try:
             # Run subprocess with timeout (5 minutes for deploy operations)

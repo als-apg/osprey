@@ -251,6 +251,7 @@ class RegistryManager:
             'execution_policy_analyzers': {},
             'framework_prompt_providers': {},
             'providers': {},
+            'connectors': {},
         }
 
         # Provider-specific storage for metadata introspection
@@ -312,6 +313,7 @@ class RegistryManager:
                     services=framework_config.services.copy(),
                     framework_prompt_providers=framework_config.framework_prompt_providers.copy(),
                     providers=framework_config.providers.copy(),
+                    connectors=framework_config.connectors.copy(),
                     initialization_order=framework_config.initialization_order.copy()
                 )
 
@@ -759,6 +761,28 @@ class RegistryManager:
         if providers_added:
             logger.info(f"Application {app_name} added {len(providers_added)} new provider(s)")
 
+        # Merge connectors with override support
+        framework_connector_names = {conn.name for conn in merged.connectors}
+        connector_overrides = []
+        connectors_added = []
+
+        app_connectors = getattr(app_config, 'connectors', [])
+        for app_connector in app_connectors:
+            if app_connector.name in framework_connector_names:
+                # Remove framework connector and add application override
+                merged.connectors = [conn for conn in merged.connectors if conn.name != app_connector.name]
+                connector_overrides.append(app_connector.name)
+                merged.connectors.append(app_connector)
+            else:
+                # New connector, not in framework
+                connectors_added.append(app_connector.name)
+                merged.connectors.append(app_connector)
+
+        if connector_overrides:
+            logger.info(f"Application {app_name} overrode framework connectors: {connector_overrides}")
+        if connectors_added:
+            logger.info(f"Application {app_name} added {len(connectors_added)} new connector(s): {connectors_added}")
+
     def _validate_standalone_registry(self, config: RegistryConfig, app_name: str) -> None:
         """Validate that standalone registry has required framework components.
 
@@ -916,6 +940,8 @@ class RegistryManager:
             self._initialize_domain_analyzers()
         elif component_type == "execution_policy_analyzers":
             self._initialize_execution_policy_analyzers()
+        elif component_type == "connectors":
+            self._initialize_connectors()
 
         else:
             raise ValueError(f"Unknown component type: {component_type}")
@@ -1035,6 +1061,60 @@ class RegistryManager:
                 raise RegistryError(f"Provider registration failed for {registration.class_name}") from e
 
         logger.info(f"Provider initialization complete: {len(self._registries['providers'])} providers loaded")
+
+    def _initialize_connectors(self) -> None:
+        """Initialize control system and archiver connectors from registry configuration.
+
+        Loads connector classes and registers them with ConnectorFactory for runtime use.
+        This integrates the connector system with the registry, providing unified management
+        of all framework components while maintaining the factory pattern for runtime connector creation.
+
+        :raises RegistryError: If connector class cannot be imported or registered
+        """
+        logger.info(f"Initializing {len(self.config.connectors)} connector(s)...")
+
+        # Import ConnectorFactory for registration
+        try:
+            from osprey.connectors.factory import ConnectorFactory
+        except ImportError as e:
+            logger.error(f"Failed to import ConnectorFactory: {e}")
+            raise RegistryError("ConnectorFactory not available - connector system may not be installed") from e
+
+        for registration in self.config.connectors:
+            try:
+                # Lazy load connector class
+                module = importlib.import_module(registration.module_path)
+                connector_class = getattr(module, registration.class_name)
+
+                # Register with ConnectorFactory based on type
+                if registration.connector_type == "control_system":
+                    ConnectorFactory.register_control_system(registration.name, connector_class)
+                elif registration.connector_type == "archiver":
+                    ConnectorFactory.register_archiver(registration.name, connector_class)
+                else:
+                    raise RegistryError(
+                        f"Unknown connector type: {registration.connector_type}. "
+                        f"Must be 'control_system' or 'archiver'"
+                    )
+
+                # Store in registry for introspection
+                self._registries['connectors'][registration.name] = connector_class
+
+                logger.info(f"  ✓ Registered {registration.connector_type} connector: {registration.name}")
+                logger.debug(f"    - Description: {registration.description}")
+                logger.debug(f"    - Module: {registration.module_path}")
+                logger.debug(f"    - Class: {registration.class_name}")
+
+            except ImportError as e:
+                # Some connectors may require optional dependencies (e.g., pyepics)
+                # Log as warning but don't fail initialization
+                logger.warning(f"  ⊘ Skipping connector '{registration.name}' (import failed): {e}")
+                logger.debug(f"    Connector {registration.name} may require optional dependencies")
+            except Exception as e:
+                logger.error(f"  ✗ Failed to register connector '{registration.name}': {e}")
+                raise RegistryError(f"Connector registration failed for {registration.name}") from e
+
+        logger.info(f"Connector initialization complete: {len(self._registries['connectors'])} connectors loaded")
 
     def _initialize_execution_policy_analyzers(self) -> None:
         """Initialize execution policy analyzer registry with instantiation.
@@ -1223,30 +1303,23 @@ class RegistryManager:
 
                 # Register the provider
                 from osprey.prompts.loader import _prompt_loader
-                _prompt_loader._providers[reg.application_name] = provider
+                provider_key = reg.module_path
+                _prompt_loader._providers[provider_key] = provider
 
-                self._registries['framework_prompt_providers'][reg.application_name] = reg
-                logger.debug(f"Registered explicit provider for {reg.application_name} with {len(reg.prompt_builders)} builders")
+                self._registries['framework_prompt_providers'][provider_key] = reg
+                logger.debug(f"Registered prompt provider from {reg.module_path} with {len(reg.prompt_builders)} custom builders")
 
             except Exception as e:
-                logger.warning(f"Failed to initialize framework prompt provider {reg.application_name}: {e}")
+                logger.warning(f"Failed to initialize prompt provider from {reg.module_path}: {e}")
 
-        # Set default provider - prefer application-specific providers over framework defaults
+        # Set default provider - use the last registered application provider
         if self.config.framework_prompt_providers:
-            # Find the first non-framework provider for production-ready default selection
-            default_app = None
-            for provider in self.config.framework_prompt_providers:
-                if provider.application_name != "framework_defaults":
-                    default_app = provider.application_name
-                    break
-
-            # Fallback to framework defaults if no application providers exist
-            if default_app is None:
-                default_app = self.config.framework_prompt_providers[0].application_name
+            # Use last provider as default (typically the application's provider, not framework defaults)
+            default_provider_key = self.config.framework_prompt_providers[-1].module_path
 
             from osprey.prompts.loader import set_default_framework_prompt_provider
-            set_default_framework_prompt_provider(default_app)
-            logger.info(f"Set default framework prompt provider to: {default_app}")
+            set_default_framework_prompt_provider(default_provider_key)
+            logger.info(f"Set default prompt provider: {default_provider_key}")
 
         logger.info(f"Registered {len(self._registries['framework_prompt_providers'])} framework prompt providers")
 
@@ -1297,18 +1370,18 @@ class RegistryManager:
         # Log summary
         total_builders = len(reg.prompt_builders)
         if successful_overrides:
-            logger.info(f"Successfully loaded {len(successful_overrides)}/{total_builders} custom prompt builders for {reg.application_name}")
+            logger.info(f"Successfully loaded {len(successful_overrides)}/{total_builders} custom prompt builders from {reg.module_path}")
         if failed_overrides:
-            logger.warning(f"Failed to load {len(failed_overrides)} prompt builders for {reg.application_name} - using framework defaults")
+            logger.warning(f"Failed to load {len(failed_overrides)} prompt builders from {reg.module_path} - using framework defaults")
             for prompt_type, class_name, error in failed_overrides:
                 logger.debug(f"  -> {prompt_type}({class_name}): {error}")
 
         # Validate the final provider implements the complete interface
-        self._validate_prompt_provider(provider, reg.application_name)
+        self._validate_prompt_provider(provider, reg.module_path)
 
         return provider
 
-    def _validate_prompt_provider(self, provider, application_name):
+    def _validate_prompt_provider(self, provider, module_path):
         """Validate prompt provider implements required interface methods.
 
         Ensures the provider implements all required methods for framework operation.
@@ -1317,8 +1390,8 @@ class RegistryManager:
 
         :param provider: Prompt provider instance to validate
         :type provider: framework.prompts.defaults.DefaultPromptProvider
-        :param application_name: Application name for error reporting
-        :type application_name: str
+        :param module_path: Module path for error reporting
+        :type module_path: str
         """
         required_methods = [
             'get_orchestrator_prompt_builder',
@@ -1337,9 +1410,9 @@ class RegistryManager:
                 missing_methods.append(method_name)
 
         if missing_methods:
-            logger.error(f"Prompt provider for {application_name} is missing required methods: {missing_methods}")
+            logger.error(f"Prompt provider from {module_path} is missing required methods: {missing_methods}")
         else:
-            logger.debug(f"Prompt provider for {application_name} passed interface validation")
+            logger.debug(f"Prompt provider from {module_path} passed interface validation")
 
 
     # ==============================================================================
@@ -1374,11 +1447,13 @@ class RegistryManager:
         export_data = {
             "capabilities": self._export_capabilities(),
             "context_types": self._export_context_types(),
+            "connectors": self._export_connectors(),
             "metadata": {
                 "exported_at": datetime.now().isoformat(),
                 "registry_version": "1.0",
                 "total_capabilities": len(self.config.capabilities),
-                "total_context_types": len(self.config.context_classes)
+                "total_context_types": len(self.config.context_classes),
+                "total_connectors": len(self.config.connectors)
             }
         }
 
@@ -1435,6 +1510,30 @@ class RegistryManager:
             context_types.append(context_data)
 
         return context_types
+
+    def _export_connectors(self) -> list[dict[str, Any]]:
+        """Export connector metadata for external consumption.
+
+        Transforms internal connector registrations into standardized format
+        suitable for documentation tools and system introspection. Exports
+        all registered connectors (control system and archiver types).
+
+        :return: List of connector metadata dictionaries
+        :rtype: list[dict[str, Any]]
+        """
+        connectors = []
+
+        for conn_reg in self.config.connectors:
+            connector_data = {
+                "name": conn_reg.name,
+                "connector_type": conn_reg.connector_type,
+                "description": conn_reg.description,
+                "module_path": conn_reg.module_path,
+                "class_name": conn_reg.class_name
+            }
+            connectors.append(connector_data)
+
+        return connectors
 
     def _save_export_data(self, export_data: dict[str, Any], output_dir: str) -> None:
         """Save registry export data to JSON files.
@@ -1654,6 +1753,59 @@ class RegistryManager:
         :rtype: list[str]
         """
         return list(self._registries['providers'].keys())
+
+    # ==============================================================================
+    # CONNECTOR ACCESS
+    # ==============================================================================
+
+    def get_connector(self, name: str) -> type[Any] | None:
+        """Retrieve registered connector class by name.
+
+        Connectors are registered with the ConnectorFactory during registry initialization
+        and can also be accessed through the registry for introspection purposes.
+
+        :param name: Unique connector name from registration (e.g., 'epics', 'mock', 'tango')
+        :type name: str
+        :return: Connector class if registered, None otherwise
+        :rtype: Type[ControlSystemConnector] or Type[ArchiverConnector] or None
+
+        Examples:
+            >>> registry = get_registry()
+            >>> epics_class = registry.get_connector('epics')
+            >>> mock_class = registry.get_connector('mock')
+        """
+        if not self._initialized:
+            raise RegistryError("Registry not initialized. Call initialize_registry() first.")
+
+        return self._registries['connectors'].get(name)
+
+    def list_connectors(self) -> list[str]:
+        """Get list of all registered connector names.
+
+        :return: List of connector names (includes both control system and archiver connectors)
+        :rtype: list[str]
+
+        Examples:
+            >>> registry = get_registry()
+            >>> connectors = registry.list_connectors()
+            >>> print(connectors)  # ['mock', 'epics', 'mock_archiver', 'epics_archiver', ...]
+        """
+        return list(self._registries['connectors'].keys())
+
+    @property
+    def connectors(self) -> dict[str, type[Any]]:
+        """Get all registered connectors as a dictionary.
+
+        :return: Dictionary mapping connector names to connector classes
+        :rtype: dict[str, Type]
+
+        Examples:
+            >>> registry = get_registry()
+            >>> all_connectors = registry.connectors
+            >>> for name, connector_class in all_connectors.items():
+            ...     print(f"{name}: {connector_class}")
+        """
+        return self._registries['connectors'].copy()
 
     def get_service(self, name: str) -> Any | None:
         """Retrieve registered service graph by name.
@@ -2049,21 +2201,24 @@ def _create_registry_from_config(config_path: str | None = None) -> RegistryMana
 
     Supports multiple configuration formats for registry path specification:
 
-    1. Top-level format (simple, for single-app projects):
+    1. Environment variable (highest priority, for container overrides):
+       REGISTRY_PATH=/jupyter/repo_src/my_app/registry.py
+
+    2. Top-level format (simple, for single-app projects):
        registry_path: ./src/my_app/registry.py
 
-    2. Nested format (standard, recommended):
+    3. Nested format (standard, recommended):
        application:
          registry_path: ./src/my_app/registry.py
 
-    3. Multiple applications format (advanced):
+    4. Multiple applications format (advanced):
        applications:
          app1:
            registry_path: ./src/app1/registry.py
          app2:
            registry_path: ./src/app2/registry.py
 
-    4. Legacy list format (deprecated):
+    5. Legacy list format (deprecated):
        applications:
          - app1
          - app2
@@ -2073,11 +2228,20 @@ def _create_registry_from_config(config_path: str | None = None) -> RegistryMana
     :rtype: RegistryManager
     :raises ConfigurationError: If configuration format is invalid
     """
+    import os
     from pathlib import Path
 
     logger.debug("Creating registry from config...")
     try:
         registry_path = None
+
+        # Priority 0: Check environment variable first (for container overrides)
+        # This allows containers to specify absolute paths without modifying config.yml
+        env_registry_path = os.environ.get('REGISTRY_PATH')
+        if env_registry_path:
+            registry_path = env_registry_path
+            logger.info(f"Using registry path from REGISTRY_PATH environment variable: {registry_path}")
+            return RegistryManager(registry_path=registry_path)
 
         # When using explicit config_path, ensure it becomes the default so components
         # being instantiated later can access it without passing config_path everywhere

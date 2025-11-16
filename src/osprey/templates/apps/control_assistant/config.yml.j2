@@ -1,0 +1,521 @@
+# ============================================================
+# {{ project_name }} Configuration
+# ============================================================
+# Accelerator Control System Assistant
+# Based on ALS Assistant deployment (arXiv:2509.17255)
+# ============================================================
+
+# Project identity
+project_name: "{{ project_name }}"
+
+build_dir: ./build
+
+# Root directory (absolute path)
+project_root: {{ project_root }}
+
+# Application Registry
+registry_path: ./src/{{ package_name }}/registry.py
+
+# ============================================================
+# MODEL CONFIGURATION
+# ============================================================
+# The framework uses 8 different AI models for different roles.
+# Configure each one explicitly for optimal performance and cost.
+
+models:
+  orchestrator:
+    provider: {{ default_provider }}
+    model_id: {{ default_model }}
+    max_tokens: 4096
+  response:
+    provider: {{ default_provider }}
+    model_id: {{ default_model }}
+  classifier:
+    provider: {{ default_provider }}
+    model_id: {{ default_model }}
+  approval:
+    provider: {{ default_provider }}
+    model_id: {{ default_model }}
+  task_extraction:
+    provider: {{ default_provider }}
+    model_id: {{ default_model }}
+  memory:
+    provider: {{ default_provider }}
+    model_id: {{ default_model }}
+  python_code_generator:
+    provider: {{ default_provider }}
+    model_id: {{ default_model }}
+  time_parsing:
+    provider: {{ default_provider }}
+    model_id: {{ default_model }}
+
+# ============================================================
+# API CONFIGURATION
+# ============================================================
+# API keys and endpoints for LLM providers
+
+api:
+  providers:
+    cborg:
+      api_key: ${CBORG_API_KEY}
+      base_url: https://api.cborg.lbl.gov/v1
+    openai:
+      api_key: ${OPENAI_API_KEY}
+      base_url: https://api.openai.com/v1
+    anthropic:
+      api_key: ${ANTHROPIC_API_KEY}
+      base_url: https://api.anthropic.com
+    google:
+      api_key: ${GOOGLE_API_KEY}
+      base_url: https://generativelanguage.googleapis.com/v1beta
+    ollama:
+      api_key: ollama
+      base_url: http://localhost:11434
+      host: localhost
+      port: 11434
+
+# ============================================================
+# ENVIRONMENT VARIABLES
+# ============================================================
+# Set these in your .env file:
+#
+#   CBORG_API_KEY=your-cborg-key
+#   OPENAI_API_KEY=sk-...
+#   ANTHROPIC_API_KEY=sk-ant-...
+#   GOOGLE_API_KEY=...
+#   TZ=America/Los_Angeles
+#
+# Optional (for advanced use cases):
+#   PROJECT_ROOT=/path/to/override  # Override project_root from config
+#   LOCAL_PYTHON_VENV=/path/to/venv/bin/python  # Override Python environment
+
+# ============================================================
+# CONTAINER RUNTIME
+# ============================================================
+# Container runtime selection for deployment
+# Options: auto (default), docker, podman
+# - auto: Tries Docker first, then Podman
+# - docker: Use Docker Desktop (recommended for macOS/Windows)
+# - podman: Use Podman (recommended for Linux/security-focused)
+# Can also override via CONTAINER_RUNTIME environment variable
+
+container_runtime: auto
+
+# ============================================================
+# DEPLOYED SERVICES
+# ============================================================
+# Services to deploy when running framework deploy up
+
+deployed_services:
+  - jupyter
+  - open_webui
+  - pipelines
+
+# ============================================================
+# SERVICE CONFIGURATION
+# ============================================================
+# Framework services for execution and user interface
+
+services:
+  # Jupyter - Python execution environment with EPICS support
+  jupyter:
+    path: ./services/jupyter
+    containers:
+      read:
+        name: jupyter-read
+        hostname: jupyter-read
+        port_host: 8088
+        port_container: 8088
+        execution_modes: ["read_only"]
+      write:
+        name: jupyter-write
+        hostname: jupyter-write
+        port_host: 8089
+        port_container: 8088
+        execution_modes: ["write_access"]
+    copy_src: true  # Copies user application from src/
+    render_kernel_templates: true
+    # additional_dirs: []  # Add custom directories to copy if needed
+
+  # Open WebUI - Primary user interface frontend
+  open_webui:
+    path: ./services/open-webui
+    hostname: localhost
+    port_host: 8080
+    port_container: 8080
+
+  # Pipelines - OpenWebUI pipeline interface server
+  pipelines:
+    path: ./services/pipelines
+    port_host: 9099
+    port_container: 9099
+    copy_src: true  # Copies user application from src/
+    # additional_dirs: []  # Add custom directories to copy if needed
+
+# ============================================================
+# SAFETY CONTROLS
+# ============================================================
+
+# Approval workflow for sensitive operations
+approval:
+  global_mode: "selective"   # Options: disabled | selective | all_capabilities
+  capabilities:
+    python_execution:
+      enabled: true
+      mode: "epics_writes"   # Options: disabled | epics_writes | all_code
+    memory:
+      enabled: true
+
+# Execution limits and safety controls
+execution_control:
+  # EPICS writes (hardware control) - Master safety switch
+  epics:
+    writes_enabled: false    # Set true only for production hardware control
+
+  # Agent control - Runtime behavior configuration
+  agent_control:
+    task_extraction_bypass_enabled: false    # Skip LLM task extraction
+    capability_selection_bypass_enabled: false  # Skip LLM capability selection
+
+  # Execution safety limits and control flow
+  limits:
+    max_reclassifications: 1          # Maximum times a task can be reclassified
+    max_planning_attempts: 2          # Maximum number of planning attempts
+    max_step_retries: 3               # Maximum retries per step before failing
+    max_execution_time_seconds: 3000  # Maximum execution time (50 minutes)
+    graph_recursion_limit: 100        # LangGraph recursion limit
+    max_concurrent_classifications: 5 # Maximum concurrent LLM classification requests
+
+# ============================================================
+# CONTROL SYSTEM & ARCHIVER CONFIGURATION
+# Issue #18 - Control System Abstraction
+# ============================================================
+# Unified configuration for control systems and archivers.
+# Supports mock mode (development) and production mode (EPICS, etc.)
+#
+# Development Mode: Works instantly with any channel names (no hardware required)
+# Production Mode: Connects to real control system and archiver
+# Switch modes by changing 'type' field
+
+control_system:
+  # Control system type - determines both pattern detection and runtime connector
+  # Options:
+  #   - mock: Development mode (accepts any channel names, no hardware)
+  #   - epics: Production EPICS control system
+  type: mock  # <-- Change to 'epics' for production
+
+  # Pattern Detection (Layer 1)
+  # Used by: Code analyzer, approval system
+  # Purpose: Detect control system operations in generated code
+  patterns:
+    mock:
+      write:
+        - '\.caput\('
+        - '\.write_pv\('
+      read:
+        - '\.caget\('
+        - '\.read_pv\('
+
+    epics:
+      write:
+        - 'epics\.caput\('
+        - 'epics\.PV\([^)]*\)\.put\('
+        - '\.put\('
+      read:
+        - 'epics\.caget\('
+        - 'epics\.PV\([^)]*\)\.get\('
+        - '\.get\('
+
+  # Runtime Connectors (Layer 2)
+  # Used by: Capabilities (channel_value_retrieval, archiver_retrieval)
+  # Purpose: Actual I/O operations to control systems
+  connector:
+    timeout: 5.0  # Default timeout in seconds
+
+    # Mock connector uses sensible defaults (no configuration needed)
+    # Advanced users can configure: response_delay_ms, noise_level, enable_writes
+
+    # EPICS connector (production mode)
+    epics:
+      timeout: 5.0
+      gateways:
+        read_only:
+          address: cagw-alsdmz.als.lbl.gov
+          port: 5064
+          # use_name_server: Set to true for SSH tunnels (uses EPICS_CA_NAME_SERVERS)
+          #                 Set to false for direct gateway (uses EPICS_CA_ADDR_LIST)
+          #                 Defaults to false. Can be overridden via environment variable.
+          use_name_server: false
+        write_access:
+          address: cagw-alsdmz.als.lbl.gov
+          port: 5084
+          use_name_server: false
+
+# Archiver Configuration
+archiver:
+  # Archiver type determines which connector to use
+  # Options:
+  #   - mock_archiver: Development mode (generates synthetic data)
+  #   - epics_archiver: EPICS Archiver Appliance
+  type: mock_archiver  # <-- Change to 'epics_archiver' for production
+
+  # Mock archiver uses sensible defaults (no configuration needed)
+  # Advanced users can configure: sample_rate_hz, noise_level
+
+  # EPICS Archiver Appliance (production mode)
+  epics_archiver:
+    url: https://archiver.als.lbl.gov:8443
+    timeout: 60              # Timeout for archiver requests in seconds
+
+# Migration from tutorial to production:
+# 1. Change control_system.type from 'mock' to 'epics'
+# 2. Change archiver.type from 'mock_archiver' to 'epics_archiver'
+# 3. Test with: osprey run
+# Your code doesn't need to change!
+
+# ============================================================
+# CHANNEL FINDER CONFIGURATION
+# ============================================================
+# Natural language channel finding service configuration
+# Pipeline mode: {{ channel_finder_mode }}
+
+channel_finder:
+  # Active pipeline mode
+  pipeline_mode: {{ default_pipeline }}  # "in_context" or "hierarchical"
+
+  # Pipeline-specific configurations
+  pipelines:
+{% if enable_in_context %}
+    # In-Context Pipeline (Semantic Search)
+    # Best for: few hundred channels (example from UCSB FEL)
+    in_context:
+      database:
+        type: template                # Database type: "template" (with device family expansion) or "legacy" (flat list)
+        path: src/{{ package_name }}/data/channel_databases/in_context.json
+        presentation_mode: template    # How to present device families to LLM:
+                                      # "explicit" - list all expanded channel names (BPM01XPosition, BPM02XPosition, ...)
+                                      # "template" - use pattern notation (BPM{01-10}{XPosition,YPosition})
+
+      processing:
+        chunk_dictionary: false       # Whether to chunk the database for large channel lists
+                                      # false - send entire database in one LLM call (faster, recommended for <200 channels)
+                                      # true - split database into chunks and search each independently
+        chunk_size: 50                # Number of channels per chunk when chunk_dictionary=true
+        max_correction_iterations: 2  # Maximum LLM correction attempts when invalid channels are found (0-3 recommended)
+
+      # Example prompts for in-context pipeline
+      prompts:
+        path: src/{{ package_name }}/services/channel_finder/prompts/in_context
+        # UCSB FEL example prompts for semantic matching
+
+      # Benchmark dataset for this pipeline
+      benchmark:
+        dataset_path: src/{{ package_name }}/data/benchmarks/datasets/in_context_main.json
+        # In-context pipeline benchmark using UCSB FEL channels (30 queries)
+{% endif %}
+{% if enable_hierarchical %}
+    # Hierarchical Pipeline (Structured Navigation)
+    # Best for: >1,000 channels with clean naming convention
+    hierarchical:
+      database:
+        type: hierarchical            # Always "hierarchical" for this pipeline mode
+        path: src/{{ package_name }}/data/channel_databases/hierarchical.json
+                                      # Database must follow nested structure: system → family → device → field → subfield
+
+      # Example prompts for hierarchical pipeline
+      prompts:
+        path: src/{{ package_name }}/services/channel_finder/prompts/hierarchical
+        # Example accelerator prompts with hierarchical_context.py for level-specific navigation
+
+      # Benchmark dataset for this pipeline
+      benchmark:
+        dataset_path: src/{{ package_name }}/data/benchmarks/datasets/hierarchical_benchmark.json
+        # Hierarchical pipeline benchmark with multi-level channel structure (47 queries)
+{% endif %}
+
+  # Benchmarking configuration
+  # The active dataset is automatically determined by the selected pipeline_mode
+  # Each pipeline defines its own benchmark dataset in channel_finder.pipelines.<mode>.benchmark
+  # You can override the dataset via CLI: python scripts/run_benchmarks.py --dataset custom_dataset
+  benchmark:
+    # Execution settings
+    execution:
+      runs_per_query: 1                 # Number of times to run each query
+      delay_between_runs: 0             # Delay in seconds between runs
+      continue_on_error: true           # Continue even if some queries fail
+      max_concurrent_queries: 5         # Maximum parallel queries
+      query_selection: all              # "all" or [0,1,2] or range notation
+
+    # Output settings
+    output:
+      results_dir: src/{{ package_name }}/data/benchmarks/results
+      save_incremental: true            # Save results after each query
+      include_detailed_metrics: true    # Include detailed timing/cost metrics
+
+    # Evaluation thresholds
+    evaluation:
+      exact_match_weight: 1.0
+      partial_match_weight: 0.5
+
+# ============================================================
+# EXECUTION INFRASTRUCTURE
+# ============================================================
+
+# Python execution configuration
+execution:
+  execution_method: "local"              # Options: local | container
+  python_env_path: {{ current_python_env }}  # Path to Python with dependencies
+
+  # EPICS infrastructure (DEPRECATED - use control_system section above)
+  # Maintained for backward compatibility during migration
+  epics:
+    timeout: 5.0
+    gateways:
+      read_only:
+        address: cagw-alsdmz.als.lbl.gov
+        port: 5064
+      write_access:
+        address: cagw-alsdmz.als.lbl.gov
+        port: 5084
+
+  # Python/Jupyter execution modes
+  modes:
+    read_only:
+      kernel_name: "python3-epics-readonly"
+      gateway: "read_only"
+      allows_writes: false
+      environment:
+        EPICS_CA_AUTO_ADDR_LIST: "NO"
+        EPICS_EXECUTION_MODE: "read_only"
+    write_access:
+      kernel_name: "python3-epics-write"
+      gateway: "write_access"
+      allows_writes: true
+      requires_approval: true
+      environment:
+        EPICS_CA_AUTO_ADDR_LIST: "NO"
+        EPICS_EXECUTION_MODE: "write_access"
+
+# Python executor settings
+python_executor:
+  max_generation_retries: 3
+  max_execution_retries: 3
+  execution_timeout_seconds: 600
+
+# ============================================================
+# APPLICATION METADATA
+# ============================================================
+
+pipeline:
+  name: "{{ project_name }}"
+  startup_hooks: []
+
+# ============================================================
+# CLI CONFIGURATION
+# ============================================================
+# Customize the command-line interface appearance
+
+cli:
+  # Theme selection - Options: default | vulcan | custom
+  theme: "default"
+
+  # Custom theme colors (only used when theme: custom)
+  # Uncomment and modify to create your own color scheme
+  # custom_theme:
+  #   primary: "#C75F71"     # Main brand color
+  #   success: "#9988A1"     # Success messages
+  #   accent: "#F0B8B8"      # Interactive elements
+  #   command: "#9988A1"     # Shell commands
+  #   path: "#A2AE9D"        # File paths
+  #   info: "#9988A1"        # Info messages
+
+  # Custom ASCII banner (optional)
+  # Uncomment to override the default Osprey banner
+  # banner: |
+  #   Your custom ASCII art here
+
+
+# Note: Theme system logging uses the existing 'base' logger color
+# No additional logging configuration needed
+
+# ============================================================
+# DEVELOPMENT & DEBUGGING
+# ============================================================
+
+development:
+  # If true, exceptions raised directly instead of wrapped
+  raise_raw_errors: false
+
+  # Prompt debugging configuration
+  prompts:
+    show_all: false      # Print prompts to console
+    print_all: true      # Save prompts to files
+    latest_only: true    # Keep only latest prompt version
+
+# ============================================================
+# LOGGING
+# ============================================================
+
+logging:
+  # Rich logging traceback settings
+  rich_tracebacks: false
+  show_traceback_locals: false
+  show_full_paths: false
+
+  # Component colors (for terminal output)
+  logging_colors:
+    # Core framework components
+    base: 'white'
+    context: "light_steel_blue1"
+    router: "bright_magenta"
+    orchestrator: "cyan"
+    monitor: "dark_orange3"
+    classifier: "light_salmon1"
+    task_extraction: "thistle1"
+    error: "red"
+    gateway: "light_salmon1"
+    approval: "light_salmon1"
+
+    # Framework capabilities
+    time_range_parsing: "dodger_blue1"
+    memory: "light_salmon1"
+    python: "light_salmon1"
+
+    # Communication capabilities
+    respond: "thistle1"
+    clarify: "thistle1"
+    message_generator: "thistle1"
+
+    # Execution infrastructure
+    python_generator: "sandy_brown"
+    python_analyzer: "salmon1"
+    python_executor: "misty_rose1"
+    python_workflow: "light_steel_blue1"
+    python_services: "light_steel_blue1"
+
+    # Interface components
+    cli: "deep_sky_blue1"
+    pipeline: "deep_sky_blue1"
+
+    # Accelerator-specific components
+    channel_finding: "light_green"
+    channel_value_retrieval: "light_cyan1"
+    archiver_retrieval: "turquoise2"
+
+# ============================================================
+# SYSTEM CONFIGURATION
+# ============================================================
+
+system:
+  # Timezone configuration for all containers and services
+  timezone: ${TZ:-America/Los_Angeles}
+
+# File paths - Data storage organization
+file_paths:
+  agent_data_dir: _agent_data
+  executed_python_scripts_dir: executed_scripts
+  execution_plans_dir: execution_plans
+  user_memory_dir: user_memory
+  registry_exports_dir: registry_exports
+  prompts_dir: prompts
+  checkpoints: checkpoints

@@ -18,7 +18,7 @@ The Osprey Framework is a production-ready conversational agentic system built o
    :align: center
    :width: 100%
 
-|  **Production Deployment Example**: This diagram illustrates the framework architecture using capabilities from the :doc:`ALS Accelerator Assistant <example-applications/als-assistant>` - our production deployment at Lawrence Berkeley National Laboratory's Advanced Light Source particle accelerator.
+|  **Production Deployment Example**: This diagram illustrates the framework architecture using capabilities from the :doc:`ALS Accelerator Assistant <../../example-applications/als-assistant>` - our production deployment at Lawrence Berkeley National Laboratory's Advanced Light Source particle accelerator.
 
 
 Framework Architecture Overview
@@ -58,7 +58,7 @@ Framework Functions
              retrieval_result=data_manager.retrieve_all_context(request),
          )
 
-                 
+
       - **Context Compression**: Refines lengthy conversations into precise, actionable tasks
       - **Datasource Integration**: Enhances tasks with structured data from external sources
       - **Self-Contained Output**: Produces tasks that are executable without relying on prior conversation history
@@ -140,7 +140,7 @@ Framework Functions
          :class-header: bg-primary text-white
          :class-body: text-center
          :shadow: md
-         
+
          Gateway-driven pipeline, component coordination, and the three-pillar processing architecture
 
       .. grid-item-card:: 🔧 Convention over Configuration
@@ -149,7 +149,7 @@ Framework Functions
          :class-header: bg-success text-white
          :class-body: text-center
          :shadow: md
-         
+
          Configuration-driven component loading, decorator-based registration, and eliminating boilerplate
 
    .. grid:: 1 1 2 2
@@ -162,7 +162,7 @@ Framework Functions
          :class-header: bg-info text-white
          :class-body: text-center
          :shadow: md
-         
+
          StateGraph workflows, native checkpointing, interrupts, and streaming support
 
       .. grid-item-card:: 🎯 Orchestrator-First Philosophy
@@ -171,5 +171,5 @@ Framework Functions
          :class-header: bg-warning text-white
          :class-body: text-center
          :shadow: md
-         
+
          Why upfront planning outperforms reactive tool calling and improves reliability

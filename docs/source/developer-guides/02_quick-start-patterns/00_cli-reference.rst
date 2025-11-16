@@ -9,7 +9,7 @@ CLI Reference
    :icon: book
 
    **Key Concepts:**
-   
+
    - Using ``osprey`` CLI for all framework operations
    - Creating projects with ``osprey init``
    - Managing deployments with ``osprey deploy``
@@ -17,7 +17,7 @@ CLI Reference
    - Exporting configuration with ``osprey export-config``
 
    **Prerequisites:** Framework installed (``pip install osprey-framework``)
-   
+
    **Time Investment:** 10 minutes for quick reference
 
 Overview
@@ -92,14 +92,14 @@ The interactive project creation flow guides you through all the necessary steps
 
 1. **Project Name**: Enter a name for your project
 2. **Template Selection**: Choose from available templates with descriptions:
-   
+
    - ``minimal`` - Basic skeleton for custom development
    - ``hello_world_weather`` - Simple weather agent example
-   - ``wind_turbine`` - Advanced multi-capability agent
+   - ``control_assistant`` - Production control system integration template
 
 3. **Provider Selection**: Select your AI provider (Cborg, OpenAI, Anthropic, Google, Ollama, etc.)
 4. **Model Selection**: Choose from provider-specific models
-5. **API Key Setup**: 
+5. **API Key Setup**:
 
    - Automatically detects API keys from your shell environment
    - Prompts for secure input if keys are not detected
@@ -257,16 +257,16 @@ Options
 
 ``--template <name>``
    Template to use for project initialization. Available templates:
-   
+
    - ``minimal`` - Basic skeleton for custom development
    - ``hello_world_weather`` - Simple weather agent (recommended for learning)
-   - ``wind_turbine`` - Advanced multi-capability agent
+   - ``control_assistant`` - Production control system integration template
 
    Default: ``minimal``
 
 ``--registry-style <style>``
    Registry implementation style:
-   
+
    - ``compact`` - Use helper functions (5-10 lines, recommended)
    - ``explicit`` - Full registry implementation (verbose, for learning)
 
@@ -297,7 +297,7 @@ Examples
 
 .. code-block:: bash
 
-   osprey init turbine-monitor --template wind_turbine
+   osprey init my-assistant --template control_assistant
 
 Generated Structure
 -------------------
@@ -355,7 +355,7 @@ Commands
 
    Options:
       ``--detached`` - Run services in background
-      
+
       ``--dev`` - Development mode: use local framework instead of PyPI
 
    Examples:
@@ -403,7 +403,7 @@ Commands
 
    Options:
       ``--detached`` - Run services in background after rebuild
-      
+
       ``--dev`` - Development mode: use local framework instead of PyPI
 
    Examples:
@@ -421,7 +421,7 @@ Services are configured in ``config.yml`` under ``deployed_services``:
 .. code-block:: yaml
 
    project_name: "my-agent"  # Project identifier for container tracking
-   
+
    deployed_services:
      - osprey.jupyter        # Jupyter development environment
      - osprey.open-webui     # Web chat interface
@@ -436,10 +436,10 @@ All ``osprey deploy`` commands must be run from a project directory (containing 
    # Option 1: Run from project directory
    cd my-project
    osprey deploy up
-   
+
    # Option 2: Use --project flag
    osprey deploy up --project ~/projects/my-project
-   
+
    # Option 3: Use interactive menu (auto-handles directories)
    osprey
 
@@ -499,12 +499,12 @@ Options
 
 ``--project PATH`` / ``-p PATH``
    Project directory to use. If not specified, uses ``FRAMEWORK_PROJECT`` environment variable or current directory.
-   
+
    See :ref:`Global Options <--project>` for multi-project workflow details.
 
 ``--config PATH`` / ``-c PATH``
    Path to configuration file.
-   
+
    Default: ``config.yml`` in project directory
 
 Examples
@@ -538,9 +538,9 @@ The chat interface provides an interactive session with your agent:
    Agent Configuration loaded successfully.
    Registry initialized with 25 capabilities
    ⚡ Use slash commands (/) for quick actions - try /help
-   
+
    You: What's the weather in San Francisco?
-   
+
    Agent: [Processing request...]
    The current weather in San Francisco is 18°C with partly cloudy conditions.
 
@@ -682,15 +682,15 @@ For a **complete list of all supported environment variables** with descriptions
    # Required
    PROJECT_ROOT=/path/to/your/project
    OPENAI_API_KEY=sk-...          # Or ANTHROPIC_API_KEY, GOOGLE_API_KEY, CBORG_API_KEY
-   
+
    # Optional - Multi-project support (New in v0.7.7)
    OSPREY_PROJECT=/path/to/project
-   
+
    # Optional - Other settings
    LOCAL_PYTHON_VENV=/path/to/venv
    TZ=America/Los_Angeles
    CONFIG_FILE=custom-config.yml
-   
+
    # Proxy settings (if needed)
    HTTP_PROXY=http://proxy:8080
    NO_PROXY=localhost,127.0.0.1
@@ -821,13 +821,13 @@ Automate deployment and testing across multiple projects:
 
    #!/bin/bash
    # Deploy and test multiple projects
-   
+
    PROJECTS=(
        ~/projects/weather-agent
        ~/projects/turbine-monitor
        ~/projects/als-assistant
    )
-   
+
    for project in "${PROJECTS[@]}"; do
        echo "Deploying $project..."
        osprey deploy up --detached --project "$project"
@@ -889,7 +889,7 @@ Services Won't Start
    # Check podman is running
    podman --version
    podman ps
-   
+
    # Check for port conflicts
    lsof -i :8080
    lsof -i :9099
@@ -930,10 +930,10 @@ Chat Not Responding
 
    :doc:`../01_understanding-the-framework/02_convention-over-configuration`
        Framework architecture and conventions
-   
+
    :doc:`../../getting-started/installation`
        Installation and setup guide
-   
+
    :doc:`../05_production-systems/05_container-and-deployment`
        Container deployment details
 

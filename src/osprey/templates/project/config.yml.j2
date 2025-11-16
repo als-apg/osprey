@@ -16,6 +16,7 @@ project_root: {{ project_root }}
 # Application Registry
 registry_path: ./src/{{ package_name }}/registry.py
 
+{% if template_name != 'hello_world_weather' %}
 # ============================================================
 # CONTAINER RUNTIME
 # ============================================================
@@ -28,6 +29,7 @@ registry_path: ./src/{{ package_name }}/registry.py
 
 container_runtime: auto
 
+{% endif %}
 # ============================================================
 # MODEL CONFIGURATION
 # ============================================================
@@ -65,6 +67,7 @@ models:
     provider: {{ default_provider | default("cborg") }}
     model_id: {{ default_model | default("anthropic/claude-haiku") }}
 
+{% if template_name != 'hello_world_weather' %}
 # ============================================================
 # SERVICE CONFIGURATION
 # ============================================================
@@ -116,6 +119,9 @@ deployed_services:
   - open_webui
   - pipelines
 
+{% endif %}
+
+{% if template_name != 'hello_world_weather' %}
 # ============================================================
 # SAFETY CONTROLS
 # ============================================================
@@ -150,6 +156,7 @@ execution_control:
     graph_recursion_limit: 100        # LangGraph recursion limit
     max_concurrent_classifications: 5 # Maximum concurrent LLM classification requests
 
+{% endif %}
 # ============================================================
 # SYSTEM CONFIGURATION
 # ============================================================
@@ -168,6 +175,7 @@ file_paths:
   prompts_dir: prompts
   checkpoints: checkpoints
 
+{% if template_name != 'hello_world_weather' %}
 # ============================================================
 # EXECUTION INFRASTRUCTURE
 # ============================================================
@@ -212,6 +220,7 @@ python_executor:
   max_execution_retries: 3
   execution_timeout_seconds: 600
 
+{% endif %}
 # ============================================================
 # APPLICATION METADATA
 # ============================================================

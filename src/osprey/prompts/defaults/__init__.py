@@ -11,7 +11,11 @@ from .memory_extraction import DefaultMemoryExtractionPromptBuilder
 from .orchestrator import DefaultOrchestratorPromptBuilder
 from .python import DefaultPythonPromptBuilder
 from .response_generation import DefaultResponseGenerationPromptBuilder
-from .task_extraction import DefaultTaskExtractionPromptBuilder
+from .task_extraction import (
+    DefaultTaskExtractionPromptBuilder,
+    ExtractedTask,
+    TaskExtractionExample,
+)
 from .time_range_parsing import DefaultTimeRangeParsingPromptBuilder
 
 
@@ -77,5 +81,7 @@ __all__ = [
     "DefaultTimeRangeParsingPromptBuilder",
     "DefaultPythonPromptBuilder",
     "DefaultOrchestratorPromptBuilder",
-    "DefaultPromptProvider"
+    "DefaultPromptProvider",
+    "TaskExtractionExample",
+    "ExtractedTask"
 ]

@@ -1,0 +1,402 @@
+"""
+Archiver Data Retrieval Capability
+
+This capability retrieves historical time-series data from the archiver.
+It provides access to archived data for analysis, plotting, and trend monitoring.
+
+Based on ALS Assistant's Get Archiver Data capability pattern.
+
+Configuration:
+    The archiver connector is configured in config.yml. By default, the template
+    uses the mock archiver connector which works with any channel names.
+
+    Development Mode (config.yml):
+        archiver:
+            type: mock_archiver
+            # Mock uses sensible defaults - no config needed!
+
+    Production Mode (config.yml):
+        archiver:
+            type: epics_archiver
+            epics_archiver:
+                url: https://archiver.your-facility.edu:8443
+                timeout: 60
+
+    The capability code remains the same - just change the config!
+"""
+
+import logging
+import textwrap
+from typing import List, Dict, Any, Optional
+from datetime import datetime
+
+# Import production patterns
+from osprey.base.decorators import capability_node
+from osprey.base.capability import BaseCapability
+from osprey.base.errors import ErrorClassification, ErrorSeverity
+from osprey.base.planning import PlannedStep
+from osprey.base.examples import OrchestratorGuide, OrchestratorExample, TaskClassifierGuide, ClassifierExample, ClassifierActions
+from osprey.state import AgentState, StateManager
+from osprey.registry import get_registry
+from osprey.context.context_manager import ContextManager
+from osprey.utils.streaming import get_streamer
+from osprey.utils.logger import get_logger
+
+# Application imports
+from ..context_classes import ArchiverDataContext, ChannelAddressesContext
+
+# Import connector factory for control system integration
+from osprey.connectors.factory import ConnectorFactory
+
+logger = get_logger("archiver_retrieval")
+
+registry = get_registry()
+
+
+# === Archiver-Related Errors ===
+class ArchiverError(Exception):
+    """Base class for all archiver-related errors."""
+    pass
+
+class ArchiverTimeoutError(ArchiverError):
+    """Raised when archiver requests time out."""
+    pass
+
+class ArchiverConnectionError(ArchiverError):
+    """Raised when archiver connectivity issues."""
+    pass
+
+class ArchiverDataError(ArchiverError):
+    """Raised when archiver returns unexpected data format."""
+    pass
+
+class ArchiverDependencyError(ArchiverError):
+    """Raised when required dependencies are missing."""
+    pass
+
+
+# ========================================================
+# Capability Implementation
+# ========================================================
+
+@capability_node
+class ArchiverRetrievalCapability(BaseCapability):
+    """
+    Archiver Data Retrieval Capability with production patterns.
+
+    - Complete archiver service integration with error handling
+    - Comprehensive validation and timeout protection
+    - Registry-based patterns for context types
+    - Rich orchestrator examples and classifier configuration
+    """
+
+    name = "archiver_retrieval"
+    description = "Retrieve historical channel data from the archiver"
+    provides = ["ARCHIVER_DATA"]
+    requires = ["CHANNEL_ADDRESSES", "TIME_RANGE"]
+
+    @staticmethod
+    async def execute(
+        state: AgentState,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        Main archiver data retrieval logic.
+        """
+
+        # Extract current step from execution plan (single source of truth)
+        step = StateManager.get_current_step(state)
+
+        # Define streaming helper here for step awareness
+        streamer = get_streamer("archiver_retrieval", state)
+
+        # Initialize context manager
+        context_manager = ContextManager(state)
+
+        logger.info(f"Starting archiver data retrieval: {step.get('task_objective', 'unknown')}")
+        streamer.status("Initializing archiver data retrieval...")
+
+        try:
+            try:
+                contexts = context_manager.extract_from_step(
+                    step, state,
+                    constraints=[registry.context_types.CHANNEL_ADDRESSES, registry.context_types.TIME_RANGE],
+                    constraint_mode="hard"
+                )
+                channel_context = contexts[registry.context_types.CHANNEL_ADDRESSES]
+                time_range_context = contexts[registry.context_types.TIME_RANGE]
+                logger.info(f"Successfully extracted both required contexts: CHANNEL_ADDRESSES and TIME_RANGE")
+            except ValueError as e:
+                raise ArchiverDependencyError(str(e))
+
+            # Validate that we have channel addresses to work with
+            if not channel_context.channels or len(channel_context.channels) == 0:
+                raise ArchiverDependencyError("No channel addresses available for archiver data retrieval. The channel finding step may have failed to locate suitable channels.")
+
+            streamer.status(f"Found {len(channel_context.channels)} channels, retrieving data...")
+
+            logger.debug(f"Retrieving archiver data for {len(channel_context.channels)} channels from {time_range_context.start_date} to {time_range_context.end_date}")
+
+            # Get precision from step parameters (optional, for context metadata)
+            precision_ms = (step.get('parameters') or {}).get('precision_ms', 1000)
+
+            # Create archiver connector from configuration
+            # This will use 'mock_archiver' for development or 'epics_archiver' for production
+            # based on the 'archiver' section in config.yml
+            connector = await ConnectorFactory.create_archiver_connector()
+
+            try:
+                # Retrieve the data from archiver (returns pandas DataFrame)
+                archiver_df = await connector.get_data(
+                    pv_list=channel_context.channels,
+                    start_date=time_range_context.start_date,
+                    end_date=time_range_context.end_date,
+                    precision_ms=precision_ms
+                )
+
+                streamer.status("Converting archiver data to structured format...")
+
+                # Extract timestamps from DataFrame index
+                timestamps = [ts.to_pydatetime() for ts in archiver_df.index]
+
+                # Extract time series data for each channel
+                time_series_data = {
+                    channel: archiver_df[channel].tolist()
+                    for channel in channel_context.channels
+                    if channel in archiver_df.columns
+                }
+
+                logger.debug(f"Retrieved archiver data with {len(timestamps)} timestamps and {len(time_series_data)} channels")
+
+            finally:
+                # Always disconnect connector
+                await connector.disconnect()
+
+            streamer.status("Creating archiver data context...")
+
+            # Create rich context object
+            archiver_context = ArchiverDataContext(
+                timestamps=timestamps,
+                precision_ms=precision_ms,
+                time_series_data=time_series_data,
+                available_channels=list(time_series_data.keys())
+            )
+
+            # Log archiver data info with safe timestamp access
+            start_time = archiver_context.timestamps[0] if archiver_context.timestamps else 'N/A'
+            end_time = archiver_context.timestamps[-1] if archiver_context.timestamps else 'N/A'
+            logger.info(f"Retrieved archiver data: {len(archiver_context.timestamps)} points for {len(archiver_context.available_channels)} channels from {start_time} to {end_time}")
+
+            # Store context using StateManager
+            state_updates = StateManager.store_context(
+                state,
+                registry.context_types.ARCHIVER_DATA,
+                step.get("context_key"),
+                archiver_context
+            )
+
+            # Return state updates (LangGraph will merge automatically)
+            return state_updates
+
+        except Exception as e:
+            logger.error(f"Archiver data retrieval failed: {e}")
+            streamer.error(f"Archiver data retrieval failed: {str(e)}")
+            raise
+
+    @staticmethod
+    def classify_error(exc: Exception, context: dict) -> ErrorClassification:
+        """
+        Domain-specific error classification with detailed recovery suggestions.
+        """
+
+        if isinstance(exc, ArchiverTimeoutError):
+            return ErrorClassification(
+                severity=ErrorSeverity.RETRIABLE,
+                user_message=f"Archiver timeout error: {str(exc)}",
+                metadata={
+                    "technical_details": "Archiver requests timed out",
+                    "suggestions": [
+                        "Reduce the time range of your query",
+                        "Request fewer channels in a single query",
+                        "Increase precision_ms parameter to reduce data points",
+                    ]
+                }
+            )
+        elif isinstance(exc, ArchiverConnectionError):
+            return ErrorClassification(
+                severity=ErrorSeverity.CRITICAL,
+                user_message=f"Archiver connection error: {str(exc)}",
+                metadata={
+                    "technical_details": "Cannot establish connection to archiver service",
+                    "suggestions": [
+                        "Verify the archiver service is accessible",
+                        "Check network connectivity",
+                        "Contact operations if archiver service appears down",
+                    ]
+                }
+            )
+        elif isinstance(exc, ArchiverDataError):
+            return ErrorClassification(
+                severity=ErrorSeverity.REPLANNING,
+                user_message=f"Archiver data error: {str(exc)}",
+                metadata={
+                    "technical_details": "Archiver returned unexpected data format",
+                    "replanning_reason": f"Archiver data format issue: {exc}",
+                    "suggestions": [
+                        "Verify that the requested channel names exist and are archived",
+                        "Check if the time range contains actual data",
+                        "Try a different time range",
+                    ]
+                }
+            )
+        elif isinstance(exc, ArchiverDependencyError):
+            return ErrorClassification(
+                severity=ErrorSeverity.REPLANNING,
+                user_message=f"Missing dependency: {str(exc)}",
+                metadata={
+                    "technical_details": "Required input context (CHANNEL_ADDRESSES or TIME_RANGE) not available for archiver data retrieval",
+                    "replanning_reason": f"Missing required inputs: {exc}",
+                    "suggestions": [
+                        "Ensure channel addresses have been found using channel_finding capability",
+                        "Verify time range has been parsed using the time_range_parsing capability",
+                        "Check that required input contexts are available from previous steps",
+                    ]
+                }
+            )
+        elif isinstance(exc, ArchiverError):
+            # Generic archiver error
+            return ErrorClassification(
+                severity=ErrorSeverity.RETRIABLE,
+                user_message=f"Archiver error: {str(exc)}",
+                metadata={
+                    "technical_details": "General archiver service error",
+                    "suggestions": [
+                        "Retry the request as this may be a temporary service issue",
+                        "Simplify the query by reducing time range or number of channels",
+                    ]
+                }
+            )
+        else:
+            return ErrorClassification(
+                severity=ErrorSeverity.CRITICAL,
+                user_message=f"Archiver data retrieval failed: {exc}",
+                metadata={"technical_details": str(exc)}
+            )
+
+    def _create_orchestrator_guide(self) -> Optional[OrchestratorGuide]:
+        """Create prompt snippet for archiver data capability."""
+
+        # Define structured examples
+        archiver_retrieval_example = OrchestratorExample(
+            step=PlannedStep(
+                context_key="historical_beam_current_data",
+                capability="archiver_retrieval",
+                task_objective="Retrieve historical beam current data from archiver for the last 24 hours",
+                expected_output=registry.context_types.ARCHIVER_DATA,
+                success_criteria="Historical data retrieved successfully for specified time range",
+                inputs=[
+                    {registry.context_types.CHANNEL_ADDRESSES: "beam_current_channels"},
+                    {registry.context_types.TIME_RANGE: "last_24_hours_timerange"}
+                ]
+            ),
+            scenario_description="Retrieve historical time-series data from the archiver",
+            notes=f"Requires channel addresses and time range from previous steps. Output stored under {registry.context_types.ARCHIVER_DATA} context type. Optional parameter: precision_ms (default: 1000)."
+        )
+
+        # Workflow example: Show what comes AFTER archiver_retrieval for plotting
+        plotting_workflow_python_step = OrchestratorExample(
+            step=PlannedStep(
+                context_key="beam_current_plot",
+                capability="python",
+                task_objective="Create a matplotlib time-series plot of the beam current data showing trends over the 24-hour period",
+                expected_output=registry.context_types.PYTHON_RESULTS,
+                success_criteria="Time-series plot created with proper labels, showing beam current trends",
+                inputs=[{registry.context_types.ARCHIVER_DATA: "historical_beam_current_data"}]
+            ),
+            scenario_description="WORKFLOW: Use python capability to plot archiver data from previous step",
+            notes=f"Typical plotting workflow: archiver_retrieval (gets data) → python (creates plot) → respond (delivers to user). The python capability consumes the {registry.context_types.ARCHIVER_DATA} from the archiver_retrieval step."
+        )
+
+        # Workflow example: Show what comes AFTER archiver_retrieval for analysis
+        analysis_workflow_python_step = OrchestratorExample(
+            step=PlannedStep(
+                context_key="beam_current_statistics",
+                capability="python",
+                task_objective="Calculate mean, standard deviation, min, and max values of the beam current data over the time period",
+                expected_output=registry.context_types.PYTHON_RESULTS,
+                success_criteria="Statistical metrics calculated and displayed with clear labels",
+                inputs=[{registry.context_types.ARCHIVER_DATA: "historical_beam_current_data"}]
+            ),
+            scenario_description="WORKFLOW: Use python capability to analyze archiver data from previous step",
+            notes=f"Typical analysis workflow: archiver_retrieval (gets data) → python (calculates statistics) → respond (delivers results). The python capability consumes the {registry.context_types.ARCHIVER_DATA} from the archiver_retrieval step."
+        )
+
+        return OrchestratorGuide(
+            instructions=textwrap.dedent(f"""
+                **When to plan "archiver_retrieval" steps:**
+                - When tasks require historical channel data
+                - When retrieving past values from the archiver
+                - When time-series data is needed from archived sources
+
+                **Step Structure:**
+                - context_key: Unique identifier for output (e.g., "historical_data", "trend_data")
+                - inputs: Specify required inputs:
+                {{'{{' }}"{registry.context_types.CHANNEL_ADDRESSES}": "context_key_with_channel_data", "{registry.context_types.TIME_RANGE}": "context_key_with_time_range"{{'}}' }}
+
+                **Required Inputs:**
+                - {registry.context_types.CHANNEL_ADDRESSES} data: typically from a "channel_finding" step
+                - {registry.context_types.TIME_RANGE} data: typically from a "time_range_parsing" step
+
+                **Input flow and sequencing:**
+                1. "channel_finding" step must precede this step (if {registry.context_types.CHANNEL_ADDRESSES} data is not present already)
+                2. "time_range_parsing" step must precede this step (if {registry.context_types.TIME_RANGE} data is not present already)
+
+                **Output: {registry.context_types.ARCHIVER_DATA}**
+                - Contains: Structured historical data from the archiver
+                - Available to downstream steps via context system
+
+                **Common downstream workflow patterns:**
+                - For plotting requests: archiver_retrieval → python (create plot) → respond
+                - For analysis/statistics: archiver_retrieval → python (calculate stats) → respond
+                - For complex analysis: archiver_retrieval → data_analysis → respond
+                - Combined: archiver_retrieval → data_analysis → python (plot analysis) → respond
+
+                Do NOT plan this for current values; use "channel_value_retrieval" for real-time data.
+                """),
+            examples=[archiver_retrieval_example, plotting_workflow_python_step, analysis_workflow_python_step],
+            priority=15
+        )
+
+    def _create_classifier_guide(self) -> Optional[TaskClassifierGuide]:
+        """Create classifier for archiver data capability."""
+        return TaskClassifierGuide(
+            instructions="Determines if the task requires accessing the archiver. This is relevant for requests involving historical data or trends.",
+            examples=[
+                ClassifierExample(
+                    query="Which tools do you have?",
+                    result=False,
+                    reason="This is a question about the AI's capabilities."
+                ),
+                ClassifierExample(
+                    query="Plot the historical data for vacuum pressure for the last week.",
+                    result=True,
+                    reason="The query explicitly asks for historical data plotting."
+                ),
+                ClassifierExample(
+                    query="What is the current beam energy?",
+                    result=False,
+                    reason="The query asks for a current value, not historical data."
+                ),
+                ClassifierExample(
+                    query="Can you plot that over the last 4h?",
+                    result=True,
+                    reason="The query asks for historical data plotting."
+                ),
+                ClassifierExample(
+                    query="What was that value yesterday?",
+                    result=True,
+                    reason="The query asks for historical data."
+                ),
+            ],
+            actions_if_true=ClassifierActions()
+        )

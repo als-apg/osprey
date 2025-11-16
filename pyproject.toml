@@ -68,6 +68,11 @@ dependencies = [
     "google-generativeai",
     "ollama>=0.5.1",
 
+    # Data processing - required for archiver connectors and data handling
+    # Archiver connectors return pandas DataFrames for time-series data
+    "pandas>=2.2.3",
+    "numpy>=2.2.6",  # Required by pandas
+
     # Networking and protocols
     "websocket-client>=1.7.0",
     "urllib3>=2.4.0",
@@ -91,11 +96,10 @@ docs = [
     "graphviz",
 ]
 
-# Scientific computing stack - required for Python execution capability
-# These packages are available in the execution environment for data analysis
+# Scientific computing stack - additional packages for Python execution capability
+# Note: pandas and numpy are in base requirements (needed for archiver connectors)
+# These packages are available in the execution environment for advanced data analysis
 scientific = [
-    "pandas>=2.2.3",
-    "numpy>=2.2.6",
     "scipy>=1.15.3",
     "matplotlib>=3.10.3",
     "seaborn",

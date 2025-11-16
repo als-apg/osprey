@@ -6,12 +6,13 @@ Production Systems
    :maxdepth: 2
    :caption: Production Systems
    :hidden:
-   
+
    01_human-approval
    02_data-management
    03_python-execution
    04_memory-storage
    05_container-management
+   06_control-system-connectors
 
 
 .. dropdown:: What You'll Find Here
@@ -19,7 +20,7 @@ Production Systems
    :icon: book
 
    **Production-ready services for secure, scalable agentic deployments:**
-   
+
    - **Human Approval System** - LangGraph-native approval workflows with rich context, security analysis, and resumable execution
    - **Data Management Framework** - Unified data source integration with provider discovery, concurrent retrieval, and LLM-optimized formatting
    - **Python Execution Service** - Container-isolated code generation and execution with approval integration and flexible deployment modes
@@ -27,7 +28,7 @@ Production Systems
    - **Container Management System** - Podman-based service orchestration with hierarchical discovery and Jinja2 template processing
 
    **Prerequisites:** Understanding of production deployment patterns and security-first development
-   
+
    **Target Audience:** DevOps engineers, security architects, production system implementers
 
 Enterprise-grade services that transform research prototypes into production-ready agentic systems. These components provide the security, reliability, and scalability required for high-stakes scientific and industrial environments.
@@ -35,8 +36,8 @@ Enterprise-grade services that transform research prototypes into production-rea
 .. currentmodule:: osprey
 
 
-The Five Pillars
-================
+The Six Pillars
+===============
 
 .. grid:: 1 1 2 2
    :gutter: 3
@@ -49,7 +50,7 @@ The Five Pillars
       :shadow: md
 
       **LangGraph-Native Oversight**
-      
+
       Production-ready approval workflows with rich context, security analysis, and seamless resumption.
 
    .. grid-item-card:: 🔄 Data Management Framework
@@ -60,11 +61,8 @@ The Five Pillars
       :shadow: md
 
       **Unified Data Orchestration**
-      
-      Heterogeneous data source integration with provider discovery and concurrent retrieval.
 
-.. grid:: 1 1 2 2
-   :gutter: 3
+      Heterogeneous data source integration with provider discovery and concurrent retrieval.
 
    .. grid-item-card:: 🐍 Python Execution Service
       :link: 03_python-execution
@@ -74,7 +72,7 @@ The Five Pillars
       :shadow: md
 
       **Secure Code Execution**
-      
+
       Container-isolated Python execution with approval integration and flexible deployment.
 
    .. grid-item-card:: 🧠 Memory Storage System
@@ -85,11 +83,8 @@ The Five Pillars
       :shadow: md
 
       **Persistent User Memory**
-      
-      Structured memory operations with data source integration and approval workflows.
 
-.. grid:: 1 1 1 1
-   :gutter: 3
+      Structured memory operations with data source integration and approval workflows.
 
    .. grid-item-card:: 🚢 Container Management
       :link: 05_container-management
@@ -99,8 +94,19 @@ The Five Pillars
       :shadow: md
 
       **Service Orchestration**
-      
+
       Podman-based deployment with hierarchical service discovery and template processing.
+
+   .. grid-item-card:: 🎛️ Control System Connectors
+      :link: 06_control-system-connectors
+      :link-type: doc
+      :class-header: bg-dark text-white
+      :class-body: text-center
+      :shadow: md
+
+      **Hardware Abstraction Layer**
+
+      Pluggable connectors for control systems and archivers with mock and production implementations.
 
 Production Integration
 ======================
@@ -118,7 +124,7 @@ These systems work together to provide comprehensive production capabilities:
          # Approval system integration
          from osprey.approval import get_approval_manager
          approval_manager = get_approval_manager()
-         
+
          # Secure execution with oversight
          from osprey.services.python_executor import PythonExecutorService, PythonExecutionRequest
          python_service = PythonExecutorService()
@@ -126,7 +132,7 @@ These systems work together to provide comprehensive production capabilities:
              user_query="Analyze beam performance data",
              task_objective="Generate comprehensive performance report"
          )
-         
+
          # Service automatically pauses for human review when requires_approval: true
          config = {"thread_id": "session_123"}
          result = await python_service.ainvoke(request, config)
@@ -140,23 +146,23 @@ These systems work together to provide comprehensive production capabilities:
 
          # Data source integration
          from osprey.data_management import (
-             get_data_source_manager, 
-             create_data_source_request, 
+             get_data_source_manager,
+             create_data_source_request,
              DataSourceRequester
          )
          data_manager = get_data_source_manager()
          request = create_data_source_request(
-             state, 
+             state,
              requester=DataSourceRequester(
                  capability_name="performance_analysis",
                  component_name="beam_analysis"
              ),
              query="beam current trends"
          )
-         
+
          # Concurrent retrieval from all providers
          result = await data_manager.retrieve_all_context(request)
-         
+
          # Memory integration
          from osprey.services.memory_storage import get_memory_storage_manager, MemoryContent
          from datetime import datetime
@@ -201,7 +207,7 @@ These systems work together to provide comprehensive production capabilities:
          :class-header: bg-primary text-white
          :class-body: text-center
          :shadow: md
-         
+
          Human approval workflows with LangGraph-native interrupts and rich approval context
 
       .. grid-item-card:: 🐍 Secure Execution
@@ -210,7 +216,7 @@ These systems work together to provide comprehensive production capabilities:
          :class-header: bg-info text-white
          :class-body: text-center
          :shadow: md
-         
+
          Container-isolated Python execution with approval integration and audit trails
 
    .. grid:: 1 1 2 2
@@ -223,7 +229,7 @@ These systems work together to provide comprehensive production capabilities:
          :class-header: bg-success text-white
          :class-body: text-center
          :shadow: md
-         
+
          Unified data source management with provider discovery and concurrent retrieval
 
       .. grid-item-card:: 🚢 Deploy at Scale
@@ -232,5 +238,5 @@ These systems work together to provide comprehensive production capabilities:
          :class-header: bg-secondary text-white
          :class-body: text-center
          :shadow: md
-         
+
          Container orchestration with hierarchical service discovery and template processing

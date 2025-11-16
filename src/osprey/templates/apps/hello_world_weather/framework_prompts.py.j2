@@ -1,0 +1,199 @@
+"""{{ app_display_name }} Framework Prompt Customizations.
+
+This module demonstrates domain-specific customization of framework prompts
+to improve conversational context handling for weather queries.
+
+Simply override the methods you want to customize and register in registry.py.
+
+.. seealso::
+   :class:`osprey.prompts.defaults.DefaultTaskExtractionPromptBuilder` : Base class
+"""
+
+import textwrap
+
+from osprey.prompts.defaults import (
+    DefaultTaskExtractionPromptBuilder,
+    ExtractedTask,
+    TaskExtractionExample,
+)
+from osprey.state import MessageUtils, UserMemories
+
+
+class WeatherTaskExtractionPromptBuilder(DefaultTaskExtractionPromptBuilder):
+    """Weather-specific task extraction prompt builder.
+
+    Demonstrates customization approaches:
+    1. Override role/instructions (simple, like most apps)
+    2. Add domain-specific examples (shown here - adds to framework defaults)
+
+    To REPLACE framework examples with only weather examples, use:
+        super().__init__(include_default_examples=False)
+
+    For more information on customizing framework prompts, see:
+    https://als-apg.github.io/osprey/developer-guides/03_core-framework-systems/04_prompt-customization.html
+    """
+
+    def __init__(self):
+        """Initialize with weather-specific examples only (replaces framework defaults)."""
+        super().__init__(include_default_examples=False)  # Skip framework examples
+        self._add_weather_examples()
+
+    def get_role_definition(self) -> str:
+        """Get the weather-specific role definition."""
+        return "You are a weather assistant task extraction specialist that analyzes conversations to extract actionable weather-related tasks."
+
+    def get_instructions(self) -> str:
+        """Get the weather-specific task extraction instructions."""
+        return textwrap.dedent("""
+        Your job is to:
+        1. Understand what the user is asking for in the context of weather information
+        2. Extract a clear, actionable task related to weather queries
+        3. Determine if the task depends on chat history context
+        4. Determine if the task depends on user memory
+
+        ## Weather-Specific Guidelines:
+        - Create self-contained task descriptions executable without conversation context
+        - Resolve temporal references ("tomorrow", "next week") to specific time periods
+        - Carry forward location references from previous messages (e.g., "What about tomorrow there?")
+        - Extract specific locations, times, and weather parameters from previous responses
+        - Set depends_on_chat_history=True if task references previous messages
+        - Set depends_on_user_memory=True only when task needs specific information from user memory
+        - Be specific and actionable in task descriptions
+        """).strip()
+
+    def _add_weather_examples(self):
+        """Add weather-specific examples."""
+
+        # Pattern 1: Simple temporal follow-up
+        self.examples.append(TaskExtractionExample(
+            messages=[
+                MessageUtils.create_user_message("What's the current weather in Paris?"),
+                MessageUtils.create_assistant_message(
+                    "The current weather in Paris is 15°C with overcast skies and light rain. "
+                    "Wind speed is 12 km/h from the northwest."
+                ),
+                MessageUtils.create_user_message("What was it like 3 hours ago?"),
+            ],
+            user_memory=UserMemories(entries=[]),
+            expected_output=ExtractedTask(
+                task="Get historical weather conditions for Paris from 3 hours ago",
+                depends_on_chat_history=True,
+                depends_on_user_memory=False
+            )
+        ))
+
+        # Pattern 2: Location carry-forward with temporal change
+        self.examples.append(TaskExtractionExample(
+            messages=[
+                MessageUtils.create_user_message("What's the weather like in San Francisco tonight?"),
+                MessageUtils.create_assistant_message(
+                    "Tonight in San Francisco, expect partly cloudy skies with temperatures "
+                    "around 13°C. Light winds from the west at 12 km/h."
+                ),
+                MessageUtils.create_user_message("What about tomorrow?"),
+            ],
+            user_memory=UserMemories(entries=[]),
+            expected_output=ExtractedTask(
+                task="Get weather forecast for San Francisco for tomorrow",
+                depends_on_chat_history=True,
+                depends_on_user_memory=False
+            )
+        ))
+
+        # Pattern 3: Location switching
+        self.examples.append(TaskExtractionExample(
+            messages=[
+                MessageUtils.create_user_message("How's the weather in Prague?"),
+                MessageUtils.create_assistant_message(
+                    "The current weather in Prague shows 8°C with rainy conditions. "
+                    "Humidity is at 85% with moderate winds."
+                ),
+                MessageUtils.create_user_message("What about in Paris?"),
+            ],
+            user_memory=UserMemories(entries=[]),
+            expected_output=ExtractedTask(
+                task="Get current weather conditions for Paris",
+                depends_on_chat_history=True,
+                depends_on_user_memory=False
+            )
+        ))
+
+        # Pattern 4: Conversational query
+        self.examples.append(TaskExtractionExample(
+            messages=[
+                MessageUtils.create_user_message("Hi, what weather information can you provide?"),
+                MessageUtils.create_assistant_message(
+                    "I can help you check current weather conditions and forecasts for various cities! "
+                    "I can tell you about temperature, precipitation, wind, and general conditions."
+                ),
+                MessageUtils.create_user_message("Which cities do you cover?"),
+            ],
+            user_memory=UserMemories(entries=[]),
+            expected_output=ExtractedTask(
+                task="List the cities available for weather queries",
+                depends_on_chat_history=False,
+                depends_on_user_memory=False
+            )
+        ))
+
+        # Pattern 5: Fresh request
+        self.examples.append(TaskExtractionExample(
+            messages=[
+                MessageUtils.create_user_message("Can you check the weather in New York?"),
+            ],
+            user_memory=UserMemories(entries=[]),
+            expected_output=ExtractedTask(
+                task="Get current weather conditions for New York",
+                depends_on_chat_history=False,
+                depends_on_user_memory=False
+            )
+        ))
+
+        # Pattern 6: Implicit location reference ("there")
+        self.examples.append(TaskExtractionExample(
+            messages=[
+                MessageUtils.create_user_message("What's the current weather in Paris?"),
+                MessageUtils.create_assistant_message(
+                    "Paris is currently experiencing clear weather at 16°C with "
+                    "light winds and good visibility."
+                ),
+                MessageUtils.create_user_message("How about tomorrow there?"),
+            ],
+            user_memory=UserMemories(entries=[]),
+            expected_output=ExtractedTask(
+                task="Get weather forecast for Paris for tomorrow",
+                depends_on_chat_history=True,
+                depends_on_user_memory=False
+            )
+        ))
+
+        # Pattern 7: Memory-based location preference
+        self.examples.append(TaskExtractionExample(
+            messages=[
+                MessageUtils.create_user_message("What's the weather like at home?"),
+            ],
+            user_memory=UserMemories(entries=[
+                "[2025-01-15] Home location: San Francisco"
+            ]),
+            expected_output=ExtractedTask(
+                task="Get current weather conditions for San Francisco",
+                depends_on_chat_history=False,
+                depends_on_user_memory=True
+            )
+        ))
+
+        # Pattern 8: Memory-based activity preferences
+        self.examples.append(TaskExtractionExample(
+            messages=[
+                MessageUtils.create_user_message("Is it good running weather right now?"),
+            ],
+            user_memory=UserMemories(entries=[
+                "[2025-01-14] Running conditions: Prefer temperature < 20°C, no rain, wind < 15 km/h",
+                "[2025-01-15] Home location: San Francisco"
+            ]),
+            expected_output=ExtractedTask(
+                task="Check if current weather in San Francisco meets running conditions: temperature below 20°C, no rain, and wind under 15 km/h",
+                depends_on_chat_history=False,
+                depends_on_user_memory=True
+            )
+        ))

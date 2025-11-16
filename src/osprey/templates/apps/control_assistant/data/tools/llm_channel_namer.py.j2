@@ -1,0 +1,389 @@
+"""LLM-based Channel Name Generator.
+
+This module provides intelligent channel name generation using language models.
+It takes short technical names and natural language descriptions to create
+descriptive, intuitive channel names that are self-documenting.
+
+Key Features:
+- Batch processing for efficiency
+- Configurable LLM providers
+- Validation and quality checks
+"""
+
+import sys
+import logging
+from typing import List, Dict, Optional
+from pathlib import Path
+from pydantic import BaseModel, Field
+from tqdm import tqdm
+
+# Add project root to path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+
+from {{ package_name }}.services.channel_finder.llm.completion import get_chat_completion
+from {{ package_name }}.services.channel_finder.utils.config import get_config
+
+logger = logging.getLogger(__name__)
+
+
+class ChannelNames(BaseModel):
+    """Structured output model for generated channel names."""
+    names: List[str] = Field(
+        description="List of generated PascalCase channel names, one for each input channel in order"
+    )
+
+
+class LLMChannelNamer:
+    """Generate descriptive channel names using language models."""
+    
+    def __init__(
+        self,
+        provider: str = "cborg",
+        model_id: str = "google/gemini-flash",
+        max_tokens: int = 1000,
+        batch_size: int = 10,
+        base_url: Optional[str] = None,
+        api_key: Optional[str] = None
+    ):
+        """Initialize the LLM channel namer.
+        
+        Args:
+            provider: LLM provider ('cborg', 'anthropic', 'openai')
+            model_id: Model identifier
+            max_tokens: Maximum tokens per request
+            batch_size: Number of channels to process per batch
+            base_url: API base URL (optional, from config if not provided)
+            api_key: API key (optional, from config/env if not provided)
+        """
+        self.provider = provider
+        self.model_id = model_id
+        self.max_tokens = max_tokens
+        self.batch_size = batch_size
+        self.base_url = base_url
+        self.api_key = api_key
+    
+    def _create_prompt_for_batch(self, channels: List[Dict]) -> str:
+        """Create a prompt for a batch of channels.
+        
+        Args:
+            channels: List of dicts with 'short_name' and 'description'
+            
+        Returns:
+            Formatted prompt string
+        """
+        prompt = """Generate descriptive PascalCase channel names for particle accelerator control channels.
+
+CRITICAL NAMING RULES:
+- PascalCase format (e.g., AcceleratingTubeTopSteeringCoilXSetPoint)
+- 2-7 words, prioritize uniqueness and clarity
+- **ALWAYS use "SetPoint" (not "Set") for writable/settable values**
+- **ALWAYS use "ReadBack" (not "RB") for read-only/readback values**
+- **CRITICAL: ALWAYS include specific location/position information to ensure uniqueness**
+- Avoid unnecessary abbreviations (use full words)
+
+LOCATION/POSITION PRIORITY:
+- **MANDATORY:** Extract and include ALL location/position details from descriptions:
+  * Specific locations: "accelerating tube", "decelerating tube", "terminal", "beamline1", etc.
+  * Positions within locations: "top", "bottom", "beginning", "end", "middle"
+  * Direction/axis: "X direction", "Y direction", "horizontal", "vertical"
+  * Other identifying details: "inside tank", specific device IDs, etc.
+- Names MUST be unique - different physical locations = different names
+- Pattern: [Location][Position][Device][Axis][Property][SetPoint/ReadBack]
+
+SETPOINT vs READBACK GUIDELINES:
+- If description mentions "set value", "set point", "settable", "writable" → use "SetPoint"
+- If description mentions "read back", "read only", "readback", "measured" → use "ReadBack"
+- Be consistent: ALWAYS use full words "SetPoint" and "ReadBack" for database consistency
+
+EXAMPLES showing location specificity:
+1. Short: "SX3Set", Description: "Steering coil current tilting beam in X direction inside accelerating tube (top position, inside tank), set value"
+   → AcceleratingTubeTopSteeringCoilXSetPoint
+   (includes: location=AcceleratingTube, position=Top, device=SteeringCoil, axis=X, type=SetPoint)
+
+2. Short: "SX40Set", Description: "Steering coil current tilting beam in X direction inside accelerating tube (bottom position, inside tank), set value"
+   → AcceleratingTubeBottomSteeringCoilXSetPoint
+   (different position = different name!)
+
+3. Short: "IP149APressure", Description: "Pressure at IP149A ion pump located in the beginning of HFEL beamline (FEL output beamline) measured in Tor"
+   → HFELBeamLineBeginningIonPumpPressure
+   (includes: beamline=HFEL, position=Beginning, device=IonPump, property=Pressure)
+
+4. Short: "FansVoltage", Description: "Voltage of fans cooling terminal electronics, only read back value"
+   → TerminalCoolingFanVoltageReadBack
+
+5. Short: "I_mtrs", Description: "Diagnostic current through grading resistor chain in decelerating tube (monitors voltage distribution health)"
+   → DeceleratingTubeGradingResistorDiagnosticCurrent
+
+INPUT CHANNELS (generate EXACTLY """ + str(len(channels)) + """ names in order):
+"""
+        
+        for i, ch in enumerate(channels, 1):
+            prompt += f"\n{i}. Short: \"{ch['short_name']}\"\n"
+            prompt += f"   Description: \"{ch['description']}\"\n"
+        
+        return prompt
+    
+    def generate_names_batch(self, channels: List[Dict]) -> List[str]:
+        """Generate names for a batch of channels using LLM with structured output.
+        
+        Args:
+            channels: List of dicts with 'short_name' and 'description'
+            
+        Returns:
+            List of generated channel names (same order as input)
+        """
+        if not channels:
+            return []
+        
+        prompt = self._create_prompt_for_batch(channels)
+        
+        try:
+            # Build provider config with credentials
+            provider_config = {}
+            if self.base_url:
+                provider_config['base_url'] = self.base_url
+            if self.api_key:
+                provider_config['api_key'] = self.api_key
+            
+            # Use structured output
+            result = get_chat_completion(
+                message=prompt,
+                provider=self.provider,
+                model_id=self.model_id,
+                max_tokens=self.max_tokens,
+                base_url=self.base_url,
+                provider_config=provider_config if provider_config else None,
+                output_model=ChannelNames
+            )
+            
+            # Result is a Pydantic model instance or dict
+            if isinstance(result, dict):
+                names = result.get('names', [])
+            else:
+                names = result.names
+            
+            # Validate we got the right number of names
+            if len(names) != len(channels):
+                logger.error(
+                    f"Expected {len(channels)} names, got {len(names)}."
+                )
+                raise ValueError(f"Wrong number of names: expected {len(channels)}, got {len(names)}")
+            
+            # Quality check: ensure names are valid
+            validated_names = []
+            for i, name in enumerate(names):
+                if self._is_valid_channel_name(name):
+                    validated_names.append(name)
+                else:
+                    logger.warning(f"Invalid generated name '{name}', using original short name")
+                    validated_names.append(channels[i]['short_name'])
+            
+            return validated_names
+            
+        except Exception as e:
+            logger.error(f"LLM generation failed: {e}")
+            logger.info("Returning original short names")
+            # Return original names as fallback
+            return [ch['short_name'] for ch in channels]
+    
+    def _is_valid_channel_name(self, name: str) -> bool:
+        """Check if a generated name is valid.
+        
+        Args:
+            name: Channel name to validate
+            
+        Returns:
+            True if valid, False otherwise
+        """
+        # Basic validation
+        if not name or len(name) < 3:
+            return False
+        
+        # Should be alphanumeric (PascalCase)
+        if not name.replace('_', '').isalnum():
+            return False
+        
+        # Should start with uppercase
+        if not name[0].isupper():
+            return False
+        
+        # Should not be too long (arbitrary limit)
+        if len(name) > 80:
+            return False
+        
+        return True
+    
+    def _create_duplicate_resolution_prompt(self, duplicate_groups: Dict[str, List[Dict]]) -> str:
+        """Create a prompt to resolve duplicate channel names.
+        
+        Args:
+            duplicate_groups: Dict mapping duplicate names to list of channel dicts with
+                            'short_name', 'description', and 'original_name'
+        
+        Returns:
+            Formatted prompt string
+        """
+        prompt = """DUPLICATE NAME RESOLUTION: Generate MORE SPECIFIC PascalCase names to resolve duplicates.
+
+SITUATION: Multiple channels were assigned the same name. They need MORE SPECIFIC names that highlight their differences.
+
+RESOLUTION STRATEGY:
+- Include MORE location/position details
+- Emphasize what makes each channel UNIQUE
+- Use the FULL location hierarchy if needed
+- Pattern: [DetailedLocation][SpecificPosition][Device][Axis][Property][SetPoint/ReadBack]
+
+"""
+        total_channels = sum(len(channels) for channels in duplicate_groups.values())
+        prompt += f"GENERATE EXACTLY {total_channels} UNIQUE NAMES:\n\n"
+        
+        channel_num = 1
+        for dup_name, channels in duplicate_groups.items():
+            prompt += f"=== DUPLICATE GROUP: '{dup_name}' (needs {len(channels)} distinct names) ===\n"
+            for ch in channels:
+                prompt += f"{channel_num}. Short: \"{ch['short_name']}\"\n"
+                prompt += f"   Description: \"{ch['description']}\"\n"
+                prompt += f"   Previous Name (TOO GENERIC): \"{ch['original_name']}\"\n\n"
+                channel_num += 1
+        
+        return prompt
+    
+    def resolve_duplicates(self, channels: List[Dict], names: List[str]) -> List[str]:
+        """Check for duplicate names and regenerate them with more specificity.
+        
+        Args:
+            channels: Original channel dicts with 'short_name' and 'description'
+            names: Generated names (same length as channels)
+            
+        Returns:
+            List of names with duplicates resolved
+        """
+        from collections import defaultdict
+        
+        # Find duplicates
+        name_to_indices = defaultdict(list)
+        for idx, name in enumerate(names):
+            name_to_indices[name].append(idx)
+        
+        duplicates = {name: indices for name, indices in name_to_indices.items() if len(indices) > 1}
+        
+        if not duplicates:
+            return names
+        
+        # Report duplicates
+        total_dups = sum(len(indices) for indices in duplicates.values())
+        print(f"\n⚠️  Found {len(duplicates)} duplicate name(s) affecting {total_dups} channels:")
+        for dup_name, indices in duplicates.items():
+            print(f"   '{dup_name}': {len(indices)} channels")
+        
+        print(f"🔄 Regenerating names with more specificity...")
+        
+        # Prepare duplicate groups for re-generation
+        duplicate_groups = {}
+        for dup_name, indices in duplicates.items():
+            duplicate_groups[dup_name] = [
+                {
+                    'short_name': channels[idx]['short_name'],
+                    'description': channels[idx]['description'],
+                    'original_name': dup_name
+                }
+                for idx in indices
+            ]
+        
+        # Create special prompt for duplicates
+        prompt = self._create_duplicate_resolution_prompt(duplicate_groups)
+        
+        # Generate new names
+        try:
+            response = get_chat_completion(
+                prompt=prompt,
+                provider=self.provider,
+                model_id=self.model_id,
+                max_tokens=self.max_tokens,
+                temperature=0.3,
+                base_url=self.base_url,
+                api_key=self.api_key,
+                response_model=ChannelNames
+            )
+            
+            new_names = response.names
+            
+            # Replace duplicates with new names
+            result = names.copy()
+            name_idx = 0
+            for dup_name, indices in duplicates.items():
+                for idx in indices:
+                    if name_idx < len(new_names):
+                        result[idx] = new_names[name_idx]
+                        name_idx += 1
+            
+            print(f"   ✓ Resolved all duplicates")
+            return result
+            
+        except Exception as e:
+            print(f"   ⚠️  Failed to resolve duplicates: {e}")
+            print(f"   Keeping original names (with duplicates)")
+            return names
+    
+    def generate_names(self, channels: List[Dict]) -> List[str]:
+        """Generate names for all channels with batching and progress bar.
+        
+        Args:
+            channels: List of dicts with 'short_name' and 'description'
+            
+        Returns:
+            List of generated channel names (same order as input)
+        """
+        all_names = []
+        
+        # Process in batches with progress bar
+        with tqdm(total=len(channels), desc="Generating channel names", unit="channel") as pbar:
+            for i in range(0, len(channels), self.batch_size):
+                batch = channels[i:i + self.batch_size]
+                
+                batch_names = self.generate_names_batch(batch)
+                all_names.extend(batch_names)
+                
+                pbar.update(len(batch))
+        
+        # Check for and resolve duplicates
+        all_names = self.resolve_duplicates(channels, all_names)
+        
+        return all_names
+
+
+def create_namer_from_config(config_path: Optional[str] = None) -> LLMChannelNamer:
+    """Create an LLM channel namer from configuration file.
+    
+    Args:
+        config_path: Path to config.yml file (optional, uses default if not provided)
+        
+    Returns:
+        Configured LLMChannelNamer instance
+    """
+    if config_path:
+        config = load_config(str(config_path))
+    else:
+        config = get_config()
+    
+    # Extract channel name generation config
+    name_gen_config = config.get('channel_finder', {}).get('channel_name_generation', {})
+    
+    # Extract LLM model config
+    llm_config = name_gen_config.get('llm_model', {})
+    provider = llm_config.get('provider', 'cborg')
+    
+    # Get API credentials from config (they'll use ${ENV_VAR} substitution)
+    api_config = config.get('api', {}).get('providers', {}).get(provider, {})
+    base_url = api_config.get('base_url')
+    api_key = api_config.get('api_key')
+    
+    return LLMChannelNamer(
+        provider=provider,
+        model_id=llm_config.get('model_id', 'anthropic/claude-haiku'),
+        max_tokens=llm_config.get('max_tokens', 1000),
+        batch_size=name_gen_config.get('llm_batch_size', 10),
+        base_url=base_url,
+        api_key=api_key
+    )
+

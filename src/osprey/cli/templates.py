@@ -230,16 +230,42 @@ class TemplateManager:
             "current_python_env": current_python,  # Actual path to current Python
             "default_provider": "cborg",
             "default_model": "anthropic/claude-haiku",
+            "template_name": template_name,  # Make template name available in config.yml
             # Add detected environment variables
             "env": detected_env_vars,
             **(context or {})
         }
 
+        # Derive channel finder configuration if control_assistant template
+        if template_name == 'control_assistant':
+            channel_finder_mode = ctx.get('channel_finder_mode', 'both')
+
+            # Derive boolean flags for conditional templates
+            enable_in_context = channel_finder_mode in ['in_context', 'both']
+            enable_hierarchical = channel_finder_mode in ['hierarchical', 'both']
+
+            # Determine default pipeline (for config.yml)
+            if channel_finder_mode == 'both':
+                default_pipeline = 'hierarchical'  # Default to more scalable option
+            else:
+                default_pipeline = channel_finder_mode
+
+            # Add channel finder context variables
+            ctx.update({
+                'channel_finder_mode': channel_finder_mode,
+                'enable_in_context': enable_in_context,
+                'enable_hierarchical': enable_hierarchical,
+                'default_pipeline': default_pipeline,
+                'in_context_db_path': 'data/channel_databases/in_context.json',
+                'hierarchical_db_path': 'data/channel_databases/hierarchical.json',
+            })
+
         # 4. Create project structure
         self._create_project_structure(project_dir, template_name, ctx)
 
-        # 5. Copy services
-        self.copy_services(project_dir)
+        # 5. Copy services (skip for hello_world_weather as it doesn't use containers)
+        if template_name != 'hello_world_weather':
+            self.copy_services(project_dir)
 
         # 6. Create src directory and application code
         src_dir = project_dir / "src"
@@ -388,12 +414,26 @@ class TemplateManager:
         # Add registry_style to context for templates that might use it
         ctx['registry_style'] = registry_style
 
+        # Project-level files that should only live at project root, not in src/
+        # These are handled by _create_project_structure() and should be skipped here
+        PROJECT_LEVEL_FILES = {
+            'config.yml.j2', 'config.yml',
+            'README.md.j2', 'README.md',
+            'env.example.j2', 'env.example', 'env.j2', '.env',
+            'requirements.txt.j2', 'requirements.txt',
+            'pyproject.toml.j2', 'pyproject.toml'
+        }
+
         # Process all files in the template
         for template_file in app_template_dir.rglob("*"):
             if not template_file.is_file():
                 continue
 
             rel_path = template_file.relative_to(app_template_dir)
+
+            # Skip project-level files at template root (they're handled by _create_project_structure)
+            if len(rel_path.parts) == 1 and rel_path.name in PROJECT_LEVEL_FILES:
+                continue
 
             # Special handling for scripts/ directory - place at project root
             if rel_path.parts[0] == "scripts":

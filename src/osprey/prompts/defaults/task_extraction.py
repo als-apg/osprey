@@ -58,10 +58,19 @@ Depends on User Memory: {self.depends_on_user_memory}
 class DefaultTaskExtractionPromptBuilder(FrameworkPromptBuilder):
     """Framework prompt builder for task extraction."""
 
-    def __init__(self):
+    PROMPT_TYPE = "task_extraction"
+
+    def __init__(self, include_default_examples: bool = True):
+        """Initialize task extraction prompt builder.
+
+        Args:
+            include_default_examples: If True, loads framework default examples.
+                                     Set to False to use only custom examples.
+        """
         super().__init__()
         self.examples = []
-        self._load_examples()
+        if include_default_examples:
+            self._load_examples()
 
     def _load_examples(self):
         """Load task extraction examples with native LangGraph messages."""
@@ -286,7 +295,7 @@ Core requirements:
                 # Fallback to summary on any error
                 data_context = f"\n\n**Available Data Sources:**\n{retrieval_result.get_summary()}"
 
-        return f"""
+        final_prompt = f"""
 You are a task extraction system that analyzes chat history and user memory to extract actionable tasks.
 
 Your job is to:
@@ -313,3 +322,8 @@ No stored memories
 
 Now extract the task from the provided chat history and user memory.
 """
+
+        # Debug: Print prompt if enabled
+        self.debug_print_prompt(final_prompt)
+
+        return final_prompt

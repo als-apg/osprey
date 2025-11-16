@@ -9,6 +9,8 @@ from osprey.prompts.base import FrameworkPromptBuilder
 class DefaultClarificationPromptBuilder(FrameworkPromptBuilder):
     """Default clarification prompt builder."""
 
+    PROMPT_TYPE = "clarification"
+
     def get_role_definition(self) -> str:
         """Get the generic role definition."""
         return "You are helping to clarify ambiguous user queries for the assistant system."

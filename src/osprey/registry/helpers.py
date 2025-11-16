@@ -11,6 +11,7 @@ intuitive API for application developers to define their registries.
 
 from .base import (
     CapabilityRegistration,
+    ConnectorRegistration,
     ContextClassRegistration,
     DataSourceRegistration,
     ExtendedRegistryConfig,
@@ -29,15 +30,18 @@ def extend_framework_registry(
     services: list[ServiceRegistration] | None = None,
     framework_prompt_providers: list[FrameworkPromptProviderRegistration] | None = None,
     providers: list[ProviderRegistration] | None = None,
+    connectors: list[ConnectorRegistration] | None = None,
     core_nodes: list[NodeRegistration] | None = None,
     exclude_capabilities: list[str] | None = None,
     exclude_nodes: list[str] | None = None,
     exclude_context_classes: list[str] | None = None,
     exclude_data_sources: list[str] | None = None,
     exclude_providers: list[str] | None = None,
+    exclude_connectors: list[str] | None = None,
     override_capabilities: list[CapabilityRegistration] | None = None,
     override_nodes: list[NodeRegistration] | None = None,
     override_providers: list[ProviderRegistration] | None = None,
+    override_connectors: list[ConnectorRegistration] | None = None,
 ) -> ExtendedRegistryConfig:
     """Create application registry configuration that extends the framework.
 
@@ -59,14 +63,17 @@ def extend_framework_registry(
         services: Application services to add to framework defaults
         framework_prompt_providers: Application prompt providers to add
         providers: Application AI model providers to add to framework defaults
+        connectors: Application control system/archiver connectors to add
         exclude_capabilities: Names of framework capabilities to exclude
         exclude_nodes: Names of framework nodes to exclude
         exclude_context_classes: Context types to exclude from framework
         exclude_data_sources: Names of framework data sources to exclude
         exclude_providers: Names of framework providers to exclude
+        exclude_connectors: Names of framework connectors to exclude
         override_capabilities: Capabilities that replace framework versions (by name)
         override_nodes: Nodes that replace framework versions (by name)
         override_providers: Providers that replace framework versions (by name)
+        override_connectors: Connectors that replace framework versions (by name)
 
     Returns:
         ExtendedRegistryConfig that signals extend mode to registry manager
@@ -166,6 +173,9 @@ def extend_framework_registry(
     if exclude_providers:
         framework_exclusions["providers"] = exclude_providers
 
+    if exclude_connectors:
+        framework_exclusions["connectors"] = exclude_connectors
+
     # Combine override and regular components
     all_capabilities = list(capabilities or [])
     if override_capabilities:
@@ -179,6 +189,10 @@ def extend_framework_registry(
     if override_providers:
         all_providers.extend(override_providers)
 
+    all_connectors = list(connectors or [])
+    if override_connectors:
+        all_connectors.extend(override_connectors)
+
     # Return ExtendedRegistryConfig to signal extend mode (framework will be merged by RegistryManager)
     return ExtendedRegistryConfig(
         core_nodes=all_nodes,
@@ -188,6 +202,7 @@ def extend_framework_registry(
         services=list(services or []),
         framework_prompt_providers=list(framework_prompt_providers or []),
         providers=all_providers,
+        connectors=all_connectors,
         framework_exclusions=framework_exclusions if framework_exclusions else None
     )
 
@@ -531,9 +546,7 @@ def generate_explicit_registry_code(
     # Add framework prompt providers
     for prov in framework.framework_prompt_providers:
         code_lines.append('                FrameworkPromptProviderRegistration(')
-        code_lines.append(f'                    application_name="{prov.application_name}",')
         code_lines.append(f'                    module_path="{prov.module_path}",')
-        code_lines.append(f'                    description="{prov.description}",')
         code_lines.append('                    prompt_builders={')
         for key, value in prov.prompt_builders.items():
             code_lines.append(f'                        "{key}": "{value}",')
@@ -545,9 +558,7 @@ def generate_explicit_registry_code(
         code_lines.append('')
         for prov in framework_prompt_providers:
             code_lines.append('                FrameworkPromptProviderRegistration(')
-            code_lines.append(f'                    application_name="{prov.application_name}",')
             code_lines.append(f'                    module_path="{prov.module_path}",')
-            code_lines.append(f'                    description="{prov.description}",')
             code_lines.append('                    prompt_builders={')
             for key, value in prov.prompt_builders.items():
                 code_lines.append(f'                        "{key}": "{value}",')

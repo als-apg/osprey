@@ -250,7 +250,6 @@ You can selectively exclude or replace framework components to customize behavio
        # Add custom framework prompt providers
        framework_prompt_providers=[
            FrameworkPromptProviderRegistration(
-               application_name="my_app",
                module_path="my_app.framework_prompts",
                prompt_builders={"response_generation": "CustomResponseBuilder"}
            )

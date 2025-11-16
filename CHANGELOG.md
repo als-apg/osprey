@@ -7,7 +7,124 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Prompt Customization System**: Flexible inheritance for domain-specific prompt builders
+  - Added `include_default_examples` parameter to `DefaultTaskExtractionPromptBuilder`
+  - Applications can now choose to extend or replace framework examples
+  - Exported `TaskExtractionExample` and `ExtractedTask` from `osprey.prompts.defaults` for custom builders
+  - Weather template includes 8 domain-specific examples for conversational context handling
+  - New `framework_prompts.py.j2` template demonstrating prompt customization patterns
+- **Domain Adaptation Tutorial**: Comprehensive Step 5 in hello-world tutorial
+  - Explains why domain-specific examples improve conversational AI
+  - 8 weather-specific task extraction examples covering location carry-forward, temporal references, etc.
+  - Shows complete implementation with code examples and explanations
+  - Demonstrates multi-turn conversation context synthesis
+- **Conceptual Tutorial**: New comprehensive tutorial introducing Osprey's core concepts and design patterns
+  - Explains Osprey's foundation on LangGraph with link to upstream framework
+  - Compares ReAct vs Planning agents with clear advantages/disadvantages
+  - Introduces capabilities and contexts with architectural motivation (addressing context window limitations)
+  - Walks through designing a weather assistant as practical example
+  - Visual grid cards for capability design with color-coded headers
+  - Extracted design pattern summary for general application
+  - Step-by-step orchestration examples showing how capabilities chain together
+  - Location: `docs/source/getting-started/conceptual-tutorial.rst`
+- **Control System Connectors**: Two-layer pluggable abstraction for control systems and archivers
+  - **MockConnector**: Development/R&D mode - works with any PV names, no hardware required
+  - **EPICSConnector**: Production EPICS Channel Access with gateway support (requires `pyepics`)
+  - **MockArchiverConnector**: Generates synthetic historical time series data
+  - **EPICSArchiverConnector**: EPICS Archiver Appliance integration (requires `archivertools`)
+  - **ConnectorFactory**: Centralized creation with automatic registration via registry system
+  - **Pattern Detection**: Config-based regex patterns for detecting control system operations in generated code
+  - **Plugin Architecture**: Custom connectors (LabVIEW, Tango, etc.) via `ConnectorRegistration`
+  - Seamless switching between mock and production via config.yml `type` field
+  - Comprehensive API reference and developer guide with LabVIEW example
+- **Control Assistant Template**: Production-ready template for accelerator control applications
+  - Complete multi-capability system with PV value retrieval, archiver integration, and Channel Finder
+  - Dual-mode support (mock for R&D, production for control room)
+  - 4-part tutorial series (setup, Channel Finder integration, production deployment, customization)
+  - Python execution service with read/write container separation and approval workflows
+  - Full documentation with screenshots and step-by-step guides
+- **Pattern Detection Service**: Static code analysis for control system operations
+  - Configurable regex patterns per control system type
+  - Used by approval system to identify read vs write operations
+  - Location: `osprey.services.python_executor.pattern_detection`
+- **Registry System Enhancements**: Added `ConnectorRegistration` dataclass for connector management
+  - Automatic connector registration during framework initialization
+  - Lazy loading with unified component management
+  - Support for control_system and archiver connector types
+- **CLI Template Support**: Added control_assistant template to CLI initialization system
+  - New template option in `osprey init` command
+  - Interactive menu displays control assistant with description
+  - Template validation and configuration support
+
 ### Changed
+- **FrameworkPromptProviderRegistration API**: Simplified registration interface
+  - Removed `application_name` parameter (no longer used by framework)
+  - Removed `description` parameter (no longer used by framework)
+  - Framework now uses `module_path` as the provider key
+  - **Backward Compatible**: Old parameters still accepted with deprecation warnings until v0.10
+  - Updated all documentation examples to reflect new simplified API
+
+### Deprecated
+- **FrameworkPromptProviderRegistration fields**: `application_name` and `description` parameters
+  - Will be removed in v0.10
+  - Deprecation warnings emitted when used
+  - Migration: Simply remove these parameters from your `FrameworkPromptProviderRegistration` calls
+
+### Removed
+- **Migration Guides**: Removed version-specific migration documentation
+  - Removed `docs/source/getting-started/migration-guide.rst` (v0.6→v0.8 and v0.7→v0.8 guides)
+  - Removed `docs/resources/MIGRATION_GUIDE_v0.6_to_v0.8.md`
+  - Removed `docs/resources/MIGRATION_GUIDE_v0.7_to_v0.8.md`
+  - Superseded by conceptual tutorial which provides better onboarding for current version
+  - Historical migration information still available in git history if needed
+- **Wind Turbine Template**: Removed deprecated wind turbine application template
+  - Replaced by Control Assistant template with better real-world applicability
+  - Removed `src/osprey/templates/apps/wind_turbine/` directory and all associated files
+  - Removed `docs/source/getting-started/build-your-first-agent.rst` (superseded by control assistant tutorials)
+
+### Changed
+- **Channel Finder Presentation Mode**: Renamed `presentation_mode` value from "compact" to "template"
+  - Updated all config files, documentation, and database implementations
+  - Method `_format_compact()` renamed to `_format_template()`
+- **Hello World Tutorial**: Simplified and improved tutorial UX
+  - Removed unnecessary container deployment steps (tutorial only needs `osprey chat`)
+  - Added "Ready to Dive In?" admonition for users who want to run first, learn later
+  - Added comprehensive API key dropdown matching Control Assistant tutorial format
+  - Improved messaging to welcome institutional providers (CBorg, Stanford AI Playground) while recommending Claude Haiku 4.5
+  - Simplified prerequisites to focus on essentials (Python, framework, API key)
+  - Updated Step 7 from "Deploy and Test" to "Run Your Agent" with streamlined setup
+- **Hello World Weather Template**: Simplified template to match minimal tutorial scope
+  - Removed container runtime configuration (no containers needed for basic tutorial)
+  - Removed safety controls (approval, execution_control) - not relevant for simple weather queries
+  - Removed execution infrastructure (EPICS, Jupyter modes, python_executor) - production features only
+  - Template system now conditionally generates config sections based on template type
+  - Services directory no longer created for hello_world_weather template
+  - Generated config.yml now contains only essential sections: project identity, models, API providers, logging
+  - Updated template README with streamlined setup instructions and accurate time estimate
+  - Test coverage ensures hello_world_weather stays minimal (no production features)
+- **Environment Template**: Updated `env.example` with clearer API key guidance
+  - Fixed typo: `ANTHROPIC_API_KEY_o` → `ANTHROPIC_API_KEY`
+  - Reordered to prioritize Anthropic (recommended) while showing institutional alternatives
+  - Added helpful comments about provider flexibility
+- **Configuration System**: Enhanced to handle missing configuration sections gracefully
+  - Added `_get_approval_config()` with sensible defaults for tutorial environments
+  - Added `_get_execution_config()` with local Python execution defaults
+  - Removed strict validation in approval_manager that required all sections to be present
+  - Enables minimal templates (like hello_world_weather) to work without production-only config sections
+  - Provides helpful warnings when using framework defaults instead of explicit configuration
+- **Control Assistant Part 3 Documentation**: Improved classification phase explanation
+  - Added concrete list of all 6 capabilities (3 framework + 3 application) with file locations
+  - Clarified why classification matters: reduces orchestrator context for better latency and accuracy
+  - Provided specific YES/NO classification examples for each capability
+- **Documentation Build Instructions**: Updated installation.rst to use modern `pip install -e ".[docs]"` workflow
+  - Replaced deprecated `pip install -r docs/requirements.txt` approach
+  - Uses optional dependencies from pyproject.toml for cleaner package management
+- **Dependencies**: Moved `pandas` and `numpy` from optional `scientific` dependencies to base requirements
+  - Required by archiver connectors which return pandas DataFrames for time-series data
+  - Needed for MongoDB connector support
+  - Fixes initialization error when running tutorials from scratch without manual pandas installation
+  - `scientific` extra now includes only scipy, matplotlib, seaborn, scikit-learn, and ipywidgets
 - **Provider API Key Metadata**: Established providers as single source of truth for API key acquisition information
   - Added `api_key_url`, `api_key_instructions`, and `api_key_note` fields to `BaseProvider`
   - Updated all provider implementations (Anthropic, OpenAI, Google, CBorg, Ollama) with verified metadata
@@ -23,6 +140,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Updated documentation examples across 6 files
 
 ### Fixed
+- **Anthropic Provider Structured Outputs**: Fixed task extraction failures when using Claude Haiku
+  - Added structured output support for all Anthropic models (Haiku, Sonnet, Opus)
+  - Uses native `response_format` API for Sonnet 4.5 and Opus 4.1 models
+  - Falls back to prompt-based JSON extraction for Haiku and older models
+  - Resolves `'str' object has no attribute 'task'` error in task extraction
+- **Google Provider Structured Outputs**: Added structured output support for Google Gemini models
+  - Implements prompt-based JSON extraction with schema validation
+  - Fixed health check to use adequate token budget (100 tokens) for models with thinking capabilities
+  - Added proper error handling when model uses all tokens for thinking with no output
+  - Updated available models list to only include working Gemini 2.5 models (pro, flash, flash-lite)
+- **Test Suite**: Updated tests to reflect runtime helper daemon verification improvements (commit 6bf0a1d)
+  - Fixed 13 runtime helper tests to expect both compose version and ps daemon checks
+  - Fixed 6 connector factory tests with proper registration fixture
+  - Removed 4 deprecated wind_turbine template tests
+  - All 189 tests now passing
+  - Removed Gemini 1.5 models that are not available in current API version
+  - Ensures consistent behavior across all LLM providers
+- **Jinja2 Template Syntax**: Fixed invalid `.get('KEY')` method calls in Jinja2 templates
+  - Replaced `env.get('CBORG_API_KEY')` with `env.CBORG_API_KEY` in conditionals
+  - Fixed `env.get('TZ', 'default')` to use proper Jinja2 filter syntax: `env.TZ | default('default')`
+  - Affects `project/README.md.j2` and `project/env.j2` templates
+  - Resolves "expected token 'end of print statement', got ':'" error during project creation
+- **Hello World Tutorial**: Fixed project naming inconsistencies (`weather-demo` → `weather-agent` to match template output)
 - **Container Path Resolution**: Fixed database and file paths in containerized deployments
   - Deployment system now automatically adjusts `src/` paths to `repo_src/` (or `/pipelines/repo_src/` for pipelines service) in container configs
   - Fixes channel finder database loading and other file-based resources in containers
@@ -39,6 +179,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Critical fix for models that require more tokens to generate complete JSON structures
   - Previously caused "yes" responses to be rejected due to incomplete structured output
   - Ensures reliable approval parsing across all supported models
+- **Control Assistant Tutorial Documentation**: Fixed project structure tree and file path inconsistencies
+  - Part 1: Removed non-existent `mock_control_system/` and `mock_archiver/` directories (they're in framework, not project)
+  - Part 1: Added missing files that are actually generated: `address_list.csv`, benchmark datasets, `llm_channel_namer.py`, `data/README.md`
+  - Part 2: Fixed incorrect database output path (`data/processed/` → `data/channel_databases/`)
+  - Part 2: Added `CSV_EXAMPLE.csv` reference and clarified distinction between format reference and real UCSB FEL data
+  - Documentation now accurately reflects actual generated project structure
 - **Environment Variable Substitution**: Added support for bash-style default value syntax `${VAR:-default}`
   - Previously only supported simple `${VAR}` and `$VAR` forms
   - Now properly resolves environment variables with fallback defaults
@@ -469,7 +615,7 @@ git remote set-url origin https://github.com/als-apg/osprey.git
 ### Removed
 - **Deprecated Code Cleanup**
   - Deleted `src/framework/interfaces/openwebui/` (deprecated interface implementation)
-  - Deleted `docs/ressources/other/EXECUTION_POLICY_SYSTEM.md` (outdated design document)
+  - Deleted `docs/resources/other/EXECUTION_POLICY_SYSTEM.md` (outdated design document)
 
 ### Documentation
 - **Provider Registry Documentation** - Comprehensive documentation for new system

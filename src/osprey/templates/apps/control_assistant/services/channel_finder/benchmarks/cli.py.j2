@@ -1,0 +1,307 @@
+#!/usr/bin/env python
+"""
+Benchmark CLI for {{ app_display_name }}
+
+Runs channel finder benchmarks to evaluate performance and accuracy.
+Supports multiple datasets and provides detailed metrics.
+
+Usage:
+    python -m {{ package_name }}.services.channel_finder.benchmarks.cli
+    python -m {{ package_name }}.services.channel_finder.benchmarks.cli --dataset basic_queries
+    python -m {{ package_name }}.services.channel_finder.benchmarks.cli --queries 0:10
+"""
+
+import asyncio
+import sys
+import argparse
+import logging
+from pathlib import Path
+from datetime import datetime
+
+from .runner import BenchmarkRunner
+from ..utils.config import get_config
+from osprey.cli.styles import console, Messages, Styles
+from rich.panel import Panel
+from rich.table import Table
+
+
+def parse_query_selection(query_arg: str):
+    """Parse query selection argument.
+
+    Args:
+        query_arg: Query selection string
+            - "all": All queries
+            - "0:10": Range from 0 to 10
+            - "0,5,10": Specific indices
+
+    Returns:
+        Query selection in format expected by config
+    """
+    if query_arg.lower() == "all":
+        return "all"
+
+    # Check for range (e.g., "0:10")
+    if ":" in query_arg:
+        parts = query_arg.split(":")
+        if len(parts) == 2:
+            try:
+                start = int(parts[0])
+                end = int(parts[1])
+                return {"start": start, "end": end}
+            except ValueError:
+                raise ValueError(f"Invalid range format: {query_arg}. Expected format: 'start:end'")
+
+    # Check for comma-separated indices (e.g., "0,5,10")
+    if "," in query_arg:
+        try:
+            indices = [int(x.strip()) for x in query_arg.split(",")]
+            return indices
+        except ValueError:
+            raise ValueError(f"Invalid index list: {query_arg}. Expected format: '0,5,10'")
+
+    # Single index
+    try:
+        return [int(query_arg)]
+    except ValueError:
+        raise ValueError(f"Invalid query selection: {query_arg}")
+
+
+def create_config_override(
+    queries: str = None,
+    model: str = None,
+    dataset: str = None
+):
+    """Apply CLI argument overrides to config."""
+    config = get_config()
+
+    # Override query selection
+    if queries is not None:
+        if 'benchmark' not in config['channel_finder']:
+            config['channel_finder']['benchmark'] = {}
+        if 'execution' not in config['channel_finder']['benchmark']:
+            config['channel_finder']['benchmark']['execution'] = {}
+        config['channel_finder']['benchmark']['execution']['query_selection'] = parse_query_selection(queries)
+
+    # Override model settings
+    if model is not None:
+        if 'model' not in config:
+            config['model'] = {}
+        config['model']['model_id'] = model
+
+    # Override benchmark dataset
+    if dataset is not None:
+        # Override the dataset_path in the active pipeline's benchmark config
+        pipeline_mode = config['channel_finder']['pipeline_mode']
+        if 'pipelines' in config['channel_finder'] and pipeline_mode in config['channel_finder']['pipelines']:
+            if 'benchmark' not in config['channel_finder']['pipelines'][pipeline_mode]:
+                config['channel_finder']['pipelines'][pipeline_mode]['benchmark'] = {}
+            config['channel_finder']['pipelines'][pipeline_mode]['benchmark']['dataset_path'] = dataset
+
+
+async def run_benchmarks(
+    dataset: str = None,
+    queries: str = None,
+    model: str = None,
+    verbose: bool = False
+):
+    """
+    Run channel finder benchmarks.
+
+    Args:
+        dataset: Path to custom benchmark dataset (None = use pipeline default)
+        queries: Query selection (e.g., "0:10" or "0,5,10")
+        model: Override model configuration
+        verbose: Show detailed channel finder logs
+    """
+    # Configure logging level based on verbose flag
+    # Suppress INFO logs from channel finder by default
+    if not verbose:
+        logging.getLogger('{{ package_name }}').setLevel(logging.WARNING)
+        logging.getLogger('channel_finder').setLevel(logging.WARNING)
+
+    # Print banner
+    console.print()
+    console.print(
+        Panel(
+            "[bold]🎯 Channel Finder Benchmarking[/bold]\n"
+            f"[dim]{{ app_display_name }}[/dim]",
+            style=Styles.HEADER,
+            border_style=Styles.BORDER_ACCENT,
+            padding=(1, 2)
+        )
+    )
+    console.print()
+
+    # Apply config overrides from CLI arguments
+    try:
+        create_config_override(queries=queries, model=model, dataset=dataset)
+        console.print(f"  {Messages.success('Configuration loaded')}")
+    except Exception as e:
+        console.print(f"  {Messages.error(f'Failed to load configuration: {e}')}")
+        return 1
+
+    # Initialize benchmark runner (reads from config)
+    try:
+        runner = BenchmarkRunner()
+        console.print(f"  {Messages.success('Benchmark runner initialized')}")
+    except Exception as e:
+        console.print(f"  {Messages.error(f'Failed to initialize runner: {e}')}")
+        return 1
+
+    # Display configuration
+    config = get_config()
+    pipeline_mode = config.get('channel_finder', {}).get('pipeline_mode', 'unknown')
+
+    # Get benchmark dataset info
+    pipeline_config = config.get('channel_finder', {}).get('pipelines', {}).get(pipeline_mode, {})
+    benchmark_dataset = dataset or pipeline_config.get('benchmark', {}).get('dataset_path', 'Not configured')
+
+    # Create configuration table
+    config_table = Table(
+        show_header=False,
+        box=None,
+        padding=(0, 2),
+        show_edge=False
+    )
+    config_table.add_column("Setting", style=Styles.LABEL)
+    config_table.add_column("Value", style=Styles.VALUE)
+
+    config_table.add_row("Pipeline", pipeline_mode)
+    config_table.add_row("Dataset", benchmark_dataset)
+    if queries:
+        config_table.add_row("Queries", queries)
+    if model:
+        config_table.add_row("Model", model)
+
+    console.print()
+    console.print(
+        Panel(
+            config_table,
+            title="[bold]Configuration[/bold]",
+            border_style=Styles.BORDER,
+            padding=(0, 1)
+        )
+    )
+    console.print()
+
+    console.print(f"  [{Styles.INFO}]⏳ Running benchmarks...[/{Styles.INFO}]")
+    console.print()
+
+    # Run benchmarks
+    try:
+        start_time = datetime.now()
+
+        # Run all enabled datasets (filtered by config overrides above)
+        await runner.run_all_enabled_benchmarks()
+
+        elapsed = (datetime.now() - start_time).total_seconds()
+
+        # Create results table
+        results_table = Table(
+            show_header=False,
+            box=None,
+            padding=(0, 2),
+            show_edge=False
+        )
+        results_table.add_column("Metric", style=Styles.LABEL)
+        results_table.add_column("Value", style=Styles.VALUE)
+
+        results_table.add_row("⏱️  Total time", f"{elapsed:.2f}s")
+        results_table.add_row("📁 Results location", f"src/{{ package_name }}/data/benchmarks/results/")
+
+        # Display completion message
+        console.print()
+        console.print(
+            Panel(
+                results_table,
+                title="[bold]✅ Benchmarks Complete[/bold]",
+                border_style=Styles.SUCCESS,
+                padding=(0, 1)
+            )
+        )
+        console.print()
+        console.print(f"  [{Styles.INFO}]ℹ️  Check the output files for detailed metrics and results[/{Styles.INFO}]")
+        console.print()
+
+        return 0
+
+    except KeyboardInterrupt:
+        console.print()
+        console.print(f"  {Messages.warning('Benchmark interrupted by user')}")
+        console.print()
+        return 130
+    except Exception as e:
+        console.print()
+        console.print(f"  {Messages.error(f'Benchmark failed: {e}')}")
+        import traceback
+        console.print(f"\n[{Styles.DIM}]{traceback.format_exc()}[/{Styles.DIM}]")
+        console.print()
+        return 1
+
+
+def main():
+    """Main entry point for benchmark runner."""
+    parser = argparse.ArgumentParser(
+        description="Run channel finder benchmarks",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Run benchmark for active pipeline (uses dataset from config)
+  python -m {{ package_name }}.services.channel_finder.benchmarks.cli
+
+  # Run first 10 queries only
+  python -m {{ package_name }}.services.channel_finder.benchmarks.cli --queries 0:10
+
+  # Run specific queries
+  python -m {{ package_name }}.services.channel_finder.benchmarks.cli --queries 0,5,10,15
+
+  # Use custom benchmark dataset file
+  python -m {{ package_name }}.services.channel_finder.benchmarks.cli --dataset src/{{ package_name }}/data/benchmarks/datasets/my_custom.json
+
+  # Use different model
+  python -m {{ package_name }}.services.channel_finder.benchmarks.cli --model anthropic/claude-sonnet
+
+  # Show detailed channel finder logs
+  python -m {{ package_name }}.services.channel_finder.benchmarks.cli --verbose
+
+  # Note: Pipeline mode is set in config.yml (channel_finder.pipeline_mode)
+  # The appropriate benchmark dataset is automatically selected based on pipeline mode
+        """
+    )
+
+    parser.add_argument(
+        '--dataset',
+        type=str,
+        help='Path to custom benchmark dataset JSON file (overrides pipeline default)'
+    )
+    parser.add_argument(
+        '--queries',
+        type=str,
+        help='Query selection (e.g., "0:10" or "0,5,10")'
+    )
+    parser.add_argument(
+        '--model',
+        type=str,
+        help='Override model configuration (e.g., anthropic/claude-sonnet)'
+    )
+    parser.add_argument(
+        '--verbose',
+        action='store_true',
+        help='Show detailed channel finder logs (navigation steps, etc.)'
+    )
+
+    args = parser.parse_args()
+
+    # Run benchmarks
+    exit_code = asyncio.run(run_benchmarks(
+        dataset=args.dataset,
+        queries=args.queries,
+        model=args.model,
+        verbose=args.verbose
+    ))
+
+    sys.exit(exit_code)
+
+
+if __name__ == "__main__":
+    main()

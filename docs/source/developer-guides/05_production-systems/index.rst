@@ -12,21 +12,22 @@ Production Systems
    03_python-execution-service
    04_memory-storage-service
    05_container-and-deployment
+   06_control-system-integration
 
 .. dropdown:: What You'll Learn
    :color: primary
    :icon: book
 
    **Enterprise-Grade Production Architecture:**
-   
+
    - LangGraph-native approval workflows with configurable security policies
-   - Multi-source data integration through provider framework patterns  
+   - Multi-source data integration through provider framework patterns
    - Container-isolated Python execution with security analysis and EPICS integration
    - Persistent memory storage with cross-session context preservation
    - Complete container management and service orchestration for scalable deployment
 
    **Prerequisites:** Solid understanding of Infrastructure Components and production deployment concepts
-   
+
    **Target Audience:** DevOps engineers, system administrators, and architects deploying agentic systems in production environments
 
 The Osprey Framework offers enterprise-grade infrastructure components designed for secure and scalable deployment of agentic systems. These production-ready systems ensure human oversight, data integration, secure execution, and orchestration capabilities essential for high-stakes environments. By implementing a Security-First, Approval-Centric Architecture, the framework delivers robust capabilities while maintaining the flexibility needed for diverse deployment scenarios.
@@ -43,7 +44,7 @@ Core Production Components
       :class-header: bg-danger text-white
       :class-body: text-center
       :shadow: md
-      
+
       LangGraph-native interrupts with configurable policies, rich context, and fail-secure defaults for production environments.
 
    .. grid-item-card:: 🔗 Data Source Integration
@@ -52,11 +53,8 @@ Core Production Components
       :class-header: bg-info text-white
       :class-body: text-center
       :shadow: md
-      
-      Data retrieval from multiple sources with provider framework and intelligent discovery mechanisms.
 
-.. grid:: 1 1 3 3
-   :gutter: 3
+      Data retrieval from multiple sources with provider framework and intelligent discovery mechanisms.
 
    .. grid-item-card:: 🐍 Python Execution Service
       :link: 03_python-execution-service
@@ -64,7 +62,7 @@ Core Production Components
       :class-header: bg-warning text-white
       :class-body: text-center
       :shadow: md
-      
+
       Container and local execution with security analysis, Jupyter integration, and approval workflows.
 
    .. grid-item-card:: 🧠 Memory Storage Service
@@ -75,7 +73,7 @@ Core Production Components
       :shadow: md
 
       **Persistent User Memory**
-      
+
       File-based storage with framework integration and cross-session context preservation.
 
    .. grid-item-card:: 🚀 Container & Deployment
@@ -84,8 +82,17 @@ Core Production Components
       :class-header: bg-primary text-white
       :class-body: text-center
       :shadow: md
-      
+
       Complete container management with template rendering and hierarchical service discovery.
+
+   .. grid-item-card:: 🎛️ Control System Integration
+      :link: 06_control-system-integration
+      :link-type: doc
+      :class-header: bg-secondary text-white
+      :class-body: text-center
+      :shadow: md
+
+      Pluggable connectors for control systems (EPICS, LabVIEW, Tango, Mock) for development and production deployment.
 
 Production Integration Patterns
 ===============================
@@ -100,13 +107,13 @@ Production Integration Patterns
 
          # Planning mode enables strategic oversight
          user_input = "/planning Analyze beam performance and adjust parameters"
-         
+
          # Orchestrator creates complete execution plan
          execution_plan = await create_execution_plan(
              task=current_task,
              capabilities=active_capabilities
          )
-         
+
          # Human approval of entire plan before execution
          interrupt_data = create_plan_approval_interrupt(
              execution_plan=execution_plan,
@@ -128,21 +135,21 @@ Production Integration Patterns
          # Security analysis determines approval requirements
          analyzer = StaticCodeAnalyzer(configurable)
          analysis = await analyzer.analyze_code(generated_code, context)
-         
+
          # Domain-specific approval policies
          approval_evaluator = get_python_execution_evaluator()
          decision = approval_evaluator.evaluate(
              has_epics_writes=analysis.has_epics_writes,
              has_epics_reads=analysis.has_epics_reads
          )
-         
+
          if decision.needs_approval:
              approval_result = await create_code_approval_interrupt(
                  code=generated_code,
                  analysis_details=analysis,
                  execution_mode=execution_mode
              )
-         
+
          # Container-isolated execution
          result = await execute_python_code_in_container(
              code=code,
@@ -165,7 +172,7 @@ Production Integration Patterns
          data_context = await data_manager.retrieve_all_context(
              DataSourceRequest(query=task.description)
          )
-         
+
          # Available to all capabilities automatically
          user_memory = data_context.get("core_user_memory")
          domain_data = data_context.get("custom_provider")
@@ -188,10 +195,10 @@ Production Integration Patterns
              "osprey.pipelines",
              "osprey.jupyter"
          ]
-         
+
          # Services are deployed through container_manager.py script
          # python container_manager.py config.yml up -d
-         
+
          # Service management through compose files
          for service_name in deployed_services:
              service_config, template_path = find_service_config(config, service_name)
@@ -199,7 +206,7 @@ Production Integration Patterns
                  compose_file = setup_build_dir(template_path, config, service_config)
 
       - **Hierarchical service discovery** through osprey.* and applications.* naming
-      - **Template-based configuration** for environment-specific deployments  
+      - **Template-based configuration** for environment-specific deployments
       - **Podman Compose orchestration** with multi-file support
 
    .. tab-item:: Memory Integration
@@ -208,7 +215,7 @@ Production Integration Patterns
 
       .. code-block:: python
 
-         # Memory-enhanced capability execution  
+         # Memory-enhanced capability execution
          @capability_node
          class DataAnalysisCapability(BaseCapability):
              async def execute(state: AgentState, **kwargs):
@@ -217,7 +224,7 @@ Production Integration Patterns
                  requester = DataSourceRequester("capability", "data_analysis")
                  request = create_data_source_request(state, requester)
                  retrieval_result = await data_manager.retrieve_all_context(request)
-                 
+
                  # Access memory context from data sources
                  user_memory_context = retrieval_result.context_data.get("core_user_memory")
                  if user_memory_context:

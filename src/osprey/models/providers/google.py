@@ -25,9 +25,9 @@ class GoogleProviderAdapter(BaseProvider):
     default_model_id = "gemini-2.5-flash"  # Latest Flash for general use
     health_check_model_id = "gemini-2.5-flash-lite"  # Cheapest/fastest for health checks
     available_models = [
-        "gemini-2.5-pro",
-        "gemini-2.5-flash",
-        "gemini-2.5-flash-lite"
+        "gemini-2.5-pro",           # Most capable Gemini 2.5 model
+        "gemini-2.5-flash",         # Fast and capable, good balance
+        "gemini-2.5-flash-lite"     # Fastest, most cost-effective
     ]
 
     # API key acquisition information
@@ -67,7 +67,7 @@ class GoogleProviderAdapter(BaseProvider):
         system_prompt: str | None = None,
         output_format: Any | None = None,
         **kwargs
-    ) -> str:
+    ) -> str | Any:
         """Execute Google Gemini chat completion with thinking support."""
         # Suppress Google library's INFO logs (AFC messages, etc.)
         import logging
@@ -91,6 +91,64 @@ class GoogleProviderAdapter(BaseProvider):
         if budget_tokens >= max_tokens:
             raise ValueError("budget_tokens must be less than max_tokens.")
 
+        # Handle structured output if requested
+        if output_format is not None:
+            import json
+            # Google doesn't have native structured outputs like OpenAI/Anthropic
+            # Use prompt-based approach
+            schema = output_format.model_json_schema()
+            structured_message = f"""{message}
+
+You must respond with valid JSON that matches this schema:
+{json.dumps(schema, indent=2)}
+
+Respond ONLY with the JSON object, no additional text or markdown formatting."""
+
+            response = client.models.generate_content(
+                model=model_id,
+                contents=[structured_message],
+                config=genai_types.GenerateContentConfig(
+                    **({"thinking_config": genai_types.ThinkingConfig(thinking_budget=budget_tokens)}),
+                    max_output_tokens=max_tokens
+                )
+            )
+
+            # Handle case where response.text is None
+            if response.text is None:
+                if response.candidates and response.candidates[0].finish_reason:
+                    finish_reason = str(response.candidates[0].finish_reason)
+                    raise ValueError(
+                        f"Google model produced no output for structured response. "
+                        f"Finish reason: {finish_reason}. Try increasing max_tokens (current: {max_tokens})"
+                    )
+                raise ValueError("Google model produced no output text for structured response")
+
+            response_text = response.text.strip()
+
+            # Clean up markdown code blocks if present
+            if response_text.startswith("```json"):
+                response_text = response_text[7:]  # Remove ```json
+            elif response_text.startswith("```"):
+                response_text = response_text[3:]  # Remove ```
+
+            if response_text.endswith("```"):
+                response_text = response_text[:-3]  # Remove trailing ```
+
+            response_text = response_text.strip()
+
+            # Parse and validate against the Pydantic model
+            try:
+                result = output_format.model_validate_json(response_text)
+
+                # Handle TypedDict conversion
+                is_typed_dict_output = kwargs.get("is_typed_dict_output", False)
+                if is_typed_dict_output and hasattr(result, 'model_dump'):
+                    return result.model_dump()
+                return result
+            except Exception as e:
+                raise ValueError(f"Failed to parse structured output from Google: {e}\nResponse: {response_text[:200]}") from e
+
+        # Regular text completion (no structured output)
         response = client.models.generate_content(
             model=model_id,
             contents=[message],
@@ -99,6 +157,16 @@ class GoogleProviderAdapter(BaseProvider):
                 max_output_tokens=max_tokens
             )
         )
+
+        # Handle case where response.text is None (all tokens used for thinking)
+        if response.text is None:
+            if response.candidates and response.candidates[0].finish_reason:
+                finish_reason = str(response.candidates[0].finish_reason)
+                raise ValueError(
+                    f"Google model produced no output. Finish reason: {finish_reason}. "
+                    f"Try increasing max_tokens (current: {max_tokens})"
+                )
+            raise ValueError("Google model produced no output text")
 
         return response.text
 
@@ -137,17 +205,22 @@ class GoogleProviderAdapter(BaseProvider):
                 # Restore original log level
                 google_logger.setLevel(original_level)
 
-            # Minimal test: 1 token in, 1 token out (~$0.0001 cost)
+            # Minimal test with sufficient tokens for thinking + response
+            # Note: Google models may use tokens for internal thinking, so we need
+            # a reasonable buffer even for simple queries (100 tokens = ~$0.0001)
             response = client.models.generate_content(
                 model=test_model,
                 contents=["Hi"],
                 config=genai_types.GenerateContentConfig(
-                    max_output_tokens=1
+                    max_output_tokens=100
                 )
             )
 
-            # If we got here, API key works
-            return True, "API accessible and authenticated"
+            # Check if we got a response (response.text may be None if all tokens used for thinking)
+            if response.text or response.candidates:
+                return True, "API accessible and authenticated"
+            else:
+                return False, "API responded but produced no output"
 
         except Exception as e:
             error_msg = str(e).lower()

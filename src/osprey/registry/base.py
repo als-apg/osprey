@@ -242,40 +242,70 @@ class DomainAnalyzerRegistration:
 
 @dataclass
 class FrameworkPromptProviderRegistration:
-    """Registration metadata for application-specific prompt providers.
+    """Registration metadata for prompt provider customization.
 
-    Defines the metadata required for dependency injection of application-specific
-    prompt builders. Uses the professional pattern of "start with defaults, override
-    specific components" - applications only declare what they want to customize,
-    everything else uses framework defaults.
+    Defines which prompt builders to override from framework defaults.
+    Uses the "selective override" pattern - only specify what you want to customize,
+    everything else uses framework defaults automatically.
 
-    :param application_name: Application identifier (e.g., 'als_assistant')
-    :type application_name: str
-    :param module_path: Python module path for lazy import
+    :param module_path: Python module path containing your custom builder classes
     :type module_path: str
-    :param description: Human-readable description of prompt provider
-    :type description: str
-    :param prompt_builders: Mapping of prompt types to override with custom builder classes
+    :param prompt_builders: Mapping of prompt types to your custom builder class names
     :type prompt_builders: dict[str, str]
+    :param application_name: (Deprecated) Application identifier - no longer used
+    :type application_name: str | None
+    :param description: (Deprecated) Human-readable description - no longer used
+    :type description: str | None
 
     Examples:
-        Basic application override::
+        Override task extraction only::
 
             FrameworkPromptProviderRegistration(
-                application_name="als_assistant",
-                module_path="applications.als_assistant.framework_prompts",
-                description="ALS-specific prompt customizations",
+                module_path="weather_agent.framework_prompts",
+                prompt_builders={
+                    "task_extraction": "WeatherTaskExtractionPromptBuilder"
+                }
+            )
+
+        Override multiple prompts::
+
+            FrameworkPromptProviderRegistration(
+                module_path="als_assistant.framework_prompts",
                 prompt_builders={
                     "orchestrator": "ALSOrchestratorPromptBuilder",
+                    "task_extraction": "ALSTaskExtractionPromptBuilder",
                     "memory_extraction": "ALSMemoryExtractionPromptBuilder"
-                    # time_range_parsing not listed = uses framework default
                 }
             )
     """
-    application_name: str  # Application identifier (e.g., "als_assistant")
-    module_path: str      # Module path for lazy loading (e.g., "applications.als_assistant.framework_prompts")
-    description: str
-    prompt_builders: dict[str, str] = field(default_factory=dict)  # prompt_type -> class_name mapping
+    module_path: str      # Module path containing custom builders
+    prompt_builders: dict[str, str] = field(default_factory=dict)  # prompt_type -> class_name
+
+    # Deprecated fields (kept for backward compatibility)
+    application_name: str | None = None
+    description: str | None = None
+
+    def __post_init__(self):
+        """Emit deprecation warnings for removed fields."""
+        import warnings
+
+        if self.application_name is not None:
+            warnings.warn(
+                "The 'application_name' parameter in FrameworkPromptProviderRegistration is deprecated "
+                "and will be removed in v0.10. It is no longer used by the framework. "
+                "Please remove it from your registry configuration.",
+                DeprecationWarning,
+                stacklevel=2
+            )
+
+        if self.description is not None:
+            warnings.warn(
+                "The 'description' parameter in FrameworkPromptProviderRegistration is deprecated "
+                "and will be removed in v0.10. It is no longer used by the framework. "
+                "Please remove it from your registry configuration.",
+                DeprecationWarning,
+                stacklevel=2
+            )
 
 @dataclass
 class ServiceRegistration:
@@ -341,6 +371,62 @@ class ProviderRegistration:
     class_name: str
 
 @dataclass
+class ConnectorRegistration:
+    """Registration metadata for control system and archiver connectors.
+
+    Defines the metadata required for lazy loading of connector classes.
+    Connectors are registered with the ConnectorFactory during registry
+    initialization, providing unified management of all framework components.
+
+    :param name: Unique connector name (e.g., 'epics', 'tango', 'mock')
+    :type name: str
+    :param connector_type: Type of connector ('control_system' or 'archiver')
+    :type connector_type: str
+    :param module_path: Python module path for lazy import
+    :type module_path: str
+    :param class_name: Connector class name within the module
+    :type class_name: str
+    :param description: Human-readable description
+    :type description: str
+
+    Examples:
+        Control system connector registration::
+
+            >>> ConnectorRegistration(
+            ...     name="labview",
+            ...     connector_type="control_system",
+            ...     module_path="my_app.connectors.labview_connector",
+            ...     class_name="LabVIEWConnector",
+            ...     description="LabVIEW Web Services connector for NI systems"
+            ... )
+
+        Archiver connector registration::
+
+            >>> ConnectorRegistration(
+            ...     name="custom_archiver",
+            ...     connector_type="archiver",
+            ...     module_path="my_app.connectors.custom_archiver",
+            ...     class_name="CustomArchiverConnector",
+            ...     description="Custom facility archiver connector"
+            ... )
+
+    .. note::
+       The connector classes are registered with ConnectorFactory during
+       registry initialization, enabling lazy loading while maintaining
+       the factory pattern for runtime connector creation.
+
+    .. seealso::
+       :class:`osprey.connectors.factory.ConnectorFactory` : Runtime connector factory
+       :class:`osprey.connectors.control_system.base.ControlSystemConnector` : Base class for control system connectors
+       :class:`osprey.connectors.archiver.base.ArchiverConnector` : Base class for archiver connectors
+    """
+    name: str
+    connector_type: str  # 'control_system' or 'archiver'
+    module_path: str
+    class_name: str
+    description: str
+
+@dataclass
 class RegistryConfig:
     """Complete registry configuration with all component metadata.
 
@@ -381,6 +467,8 @@ class RegistryConfig:
     :type framework_prompt_providers: list[FrameworkPromptProviderRegistration]
     :param providers: Registration entries for AI model providers (optional)
     :type providers: list[ProviderRegistration]
+    :param connectors: Registration entries for control system and archiver connectors (optional)
+    :type connectors: list[ConnectorRegistration]
     :param framework_exclusions: Framework component names to exclude by type (optional)
     :type framework_exclusions: dict[str, list[str]]
     :param initialization_order: Component type initialization sequence (optional)
@@ -398,6 +486,7 @@ class RegistryConfig:
     execution_policy_analyzers: list[ExecutionPolicyAnalyzerRegistration] = field(default_factory=list)
     framework_prompt_providers: list[FrameworkPromptProviderRegistration] = field(default_factory=list)
     providers: list[ProviderRegistration] = field(default_factory=list)
+    connectors: list[ConnectorRegistration] = field(default_factory=list)
     framework_exclusions: dict[str, list[str]] = field(default_factory=dict)
     initialization_order: list[str] = field(default_factory=lambda: [
         "context_classes",
@@ -405,6 +494,7 @@ class RegistryConfig:
         "domain_analyzers",
         "execution_policy_analyzers",
         "providers",
+        "connectors",
         "capabilities",
         "framework_prompt_providers",
         "core_nodes",

@@ -38,26 +38,26 @@ else
     pip install osprey-framework>=0.8.0
 fi
 
-# Development mode override - install local framework AFTER everything else
-if [ "$DEV_MODE" = "true" ] && [ -d "/jupyter/framework_override" ]; then
-    echo "🔧 Development mode: Overriding framework with local version..."
-    
+# Development mode override - install local osprey AFTER everything else
+if [ "$DEV_MODE" = "true" ] && [ -d "/jupyter/osprey_override" ]; then
+    echo "🔧 Development mode: Overriding osprey with local version..."
+
     # Create a temporary setup.py for the override
-    cat > /jupyter/framework_override/setup.py << 'EOF'
+    cat > /jupyter/osprey_override/setup.py << 'EOF'
 from setuptools import setup, find_packages
 setup(
-    name="framework",
+    name="osprey",
     version="dev-override",
     packages=find_packages(),
     install_requires=[],  # Dependencies already installed from requirements.txt
 )
 EOF
-    
-    # Install the local framework (this will override the PyPI version)
-    pip install --no-cache-dir -e /jupyter/framework_override
-    echo "✓ Framework overridden with local development version"
+
+    # Install the local osprey (this will override the PyPI version)
+    pip install --no-cache-dir -e /jupyter/osprey_override
+    echo "✓ Osprey overridden with local development version"
 else
-    echo "📦 Using PyPI framework version"
+    echo "📦 Using PyPI osprey version"
 fi
 
 echo "Creating IPython default profile startup directory..."
@@ -78,4 +78,4 @@ chown -R jovyan:users /home/jovyan/work || echo "Warning: chown on work director
 
 echo "Starting jupyter Notebook server..."
 # Execute jupyterLab using the start-notebook.sh script with all necessary parameters
-exec /usr/local/bin/start-notebook.sh --notebook-dir=/home/jovyan/work --NotebookApp.token='' --NotebookApp.disable_check_xsrf=True --allow-root --port=8088 
+exec /usr/local/bin/start-notebook.sh --notebook-dir=/home/jovyan/work --NotebookApp.token='' --NotebookApp.disable_check_xsrf=True --allow-root --port=8088

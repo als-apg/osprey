@@ -1,0 +1,223 @@
+"""
+Context classes for {{ app_display_name }}.
+
+These Pydantic models define the data structures passed between capabilities.
+Based on production-validated patterns from the ALS Assistant.
+"""
+
+from pydantic import BaseModel
+from typing import List, Dict, Any, Optional, ClassVar
+from datetime import datetime
+from osprey.context import CapabilityContext
+
+
+class ChannelAddressesContext(CapabilityContext):
+    """
+    Framework context for channel finding capability results.
+    
+    This is the rich context object used throughout the framework for channel address data.
+    Based on ALS Assistant's PVAddresses pattern.
+    """
+    CONTEXT_TYPE: ClassVar[str] = "CHANNEL_ADDRESSES"
+    CONTEXT_CATEGORY: ClassVar[str] = "METADATA"
+    
+    channels: List[str]  # List of found channel addresses
+    description: str  # Description or additional information about the channels
+    
+    def get_access_details(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+        """Rich description for LLM consumption."""
+        key_ref = key_name if key_name else "key_name"
+        return {
+            "channels": self.channels,
+            "total_available": len(self.channels),
+            "comments": self.description,
+            "data_structure": "List of channel address strings",
+            "access_pattern": f"context.{self.CONTEXT_TYPE}.{key_ref}.channels",
+            "example_usage": f"context.{self.CONTEXT_TYPE}.{key_ref}.channels[0] gives '{self.channels[0] if self.channels else 'CHANNEL:NAME'}'",
+        }
+    
+    def get_summary(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+        """
+        FOR HUMAN DISPLAY: Create readable summary for UI/debugging.
+        Always customize for better user experience.
+        """
+        return {
+            "type": "Channel Addresses",
+            "total_channels": len(self.channels),
+            "channel_list": self.channels,
+            "description": self.description,
+        }
+
+
+class ChannelValue(BaseModel):
+    """Individual channel value data - simple nested structure for Pydantic."""
+    value: str
+    timestamp: datetime  # Pydantic handles datetime serialization automatically
+    units: str
+
+
+class ChannelValuesContext(CapabilityContext):
+    """
+    Result from channel value retrieval operation and context for downstream capabilities.
+    Based on ALS Assistant's PVValues pattern.
+    """
+    CONTEXT_TYPE: ClassVar[str] = "CHANNEL_VALUES"
+    CONTEXT_CATEGORY: ClassVar[str] = "COMPUTATIONAL_DATA"
+    
+    channel_values: Dict[str, ChannelValue]  # Clean structure - no DotDict needed
+    
+    @property
+    def channel_count(self) -> int:
+        """Number of channels retrieved."""
+        return len(self.channel_values)
+    
+    def get_access_details(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+        """Rich description for LLM consumption."""
+        channels_preview = list(self.channel_values.keys())[:3]
+        example_channel = channels_preview[0] if channels_preview else "SR:CURRENT:RB"
+        
+        # Get example value from the ChannelValue object
+        try:
+            example_value = self.channel_values[example_channel].value if example_channel in self.channel_values else '400.5'
+        except:
+            example_value = '400.5'
+        
+        key_ref = key_name if key_name else "key_name"
+        return {
+            "channel_count": self.channel_count,
+            "channels": channels_preview,
+            "data_structure": "Dict[channel_name -> ChannelValue] where ChannelValue has .value, .timestamp, .units fields - IMPORTANT: use bracket notation for channel names (due to special characters like colons), but dot notation for fields",
+            "access_pattern": f"context.{self.CONTEXT_TYPE}.{key_ref}.channel_values['CHANNEL_NAME'].value (NOT ['value'])",
+            "example_usage": f"context.{self.CONTEXT_TYPE}.{key_ref}.channel_values['{example_channel}'].value gives '{example_value}' (use .value not ['value'])",
+            "available_fields": ["value", "timestamp", "units"],
+        }
+    
+    def get_summary(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+        """
+        FOR HUMAN DISPLAY: Create readable summary for UI/debugging.
+        Always customize for better user experience.
+        """
+        channel_data = {}
+        for channel_name, channel_info in self.channel_values.items():
+            channel_data[channel_name] = {
+                "value": channel_info.value,
+                "timestamp": channel_info.timestamp,
+                "units": channel_info.units
+            }
+        
+        return {
+            "type": "Channel Values",
+            "channel_data": channel_data,
+        }
+
+
+class ArchiverDataContext(CapabilityContext):
+    """
+    Structured context for archiver data capability results.
+    
+    This stores archiver data with datetime objects for full datetime functionality and consistency.
+    Based on ALS Assistant's ArchiverDataContext pattern with downsampling support.
+    """
+    CONTEXT_TYPE: ClassVar[str] = "ARCHIVER_DATA"
+    CONTEXT_CATEGORY: ClassVar[str] = "COMPUTATIONAL_DATA"
+    
+    timestamps: List[datetime]  # List of datetime objects for full datetime functionality
+    precision_ms: int  # Data precision in milliseconds
+    time_series_data: Dict[str, List[float]]  # Channel name -> time series values (aligned with timestamps)
+    available_channels: List[str]  # List of available channel names for intuitive filtering
+    
+    def get_access_details(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+        """Rich description of the archiver data structure."""
+        total_points = len(self.timestamps)
+        
+        # Get example channel for demo purposes
+        example_channel = self.available_channels[0] if self.available_channels else "SR:CURRENT:RB"
+        example_value = self.time_series_data[example_channel][0] if self.available_channels and self.time_series_data.get(example_channel) else 100.5
+        
+        key_ref = key_name if key_name else "key_name"
+        start_time = self.timestamps[0]
+        end_time = self.timestamps[-1]
+        duration = end_time - start_time
+        
+        return {
+            "total_points": total_points,
+            "precision_ms": self.precision_ms,
+            "channel_count": len(self.available_channels),
+            "available_channels": self.available_channels,
+            "time_info": f"Data spans from {start_time} to {end_time} (duration: {duration})",
+            "data_structure": "4 attributes: timestamps (list of datetime objects), precision_ms (int), time_series_data (dict of channel_name -> list of float values), available_channels (list of channel names)",
+            "CRITICAL_ACCESS_PATTERNS": {
+                "get_channel_names": f"channel_names = context.{self.CONTEXT_TYPE}.{key_ref}.available_channels",
+                "get_channel_data": f"data = context.{self.CONTEXT_TYPE}.{key_ref}.time_series_data['CHANNEL_NAME']",
+                "get_timestamps": f"timestamps = context.{self.CONTEXT_TYPE}.{key_ref}.timestamps",
+                "get_single_value": f"value = context.{self.CONTEXT_TYPE}.{key_ref}.time_series_data['CHANNEL_NAME'][index]",
+                "get_time_at_index": f"time = context.{self.CONTEXT_TYPE}.{key_ref}.timestamps[index]"
+            },
+            "example_usage": f"context.{self.CONTEXT_TYPE}.{key_ref}.time_series_data['{example_channel}'][0] gives {example_value}, context.{self.CONTEXT_TYPE}.{key_ref}.timestamps[0] gives datetime object",
+            "datetime_features": "Full datetime functionality: arithmetic, comparison, formatting with .strftime(), timezone operations"
+        }
+    
+    def get_summary(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+        """
+        FOR HUMAN DISPLAY: Format data for response generation.
+        Downsamples large datasets to prevent context window overflow.
+        """
+        max_samples = 10
+        
+        try:
+            total_points = len(self.timestamps)
+            
+            # Create sample indices (start, middle, end)
+            if total_points <= max_samples:
+                sample_indices = list(range(total_points))
+            else:
+                # Include start, end, and evenly distributed middle points
+                step = max(1, total_points // (max_samples - 2))
+                sample_indices = [0] + list(range(step, total_points - 1, step))[:max_samples-2] + [total_points - 1]
+                sample_indices = sorted(list(set(sample_indices)))  # Remove duplicates and sort
+            
+            # Sample timestamps
+            sample_timestamps = [self.timestamps[i] for i in sample_indices]
+            
+            # Sample channel data
+            channel_summary = {}
+            for channel_name, values in self.time_series_data.items():
+                sample_values = [values[i] for i in sample_indices]
+                
+                channel_summary[channel_name] = {
+                    "sample_values": sample_values,
+                    "sample_timestamps": sample_timestamps,
+                    "statistics": {
+                        "total_points": len(values),
+                        "min_value": min(values),
+                        "max_value": max(values),
+                        "first_value": values[0],
+                        "last_value": values[-1],
+                        "mean_value": sum(values) / len(values)
+                    }
+                }
+            
+            return {
+                "WARNING": "🚨 THIS IS DOWNSAMPLED ARCHIVER DATA - DO NOT USE FOR FINAL NUMERICAL ANSWERS! 🚨",
+                "guidance": "For accurate analysis results, use ANALYSIS_RESULTS context instead of raw archiver data",
+                "data_info": {
+                    "total_points": total_points,
+                    "precision_ms": self.precision_ms,
+                    "time_range": {
+                        "start": self.timestamps[0] if self.timestamps else None,
+                        "end": self.timestamps[-1] if self.timestamps else None
+                    },
+                    "downsampling_info": f"Showing {len(sample_indices)} sample points out of {total_points} total points"
+                },
+                "channel_data": channel_summary,
+                "IMPORTANT_NOTE": "Use this only for understanding data structure. For analysis results, request ANALYSIS_RESULTS context."
+            }
+            
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error downsampling archiver data: {e}")
+            return {
+                "ERROR": f"Failed to downsample archiver data: {str(e)}",
+                "WARNING": "Could not process archiver data - use ANALYSIS_RESULTS instead"
+            }

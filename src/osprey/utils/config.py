@@ -209,6 +209,107 @@ class ConfigBuilder:
         logger.info(f"Loaded configuration from {self.config_path}")
         return config
 
+    def _get_approval_config(self) -> dict[str, Any]:
+        """Get approval configuration with sensible defaults.
+
+        Returns approval configuration from config.yml if present, otherwise provides
+        secure defaults suitable for tutorial and development environments.
+
+        Returns:
+            dict: Approval configuration with global_mode and capabilities sections
+        """
+        # Try to get approval config from file
+        approval_config = self.get('approval', None)
+
+        # If approval section exists and has content, use it
+        if approval_config:
+            return approval_config
+
+        # Otherwise, provide sensible defaults for tutorial/development mode
+        logger.warning("⚠️  'approval' section missing from config.yml, using framework defaults")
+        logger.warning("⚠️  For production use, please add an 'approval' section to your config.yml")
+
+        # Sensible defaults for tutorial/development environments
+        return {
+            'global_mode': 'selective',
+            'capabilities': {
+                'python_execution': {
+                    'enabled': True,
+                    'mode': 'epics_writes'
+                },
+                'memory': {
+                    'enabled': True
+                }
+            }
+        }
+
+    def _get_execution_config(self) -> dict[str, Any]:
+        """Get execution configuration with sensible defaults.
+
+        Returns execution configuration from config.yml if present, otherwise provides
+        defaults suitable for local Python execution in tutorial environments.
+
+        Returns:
+            dict: Execution configuration including method, python_env_path, and modes
+        """
+        # Try to get execution config from file
+        execution_config = self.get('execution', None)
+
+        # If execution section exists and has content, use it
+        if execution_config:
+            return execution_config
+
+        # Otherwise, provide sensible defaults for tutorial/development mode
+        logger.warning("⚠️  'execution' section missing from config.yml, using framework defaults")
+        logger.warning("⚠️  Using local Python execution (no container/Jupyter support)")
+
+        # Import here to avoid circular dependencies
+        import sys
+
+        # Sensible defaults for tutorial environments (local execution only)
+        return {
+            'execution_method': 'local',
+            'python_env_path': sys.executable,  # Use current Python interpreter
+            'modes': {
+                'read_only': {
+                    'kernel_name': 'python3-readonly',
+                    'gateway': 'read_only',
+                    'allows_writes': False,
+                    'environment': {}
+                },
+                'write_access': {
+                    'kernel_name': 'python3-write',
+                    'gateway': 'write_access',
+                    'allows_writes': True,
+                    'requires_approval': True,
+                    'environment': {}
+                }
+            }
+        }
+
+    def _get_python_executor_config(self) -> dict[str, Any]:
+        """Get python executor configuration with sensible defaults.
+
+        Returns python_executor configuration from config.yml if present, otherwise
+        provides reasonable defaults for retry and timeout settings.
+
+        Returns:
+            dict: Python executor configuration with retry and timeout settings
+        """
+        # Try to get python_executor config from file
+        python_executor_config = self.get('python_executor', None)
+
+        # If python_executor section exists and has content, use it
+        if python_executor_config:
+            return python_executor_config
+
+        # Otherwise, provide sensible defaults
+        return {
+            'max_generation_retries': 3,
+            'max_execution_retries': 3,
+            'execution_timeout_seconds': 600
+        }
+
     def _build_configurable(self) -> dict[str, Any]:
         """Build the configurable dictionary with pre-computed nested structures."""
         configurable = {
@@ -232,8 +333,8 @@ class ConfigBuilder:
 
             # ===== FRAMEWORK EXECUTION CONFIGURATION =====
             # Python execution settings and executor service configuration
-            "execution": self.get('execution', {}),
-            "python_executor": self.get('python_executor', {}),
+            "execution": self._get_execution_config(),
+            "python_executor": self._get_python_executor_config(),
 
             # ===== LOGGING CONFIGURATION =====
             "logging": self.get('logging', {}),
@@ -241,7 +342,7 @@ class ConfigBuilder:
             # ===== SIMPLE FLAT CONFIGS =====
             "development": self.get('development', {}),
             "epics_config": self.get('execution.epics', {}),
-            "approval_config": self.get('approval', {}),
+            "approval_config": self._get_approval_config(),
 
             # ===== PROJECT CONFIGURATION =====
             # Essential for absolute path resolution across deployment environments

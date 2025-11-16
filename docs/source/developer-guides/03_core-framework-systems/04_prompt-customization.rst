@@ -27,29 +27,29 @@ Here's a minimal example of creating a custom prompt provider:
 
    from osprey.prompts import FrameworkPromptBuilder, FrameworkPromptProvider
    from osprey.prompts.defaults import DefaultPromptProvider
-   
+
    class MyDomainPromptBuilder(FrameworkPromptBuilder):
        def get_role_definition(self) -> str:
            return "You are a domain-specific expert system."
-       
+
        def get_instructions(self) -> str:
            return "Provide analysis using domain-specific terminology."
-   
+
    class MyAppPromptProvider(FrameworkPromptProvider):
        def __init__(self):
            # Use custom builders for key prompts
            self._orchestrator = MyDomainPromptBuilder()
-           
+
            # Use framework defaults for others
            self._defaults = DefaultPromptProvider()
-       
+
        def get_orchestrator_prompt_builder(self):
            return self._orchestrator
-       
+
        def get_classification_prompt_builder(self):
            # Delegate to framework default
            return self._defaults.get_classification_prompt_builder()
-       
+
        # ... implement other required methods
 
 Development and Debugging
@@ -68,10 +68,10 @@ The debug system is controlled through the ``development.prompts`` configuration
      prompts:
        # Console output with detailed formatting and separators
        show_all: true
-       
+
        # File output to prompts directory for inspection
        print_all: true
-       
+
        # File naming strategy
        latest_only: false  # true: latest.md files, false: timestamped files
 
@@ -94,14 +94,14 @@ File Persistence
 When ``print_all: true`` is enabled, prompts are automatically saved to the configured ``prompts_dir`` with rich metadata headers:
 
 - **Timestamped files** (``latest_only: false``): Each prompt generation creates a new file with timestamp
-  
+
   - Format: ``{name}_{YYYYMMDD_HHMMSS}.md``
   - Use case: Track prompt evolution over time, compare versions, debug prompt changes
   - Example: ``orchestrator_system_20241215_143022.md``
 
 - **Latest files** (``latest_only: true``): Overwrites the previous version, keeping only current state
-  
-  - Format: ``{name}_latest.md``  
+
+  - Format: ``{name}_latest.md``
   - Use case: Always see current prompt without file clutter
   - Example: ``orchestrator_system_latest.md``
 
@@ -142,7 +142,7 @@ Complete Provider Interface
          def get_orchestrator_prompt_builder(self) -> FrameworkPromptBuilder:
              """
              Return prompt builder for orchestration operations.
-             
+
              Used by the orchestrator node to create execution plans
              and coordinate capability execution sequences.
              """
@@ -156,7 +156,7 @@ Complete Provider Interface
          def get_task_extraction_prompt_builder(self) -> FrameworkPromptBuilder:
              """
              Return prompt builder for task extraction operations.
-             
+
              Used by task extraction node to parse user requests
              into structured, actionable tasks.
              """
@@ -170,7 +170,7 @@ Complete Provider Interface
          def get_classification_prompt_builder(self) -> FrameworkPromptBuilder:
              """
              Return prompt builder for classification operations.
-             
+
              Used by classification node to determine which capabilities
              should handle specific user requests.
              """
@@ -184,7 +184,7 @@ Complete Provider Interface
          def get_response_generation_prompt_builder(self) -> FrameworkPromptBuilder:
              """
              Return prompt builder for response generation.
-             
+
              Used by response generation to format final answers
              using capability results and conversation context.
              """
@@ -198,7 +198,7 @@ Complete Provider Interface
          def get_error_analysis_prompt_builder(self) -> FrameworkPromptBuilder:
              """
              Return prompt builder for error analysis operations.
-             
+
              Used by error handling system to classify errors
              and determine recovery strategies.
              """
@@ -212,7 +212,7 @@ Complete Provider Interface
          def get_clarification_prompt_builder(self) -> FrameworkPromptBuilder:
              """
              Return prompt builder for clarification requests.
-             
+
              Used when the system needs additional information
              from users to complete tasks.
              """
@@ -226,7 +226,7 @@ Complete Provider Interface
          def get_memory_extraction_prompt_builder(self) -> FrameworkPromptBuilder:
              """
              Return prompt builder for memory extraction operations.
-             
+
              Used by memory capability to extract and store
              relevant information from conversations.
              """
@@ -240,7 +240,7 @@ Complete Provider Interface
          def get_time_range_parsing_prompt_builder(self) -> FrameworkPromptBuilder:
              """
              Return prompt builder for time range parsing.
-             
+
              Used by time parsing capability to understand
              temporal references in user queries.
              """
@@ -254,7 +254,7 @@ Complete Provider Interface
          def get_python_prompt_builder(self) -> FrameworkPromptBuilder:
              """
              Return prompt builder for Python operations.
-             
+
              Used by Python capability for code generation,
              analysis, and execution guidance.
              """
@@ -327,7 +327,7 @@ Basic Registration
 
    from osprey.prompts.loader import register_framework_prompt_provider
    from applications.myapp.framework_prompts import MyAppPromptProvider
-   
+
    # During application initialization
    register_framework_prompt_provider("myapp", MyAppPromptProvider())
 
@@ -340,17 +340,14 @@ For automatic discovery, include prompt providers in your application registry:
 
    # In applications/myapp/registry.py
    from osprey.registry import RegistryConfig, FrameworkPromptProviderRegistration
-   
+
    class MyAppRegistryProvider(RegistryConfigProvider):
        def get_registry_config(self) -> RegistryConfig:
            return RegistryConfig(
                # ... other registrations
                framework_prompt_providers=[
                    FrameworkPromptProviderRegistration(
-                       application_name="myapp",
                        module_path="applications.myapp.framework_prompts",
-                       class_name="MyAppPromptProvider",
-                       description="Domain-specific prompt provider",
                        prompt_builders={
                            "orchestrator": "MyOrchestratorPromptBuilder",
                            "classification": "MyClassificationPromptBuilder"
@@ -371,11 +368,11 @@ For deployments with multiple applications, you can access specific providers:
 .. code-block:: python
 
    from osprey.prompts import get_framework_prompts
-   
+
    # Access specific application's prompts
    als_provider = get_framework_prompts("als_assistant")
-   wind_provider = get_framework_prompts("wind_turbine")
-   
+   assistant_provider = get_framework_prompts("control_assistant")
+
    # Use default provider (first registered)
    default_provider = get_framework_prompts()
 
@@ -387,16 +384,16 @@ Override only specific builders while inheriting others:
 .. code-block:: python
 
    from osprey.prompts.defaults import DefaultPromptProvider
-   
+
    class MyAppPromptProvider(DefaultPromptProvider):
        def __init__(self):
            super().__init__()
            # Override specific builders
            self._custom_orchestrator = MyOrchestratorPromptBuilder()
-       
+
        def get_orchestrator_prompt_builder(self):
            return self._custom_orchestrator
-       
+
        # All other methods inherited from DefaultPromptProvider
 
 Testing Strategies
@@ -408,11 +405,11 @@ Test your custom prompts in isolation:
 
    def test_custom_orchestrator_prompt():
        builder = MyOrchestratorPromptBuilder()
-       
+
        # Test role definition
        role = builder.get_role_definition()
        assert "domain-specific" in role.lower()
-       
+
        # Test full prompt generation
        system_prompt = builder.get_system_instructions(
            capabilities=["test_capability"],
@@ -424,9 +421,9 @@ Test your custom prompts in isolation:
 
    :doc:`../../api_reference/01_core_framework/05_prompt_management`
        API reference for prompt system classes and functions
-   
+
    :doc:`03_registry-and-discovery`
        Component registration and discovery patterns
-   
+
    :doc:`../01_understanding-the-framework/02_convention-over-configuration`
        Framework conventions and patterns

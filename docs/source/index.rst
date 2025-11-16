@@ -4,10 +4,10 @@ Osprey Framework Documentation
 .. admonition:: 🚧 Early Access Documentation
    :class: warning
 
-   **Current Release**: |release| Early Access  
+   **Current Release**: |release| Early Access
 
-   This documentation is part of an early access release and is **under active development**.  
-   Many sections are still being written, edited, or reorganized.  
+   This documentation is part of an early access release and is **under active development**.
+   Many sections are still being written, edited, or reorganized.
    Expect **inconsistencies**, missing content, outdated references, and broken cross-links.
 
    We welcome feedback! If you find issues or have suggestions, please open an issue on our GitHub page.
@@ -27,7 +27,7 @@ Our framework provides a domain-agnostic architecture for safety-critical system
 
 1. :doc:`Task Extraction <developer-guides/04_infrastructure-components/02_task-extraction-system>` → Convert conversational context into structured, actionable objectives
 
-2. :doc:`Classification <developer-guides/04_infrastructure-components/03_classification-and-routing>` → Dynamically select relevant capabilities from your domain-specific toolkit 
+2. :doc:`Classification <developer-guides/04_infrastructure-components/03_classification-and-routing>` → Dynamically select relevant capabilities from your domain-specific toolkit
 
 3. :doc:`Orchestration <developer-guides/04_infrastructure-components/04_orchestrator-planning>` → Generate complete execution plans with explicit dependencies and human oversight
 
@@ -47,10 +47,11 @@ The framework provides:
 * **Orchestrator-First Design**: :doc:`Complete execution planning <developer-guides/04_infrastructure-components/04_orchestrator-planning>` prior to capability invocation, eliminating iterative tool-calling patterns
 * **Secure Python Execution**: :doc:`Containerized code generation and execution <developer-guides/05_production-systems/03_python-execution-service>` with static analysis, human approval, and flexible deployment environments
 * **Registry-Based Discovery**: :doc:`Convention-driven component loading <developer-guides/01_understanding-the-framework/02_convention-over-configuration>` enables seamless integration of capabilities, data sources, and services across applications
+* **Control System Abstraction**: :doc:`Pluggable connectors for control systems <developer-guides/05_production-systems/06_control-system-integration>` (EPICS, LabVIEW, Tango, Mock) enable development without hardware and seamless migration to production through configuration
 * **External Data Integration**: :doc:`Automatic retrieval from databases and knowledge bases <developer-guides/05_production-systems/02_data-source-integration>` during task understanding and capability execution for data-driven responses
 * **LangGraph Integration**: Native StateGraph workflows with :doc:`checkpoints, interrupts <developer-guides/01_understanding-the-framework/03_langgraph-integration>`, and :doc:`persistent state management <developer-guides/03_core-framework-systems/01_state-management-architecture>`
 * **Human-in-the-Loop Integration**: :ref:`Transparent execution plans <planning-mode-example>` with :doc:`approval workflows <developer-guides/05_production-systems/01_human-approval-workflows>` for high-stakes operational environments
-* **Domain Abstraction**: Framework patterns applicable across diverse infrastructure, from :doc:`simple agents <getting-started/hello-world-tutorial>` to complex :doc:`multi-capability systems <getting-started/build-your-first-agent>`
+* **Domain Abstraction**: Framework patterns applicable across diverse infrastructure, from :doc:`simple agents <getting-started/hello-world-tutorial>` to complex :doc:`production control systems <getting-started/control-assistant>`
 
 
 Documentation Structure
@@ -63,14 +64,14 @@ Documentation Structure
       :link: getting-started/index
       :link-type: doc
       :class-header: bg-primary text-white
-      
+
       Complete implementation guide from environment setup to production deployment, including tutorial applications.
 
    .. grid-item-card:: 🧠 Developer Guides
       :link: developer-guides/index
       :link-type: doc
       :class-header: bg-info text-white
-      
+
       Architectural concepts and implementation patterns for building sophisticated agentic systems.
 
 .. grid:: 1 1 3 3
@@ -80,21 +81,21 @@ Documentation Structure
       :link: api_reference/index
       :link-type: doc
       :class-header: bg-secondary text-white
-      
+
       Complete technical reference for all framework components and interfaces.
 
    .. grid-item-card:: 💡 Applications
       :link: example-applications/index
       :link-type: doc
       :class-header: bg-success text-white
-      
+
       Reference implementations demonstrating framework usage across different domains.
 
    .. grid-item-card:: 🤝 Contributing
       :link: contributing/index
       :link-type: doc
       :class-header: bg-warning text-white
-      
+
       Framework internals, development guidelines, and contribution workflows.
 .. dropdown:: Citation
    :color: primary
@@ -105,13 +106,13 @@ Documentation Structure
    .. code-block:: bibtex
 
       @misc{hellert2025osprey,
-            title={Osprey: A Scalable Framework for the Orchestration of Agentic Systems}, 
+            title={Osprey: A Scalable Framework for the Orchestration of Agentic Systems},
             author={Thorsten Hellert and João Montenegro and Antonin Sulc},
             year={2025},
             eprint={2508.15066},
             archivePrefix={arXiv},
             primaryClass={cs.MA},
-            url={https://arxiv.org/abs/2508.15066}, 
+            url={https://arxiv.org/abs/2508.15066},
       }
 
 .. toctree::

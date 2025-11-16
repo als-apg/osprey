@@ -1,0 +1,66 @@
+address,description,family_name,instances,sub_channel
+TerminalVoltageReadBack,Actual value of the terminal potential where electron gun and collector are located measured capacitively by the generating votmeter,,,
+TerminalVoltageSetValue,Set value of the terminal where electron gun and collector are located,,,
+GunPressure,Pressure inside gun located at the beginning of accelerating tube measured in Tor,,,
+CollectorPressure,Pressure inside collector located at the end of decelerating tube measured in Tor,,,
+IP41Pressure,"Pressure at IP41 ion pump located at the end of accelerating tube and beginning of beamline1 (beam transport), inside of tank, measured in Tor",,,
+IP78Pressure,Pressure at IP78 ion pump located in the middle of beamline1 (beam transport) measured in Tor,,,
+IP125Pressure,Pressure at IP125 ion pump located at the end of beamline1 (beam transport) measured in Tor,,,
+IP130DPressure,Pressure at IP130D ion pump located in the xray beamline (diagnostic branch) measured in Tor,,,
+IP149APressure,Pressure at IP149A ion pump located in the beginning of HFEL beamline (FEL output beamline) measured in Tor,,,
+IP149BPressure,Pressure at IP149B ion pump located in the beginning of FIR beamline (FEL output beamline) measured in Tor,,,
+IP149CPressure,Pressure at IP149C ion pump located in the beginning of MM FEL beamline (FEL output beamline) measured in Tor,,,
+IP186APressure,Pressure at IP186A ion pump located at the end of HFEL beamline (FEL output beamline) measured in Tor,,,
+IP186B,Pressure at IP186B ion pump located at the end of FIR beamline (FEL output beamline) measured in Tor,,,
+IP186C,Pressure at IP186C ion pump located at the end of MM beamline (FEL output beamline) measured in Tor,,,
+IP200,Pressure at IP200 ion pump located in beamline2 (beam transport return path) measured in Tor,,,
+IP231,"Pressure at IP231 ion pump located at the end of beamline2 (beam transport return path) and beginning of decelerating tube, inside of tank, measured in Tor",,,
+Terminal temperature,This is the temperature of the accelerator,,,
+RegulatingNeedlesSet,"Exposure distance of needles providing sink current for the terminal voltage regulation, set value",,,
+RegulatingNeedlesRB,"Exposure distance of needles providing sink current for the terminal voltage regulation, read back value",,,
+CoronaTriodCurrent,"Current flowing through needles controlled by corona triod - part of terminal voltage regulation, only read back value",,,
+FilamentCurrentSet,"Current of filament in the electron gun, set value",,,
+FilamentCurrentRB,"Current of filament in the electron gun, read back value",,,
+CapacitivePickup,"AC component of terminal voltage measure capacitively, only read back value - wavefrom from digitizer",,,
+CoronaTriodError,"Error signal fed to the corona triod grid, part of terminal voltage regulation, only read back value - waveform from digitizer",,,
+BeamPulseDuration,Length of electron beam pulse set in microseconds,,,
+GunVoltageSet,"Voltage of the electron gun in kV, set value",,,
+GunVoltageRB,"Voltage of the electron gun in kV, read back value",,,
+ChargingVoltageTopSet,"Value of high voltage power supply output charging pelletron chains inside of terminal, set value",,,
+ChargingVoltageTopRB,"Value of high voltage power supply output charging pelletron chains inside of terminal, read back value",,,
+ChargingCurrentBottomSet,"Value of high voltage power supply output charging pelletron chains at the bottom of the tank, set value",,,
+ChargingCurrentBottomRB,"Value of high voltage power supply output charging pelletron chains at the bottom of the tank, read back value",,,
+SX3Set,"Steering coil current tilting beam in X direction inside accelerating tube (top position, inside tank), set value",,,
+SX3RB,"Steering coil current tilting beam in X direction inside accelerating tube (top position, inside tank), read back value",,,
+SY3Set,"Steering coil current tilting beam in Y direction inside accelerating tube (top position, inside tank), set value",,,
+SY3RB,"Steering coil current tilting beam in Y direction inside accelerating tube (top position, inside tank), read back value",,,
+GridSet,"Grid voltage in electron gun, releasing beam current during the pulse, set value",,,
+GridRB,"Grid voltage in electron gun, releasing beam current during the pulse, read back value",,,
+ACPowerInTerminal,"AC power supply voltage generated in the terminal by the rotating generator (terminal power source), read back value",,,
+FansVoltage,"Voltage of fans cooling terminal electronics, only read back value",,,
+L39Set,"Focusing solenoid voltage inside of accelerating tube, set value",,,
+L39RB,"Focusing solenoid voltage inside of accelerating tube, read back value",,,
+SX40Set,"Steering coil current tilting beam in X direction inside accelerating tube (bottom position, inside tank), set value",,,
+SX40RB,"Steering coil current tilting beam in X direction inside accelerating tube (bottom position, inside tank), read back value",,,
+SY40Set,"Steering coil current tilting beam in Y direction inside accelerating tube (bottom position, inside tank), set value",,,
+SY40RB,"Steering coil current tilting beam in Y direction inside accelerating tube (bottom position, inside tank), read back value",,,
+L234Set,"Focusing solenoid voltage inside of decelerating tube, set value",,,
+L234RB,"Focusing solenoid voltage inside of decelerating tube, read back value",,,
+SX233Set,"Steering coil current tilting beam in X direction inside decelerating tube (bottom position, inside tank), set value",,,
+SX233RB,"Steering coil current tilting beam in X direction inside decelerating tube (bottom position, inside tank), read back value",,,
+SY233Set,"Steering coil current tilting beam in Y direction inside decelerating tube (bottom position, inside tank), set value",,,
+SY233RB,"Steering coil current tilting beam in Y direction inside decelerating tube (bottom position, inside tank), read back value",,,
+I_mtrs,Diagnostic current through grading resistor chain in decelerating tube (monitors voltage distribution health),,,
+Acc_I,Diagnostic current through grading resistor chain in accelerating tube (monitors voltage distribution health),,,
+DipoleMagnet{instance:02d}{sub_channel},Dipole magnets for beam bending - set point for magnet {instance},DipoleMagnet,9,SetPoint
+DipoleMagnet{instance:02d}{sub_channel},Dipole magnets for beam bending - readback for magnet {instance},DipoleMagnet,9,ReadBack
+QuadrupoleMagnet{instance:02d}{sub_channel},Quadrupole magnets for beam focusing - set point for magnet {instance},QuadrupoleMagnet,17,SetPoint
+QuadrupoleMagnet{instance:02d}{sub_channel},Quadrupole magnets for beam focusing - readback for magnet {instance},QuadrupoleMagnet,17,ReadBack
+SteeringCoil{instance:02d}{sub_channel},Steering coils for beam trajectory corrections - set point for coil {instance} X direction (horizontal),SteeringCoil,19,XSetPoint
+SteeringCoil{instance:02d}{sub_channel},Steering coils for beam trajectory corrections - readback for coil {instance} X direction (horizontal),SteeringCoil,19,XReadBack
+SteeringCoil{instance:02d}{sub_channel},Steering coils for beam trajectory corrections - set point for coil {instance} Y direction (vertical),SteeringCoil,19,YSetPoint
+SteeringCoil{instance:02d}{sub_channel},Steering coils for beam trajectory corrections - readback for coil {instance} Y direction (vertical),SteeringCoil,19,YReadBack
+ObservationScreen{instance:02d}{sub_channel},Observation screens for beam profile imaging - motor command for screen {instance} (in/out),ObservationScreen,23,Motor
+ObservationScreen{instance:02d}{sub_channel},Observation screens for beam profile imaging - motor readback for screen {instance} (in/out),ObservationScreen,23,MotorReadBack
+ObservationScreen{instance:02d}{sub_channel},Observation screens for beam profile imaging - camera image from screen {instance},ObservationScreen,23,Image
+CurrentMonitor{instance:02d}{sub_channel},Current monitors for non-destructive beam current measurement - waveform from monitor {instance},CurrentMonitor,5,Waveform

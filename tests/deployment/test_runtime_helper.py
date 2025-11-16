@@ -36,11 +36,10 @@ class TestGetRuntimeCommand:
 
         assert cmd == ['docker', 'compose']
         mock_which.assert_called_with('docker')
-        mock_run.assert_called_once_with(
-            ['docker', 'compose', 'version'],
-            capture_output=True,
-            timeout=5
-        )
+        # Should call compose version AND ps to verify daemon is running
+        assert mock_run.call_count == 2
+        assert mock_run.call_args_list[0][0][0] == ['docker', 'compose', 'version']
+        assert mock_run.call_args_list[1][0][0] == ['docker', 'ps']
 
     @patch('shutil.which')
     @patch('subprocess.run')
@@ -57,11 +56,10 @@ class TestGetRuntimeCommand:
         assert cmd == ['podman', 'compose']
         # Verify both runtimes were checked
         assert mock_which.call_count == 2
-        mock_run.assert_called_once_with(
-            ['podman', 'compose', 'version'],
-            capture_output=True,
-            timeout=5
-        )
+        # Should call compose version AND ps for podman
+        assert mock_run.call_count == 2
+        assert mock_run.call_args_list[0][0][0] == ['podman', 'compose', 'version']
+        assert mock_run.call_args_list[1][0][0] == ['podman', 'ps']
 
     @patch('shutil.which')
     @patch('subprocess.run')
@@ -76,11 +74,10 @@ class TestGetRuntimeCommand:
         assert cmd == ['docker', 'compose']
         # Should only check Docker (not Podman) since Docker succeeds first
         mock_which.assert_called_once_with('docker')
-        mock_run.assert_called_once_with(
-            ['docker', 'compose', 'version'],
-            capture_output=True,
-            timeout=5
-        )
+        # Should call compose version AND ps for docker
+        assert mock_run.call_count == 2
+        assert mock_run.call_args_list[0][0][0] == ['docker', 'compose', 'version']
+        assert mock_run.call_args_list[1][0][0] == ['docker', 'ps']
 
     @patch('shutil.which')
     def test_raise_error_when_no_runtime_available(self, mock_which):
@@ -178,9 +175,9 @@ class TestGetRuntimeCommand:
         cmd3 = get_runtime_command()
 
         assert cmd1 == cmd2 == cmd3 == ['docker', 'compose']
-        # Should only detect once
+        # Should only detect once (but makes 2 calls: compose version + ps check)
         mock_which.assert_called_once()
-        mock_run.assert_called_once()
+        assert mock_run.call_count == 2  # compose version + ps check on first call only
 
     @patch('shutil.which')
     @patch('subprocess.run')
@@ -203,13 +200,15 @@ class TestGetRuntimeCommand:
         mock_which.side_effect = lambda x: f'/usr/bin/{x}'
         mock_run.side_effect = [
             subprocess.TimeoutExpired(['docker', 'compose', 'version'], 5),
-            MagicMock(returncode=0)  # Podman succeeds
+            # Docker times out, move to Podman
+            MagicMock(returncode=0),  # Podman compose succeeds
+            MagicMock(returncode=0)   # Podman ps succeeds
         ]
 
         cmd = get_runtime_command()
 
         assert cmd == ['podman', 'compose']
-        assert mock_run.call_count == 2
+        assert mock_run.call_count == 3  # docker compose timeout + podman compose + podman ps
 
     @patch('shutil.which')
     @patch('subprocess.run')
@@ -218,13 +217,15 @@ class TestGetRuntimeCommand:
         mock_which.side_effect = lambda x: f'/usr/bin/{x}'
         mock_run.side_effect = [
             MagicMock(returncode=1),  # Docker compose fails
-            MagicMock(returncode=0)   # Podman succeeds
+            # Docker fails, move to Podman
+            MagicMock(returncode=0),  # Podman compose succeeds
+            MagicMock(returncode=0)   # Podman ps succeeds
         ]
 
         cmd = get_runtime_command()
 
         assert cmd == ['podman', 'compose']
-        assert mock_run.call_count == 2
+        assert mock_run.call_count == 3  # docker compose fail + podman compose + podman ps
 
     @patch('shutil.which')
     @patch('subprocess.run')
@@ -233,12 +234,15 @@ class TestGetRuntimeCommand:
         mock_which.side_effect = lambda x: f'/usr/bin/{x}'
         mock_run.side_effect = [
             FileNotFoundError("docker not found"),
-            MagicMock(returncode=0)  # Podman succeeds
+            # Docker fails, move to Podman
+            MagicMock(returncode=0),  # Podman compose succeeds
+            MagicMock(returncode=0)   # Podman ps succeeds
         ]
 
         cmd = get_runtime_command()
 
         assert cmd == ['podman', 'compose']
+        assert mock_run.call_count == 3  # docker error + podman compose + podman ps
 
     @patch('shutil.which')
     @patch('subprocess.run')
@@ -250,7 +254,8 @@ class TestGetRuntimeCommand:
         with pytest.raises(RuntimeError) as exc_info:
             get_runtime_command()
 
-        assert "No container runtime found" in str(exc_info.value)
+        # When compose succeeds but ps fails, it's considered "installed but not running"
+        assert "Container runtime installed but not running" in str(exc_info.value)
 
 
 class TestGetPsCommand:
@@ -316,9 +321,9 @@ class TestGetPsCommand:
 
         # All should use Docker
         assert cmd1[0] == cmd2[0] == cmd3[0] == 'docker'
-        # Runtime detection should only happen once (cached)
+        # Runtime detection should only happen once (cached), but makes 2 subprocess calls
         mock_which.assert_called_once()
-        mock_run.assert_called_once()
+        assert mock_run.call_count == 2  # compose version + ps check on first call only
 
 
 class TestVerifyRuntimeIsRunning:
@@ -329,11 +334,12 @@ class TestVerifyRuntimeIsRunning:
     def test_runtime_running_successfully(self, mock_run, mock_which):
         """Should return True when runtime is running."""
         mock_which.return_value = '/usr/bin/docker'
-        # First call for get_runtime_command (compose version)
-        # Second call for verify (ps command)
+        # get_runtime_command makes 2 calls (compose version + ps check)
+        # verify_runtime_is_running makes 1 call (ps command)
         mock_run.side_effect = [
             MagicMock(returncode=0),  # compose version
-            MagicMock(returncode=0, stderr="")  # ps command
+            MagicMock(returncode=0),  # ps check (get_runtime_command)
+            MagicMock(returncode=0, stderr="")  # ps command (verify)
         ]
 
         is_running, error_msg = verify_runtime_is_running()
@@ -348,10 +354,11 @@ class TestVerifyRuntimeIsRunning:
         mock_which.return_value = '/usr/bin/docker'
         mock_run.side_effect = [
             MagicMock(returncode=0),  # compose version
+            MagicMock(returncode=0),  # ps check (get_runtime_command)
             MagicMock(
                 returncode=1,
                 stderr="Cannot connect to the Docker daemon at unix:///var/run/docker.sock"
-            )
+            )  # ps command (verify) - fails
         ]
 
         with patch('platform.system', return_value='Darwin'):
@@ -369,10 +376,11 @@ class TestVerifyRuntimeIsRunning:
         mock_which.return_value = '/usr/bin/docker'
         mock_run.side_effect = [
             MagicMock(returncode=0),  # compose version
+            MagicMock(returncode=0),  # ps check (get_runtime_command)
             MagicMock(
                 returncode=1,
                 stderr="Cannot connect to the Docker daemon"
-            )
+            )  # ps command (verify) - fails
         ]
 
         with patch('platform.system', return_value='Linux'):
@@ -412,7 +420,8 @@ class TestVerifyRuntimeIsRunning:
         mock_which.return_value = '/usr/bin/docker'
         mock_run.side_effect = [
             MagicMock(returncode=0),  # compose version
-            subprocess.TimeoutExpired(['docker', 'ps'], 5)  # ps timeout
+            MagicMock(returncode=0),  # ps check (get_runtime_command)
+            subprocess.TimeoutExpired(['docker', 'ps'], 5)  # ps timeout (verify)
         ]
 
         is_running, error_msg = verify_runtime_is_running()
@@ -439,10 +448,10 @@ class TestDockerPodmanCompatibility:
         # Docker outputs one JSON object per line (NDJSON format)
         docker_output = '''{"ID":"abc123","Names":"container1","State":"running"}
 {"ID":"def456","Names":"container2","State":"exited"}'''
-        
+
         import json
         containers = []
-        
+
         # This is the parsing logic used in container_manager.py
         try:
             # Try parsing as JSON array first (Podman format)
@@ -452,7 +461,7 @@ class TestDockerPodmanCompatibility:
             for line in docker_output.strip().split('\n'):
                 if line.strip():
                     containers.append(json.loads(line))
-        
+
         assert len(containers) == 2
         assert containers[0]['ID'] == 'abc123'
         assert containers[1]['ID'] == 'def456'
@@ -461,10 +470,10 @@ class TestDockerPodmanCompatibility:
         """Test that Podman's JSON array format is handled correctly."""
         # Podman outputs a JSON array
         podman_output = '[{"ID":"abc123","Names":"container1","State":"running"},{"ID":"def456","Names":"container2","State":"exited"}]'
-        
+
         import json
         containers = []
-        
+
         # This is the parsing logic used in container_manager.py
         try:
             # Try parsing as JSON array first (Podman format)
@@ -474,7 +483,7 @@ class TestDockerPodmanCompatibility:
             for line in podman_output.strip().split('\n'):
                 if line.strip():
                     containers.append(json.loads(line))
-        
+
         assert len(containers) == 2
         assert containers[0]['ID'] == 'abc123'
         assert containers[1]['ID'] == 'def456'

@@ -6,7 +6,7 @@ Convention over Configuration: Configuration-Driven Registry Patterns
    :icon: book
 
    **Key Concepts:**
-   
+
    - Configuration-driven component loading and explicit registry patterns
    - Using ``@capability_node`` and ``@infrastructure_node`` decorators
    - Application registry implementation with :class:`RegistryConfigProvider`
@@ -14,7 +14,7 @@ Convention over Configuration: Configuration-Driven Registry Patterns
    - Convention-based module loading and dependency management
 
    **Prerequisites:** Understanding of Python decorators and class inheritance
-   
+
    **Time Investment:** 15-20 minutes for complete understanding
 
 Overview
@@ -43,7 +43,7 @@ Available templates include:
 
 - ``minimal`` - Basic skeleton for starting from scratch
 - ``hello_world_weather`` - Simple weather agent (recommended for learning)
-- ``wind_turbine`` - Advanced multi-capability agent example
+- ``control_assistant`` - Production control system integration template
 
 Standard Project Structure
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -104,12 +104,12 @@ Transforms capability classes into LangGraph-compatible nodes with complete infr
        description = "Retrieve current weather conditions"
        provides = ["WEATHER_DATA"]
        requires = ["LOCATION"]
-       
+
        @staticmethod
        async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
            location = state.get("location", "San Francisco")
            weather_data = await fetch_weather(location)
-           
+
            return {
                "weather_current_conditions": weather_data,
                "weather_last_updated": datetime.now().isoformat()
@@ -136,7 +136,7 @@ Creates infrastructure components for system operations:
    class TaskExtractionNode(BaseInfrastructureNode):
        name = "task_extraction"
        description = "Extract actionable tasks from conversation"
-       
+
        @staticmethod
        async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
            # Extract task from conversation
@@ -181,7 +181,7 @@ Each application provides a registry configuration using the ``extend_framework_
                        requires=["TIME_RANGE"]
                    ),
                    CapabilityRegistration(
-                       name="turbine_analysis", 
+                       name="turbine_analysis",
                        module_path="my_agent.capabilities.turbine_analysis",
                        class_name="TurbineAnalysisCapability",
                        description="Analyze turbine performance data",
@@ -330,12 +330,12 @@ All components must be explicitly declared in registry configurations and implem
        # REQUIRED: Validated at decoration time
        name: str = "my_component"
        description: str = "Component description"
-       
+
        # REQUIRED: Main execution logic
        @staticmethod
        async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
            return {"result": "success"}
-       
+
        # OPTIONAL: Custom error handling (inherits defaults)
        @staticmethod
        def classify_error(exc: Exception, context: dict) -> ErrorClassification:
@@ -357,7 +357,7 @@ Error Classification Levels
 The framework provides sophisticated error handling:
 
 - **CRITICAL**: End execution immediately
-- **RETRIABLE**: Retry execution with same parameters  
+- **RETRIABLE**: Retry execution with same parameters
 - **REPLANNING**: Create new execution plan
 - **FATAL**: System-level failure requiring immediate termination
 
@@ -391,11 +391,11 @@ Framework components use LangGraph's native streaming:
 
            # Get framework streaming support
            streamer = get_streamer("my_capability", state)
-           
+
            streamer.status("Processing data...")
            result = await process_data()
            streamer.status("Processing complete")
-           
+
            return {"processed_data": result}
 
 Benefits
@@ -508,17 +508,17 @@ Component logging follows the structured API pattern used throughout the framewo
 .. code-block:: python
 
    from osprey.utils.logger import get_logger
-   
+
    # All components use simple, flat component names
    logger = get_logger("orchestrator")
    logger = get_logger("task_extraction")
    logger = get_logger("current_weather")
    logger = get_logger("data_analysis")
-   
+
    # Rich message hierarchy for development
    logger.key_info("Starting capability execution")
    logger.info("Processing user request")
-   logger.debug("Detailed trace information") 
+   logger.debug("Detailed trace information")
    logger.warning("Configuration fallback used")
    logger.error("Processing failed", exc_info=True)
    logger.success("Capability completed successfully")
@@ -535,7 +535,7 @@ Component logging follows the structured API pattern used throughout the framewo
        logging_colors:
          orchestrator: "cyan"
          task_extraction: "thistle1"
-   
+
    # Application component colors (in your project's config.yml)
    logging:
      logging_colors:
@@ -552,24 +552,24 @@ Streaming events integrate with LangGraph's native streaming and follow the same
 .. code-block:: python
 
    from osprey.utils.streaming import get_streamer
-   
+
    @capability_node
    class MyCapability(BaseCapability):
        @staticmethod
        async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
            # Follows same naming pattern as get_logger
            streamer = get_streamer("my_capability", state)
-           
+
            streamer.status("Processing data...")
            result = await process_data()
            streamer.status("Processing complete")
-           
+
            return {"processed_data": result}
 
 **Automatic Step Detection**: The streaming system automatically determines execution context:
 
 - **Task Preparation Phase**: Hard-coded mapping for infrastructure components (task_extraction, classifier, orchestrator)
-- **Execution Phase**: Dynamic extraction from StateManager and execution plans  
+- **Execution Phase**: Dynamic extraction from StateManager and execution plans
 - **Fallback**: Component name formatting for unknown components
 
 
@@ -599,7 +599,7 @@ The model factory integrates with the configuration system following the same pr
 
    from osprey.models import get_model
    from osprey.utils.config import get_provider_config
-   
+
    # Configuration-driven model creation
    provider_config = get_provider_config("anthropic")
    model = get_model(
@@ -607,10 +607,10 @@ The model factory integrates with the configuration system following the same pr
        model_id=provider_config.get("model_id"),
        api_key=provider_config.get("api_key")  # Auto-loaded from config
    )
-   
+
    # Direct model configuration for development/testing
    model = get_model(
-       provider="anthropic", 
+       provider="anthropic",
        model_id="claude-3-5-sonnet-20241022",
        api_key="explicit-key-for-testing"
    )
@@ -629,7 +629,7 @@ The model factory integrates with the configuration system following the same pr
          api_key: "${ANTHROPIC_API_KEY}"
          base_url: "https://api.anthropic.com"
        openai:
-         api_key: "${OPENAI_API_KEY}" 
+         api_key: "${OPENAI_API_KEY}"
          base_url: "https://api.openai.com/v1"
        ollama:
          base_url: "http://localhost:11434"     # Required for Ollama
@@ -637,7 +637,7 @@ The model factory integrates with the configuration system following the same pr
 
 .. dropdown:: Need Support for Additional Providers?
     :color: info
-    :icon: people   
+    :icon: people
 
     The framework's provider system is designed for extensibility. Many research institutions and national laboratories now operate their own AI/LM services similar to LBNL's CBorg system. We're happy to work with you to implement native support for your institution's internal AI services or other providers you need. Contact us to discuss integration requirements.
 
@@ -649,7 +649,7 @@ Consistency Benefits
 Development utilities provide the same benefits as component registration:
 
 - **Standardized Interfaces**: All utilities use the same source/component naming pattern
-- **Configuration Integration**: Automatic loading from configuration system  
+- **Configuration Integration**: Automatic loading from configuration system
 - **Graceful Degradation**: Continue functioning when configuration is unavailable
 - **Type Safety**: Full type hints and validation for development-time error detection
 - **Performance Optimization**: Caching and lazy loading reduce overhead
@@ -658,15 +658,21 @@ Development utilities provide the same benefits as component registration:
 
    :doc:`../../getting-started/hello-world-tutorial`
        Step-by-step tutorial showing registry configuration in a working weather agent
-   
-   :doc:`../../getting-started/build-your-first-agent`
+
+   :doc:`../../getting-started/control-assistant`
        Advanced patterns including framework capability exclusion and custom prompts
-   
+
+   :doc:`../05_production-systems/06_control-system-integration`
+       Complete guide to control system connector patterns
+
+   :doc:`../05_production-systems/02_data-source-integration`
+       Data source provider implementation patterns
+
    :doc:`../../api_reference/01_core_framework/03_registry_system`
        API reference for registry management and component discovery
-   
+
    :doc:`../03_core-framework-systems/03_registry-and-discovery`
        Registry patterns and component registration workflows
-   
+
    :doc:`../02_quick-start-patterns/01_building-your-first-capability`
        Hands-on guide to implementing components with decorators

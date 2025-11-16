@@ -17,6 +17,29 @@ div.downstream-project-links a {
   color: #0097A7;
 }
 
+/* Custom admonition for collaboration/outreach - SEARCH MARKER: outreach */
+/* Uses default bell icon with purple color scheme */
+.admonition.outreach {
+  border-left: 4px solid #9C27B0;
+  background-color: rgba(156, 39, 176, 0.05);
+}
+
+.admonition.outreach .admonition-title {
+  background-color: rgba(156, 39, 176, 0.1);
+  color: #7B1FA2;
+}
+
+/* Dark mode adjustments for outreach admonition */
+html[data-theme="dark"] .admonition.outreach {
+  border-left: 4px solid #BA68C8;
+  background-color: rgba(186, 104, 200, 0.1);
+}
+
+html[data-theme="dark"] .admonition.outreach .admonition-title {
+  background-color: rgba(186, 104, 200, 0.15);
+  color: #CE93D8;
+}
+
 /* Clean table styling that matches original theme */
 table.docutils {
   border-collapse: collapse;
@@ -389,17 +412,17 @@ html[data-theme="light"] .mermaid foreignObject span {
   .learning-path {
     padding: 1rem;
   }
-  
+
   .path-step {
     flex-direction: column;
     text-align: center;
     padding: 1rem;
   }
-  
+
   .path-step::after {
     display: none;
   }
-  
+
   .step-number {
     margin: 0 auto 1rem auto;
   }
@@ -465,4 +488,21 @@ html[data-theme="light"] .mermaid foreignObject span {
 
 .sd-tab-set.natural-width > label {
   margin-bottom: 0.25rem !important;
+}
+
+/* Theme-aware dropdown styling - Override sphinx-design "light" color */
+/* Makes :color: light dropdowns adapt to both light and dark themes */
+
+/* Light theme: subtle light colors that blend with page */
+html[data-theme="light"] {
+  --sd-color-light: #f8f9fa;
+  --sd-color-light-text: #212529;
+  --sd-color-light-highlight: #dee2e6;
+}
+
+/* Dark theme: subtle dark colors that blend with page */
+html[data-theme="dark"] {
+  --sd-color-light: #2b3035;
+  --sd-color-light-text: #e9ecef;
+  --sd-color-light-highlight: #495057;
 }

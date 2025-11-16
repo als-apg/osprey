@@ -19,6 +19,7 @@ from osprey.registry import (
     extend_framework_registry,
     CapabilityRegistration,
     ContextClassRegistration,
+    FrameworkPromptProviderRegistration,
     RegistryConfig,
     RegistryConfigProvider
 )
@@ -44,6 +45,7 @@ class {{ app_class_name }}RegistryProvider(RegistryConfigProvider):
     Component Registration:
         - **current_weather**: Capability for retrieving weather conditions
         - **CURRENT_WEATHER**: Context type for weather data exchange
+        - **WeatherPromptProvider**: Custom task extraction prompts for conversational context
 
     To see what the framework provides automatically, run:
         >>> from osprey.registry import get_framework_defaults
@@ -102,6 +104,7 @@ class {{ app_class_name }}RegistryProvider(RegistryConfigProvider):
         This application adds:
         - current_weather capability
         - CURRENT_WEATHER context class
+        - Weather-specific task extraction prompt customization
 
         :return: Complete registry configuration with framework + application components
         :rtype: RegistryConfig
@@ -139,6 +142,16 @@ class {{ app_class_name }}RegistryProvider(RegistryConfigProvider):
                     context_type="CURRENT_WEATHER",
                     module_path="{{ package_name }}.context_classes",
                     class_name="CurrentWeatherContext"
+                )
+            ],
+
+            # Add weather-specific prompt customizations
+            framework_prompt_providers=[
+                FrameworkPromptProviderRegistration(
+                    module_path="{{ package_name }}.framework_prompts",
+                    prompt_builders={
+                        "task_extraction": "WeatherTaskExtractionPromptBuilder"
+                    }
                 )
             ]
         )

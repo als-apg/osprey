@@ -9,7 +9,7 @@ Python Execution
    :icon: book
 
    **Key Concepts:**
-   
+
    - Using registry-based :class:`PythonExecutorService` access for code execution
    - Creating :class:`PythonExecutionRequest` with structured ``capability_prompts``
    - Implementing approval handling with ``handle_service_with_interrupts()``
@@ -18,7 +18,7 @@ Python Execution
    - Container vs local execution through ``config.yml`` settings
 
    **Prerequisites:** Understanding of :doc:`01_human-approval-workflows` and :doc:`../03_core-framework-systems/05_message-and-execution-flow`
-   
+
 Overview
 ========
 
@@ -35,7 +35,7 @@ The Python Execution Service provides a LangGraph-based system for Python code g
 **Execution Pipeline:**
 
 1. **Code Generation**: LLM-based Python code generation with context awareness
-2. **Static Analysis**: Security and policy analysis with configurable rules  
+2. **Static Analysis**: Security and policy analysis with configurable rules
 3. **Approval Workflows**: Human oversight system with rich context and safety assessments
 4. **Flexible Execution**: Container or local execution with unified result collection
 5. **Notebook Generation**: Comprehensive Jupyter notebook creation for evaluation
@@ -88,15 +88,138 @@ Configure your Python execution system with environment settings and approval po
 **Configuration Options:**
 
 - **python_executor**: Service-level configuration for retry behavior and timeouts
-  
+
   - **max_generation_retries**: Maximum attempts for code generation failures (default: 3)
-  - **max_execution_retries**: Maximum attempts for code execution failures (default: 3)  
+  - **max_execution_retries**: Maximum attempts for code execution failures (default: 3)
   - **execution_timeout_seconds**: Maximum time allowed for code execution (default: 600 seconds)
 
 - **execution_method**: "container" for secure isolation, "local" for direct host execution
 - **modes**: Different execution environments with specific approval requirements
 - **Container settings**: Jupyter endpoint configuration for containerized execution
 - **Local settings**: Python environment path for direct execution
+
+Control System Pattern Detection
+================================
+
+The Python Execution Service uses **pattern detection** to identify control system operations (reads/writes) in generated code. This enables the approval system to determine when human oversight is required.
+
+.. dropdown:: How Pattern Detection Works
+   :color: info
+
+   The pattern detection system operates during the **static analysis** phase of code execution:
+
+   1. **Code Generation**: LLM generates Python code
+   2. **Pattern Detection**: Regex patterns scan code for control system operations
+   3. **Approval Decision**: Based on detected operations, code may require approval
+   4. **Execution**: Approved or non-risky code executes
+
+   This provides defense-in-depth security for control system operations.
+
+Configuration
+-------------
+
+Define regex patterns for your control system in ``config.yml``:
+
+.. code-block:: yaml
+
+   control_system:
+     type: epics
+     patterns:
+       epics:
+         write:
+           - 'epics\.caput\('       # Matches: epics.caput(...)
+           - '\.put\('              # Matches: pv.put(...)
+         read:
+           - 'epics\.caget\('       # Matches: epics.caget(...)
+           - '\.get\('              # Matches: pv.get(...)
+
+**Pattern Syntax:**
+
+- Uses Python regex (``re`` module)
+- Escape special characters: ``\.`` for literal dots, ``\(`` for literal parentheses
+- Patterns match anywhere in the code
+- Multiple patterns are OR'd together (any match triggers detection)
+
+Approval Integration
+--------------------
+
+Pattern detection integrates with the approval system:
+
+.. code-block:: yaml
+
+   approval:
+     global_mode: "selective"
+     capabilities:
+       python_execution:
+         enabled: true
+         mode: "epics_writes"    # Require approval for EPICS writes
+
+**Approval Modes:**
+
+- ``disabled``: No approval required (use with caution!)
+- ``all_code``: Require approval for all Python execution
+- ``epics_writes``: Require approval only for code with write operations (recommended)
+
+The ``epics_writes`` mode uses pattern detection to identify write operations and only interrupts for human review when necessary.
+
+Programmatic Usage
+------------------
+
+Use pattern detection directly in your code:
+
+.. code-block:: python
+
+   from osprey.services.python_executor.pattern_detection import detect_control_system_operations
+
+   # Analyze generated code
+   code = """
+   current = epics.caget('BEAM:CURRENT')
+   if current < 400:
+       epics.caput('ALARM:STATUS', 1)
+   """
+
+   result = detect_control_system_operations(code)
+
+   print(f"Has writes: {result['has_writes']}")         # True
+   print(f"Has reads: {result['has_reads']}")           # True
+   print(f"Control system: {result['control_system_type']}")  # 'epics'
+   print(f"Write patterns matched: {result['detected_patterns']['writes']}")
+   print(f"Read patterns matched: {result['detected_patterns']['reads']}")
+
+**Use Cases:**
+
+- Custom approval logic in capabilities
+- Pre-execution safety checks
+- Audit logging of control system operations
+- Dynamic approval routing based on operation type
+
+Custom Control Systems
+----------------------
+
+Define patterns for custom or non-EPICS control systems:
+
+.. code-block:: yaml
+
+   control_system:
+     type: tango
+     patterns:
+       tango:
+         write:
+           - 'tango\.write_attribute\('
+           - 'device_proxy\.write_attribute\('
+         read:
+           - 'tango\.read_attribute\('
+           - 'device_proxy\.read_attribute\('
+
+The pattern detection system is **control system agnostic** - it works with any control system by configuring appropriate patterns.
+
+.. seealso::
+
+   :doc:`06_control-system-integration`
+       Complete guide to control system connectors and pattern detection
+
+   :doc:`01_human-approval-workflows`
+       How approval system uses pattern detection results
 
 Integration Patterns
 ====================
@@ -124,17 +247,17 @@ Use the Python execution service directly in your capabilities with proper appro
    @capability_node
    class DataAnalysisCapability(BaseCapability):
        """Data analysis capability using Python execution service."""
-       
+
        async def execute(state: AgentState, **kwargs) -> dict:
            # Get current step and registry
            step = StateManager.get_current_step(state)
            registry = get_registry()
-           
+
            # Get Python executor service from registry
            python_service = registry.get_service("python_executor")
            if not python_service:
                raise RuntimeError("Python executor service not available")
-           
+
            # Create service configuration
            main_configurable = get_full_configuration()
            service_config = {
@@ -144,19 +267,19 @@ Use the Python execution service directly in your capabilities with proper appro
                    "checkpoint_ns": "python_executor"
                }
            }
-           
+
            # Check for approval resume first
            has_approval_resume, approved_payload = get_approval_resume_data(
                state, create_approval_type("data_analysis")
            )
-           
+
            if has_approval_resume:
                # Handle approval resume
                if approved_payload:
                    resume_response = {"approved": True, **approved_payload}
                else:
                    resume_response = {"approved": False}
-               
+
                service_result = await python_service.ainvoke(
                    Command(resume=resume_response), config=service_config
                )
@@ -169,14 +292,14 @@ Use the Python execution service directly in your capabilities with proper appro
                    "- Generate statistical summary of the data",
                    "- Create visualizations to identify trends",
                    "- Identify patterns and anomalies",
-                   
+
                    "**EXPECTED OUTPUT:**",
                    "Create a results dictionary with:",
                    "- statistics: Statistical summary metrics",
                    "- trends: Identified trends and patterns",
                    "- visualizations: List of generated plots"
                ]
-               
+
                # Create execution request
                execution_request = PythonExecutionRequest(
                    user_query=state.get("input_output", {}).get("user_query", ""),
@@ -191,7 +314,7 @@ Use the Python execution service directly in your capabilities with proper appro
                    capability_context_data=state.get('capability_context_data', {}),
                    retries=3
                )
-               
+
                # Use centralized interrupt handler
                service_result = await handle_service_with_interrupts(
                    service=python_service,
@@ -201,10 +324,10 @@ Use the Python execution service directly in your capabilities with proper appro
                    capability_name="DataAnalysis"
                )
                approval_cleanup = None
-           
+
            # Process results (both paths converge here)
            execution_result = service_result.execution_result
-           
+
            # Store context using StateManager
            context_updates = StateManager.store_context(
                state,
@@ -212,7 +335,7 @@ Use the Python execution service directly in your capabilities with proper appro
                step.get("context_key"),
                analysis_context
            )
-           
+
            # Return with optional approval cleanup
            if approval_cleanup:
                return {**context_updates, **approval_cleanup}
@@ -250,23 +373,23 @@ For advanced scenarios where you need to dynamically choose execution environmen
 
    class FlexiblePythonExecution:
        """Example: Dynamic execution environment selection.
-       
-       Note: This is an advanced pattern. Most use cases should rely on 
+
+       Note: This is an advanced pattern. Most use cases should rely on
        the standard config.yml execution_method setting.
        """
-       
+
        def _select_execution_environment(self, code_request: dict) -> str:
            """Example: Select execution environment based on request characteristics.
-           
+
            This would be used to override the default config.yml setting
            for specific requests that have special requirements.
            """
-           
+
            requires_isolation = code_request.get("requires_isolation", False)
            has_dependencies = code_request.get("has_special_dependencies", False)
            is_long_running = code_request.get("estimated_time", 0) > 300
            security_level = code_request.get("security_level", "medium")
-           
+
            # Example decision logic for environment selection
            if security_level == "high" or requires_isolation:
                return "container"
@@ -274,13 +397,13 @@ For advanced scenarios where you need to dynamically choose execution environmen
                return "container"
            else:
                return "local"  # Faster for simple operations
-       
+
        async def execute_with_dynamic_environment(self, state, request_data):
            """Example: Override execution method in service config."""
-           
+
            # Get the dynamic execution method
            execution_method = self._select_execution_environment(request_data)
-           
+
            # Override the config setting for this specific request
            main_configurable = get_full_configuration()
            service_config = {
@@ -291,7 +414,7 @@ For advanced scenarios where you need to dynamically choose execution environmen
                    "checkpoint_ns": "python_executor"
                }
            }
-           
+
            # Use the service with the dynamic configuration
            # ... rest of service call ...
 
@@ -307,12 +430,12 @@ Chain multiple Python executions for complex analysis workflows with proper appr
 
    async def multi_stage_analysis(self, state: AgentState, data_context: dict) -> dict:
        """Execute multi-stage analysis pipeline with approval handling."""
-       
+
        registry = get_registry()
        python_service = registry.get_service("python_executor")
        main_configurable = get_full_configuration()
        logger = logging.getLogger(__name__)
-       
+
        # Stage 1: Data preprocessing
        stage1_config = {
            "configurable": {
@@ -321,14 +444,14 @@ Chain multiple Python executions for complex analysis workflows with proper appr
                "checkpoint_ns": "python_executor"
            }
        }
-       
+
        preprocessing_prompts = [
            "**PREPROCESSING STAGE:**",
            "- Clean and validate the input data",
-           "- Handle missing values and outliers", 
+           "- Handle missing values and outliers",
            "- Prepare data for statistical analysis"
        ]
-       
+
        preprocessing_request = PythonExecutionRequest(
            user_query="Data preprocessing stage",
            task_objective="Clean and prepare data for analysis",
@@ -337,7 +460,7 @@ Chain multiple Python executions for complex analysis workflows with proper appr
            execution_folder_name="stage1_preprocessing",
            capability_context_data=data_context
        )
-       
+
        stage1_result = await handle_service_with_interrupts(
            service=python_service,
            request=preprocessing_request,
@@ -345,7 +468,7 @@ Chain multiple Python executions for complex analysis workflows with proper appr
            logger=logger,
            capability_name="PreprocessingStage"
        )
-       
+
        # Stage 2: Statistical analysis (using results from stage 1)
        stage2_config = {
            "configurable": {
@@ -354,20 +477,20 @@ Chain multiple Python executions for complex analysis workflows with proper appr
                "checkpoint_ns": "python_executor"
            }
        }
-       
+
        analysis_prompts = [
            "**STATISTICAL ANALYSIS STAGE:**",
            "- Use the cleaned data from preprocessing stage",
            "- Perform comprehensive statistical analysis",
            "- Generate summary statistics and insights"
        ]
-       
+
        # Combine original context with preprocessing results
        stage2_context = {
            **data_context,
            "preprocessing_results": stage1_result.execution_result.results
        }
-       
+
        analysis_request = PythonExecutionRequest(
            user_query="Statistical analysis stage",
            task_objective="Perform statistical analysis on preprocessed data",
@@ -376,7 +499,7 @@ Chain multiple Python executions for complex analysis workflows with proper appr
            execution_folder_name="stage2_analysis",
            capability_context_data=stage2_context
        )
-       
+
        stage2_result = await handle_service_with_interrupts(
            service=python_service,
            request=analysis_request,
@@ -384,7 +507,7 @@ Chain multiple Python executions for complex analysis workflows with proper appr
            logger=logger,
            capability_name="AnalysisStage"
        )
-       
+
        return {
            "pipeline_completed": True,
            "stages": {
@@ -427,12 +550,12 @@ Troubleshooting
 
    :doc:`04_memory-storage-service`
        Integrate memory storage with Python execution
-   
+
    :doc:`05_container-and-deployment`
        Advanced container orchestration
-   
+
    :doc:`01_human-approval-workflows`
        Understanding the approval system integration
-   
+
    :doc:`../../api_reference/03_production_systems/03_python-execution`
        Complete Python execution API

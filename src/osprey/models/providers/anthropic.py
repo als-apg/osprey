@@ -21,12 +21,11 @@ class AnthropicProviderAdapter(BaseProvider):
     requires_model_id = True
     supports_proxy = True
     default_base_url = None
-    default_model_id = "claude-sonnet-4-5"
-    health_check_model_id = "claude-sonnet-4-5"
+    default_model_id = "claude-haiku-4-5-20251001"
+    health_check_model_id = "claude-haiku-4-5-20251001"
     available_models = [
-        "claude-opus-4-1",
-        "claude-sonnet-4-5",
-        "claude-haiku-4-5"
+        "claude-sonnet-4-5-20250929",
+        "claude-haiku-4-5-20251001"
     ]
 
     # API key acquisition information
@@ -69,7 +68,7 @@ class AnthropicProviderAdapter(BaseProvider):
         system_prompt: str | None = None,
         output_format: Any | None = None,
         **kwargs
-    ) -> str | list:
+    ) -> str | list | Any:
         """Execute Anthropic chat completion with extended thinking support."""
         # Get http_client if provided (for proxy support)
         http_client = kwargs.get("http_client")
@@ -79,6 +78,94 @@ class AnthropicProviderAdapter(BaseProvider):
             http_client=http_client,
         )
 
+        # Handle structured output if requested
+        if output_format is not None:
+            import json
+
+            # Check if model supports native structured outputs (Sonnet 4.5, Opus 4.1)
+            # Native structured outputs are in beta and only available for specific models
+            supports_native_structured_outputs = (
+                "claude-sonnet-4" in model_id or
+                "claude-opus-4" in model_id
+            )
+
+            if supports_native_structured_outputs:
+                # Use Anthropic's native structured outputs (beta)
+                schema = output_format.model_json_schema()
+
+                request_params = {
+                    "model": model_id,
+                    "messages": [{"role": "user", "content": message}],
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "response_format": {
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": output_format.__name__,
+                            "schema": schema
+                        }
+                    }
+                }
+
+                response = client.messages.create(**request_params)
+
+                # Extract text content (should be valid JSON)
+                text_parts = [
+                    block.text for block in response.content
+                    if isinstance(block, anthropic.types.TextBlock)
+                ]
+                response_text = "\n".join(text_parts).strip()
+
+            else:
+                # Fallback: Prompt-based structured output for models without native support (e.g., Haiku)
+                schema = output_format.model_json_schema()
+                structured_message = f"""{message}
+
+You must respond with valid JSON that matches this schema:
+{json.dumps(schema, indent=2)}
+
+Respond ONLY with the JSON object, no additional text or markdown formatting."""
+
+                request_params = {
+                    "model": model_id,
+                    "messages": [{"role": "user", "content": structured_message}],
+                    "max_tokens": max_tokens,
+                    "temperature": temperature
+                }
+
+                response = client.messages.create(**request_params)
+
+                # Extract text content
+                text_parts = [
+                    block.text for block in response.content
+                    if isinstance(block, anthropic.types.TextBlock)
+                ]
+                response_text = "\n".join(text_parts).strip()
+
+                # Clean up markdown code blocks if present (only for prompt-based approach)
+                if response_text.startswith("```json"):
+                    response_text = response_text[7:]  # Remove ```json
+                elif response_text.startswith("```"):
+                    response_text = response_text[3:]  # Remove ```
+
+                if response_text.endswith("```"):
+                    response_text = response_text[:-3]  # Remove trailing ```
+
+                response_text = response_text.strip()
+
+            # Parse and validate against the Pydantic model (common for both approaches)
+            try:
+                result = output_format.model_validate_json(response_text)
+
+                # Handle TypedDict conversion
+                is_typed_dict_output = kwargs.get("is_typed_dict_output", False)
+                if is_typed_dict_output and hasattr(result, 'model_dump'):
+                    return result.model_dump()
+                return result
+            except Exception as e:
+                raise ValueError(f"Failed to parse structured output from Anthropic: {e}\nResponse: {response_text[:200]}") from e
+
+        # Regular text completion (no structured output)
         request_params = {
             "model": model_id,
             "messages": [{"role": "user", "content": message}],
@@ -136,7 +223,7 @@ class AnthropicProviderAdapter(BaseProvider):
             client = anthropic.Anthropic(api_key=api_key)
 
             # Minimal test: 1 token in, 1 token out (~$0.0001 cost)
-            response = client.messages.create(
+            _ = client.messages.create(
                 model=test_model,
                 max_tokens=1,
                 messages=[{"role": "user", "content": "Hi"}],

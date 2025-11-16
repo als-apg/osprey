@@ -1,0 +1,332 @@
+"""
+Channel Finding Capability
+
+This capability searches for control system channel addresses based on user descriptions.
+It helps users find the correct channel names when they know what they want to measure
+but don't know the exact channel address.
+
+Based on ALS Assistant's PV Address Finding capability pattern.
+"""
+from __future__ import annotations
+from typing import List, Dict, Any, Optional, TYPE_CHECKING
+import textwrap
+import logging
+
+if TYPE_CHECKING:
+    from osprey.state import AgentState
+
+# Framework imports
+from osprey.base.decorators import capability_node
+from osprey.base.capability import BaseCapability
+from osprey.base.errors import ErrorClassification, ErrorSeverity
+from osprey.base.planning import PlannedStep
+from osprey.base.examples import OrchestratorGuide, OrchestratorExample, TaskClassifierGuide, ClassifierExample, ClassifierActions
+from osprey.state import StateManager
+from osprey.registry import get_registry
+from osprey.utils.streaming import get_streamer
+from osprey.utils.logger import get_logger
+
+# Application imports
+from ..context_classes import ChannelAddressesContext
+from ..services.channel_finder.service import ChannelFinderService
+
+logger = get_logger("channel_finding")
+
+registry = get_registry()
+
+
+# Available pipelines based on template configuration
+{% if enable_in_context and enable_hierarchical %}
+AVAILABLE_PIPELINES = ['in_context', 'hierarchical']
+{% elif enable_in_context %}
+AVAILABLE_PIPELINES = ['in_context']
+{% else %}
+AVAILABLE_PIPELINES = ['hierarchical']
+{% endif %}
+DEFAULT_PIPELINE = '{{ default_pipeline }}'
+
+
+# ===================================================================
+# Channel Finding Errors
+# ===================================================================
+
+class ChannelFindingError(Exception):
+    """Base class for all channel finding errors."""
+    pass
+
+class ChannelNotFoundError(ChannelFindingError):
+    """Raised when no channel addresses can be found for the given query."""
+    pass
+
+class ChannelFinderServiceError(ChannelFindingError):
+    """Raised when the channel finder service is unavailable or fails."""
+    pass
+
+
+# ===================================================================
+# Capability Implementation
+# ===================================================================
+
+@capability_node
+class ChannelFindingCapability(BaseCapability):
+    """
+    Channel finding capability for resolving descriptions to channel addresses.
+
+    {% if channel_finder_mode == 'in_context' %}
+    Configuration: In-context semantic search pipeline
+    - Best for: Small control systems (<1,000 channels)
+    - Method: Direct semantic matching against full database
+    {% elif channel_finder_mode == 'hierarchical' %}
+    Configuration: Hierarchical navigation pipeline
+    - Best for: Large control systems (>1,000 channels)
+    - Method: Structured navigation through system hierarchy
+    {% else %}
+    Configuration: Both pipelines enabled
+    - Switch between modes via config.yml
+    {% endif %}
+    """
+
+    name = "channel_finding"
+    description = "Find control system channel addresses based on descriptions or search terms"
+    provides = ["CHANNEL_ADDRESSES"]
+    requires = []
+
+    @staticmethod
+    async def execute(
+        state: AgentState,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        Execute channel finding with production-grade patterns.
+        """
+        # Extract current step from execution plan
+        step = StateManager.get_current_step(state)
+        search_query = step.get('task_objective', 'unknown')
+
+        streamer = get_streamer("channel_finding", state)
+
+        # Log the query
+        logger.info(f'Channel finding query: "{search_query}"')
+        streamer.status("Finding channel addresses...")
+
+        # Configure logging for channel finder service to show detailed pipeline logs
+        # This ensures the hierarchical navigation logs (Level: system, Selected, etc.) are visible
+        # The service uses __name__ for loggers, so we need to configure the full module path
+        cf_root_logger = logging.getLogger("{{ package_name }}.services.channel_finder")
+
+        # Get the current framework logger's level and apply it to all channel_finder submodules
+        current_level = logger.level if logger.level != 0 else logging.INFO
+        cf_root_logger.setLevel(current_level)
+
+        # Ensure all child loggers inherit this level and propagate to framework handlers
+        cf_root_logger.propagate = True
+
+        try:
+            # Initialize service (reads pipeline_mode from config.yml at runtime)
+            service = ChannelFinderService()
+
+            streamer.status("Searching channel database...")
+
+            # Execute channel finding
+            result = await service.find_channels(search_query)
+
+        except Exception as e:
+            error_msg = f"Channel finder service failed for query '{search_query}': {str(e)}"
+            logger.error(error_msg)
+            raise ChannelFinderServiceError(error_msg) from e
+
+        # Log results
+        # IMPORTANT: We extract the ADDRESS field, not the channel name
+        # The database contains both:
+        #   - 'channel': descriptive/user-friendly name (e.g., "BeamCurrent")
+        #   - 'address': actual control system address (e.g., "BEAM:CURRENT")
+        # We use the ADDRESS for all downstream operations
+        if result.total_channels > 0:
+            logger.info(f"Found {result.total_channels} channel address{'es' if result.total_channels != 1 else ''}")
+            # Detailed logging can be enabled via framework log level
+            for ch in result.channels:
+                logger.debug(f"  {ch.channel} -> {ch.address}")
+
+        streamer.status("Creating channel context...")
+
+        # Convert service layer response to framework context
+        # CRITICAL: Extract ADDRESSES, not channel names
+        # These addresses are what we'll use for actual control system operations
+        channel_list = [ch.address for ch in result.channels]
+        description = f"Found {result.total_channels} channel addresses for query: '{result.query}'. {result.processing_notes}"
+
+        # Check if no channels were found and raise appropriate error for re-planning
+        if not channel_list:
+            error_msg = f"No channel addresses found for query: '{search_query}'. {result.processing_notes}"
+            logger.warning(f"Channel address not found: {error_msg}")
+            raise ChannelNotFoundError(error_msg)
+
+        # Create framework context object
+        channel_context = ChannelAddressesContext(
+            channels=channel_list,
+            description=description,
+        )
+
+        # Store context using StateManager
+        state_updates = StateManager.store_context(
+            state,
+            registry.context_types.CHANNEL_ADDRESSES,
+            step.get("context_key"),
+            channel_context
+        )
+
+        streamer.status("Channel finding complete")
+
+        return state_updates
+
+    @staticmethod
+    def classify_error(exc: Exception, context: dict) -> ErrorClassification:
+        """Channel finding error classification with defensive approach."""
+
+        if isinstance(exc, ChannelNotFoundError):
+            return ErrorClassification(
+                severity=ErrorSeverity.REPLANNING,
+                user_message=f"No channel addresses found: {str(exc)}",
+                metadata={
+                    "technical_details": str(exc),
+                    "replanning_reason": f"Channel search failed to find matches: {exc}",
+                    "suggestions": [
+                        "Try refining the search terms to be more specific",
+                        "Check if the requested channels exist in the system",
+                        "Consider using different keywords or system names",
+                    ]
+                }
+            )
+
+        elif isinstance(exc, ChannelFinderServiceError):
+            return ErrorClassification(
+                severity=ErrorSeverity.CRITICAL,
+                user_message=f"Channel finder service unavailable: {str(exc)}",
+                metadata={
+                    "technical_details": str(exc),
+                    "safety_abort_reason": f"Channel finder service failure: {exc}",
+                    "suggestions": [
+                        "Check if the channel finder service is running and accessible",
+                        "Verify channel database is loaded properly",
+                        "Contact system administrator if the service appears down",
+                    ]
+                }
+            )
+
+        else:
+            # Default: critical for unknown errors (defensive approach)
+            return ErrorClassification(
+                severity=ErrorSeverity.CRITICAL,
+                user_message=f"Unexpected error in channel finding: {exc}",
+                metadata={
+                    "technical_details": str(exc),
+                    "safety_abort_reason": f"Unhandled channel finding error: {exc}"
+                }
+            )
+
+    def _create_orchestrator_guide(self) -> Optional[OrchestratorGuide]:
+        """
+        Create orchestrator guide for channel finding planning.
+
+        **Customization Point**: Modify the instructions and examples here to change
+        how the orchestrator plans channel finding steps. The few-shot examples teach
+        the LLM when and how to include this capability in execution plans.
+
+        See: Framework docs on orchestrator planning for details.
+        """
+
+        # Define structured examples
+        natural_language_example = OrchestratorExample(
+            step=PlannedStep(
+                context_key="beam_current_channels",
+                capability="channel_finding",
+                task_objective="Find channel addresses for beam current measurement",
+                expected_output="CHANNEL_ADDRESSES",
+                success_criteria="Relevant channel addresses found and validated",
+                inputs=[]
+            ),
+            scenario_description="Natural language search for measurement types",
+            notes="Output stored under CHANNEL_ADDRESSES context type."
+        )
+
+        system_location_example = OrchestratorExample(
+            step=PlannedStep(
+                context_key="quadrupole_channels",
+                capability="channel_finding",
+                task_objective="Find channel addresses for quadrupole magnet currents in all sectors",
+                expected_output="CHANNEL_ADDRESSES",
+                success_criteria="System-specific channel addresses located",
+                inputs=[]
+            ),
+            scenario_description="System and location-based channel discovery",
+            notes="Output stored under CHANNEL_ADDRESSES context type."
+        )
+
+        return OrchestratorGuide(
+            instructions=textwrap.dedent("""
+                **When to plan "channel_finding" steps:**
+                - When the user mentions hardware, measurements, sensors, or devices without providing specific channel addresses
+                - When fuzzy or descriptive names need to be resolved to exact channel addresses
+                - As a prerequisite step before channel value retrieval or data analysis
+                - When users reference systems or locations but not complete channel names
+
+                **Step Structure:**
+                - context_key: Unique identifier for output (e.g., "beam_current_channels", "validated_channels")
+                - task_objective: The specific and self-contained channel address search task to perform
+
+                **Output: CHANNEL_ADDRESSES**
+                - Contains: List of channel addresses with description
+                - Available to downstream steps via context system
+
+                **Dependencies and sequencing:**
+                - This step typically comes first when channel addresses are needed
+                - Results feed into subsequent "channel_value_retrieval" or "archiver_retrieval" steps
+
+                ALWAYS plan this step when any channel-related operations are needed.
+                """),
+            examples=[natural_language_example, system_location_example],
+            priority=1  # Should come early in the prompt ordering
+        )
+
+    def _create_classifier_guide(self) -> Optional[TaskClassifierGuide]:
+        """
+        Create classifier guide for channel finding activation.
+
+        **Customization Point**: Modify the instructions and examples here to change
+        when this capability is activated. The few-shot examples teach the LLM which
+        user queries should trigger channel finding.
+
+        See: Framework docs on classification and routing for details.
+        """
+
+        return TaskClassifierGuide(
+            instructions="Determine if the task involves finding, extracting, or identifying channel addresses. This applies if the user is searching for channels based on descriptions, OR if they need any channel-related operations.",
+            examples=[
+                ClassifierExample(
+                    query="Which tools do you have?",
+                    result=False,
+                    reason="This is a question about the AI's capabilities."
+                ),
+                ClassifierExample(
+                    query="Find channels related to beam position monitors.",
+                    result=True,
+                    reason="The query asks to find channels based on a description."
+                ),
+                ClassifierExample(
+                    query="I need the channel for the vacuum pressure.",
+                    result=True,
+                    reason="The query asks to find a channel based on a description."
+                ),
+                ClassifierExample(
+                    query="Can you plot the beam current for the last hour?",
+                    result=True,
+                    reason="The query asks to plot data, which requires channel finding first."
+                ),
+                ClassifierExample(
+                    query="What's the beam current right now?",
+                    result=True,
+                    reason="The query asks for a value without a specific channel address, requiring channel finding first."
+                ),
+            ],
+            actions_if_true=ClassifierActions()
+        )

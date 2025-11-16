@@ -294,32 +294,13 @@ def get_approval_manager() -> ApprovalManager:
         from osprey.utils.config import get_config_value
 
         # Get approval configuration from config system
+        # The config system will provide sensible defaults if approval section is missing
         approval_config = get_config_value('approval_config')
 
-        # Critical security configuration - fail fast if missing or invalid
-        if not approval_config:
-            raise ValueError(
-                "❌ CRITICAL: Approval configuration is missing from system configuration.\n"
-                "This is a security-critical setting that controls code execution approval.\n"
-                "Please ensure 'approval:' section is properly configured in your config.yml"
-            )
-
-        # Validate required approval configuration fields
+        # Basic validation - config system should always provide a dict
         if not isinstance(approval_config, dict):
             raise ValueError(
                 f"❌ CRITICAL: Approval configuration must be a dictionary, got {type(approval_config).__name__}"
-            )
-
-        if 'global_mode' not in approval_config:
-            raise ValueError(
-                "❌ CRITICAL: Missing required 'global_mode' in approval configuration.\n"
-                "Please set approval.global_mode to one of: 'disabled', 'selective', 'all_capabilities'"
-            )
-
-        if 'capabilities' not in approval_config:
-            raise ValueError(
-                "❌ CRITICAL: Missing required 'capabilities' section in approval configuration.\n"
-                "Please configure approval.capabilities with python_execution and memory settings"
             )
 
         try:

@@ -1,0 +1,326 @@
+"""
+Channel Value Retrieval Capability
+
+This capability handles reading current values of control system channels.
+It provides real-time access to live channel data.
+
+Based on ALS Assistant's PV Value Retrieval capability pattern.
+
+Configuration:
+    The control system connector is configured in config.yml. By default, the template
+    uses the mock connector which works with any channel names.
+
+    Development Mode (config.yml):
+        control_system:
+            type: mock
+
+    Production Mode (config.yml):
+        control_system:
+            type: epics
+            connector:
+                epics:
+                    timeout: 5.0
+                    gateways:
+                        read_only:
+                            address: cagw.your-facility.edu
+                            port: 5064
+
+    The capability code remains the same - just change the config!
+"""
+
+import logging
+import textwrap
+from typing import Dict, Any, Optional, TYPE_CHECKING
+from datetime import datetime
+
+# Import production patterns
+from osprey.base.decorators import capability_node
+from osprey.base.capability import BaseCapability
+from osprey.base.errors import ErrorClassification, ErrorSeverity
+from osprey.base.examples import OrchestratorGuide, OrchestratorExample, TaskClassifierGuide, ClassifierExample, ClassifierActions
+from osprey.base.planning import PlannedStep
+from osprey.state import AgentState
+from osprey.utils.logger import get_logger
+from osprey.utils.streaming import get_streamer
+from osprey.registry import get_registry
+from osprey.state import StateManager
+from osprey.context.context_manager import ContextManager
+
+# Import context classes
+from ..context_classes import ChannelValuesContext, ChannelValue, ChannelAddressesContext
+
+# Import connector factory for control system integration
+from osprey.connectors.factory import ConnectorFactory
+
+if TYPE_CHECKING:
+    pass
+
+logger = get_logger("channel_value_retrieval")
+
+registry = get_registry()
+
+
+# ========================================================
+# Channel-Related Errors
+# ========================================================
+
+class ChannelError(Exception):
+    """Base class for all channel-related errors."""
+    pass
+
+class ChannelNotFoundError(ChannelError):
+    """Raised when a channel address doesn't exist in the system."""
+    pass
+
+class ChannelTimeoutError(ChannelError):
+    """Raised when channel operations time out."""
+    pass
+
+class ChannelAccessError(ChannelError):
+    """Raised when there are channel access errors."""
+    pass
+
+class ChannelDependencyError(ChannelError):
+    """Raised when required dependencies are missing."""
+    pass
+
+
+# ========================================================
+# Capability Implementation
+# ========================================================
+
+@capability_node
+class ChannelValueRetrievalCapability(BaseCapability):
+    """Channel value retrieval capability for reading current channel values."""
+
+    name = "channel_value_retrieval"
+    description = "Retrieve current values of control system channels"
+    provides = ["CHANNEL_VALUES"]
+    requires = ["CHANNEL_ADDRESSES"]
+
+    @staticmethod
+    async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
+        """Execute channel value retrieval with production patterns."""
+
+        # Extract current step - this is provided by the decorator
+        step = StateManager.get_current_step(state)
+
+        # Define streaming helper here for step awareness
+        streamer = get_streamer("channel_value_retrieval", state)
+        streamer.status("Starting channel value retrieval...")
+
+        # Extract required CHANNEL_ADDRESSES context using ContextManager
+        try:
+            context_manager = ContextManager(state)
+            contexts = context_manager.extract_from_step(
+                step, state,
+                constraints=["CHANNEL_ADDRESSES"],
+                constraint_mode="hard"
+            )
+            channel_addresses_context = contexts[registry.context_types.CHANNEL_ADDRESSES]
+        except ValueError as e:
+            raise ChannelDependencyError(str(e))
+
+        streamer.status(f"Reading {len(channel_addresses_context.channels)} channel values...")
+
+        # Create control system connector from configuration
+        # This will use 'mock' for development or 'epics' for production
+        # based on the 'control_system' section in config.yml
+        connector = await ConnectorFactory.create_control_system_connector()
+
+        try:
+            # Get all channel values
+            channel_values = {}
+            total_channels = len(channel_addresses_context.channels)
+
+            for i, channel_address in enumerate(channel_addresses_context.channels):
+                streamer.status(f"Reading channel {i+1}/{total_channels}: {channel_address}")
+
+                try:
+                    # Read PV using connector (returns PVValue with metadata)
+                    pv_result = await connector.read_pv(channel_address)
+
+                    # Convert to ChannelValue format expected by context
+                    channel_values[channel_address] = ChannelValue(
+                        value=str(pv_result.value),
+                        timestamp=pv_result.timestamp,
+                        units=pv_result.metadata.units if pv_result.metadata else ""
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to read channel {channel_address}: {e}")
+                    # Continue with other channels
+                    raise ChannelAccessError(f"Failed to read channel {channel_address}: {str(e)}")
+
+        finally:
+            # Always disconnect connector
+            await connector.disconnect()
+
+        # Create structured result
+        result = ChannelValuesContext(channel_values=channel_values)
+
+        streamer.status(f"Successfully retrieved {result.channel_count} channel values")
+
+        logger.info(f"Channel value retrieval result: {result.channel_count} channels retrieved")
+
+        # Store context using StateManager
+        context_updates = StateManager.store_context(
+            state,
+            registry.context_types.CHANNEL_VALUES,
+            step.get('context_key'),
+            result
+        )
+
+        return context_updates
+
+    @staticmethod
+    def classify_error(exc: Exception, context: dict) -> ErrorClassification:
+        """Channel-specific error classification."""
+
+        if isinstance(exc, ChannelTimeoutError):
+            return ErrorClassification(
+                severity=ErrorSeverity.RETRIABLE,
+                user_message=f"Channel timeout error: {str(exc)}",
+                metadata={"technical_details": str(exc)}
+            )
+        elif isinstance(exc, ChannelAccessError):
+            return ErrorClassification(
+                severity=ErrorSeverity.RETRIABLE,
+                user_message=f"Channel access error: {str(exc)}",
+                metadata={"technical_details": str(exc)}
+            )
+        elif isinstance(exc, ChannelNotFoundError):
+            return ErrorClassification(
+                severity=ErrorSeverity.REPLANNING,
+                user_message=f"Channel access failed: {str(exc)}",
+                metadata={"technical_details": str(exc)}
+            )
+        elif isinstance(exc, ChannelDependencyError):
+            return ErrorClassification(
+                severity=ErrorSeverity.REPLANNING,
+                user_message=f"Missing dependency: {str(exc)}",
+                metadata={"technical_details": str(exc)}
+            )
+        elif isinstance(exc, ChannelError):
+            # Generic channel error
+            return ErrorClassification(
+                severity=ErrorSeverity.RETRIABLE,
+                user_message=f"Channel error: {str(exc)}",
+                metadata={"technical_details": str(exc)}
+            )
+        else:
+            # Not a channel-specific error, use default classification
+            return ErrorClassification(
+                severity=ErrorSeverity.RETRIABLE,
+                user_message=f"Unexpected error: {str(exc)}",
+                metadata={"technical_details": str(exc)}
+            )
+
+    @staticmethod
+    def get_retry_policy() -> Dict[str, Any]:
+        """Define retry policy for channel value retrieval."""
+        return {
+            "max_attempts": 3,
+            "delay_seconds": 1.0,
+            "backoff_factor": 2.0
+        }
+
+    def _create_orchestrator_guide(self) -> Optional[OrchestratorGuide]:
+        """Create prompt snippet for channel value retrieval."""
+
+        # Define structured examples using simplified dict format
+        current_values_example = OrchestratorExample(
+            step=PlannedStep(
+                context_key="read_monitor_values",
+                capability="channel_value_retrieval",
+                task_objective="Read current beam position monitor values for orbit analysis",
+                expected_output="CHANNEL_VALUES",
+                success_criteria="Position values successfully retrieved",
+                inputs=[{"CHANNEL_ADDRESSES": "monitor_addresses"}]
+            ),
+            scenario_description="Reading beam monitor values for real-time monitoring",
+            notes="Output stored under CHANNEL_VALUES context type. Requires CHANNEL_ADDRESSES input from previous step."
+        )
+
+        status_check_example = OrchestratorExample(
+            step=PlannedStep(
+                context_key="system_status_values",
+                capability="channel_value_retrieval",
+                task_objective="Check current values of critical power supply and magnet parameters for system health assessment",
+                expected_output="CHANNEL_VALUES",
+                success_criteria="Status values retrieved and within expected ranges",
+                inputs=[{"CHANNEL_ADDRESSES": "critical_system_channels"}]
+            ),
+            scenario_description="Status checking for critical system parameters",
+            notes="Output stored under CHANNEL_VALUES context type. Used for system health checks."
+        )
+
+        return OrchestratorGuide(
+            instructions=textwrap.dedent("""
+            **When to plan "channel_value_retrieval" steps:**
+            - When the user requests current status, readings, or values of specific channels
+            - For real-time monitoring of control system parameters
+            - When current channel values are needed as inputs for subsequent steps
+
+            **Step Structure:**
+            - context_key: Unique identifier for output (e.g., "current_beam_values", "status_readings")
+            - inputs: Specify required inputs using simplified format:
+              {"CHANNEL_ADDRESSES": "context_key_with_channel_addresses"}
+
+            **Required Inputs:**
+            - CHANNEL_ADDRESSES data: typically from a "channel_finding" step
+
+            **Output: CHANNEL_VALUES**
+            - Contains: Dictionary mapping channel addresses to their current values and timestamps
+            - Available to downstream steps via context system
+
+            **Dependencies and sequencing:**
+            1. Channel finding step must precede this step if CHANNEL_ADDRESSES data is not present already
+            2. Channel values can serve as inputs for analysis or visualization steps
+            3. Returns current values with timestamps for real-time monitoring
+
+            Do NOT plan this for historical data; use "archiver_retrieval" for historical data.
+
+            **NEVER** plan steps that would require making up channel addresses - always ensure addresses are obtained from previous steps.
+            """).strip(),
+            examples=[current_values_example, status_check_example],
+            priority=10
+        )
+
+    def _create_classifier_guide(self) -> Optional[TaskClassifierGuide]:
+        """Create classifier for channel value retrieval."""
+        try:
+            return TaskClassifierGuide(
+                instructions="Determine if the task requires fetching current channel values. Look for requests about current values, statuses, or readings of specific channels.",
+                examples=[
+                    ClassifierExample(
+                        query="Which tools do you have?",
+                        result=False,
+                        reason="This is a question about the AI's capabilities."
+                    ),
+                    ClassifierExample(
+                        query="What is the current beam energy?",
+                        result=True,
+                        reason="The query asks for a current value."
+                    ),
+                    ClassifierExample(
+                        query="Read the current magnet current.",
+                        result=True,
+                        reason="The query asks to read the current value."
+                    ),
+                    ClassifierExample(
+                        query="What's the beam current right now?",
+                        result=True,
+                        reason="The query asks for a current value, which requires channel value retrieval."
+                    ),
+                    ClassifierExample(
+                        query="Show me historical beam current data.",
+                        result=False,
+                        reason="This is asking for historical data, not current values."
+                    )
+                ],
+                actions_if_true=ClassifierActions()
+            )
+        except Exception as e:
+            logger.warning(f"Failed to create classifier config: {e}")
+            return None
+

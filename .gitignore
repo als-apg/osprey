@@ -94,7 +94,7 @@ tensorboard/
 
 # Temporary files
 tmp/
-temp/ 
+temp/
 
 venv*
 
@@ -123,9 +123,9 @@ _autosummary/
 # Development services and applications (keep locally but not in git)
 _CLAUDE
 _issues
-CLAUDE.md 
+CLAUDE.md
 
 # Tutorials and examples
 weather-agent/
-turbine-agent/
+my-control-assistant/
 my-agent/

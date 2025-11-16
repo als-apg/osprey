@@ -21,6 +21,14 @@ services:
       - NOTEBOOK_DIR=/home/jovyan/work
       - JUPYTER_ENABLE_LAB=yes
       - PYTHONPATH=/jupyter/repo_src
+      # Development mode flag for local osprey override
+      - DEV_MODE=${DEV_MODE:-false}
+      # Point to config.yml for framework initialization
+      - CONFIG_FILE=/jupyter/config.yml
+      - PROJECT_ROOT=/jupyter
+      # Override registry_path for container execution (absolute path needed for subdirectory execution)
+      - REGISTRY_PATH=/jupyter/repo_src/{{project_name.replace('-', '_')}}/registry.py
+      - AGENT_DATA_DIR={{file_paths.agent_data_dir}}
       # Timezone synchronization with host (from system configuration)
       - TZ={{system.timezone}}
       # Proxy settings (optional - uncomment if behind corporate firewall)
@@ -55,6 +63,14 @@ services:
     environment:
       - NOTEBOOK_DIR=/home/jovyan/work
       - JUPYTER_ENABLE_LAB=yes
+      # Development mode flag for local osprey override
+      - DEV_MODE=${DEV_MODE:-false}
+      # Point to config.yml for framework initialization
+      - CONFIG_FILE=/jupyter/config.yml
+      - PROJECT_ROOT=/jupyter
+      # Override registry_path for container execution (absolute path needed for subdirectory execution)
+      - REGISTRY_PATH=/jupyter/repo_src/{{project_name.replace('-', '_')}}/registry.py
+      - AGENT_DATA_DIR={{file_paths.agent_data_dir}}
       # Timezone synchronization with host (from system configuration)
       - TZ={{system.timezone}}
       # Proxy settings (optional - uncomment if behind corporate firewall)

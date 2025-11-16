@@ -96,6 +96,7 @@ Examples:
 # Framework components for application use - all shared definitions in base
 from .base import (
     CapabilityRegistration,
+    ConnectorRegistration,
     ContextClassRegistration,
     DataSourceRegistration,
     DomainAnalyzerRegistration,
@@ -134,6 +135,7 @@ __all__ = [
     'ServiceRegistration',
     'FrameworkPromptProviderRegistration',
     'ProviderRegistration',
+    'ConnectorRegistration',
     'RegistryConfig',
     'ExtendedRegistryConfig',
 

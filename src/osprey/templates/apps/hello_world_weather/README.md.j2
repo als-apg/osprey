@@ -1,23 +1,47 @@
 # {{ app_display_name }} Agent - Quick Start
 
-A super simple weather agent for learning Alpha Berkeley Framework basics. Get it running in 15 minutes!
+A super simple weather agent for learning Osprey Framework basics. Get it running in under 10 minutes!
 
 ## What It Does
 
 Ask about current weather in San Francisco, New York, or Prague and get instant results! The current weather conditions are provided by a simple mock API.
 
+## Quick Setup
 
+### 1. Configure Your API Key
 
-## Quick Setup (15 minutes)
+Create a `.env` file in your project root:
 
-1. **Try these queries:**
-   ```
-   "What's the weather in San Francisco?"
-   "How's the weather in New York?"
-   "Tell me about Prague weather"
-   ```
+```bash
+# Copy the example template
+cp .env.example .env
 
-That's it! No external APIs, no complex setup.
+# Edit .env and add your API key
+# We recommend Claude Haiku 4.5, but any OpenAI-compatible provider works
+```
+
+Set one of these API keys in your `.env` file:
+- `ANTHROPIC_API_KEY=your-key` (Recommended)
+- `CBORG_API_KEY=your-key` (LBNL institutional)
+- `OPENAI_API_KEY=your-key`
+- `GOOGLE_API_KEY=your-key`
+
+### 2. Run the Agent
+
+```bash
+# Start the chat interface
+osprey chat
+```
+
+### 3. Try These Queries
+
+```
+"What's the weather in San Francisco?"
+"How's the weather in New York?"
+"Tell me about Prague weather"
+```
+
+That's it! No external APIs, no containers, no complex setup.
 
 ## What You'll Learn
 
@@ -39,7 +63,7 @@ User Query → LLM Classifier → Weather Capability → Mock API → Results
 
 ```
 {{ package_name }}/
-├── registry.py                    # Component registration  
+├── registry.py                    # Component registration
 ├── context_classes.py             # Weather data structure
 ├── mock_weather_api.py            # Fake weather service
 ├── capabilities/
@@ -66,7 +90,7 @@ User Query → LLM Classifier → Weather Capability → Mock API → Results
 Once this is working:
 1. **Explore the code**: See how capabilities work
 2. **Add a city**: Modify `mock_weather_api.py`
-3. **Try the Wind Turbine agent**: More complex example
+3. **Try the Control Assistant tutorial**: Production-grade control system integration
 4. **Build your own**: Use this as a template
 
 ## Key Code Patterns
@@ -75,30 +99,30 @@ Once this is working:
 ```python
 class CurrentWeatherContext(CapabilityContext):
     CONTEXT_TYPE: ClassVar[str] = "CURRENT_WEATHER"
-    
+
     location: str = Field(description="Location name")
     temperature: float = Field(description="Temperature in Celsius")
     conditions: str = Field(description="Weather conditions description")
     timestamp: datetime = Field(description="Timestamp of weather data")
 ```
 
-### Capability (Business Logic)  
+### Capability (Business Logic)
 ```python
 @capability_node
 class CurrentWeatherCapability(BaseCapability):
     name = "current_weather"
     description = "Get current weather conditions for a location"
-    
+
     @staticmethod
     async def execute(state: AgentState, **kwargs):
         # LangGraph streaming
         writer = get_stream_writer()
         if writer:
             writer({"event_type": "status", "message": "Getting weather..."})
-        
+
         # Business logic
         weather = weather_api.get_current_weather(location)
-        
+
         # Context storage using helper functions
         return StateManager.store_context(state, "CURRENT_WEATHER", context_key, weather)
 ```
@@ -106,13 +130,16 @@ class CurrentWeatherCapability(BaseCapability):
 ## Troubleshooting
 
 **Not working?** Check:
-- Is Ollama running? (`ollama serve`)
-- Is mistral:7b installed? (`ollama pull mistral:7b`)
+- Is your API key configured correctly in `.env`?
+- Do you have the API key environment variable set correctly (e.g., `ANTHROPIC_API_KEY`)?
+- Is the provider/model specified in `config.yml` correct for your API key?
 - Any errors in the terminal output?
-- Is the application properly configured in the main `config.yml`?
 
-**Need help?** This is the simplest possible example - if it's not working, there might be a framework setup issue.
+**Need help?** This is the simplest possible example - if it's not working, there might be a configuration issue. Check that:
+1. Your `.env` file exists and contains your API key
+2. Your `config.yml` has the correct provider name (e.g., "anthropic", not "cborg")
+3. The model ID in `config.yml` matches a valid model for your provider
 
 ---
 
-**Goal**: Get this running in 15 minutes, then explore the more complex Wind Turbine agent! 
+**Goal**: Get this running in under 10 minutes, then explore the Control Assistant tutorial for production patterns!

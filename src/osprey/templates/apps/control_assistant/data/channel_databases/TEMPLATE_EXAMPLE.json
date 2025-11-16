@@ -1,0 +1,100 @@
+{
+  "_metadata": {
+    "_comment": "Optional metadata to document database generation",
+    "generated_from": "data/raw/address_list.csv",
+    "generation_date": "2025-11-08",
+    "generator": "build_channel_database.py",
+    "command": "python tools/build_channel_database.py --use-llm",
+    "llm_naming": {
+      "enabled": true,
+      "model": "anthropic/claude-haiku",
+      "purpose": "Generated descriptive names for standalone channels"
+    },
+    "description": "Template-based channel database"
+  },
+  "channels": [
+    {
+      "_comment": "=== STANDALONE CHANNEL EXAMPLE ===",
+      "_comment2": "Use for unique channels that don't belong to a device family",
+      "template": false,
+      "channel": "BeamCurrent",
+      "address": "BEAM:CURRENT",
+      "description": "Total electron beam current measured in milliamps"
+    },
+    {
+      "template": false,
+      "channel": "VacuumPressure",
+      "address": "VACUUM:PRESSURE:MAIN",
+      "description": "Main beamline vacuum pressure in Torr"
+    },
+    {
+      "template": false,
+      "channel": "RFFrequency",
+      "address": "RF:FREQ",
+      "description": "Radio frequency cavity frequency in MHz"
+    },
+    {
+      "_comment": "=== DEVICE FAMILY TEMPLATE EXAMPLE (Simple) ===",
+      "_comment2": "Use for device families with multiple instances and sub-channels",
+      "_comment3": "This creates: BPM01XPosition, BPM01YPosition, BPM02XPosition, BPM02YPosition, ...",
+      "template": true,
+      "base_name": "BPM",
+      "instances": [1, 10],
+      "sub_channels": ["XPosition", "YPosition"],
+      "description": "Beam Position Monitors measure electron beam location",
+      "address_pattern": "BPM{instance:02d}{suffix}",
+      "channel_descriptions": {
+        "XPosition": "Horizontal position reading from BPM {instance:02d} in millimeters",
+        "YPosition": "Vertical position reading from BPM {instance:02d} in millimeters"
+      }
+    },
+    {
+      "_comment": "=== DEVICE FAMILY TEMPLATE WITH AXES ===",
+      "_comment2": "Use when devices have both instances AND axes (like X/Y steering)",
+      "_comment3": "This creates: Corrector01XSetPoint, Corrector01XReadBack, Corrector01YSetPoint, Corrector01YReadBack, ...",
+      "template": true,
+      "base_name": "Corrector",
+      "instances": [1, 5],
+      "axes": ["X", "Y"],
+      "sub_channels": ["SetPoint", "ReadBack"],
+      "description": "Corrector magnets adjust beam trajectory",
+      "address_pattern": "Corrector{instance:02d}{axis}{suffix}",
+      "channel_descriptions": {
+        "XSetPoint": "Horizontal corrector {instance:02d} setpoint current in Amps",
+        "XReadBack": "Horizontal corrector {instance:02d} actual current in Amps",
+        "YSetPoint": "Vertical corrector {instance:02d} setpoint current in Amps",
+        "YReadBack": "Vertical corrector {instance:02d} actual current in Amps"
+      }
+    },
+    {
+      "_comment": "=== DEVICE FAMILY TEMPLATE (Control + Readback) ===",
+      "_comment2": "Common pattern for devices with set/readback channels",
+      "_comment3": "This creates: Valve01SetPoint, Valve01ReadBack, Valve02SetPoint, Valve02ReadBack, ...",
+      "template": true,
+      "base_name": "Valve",
+      "instances": [1, 8],
+      "sub_channels": ["SetPoint", "ReadBack"],
+      "description": "Pneumatic valves control gas flow",
+      "address_pattern": "VAL:{instance:02d}:{suffix}",
+      "channel_descriptions": {
+        "SetPoint": "Valve {instance:02d} position command (0=closed, 1=open)",
+        "ReadBack": "Valve {instance:02d} actual position (0=closed, 1=open)"
+      }
+    },
+    {
+      "_comment": "=== DEVICE FAMILY TEMPLATE (Single Sub-channel) ===",
+      "_comment2": "Use when devices only have one channel per instance",
+      "_comment3": "This creates: PowerSupply01Voltage, PowerSupply02Voltage, PowerSupply03Voltage",
+      "template": true,
+      "base_name": "PowerSupply",
+      "instances": [1, 3],
+      "sub_channels": ["Voltage"],
+      "description": "DC power supplies provide voltage to various systems",
+      "address_pattern": "PS{instance:02d}:{suffix}",
+      "channel_descriptions": {
+        "Voltage": "Output voltage of power supply {instance:02d} in Volts"
+      }
+    }
+  ]
+}
+
