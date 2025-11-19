@@ -552,14 +552,13 @@ class CurrentWeatherCapability(BaseCapability):
                 expected_output="FINAL_RESPONSE",
                 success_criteria="User receives clear response with temperature information",
                 inputs=[{
-                    "type": registry.context_types.CURRENT_WEATHER,
-                    "key": "current_weather"
+                    registry.context_types.CURRENT_WEATHER: "current_weather"
                 }]
             ),
             scenario_description="Complete workflow: weather retrieval followed by response generation",
             notes=f"""This shows the SECOND step in a two-step plan:
 Step 1: current_weather capability (context_key='current_weather') retrieves weather data
-Step 2: respond capability uses that data via inputs=[{{ '{{' }}'type': '{{ '{' }}registry.context_types.CURRENT_WEATHER{{ '}' }}', 'key': 'current_weather'{{ '}}' }}]
+Step 2: respond capability uses that data via inputs=[{{ '{{' }}registry.context_types.CURRENT_WEATHER: 'current_weather'{{ '}}' }}]
 
 CRITICAL: The respond step MUST reference the weather data from Step 1 in its inputs list."""
         )
@@ -581,7 +580,7 @@ CRITICAL: The respond step MUST reference the weather data from Step 1 in its in
 **Multi-Step Planning:**
 When weather data needs to be communicated to the user, plan TWO steps:
 1. current_weather step (retrieves data)
-2. respond step with inputs=[{{ '{{' }}'type': '{{ '{' }}registry.context_types.CURRENT_WEATHER{{ '}' }}', 'key': '<weather_step_key>'{{ '}}' }}]
+2. respond step with inputs=[{{ '{{' }}registry.context_types.CURRENT_WEATHER: '<weather_step_key>'{{ '}}' }}]
 The respond step MUST include the weather data in its inputs list to access the retrieved information.""",
             examples=[example_single_step, example_with_response],
             order=5
