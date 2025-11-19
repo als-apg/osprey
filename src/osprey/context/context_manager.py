@@ -27,6 +27,48 @@ logger = get_logger("osprey")
 
 
 # ===================================================================
+# ==================== CONTEXT EXTRACTION RESULT CLASS ==============
+# ===================================================================
+
+class ContextExtractionResult(dict):
+    """Special dict that supports both flattened key and context type access.
+
+    This class provides backward compatibility while fixing the context override bug.
+    It allows accessing contexts by:
+    - Flattened key: result["CHANNEL_ADDRESSES.key1"]
+    - Context type (when only one exists): result["CHANNEL_ADDRESSES"]
+
+    When multiple contexts of the same type exist, only flattened key access works.
+    """
+
+    def __getitem__(self, key: str):
+        """Support both flattened key and context type access."""
+        # First try exact match (flattened key format)
+        if key in self.keys():
+            return super().__getitem__(key)
+
+        # If not found, try as context type (backward compatibility)
+        if '.' not in key:
+            # It's a context type, find matching flattened keys
+            matches = [k for k in self.keys() if k.startswith(f"{key}.")]
+
+            if len(matches) == 0:
+                raise KeyError(f"No context found for type: {key}")
+            elif len(matches) == 1:
+                # Exactly one match - return it for backward compatibility
+                return super().__getitem__(matches[0])
+            else:
+                # Multiple matches - user must use flattened key
+                raise KeyError(
+                    f"Multiple contexts found for type '{key}': {matches}. "
+                    f"Use flattened key format 'context_type.context_key' to access specific context."
+                )
+
+        # Key not found in any format
+        raise KeyError(key)
+
+
+# ===================================================================
 # ==================== SHARED UTILITY FUNCTIONS ==================
 # ===================================================================
 
@@ -331,19 +373,9 @@ class ContextManager:
         """
         # Step 1: Get contexts (filtered by step or all)
         if step is not None:
-            # Get specific step contexts and convert to flattened format
+            # Get specific step contexts - extract_from_step now returns flattened format directly
             try:
-                step_contexts = self.extract_from_step(step, {})
-                contexts_dict = {}
-
-                # Convert to flattened format like get_all() returns
-                for input_spec in step.get('inputs', []):
-                    if isinstance(input_spec, dict):
-                        for context_type, key_name in input_spec.items():
-                            if context_type in step_contexts:
-                                flattened_key = f"{context_type}.{key_name}"
-                                contexts_dict[flattened_key] = step_contexts[context_type]
-
+                contexts_dict = self.extract_from_step(step, {})
             except Exception as e:
                 logger.error(f"Error extracting step contexts: {e}")
                 contexts_dict = self.get_all()  # Fallback to all contexts
@@ -478,7 +510,8 @@ class ContextManager:
             constraint_mode: ``"hard"`` (all constraints required) or ``"soft"`` (at least one constraint required)
 
         Returns:
-            Dict mapping context_type to context object
+            Dict mapping flattened keys ("context_type.context_key") to context objects.
+            This allows multiple contexts of the same type without overwriting.
 
         Raises:
             ValueError: If contexts not found or constraints not met (capability converts to specific error)
@@ -489,6 +522,7 @@ class ContextManager:
 
             # Simple extraction without constraints
             contexts = context_manager.extract_from_step(step, state)
+            # Returns: {"PV_ADDRESSES.key1": <context_obj>, "TIME_RANGE.key2": <context_obj>}
 
             # With hard constraints (all required)
             try:
@@ -496,8 +530,9 @@ class ContextManager:
                     step, state,
                     constraints=["PV_ADDRESSES", "TIME_RANGE"]
                 )
-                pv_context = contexts["PV_ADDRESSES"]
-                time_context = contexts["TIME_RANGE"]
+                # Access by flattened key
+                pv_context = contexts["PV_ADDRESSES.key1"]
+                time_context = contexts["TIME_RANGE.key2"]
             except ValueError as e:
                 raise ArchiverDependencyError(str(e))
 
@@ -511,7 +546,7 @@ class ContextManager:
             except ValueError as e:
                 raise DataValidationError(str(e))
         """
-        results = {}
+        results = ContextExtractionResult()
 
         # Extract all contexts from step.inputs
         step_inputs = step.get('inputs', [])
@@ -528,13 +563,16 @@ class ContextManager:
             for context_type, context_key in input_dict.items():
                 context_obj = self.get_context(context_type, context_key)
                 if context_obj:
-                    results[context_type] = context_obj
+                    # Use flattened key to prevent overwrites when multiple contexts share the same type
+                    flattened_key = f"{context_type}.{context_key}"
+                    results[flattened_key] = context_obj
                 else:
                     raise ValueError(f"Context {context_type}.{context_key} not found")
 
         # Apply constraints if specified
         if constraints:
-            found_types = set(results.keys())
+            # Extract context types from flattened keys (e.g., "PV_ADDRESSES.key1" -> "PV_ADDRESSES")
+            found_types = {key.split('.', 1)[0] for key in results.keys()}
             required_types = set(constraints)
 
             if constraint_mode == "hard":
