@@ -431,6 +431,10 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     module_path="osprey.models.providers.cborg",
                     class_name="CBorgProviderAdapter"
                 ),
+                ProviderRegistration(
+                    module_path="osprey.models.providers.stanford",
+                    class_name="StanfordProviderAdapter"
+                ),
             ],
 
             # Framework connectors for control systems and archivers
