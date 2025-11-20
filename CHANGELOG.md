@@ -23,6 +23,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 2 integration tests (full workflow validation)
 - **Interactive Menu Enhancements**: Version number display in interactive menu banner
 - **Stanford AI Playground Provider**: Added Stanford AI playground as a built-in API provider
+- **Cardinality Constraints**: New optional cardinality validation in `extract_from_step()`
+  - Constraints can now specify expected instance count: `("CONTEXT_TYPE", "single")` or `("CONTEXT_TYPE", "multiple")`
+  - Eliminates repetitive `isinstance(context, list)` checks in capability code
+  - Clear error messages when cardinality expectations are violated
+  - Examples: `constraints=[("PV_ADDRESSES", "single"), ("TIME_RANGE", "single")]`
+  - String constraints (e.g., `"PV_ADDRESSES"`) have no cardinality restriction (backward compatible)
+  - Added 9 comprehensive test cases for cardinality validation
+  - Updated all 6 capability files to use new cardinality syntax
 
 ### Changed
 - **Generator Architecture**: Refactored monolithic generator into modular design
@@ -43,6 +51,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **Stanford API Key Detection**: Added missing STANFORD_API_KEY to environment variable detection (Reported by Marty)
 - **Weather Template**: Fixed context extraction example in hello world weather template (PR #26)
+- **CRITICAL BUG FIX**: `ContextManager.extract_from_step()` now correctly handles multiple contexts of the same type
+  - Previously, when multiple contexts of the same type were requested (e.g., two `CURRENT_WEATHER` contexts), only the last one was returned, causing silent data loss
+  - Now returns a list when multiple contexts of the same type exist: `{"CURRENT_WEATHER": [ctx1, ctx2]}`
+  - Single contexts still returned as objects for backward compatibility: `{"CURRENT_WEATHER": ctx_obj}`
+  - Capabilities can check `isinstance(context, list)` to detect and handle multiple contexts
+  - Added 17 comprehensive test cases covering all scenarios
+
+### Changed
+- **BREAKING CHANGE**: `ContextManager.get_summaries()` now returns `list[dict]` instead of `dict[str, Any]`
+  - Simplifies the API by eliminating flattened key format (e.g., `"CONTEXT_TYPE.key"`)
+  - Each summary dict already contains a `"type"` field for identification
+  - More natural format for UI/LLM consumption
+  - Updated 4 consumer files: `respond_node.py`, `clarify_node.py`, `memory.py`, `response_generation.py`
+- **Capability Validation**: All capabilities now validate single vs. multiple context expectations
+  - Added `isinstance(context, list)` checks to 6 capability files
+  - Clear error messages when capabilities receive unexpected multiple contexts
+  - Updated capability templates and examples to show proper validation pattern
+
+### Documentation
+- Updated context management documentation with list-handling examples
+- Added new "Handling Multiple Contexts" pattern to integration guide
+- Updated all capability examples to show validation pattern
+- Added comprehensive test suite documentation
+
+### Migration Notes
+- **Early Access Phase**: This is an acceptable breaking change as the framework is in early access (0.9.x)
+- **For Capability Developers (Cardinality)**: Replace `isinstance(context, list)` checks with cardinality constraints
+  - Old: `constraints=["PV_ADDRESSES"]` + manual `isinstance` check
+  - New: `constraints=[("PV_ADDRESSES", "single")]` - framework handles validation
+- **For Capability Developers (Multi-Context)**: Add `isinstance(context, list)` validation after extracting contexts to ensure your capability behavior matches expectations (only if not using cardinality constraints)
+- **For get_summaries() Consumers**: Update code to iterate over list instead of dict.items()
+  - Old: `for key, summary in summaries.items()`
+  - New: `for summary in summaries: context_type = summary.get('type')`
 
 ## [0.9.1] - 2025-11-16
 

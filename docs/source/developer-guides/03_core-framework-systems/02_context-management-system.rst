@@ -74,17 +74,16 @@ Context classes define the structure of data shared between capabilities:
        pvs: List[str]  # List of found PV addresses
        description: str  # Description of the PVs
 
-       def get_access_details(self, key_name: Optional[str] = None) -> Dict[str, Any]:
-           key_ref = key_name if key_name else "key_name"
+       def get_access_details(self, key: str) -> Dict[str, Any]:
            return {
                "pvs": self.pvs,
                "total_available": len(self.pvs),
                "comments": self.description,
                "data_structure": "List of PV address strings",
-               "access_pattern": f"context.{self.CONTEXT_TYPE}.{key_ref}.pvs",
+               "access_pattern": f"context.{self.CONTEXT_TYPE}.{key}.pvs",
            }
 
-       def get_summary(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+       def get_summary(self) -> Dict[str, Any]:
            return {
                "type": "PV Addresses",
                "total_pvs": len(self.pvs),
@@ -143,13 +142,16 @@ Capabilities retrieve context data through ``ContextManager``:
            step = StateManager.get_current_step(state)
            context_manager = ContextManager(state)
 
-           # Extract required contexts
+           # Extract required contexts with cardinality constraints
            contexts = context_manager.extract_from_step(
                step, state,
-               constraints=["PV_ADDRESSES"],
+               constraints=[("PV_ADDRESSES", "single")],
                constraint_mode="hard"
            )
            pv_addresses_context = contexts["PV_ADDRESSES"]
+
+           # The "single" cardinality constraint guarantees pv_addresses_context
+           # is not a list, eliminating the need for isinstance checks
 
            # Use the context data
            pv_list = pv_addresses_context.pvs
@@ -250,7 +252,7 @@ Common Issues
 
    from osprey.context.context_manager import recursively_summarize_data
 
-   def get_summary(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+   def get_summary(self) -> Dict[str, Any]:
        """Human-readable summary with automatic data truncation."""
        return {
            "analysis_results": recursively_summarize_data(self.results),

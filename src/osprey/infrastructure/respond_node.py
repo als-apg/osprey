@@ -40,8 +40,8 @@ class ResponseContext:
     :type current_task: str
     :param execution_history: List of executed steps
     :type execution_history: List[Any]
-    :param relevant_context: Context data relevant to the response
-    :type relevant_context: Dict[str, Any]
+    :param relevant_context: Context data relevant to the response (list of summary dicts)
+    :type relevant_context: List[Dict[str, Any]]
     :param is_killed: Whether execution was terminated
     :type is_killed: bool
     :param kill_reason: Reason for termination if applicable
@@ -67,7 +67,7 @@ class ResponseContext:
     """
     current_task: str
     execution_history: list[Any]
-    relevant_context: dict[str, Any]
+    relevant_context: list[dict[str, Any]]
     is_killed: bool
     kill_reason: str | None
     capabilities_overview: str | None

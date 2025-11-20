@@ -227,17 +227,15 @@ Provides structured access information for LLM consumption. This method is used 
 
 .. code-block:: python
 
-        def get_access_details(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+        def get_access_details(self, key: str) -> Dict[str, Any]:
             """Provide access details for LLM consumption."""
-            key_ref = key_name if key_name else "key_name"
-
             return {
                 "location": self.location,
                 "temperature": self.temperature,
                 "conditions": self.conditions,
                 "temperature_formatted": f"{self.temperature}°C",
-                "access_pattern": f"context.{self.CONTEXT_TYPE}.{key_ref}.temperature, context.{self.CONTEXT_TYPE}.{key_ref}.conditions",
-                "example_usage": f"The temperature in {self.location} is {{context.{self.CONTEXT_TYPE}.{key_ref}.temperature}}°C with {{context.{self.CONTEXT_TYPE}.{key_ref}.conditions}} conditions",
+                "access_pattern": f"context.{self.CONTEXT_TYPE}.{key}.temperature, context.{self.CONTEXT_TYPE}.{key}.conditions",
+                "example_usage": f"The temperature in {self.location} is {{context.{self.CONTEXT_TYPE}.{key}.temperature}}°C with {{context.{self.CONTEXT_TYPE}.{key}.conditions}} conditions",
                 "available_fields": ["location", "temperature", "conditions", "timestamp"]
             }
 
@@ -292,16 +290,14 @@ Provides human-readable summaries for user interfaces and debugging:
               """Return the context type identifier."""
               return self.CONTEXT_TYPE
 
-          def get_access_details(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+          def get_access_details(self, key: str) -> Dict[str, Any]:
               """Provide access details for LLM consumption."""
-              key_ref = key_name if key_name else "key_name"
-
               return {
                   "location": self.location,
                   "current_temp": f"{self.temperature}°C",
                   "conditions": self.conditions,
-                  "access_pattern": f"context.{self.CONTEXT_TYPE}.{key_ref}.temperature, context.{self.CONTEXT_TYPE}.{key_ref}.conditions",
-                  "example_usage": f"The temperature in {self.location} is {{context.{self.CONTEXT_TYPE}.{key_ref}.temperature}}°C with {{context.{self.CONTEXT_TYPE}.{key_ref}.conditions}} conditions",
+                  "access_pattern": f"context.{self.CONTEXT_TYPE}.{key}.temperature, context.{self.CONTEXT_TYPE}.{key}.conditions",
+                  "example_usage": f"The temperature in {self.location} is {{context.{self.CONTEXT_TYPE}.{key}.temperature}}°C with {{context.{self.CONTEXT_TYPE}.{key}.conditions}} conditions",
                   "available_fields": ["location", "temperature", "conditions", "timestamp"]
               }
 

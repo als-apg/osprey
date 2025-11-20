@@ -241,7 +241,9 @@ class CurrentWeatherCapability(BaseCapability):
         try:
             streamer.status("Extracting location from query...")
 
-            query = StateManager.get_current_task(state).lower()
+            # Use step's task_objective for multi-location query support
+            # This allows orchestrator to plan separate steps for each location
+            query = step.get('task_objective', StateManager.get_current_task(state)).lower()
 
             # Simple location detection
             location = "San Francisco"  # default

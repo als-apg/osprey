@@ -65,15 +65,18 @@ class CapabilityContext(BaseModel):
         """
         pass
 
-    def get_summary(self, key: str) -> dict:
+    def get_summary(self) -> dict:
         """
-        Get a summary of this context data.
-
-        Args:
-            key: The context key this data is stored under
+        Get a summary of this context data for human display/LLM consumption.
 
         Returns:
-            Dictionary with information about the context
+            Dictionary with summary information about the context. The content
+            and structure are completely up to the context class implementation.
+
+        Note:
+            This method is used by get_summaries() to create human-readable displays
+            and LLM prompts. Include whatever information is most useful for your
+            specific context type.
         """
         # Check if subclass overrides get_human_summary (legacy support)
         # We check __dict__ to see if the method is actually implemented in this class
@@ -86,8 +89,14 @@ class CapabilityContext(BaseModel):
                 DeprecationWarning,
                 stacklevel=2
             )
-            # Call the legacy method directly from the class to avoid recursion
-            return self.__class__.__dict__['get_human_summary'](self, key)
+            # Call the legacy method directly - it may have key parameter
+            legacy_method = self.__class__.__dict__['get_human_summary']
+            # Try calling with no args first (new style), fall back to with key
+            try:
+                return legacy_method(self)
+            except TypeError:
+                # Legacy method expects key parameter
+                return legacy_method(self, None)
         else:
             # This should be implemented by subclasses
             raise NotImplementedError(

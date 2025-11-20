@@ -172,13 +172,15 @@ Capabilities should use ``ConnectorFactory`` to create connectors from global co
        async def execute(state: AgentState, **kwargs) -> dict:
            """Execute channel value retrieval."""
 
-           # Get channel addresses from context
+           # Get channel addresses from context with cardinality constraint
            context_manager = ContextManager(state)
            contexts = context_manager.extract_from_step(
                step, state,
-               constraints=["CHANNEL_ADDRESSES"]
+               constraints=[("CHANNEL_ADDRESSES", "single")]
            )
            channel_context = contexts["CHANNEL_ADDRESSES"]
+
+           # The "single" constraint guarantees channel_context is not a list
 
            # Create connector from global configuration
            # Automatically selects mock or production based on config

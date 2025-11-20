@@ -120,22 +120,36 @@ class ArchiverRetrievalCapability(BaseCapability):
             try:
                 contexts = context_manager.extract_from_step(
                     step, state,
-                    constraints=[registry.context_types.CHANNEL_ADDRESSES, registry.context_types.TIME_RANGE],
+                    constraints=[
+                        registry.context_types.CHANNEL_ADDRESSES,
+                        (registry.context_types.TIME_RANGE, "single")
+                    ],
                     constraint_mode="hard"
                 )
-                channel_context = contexts[registry.context_types.CHANNEL_ADDRESSES]
+                channel_addresses_raw = contexts[registry.context_types.CHANNEL_ADDRESSES]
                 time_range_context = contexts[registry.context_types.TIME_RANGE]
+
+                # Extract channel list(s) - handle both single and multiple contexts
+                if isinstance(channel_addresses_raw, list):
+                    # Flatten multiple contexts into single channel list
+                    channels_to_retrieve = []
+                    for ctx in channel_addresses_raw:
+                        channels_to_retrieve.extend(ctx.channels)
+                    logger.info(f"Merged {len(channel_addresses_raw)} CHANNEL_ADDRESSES contexts into {len(channels_to_retrieve)} total channels")
+                else:
+                    channels_to_retrieve = channel_addresses_raw.channels
+
                 logger.info(f"Successfully extracted both required contexts: CHANNEL_ADDRESSES and TIME_RANGE")
             except ValueError as e:
                 raise ArchiverDependencyError(str(e))
 
             # Validate that we have channel addresses to work with
-            if not channel_context.channels or len(channel_context.channels) == 0:
+            if not channels_to_retrieve or len(channels_to_retrieve) == 0:
                 raise ArchiverDependencyError("No channel addresses available for archiver data retrieval. The channel finding step may have failed to locate suitable channels.")
 
-            streamer.status(f"Found {len(channel_context.channels)} channels, retrieving data...")
+            streamer.status(f"Found {len(channels_to_retrieve)} channels, retrieving data...")
 
-            logger.debug(f"Retrieving archiver data for {len(channel_context.channels)} channels from {time_range_context.start_date} to {time_range_context.end_date}")
+            logger.debug(f"Retrieving archiver data for {len(channels_to_retrieve)} channels from {time_range_context.start_date} to {time_range_context.end_date}")
 
             # Get precision from step parameters (optional, for context metadata)
             precision_ms = (step.get('parameters') or {}).get('precision_ms', 1000)
@@ -148,7 +162,7 @@ class ArchiverRetrievalCapability(BaseCapability):
             try:
                 # Retrieve the data from archiver (returns pandas DataFrame)
                 archiver_df = await connector.get_data(
-                    pv_list=channel_context.channels,
+                    pv_list=channels_to_retrieve,
                     start_date=time_range_context.start_date,
                     end_date=time_range_context.end_date,
                     precision_ms=precision_ms
@@ -162,7 +176,7 @@ class ArchiverRetrievalCapability(BaseCapability):
                 # Extract time series data for each channel
                 time_series_data = {
                     channel: archiver_df[channel].tolist()
-                    for channel in channel_context.channels
+                    for channel in channels_to_retrieve
                     if channel in archiver_df.columns
                 }
 

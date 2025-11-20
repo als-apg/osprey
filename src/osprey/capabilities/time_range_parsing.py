@@ -116,7 +116,7 @@ class TimeRangeContext(CapabilityContext):
     def context_type(self) -> str:
         return self.CONTEXT_TYPE
 
-    def get_access_details(self, key_name: str | None = None) -> dict[str, Any]:
+    def get_access_details(self, key: str) -> dict[str, Any]:
         """Provide comprehensive access information for time range context integration.
 
         Generates detailed access information for other capabilities to understand
@@ -133,7 +133,6 @@ class TimeRangeContext(CapabilityContext):
            Emphasizes the full datetime functionality available including arithmetic,
            comparison operations, and flexible formatting capabilities.
         """
-        key_ref = key_name if key_name else "key_name"
         start_str = self.start_date.strftime('%Y-%m-%d %H:%M:%S')
         end_str = self.end_date.strftime('%Y-%m-%d %H:%M:%S')
         duration = self.end_date - self.start_date
@@ -143,13 +142,13 @@ class TimeRangeContext(CapabilityContext):
             "end_date": end_str,
             "duration": str(duration),
             "data_structure": "Two datetime objects: start_date and end_date with full datetime functionality",
-            "access_pattern": f"context.{self.CONTEXT_TYPE}.{key_ref}.start_date and context.{self.CONTEXT_TYPE}.{key_ref}.end_date",
-            "example_usage": f"context.{self.CONTEXT_TYPE}.{key_ref}.start_date gives datetime object, use .strftime('%Y-%m-%d %H:%M:%S') for string format",
+            "access_pattern": f"context.{self.CONTEXT_TYPE}.{key}.start_date and context.{self.CONTEXT_TYPE}.{key}.end_date",
+            "example_usage": f"context.{self.CONTEXT_TYPE}.{key}.start_date gives datetime object, use .strftime('%Y-%m-%d %H:%M:%S') for string format",
             "datetime_features": "Direct arithmetic: end_date - start_date, comparison: start_date > other_date, formatting: start_date.strftime(format)"
         }
 
 
-    def get_summary(self, key_name: str | None = None) -> dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """Generate summary for UI display and debugging.
 
         Creates a formatted summary of the parsed time range suitable for display

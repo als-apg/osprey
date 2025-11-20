@@ -114,14 +114,24 @@ class ChannelValueRetrievalCapability(BaseCapability):
             context_manager = ContextManager(state)
             contexts = context_manager.extract_from_step(
                 step, state,
-                constraints=["CHANNEL_ADDRESSES"],
+                constraints=[registry.context_types.CHANNEL_ADDRESSES],
                 constraint_mode="hard"
             )
-            channel_addresses_context = contexts[registry.context_types.CHANNEL_ADDRESSES]
+            channel_addresses_raw = contexts[registry.context_types.CHANNEL_ADDRESSES]
+
+            # Extract channel list(s) - handle both single and multiple contexts
+            if isinstance(channel_addresses_raw, list):
+                # Flatten multiple contexts into single channel list
+                channels_to_read = []
+                for ctx in channel_addresses_raw:
+                    channels_to_read.extend(ctx.channels)
+                logger.info(f"Merged {len(channel_addresses_raw)} CHANNEL_ADDRESSES contexts into {len(channels_to_read)} total channels")
+            else:
+                channels_to_read = channel_addresses_raw.channels
         except ValueError as e:
             raise ChannelDependencyError(str(e))
 
-        streamer.status(f"Reading {len(channel_addresses_context.channels)} channel values...")
+        streamer.status(f"Reading {len(channels_to_read)} channel values...")
 
         # Create control system connector from configuration
         # This will use 'mock' for development or 'epics' for production
@@ -131,9 +141,9 @@ class ChannelValueRetrievalCapability(BaseCapability):
         try:
             # Get all channel values
             channel_values = {}
-            total_channels = len(channel_addresses_context.channels)
+            total_channels = len(channels_to_read)
 
-            for i, channel_address in enumerate(channel_addresses_context.channels):
+            for i, channel_address in enumerate(channels_to_read):
                 streamer.status(f"Reading channel {i+1}/{total_channels}: {channel_address}")
 
                 try:

@@ -185,15 +185,16 @@ class ExampleCapability(BaseCapability):
         # ──────────────────────────────────────────────────────────────────
         # If your capability has requires=[], extract those contexts here
 
-        # Example: Extract a required context
+        # Example: Extract a required context with cardinality constraint
         # try:
         #     context_manager = ContextManager(state)
         #     contexts = context_manager.extract_from_step(
         #         step, state,
-        #         constraints=["REQUIRED_CONTEXT_TYPE"],
+        #         constraints=[(registry.context_types.REQUIRED_CONTEXT_TYPE, "single")],
         #         constraint_mode="hard"
         #     )
         #     required_input = contexts[registry.context_types.REQUIRED_CONTEXT_TYPE]
+        #     # The "single" cardinality constraint ensures required_input is not a list
         # except ValueError as e:
         #     raise MissingInputError(f"Missing required input: {e}")
 

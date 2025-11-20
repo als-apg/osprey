@@ -537,18 +537,17 @@ The ALS Accelerator Assistant demonstrates key production patterns for scaling t
              time_series_data: Dict[str, List[float]]      # PV name -> time series values
              available_pvs: List[str]                      # List of available PV names
 
-             def get_access_details(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+             def get_access_details(self, key: str) -> Dict[str, Any]:
                  """Rich description of the archiver data structure."""
-                 key_ref = key_name if key_name else "key_name"
                  return {
                      "total_points": len(self.timestamps),
                      "precision_ms": self.precision_ms,
                      "pv_count": len(self.available_pvs),
                      "available_pvs": self.available_pvs,
                      "CRITICAL_ACCESS_PATTERNS": {
-                         "get_pv_data": f"data = context.{self.CONTEXT_TYPE}.{key_ref}.time_series_data['PV_NAME']",
-                         "get_timestamps": f"timestamps = context.{self.CONTEXT_TYPE}.{key_ref}.timestamps",
-                         "get_single_value": f"value = context.{self.CONTEXT_TYPE}.{key_ref}.time_series_data['PV_NAME'][index]"
+                         "get_pv_data": f"data = context.{self.CONTEXT_TYPE}.{key}.time_series_data['PV_NAME']",
+                         "get_timestamps": f"timestamps = context.{self.CONTEXT_TYPE}.{key}.timestamps",
+                         "get_single_value": f"value = context.{self.CONTEXT_TYPE}.{key}.time_series_data['PV_NAME'][index]"
                      },
                      "datetime_features": "Full datetime functionality: arithmetic, comparison, formatting with .strftime(), timezone operations"
                  }

@@ -18,11 +18,11 @@ class YourDataContext(CapabilityContext):
     field1: str = Field(description="Description for LLM")
     field2: List[float] = Field(description="Description for LLM")
 
-    def get_access_details(self, key_name: Optional[str] = None):
+    def get_access_details(self, key: str):
         # Tell LLM how to access your data
         return {...}
 
-    def get_summary(self, key_name: Optional[str] = None):
+    def get_summary(self):
         # Provide human-readable summary
         return {...}
 ```
@@ -127,14 +127,16 @@ class ProcessorCapability(BaseCapability):
 
     @staticmethod
     async def execute(state: AgentState, **kwargs):
-        # Extract required input
+        # Extract required input with cardinality constraint
         context_manager = ContextManager(state)
         contexts = context_manager.extract_from_step(
             step, state,
-            constraints=["API_RESPONSE"],
-            constraint_mode="hard" # Validates output
+            constraints=[("API_RESPONSE", "single")],
+            constraint_mode="hard" # Validates presence and cardinality
         )
         api_data = contexts["API_RESPONSE"]
+
+        # The "single" constraint guarantees api_data is not a list
 
         # Process it
         results = process(api_data.data)

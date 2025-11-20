@@ -116,7 +116,7 @@ class MemoryContext(CapabilityContext):
     operation_type: str  # 'store', 'retrieve', 'search'
     operation_result: str | None = None
 
-    def get_access_details(self, key_name: str | None = None) -> dict[str, Any]:
+    def get_access_details(self, key: str) -> dict[str, Any]:
         """Provide detailed access information for capability context integration.
 
         Generates comprehensive access details for other capabilities to understand
@@ -132,17 +132,15 @@ class MemoryContext(CapabilityContext):
            This method is called by the framework's context management system
            to provide integration guidance for other capabilities.
         """
-        key_ref = key_name if key_name else "key_name"
-
         return {
             "operation": self.operation_type,
             "data_keys": list(self.memory_data.keys()) if self.memory_data else [],
-            "access_pattern": f"context.{self.CONTEXT_TYPE}.{key_ref}.memory_data",
-            "example_usage": f"context.{self.CONTEXT_TYPE}.{key_ref}.memory_data['user_preferences'] gives stored user preferences",
+            "access_pattern": f"context.{self.CONTEXT_TYPE}.{key}.memory_data",
+            "example_usage": f"context.{self.CONTEXT_TYPE}.{key}.memory_data['user_preferences'] gives stored user preferences",
             "operation_result": self.operation_result
         }
 
-    def get_summary(self, key_name: str | None = None) -> dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """Generate summary for response generation and UI display.
 
         Creates a formatted summary of the memory operation results suitable for
@@ -659,7 +657,10 @@ class MemoryOperationsCapability(BaseCapability):
                             context_summaries = context_manager.get_summaries(step)
 
                             if context_summaries:
-                                context_section = f"\n\nAVAILABLE CONTEXT FROM PREVIOUS STEPS:\n{context_summaries}\n"
+                                # Format list as readable string
+                                import json
+                                formatted_summaries = json.dumps(context_summaries, indent=2, default=str)
+                                context_section = f"\n\nAVAILABLE CONTEXT FROM PREVIOUS STEPS:\n{formatted_summaries}\n"
                                 logger.debug(f"Added context summaries: {context_summaries}")
                         except Exception as e:
                             logger.warning(f"Failed to get context summaries: {e}")
