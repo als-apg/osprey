@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Interactive Menu Enhancements**: Version number display in interactive menu banner
+- **Stanford AI Playground Provider**: Added Stanford AI playground as a built-in API provider
+
+### Fixed
+- **Weather Template**: Fixed context extraction example in hello world weather template (PR #26)
 
 ## [0.9.1] - 2025-11-16
 
