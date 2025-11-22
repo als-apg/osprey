@@ -105,10 +105,9 @@ Transforms capability classes into LangGraph-compatible nodes with complete infr
        provides = ["WEATHER_DATA"]
        requires = ["LOCATION"]
 
-       @staticmethod
-       async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
-           location = state.get("location", "San Francisco")
-           weather_data = await fetch_weather(location)
+       async def execute(self) -> Dict[str, Any]:
+           location_context, = self.get_required_contexts()
+           weather_data = await fetch_weather(location_context.location)
 
            return {
                "weather_current_conditions": weather_data,
@@ -331,9 +330,8 @@ All components must be explicitly declared in registry configurations and implem
        name: str = "my_component"
        description: str = "Component description"
 
-       # REQUIRED: Main execution logic
-       @staticmethod
-       async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
+       # REQUIRED: Main execution logic (instance method for capabilities)
+       async def execute(self) -> Dict[str, Any]:
            return {"result": "success"}
 
        # OPTIONAL: Custom error handling (inherits defaults)
@@ -385,12 +383,11 @@ Framework components use LangGraph's native streaming:
 
    @capability_node
    class MyCapability(BaseCapability):
-       @staticmethod
-       async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
+       async def execute(self) -> Dict[str, Any]:
            from osprey.utils.streaming import get_streamer
 
            # Get framework streaming support
-           streamer = get_streamer("my_capability", state)
+           streamer = get_streamer("my_capability", self._state)
 
            streamer.status("Processing data...")
            result = await process_data()
@@ -555,10 +552,9 @@ Streaming events integrate with LangGraph's native streaming and follow the same
 
    @capability_node
    class MyCapability(BaseCapability):
-       @staticmethod
-       async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
+       async def execute(self) -> Dict[str, Any]:
            # Follows same naming pattern as get_logger
-           streamer = get_streamer("my_capability", state)
+           streamer = get_streamer("my_capability", self._state)
 
            streamer.status("Processing data...")
            result = await process_data()

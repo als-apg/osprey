@@ -227,17 +227,15 @@ Provides structured access information for LLM consumption. This method is used 
 
 .. code-block:: python
 
-        def get_access_details(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+        def get_access_details(self, key: str) -> Dict[str, Any]:
             """Provide access details for LLM consumption."""
-            key_ref = key_name if key_name else "key_name"
-
             return {
                 "location": self.location,
                 "temperature": self.temperature,
                 "conditions": self.conditions,
                 "temperature_formatted": f"{self.temperature}°C",
-                "access_pattern": f"context.{self.CONTEXT_TYPE}.{key_ref}.temperature, context.{self.CONTEXT_TYPE}.{key_ref}.conditions",
-                "example_usage": f"The temperature in {self.location} is {{context.{self.CONTEXT_TYPE}.{key_ref}.temperature}}°C with {{context.{self.CONTEXT_TYPE}.{key_ref}.conditions}} conditions",
+                "access_pattern": f"context.{self.CONTEXT_TYPE}.{key}.temperature, context.{self.CONTEXT_TYPE}.{key}.conditions",
+                "example_usage": f"The temperature in {self.location} is {{context.{self.CONTEXT_TYPE}.{key}.temperature}}°C with {{context.{self.CONTEXT_TYPE}.{key}.conditions}} conditions",
                 "available_fields": ["location", "temperature", "conditions", "timestamp"]
             }
 
@@ -292,16 +290,14 @@ Provides human-readable summaries for user interfaces and debugging:
               """Return the context type identifier."""
               return self.CONTEXT_TYPE
 
-          def get_access_details(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+          def get_access_details(self, key: str) -> Dict[str, Any]:
               """Provide access details for LLM consumption."""
-              key_ref = key_name if key_name else "key_name"
-
               return {
                   "location": self.location,
                   "current_temp": f"{self.temperature}°C",
                   "conditions": self.conditions,
-                  "access_pattern": f"context.{self.CONTEXT_TYPE}.{key_ref}.temperature, context.{self.CONTEXT_TYPE}.{key_ref}.conditions",
-                  "example_usage": f"The temperature in {self.location} is {{context.{self.CONTEXT_TYPE}.{key_ref}.temperature}}°C with {{context.{self.CONTEXT_TYPE}.{key_ref}.conditions}} conditions",
+                  "access_pattern": f"context.{self.CONTEXT_TYPE}.{key}.temperature, context.{self.CONTEXT_TYPE}.{key}.conditions",
+                  "example_usage": f"The temperature in {self.location} is {{context.{self.CONTEXT_TYPE}.{key}.temperature}}°C with {{context.{self.CONTEXT_TYPE}.{key}.conditions}} conditions",
                   "available_fields": ["location", "temperature", "conditions", "timestamp"]
               }
 
@@ -342,15 +338,13 @@ The ``execute()`` method contains your main business logic, which you could call
 
 .. code-block:: python
 
-       @staticmethod
-       async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
+       async def execute(self) -> Dict[str, Any]:
            """Execute weather retrieval."""
-           step = StateManager.get_current_step(state)
-           streamer = get_streamer("hello_world_weather", "current_weather", state)
+           streamer = get_streamer("hello_world_weather", "current_weather", self._state)
 
            try:
                streamer.status("Extracting location from query...")
-               query = StateManager.get_current_task(state).lower()
+               query = self.get_task_objective().lower()
 
                # Simple location detection
                location = "San Francisco"  # default
@@ -370,16 +364,9 @@ The ``execute()`` method contains your main business logic, which you could call
                    timestamp=weather.timestamp
                )
 
-               # Store context in framework state
-               context_updates = StateManager.store_context(
-                   state,
-                   registry.context_types.CURRENT_WEATHER,
-                   step.get("context_key"),
-                   context
-               )
-
+               # Store context and return state updates
                streamer.status(f"Weather retrieved: {location} - {weather.temperature}°C")
-               return context_updates
+               return self.store_output_context(context)
 
            except Exception as e:
                logger.error(f"Weather retrieval error: {e}")
@@ -387,11 +374,12 @@ The ``execute()`` method contains your main business logic, which you could call
 
 .. admonition:: Key Steps
 
-   1. **Framework Setup** - Get streaming utilities and current execution step
-   2. **Location Extraction** - Parse user query to find location (simplified for demo)
-   3. **Data Retrieval** - Call your API/service to get actual data
-   4. **Context Creation** - Convert raw data to structured context object
-   5. **State Storage** - Store context so other capabilities and LLM can access it
+   1. **Framework Setup** - Get streaming utilities using self._state
+   2. **Task Retrieval** - Get task of current execution step
+   3. **Location Extraction** - Parse user query to find location (simplified for demo)
+   4. **Data Retrieval** - Call your API/service to get actual data
+   5. **Context Creation** - Convert raw data to structured context object
+   6. **Context Storage** - Store context so other capabilities and LLM can access it
 
 **4.3: Essential Supporting Methods**
 
@@ -556,15 +544,13 @@ The classifier guide teaches the LLM when to activate your capability based on u
           provides = ["CURRENT_WEATHER"]
           requires = []
 
-          @staticmethod
-          async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
+          async def execute(self) -> Dict[str, Any]:
               """Execute weather retrieval."""
-              step = StateManager.get_current_step(state)
-              streamer = get_streamer("hello_world_weather", "current_weather", state)
+              streamer = get_streamer("hello_world_weather", "current_weather", self._state)
 
               try:
                   streamer.status("Extracting location from query...")
-                  query = StateManager.get_current_task(state).lower()
+                  query = self.get_task_objective().lower()
 
                   # Simple location detection
                   location = "San Francisco"  # default
@@ -580,20 +566,13 @@ The classifier guide teaches the LLM when to activate your capability based on u
                   context = CurrentWeatherContext(
                       location=weather.location,
                       temperature=weather.temperature,
-                      conditions=weather.conditions,
-                      timestamp=weather.timestamp
-                  )
+                  conditions=weather.conditions,
+                  timestamp=weather.timestamp
+              )
 
-                  # Store context in framework state
-                  context_updates = StateManager.store_context(
-                      state,
-                      registry.context_types.CURRENT_WEATHER,
-                      step.get("context_key"),
-                      context
-                  )
-
-                  streamer.status(f"Weather retrieved: {location} - {weather.temperature}°C")
-                  return context_updates
+              # Store context and return
+              streamer.status(f"Weather retrieved: {location} - {weather.temperature}°C")
+              return self.store_output_context(context)
 
               except Exception as e:
                   logger.error(f"Weather retrieval error: {e}")

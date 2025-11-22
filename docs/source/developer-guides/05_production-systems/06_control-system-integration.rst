@@ -166,19 +166,14 @@ Capabilities should use ``ConnectorFactory`` to create connectors from global co
        name = "channel_value_retrieval"
        description = "Retrieve current channel values"
        provides = ["CHANNEL_VALUES"]
-       requires = ["CHANNEL_ADDRESSES"]
+       requires = [("CHANNEL_ADDRESSES", "single")]
 
-       @staticmethod
-       async def execute(state: AgentState, **kwargs) -> dict:
+       async def execute(self) -> dict:
            """Execute channel value retrieval."""
 
-           # Get channel addresses from context
-           context_manager = ContextManager(state)
-           contexts = context_manager.extract_from_step(
-               step, state,
-               constraints=["CHANNEL_ADDRESSES"]
-           )
-           channel_context = contexts["CHANNEL_ADDRESSES"]
+           # Get channel addresses from context (automatically extracted)
+           # The "single" constraint in requires guarantees this is not a list
+           channel_context, = self.get_required_contexts()
 
            # Create connector from global configuration
            # Automatically selects mock or production based on config
@@ -197,14 +192,7 @@ Capabilities should use ``ConnectorFactory`` to create connectors from global co
 
                # Store results in context
                result = ChannelValuesContext(channel_values=channel_values)
-               context_updates = StateManager.store_context(
-                   state,
-                   registry.context_types.CHANNEL_VALUES,
-                   step.get('context_key'),
-                   result
-               )
-
-               return context_updates
+               return self.store_output_context(result)
 
            finally:
                # Always disconnect

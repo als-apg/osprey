@@ -66,11 +66,11 @@ class MyAPIResponseContext(CapabilityContext):
     timestamp: datetime = Field(description="When data was retrieved")
 
     # Implement required methods (see examples in file)
-    def get_access_details(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+    def get_access_details(self, key: str) -> Dict[str, Any]:
         # Tell LLM how to access this data
         ...
 
-    def get_summary(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+    def get_summary(self) -> Dict[str, Any]:
         # Provide human-readable summary
         ...
 ```

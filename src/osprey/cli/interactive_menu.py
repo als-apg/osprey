@@ -779,6 +779,7 @@ def get_api_key_name(provider: str) -> str | None:
     key_names = {
         'cborg': 'CBORG_API_KEY',
         'stanford': 'STANFORD_API_KEY',
+        'argo': 'ARGO_API_KEY',
         'anthropic': 'ANTHROPIC_API_KEY',
         'google': 'GOOGLE_API_KEY',
         'openai': 'OPENAI_API_KEY',

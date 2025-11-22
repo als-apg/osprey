@@ -15,7 +15,7 @@ Key simplifications:
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 from osprey.utils.logger import get_logger
 
@@ -301,7 +301,7 @@ class ContextManager:
                     # Use the get_access_details method with the actual key name
                     if hasattr(context_obj, 'get_access_details'):
                         try:
-                            details = context_obj.get_access_details(key_name=key)
+                            details = context_obj.get_access_details(key)
                             if isinstance(details, dict):
                                 description_parts.append(f"  └── {key}")
 
@@ -319,71 +319,41 @@ class ContextManager:
         return "\n".join(description_parts)
 
 
-    def get_summaries(self, step: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Get summaries for specific step contexts or all contexts.
+    def get_summaries(self, step: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        """Get summaries of contexts for human display/LLM consumption.
 
         Args:
             step: Optional step dict. If provided, extract contexts from step.inputs.
                   If None, get summaries for all available contexts.
 
         Returns:
-            Dict with flattened keys "context_type.key" -> summary_data
+            List of context summary dicts. Each context class defines its own
+            summary structure via the get_summary() method.
+
+        Example:
+            [
+                {"type": "PV Addresses", "total_pvs": 5, "pv_list": [...]},
+                {"type": "Current Weather", "location": "San Francisco", "temp": 15.0, "conditions": "Sunny"},
+                {"type": "Current Weather", "location": "New York", "temp": 20.0, "conditions": "Cloudy"}
+            ]
         """
-        # Step 1: Get contexts (filtered by step or all)
+        # Get contexts (filtered by step or all)
         if step is not None:
-            # Get specific step contexts and convert to flattened format
             try:
                 step_contexts = self.extract_from_step(step, {})
-                contexts_dict = {}
-
-                # Convert to flattened format like get_all() returns
-                for input_spec in step.get('inputs', []):
-                    if isinstance(input_spec, dict):
-                        for context_type, key_name in input_spec.items():
-                            if context_type in step_contexts:
-                                flattened_key = f"{context_type}.{key_name}"
-                                contexts_dict[flattened_key] = step_contexts[context_type]
-
             except Exception as e:
                 logger.error(f"Error extracting step contexts: {e}")
-                contexts_dict = self.get_all()  # Fallback to all contexts
+                step_contexts = self.get_all()
         else:
-            # Get all contexts in flattened format
-            contexts_dict = self.get_all()
+            step_contexts = self.get_all()
 
-        # Step 2: Convert contexts to summaries (single consolidated logic)
-        return self._contexts_to_summaries(contexts_dict)
-
-    def _contexts_to_summaries(self, contexts_dict: dict[str, 'CapabilityContext']) -> dict[str, Any]:
-        """Convert flattened contexts dict to summaries dict.
-
-        Args:
-            contexts_dict: Dict with "context_type.key" -> context_object format
-
-        Returns:
-            Dict with "context_type.key" -> summary_data format
-        """
-        summaries = {}
-
-        for flattened_key, context_object in contexts_dict.items():
-            # Extract key name from flattened key
-            if '.' in flattened_key:
-                context_type, key_name = flattened_key.split('.', 1)
-            else:
-                context_type, key_name = flattened_key, flattened_key
-
-            # Try get_summary first (new method), fall back to get_human_summary (deprecated)
-            if hasattr(context_object, 'get_summary'):
-                summaries[flattened_key] = context_object.get_summary(key_name)
-            elif hasattr(context_object, 'get_human_summary'):
-                # Legacy support - will trigger deprecation warning in base class
-                summaries[flattened_key] = context_object.get_human_summary(key_name)
-            else:
-                # Fallback for context objects without summary method
-                summaries[flattened_key] = {
-                    "type": context_type,
-                    "raw_data": str(context_object)[:200] + "..." if len(str(context_object)) > 200 else str(context_object)
-                }
+        # Flatten any lists and collect summaries
+        summaries = []
+        for context_or_list in step_contexts.values():
+            # Handle both single contexts and lists
+            contexts_list = context_or_list if isinstance(context_or_list, list) else [context_or_list]
+            for context in contexts_list:
+                summaries.append(context.get_summary())
 
         return summaries
 
@@ -456,32 +426,40 @@ class ContextManager:
             return registry.get_context_class(context_type)
         except Exception as e:
             logger.error(f"Failed to get context class for {context_type}: {e}")
-            raise ValueError(f"Registry not available, cannot get context class for {context_type}")
+            raise ValueError(f"Registry not available, cannot get context class for {context_type}") from e
 
     def extract_from_step(
         self,
         step: dict[str, Any],
         state: dict[str, Any],
-        constraints: list[str] | None = None,
+        constraints: list[str | tuple[str, str]] | None = None,
         constraint_mode: str = "hard"
-    ) -> dict[str, 'CapabilityContext']:
-        """Extract all contexts specified in step.inputs with optional type constraints.
+    ) -> dict[str, Union['CapabilityContext', list['CapabilityContext']]]:
+        """Extract all contexts specified in step.inputs with optional type and cardinality constraints.
 
         This method consolidates the common pattern of extracting context data from
-        step inputs and validating against expected types. It replaces repetitive
-        validation logic across capabilities.
+        step inputs and validating against expected types and instance counts. It replaces
+        repetitive validation logic across capabilities.
 
         Args:
             step: Execution step with inputs list like ``[{"PV_ADDRESSES": "key1"}, {"TIME_RANGE": "key2"}]``
             state: Current agent state (for error checking)
-            constraints: Optional list of required context types (e.g., ``["PV_ADDRESSES", "TIME_RANGE"]``)
+            constraints: Optional list of required context types. Each item can be:
+                - String: context type with no cardinality restriction (e.g., ``"PV_ADDRESSES"``)
+                - Tuple: ``(context_type, cardinality)`` where cardinality is:
+                    - ``"single"``: Must be exactly one instance (not a list)
+                    - ``"multiple"``: Must be multiple instances (must be a list)
+                Example: ``["PV_ADDRESSES", ("TIME_RANGE", "single")]``
             constraint_mode: ``"hard"`` (all constraints required) or ``"soft"`` (at least one constraint required)
 
         Returns:
-            Dict mapping context_type to context object
+            Dict mapping context_type to:
+            - Single context object if only one of that type
+            - List of context objects if multiple of that type
 
         Raises:
-            ValueError: If contexts not found or constraints not met (capability converts to specific error)
+            ValueError: If contexts not found, constraints not met, or cardinality violated
+                       (capability converts to specific error)
 
         Example:
 
@@ -489,19 +467,36 @@ class ContextManager:
 
             # Simple extraction without constraints
             contexts = context_manager.extract_from_step(step, state)
+            pv_context = contexts["PV_ADDRESSES"]
 
-            # With hard constraints (all required)
+            # With cardinality constraints (eliminates isinstance checks)
             try:
                 contexts = context_manager.extract_from_step(
                     step, state,
-                    constraints=["PV_ADDRESSES", "TIME_RANGE"]
+                    constraints=[
+                        ("PV_ADDRESSES", "single"),  # Must be exactly one
+                        ("TIME_RANGE", "single")     # Must be exactly one
+                    ],
+                    constraint_mode="hard"
                 )
-                pv_context = contexts["PV_ADDRESSES"]
-                time_context = contexts["TIME_RANGE"]
+                pv_context = contexts["PV_ADDRESSES"]  # Guaranteed to be single object
+                time_context = contexts["TIME_RANGE"]  # Guaranteed to be single object
             except ValueError as e:
                 raise ArchiverDependencyError(str(e))
 
-            # With soft constraints (at least one required)
+            # Mixed constraints (some with cardinality, some without)
+            try:
+                contexts = context_manager.extract_from_step(
+                    step, state,
+                    constraints=[
+                        ("CHANNEL_ADDRESSES", "single"),  # Must be single
+                        "ARCHIVER_DATA"                   # Any cardinality ok
+                    ]
+                )
+            except ValueError as e:
+                raise DataValidationError(str(e))
+
+            # Soft constraints (at least one required, no cardinality restriction)
             try:
                 contexts = context_manager.extract_from_step(
                     step, state,
@@ -511,8 +506,6 @@ class ContextManager:
             except ValueError as e:
                 raise DataValidationError(str(e))
         """
-        results = {}
-
         # Extract all contexts from step.inputs
         step_inputs = step.get('inputs', [])
         if not step_inputs:
@@ -521,22 +514,52 @@ class ContextManager:
                 capability_context_data = state.get('capability_context_data', {})
                 if not capability_context_data:
                     raise ValueError("No context data available and no step inputs specified")
-            return results
+            return {}
 
-        # Process each input dictionary
+        # First, build nested structure to detect duplicates
+        nested_results = {}  # {context_type: {key: obj}}
+
         for input_dict in step_inputs:
             for context_type, context_key in input_dict.items():
                 context_obj = self.get_context(context_type, context_key)
                 if context_obj:
-                    results[context_type] = context_obj
+                    if context_type not in nested_results:
+                        nested_results[context_type] = {}
+                    nested_results[context_type][context_key] = context_obj
                 else:
                     raise ValueError(f"Context {context_type}.{context_key} not found")
 
+        # Then flatten: single object or list (preserves insertion order in Python 3.7+)
+        results = {}
+        for context_type, contexts_dict in nested_results.items():
+            values = list(contexts_dict.values())
+            if len(values) > 1:
+                logger.debug(f"Multiple contexts of type {context_type} detected: {len(values)} instances")
+            results[context_type] = values[0] if len(values) == 1 else values
+
         # Apply constraints if specified
         if constraints:
-            found_types = set(results.keys())
-            required_types = set(constraints)
+            # Parse constraints to separate type names from cardinality requirements
+            required_types = set()
+            cardinality_constraints = {}  # {context_type: cardinality}
 
+            for constraint in constraints:
+                if isinstance(constraint, tuple):
+                    context_type, cardinality = constraint
+                    if cardinality not in ("single", "multiple"):
+                        raise ValueError(
+                            f"Invalid cardinality '{cardinality}' for {context_type}. "
+                            f"Must be 'single' or 'multiple'"
+                        )
+                    required_types.add(context_type)
+                    cardinality_constraints[context_type] = cardinality
+                else:
+                    # String constraint - no cardinality restriction
+                    required_types.add(constraint)
+
+            found_types = set(results.keys())
+
+            # Validate type presence
             if constraint_mode == "hard":
                 # All constraints must be satisfied
                 missing_types = required_types - found_types
@@ -548,6 +571,28 @@ class ContextManager:
                     raise ValueError(f"None of the required context types found: {list(required_types)}")
             else:
                 raise ValueError(f"Invalid constraint_mode: {constraint_mode}. Use 'hard' or 'soft'")
+
+            # Validate cardinality constraints
+            for context_type, required_cardinality in cardinality_constraints.items():
+                if context_type in results:
+                    context_value = results[context_type]
+                    is_list = isinstance(context_value, list)
+
+                    if required_cardinality == "single" and is_list:
+                        raise ValueError(
+                            f"Context type '{context_type}' expected single instance "
+                            f"but got {len(context_value)} instances"
+                        )
+                    elif required_cardinality == "multiple" and not is_list:
+                        raise ValueError(
+                            f"Context type '{context_type}' expected multiple instances "
+                            f"but got single instance"
+                        )
+
+                    logger.debug(
+                        f"Cardinality validation passed for {context_type}: "
+                        f"required={required_cardinality}, actual={'list' if is_list else 'single'}"
+                    )
 
         return results
 

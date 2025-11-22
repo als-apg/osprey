@@ -589,15 +589,14 @@ At ALS, we created a specialized ``data_analysis`` capability that:
           provides = ["ANALYSIS_RESULTS"]
           requires = []  # Flexible - works with any available context
 
-          @staticmethod
-          async def execute(state: AgentState, **kwargs):
+          async def execute(self, **kwargs):
               """Execute data analysis with specialized prompts."""
-              step = StateManager.get_current_step(state)
+              task_objective = self.get_task_objective()
 
               # 1. Generate analysis plan (simplified)
               analysis_plan = await create_analysis_plan(
-                  task_objective=step.get('task_objective'),
-                  state=state
+                  task_objective=task_objective,
+                  state=self._state
               )
 
               # 2. Create domain-specific prompts
@@ -610,23 +609,16 @@ At ALS, we created a specialized ``data_analysis`` capability that:
               # 3. Call Python executor with specialized prompts
               python_service = registry.get_service("python_executor")
               request = PythonExecutionRequest(
-                  task_objective=step.get('task_objective'),
+                  task_objective=task_objective,
                   capability_prompts=prompts,  # Domain-specific guidance
                   execution_folder_name="data_analysis",
-                  capability_context_data=state.get('capability_context_data', {})
+                  capability_context_data=self._state.get('capability_context_data', {})
               )
 
               result = await python_service.ainvoke(request, config=kwargs.get("config"))
 
-              # 4. Store results in standardized context
-              context_updates = StateManager.store_context(
-                  state,
-                  registry.context_types.ANALYSIS_RESULTS,
-                  step.get("context_key"),
-                  result.execution_result
-              )
-
-              return context_updates
+              # 4. Store results
+              return self.store_output_context(result.execution_result)
 
           def _create_classifier_guide(self):
               """Teach the classifier when to use this capability."""

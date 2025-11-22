@@ -180,7 +180,7 @@ class ExampleContext(CapabilityContext):
     # REQUIRED METHOD: get_access_details()
     # ────────────────────────────────────────────────────────────────────────
 
-    def get_access_details(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+    def get_access_details(self, key: str) -> Dict[str, Any]:
         """Provide structured access information for LLM consumption.
 
         This method tells the LLM EXACTLY how to access your data in Python code.
@@ -216,12 +216,9 @@ class ExampleContext(CapabilityContext):
             Dictionary containing access details and field information
         """
 
-        # Generate the access pattern using the context key
-        key_ref = key_name if key_name else "key_name"
-
         return {
             # Show exact Python syntax to access this context
-            "access_pattern": {% raw %}f"context.{self.CONTEXT_TYPE}.{key_ref}"{% endraw %},
+            "access_pattern": {% raw %}f"context.{self.CONTEXT_TYPE}.{key}"{% endraw %},
 
             # List all accessible fields
             "available_fields": [
@@ -235,15 +232,15 @@ class ExampleContext(CapabilityContext):
 
             # Show concrete example of accessing data
             "example_usage": {% raw %}f"""# Access the numeric value
-value = context.{self.CONTEXT_TYPE}.{key_ref}.value
+value = context.{self.CONTEXT_TYPE}.{key}.value
 
 # Access measurements list
-measurements = context.{self.CONTEXT_TYPE}.{key_ref}.measurements
+measurements = context.{self.CONTEXT_TYPE}.{key}.measurements
 
 # Create a DataFrame (if using pandas)
 import pandas as pd
 df = pd.DataFrame({{
-    'measurement': context.{self.CONTEXT_TYPE}.{key_ref}.measurements
+    'measurement': context.{self.CONTEXT_TYPE}.{key}.measurements
 }})"""{% endraw %},
 
             # Explain data structure if complex
@@ -264,7 +261,7 @@ df = pd.DataFrame({{
     # REQUIRED METHOD: get_summary()
     # ────────────────────────────────────────────────────────────────────────
 
-    def get_summary(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+    def get_summary(self) -> Dict[str, Any]:
         """Generate human-readable summary of context data.
 
         This method creates a summary that:
@@ -353,24 +350,22 @@ class SimpleAPIResponseContext(CapabilityContext):
         description="When this query was executed"
     )
 
-    def get_access_details(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+    def get_access_details(self, key: str) -> Dict[str, Any]:
         """Simple access details for API response."""
-        key_ref = key_name if key_name else "key_name"
-
         return {
-            "access_pattern": {% raw %}f"context.{self.CONTEXT_TYPE}.{key_ref}.records"{% endraw %},
+            "access_pattern": {% raw %}f"context.{self.CONTEXT_TYPE}.{key}.records"{% endraw %},
             "available_fields": ["records", "total_count", "query_time"],
             "example_usage": {% raw %}f"""# Iterate over records
-for record in context.{self.CONTEXT_TYPE}.{key_ref}.records:
+for record in context.{self.CONTEXT_TYPE}.{key}.records:
     print(record['field_name'])
 
 # Convert to DataFrame
 import pandas as pd
-df = pd.DataFrame(context.{self.CONTEXT_TYPE}.{key_ref}.records)"""{% endraw %},
+df = pd.DataFrame(context.{self.CONTEXT_TYPE}.{key}.records)"""{% endraw %},
             "data_structure": "List of dictionaries, each representing one record"
         }
 
-    def get_summary(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+    def get_summary(self) -> Dict[str, Any]:
         """Simple summary for API response."""
         return {
             "type": "API Response Data",

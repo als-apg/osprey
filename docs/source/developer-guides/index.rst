@@ -142,7 +142,7 @@ Developer Guides
 Guide Categories
 ================
 
-.. grid:: 1 1 2 2
+.. grid:: 1 1 3 3
    :gutter: 3
    :class-container: guides-section-grid
 
@@ -163,6 +163,17 @@ Guide Categories
       :shadow: md
 
       Master capability development, state management, and testing workflows. Get productive immediately with convention-based patterns.
+
+   .. grid-item-card:: 🔄 Migration Guide
+      :link: migration-guide-instance-methods
+      :link-type: doc
+      :class-header: bg-secondary text-white
+      :class-body: text-center
+      :shadow: md
+
+      **Upgrading from v0.9.1 and earlier**
+
+      Migrate legacy static method capabilities to the new instance method pattern with helper methods (v0.9.2+).
 
 .. grid:: 1 1 2 2
    :gutter: 3
@@ -210,9 +221,12 @@ Guide Categories
 
    **🚀 Quick Start Patterns**
 
+   * :doc:`02_quick-start-patterns/00_cli-reference` - Framework CLI commands for project creation and deployment
    * :doc:`02_quick-start-patterns/01_building-your-first-capability` - BaseCapability, decorators, and framework integration
    * :doc:`02_quick-start-patterns/02_state-and-context-essentials` - AgentState, ContextManager, and data sharing patterns
    * :doc:`02_quick-start-patterns/03_running-and-testing` - Gateway testing, CLI workflows, and debugging techniques
+   * :doc:`02_quick-start-patterns/04_mcp-capability-generation` - Generate capabilities from MCP servers (prototype)
+   * :doc:`migration-guide-instance-methods` - **Migration Guide:** Upgrade from v0.9.1 static methods → v0.9.2+ instance methods
 
    **⚙️ Core Framework Systems**
 
@@ -242,6 +256,7 @@ Guide Categories
    :maxdepth: 2
    :hidden:
 
+   migration-guide-instance-methods
    01_understanding-the-framework/index
    02_quick-start-patterns/index
    03_core-framework-systems/index
