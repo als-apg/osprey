@@ -36,9 +36,23 @@ BaseCapability
       List of context types this capability generates (default: []).
 
    .. attribute:: requires
-      :type: List[str]
+      :type: List[str | tuple[str, Literal["single", "multiple"]]]
 
-      List of context types this capability depends on (default: []).
+      List of context types this capability depends on. Supports cardinality constraints:
+
+      - **Simple format:** ``["CONTEXT_TYPE"]`` - No cardinality constraint
+      - **Tuple format:** ``[("CONTEXT_TYPE", "single")]`` - Must be single object (not list)
+      - **Tuple format:** ``[("CONTEXT_TYPE", "multiple")]`` - Must be a list
+
+      The tuple format enables type-safe context extraction with automatic validation (default: []).
+
+      Example::
+
+          requires = [
+              "OPTIONAL_DATA",              # No constraint
+              ("TIME_RANGE", "single"),     # Must be single object
+              ("CHANNELS", "multiple")      # Must be a list
+          ]
 
    .. rubric:: Abstract Methods
 
@@ -49,6 +63,22 @@ BaseCapability
    .. automethod:: BaseCapability.classify_error
 
    .. automethod:: BaseCapability.get_retry_policy
+
+   .. rubric:: Helper Methods
+
+   These methods are available in instance-based ``execute()`` implementations and simplify common operations:
+
+   .. automethod:: BaseCapability.get_required_contexts
+
+   .. automethod:: BaseCapability.get_parameters
+
+   .. automethod:: BaseCapability.get_task_objective
+
+   .. automethod:: BaseCapability.store_output_context
+
+   .. automethod:: BaseCapability.store_output_contexts
+
+   .. automethod:: BaseCapability.process_extracted_contexts
 
    .. rubric:: Template Methods
 
@@ -99,7 +129,7 @@ BaseInfrastructureNode
       :no-index:
 
 LangGraph Integration Decorators
-=================================
+================================
 
 capability_node
 ---------------
@@ -112,9 +142,26 @@ capability_node
 
    - ``name`` (str): Unique capability identifier
    - ``description`` (str): Human-readable description
-   - ``execute()`` (async static method): Main business logic
+   - ``execute()`` (async method): Main business logic
+
+     - **Recommended:** Instance method (enables helper methods like ``get_required_contexts()``, ``get_task_objective()``, etc.)
+     - **Legacy:** Static method with ``(state: AgentState, **kwargs)`` signature (backward compatibility)
+
    - ``classify_error()`` (static method): Error classification (inherited or custom)
    - ``get_retry_policy()`` (static method): Retry configuration (inherited or custom)
+
+   **Instance vs Static Methods:**
+
+   Instance methods (recommended) provide access to:
+
+   - ``self.get_required_contexts()`` - Extract contexts based on ``requires`` field
+   - ``self.get_parameters()`` - Access step parameters
+   - ``self.get_task_objective()`` - Get current task
+   - ``self.store_output_context()`` - Simplified context storage with type inference
+   - ``self._state`` - Injected state (advanced usage)
+   - ``self._step`` - Injected step (advanced usage)
+
+   Static methods (legacy) require manual state management via ``StateManager`` and ``ContextManager``.
 
    **Infrastructure Features:**
 
@@ -134,12 +181,18 @@ capability_node
           name = "weather_data"
           description = "Retrieve current weather conditions"
           provides = ["WEATHER_DATA"]
-          requires = ["LOCATION"]
+          requires = [("LOCATION", "single")]
 
-          @staticmethod
-          async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
+          async def execute(self) -> Dict[str, Any]:
+              # Use helper methods for simplified state access
+              location, = self.get_required_contexts()
+
               # Business logic implementation
-              return {"weather_data": weather_info}
+              weather_info = fetch_weather(location)
+              context = WeatherDataContext(data=weather_info)
+
+              # Simplified storage with type inference
+              return self.store_output_context(context)
 
 infrastructure_node
 --------------------

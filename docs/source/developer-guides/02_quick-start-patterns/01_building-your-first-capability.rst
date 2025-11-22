@@ -74,9 +74,7 @@ Step 2: Implement Capability
    :caption: applications/my_app/capabilities/data_processor.py
 
    from typing import Dict, Any
-   from datetime import datetime
    from osprey.base import BaseCapability, capability_node
-   from osprey.state import AgentState, StateManager
    from osprey.utils.logger import get_logger
    from osprey.utils.streaming import get_streamer
    from applications.my_app.context_classes import ProcessedDataContext
@@ -92,11 +90,10 @@ Step 2: Implement Capability
        provides = ["PROCESSED_DATA"]
        requires = []
 
-       @staticmethod
-       async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
+       async def execute(self) -> Dict[str, Any]:
            """Execute the capability's core business logic."""
-           current_task = StateManager.get_current_task(state)
-           streamer = get_streamer("my_app", "data_processor")
+           current_task = self.get_task_objective()
+           streamer = get_streamer("my_app", self._state)
 
            try:
                streamer.status("Processing your request...")
@@ -116,17 +113,71 @@ Step 2: Implement Capability
                )
 
                # Store context and return state updates
-               context_key = f"data_processing_{datetime.now().timestamp()}"
-               context_updates = StateManager.store_context(
-                   state, "PROCESSED_DATA", context_key, context
-               )
-
                streamer.status("Processing completed!")
-               return context_updates
+               return self.store_output_context(context)
 
            except Exception as e:
                logger.error(f"Processing error: {e}")
                raise
+
+Helper Methods Reference
+------------------------
+
+Instance-based capabilities provide access to helper methods that eliminate boilerplate code:
+
+**get_task_objective()** - Get the current task
+
+.. code-block:: python
+
+   async def execute(self) -> Dict[str, Any]:
+       task = self.get_task_objective()
+       # With custom default
+       task = self.get_task_objective(default="unknown task")
+
+**get_parameters()** - Access step parameters
+
+.. code-block:: python
+
+   async def execute(self) -> Dict[str, Any]:
+       params = self.get_parameters()
+       timeout = params.get('timeout', 30)
+       precision = params.get('precision_ms', 1000)
+
+**get_required_contexts()** - Auto-extract contexts based on requires field
+
+.. code-block:: python
+
+   requires = ["INPUT_DATA", ("TIME_RANGE", "single")]
+
+   async def execute(self) -> Dict[str, Any]:
+       # Dict access
+       contexts = self.get_required_contexts()
+       input_data = contexts["INPUT_DATA"]
+
+       # Tuple unpacking (matches requires order)
+       input_data, time_range = self.get_required_contexts()
+
+**store_output_context()** - Store single output context
+
+.. code-block:: python
+
+   async def execute(self) -> Dict[str, Any]:
+       result = process_data()
+       context = ResultContext(data=result)
+       return self.store_output_context(context)  # Type and key inferred automatically
+
+**store_output_contexts()** - Store multiple contexts
+
+.. code-block:: python
+
+   async def execute(self) -> Dict[str, Any]:
+       primary = PrimaryContext(data=results)
+       metadata = MetadataContext(info=info)
+       return self.store_output_contexts(primary, metadata)
+
+.. note::
+
+   **Advanced State Access:** If you need direct state access, use ``self._state`` and ``self._step`` (automatically injected by the ``@capability_node`` decorator).
 
 Step 3: Register Your Capability
 --------------------------------
@@ -176,9 +227,15 @@ Step 4: Test Your Capability
        # Create test state
        state = StateManager.create_fresh_state("Hello world, this has 123 numbers!")
 
-       # Execute capability
+       # Execute capability (manually inject state for testing)
        capability = DataProcessorCapability()
-       result = await capability.execute(state)
+       capability._state = state
+       capability._step = {
+           'context_key': 'test_key',
+           'task_objective': 'Hello world, this has 123 numbers!',
+           'parameters': {}
+       }
+       result = await capability.execute()
 
        print("Capability result:", result)
        print("Context data keys:", list(result.get("capability_context_data", {}).keys()))
@@ -220,12 +277,11 @@ Provide progress feedback during operations:
 
 .. code-block:: python
 
-   @staticmethod
-   async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
-       streamer = get_streamer("my_app", "my_capability")
+   async def execute(self) -> Dict[str, Any]:
+       streamer = get_streamer("my_app", self._state)
 
        streamer.status("Phase 1: Extracting data...")
-       raw_data = await extract_data(state)
+       raw_data = await extract_data()
 
        streamer.status("Phase 2: Processing data...")
        processed_data = await process_data(raw_data)
@@ -233,7 +289,7 @@ Provide progress feedback during operations:
        streamer.status("Phase 3: Storing results...")
        context = create_context(processed_data)
 
-       return StateManager.store_context(state, "MY_DATA", "my_key", context)
+       return self.store_output_context(context)
 
 Common Issues
 =============
@@ -252,13 +308,16 @@ Ensure exact name matching in registration:
 
 **"execute method not found"**
 
-Ensure execute is a static method:
+Ensure execute is an async method (instance method recommended):
 
 .. code-block:: python
 
-   @staticmethod  # Required
-   async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
+   async def execute(self) -> Dict[str, Any]:  # Instance method (recommended)
        pass
+
+.. note::
+
+   **Legacy Pattern:** Static methods with ``@staticmethod`` decorator are still supported for backward compatibility, but instance methods are now the recommended approach as they provide access to helpful methods like ``self.get_task_objective()`` and ``self.store_output_context()``.
 
 **"Context serialization error"**
 

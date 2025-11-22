@@ -8,23 +8,31 @@ but don't know the exact channel address.
 Based on ALS Assistant's PV Address Finding capability pattern.
 """
 from __future__ import annotations
-from typing import List, Dict, Any, Optional, TYPE_CHECKING
-import textwrap
+
 import logging
+import textwrap
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 if TYPE_CHECKING:
     from osprey.state import AgentState
 
+from osprey.base.capability import BaseCapability
+
 # Framework imports
 from osprey.base.decorators import capability_node
-from osprey.base.capability import BaseCapability
 from osprey.base.errors import ErrorClassification, ErrorSeverity
+from osprey.base.examples import (
+    ClassifierActions,
+    ClassifierExample,
+    OrchestratorExample,
+    OrchestratorGuide,
+    TaskClassifierGuide,
+)
 from osprey.base.planning import PlannedStep
-from osprey.base.examples import OrchestratorGuide, OrchestratorExample, TaskClassifierGuide, ClassifierExample, ClassifierActions
-from osprey.state import StateManager
 from osprey.registry import get_registry
-from osprey.utils.streaming import get_streamer
+from osprey.state import StateManager
 from osprey.utils.logger import get_logger
+from osprey.utils.streaming import get_streamer
 
 # Application imports
 from ..context_classes import ChannelAddressesContext
@@ -89,21 +97,27 @@ class ChannelFindingCapability(BaseCapability):
     name = "channel_finding"
     description = "Find control system channel addresses based on descriptions or search terms"
     provides = ["CHANNEL_ADDRESSES"]
-    requires = []
+    requires = []  # No dependencies - extracts from task objective
 
-    @staticmethod
-    async def execute(
-        state: AgentState,
-        **kwargs
-    ) -> Dict[str, Any]:
+    async def execute(self) -> Dict[str, Any]:
         """
-        Execute channel finding with production-grade patterns.
-        """
-        # Extract current step from execution plan
-        step = StateManager.get_current_step(state)
-        search_query = step.get('task_objective', 'unknown')
+        Find control system channel addresses based on search query.
 
-        streamer = get_streamer("channel_finding", state)
+        This method uses the configured channel finder service to search the
+        channel database and return matching control system addresses. The search
+        query is extracted from the task objective.
+
+        Returns:
+            State updates containing CHANNEL_ADDRESSES context with found channels.
+
+        Raises:
+            ChannelNotFoundError: If no matching channels are found.
+            ChannelFinderServiceError: If the search service fails.
+        """
+        # Extract search query from task objective
+        search_query = self.get_task_objective(default='unknown')
+
+        streamer = get_streamer("channel_finding", self._state)
 
         # Log the query
         logger.info(f'Channel finding query: "{search_query}"')
@@ -167,17 +181,10 @@ class ChannelFindingCapability(BaseCapability):
             description=description,
         )
 
-        # Store context using StateManager
-        state_updates = StateManager.store_context(
-            state,
-            registry.context_types.CHANNEL_ADDRESSES,
-            step.get("context_key"),
-            channel_context
-        )
-
         streamer.status("Channel finding complete")
 
-        return state_updates
+        # Store result in execution context
+        return self.store_output_context(channel_context)
 
     @staticmethod
     def classify_error(exc: Exception, context: dict) -> ErrorClassification:

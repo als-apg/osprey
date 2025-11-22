@@ -107,7 +107,7 @@ class DefaultResponseGenerationPromptBuilder(FrameworkPromptBuilder):
                 {summary_text}
                 """).strip()
 
-    def _get_data_section(self, relevant_context: dict[str, Any]) -> str:
+    def _get_data_section(self, relevant_context: list[dict[str, Any]]) -> str:
         """Get retrieved data section."""
         formatted_context = self._format_context_data(relevant_context)
 
@@ -116,11 +116,11 @@ class DefaultResponseGenerationPromptBuilder(FrameworkPromptBuilder):
             {formatted_context}
             """).strip()
 
-    def _format_context_data(self, context_data: dict[str, Any]) -> str:
+    def _format_context_data(self, context_data: list[dict[str, Any]]) -> str:
         """Format retrieved context data for the response.
 
-        :param context_data: Dictionary of context_type.context_key -> data
-        :type context_data: Dict[str, Any]
+        :param context_data: List of context summary dicts from get_summaries()
+        :type context_data: List[Dict[str, Any]]
         :return: Formatted string with the context data
         :rtype: str
         """
@@ -130,18 +130,19 @@ class DefaultResponseGenerationPromptBuilder(FrameworkPromptBuilder):
         formatted_lines = []
         formatted_lines.append("-" * 30)
 
-        for data_key, data in context_data.items():
-            formatted_lines.append(f"\n[{data_key}]")
+        for context_summary in context_data:
+            context_type = context_summary.get('type', 'Context')
+            formatted_lines.append(f"\n[{context_type}]")
 
             try:
                 # Format as clean JSON for readability
                 import json
-                formatted_data = json.dumps(data, indent=2, default=str)
+                formatted_data = json.dumps(context_summary, indent=2, default=str)
                 formatted_lines.append(formatted_data)
             except Exception as e:
                 # Fallback to string representation
                 formatted_lines.append(f"<Could not format as JSON: {str(e)}>")
-                formatted_lines.append(str(data))
+                formatted_lines.append(str(context_summary))
 
             formatted_lines.append("-" * 30)
 

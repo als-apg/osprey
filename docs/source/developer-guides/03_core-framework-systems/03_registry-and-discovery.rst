@@ -283,10 +283,11 @@ Component Registration
        provides = ["WEATHER_DATA"]
        requires = ["TIME_RANGE"]
 
-       @staticmethod
-       async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
+       async def execute(self) -> Dict[str, Any]:
+           # Get required contexts automatically
+           time_range, = self.get_required_contexts()
            # Implementation here
-           return {"weather_data": data}
+           return self.store_output_context(weather_data)
 
 **Context Class Registration:**
 

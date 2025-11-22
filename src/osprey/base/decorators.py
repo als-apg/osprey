@@ -41,6 +41,7 @@ Decorator Architecture:
    :mod:`osprey.state` : State management and execution tracking
 """
 
+import inspect
 import time
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -179,11 +180,32 @@ def capability_node(cls):
     if not description:
         raise ValueError(f"Capability class {cls.__name__} must define 'description' attribute")
     if not execute_func:
-        raise ValueError(f"Capability class {cls.__name__} must define 'execute' static method")
+        raise ValueError(f"Capability class {cls.__name__} must define 'execute' method (static or instance)")
     if not error_classifier:
         raise ValueError(f"Capability class {cls.__name__} must have 'classify_error' method (inherit from BaseCapability or define manually)")
     if not retry_policy_func:
         raise ValueError(f"Capability class {cls.__name__} must have 'get_retry_policy' method (inherit from BaseCapability or define manually)")
+
+    # Detect method type: static (legacy) or instance (new pattern)
+    is_static = isinstance(inspect.getattr_static(cls, 'execute'), staticmethod)
+
+    # Validate it's either static or regular method (not classmethod or property)
+    if not is_static:
+        execute_attr = inspect.getattr_static(cls, 'execute')
+        if isinstance(execute_attr, classmethod):
+            raise ValueError(
+                f"Capability {cls.__name__}.execute() cannot be a classmethod. "
+                f"Use either @staticmethod (legacy) or instance method (recommended)."
+            )
+        if isinstance(execute_attr, property):
+            raise ValueError(
+                f"Capability {cls.__name__}.execute() cannot be a property. "
+                f"Must be a method."
+            )
+        if not callable(execute_attr):
+            raise ValueError(
+                f"Capability {cls.__name__}.execute must be callable."
+            )
 
     # Create LangGraph-compatible node function
     async def langgraph_node(
@@ -206,8 +228,23 @@ def capability_node(cls):
 
             logger.info(f"Executing capability: {capability_name}")
 
-            # Execute capability with state
-            result = await execute_func(state)
+            # Execute based on method type
+            if is_static:
+                # OLD: Static method (backward compatibility)
+                # NOTE: Old static methods had **kwargs in signature but never used it
+                result = await execute_func(state)
+            else:
+                # NEW: Instance method (recommended - unified interface)
+                # Create instance WITHOUT state (registry-compatible!)
+                instance = cls()
+
+                # Inject state and step BEFORE calling execute
+                instance._state = state
+                instance._step = step
+
+                # Now execute() can use self._state and self._step
+                # NO kwargs - unified interface!
+                result = await instance.execute()
 
             execution_time = time.time() - start_time
 

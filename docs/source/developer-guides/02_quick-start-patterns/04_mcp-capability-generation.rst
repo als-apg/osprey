@@ -290,15 +290,14 @@ Generated file: ``capabilities/weather_demo.py``
                 wind_speed: float
                 timestamp: datetime
 
-                def get_access_details(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+                def get_access_details(self, key: str) -> Dict[str, Any]:
                     """LLM-optimized access for Python code generation."""
-                    key_ref = key_name or "key_name"
                     return {
                         "location": self.location,
                         "data_structure": "Structured weather observation with typed fields",
-                        "access_pattern": f"context.WEATHER_DATA.{key_ref}.temperature (float in {self.temperature_unit})",
+                        "access_pattern": f"context.WEATHER_DATA.{key}.temperature (float in {self.temperature_unit})",
                         "available_fields": ["temperature", "conditions", "humidity", "wind_speed", "timestamp"],
-                        "example_usage": f"temp = context.WEATHER_DATA.{key_ref}.temperature  # {self.temperature} {self.temperature_unit}"
+                        "example_usage": f"temp = context.WEATHER_DATA.{key}.temperature  # {self.temperature} {self.temperature_unit}"
                     }
 
          This enables downstream capabilities to:

@@ -134,7 +134,7 @@ class PythonResultsContext(CapabilityContext):
     def context_type(self) -> str:
         return self.CONTEXT_TYPE
 
-    def get_access_details(self, key_name: str | None = None) -> dict[str, Any]:
+    def get_access_details(self, key: str) -> dict[str, Any]:
         """Provide comprehensive access information for Python execution results.
 
         Generates detailed access information for other capabilities to understand
@@ -151,7 +151,6 @@ class PythonResultsContext(CapabilityContext):
            Access details distinguish between execution metadata (code, output, timing)
            and computed results (structured data from results.json).
         """
-        key_ref = key_name if key_name else "key_name"
         return {
             "code": "Python code that was executed",
             "output": "Stdout/stderr logs from code execution",
@@ -160,11 +159,11 @@ class PythonResultsContext(CapabilityContext):
             "execution_time": f"Execution time: {self.execution_time:.2f} seconds",
             "folder_path": "Path to execution folder",
             "notebook_link": "Jupyter notebook link for review",
-            "access_pattern": f"context.{self.CONTEXT_TYPE}.{key_ref}.results",
-            "example_usage": f"context.{self.CONTEXT_TYPE}.{key_ref}.results gives the computed results dictionary"
+            "access_pattern": f"context.{self.CONTEXT_TYPE}.{key}.results",
+            "example_usage": f"context.{self.CONTEXT_TYPE}.{key}.results gives the computed results dictionary"
         }
 
-    def get_summary(self, key_name: str | None = None) -> dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """Generate summary of Python execution for display and analysis.
 
         Creates a comprehensive summary of the Python execution including both

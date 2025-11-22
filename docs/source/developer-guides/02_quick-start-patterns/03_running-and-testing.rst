@@ -256,12 +256,11 @@ Capability Debugging
        name = "debug_capability"
        description = "Capability with debug instrumentation"
 
-       @staticmethod
-       async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
+       async def execute(self) -> Dict[str, Any]:
            logger.debug("=== Capability Execution Started ===")
-           logger.debug(f"State keys: {list(state.keys())}")
+           logger.debug(f"State keys: {list(self._state.keys())}")
 
-           streamer = get_streamer("my_app", "debug_capability", state)
+           streamer = get_streamer("my_app", "debug_capability", self._state)
 
            try:
                streamer.status("Debug: Starting execution...")
@@ -277,13 +276,8 @@ Capability Debugging
                    execution_path="debug_capability"
                )
 
-               step = StateManager.get_current_step(state)
-               context_updates = StateManager.store_context(
-                   state, "DEBUG_DATA", step.get("context_key"), context
-               )
-
                logger.debug("=== Execution Completed ===")
-               return context_updates
+               return self.store_output_context(context)
 
            except Exception as e:
                logger.exception(f"Execution failed: {e}")
@@ -295,9 +289,8 @@ Effective Streaming
 
 .. code-block:: python
 
-   @staticmethod
-   async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
-       streamer = get_streamer("my_app", "my_capability", state)
+   async def execute(self) -> Dict[str, Any]:
+       streamer = get_streamer("my_app", "my_capability", self._state)
 
        try:
            streamer.status("Starting data processing...")
@@ -309,7 +302,7 @@ Effective Streaming
            streamer.status("Data processing complete")
            context = create_context(processed)
 
-           return StateManager.store_context(state, "PROCESSED_DATA", key, context)
+           return self.store_output_context(context)
 
        except Exception as e:
            streamer.error(f"Processing failed: {e}")
@@ -369,8 +362,7 @@ Capability Execution
 .. code-block:: python
 
    # ✅ Correct pattern
-   updates = StateManager.store_context(state, "MY_DATA", key, context)
-   return updates  # Must return the updates!
+   return self.store_output_context(context)  # Stores and returns updates!
 
 Configuration Issues
 --------------------

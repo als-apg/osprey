@@ -24,19 +24,18 @@ class ChannelAddressesContext(CapabilityContext):
     channels: List[str]  # List of found channel addresses
     description: str  # Description or additional information about the channels
 
-    def get_access_details(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+    def get_access_details(self, key: str) -> Dict[str, Any]:
         """Rich description for LLM consumption."""
-        key_ref = key_name if key_name else "key_name"
         return {
             "channels": self.channels,
             "total_available": len(self.channels),
             "comments": self.description,
             "data_structure": "List of channel address strings",
-            "access_pattern": f"context.{self.CONTEXT_TYPE}.{key_ref}.channels",
-            "example_usage": f"context.{self.CONTEXT_TYPE}.{key_ref}.channels[0] gives '{self.channels[0] if self.channels else 'CHANNEL:NAME'}'",
+            "access_pattern": f"context.{self.CONTEXT_TYPE}.{key}.channels",
+            "example_usage": f"context.{self.CONTEXT_TYPE}.{key}.channels[0] gives '{self.channels[0] if self.channels else 'CHANNEL:NAME'}'",
         }
 
-    def get_summary(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+    def get_summary(self) -> Dict[str, Any]:
         """
         FOR HUMAN DISPLAY: Create readable summary for UI/debugging.
         Always customize for better user experience.
@@ -71,7 +70,7 @@ class ChannelValuesContext(CapabilityContext):
         """Number of channels retrieved."""
         return len(self.channel_values)
 
-    def get_access_details(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+    def get_access_details(self, key: str) -> Dict[str, Any]:
         """Rich description for LLM consumption."""
         channels_preview = list(self.channel_values.keys())[:3]
         example_channel = channels_preview[0] if channels_preview else "SR:CURRENT:RB"
@@ -82,17 +81,16 @@ class ChannelValuesContext(CapabilityContext):
         except:
             example_value = '400.5'
 
-        key_ref = key_name if key_name else "key_name"
         return {
             "channel_count": self.channel_count,
             "channels": channels_preview,
             "data_structure": "Dict[channel_name -> ChannelValue] where ChannelValue has .value, .timestamp, .units fields - IMPORTANT: use bracket notation for channel names (due to special characters like colons), but dot notation for fields",
-            "access_pattern": f"context.{self.CONTEXT_TYPE}.{key_ref}.channel_values['CHANNEL_NAME'].value (NOT ['value'])",
-            "example_usage": f"context.{self.CONTEXT_TYPE}.{key_ref}.channel_values['{example_channel}'].value gives '{example_value}' (use .value not ['value'])",
+            "access_pattern": f"context.{self.CONTEXT_TYPE}.{key}.channel_values['CHANNEL_NAME'].value (NOT ['value'])",
+            "example_usage": f"context.{self.CONTEXT_TYPE}.{key}.channel_values['{example_channel}'].value gives '{example_value}' (use .value not ['value'])",
             "available_fields": ["value", "timestamp", "units"],
         }
 
-    def get_summary(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+    def get_summary(self) -> Dict[str, Any]:
         """
         FOR HUMAN DISPLAY: Create readable summary for UI/debugging.
         Always customize for better user experience.
@@ -126,7 +124,7 @@ class ArchiverDataContext(CapabilityContext):
     time_series_data: Dict[str, List[float]]  # Channel name -> time series values (aligned with timestamps)
     available_channels: List[str]  # List of available channel names for intuitive filtering
 
-    def get_access_details(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+    def get_access_details(self, key: str) -> Dict[str, Any]:
         """Rich description of the archiver data structure."""
         total_points = len(self.timestamps)
 
@@ -134,7 +132,6 @@ class ArchiverDataContext(CapabilityContext):
         example_channel = self.available_channels[0] if self.available_channels else "SR:CURRENT:RB"
         example_value = self.time_series_data[example_channel][0] if self.available_channels and self.time_series_data.get(example_channel) else 100.5
 
-        key_ref = key_name if key_name else "key_name"
         start_time = self.timestamps[0]
         end_time = self.timestamps[-1]
         duration = end_time - start_time
@@ -147,17 +144,17 @@ class ArchiverDataContext(CapabilityContext):
             "time_info": f"Data spans from {start_time} to {end_time} (duration: {duration})",
             "data_structure": "4 attributes: timestamps (list of datetime objects), precision_ms (int), time_series_data (dict of channel_name -> list of float values), available_channels (list of channel names)",
             "CRITICAL_ACCESS_PATTERNS": {
-                "get_channel_names": f"channel_names = context.{self.CONTEXT_TYPE}.{key_ref}.available_channels",
-                "get_channel_data": f"data = context.{self.CONTEXT_TYPE}.{key_ref}.time_series_data['CHANNEL_NAME']",
-                "get_timestamps": f"timestamps = context.{self.CONTEXT_TYPE}.{key_ref}.timestamps",
-                "get_single_value": f"value = context.{self.CONTEXT_TYPE}.{key_ref}.time_series_data['CHANNEL_NAME'][index]",
-                "get_time_at_index": f"time = context.{self.CONTEXT_TYPE}.{key_ref}.timestamps[index]"
+                "get_channel_names": f"channel_names = context.{self.CONTEXT_TYPE}.{key}.available_channels",
+                "get_channel_data": f"data = context.{self.CONTEXT_TYPE}.{key}.time_series_data['CHANNEL_NAME']",
+                "get_timestamps": f"timestamps = context.{self.CONTEXT_TYPE}.{key}.timestamps",
+                "get_single_value": f"value = context.{self.CONTEXT_TYPE}.{key}.time_series_data['CHANNEL_NAME'][index]",
+                "get_time_at_index": f"time = context.{self.CONTEXT_TYPE}.{key}.timestamps[index]"
             },
-            "example_usage": f"context.{self.CONTEXT_TYPE}.{key_ref}.time_series_data['{example_channel}'][0] gives {example_value}, context.{self.CONTEXT_TYPE}.{key_ref}.timestamps[0] gives datetime object",
+            "example_usage": f"context.{self.CONTEXT_TYPE}.{key}.time_series_data['{example_channel}'][0] gives {example_value}, context.{self.CONTEXT_TYPE}.{key}.timestamps[0] gives datetime object",
             "datetime_features": "Full datetime functionality: arithmetic, comparison, formatting with .strftime(), timezone operations"
         }
 
-    def get_summary(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+    def get_summary(self) -> Dict[str, Any]:
         """
         FOR HUMAN DISPLAY: Format data for response generation.
         Downsamples large datasets to prevent context window overflow.

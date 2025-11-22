@@ -47,10 +47,9 @@ Generates responses by analyzing available context and using appropriate prompts
        provides = ["FINAL_RESPONSE"]
        requires = []  # Works with any context or none
 
-       @staticmethod
-       async def execute(state: AgentState, **kwargs):
+       async def execute(self):
            # Gather response information
-           response_context = _gather_information(state)
+           response_context = _gather_information(self._state)
 
            # Build dynamic prompt
            prompt = _get_base_system_prompt(
@@ -137,15 +136,12 @@ Generates targeted questions for ambiguous user requests:
        provides = []  # Communication capability
        requires = []  # Works with any context
 
-       @staticmethod
-       async def execute(state: AgentState, **kwargs):
-           step = kwargs.get('step', {})
-
+       async def execute(self):
            # Generate clarifying questions
            questions_response = await asyncio.to_thread(
                _generate_clarifying_questions,
-               state,
-               step.get('task_objective', 'unknown')
+               self._state,
+               self.get_task_objective()
            )
 
            # Format for user interaction

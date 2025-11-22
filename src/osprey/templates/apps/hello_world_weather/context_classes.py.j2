@@ -137,7 +137,7 @@ class CurrentWeatherContext(CapabilityContext):
     conditions: str = Field(description="Weather conditions description")
     timestamp: datetime = Field(description="Timestamp of weather data")
 
-    def get_access_details(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+    def get_access_details(self, key: str) -> Dict[str, Any]:
         """Provide structured access information for LLM consumption and templating.
 
         Generates comprehensive access details that enable LLMs and templating systems
@@ -212,20 +212,19 @@ class CurrentWeatherContext(CapabilityContext):
            :class:`framework.state.StateManager` : Context storage and retrieval utilities
            :doc:`/developer-guides/response-generation` : Response templating guide
         """
-        key_ref = key_name if key_name else "key_name"
 
         return {
             "location": self.location,
             "temperature": self.temperature,
             "conditions": self.conditions,
             "temperature_formatted": f"{self.temperature}°C",
-            "access_pattern": f"context.{self.CONTEXT_TYPE}.{key_ref}.temperature, context.{self.CONTEXT_TYPE}.{key_ref}.conditions",
-            "example_usage": f"The temperature in {self.location} is " + "{" + f"context.{self.CONTEXT_TYPE}.{key_ref}.temperature" + "}°C with {" + f"context.{self.CONTEXT_TYPE}.{key_ref}.conditions" + "} conditions",
+            "access_pattern": f"context.{self.CONTEXT_TYPE}.{key}.temperature, context.{self.CONTEXT_TYPE}.{key}.conditions",
+            "example_usage": f"The temperature in {self.location} is " + "{" + f"context.{self.CONTEXT_TYPE}.{key}.temperature" + "}°C with {" + f"context.{self.CONTEXT_TYPE}.{key}.conditions" + "} conditions",
             "available_fields": ["location", "temperature", "conditions", "timestamp"]
         }
 
-    def get_summary(self, key: str) -> dict:
-        """Generate summary of weather context data.
+    def get_summary(self) -> dict:
+        """Generate summary of weather context data for human display.
 
         Creates a concise summary of the weather context suitable
         for display in user interfaces, logging, debugging, and documentation.
@@ -243,12 +242,6 @@ class CurrentWeatherContext(CapabilityContext):
             - Date of weather data
             - Temperature with units
             - Weather conditions description
-
-        :param key: Context key identifier used for this weather data instance.
-            While not used in the current summary format, it's required by the
-            CapabilityContext interface and may be used for enhanced summaries
-            in future versions.
-        :type key: str
         :return: Dictionary containing summary with the following structure:
             - summary: Complete natural language description of weather conditions
         :rtype: dict

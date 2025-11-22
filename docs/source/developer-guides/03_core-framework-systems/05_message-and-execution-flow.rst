@@ -343,34 +343,23 @@ Capabilities execute business logic according to the orchestrated plan.
 
    from osprey.base import BaseCapability
    from osprey.decorators import capability_node
-   from osprey.state import StateManager
-   from osprey.context import ContextManager
 
    @capability_node
    class ExampleCapability(BaseCapability):
        name = "example_capability"
        description = "Example capability implementation"
+       requires = ["INPUT_DATA"]
+       provides = ["RESULTS"]
 
-       @staticmethod
-       async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
-           # Get current execution step
-           current_step = StateManager.get_current_step(state)
-           context = ContextManager(state)
-
-           # Access input data from previous steps
-           step_inputs = current_step.get('inputs', [])
-           for input_spec in step_inputs:
-               for context_type, context_key in input_spec.items():
-                   input_data = context.get_context(context_type, context_key)
-                   # Use input_data for processing
+       async def execute(self) -> Dict[str, Any]:
+           # Get required contexts (automatically extracted)
+           input_data, = self.get_required_contexts()
 
            # Execute capability business logic
-           result = await perform_business_logic()
+           result = await perform_business_logic(input_data)
 
-           # Store results using StateManager
-           return StateManager.store_context(
-               state, "RESULTS", current_step.get('context_key'), result
-           )
+           # Store results using helper method
+           return self.store_output_context(result)
 
 State Management
 ================
