@@ -56,7 +56,7 @@ from osprey.context.context_manager import ContextManager, recursively_summarize
 from osprey.prompts.loader import get_framework_prompts
 from osprey.registry import get_registry
 from osprey.services.python_executor import PythonServiceResult
-from osprey.services.python_executor.models import PythonExecutionRequest
+from osprey.services.python_executor.models import PlanningMode, PythonExecutionRequest
 from osprey.state import AgentState, StateManager
 from osprey.utils.config import get_full_configuration
 from osprey.utils.logger import get_logger
@@ -493,7 +493,8 @@ class PythonCapability(BaseCapability):
                 execution_folder_name="python_capability",
                 capability_context_data=capability_contexts,
                 config=self._state.get("config"),
-                retries=3
+                retries=3,
+                planning_mode=PlanningMode.GENERATOR_DRIVEN
             )
 
             logger.status("Invoking Python executor service...")
