@@ -7,6 +7,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Infrastructure Node Instance Method Migration** ✅ **COMPLETE**
+  - **All 7 infrastructure nodes** migrated from static method pattern to instance method pattern
+  - Aligns infrastructure nodes with capability node implementation from v0.9.2
+  - **Decorator Enhancements**:
+    - Automatic detection of static vs instance methods (backward compatible)
+    - Runtime injection of `_state` for all infrastructure nodes
+    - Selective `_step` injection only for in-execution nodes (clarify, respond)
+    - Defensive None checks for step injection with warning logs
+    - Validation for invalid method types (classmethod, property)
+  - **Migrated Nodes**:
+    - ✅ Router: Minimal state usage, routing metadata
+    - ✅ Task Extraction: Data source integration, state refs updated
+    - ✅ Classification: Extensive state usage (100+ refs), bypass mode
+    - ✅ Clarify: First `_step` injection, task_objective extraction
+    - ✅ Respond: `_step` injection, response generation
+    - ✅ Error: NO `_step` injection (uses `StateManager.get_current_step_index()`)
+    - ✅ Orchestration: 200+ lines, nested functions via closure
+  - **Code Quality**:
+    - Extracted `state = self._state` at top of each method for readability
+    - `classify_error()` and `get_retry_policy()` remain static (pure functions)
+    - Module-level helpers unchanged (just updated call sites)
+  - **Testing**:
+    - Added 15 unit tests for infrastructure pattern (`tests/infrastructure/`)
+    - Tests validate decorator injection logic (_state, _step)
+    - Tests verify backward compatibility with static methods
+    - All 300 tests pass (285 original + 15 new infrastructure tests)
+  - Implementation plan: `_ISSUES/INFRASTRUCTURE_NODE_MIGRATION_PLAN.md`
+
+- **Capability Instance Method Pattern Testing** ✅ **COMPLETE**
+  - **Test Coverage**: Added 12 comprehensive tests for migrated capabilities
+  - **New Test Directory**: Created `tests/capabilities/` with fixtures and integration tests
+  - **Memory Capability Tests** (4 tests):
+    - Validates instance method signature (not `@staticmethod`)
+    - Tests state/step injection mechanism
+    - Verifies decorator creates `langgraph_node` attribute
+    - Integration test for approval path execution
+  - **Python Capability Tests** (3 tests):
+    - Signature validation for instance method pattern
+    - State injection validation
+    - Decorator integration verification
+  - **TimeRangeParsing Capability Tests** (5 tests):
+    - Full end-to-end integration test suite
+    - LLM-based time parsing with mocked dependencies
+    - Context storage validation
+    - Decorator wrapper execution test
+    - Validates complete execution flow with `self._state` and `self._step`
+  - **Test Infrastructure**:
+    - Shared fixtures in `tests/capabilities/conftest.py`
+    - Mock registry configuration to avoid config.yml dependency
+    - Mock state and step objects for consistent testing
+    - All tests formatted with black and linted
+  - **Results**: 27/27 tests passing (15 infrastructure + 12 capability tests)
+
+### Fixed
+- **Interactive Menu Registry Contamination** ([#29](https://github.com/als-apg/osprey/issues/29))
+  - Fixed bug where creating multiple projects in the same interactive menu session caused capability contamination
+  - Global registry singleton now properly reset when switching between projects
+  - Added `reset_registry()` calls in `handle_chat_action()` before launching chat
+  - Prevents second project from inheriting capabilities from first project
+  - Added comprehensive test suite to verify registry isolation
+
 ## [0.9.2] - 2025-11-22
 
 ### 🎉 Major Features

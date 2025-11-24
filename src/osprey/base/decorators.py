@@ -59,25 +59,26 @@ except ImportError:
 if TYPE_CHECKING:
     from osprey.state import AgentState
 
+
 # Lazy imports to avoid circular dependencies
 def _import_error_classification():
     try:
         from osprey.base.errors import ErrorClassification, ErrorSeverity
+
         return ErrorClassification, ErrorSeverity
     except ImportError:
         return None, None
 
+
 def _is_graph_interrupt(exc: Exception) -> bool:
     """Check if exception is a LangGraph GraphInterrupt."""
     # Check class name to avoid import issues
-    return exc.__class__.__name__ == 'GraphInterrupt'
+    return exc.__class__.__name__ == "GraphInterrupt"
 
 
 # =============================================================================
 # LANGGRAPH INTEGRATION DECORATORS
 # =============================================================================
-
-
 
 
 def capability_node(cls):
@@ -166,11 +167,11 @@ def capability_node(cls):
     """
 
     # Extract required components using reflection
-    capability_name = getattr(cls, 'name', None)
-    description = getattr(cls, 'description', None)
-    execute_func = getattr(cls, 'execute', None)
-    error_classifier = getattr(cls, 'classify_error', None)
-    retry_policy_func = getattr(cls, 'get_retry_policy', None)
+    capability_name = getattr(cls, "name", None)
+    description = getattr(cls, "description", None)
+    execute_func = getattr(cls, "execute", None)
+    error_classifier = getattr(cls, "classify_error", None)
+    retry_policy_func = getattr(cls, "get_retry_policy", None)
 
     logger = get_logger(capability_name)
 
@@ -180,18 +181,24 @@ def capability_node(cls):
     if not description:
         raise ValueError(f"Capability class {cls.__name__} must define 'description' attribute")
     if not execute_func:
-        raise ValueError(f"Capability class {cls.__name__} must define 'execute' method (static or instance)")
+        raise ValueError(
+            f"Capability class {cls.__name__} must define 'execute' method (static or instance)"
+        )
     if not error_classifier:
-        raise ValueError(f"Capability class {cls.__name__} must have 'classify_error' method (inherit from BaseCapability or define manually)")
+        raise ValueError(
+            f"Capability class {cls.__name__} must have 'classify_error' method (inherit from BaseCapability or define manually)"
+        )
     if not retry_policy_func:
-        raise ValueError(f"Capability class {cls.__name__} must have 'get_retry_policy' method (inherit from BaseCapability or define manually)")
+        raise ValueError(
+            f"Capability class {cls.__name__} must have 'get_retry_policy' method (inherit from BaseCapability or define manually)"
+        )
 
     # Detect method type: static (legacy) or instance (new pattern)
-    is_static = isinstance(inspect.getattr_static(cls, 'execute'), staticmethod)
+    is_static = isinstance(inspect.getattr_static(cls, "execute"), staticmethod)
 
     # Validate it's either static or regular method (not classmethod or property)
     if not is_static:
-        execute_attr = inspect.getattr_static(cls, 'execute')
+        execute_attr = inspect.getattr_static(cls, "execute")
         if isinstance(execute_attr, classmethod):
             raise ValueError(
                 f"Capability {cls.__name__}.execute() cannot be a classmethod. "
@@ -199,19 +206,13 @@ def capability_node(cls):
             )
         if isinstance(execute_attr, property):
             raise ValueError(
-                f"Capability {cls.__name__}.execute() cannot be a property. "
-                f"Must be a method."
+                f"Capability {cls.__name__}.execute() cannot be a property. " f"Must be a method."
             )
         if not callable(execute_attr):
-            raise ValueError(
-                f"Capability {cls.__name__}.execute must be callable."
-            )
+            raise ValueError(f"Capability {cls.__name__}.execute must be callable.")
 
     # Create LangGraph-compatible node function
-    async def langgraph_node(
-        state: 'AgentState',
-        **kwargs
-    ) -> dict[str, Any]:
+    async def langgraph_node(state: "AgentState", **kwargs) -> dict[str, Any]:
         """LangGraph-native node function with manual retry handling via router."""
 
         # Get streaming capability for status updates
@@ -219,12 +220,19 @@ def capability_node(cls):
 
         # Extract current step information using StateManager (lazy import to avoid circular imports)
         from osprey.state import StateManager
+
         step = StateManager.get_current_step(state)
         start_time = time.time()
 
         try:
             if streaming:
-                streaming({"event_type": "status", "message": f"Executing {capability_name}...", "progress": 0.1})
+                streaming(
+                    {
+                        "event_type": "status",
+                        "message": f"Executing {capability_name}...",
+                        "progress": 0.1,
+                    }
+                )
 
             logger.info(f"Executing capability: {capability_name}")
 
@@ -263,8 +271,10 @@ def capability_node(cls):
                 if get_config:
                     config = get_config()
                     configurable = config.get("configurable", {})
-                    if configurable.get('development', {}).get('raise_raw_errors', False):
-                        logger.error("Development mode: Re-raising original exception directly for debugging")
+                    if configurable.get("development", {}).get("raise_raw_errors", False):
+                        logger.error(
+                            "Development mode: Re-raising original exception directly for debugging"
+                        )
                         raise exc
             except (RuntimeError, ImportError, AttributeError, KeyError):
                 # If config access fails (outside runnable context), continue with normal error handling
@@ -272,7 +282,9 @@ def capability_node(cls):
 
             # Re-raise GraphInterrupt immediately - it's not an error!
             if _is_graph_interrupt(exc):
-                logger.info(f"GraphInterrupt detected in {capability_name} - re-raising for LangGraph to handle")
+                logger.info(
+                    f"GraphInterrupt detected in {capability_name} - re-raising for LangGraph to handle"
+                )
                 raise exc
 
             # Classify the error using domain-specific or default logic
@@ -280,7 +292,7 @@ def capability_node(cls):
                 "capability": capability_name,
                 "current_step_index": StateManager.get_current_step_index(state),
                 "execution_time": execution_time,
-                "current_state": state
+                "current_state": state,
             }
             error_classification = error_classifier(exc, error_context)
 
@@ -300,10 +312,12 @@ def capability_node(cls):
             step_results[step_key] = {
                 "step_index": current_step_index,  # For explicit ordering
                 "capability": capability_name,
-                "task_objective": step.get("task_objective", f"Execute {capability_name}"),  # Add step objective
+                "task_objective": step.get(
+                    "task_objective", f"Execute {capability_name}"
+                ),  # Add step objective
                 "success": False,
                 "execution_time": execution_time,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
             }
 
             return {
@@ -315,7 +329,7 @@ def capability_node(cls):
                     "original_error": str(exc),
                     "user_message": error_classification.user_message or str(exc),
                     "execution_time": execution_time,
-                    "timestamp": datetime.now().isoformat()
+                    "timestamp": datetime.now().isoformat(),
                 },
                 "control_retry_count": state.get("control_retry_count", 0) + 1,
                 "execution_step_results": step_results,
@@ -323,9 +337,13 @@ def capability_node(cls):
                     "capability": capability_name,
                     "success": False,
                     "error": str(exc),
-                    "classification": error_classification.severity.value if hasattr(error_classification.severity, 'value') else str(error_classification.severity),
-                    "timestamp": datetime.now().isoformat()
-                }
+                    "classification": (
+                        error_classification.severity.value
+                        if hasattr(error_classification.severity, "value")
+                        else str(error_classification.severity)
+                    ),
+                    "timestamp": datetime.now().isoformat(),
+                },
             }
 
     # Attach metadata to the function for LangGraph integration
@@ -348,7 +366,7 @@ def _handle_capability_state_updates(
     capability_name: str,
     start_time: float,
     execution_time: float,
-    logger
+    logger,
 ) -> dict[str, Any]:
     """Handle comprehensive state updates for capability execution."""
 
@@ -365,7 +383,6 @@ def _handle_capability_state_updates(
     # Control flow updates
     state_updates["control_current_step_retry_count"] = 0  # Reset retry count
 
-
     # Clear retry state when capability succeeds
     state_updates["control_has_error"] = False
     state_updates["control_retry_count"] = 0
@@ -373,14 +390,16 @@ def _handle_capability_state_updates(
 
     # Store step results with step information
     step_results = state.get("execution_step_results", {}).copy()
-    step_key = step.get("context_key",f"{current_step_index}_{capability_name}")
+    step_key = step.get("context_key", f"{current_step_index}_{capability_name}")
     step_results[step_key] = {
         "step_index": current_step_index,  # For explicit ordering
         "capability": capability_name,
-        "task_objective": step.get("task_objective", f"Execute {capability_name}"),  # Add step objective
+        "task_objective": step.get(
+            "task_objective", f"Execute {capability_name}"
+        ),  # Add step objective
         "success": True,
         "execution_time": execution_time,
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
     }
     state_updates["execution_step_results"] = step_results
 
@@ -389,14 +408,12 @@ def _handle_capability_state_updates(
         "capability": capability_name,
         "success": True,
         "execution_time": execution_time,
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
     }
 
     logger.debug(f"State updates: step {current_step_index + 1}")
 
     return state_updates
-
-
 
 
 def infrastructure_node(cls=None, *, quiet=False):
@@ -558,11 +575,37 @@ def infrastructure_node(cls=None, *, quiet=False):
 def _create_infrastructure_node(cls, quiet=False):
 
     # Extract required components using reflection
-    node_name = getattr(cls, 'name', None)
-    description = getattr(cls, 'description', None)
-    execute_func = getattr(cls, 'execute', None)
-    error_classifier = getattr(cls, 'classify_error', None)
-    retry_policy_func = getattr(cls, 'get_retry_policy', None)
+    node_name = getattr(cls, "name", None)
+    description = getattr(cls, "description", None)
+    execute_func = getattr(cls, "execute", None)
+    error_classifier = getattr(cls, "classify_error", None)
+    retry_policy_func = getattr(cls, "get_retry_policy", None)
+
+    # Detect method type: static (legacy) or instance (new pattern)
+    is_static = isinstance(inspect.getattr_static(cls, "execute"), staticmethod)
+
+    # Validate it's either static or regular method (not classmethod or property)
+    if not is_static:
+        execute_attr = inspect.getattr_static(cls, "execute")
+        if isinstance(execute_attr, classmethod):
+            raise ValueError(
+                f"Infrastructure node {cls.__name__}.execute() cannot be a classmethod. "
+                f"Use either @staticmethod (legacy) or instance method (recommended)."
+            )
+        if isinstance(execute_attr, property):
+            raise ValueError(
+                f"Infrastructure node {cls.__name__}.execute() cannot be a property. "
+                f"Must be a method."
+            )
+        if not callable(execute_attr):
+            raise ValueError(f"Infrastructure node {cls.__name__}.execute must be callable.")
+
+    # Determine if this node needs _step injection
+    # Only nodes that execute WITHIN a plan context AND directly access step object need _step
+    # Pre-execution nodes (task_extraction, classifier, orchestrator, router) don't have steps yet
+    # Error node uses StateManager.get_current_step_index() instead of direct step access
+    NODES_NEEDING_STEP = {"clarify", "respond"}
+    inject_step = node_name in NODES_NEEDING_STEP
 
     logger = get_logger(node_name)
 
@@ -570,19 +613,24 @@ def _create_infrastructure_node(cls, quiet=False):
     if not node_name:
         raise ValueError(f"Infrastructure node {cls.__name__} must define 'name' class attribute")
     if not description:
-        raise ValueError(f"Infrastructure node {cls.__name__} must define 'description' class attribute")
+        raise ValueError(
+            f"Infrastructure node {cls.__name__} must define 'description' class attribute"
+        )
     if not execute_func:
-        raise ValueError(f"Infrastructure node {cls.__name__} must implement 'execute' static method")
+        raise ValueError(
+            f"Infrastructure node {cls.__name__} must implement 'execute' static method"
+        )
     if not error_classifier:
-        raise ValueError(f"Infrastructure node {cls.__name__} must have 'classify_error' method (inherit from BaseInfrastructureNode or define manually)")
+        raise ValueError(
+            f"Infrastructure node {cls.__name__} must have 'classify_error' method (inherit from BaseInfrastructureNode or define manually)"
+        )
     if not retry_policy_func:
-        raise ValueError(f"Infrastructure node {cls.__name__} must have 'get_retry_policy' method (inherit from BaseInfrastructureNode or define manually)")
+        raise ValueError(
+            f"Infrastructure node {cls.__name__} must have 'get_retry_policy' method (inherit from BaseInfrastructureNode or define manually)"
+        )
 
     # Create LangGraph-compatible node function
-    async def langgraph_node(
-        state: 'AgentState',
-        **kwargs
-    ) -> dict[str, Any]:
+    async def langgraph_node(state: "AgentState", **kwargs) -> dict[str, Any]:
         """LangGraph-native node function with manual error handling.
 
         This function is called by LangGraph during execution. Infrastructure nodes
@@ -605,12 +653,36 @@ def _create_infrastructure_node(cls, quiet=False):
             if not quiet:
                 logger.info(f"Starting {description}")
 
-            # Execute main infrastructure logic - nodes use get_config() internally
-            result = await execute_func(
-                state,
-                logger=logger,
-                **kwargs
-            )
+            # Execute based on method type
+            if is_static:
+                # OLD: Static method (backward compatibility)
+                # Note: Nodes use get_logger() internally, logger kwarg is legacy
+                result = await execute_func(state, logger=logger, **kwargs)
+            else:
+                # NEW: Instance method (recommended pattern)
+                # Create instance WITHOUT state (registry-compatible!)
+                instance = cls()
+
+                # Inject state (always needed)
+                instance._state = state
+
+                # Inject step if this node type needs it
+                if inject_step:
+                    # Import inside function to avoid circular imports
+                    from osprey.state import StateManager
+
+                    current_step = StateManager.get_current_step(state)
+                    if current_step is None:
+                        logger.warning(
+                            f"Node {node_name} expects _step but get_current_step() returned None. "
+                            f"This may indicate execution outside plan context."
+                        )
+                    instance._step = current_step
+
+                # Execute instance method
+                # Note: Nodes get logger via get_logger(), config via get_config(),
+                # streaming via get_streamer() - no kwargs injection needed
+                result = await instance.execute()
 
             execution_time = time.time() - start_time
 
@@ -635,8 +707,10 @@ def _create_infrastructure_node(cls, quiet=False):
                 if get_config:
                     config = get_config()
                     configurable = config.get("configurable", {})
-                    if configurable.get('development', {}).get('raise_raw_errors', False):
-                        logger.error("Development mode: Re-raising original exception for debugging")
+                    if configurable.get("development", {}).get("raise_raw_errors", False):
+                        logger.error(
+                            "Development mode: Re-raising original exception for debugging"
+                        )
                         raise exc
             except (RuntimeError, ImportError, AttributeError, KeyError):
                 # If config access fails (outside runnable context), continue with normal error handling
@@ -644,30 +718,36 @@ def _create_infrastructure_node(cls, quiet=False):
 
             # Re-raise GraphInterrupt immediately - it's not an error!
             if _is_graph_interrupt(exc):
-                logger.info(f"GraphInterrupt detected in {node_name} - re-raising for LangGraph to handle")
+                logger.info(
+                    f"GraphInterrupt detected in {node_name} - re-raising for LangGraph to handle"
+                )
                 raise exc
 
             # Handle actual errors
             context = {
                 "infrastructure_node": node_name,
                 "execution_time": execution_time,
-                "current_state": state
+                "current_state": state,
             }
 
             classification = error_classifier(exc, context)
 
             # Check for FATAL severity - raise exception to stop execution entirely
             if classification.severity == ErrorSeverity.FATAL:
-                logger.error(f"FATAL error in {node_name} - Terminating execution to prevent system issues")
+                logger.error(
+                    f"FATAL error in {node_name} - Terminating execution to prevent system issues"
+                )
                 technical_details = ""
-                if classification.metadata and 'technical_details' in classification.metadata:
-                    technical_details = f"Technical details: {classification.metadata['technical_details']}. "
+                if classification.metadata and "technical_details" in classification.metadata:
+                    technical_details = (
+                        f"Technical details: {classification.metadata['technical_details']}. "
+                    )
 
                 raise RuntimeError(
                     f"Fatal error in {node_name}: {classification.user_message or str(exc)}. "
                     f"{technical_details}"
                     f"Execution terminated due to system-level failure."
-                )
+                ) from exc
 
             # Get retry policy for this infrastructure node
             retry_policy = retry_policy_func()
@@ -687,7 +767,7 @@ def _create_infrastructure_node(cls, quiet=False):
                 "task_objective": f"Infrastructure: {node_name}",  # Infrastructure nodes don't have step objectives
                 "success": False,
                 "execution_time": execution_time,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
             }
 
             return {
@@ -699,16 +779,20 @@ def _create_infrastructure_node(cls, quiet=False):
                     "original_error": str(exc),
                     "user_message": classification.user_message or str(exc),
                     "execution_time": execution_time,
-                    "timestamp": datetime.now().isoformat()
+                    "timestamp": datetime.now().isoformat(),
                 },
                 "execution_step_results": step_results,
                 "execution_last_result": {
                     "infrastructure_node": node_name,
                     "success": False,
                     "error": str(exc),
-                    "classification": classification.severity.value if hasattr(classification.severity, 'value') else str(classification.severity),
-                    "timestamp": datetime.now().isoformat()
-                }
+                    "classification": (
+                        classification.severity.value
+                        if hasattr(classification.severity, "value")
+                        else str(classification.severity)
+                    ),
+                    "timestamp": datetime.now().isoformat(),
+                },
             }
 
     # Attach metadata to the function for LangGraph integration

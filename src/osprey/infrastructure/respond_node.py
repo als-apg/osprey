@@ -65,6 +65,7 @@ class ResponseContext:
     :param interface_context: Interface type (openwebui, cli, etc.)
     :type interface_context: str
     """
+
     current_task: str
     execution_history: list[Any]
     relevant_context: list[dict[str, Any]]
@@ -83,6 +84,7 @@ class ResponseContext:
 
 # --- Convention-Based Capability Definition ---
 
+
 @capability_node
 class RespondCapability(BaseCapability):
     """Respond to user queries with appropriate response strategy.
@@ -97,22 +99,19 @@ class RespondCapability(BaseCapability):
     provides = ["FINAL_RESPONSE"]
     requires = []  # Can work with any previous context, or none at all
 
-    @staticmethod
-    async def execute(state: AgentState, **kwargs):
+    async def execute(self) -> dict[str, Any]:
         """Generate appropriate response using unified dynamic prompt construction.
 
-        :param state: Current agent state
-        :type state: AgentState
-        :param kwargs: Additional parameters (may include step)
         :return: State update with generated response
         :rtype: Dict[str, Any]
         """
+        state = self._state
 
         # Explicit logger retrieval - professional practice
         logger = get_logger("respond")
 
-        # Use StateManager to get the current step
-        step = StateManager.get_current_step(state)
+        # Get step (injected by decorator)
+        step = self._step
 
         # Define streaming helper here for step awareness
         streamer = get_streamer("respond", state)
@@ -140,7 +139,7 @@ class RespondCapability(BaseCapability):
                 response_text = response
             elif isinstance(response, list):
                 # Handle Anthropic thinking mode (List[ContentBlock])
-                text_parts = [str(block) for block in response if hasattr(block, 'text')]
+                text_parts = [str(block) for block in response if hasattr(block, "text")]
                 response_text = "\n".join(text_parts) if text_parts else str(response)
             else:
                 raise Exception("No response from LLM, please try again.")
@@ -148,17 +147,19 @@ class RespondCapability(BaseCapability):
             streamer.status("Response generated")
 
             # Use actual task objective if available, otherwise describe response mode
-            if step and step.get('task_objective'):
-                task_objective = step.get('task_objective')
+            if step and step.get("task_objective"):
+                task_objective = step.get("task_objective")
             else:
                 # Use response context to determine correct mode description
-                task_objective = 'conversational query' if response_context.execution_history == [] else 'technical query'
+                task_objective = (
+                    "conversational query"
+                    if response_context.execution_history == []
+                    else "technical query"
+                )
             logger.info(f"Generated response for: '{task_objective}'")
 
             # Return native LangGraph pattern: AIMessage added to messages list
-            return {
-                "messages": [AIMessage(content=response_text)]
-            }
+            return {"messages": [AIMessage(content=response_text)]}
 
         except Exception as e:
             logger.error(f"Error in response generation: {e}")
@@ -183,9 +184,7 @@ class RespondCapability(BaseCapability):
             )
 
             # Return the fallback response as an AIMessage instead of raising
-            return {
-                "messages": [AIMessage(content=fallback_response)]
-            }
+            return {"messages": [AIMessage(content=fallback_response)]}
 
     # Optional: Add error classification if needed
     @staticmethod
@@ -194,7 +193,7 @@ class RespondCapability(BaseCapability):
         return ErrorClassification(
             severity=ErrorSeverity.CRITICAL,
             user_message=f"Failed to generate response: {str(exc)}",
-            metadata={"technical_details": str(exc)}
+            metadata={"technical_details": str(exc)},
         )
 
     def _create_orchestrator_guide(self):
@@ -215,6 +214,7 @@ class RespondCapability(BaseCapability):
 
 
 # --- Helper Functions ---
+
 
 def _gather_information(state: AgentState) -> ResponseContext:
     """Gather all relevant information for response generation.
@@ -259,6 +259,7 @@ def _gather_information(state: AgentState) -> ResponseContext:
 
     # Get interface context from configurable
     from osprey.utils.config import get_interface_context
+
     interface_context = get_interface_context()
 
     return ResponseContext(
@@ -275,7 +276,7 @@ def _gather_information(state: AgentState) -> ResponseContext:
         figures_available=figures_available,
         commands_available=commands_available,
         notebooks_available=notebooks_available,
-        interface_context=interface_context
+        interface_context=interface_context,
     )
 
 
@@ -315,7 +316,9 @@ def _get_capabilities_overview() -> str:
 def _get_execution_history(state: AgentState) -> list[dict[str, Any]]:
     """Get execution history from state for technical mode."""
     execution_step_results = state.get("execution_step_results", {})
-    ordered_results = sorted(execution_step_results.items(), key=lambda x: x[1].get('step_index', 0))
+    ordered_results = sorted(
+        execution_step_results.items(), key=lambda x: x[1].get("step_index", 0)
+    )
     return [result for step_key, result in ordered_results]
 
 
@@ -333,10 +336,4 @@ def _get_base_system_prompt(current_task: str, info=None) -> str:
     prompt_provider = get_framework_prompts()
     response_builder = prompt_provider.get_response_generation_prompt_builder()
 
-    return response_builder.get_system_instructions(
-        current_task=current_task,
-        info=info
-    )
-
-
-
+    return response_builder.get_system_instructions(current_task=current_task, info=info)

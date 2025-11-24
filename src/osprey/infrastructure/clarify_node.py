@@ -8,6 +8,7 @@ intent before proceeding with technical operations.
 
 import asyncio
 import logging
+from typing import Any
 
 from langchain_core.messages import AIMessage
 from langgraph.config import get_stream_writer
@@ -18,7 +19,6 @@ from osprey.base.decorators import capability_node
 from osprey.base.errors import ErrorClassification, ErrorSeverity
 from osprey.models import get_chat_completion
 from osprey.prompts.loader import get_framework_prompts
-from osprey.state import AgentState, StateManager
 from osprey.utils.config import get_model_config
 from osprey.utils.logger import get_logger
 
@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 # --- Pydantic Model for Clarifying Questions ---
+
 
 class ClarifyingQuestionsResponse(BaseModel):
     """Structured response for clarifying questions.
@@ -45,18 +46,16 @@ class ClarifyingQuestionsResponse(BaseModel):
     questions: list[str] = Field(
         description="List of specific, targeted questions to clarify the user's request",
         min_length=1,
-        max_length=4
+        max_length=4,
     )
     missing_info: list[str] = Field(
         description="List of types of missing information (e.g., 'time_range', 'system_specification')",
-        default=[]
+        default=[],
     )
 
 
-
-
-
 # --- Convention-Based Capability Definition ---
+
 
 @capability_node
 class ClarifyCapability(BaseCapability):
@@ -67,29 +66,30 @@ class ClarifyCapability(BaseCapability):
     """
 
     name = "clarify"
-    description = "Ask specific questions when user queries are ambiguous or missing critical details"
-    provides = []  # Communication capability - no context output (questions go to user via chat history)
+    description = (
+        "Ask specific questions when user queries are ambiguous or missing critical details"
+    )
+    provides = (
+        []
+    )  # Communication capability - no context output (questions go to user via chat history)
     requires = []  # Can work with any execution context
 
-    @staticmethod
-    async def execute(state: AgentState, **kwargs):
+    async def execute(self) -> dict[str, Any]:
         """Generate specific questions to ask user based on missing information.
 
-        :param state: Current agent state
-        :type state: AgentState
-        :param kwargs: Additional parameters (may include step)
         :return: State update with clarification response
         :rtype: Dict[str, Any]
         """
+        state = self._state
 
         # Explicit logger retrieval - professional practice
         logger = get_logger("clarify")
 
-        # Use StateManager to get the current step
-        step = StateManager.get_current_step(state)
+        # Get step (injected by decorator)
+        step = self._step
 
         # Extract task_objective from step
-        task_objective = step.get('task_objective', 'unknown') if step else 'unknown'
+        task_objective = step.get("task_objective", "unknown") if step else "unknown"
 
         logger.info(f"Clarification task objective: {task_objective}")
 
@@ -100,7 +100,13 @@ class ClarifyCapability(BaseCapability):
             streaming = get_stream_writer()
 
             if streaming:
-                streaming({"event_type": "status", "message": "Analyzing query for clarification...", "progress": 0.2})
+                streaming(
+                    {
+                        "event_type": "status",
+                        "message": "Analyzing query for clarification...",
+                        "progress": 0.2,
+                    }
+                )
 
             # Generate clarifying questions using PydanticAI
             # Run sync function in thread pool to avoid blocking event loop for streaming
@@ -109,20 +115,31 @@ class ClarifyCapability(BaseCapability):
             )
 
             if streaming:
-                streaming({"event_type": "status", "message": "Generating clarification questions...", "progress": 0.6})
+                streaming(
+                    {
+                        "event_type": "status",
+                        "message": "Generating clarification questions...",
+                        "progress": 0.6,
+                    }
+                )
 
             # Format questions for user interaction
             formatted_questions = _format_questions_for_user(questions_response)
 
             if streaming:
-                streaming({"event_type": "status", "message": "Clarification ready", "progress": 1.0, "complete": True})
+                streaming(
+                    {
+                        "event_type": "status",
+                        "message": "Clarification ready",
+                        "progress": 1.0,
+                        "complete": True,
+                    }
+                )
 
             logger.info(f"Generated {len(questions_response.questions)} clarifying questions")
 
             # Return clarifying questions using native LangGraph pattern
-            return {
-                "messages": [AIMessage(content=formatted_questions)]
-            }
+            return {"messages": [AIMessage(content=formatted_questions)]}
 
         except Exception as e:
             logger.error(f"Error generating clarifying questions: {e}")
@@ -137,7 +154,7 @@ class ClarifyCapability(BaseCapability):
         return ErrorClassification(
             severity=ErrorSeverity.RETRIABLE,
             user_message=f"Failed to generate clarifying questions: {str(exc)}",
-            metadata={"technical_details": str(exc)}
+            metadata={"technical_details": str(exc)},
         )
 
     def _create_orchestrator_guide(self):
@@ -165,6 +182,7 @@ class ClarifyCapability(BaseCapability):
 
 # --- Helper Functions ---
 
+
 def _generate_clarifying_questions(state, task_objective: str) -> ClarifyingQuestionsResponse:
     """Generate specific clarifying questions using PydanticAI.
 
@@ -186,13 +204,10 @@ def _generate_clarifying_questions(state, task_objective: str) -> ClarifyingQues
 
     response_config = get_model_config("response")
     result = get_chat_completion(
-        message=message,
-        model_config=response_config,
-        output_model=ClarifyingQuestionsResponse
+        message=message, model_config=response_config, output_model=ClarifyingQuestionsResponse
     )
 
     return result
-
 
 
 def _format_questions_for_user(questions_response: ClarifyingQuestionsResponse) -> str:
@@ -207,5 +222,3 @@ def _format_questions_for_user(questions_response: ClarifyingQuestionsResponse) 
     for i, question in enumerate(questions_response.questions, 1):
         questions_text += f"{i}. {question}\n"
     return questions_text
-
-
