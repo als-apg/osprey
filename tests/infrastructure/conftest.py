@@ -1,8 +1,9 @@
 """Shared fixtures for infrastructure node tests."""
 
-import pytest
 from typing import Any
-from langchain_core.messages import HumanMessage, AIMessage
+
+import pytest
+from langchain_core.messages import AIMessage, HumanMessage
 
 from osprey.state import AgentState
 
@@ -24,7 +25,7 @@ def state_with_task() -> AgentState:
     return {
         "messages": [
             HumanMessage(content="What is the weather?"),
-            AIMessage(content="I'll help you with that.")
+            AIMessage(content="I'll help you with that."),
         ],
         "task_current_task": "Get current weather information",
         "task_depends_on_chat_history": False,
@@ -46,16 +47,16 @@ def state_with_plan() -> AgentState:
                     "step_index": 0,
                     "capability": "python",
                     "task_objective": "Run calculation",
-                    "reasoning": "Need to compute result"
+                    "reasoning": "Need to compute result",
                 },
                 {
                     "step_index": 1,
                     "capability": "respond",
                     "task_objective": "Provide answer",
-                    "reasoning": "Return result to user"
-                }
+                    "reasoning": "Return result to user",
+                },
             ],
-            "source": "llm_based"
+            "source": "llm_based",
         },
         "control_step_index": 0,
         "control_routing_count": 2,
@@ -86,6 +87,5 @@ def mock_step() -> dict[str, Any]:
         "step_index": 0,
         "capability": "test_capability",
         "task_objective": "Test objective",
-        "reasoning": "Test reasoning"
+        "reasoning": "Test reasoning",
     }
-

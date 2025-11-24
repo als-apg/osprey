@@ -483,11 +483,7 @@ class TimeRangeParsingCapability(BaseCapability):
     provides = ["TIME_RANGE"]
     requires = []
 
-    @staticmethod
-    async def execute(
-        state: AgentState,
-        **kwargs
-    ) -> dict[str, Any]:
+    async def execute(self) -> dict[str, Any]:
         """Execute comprehensive time range parsing with LLM integration and validation.
 
         Implements the complete time range parsing workflow including sophisticated
@@ -506,10 +502,6 @@ class TimeRangeParsingCapability(BaseCapability):
         detailed examples, and validation rules to ensure reliable parsing across
         diverse user expressions.
 
-        :param state: Current agent state containing execution context and task information
-        :type state: AgentState
-        :param kwargs: Additional execution parameters from the framework
-        :type kwargs: dict
         :return: State updates with parsed time range context
         :rtype: Dict[str, Any]
 
@@ -536,11 +528,11 @@ class TimeRangeParsingCapability(BaseCapability):
         # Explicit logger retrieval - professional practice
         logger = get_logger("time_range_parsing")
 
-        # Extract current step from execution plan (single source of truth)
-        step = StateManager.get_current_step(state)
+        # Current step is injected by decorator
+        step = self._step
 
         # Define streaming helper here for step awareness
-        streamer = get_streamer("time_range_parsing", state)
+        streamer = get_streamer("time_range_parsing", self._state)
 
         # Display task with structured formatting
         task_objective = step.get('task_objective', 'unknown')
@@ -611,7 +603,7 @@ class TimeRangeParsingCapability(BaseCapability):
 
         # Store context using StateManager
         state_updates = StateManager.store_context(
-            state,
+            self._state,
             registry.context_types.TIME_RANGE,
             step.get("context_key"),
             time_context

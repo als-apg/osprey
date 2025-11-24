@@ -36,6 +36,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - All 300 tests pass (285 original + 15 new infrastructure tests)
   - Implementation plan: `_ISSUES/INFRASTRUCTURE_NODE_MIGRATION_PLAN.md`
 
+- **Capability Instance Method Pattern Testing** ✅ **COMPLETE**
+  - **Test Coverage**: Added 12 comprehensive tests for migrated capabilities
+  - **New Test Directory**: Created `tests/capabilities/` with fixtures and integration tests
+  - **Memory Capability Tests** (4 tests):
+    - Validates instance method signature (not `@staticmethod`)
+    - Tests state/step injection mechanism
+    - Verifies decorator creates `langgraph_node` attribute
+    - Integration test for approval path execution
+  - **Python Capability Tests** (3 tests):
+    - Signature validation for instance method pattern
+    - State injection validation
+    - Decorator integration verification
+  - **TimeRangeParsing Capability Tests** (5 tests):
+    - Full end-to-end integration test suite
+    - LLM-based time parsing with mocked dependencies
+    - Context storage validation
+    - Decorator wrapper execution test
+    - Validates complete execution flow with `self._state` and `self._step`
+  - **Test Infrastructure**:
+    - Shared fixtures in `tests/capabilities/conftest.py`
+    - Mock registry configuration to avoid config.yml dependency
+    - Mock state and step objects for consistent testing
+    - All tests formatted with black and linted
+  - **Results**: 27/27 tests passing (15 infrastructure + 12 capability tests)
+
 ### Fixed
 - **Interactive Menu Registry Contamination** ([#29](https://github.com/als-apg/osprey/issues/29))
   - Fixed bug where creating multiple projects in the same interactive menu session caused capability contamination
