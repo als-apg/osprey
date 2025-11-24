@@ -327,8 +327,7 @@ class ErrorNode(BaseInfrastructureNode):
             metadata={"technical_details": f"Error node failure: {str(exc)}"}
         )
 
-    @staticmethod
-    async def execute(state: AgentState, **kwargs) -> dict[str, Any]:
+    async def execute(self) -> dict[str, Any]:
         """Generate comprehensive error response with structured analysis and LLM insights.
 
         This method orchestrates the complete error response generation pipeline,
@@ -435,8 +434,8 @@ class ErrorNode(BaseInfrastructureNode):
             })
 
         try:
-            error_context = _create_error_context_from_state(state)
-            _populate_error_context(error_context, state)
+            error_context = _create_error_context_from_state(self._state)
+            _populate_error_context(error_context, self._state)
 
             if streaming:
                 streaming({
