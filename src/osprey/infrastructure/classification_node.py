@@ -139,11 +139,7 @@ class ClassificationNode(BaseInfrastructureNode):
         }
 
 
-    @staticmethod
-    async def execute(
-        state: AgentState,
-        **kwargs
-    ) -> dict[str, Any]:
+    async def execute(self) -> dict[str, Any]:
         """Main classification logic with bypass support and sophisticated capability selection.
 
         Analyzes user tasks and selects appropriate capabilities using parallel
@@ -153,25 +149,22 @@ class ClassificationNode(BaseInfrastructureNode):
         Supports bypass mode where all available capabilities are activated,
         skipping LLM-based classification for performance optimization.
 
-        :param state: Current agent state
-        :type state: AgentState
-        :param kwargs: Additional LangGraph parameters
         :return: Dictionary of state updates for LangGraph
         :rtype: Dict[str, Any]
         """
 
         # Get the current task from state
-        current_task = state.get("task_current_task")
+        current_task = self._state.get("task_current_task")
 
         if not current_task:
             logger.error("No current task found in state")
             raise ReclassificationRequiredError("No current task found")
 
         # Define streaming helper here for step awareness
-        streamer = get_streamer("classifier", state)
+        streamer = get_streamer("classifier", self._state)
 
         # Check if capability selection bypass is enabled
-        bypass_enabled = state.get("agent_control", {}).get("capability_selection_bypass_enabled", False)
+        bypass_enabled = self._state.get("agent_control", {}).get("capability_selection_bypass_enabled", False)
 
         if bypass_enabled:
             logger.info("Capability selection bypass enabled - activating all capabilities")
@@ -187,7 +180,7 @@ class ClassificationNode(BaseInfrastructureNode):
             # Return standardized classification result
             return _create_classification_result(
                 active_capabilities=active_capabilities,
-                state=state,
+                state=self._state,
                 message=f"Bypass mode: activated all {len(active_capabilities)} capabilities",
                 is_bypass=True
             )
@@ -195,9 +188,9 @@ class ClassificationNode(BaseInfrastructureNode):
         # Original classification logic continues here...
 
         # Detect reclassification scenario from error state
-        previous_failure = _detect_reclassification_scenario(state)
+        previous_failure = _detect_reclassification_scenario(self._state)
 
-        reclassification_count = state.get('control_reclassification_count', 0)
+        reclassification_count = self._state.get('control_reclassification_count', 0)
 
         if previous_failure:
             streamer.status(f"Reclassifying task (attempt {reclassification_count + 1})...")
@@ -219,7 +212,7 @@ class ClassificationNode(BaseInfrastructureNode):
         active_capabilities = await select_capabilities(
             task=current_task,  # Updated parameter name
             available_capabilities=available_capabilities,
-            state=state,
+            state=self._state,
             logger=logger,
             previous_failure=previous_failure  # Pass failure context for reclassification
         )
@@ -232,7 +225,7 @@ class ClassificationNode(BaseInfrastructureNode):
         # Return standardized classification result
         return _create_classification_result(
             active_capabilities=active_capabilities,
-            state=state,
+            state=self._state,
             message=f"Classification completed with {len(active_capabilities)} capabilities",
             is_bypass=False,
             previous_failure=previous_failure
