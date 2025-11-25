@@ -779,6 +779,7 @@ def get_api_key_name(provider: str) -> str | None:
     key_names = {
         'cborg': 'CBORG_API_KEY',
         'stanford': 'STANFORD_API_KEY',
+        'argo': 'ARGO_API_KEY',
         'anthropic': 'ANTHROPIC_API_KEY',
         'google': 'GOOGLE_API_KEY',
         'openai': 'OPENAI_API_KEY',
@@ -1396,8 +1397,9 @@ def handle_chat_action(project_path: Path | None = None):
     try:
         if project_path:
             # When launching chat in a specific project, we need to:
-            # 1. Set CONFIG_FILE env var so config loading works
-            # 2. Change to project directory so relative paths work
+            # 1. Reset the global registry to prevent state leakage between projects
+            # 2. Set CONFIG_FILE env var so config loading works
+            # 3. Change to project directory so relative paths work
             config_path = str(project_path / "config.yml")
 
             # Save original state
@@ -1405,6 +1407,11 @@ def handle_chat_action(project_path: Path | None = None):
             original_config_env = os.environ.get('CONFIG_FILE')
 
             try:
+                # Reset the global registry to ensure we load the correct project configuration
+                # This prevents capability leakage when switching between projects in the same session
+                from osprey.registry import reset_registry
+                reset_registry()
+
                 # Set up environment for the project
                 os.environ['CONFIG_FILE'] = config_path
 
@@ -1433,6 +1440,10 @@ def handle_chat_action(project_path: Path | None = None):
                     del os.environ['CONFIG_FILE']
         else:
             # Default behavior - run in current directory
+            # Reset the global registry to ensure we load the correct project configuration
+            from osprey.registry import reset_registry
+            reset_registry()
+
             # Set CONFIG_FILE for subprocess execution (critical for Python executor)
             config_path = str(Path.cwd() / "config.yml")
             os.environ['CONFIG_FILE'] = config_path

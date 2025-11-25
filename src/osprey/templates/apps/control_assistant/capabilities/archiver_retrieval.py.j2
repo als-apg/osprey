@@ -27,30 +27,36 @@ Configuration:
 
 import logging
 import textwrap
-from typing import List, Dict, Any, Optional
 from datetime import datetime
+from typing import Any, Dict, Optional
+
+from osprey.base.capability import BaseCapability
 
 # Import production patterns
 from osprey.base.decorators import capability_node
-from osprey.base.capability import BaseCapability
 from osprey.base.errors import ErrorClassification, ErrorSeverity
+from osprey.base.examples import (
+    ClassifierActions,
+    ClassifierExample,
+    OrchestratorExample,
+    OrchestratorGuide,
+    TaskClassifierGuide,
+)
 from osprey.base.planning import PlannedStep
-from osprey.base.examples import OrchestratorGuide, OrchestratorExample, TaskClassifierGuide, ClassifierExample, ClassifierActions
-from osprey.state import AgentState, StateManager
-from osprey.registry import get_registry
+
+# Import connector factory for control system integration
+from osprey.connectors.factory import ConnectorFactory
 from osprey.context.context_manager import ContextManager
-from osprey.utils.streaming import get_streamer
+from osprey.registry import get_registry
+from osprey.state import AgentState, StateManager
 from osprey.utils.logger import get_logger
+from osprey.utils.streaming import get_streamer
 
 # Application imports
 from ..context_classes import ArchiverDataContext, ChannelAddressesContext
 
-# Import connector factory for control system integration
-from osprey.connectors.factory import ConnectorFactory
-
 logger = get_logger("archiver_retrieval")
 
-registry = get_registry()
 
 
 # === Archiver-Related Errors ===
@@ -88,57 +94,58 @@ class ArchiverRetrievalCapability(BaseCapability):
     - Comprehensive validation and timeout protection
     - Registry-based patterns for context types
     - Rich orchestrator examples and classifier configuration
+    - Automatic context management with dependency validation
     """
 
     name = "archiver_retrieval"
     description = "Retrieve historical channel data from the archiver"
     provides = ["ARCHIVER_DATA"]
-    requires = ["CHANNEL_ADDRESSES", "TIME_RANGE"]
+    requires = ["CHANNEL_ADDRESSES", ("TIME_RANGE", "single")]
 
-    @staticmethod
-    async def execute(
-        state: AgentState,
-        **kwargs
-    ) -> Dict[str, Any]:
+    async def execute(self) -> Dict[str, Any]:
         """
-        Main archiver data retrieval logic.
+        Retrieve historical channel data from the archiver service.
+
+        This method queries the configured archiver (mock or EPICS) for historical
+        time-series data across specified channels and time ranges. It automatically
+        extracts required inputs, handles data conversion, and provides structured results.
+
+        Returns:
+            State updates containing ARCHIVER_DATA context with historical time series.
+
+        Raises:
+            ArchiverDependencyError: If required contexts are missing or invalid.
+            ArchiverConnectionError: If archiver service is unreachable.
+            ArchiverDataError: If data retrieval fails.
         """
 
-        # Extract current step from execution plan (single source of truth)
-        step = StateManager.get_current_step(state)
+        # Define streaming helper
+        streamer = get_streamer("archiver_retrieval", self._state)
 
-        # Define streaming helper here for step awareness
-        streamer = get_streamer("archiver_retrieval", state)
-
-        # Initialize context manager
-        context_manager = ContextManager(state)
-
-        logger.info(f"Starting archiver data retrieval: {step.get('task_objective', 'unknown')}")
+        # Get task description for logging
+        task_objective = self.get_task_objective(default='unknown')
+        logger.info(f"Starting archiver data retrieval: {task_objective}")
         streamer.status("Initializing archiver data retrieval...")
 
         try:
+            # Extract required contexts from execution state
             try:
-                contexts = context_manager.extract_from_step(
-                    step, state,
-                    constraints=[registry.context_types.CHANNEL_ADDRESSES, registry.context_types.TIME_RANGE],
-                    constraint_mode="hard"
-                )
-                channel_context = contexts[registry.context_types.CHANNEL_ADDRESSES]
-                time_range_context = contexts[registry.context_types.TIME_RANGE]
+                channels_to_retrieve, time_range_context = self.get_required_contexts()
                 logger.info(f"Successfully extracted both required contexts: CHANNEL_ADDRESSES and TIME_RANGE")
             except ValueError as e:
                 raise ArchiverDependencyError(str(e))
 
             # Validate that we have channel addresses to work with
-            if not channel_context.channels or len(channel_context.channels) == 0:
+            if not channels_to_retrieve or len(channels_to_retrieve) == 0:
                 raise ArchiverDependencyError("No channel addresses available for archiver data retrieval. The channel finding step may have failed to locate suitable channels.")
 
-            streamer.status(f"Found {len(channel_context.channels)} channels, retrieving data...")
+            streamer.status(f"Found {len(channels_to_retrieve)} channels, retrieving data...")
 
-            logger.debug(f"Retrieving archiver data for {len(channel_context.channels)} channels from {time_range_context.start_date} to {time_range_context.end_date}")
+            logger.debug(f"Retrieving archiver data for {len(channels_to_retrieve)} channels from {time_range_context.start_date} to {time_range_context.end_date}")
 
-            # Get precision from step parameters (optional, for context metadata)
-            precision_ms = (step.get('parameters') or {}).get('precision_ms', 1000)
+            # Extract optional parameters
+            params = self.get_parameters()
+            precision_ms = params.get('precision_ms', 1000)
 
             # Create archiver connector from configuration
             # This will use 'mock_archiver' for development or 'epics_archiver' for production
@@ -148,7 +155,7 @@ class ArchiverRetrievalCapability(BaseCapability):
             try:
                 # Retrieve the data from archiver (returns pandas DataFrame)
                 archiver_df = await connector.get_data(
-                    pv_list=channel_context.channels,
+                    pv_list=channels_to_retrieve,
                     start_date=time_range_context.start_date,
                     end_date=time_range_context.end_date,
                     precision_ms=precision_ms
@@ -162,7 +169,7 @@ class ArchiverRetrievalCapability(BaseCapability):
                 # Extract time series data for each channel
                 time_series_data = {
                     channel: archiver_df[channel].tolist()
-                    for channel in channel_context.channels
+                    for channel in channels_to_retrieve
                     if channel in archiver_df.columns
                 }
 
@@ -187,21 +194,51 @@ class ArchiverRetrievalCapability(BaseCapability):
             end_time = archiver_context.timestamps[-1] if archiver_context.timestamps else 'N/A'
             logger.info(f"Retrieved archiver data: {len(archiver_context.timestamps)} points for {len(archiver_context.available_channels)} channels from {start_time} to {end_time}")
 
-            # Store context using StateManager
-            state_updates = StateManager.store_context(
-                state,
-                registry.context_types.ARCHIVER_DATA,
-                step.get("context_key"),
-                archiver_context
-            )
-
-            # Return state updates (LangGraph will merge automatically)
-            return state_updates
+            # Store result in execution context
+            return self.store_output_context(archiver_context)
 
         except Exception as e:
             logger.error(f"Archiver data retrieval failed: {e}")
             streamer.error(f"Archiver data retrieval failed: {str(e)}")
             raise
+
+    def process_extracted_contexts(self, contexts):
+        """
+        Flatten CHANNEL_ADDRESSES contexts into single list.
+
+        **HOOK METHOD**: This method is automatically called by get_required_contexts()
+        after extracting contexts from state but before returning them to execute().
+        Override this method to customize how contexts are processed.
+
+        In this capability, we need to handle the case where multiple CHANNEL_ADDRESSES
+        contexts exist (e.g., from multiple channel_finding steps). This hook flattens
+        them into a single list of channel strings for archiver retrieval.
+
+        Args:
+            contexts: Dict mapping context type names to extracted context objects
+                     (may contain lists if multiple contexts of same type exist)
+
+        Returns:
+            Processed contexts dict (CHANNEL_ADDRESSES converted to flat list of strings)
+
+        Note:
+            Without this override, channels_to_retrieve would be a ChannelAddressesContext
+            object (or list of them), but archiver expects a flat list of channel strings.
+        """
+        channels_raw = contexts["CHANNEL_ADDRESSES"]
+
+        if isinstance(channels_raw, list):
+            # Flatten multiple contexts into single channel list
+            channels_flat = []
+            for ctx in channels_raw:
+                channels_flat.extend(ctx.channels)
+            logger.info(f"Merged {len(channels_raw)} CHANNEL_ADDRESSES contexts into {len(channels_flat)} total channels")
+            contexts["CHANNEL_ADDRESSES"] = channels_flat
+        else:
+            # Single context - extract channel list
+            contexts["CHANNEL_ADDRESSES"] = channels_raw.channels
+
+        return contexts
 
     @staticmethod
     def classify_error(exc: Exception, context: dict) -> ErrorClassification:
@@ -292,15 +329,15 @@ class ArchiverRetrievalCapability(BaseCapability):
                 context_key="historical_beam_current_data",
                 capability="archiver_retrieval",
                 task_objective="Retrieve historical beam current data from archiver for the last 24 hours",
-                expected_output=registry.context_types.ARCHIVER_DATA,
+                expected_output="ARCHIVER_DATA",
                 success_criteria="Historical data retrieved successfully for specified time range",
                 inputs=[
-                    {registry.context_types.CHANNEL_ADDRESSES: "beam_current_channels"},
-                    {registry.context_types.TIME_RANGE: "last_24_hours_timerange"}
+                    {"CHANNEL_ADDRESSES": "beam_current_channels"},
+                    {"TIME_RANGE": "last_24_hours_timerange"}
                 ]
             ),
             scenario_description="Retrieve historical time-series data from the archiver",
-            notes=f"Requires channel addresses and time range from previous steps. Output stored under {registry.context_types.ARCHIVER_DATA} context type. Optional parameter: precision_ms (default: 1000)."
+            notes="Requires channel addresses and time range from previous steps. Output stored under ARCHIVER_DATA context type. Optional parameter: precision_ms (default: 1000)."
         )
 
         # Workflow example: Show what comes AFTER archiver_retrieval for plotting
@@ -309,12 +346,12 @@ class ArchiverRetrievalCapability(BaseCapability):
                 context_key="beam_current_plot",
                 capability="python",
                 task_objective="Create a matplotlib time-series plot of the beam current data showing trends over the 24-hour period",
-                expected_output=registry.context_types.PYTHON_RESULTS,
+                expected_output="PYTHON_RESULTS",
                 success_criteria="Time-series plot created with proper labels, showing beam current trends",
-                inputs=[{registry.context_types.ARCHIVER_DATA: "historical_beam_current_data"}]
+                inputs=[{"ARCHIVER_DATA": "historical_beam_current_data"}]
             ),
             scenario_description="WORKFLOW: Use python capability to plot archiver data from previous step",
-            notes=f"Typical plotting workflow: archiver_retrieval (gets data) → python (creates plot) → respond (delivers to user). The python capability consumes the {registry.context_types.ARCHIVER_DATA} from the archiver_retrieval step."
+            notes="Typical plotting workflow: archiver_retrieval (gets data) → python (creates plot) → respond (delivers to user). The python capability consumes the ARCHIVER_DATA from the archiver_retrieval step."
         )
 
         # Workflow example: Show what comes AFTER archiver_retrieval for analysis
@@ -323,16 +360,16 @@ class ArchiverRetrievalCapability(BaseCapability):
                 context_key="beam_current_statistics",
                 capability="python",
                 task_objective="Calculate mean, standard deviation, min, and max values of the beam current data over the time period",
-                expected_output=registry.context_types.PYTHON_RESULTS,
+                expected_output="PYTHON_RESULTS",
                 success_criteria="Statistical metrics calculated and displayed with clear labels",
-                inputs=[{registry.context_types.ARCHIVER_DATA: "historical_beam_current_data"}]
+                inputs=[{"ARCHIVER_DATA": "historical_beam_current_data"}]
             ),
             scenario_description="WORKFLOW: Use python capability to analyze archiver data from previous step",
-            notes=f"Typical analysis workflow: archiver_retrieval (gets data) → python (calculates statistics) → respond (delivers results). The python capability consumes the {registry.context_types.ARCHIVER_DATA} from the archiver_retrieval step."
+            notes="Typical analysis workflow: archiver_retrieval (gets data) → python (calculates statistics) → respond (delivers results). The python capability consumes the ARCHIVER_DATA from the archiver_retrieval step."
         )
 
         return OrchestratorGuide(
-            instructions=textwrap.dedent(f"""
+            instructions=textwrap.dedent("""
                 **When to plan "archiver_retrieval" steps:**
                 - When tasks require historical channel data
                 - When retrieving past values from the archiver
@@ -341,17 +378,17 @@ class ArchiverRetrievalCapability(BaseCapability):
                 **Step Structure:**
                 - context_key: Unique identifier for output (e.g., "historical_data", "trend_data")
                 - inputs: Specify required inputs:
-                {{'{{' }}"{registry.context_types.CHANNEL_ADDRESSES}": "context_key_with_channel_data", "{registry.context_types.TIME_RANGE}": "context_key_with_time_range"{{'}}' }}
+                {{ '{' }}"CHANNEL_ADDRESSES": "context_key_with_channel_data", "TIME_RANGE": "context_key_with_time_range"{{ '}' }}
 
                 **Required Inputs:**
-                - {registry.context_types.CHANNEL_ADDRESSES} data: typically from a "channel_finding" step
-                - {registry.context_types.TIME_RANGE} data: typically from a "time_range_parsing" step
+                - CHANNEL_ADDRESSES data: typically from a "channel_finding" step
+                - TIME_RANGE data: typically from a "time_range_parsing" step
 
                 **Input flow and sequencing:**
-                1. "channel_finding" step must precede this step (if {registry.context_types.CHANNEL_ADDRESSES} data is not present already)
-                2. "time_range_parsing" step must precede this step (if {registry.context_types.TIME_RANGE} data is not present already)
+                1. "channel_finding" step must precede this step (if CHANNEL_ADDRESSES data is not present already)
+                2. "time_range_parsing" step must precede this step (if TIME_RANGE data is not present already)
 
-                **Output: {registry.context_types.ARCHIVER_DATA}**
+                **Output: ARCHIVER_DATA**
                 - Contains: Structured historical data from the archiver
                 - Available to downstream steps via context system
 

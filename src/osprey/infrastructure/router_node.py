@@ -40,25 +40,22 @@ class RouterNode(BaseInfrastructureNode):
     name = "router"
     description = "Central routing decision authority"
 
-    @staticmethod
-    async def execute(state: AgentState, **kwargs) -> dict[str, Any]:
+    async def execute(self) -> dict[str, Any]:
         """Router node execution - updates routing metadata only.
 
         This node serves as the entry point and routing hub, but does no routing logic itself.
         The actual routing decision is made by the conditional edge function.
         This keeps the logic DRY and avoids duplication.
 
-        :param state: Current agent state
-        :type state: AgentState
-        :param kwargs: Additional LangGraph parameters
         :return: Dictionary of state updates for routing metadata
         :rtype: Dict[str, Any]
         """
+        state = self._state
 
         # Update routing metadata only - no routing logic to avoid duplication
         return {
             "control_routing_timestamp": time.time(),
-            "control_routing_count": state.get("control_routing_count", 0) + 1
+            "control_routing_count": state.get("control_routing_count", 0) + 1,
         }
 
 
@@ -91,78 +88,96 @@ def router_conditional_edge(state: AgentState) -> str:
     registry = get_registry()
 
     # ==== MANUAL RETRY HANDLING - Check first before normal routing ====
-    if state.get('control_has_error', False):
-        error_info = state.get('control_error_info', {})
-        error_classification = error_info.get('classification')
-        capability_name = error_info.get('capability_name') or error_info.get('node_name')
-        retry_policy = error_info.get('retry_policy', {})
+    if state.get("control_has_error", False):
+        error_info = state.get("control_error_info", {})
+        error_classification = error_info.get("classification")
+        capability_name = error_info.get("capability_name") or error_info.get("node_name")
+        retry_policy = error_info.get("retry_policy", {})
 
         if error_classification and capability_name:
-            retry_count = state.get('control_retry_count', 0)
+            retry_count = state.get("control_retry_count", 0)
 
             # Use node-specific retry policy, with fallback defaults
-            max_retries = retry_policy.get('max_attempts', 3)
-            delay_seconds = retry_policy.get('delay_seconds', 0.5)
-            backoff_factor = retry_policy.get('backoff_factor', 1.5)
+            max_retries = retry_policy.get("max_attempts", 3)
+            delay_seconds = retry_policy.get("delay_seconds", 0.5)
+            backoff_factor = retry_policy.get("backoff_factor", 1.5)
 
             if error_classification.severity == ErrorSeverity.RETRIABLE:
                 if retry_count < max_retries:
                     # Calculate delay with backoff for this retry attempt
-                    actual_delay = delay_seconds * (backoff_factor ** (retry_count - 1)) if retry_count > 0 else 0
+                    actual_delay = (
+                        delay_seconds * (backoff_factor ** (retry_count - 1))
+                        if retry_count > 0
+                        else 0
+                    )
 
                     # Apply delay if this is a retry (not the first attempt)
                     if retry_count > 0 and actual_delay > 0:
-                        logger.error(f"Applying {actual_delay:.2f}s delay before retry {retry_count + 1}")
+                        logger.error(
+                            f"Applying {actual_delay:.2f}s delay before retry {retry_count + 1}"
+                        )
                         time.sleep(actual_delay)  # Simple sleep for now, could be async
 
                     # CRITICAL FIX: Increment retry count in state before routing back
                     new_retry_count = retry_count + 1
-                    state['control_retry_count'] = new_retry_count
+                    state["control_retry_count"] = new_retry_count
 
                     # Retry available - route back to same capability
-                    logger.error(f"Router: Retrying {capability_name} (attempt {new_retry_count}/{max_retries})")
+                    logger.error(
+                        f"Router: Retrying {capability_name} (attempt {new_retry_count}/{max_retries})"
+                    )
                     return capability_name
                 else:
                     # Retries exhausted - route to error node
-                    logger.error(f"Retries exhausted for {capability_name} ({retry_count}/{max_retries}), routing to error node")
+                    logger.error(
+                        f"Retries exhausted for {capability_name} ({retry_count}/{max_retries}), routing to error node"
+                    )
                     return "error"
 
             elif error_classification.severity == ErrorSeverity.REPLANNING:
                 # Check how many plans have been created by orchestrator
-                current_plans_created = state.get('control_plans_created_count', 0)
+                current_plans_created = state.get("control_plans_created_count", 0)
 
                 # Get max planning attempts from execution limits config
                 limits = get_execution_limits()
-                max_planning_attempts = limits.get('max_planning_attempts', 2)
+                max_planning_attempts = limits.get("max_planning_attempts", 2)
 
                 if current_plans_created < max_planning_attempts:
                     # Orchestrator will increment counter when it creates new plan
-                    logger.error(f"Router: Replanning error in {capability_name}, routing to orchestrator "
-                               f"(plan #{current_plans_created + 1}/{max_planning_attempts})")
+                    logger.error(
+                        f"Router: Replanning error in {capability_name}, routing to orchestrator "
+                        f"(plan #{current_plans_created + 1}/{max_planning_attempts})"
+                    )
                     return "orchestrator"
                 else:
                     # Planning attempts exhausted - route to error node
-                    logger.error(f"Router: Planning attempts exhausted for {capability_name} "
-                               f"({current_plans_created}/{max_planning_attempts} plans created), routing to error node")
+                    logger.error(
+                        f"Router: Planning attempts exhausted for {capability_name} "
+                        f"({current_plans_created}/{max_planning_attempts} plans created), routing to error node"
+                    )
                     return "error"
 
             elif error_classification.severity == ErrorSeverity.RECLASSIFICATION:
                 # Check how many reclassifications have been performed
-                current_reclassifications = state.get('control_reclassification_count', 0)
+                current_reclassifications = state.get("control_reclassification_count", 0)
 
                 # Get max reclassification attempts from config
                 limits = get_execution_limits()
-                max_reclassifications = limits.get('max_reclassifications', 1)
+                max_reclassifications = limits.get("max_reclassifications", 1)
 
                 if current_reclassifications < max_reclassifications:
                     # Route to classifier for reclassification (state will be updated by classifier)
-                    logger.error(f"Router: Reclassification error in {capability_name}, routing to classifier "
-                               f"(attempt #{current_reclassifications + 1}/{max_reclassifications})")
+                    logger.error(
+                        f"Router: Reclassification error in {capability_name}, routing to classifier "
+                        f"(attempt #{current_reclassifications + 1}/{max_reclassifications})"
+                    )
                     return "classifier"
                 else:
                     # Reclassification attempts exhausted - route to error node
-                    logger.error(f"Router: Reclassification attempts exhausted for {capability_name} "
-                               f"({current_reclassifications}/{max_reclassifications} attempts), routing to error node")
+                    logger.error(
+                        f"Router: Reclassification attempts exhausted for {capability_name} "
+                        f"({current_reclassifications}/{max_reclassifications} attempts), routing to error node"
+                    )
                     return "error"
 
             elif error_classification.severity == ErrorSeverity.CRITICAL:
@@ -177,12 +192,12 @@ def router_conditional_edge(state: AgentState) -> str:
     # ==== NORMAL ROUTING LOGIC ====
 
     # Reset retry count when no error (clean state for next operation)
-    if 'control_retry_count' in state:
-        state['control_retry_count'] = 0
+    if "control_retry_count" in state:
+        state["control_retry_count"] = 0
 
     # Check if killed
-    if state.get('control_is_killed', False):
-        kill_reason = state.get('control_kill_reason', 'Unknown reason')
+    if state.get("control_is_killed", False):
+        kill_reason = state.get("control_kill_reason", "Unknown reason")
         logger.key_info(f"Execution terminated: {kill_reason}")
         return "error"
 
@@ -193,7 +208,7 @@ def router_conditional_edge(state: AgentState) -> str:
         return "task_extraction"
 
     # Check if has active capabilities from prefixed state structure
-    active_capabilities = state.get('planning_active_capabilities')
+    active_capabilities = state.get("planning_active_capabilities")
     if not active_capabilities:
         logger.key_info("No active capabilities, routing to classifier")
         return "classifier"
@@ -208,7 +223,7 @@ def router_conditional_edge(state: AgentState) -> str:
     current_index = StateManager.get_current_step_index(state)
 
     # Type validation already done by StateManager.get_execution_plan()
-    plan_steps = execution_plan.get('steps', [])
+    plan_steps = execution_plan.get("steps", [])
     if current_index >= len(plan_steps):
         # This should NEVER happen - orchestrator guarantees plans end with respond/clarify
         # If it does happen, it indicates a serious bug in the orchestrator validation
@@ -222,13 +237,17 @@ def router_conditional_edge(state: AgentState) -> str:
     current_step = plan_steps[current_index]
 
     # PlannedStep is a TypedDict, so access it as a dictionary
-    step_capability = current_step.get('capability', 'respond')
+    step_capability = current_step.get("capability", "respond")
 
-    logger.key_info(f"Executing step {current_index + 1}/{len(plan_steps)} - capability: {step_capability}")
+    logger.key_info(
+        f"Executing step {current_index + 1}/{len(plan_steps)} - capability: {step_capability}"
+    )
 
     # Validate that the capability exists as a registered node
     if not registry.get_node(step_capability):
-        logger.error(f"Capability '{step_capability}' not registered - orchestrator may have hallucinated non-existent capability")
+        logger.error(
+            f"Capability '{step_capability}' not registered - orchestrator may have hallucinated non-existent capability"
+        )
         return "error"
 
     # Return the capability name - this must match the node name in LangGraph

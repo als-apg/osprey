@@ -134,7 +134,7 @@ class PythonResultsContext(CapabilityContext):
     def context_type(self) -> str:
         return self.CONTEXT_TYPE
 
-    def get_access_details(self, key_name: str | None = None) -> dict[str, Any]:
+    def get_access_details(self, key: str) -> dict[str, Any]:
         """Provide comprehensive access information for Python execution results.
 
         Generates detailed access information for other capabilities to understand
@@ -151,7 +151,6 @@ class PythonResultsContext(CapabilityContext):
            Access details distinguish between execution metadata (code, output, timing)
            and computed results (structured data from results.json).
         """
-        key_ref = key_name if key_name else "key_name"
         return {
             "code": "Python code that was executed",
             "output": "Stdout/stderr logs from code execution",
@@ -160,11 +159,11 @@ class PythonResultsContext(CapabilityContext):
             "execution_time": f"Execution time: {self.execution_time:.2f} seconds",
             "folder_path": "Path to execution folder",
             "notebook_link": "Jupyter notebook link for review",
-            "access_pattern": f"context.{self.CONTEXT_TYPE}.{key_ref}.results",
-            "example_usage": f"context.{self.CONTEXT_TYPE}.{key_ref}.results gives the computed results dictionary"
+            "access_pattern": f"context.{self.CONTEXT_TYPE}.{key}.results",
+            "example_usage": f"context.{self.CONTEXT_TYPE}.{key}.results gives the computed results dictionary"
         }
 
-    def get_summary(self, key_name: str | None = None) -> dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """Generate summary of Python execution for display and analysis.
 
         Creates a comprehensive summary of the Python execution including both
@@ -358,8 +357,7 @@ class PythonCapability(BaseCapability):
     provides = ["PYTHON_RESULTS"]
     requires = []
 
-    @staticmethod
-    async def execute(state: AgentState, **kwargs) -> dict[str, Any]:
+    async def execute(self) -> dict[str, Any]:
         """Execute Python capability with comprehensive service integration and approval handling.
 
         Implements the complete Python execution workflow including service invocation,
@@ -377,10 +375,6 @@ class PythonCapability(BaseCapability):
         execution approval workflows, ensuring user control over potentially sensitive
         code execution while maintaining seamless execution flow.
 
-        :param state: Current agent state containing execution context and history
-        :type state: AgentState
-        :param kwargs: Additional execution parameters from the framework
-        :type kwargs: dict
         :return: State updates with Python execution results and context data
         :rtype: Dict[str, Any]
 
@@ -401,11 +395,11 @@ class PythonCapability(BaseCapability):
         # GENERIC SETUP (needed for both paths)
         # ========================================
 
-        # Extract current step
-        step = StateManager.get_current_step(state)
+        # Current step is injected by decorator
+        step = self._step
 
         # Define streaming helper here for step awareness
-        streamer = get_streamer("python", state)
+        streamer = get_streamer("python", self._state)
         streamer.status("Initializing Python executor service...")
 
         # Get Python executor service from registry
@@ -432,7 +426,7 @@ class PythonCapability(BaseCapability):
 
 
         # Check if this is a resume from approval using centralized function
-        has_approval_resume, approved_payload = get_approval_resume_data(state, create_approval_type("python_executor"))
+        has_approval_resume, approved_payload = get_approval_resume_data(self._state, create_approval_type("python_executor"))
 
         if has_approval_resume:
             if approved_payload:
@@ -465,11 +459,11 @@ class PythonCapability(BaseCapability):
 
             # Create execution request
             # Build capability-specific prompts with task information
-            user_query = state.get("input_output", {}).get("user_query", "")
+            user_query = self._state.get("input_output", {}).get("user_query", "")
             task_objective = step.get("task_objective", "")
 
             # Build capability-specific prompts
-            context_manager = ContextManager(state)
+            context_manager = ContextManager(self._state)
             context_description = context_manager.get_context_access_description(step.get('inputs', []))
 
             # Create capability-specific prompts
@@ -484,11 +478,11 @@ class PythonCapability(BaseCapability):
 
             # Get main graph's context data (raw dictionary that contains context data)
             # Python service will recreate ContextManager from this dictionary data
-            capability_contexts = state.get('capability_context_data', {})
+            capability_contexts = self._state.get('capability_context_data', {})
 
             # DEBUG: Log context data availability
             logger.debug(f"capability_context_data keys: {list(capability_contexts.keys())}")
-            logger.debug(f"full state keys: {list(state.keys())}")
+            logger.debug(f"full state keys: {list(self._state.keys())}")
 
             execution_request = PythonExecutionRequest(
                 user_query=user_query,
@@ -497,7 +491,7 @@ class PythonCapability(BaseCapability):
                 capability_prompts=capability_prompts,
                 execution_folder_name="python_capability",
                 capability_context_data=capability_contexts,
-                config=state.get("config"),
+                config=self._state.get("config"),
                 retries=3
             )
 
@@ -525,8 +519,8 @@ class PythonCapability(BaseCapability):
 
         # Store context using StateManager
         result_updates = StateManager.store_context(
-            state,
-            registry.context_types.PYTHON_RESULTS,
+            self._state,
+            "PYTHON_RESULTS",
             step.get("context_key"),
             results_context
         )
@@ -539,7 +533,7 @@ class PythonCapability(BaseCapability):
 
             for figure_path in results_context.figure_paths:
                 figure_update = StateManager.register_figure(
-                    state,
+                    self._state,
                     capability="python_executor",
                     figure_path=str(figure_path),
                     display_name="Python Execution Figure",
@@ -561,7 +555,7 @@ class PythonCapability(BaseCapability):
         notebook_updates = {}
         if results_context.notebook_link:
             notebook_updates = StateManager.register_notebook(
-                state,
+                self._state,
                 capability="python_executor",
                 notebook_path=str(results_context.notebook_path),
                 notebook_link=results_context.notebook_link,

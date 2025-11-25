@@ -265,19 +265,20 @@ The infrastructure components work together in a deterministic processing flow:
          from osprey.base.capability import BaseCapability
          from langchain_core.messages import AIMessage
 
-         @capability_node
-         class CustomCapability(BaseCapability):
-             name = "custom_analysis"
-             description = "Custom analysis capability"
-             provides = ["CUSTOM_DATA"]
-             requires = ["INPUT_DATA"]
+        @capability_node
+        class CustomCapability(BaseCapability):
+            name = "custom_analysis"
+            description = "Custom analysis capability"
+            provides = ["CUSTOM_DATA"]
+            requires = ["INPUT_DATA"]
 
-             @staticmethod
-             async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
-                 # Return LangGraph messages pattern
-                 return {
-                     "messages": [AIMessage(content="Analysis complete")]
-                 }
+            async def execute(self) -> Dict[str, Any]:
+                # Get required contexts automatically
+                input_data, = self.get_required_contexts()
+                # Process and return LangGraph messages pattern
+                return {
+                    "messages": [AIMessage(content="Analysis complete")]
+                }
 
 .. dropdown:: Next Steps
    :color: primary

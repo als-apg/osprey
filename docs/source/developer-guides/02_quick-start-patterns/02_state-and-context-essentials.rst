@@ -86,21 +86,23 @@ The AgentState uses a flat structure with logical prefixes:
 Context Data Structure
 ----------------------
 
-Context data uses a three-level dictionary optimized for LangGraph:
+The ``capability_context_data`` field is the **data layer** of your Osprey agent. This is where capabilities save their results and retrieve data from other capabilities. Think of it as a shared workspace where capabilities communicate by storing and reading structured data.
+
+**Key Concept:** Each capability stores its results as context objects that other capabilities can access. For example, a channel-finding capability stores found channel addresses, which an archiver-retrieval capability later reads to know which channels to query.
 
 .. code-block:: python
 
    capability_context_data = {
-       "WEATHER_DATA": {           # Context type
-           "step_0": {             # Context key
+       "WEATHER_DATA": {           # Context type (what kind of data)
+           "step_0": {             # Context key (specific instance)
                "location": "San Francisco",
                "temperature": 18.5,
                "conditions": "Sunny",
                "timestamp": "2024-01-01T12:00:00Z"
            }
        },
-       "PV_ADDRESSES": {
-           "beam_current": {
+       "PV_ADDRESSES": {           # Different context type
+           "beam_current": {       # Different instance
                "pvs": ["SR:C01:BI:Current", "SR:C02:BI:Current"],
                "description": "Beam current monitoring PVs",
                "count": 2
@@ -108,99 +110,14 @@ Context data uses a three-level dictionary optimized for LangGraph:
        }
    }
 
-StateManager Essentials
-=======================
-
-Creating Fresh State
---------------------
-
-.. code-block:: python
-
-   from osprey.state import StateManager
-
-   # Create fresh state for new conversation
-   state = StateManager.create_fresh_state(
-       user_input="What's the weather in San Francisco?",
-       current_state=None  # No previous state
-   )
-
-   # Create fresh state preserving context
-   new_state = StateManager.create_fresh_state(
-       user_input="How about New York?",
-       current_state=previous_state  # Preserves context data
-   )
-
-Storing Context Data
---------------------
-
-The essential pattern for storing capability results:
-
-.. code-block:: python
-
-   from osprey.state import StateManager
-   from my_app.context_classes import WeatherDataContext
-
-   @capability_node
-   class WeatherCapability(BaseCapability):
-       name = "weather_data"
-       description = "Retrieve current weather conditions"
-       provides = ["WEATHER_DATA"]
-
-       @staticmethod
-       async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
-           # Get current execution step
-           step = StateManager.get_current_step(state)
-
-           # Your business logic here
-           weather_data = await fetch_weather_data()
-
-           # Create structured context
-           context = WeatherDataContext(
-               location=weather_data.location,
-               temperature=weather_data.temperature,
-               conditions=weather_data.conditions,
-               timestamp=datetime.now().isoformat()
-           )
-
-           # Store and return (one-liner pattern)
-           return StateManager.store_context(
-               state,
-               "WEATHER_DATA",              # Context type
-               step.get("context_key"),     # Unique key
-               context                      # Pydantic context object
-           )
-
-ContextManager Usage
-====================
-
-Access stored context data with structured interface:
-
-.. code-block:: python
-
-   from osprey.context import ContextManager
-
-   def process_with_context(state: AgentState):
-       # Create context manager from state
-       context_manager = ContextManager(state)
-
-       # Get specific context by type and key
-       weather_context = context_manager.get_context("WEATHER_DATA", "step_0")
-       if weather_context:
-           print(f"Weather in {weather_context.location}: {weather_context.temperature}°C")
-
-       # Get all contexts of a specific type
-       all_weather_data = context_manager.get_all_of_type("WEATHER_DATA")
-       for key, weather in all_weather_data.items():
-           print(f"{key}: {weather.location} - {weather.temperature}°C")
 
 Creating Context Classes
-========================
+------------------------
 
-Context classes provide type-safe data containers:
+Context classes are Pydantic models that define the structure of data stored in the context system. Each context class must inherit from ``CapabilityContext`` and define required methods:
 
 .. code-block:: python
 
-   from datetime import datetime
    from typing import ClassVar
    from pydantic import Field
    from osprey.context.base import CapabilityContext
@@ -208,7 +125,7 @@ Context classes provide type-safe data containers:
    class WeatherDataContext(CapabilityContext):
        """Context for weather data with validation."""
 
-       # Framework integration constants
+       # Framework integration
        CONTEXT_TYPE: ClassVar[str] = "WEATHER_DATA"
        CONTEXT_CATEGORY: ClassVar[str] = "LIVE_DATA"
 
@@ -216,148 +133,224 @@ Context classes provide type-safe data containers:
        location: str = Field(..., description="Location name")
        temperature: float = Field(..., description="Temperature in Celsius")
        conditions: str = Field(..., description="Weather conditions")
-       timestamp: str = Field(..., description="ISO timestamp")
 
        def get_access_details(self, key: str) -> dict:
+           """Provide access details for LLM consumption."""
            return {
-               "summary": f"Weather data for {self.location}",
-               "temperature": f"{self.temperature}°C",
-               "conditions": self.conditions,
-               "context_key": key
+               "summary": f"Weather in {self.location}: {self.temperature}°C",
+               "conditions": self.conditions
            }
 
        def get_summary(self, key: str) -> dict:
+           """Provide human-readable summary."""
            return {
                "title": "Weather Data",
-               "content": f"Current weather in {self.location}: {self.temperature}°C, {self.conditions}",
-               "metadata": {"context_key": key, "timestamp": self.timestamp}
+               "content": f"{self.location}: {self.temperature}°C, {self.conditions}"
            }
 
-Best Practices
-==============
+.. seealso::
 
-State Management
-----------------
+   **For comprehensive context class documentation**, including validation, serialization, best practices, and advanced patterns, see:
+
+   - :doc:`../03_core-framework-systems/02_context-management-system` - Complete context management guide
+   - :doc:`../../api_reference/01_core_framework/02_state_and_context` - API reference
+
+.. dropdown:: **Legacy Pattern Reference:** StateManager Direct Usage
+   :color: secondary
+   :icon: archive
+
+   For reference only - the automatic context management pattern below is recommended for new code.
+
+   **Creating Fresh State:**
+
+   .. code-block:: python
+
+      from osprey.state import StateManager
+
+      # Create fresh state for new conversation
+      state = StateManager.create_fresh_state(
+          user_input="What's the weather in San Francisco?",
+          current_state=None  # No previous state
+      )
+
+      # Create fresh state preserving context
+      new_state = StateManager.create_fresh_state(
+          user_input="How about New York?",
+          current_state=previous_state  # Preserves context data
+      )
+
+   **Storing Context Data (Manual Pattern):**
+
+   .. code-block:: python
+
+      from osprey.state import StateManager
+      from my_app.context_classes import WeatherDataContext
+
+      @capability_node
+      class WeatherCapability(BaseCapability):
+          name = "weather_data"
+          description = "Retrieve current weather conditions"
+          provides = ["WEATHER_DATA"]
+
+          @staticmethod
+          async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
+              # Get current execution step
+              step = StateManager.get_current_step(state)
+
+              # Your business logic here
+              weather_data = await fetch_weather_data()
+
+              # Create structured context
+              context = WeatherDataContext(
+                  location=weather_data.location,
+                  temperature=weather_data.temperature,
+                  conditions=weather_data.conditions,
+                  timestamp=datetime.now().isoformat()
+              )
+
+              # Store and return state updates
+              return StateManager.store_context(
+                  state,
+                  "WEATHER_DATA",              # Context type
+                  step.get("context_key"),     # Unique key
+                  context                      # Pydantic context object
+              )
+
+   **Note:** Use the automatic context management pattern shown below instead for simpler, more maintainable code.
+
+Context Management
+==================
+
+This section covers the most common context management pattern - the basic usage you'll use in 90% of your capabilities. For comprehensive context management documentation, including advanced patterns, cardinality constraints, tuple unpacking strategies, and the ``process_extracted_contexts()`` hook, see: :doc:`../03_core-framework-systems/02_context-management-system`
+
+
+Storing Context
+---------------
+
+Use the helper method to store context data:
 
 .. code-block:: python
 
-   @staticmethod
-   async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
-       # ✅ Use StateManager utilities
-       step = StateManager.get_current_step(state)
-       task = StateManager.get_current_task(state)
+   @capability_node
+   class AnalysisCapability(BaseCapability):
+       name = "analysis"
+       provides = ["ANALYSIS_RESULTS"]
 
-       # Process data and create context
-       result_context = MyDataContext(
-           processed_data=processed_results,
-           timestamp=datetime.now().isoformat()
-       )
+       async def execute(self) -> Dict[str, Any]:
+           # Your business logic
+           results = analyze_data()
 
-       # ✅ Store context with one-liner
-       return StateManager.store_context(
-           state, "MY_DATA", step.get("context_key"), result_context
-       )
+           # Create and store context
+           return self.store_output_context(
+               AnalysisResults(data=results)
+           )
 
-Context Design
---------------
+Retrieving Context
+------------------
 
-.. code-block:: python
-
-   class MyDataContext(CapabilityContext):
-       # ✅ Use descriptive context types
-       CONTEXT_TYPE: ClassVar[str] = "PROCESSED_DATA"  # Not "DATA"
-       CONTEXT_CATEGORY: ClassVar[str] = "ANALYSIS_RESULTS"
-
-       # ✅ Include validation and metadata
-       data: Dict[str, Any] = Field(..., description="Processed data")
-       timestamp: str = Field(..., description="ISO timestamp")
-       count: int = Field(..., ge=0, description="Number of records")
-
-Multi-Step Workflows
---------------------
-
-Handle progressive context building:
+Use the ``requires`` field and helper method to retrieve context data:
 
 .. code-block:: python
 
-   @staticmethod
-   async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
-       context_manager = ContextManager(state)
+   @capability_node
+   class ReportingCapability(BaseCapability):
+       name = "reporting"
+       requires = ["ANALYSIS_RESULTS"]  # Declare what you need
+       provides = ["REPORT"]
 
-       # Get existing partial results
-       partial_results = context_manager.get_context("PARTIAL_ANALYSIS", "working")
+       async def execute(self) -> Dict[str, Any]:
+           # Get required context (note trailing comma for single context)
+           analysis, = self.get_required_contexts()
 
-       if partial_results:
-           current_data = partial_results.accumulated_data
-       else:
-           current_data = []
+           # Use the context data
+           report = generate_report(analysis.data)
 
-       # Add new data and store updated results
-       new_data = await process_current_step()
-       current_data.extend(new_data)
+           return self.store_output_context(Report(content=report))
 
-       updated_context = PartialAnalysisContext(
-           accumulated_data=current_data,
-           steps_completed=len(current_data),
-           last_updated=datetime.now().isoformat()
-       )
+Multiple Contexts
+-----------------
 
-       return StateManager.store_context(
-           state, "PARTIAL_ANALYSIS", "working", updated_context
-       )
+Handle multiple required contexts:
+
+.. code-block:: python
+
+   @capability_node
+   class ComparisonCapability(BaseCapability):
+       name = "comparison"
+       requires = ["ANALYSIS_RESULTS", "BASELINE_DATA"]
+       provides = ["COMPARISON"]
+
+       async def execute(self) -> Dict[str, Any]:
+           # Tuple unpacking matches requires field order
+           analysis, baseline = self.get_required_contexts()
+
+           comparison = compare(analysis.data, baseline.data)
+           return self.store_output_context(Comparison(result=comparison))
+
+Quick Tips
+==========
+
+**Context Storage:**
+
+- Always return the result from ``self.store_output_context()``
+- Use descriptive context type names in your context classes
+- Keep context classes simple with JSON-serializable fields only
+
+**Context Retrieval:**
+
+- Use tuple unpacking for cleaner code: ``analysis, = self.get_required_contexts()``
+- Note the trailing comma when unpacking a single context
+- Multiple contexts: order matches ``requires`` field order
 
 Common Issues
 =============
 
-**"Context not found"**
-
-Handle missing context gracefully:
+**Forgot to return context storage result:**
 
 .. code-block:: python
 
-   context_manager = ContextManager(state)
-   required_data = context_manager.get_context("REQUIRED_TYPE", "key")
+   # ❌ Wrong - updates are lost
+   self.store_output_context(context)
+   return {}
 
-   if not required_data:
-       return {"error": "Required data not available"}
+   # ✅ Correct - return the state updates
+   return self.store_output_context(context)
 
-**"Context serialization failed"**
-
-Use only JSON-compatible types:
+**Using non-JSON types in context:**
 
 .. code-block:: python
+
+   # ❌ Wrong - not serializable
+   timestamp: datetime = Field(...)
 
    # ✅ Correct - JSON compatible
    timestamp: str = Field(..., description="ISO timestamp")
-   data: Dict[str, Any] = Field(default_factory=dict)
 
-   # ❌ Wrong - not serializable
-   # timestamp: datetime = Field(...)
-   # custom_obj: MyClass = Field(...)
-
-**"State updates not persisting"**
-
-Always return StateManager.store_context() result:
+**Forgot trailing comma in tuple unpacking:**
 
 .. code-block:: python
 
-   # ✅ Correct - return the state updates
-   return StateManager.store_context(state, "MY_DATA", key, context)
+   # ❌ Wrong - missing comma
+   analysis = self.get_required_contexts()  # Returns dict, not object!
 
-   # ❌ Wrong - updates are lost
-   # StateManager.store_context(state, "MY_DATA", key, context)
-   # return {}
+   # ✅ Correct - trailing comma for single context
+   analysis, = self.get_required_contexts()
 
 Next Steps
 ==========
 
-**Essential:**
+**Continue Learning:**
+
 - :doc:`03_running-and-testing` - Learn to test your state-aware capabilities
 
+**Deep Dive (Recommended):**
+
+- :doc:`../03_core-framework-systems/02_context-management-system` - **Complete context management guide** with advanced patterns, cardinality constraints, tuple unpacking strategies, the ``process_extracted_contexts()`` hook, multi-step workflows, and best practices
+
 **Advanced:**
-- :doc:`../03_core-framework-systems/01_state-management-architecture` - Complete state lifecycle
-- :doc:`../03_core-framework-systems/02_context-management-system` - Advanced context patterns
+
+- :doc:`../03_core-framework-systems/01_state-management-architecture` - Complete state lifecycle and persistence patterns
 
 **API Reference:**
-- :doc:`../../api_reference/01_core_framework/02_state_and_context` - StateManager documentation
-- :doc:`../../api_reference/01_core_framework/02_state_and_context` - ContextManager reference
+
+- :doc:`../../api_reference/01_core_framework/02_state_and_context` - StateManager and ContextManager API documentation

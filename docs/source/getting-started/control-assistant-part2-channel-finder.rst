@@ -1132,6 +1132,24 @@ That's it—no code changes required. The template includes complete implementat
 2.1: OSPREY Framework Integration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+.. admonition:: Capability Pattern Update (v0.9.2+)
+   :class: tip
+
+   This tutorial uses the **new instance method pattern** introduced in v0.9.2+.
+   If you have existing capabilities from v0.9.1 or earlier using static methods,
+   see the :doc:`../developer-guides/migration-guide-instance-methods` for a complete upgrade guide.
+
+   **New features in v0.9.2+:**
+
+   - Helper methods: ``self.get_required_contexts()``, ``self.store_output_context()``
+   - Automatic state injection via ``@capability_node`` decorator
+   - Simplified code with 50-60% less boilerplate
+
+   **Easiest migration path:** After upgrading to v0.9.2+, recreate the tutorial using
+   ``osprey init`` to generate fresh templates with the new pattern. Then cherry-pick
+   your custom business logic from the old capabilities into the new ones. This is often
+   faster than manual migration and ensures you get all the new patterns correctly.
+
 The channel finder integrates into OSPREY as a **capability**—a reusable component that the agent orchestrator can plan and execute. The capability acts as a thin orchestration layer that connects the framework to the service layer, while all channel finding logic lives in ``services/channel_finder/``. This separation makes the service independently testable via CLI and benchmarks before agent integration. The template provides a complete implementation in ``src/my_control_assistant/capabilities/channel_finding.py``.
 
 **Capability Architecture:**
@@ -1244,10 +1262,8 @@ A key architectural pattern: **separate business logic from framework orchestrat
        name = "channel_finding"
        provides = ["CHANNEL_ADDRESSES"]
 
-       @staticmethod
-       async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
-           step = StateManager.get_current_step(state)
-           search_query = step.get('task_objective')
+       async def execute(self) -> Dict[str, Any]:
+           search_query = self.get_task_objective()
 
            # Delegate to service layer
            service = ChannelFinderService()
@@ -1260,12 +1276,7 @@ A key architectural pattern: **separate business logic from framework orchestrat
            )
 
            # Store in framework state
-           return StateManager.store_context(
-               state,
-               registry.context_types.CHANNEL_ADDRESSES,
-               step.get("context_key"),
-               context
-           )
+           return self.store_output_context(context)
 
 
 Navigation

@@ -123,11 +123,10 @@ StateManager provides the primary interface for state creation and management th
 
 .. code-block:: python
 
-   # In a capability execute method
-   @staticmethod
-   async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
+   # In a capability execute method (recommended pattern)
+   async def execute(self) -> Dict[str, Any]:
        # Perform capability logic
-       pv_data = await find_pv_addresses(user_query)
+       pv_data = await find_pv_addresses(self.get_task_objective())
 
        # Create context object
        pv_context = PVAddresses(
@@ -136,11 +135,8 @@ StateManager provides the primary interface for state creation and management th
            timestamp=datetime.now()
        )
 
-       # Store context and return state updates
-       step = StateManager.get_current_step(state)
-       return StateManager.store_context(
-           state, "PV_ADDRESSES", step.get('context_key'), pv_context
-       )
+       # Store context and return state updates (automatic context_key handling)
+       return self.store_output_context(pv_context)
 
 **UI Registration (Figures and Notebooks):**
 
@@ -193,23 +189,13 @@ StateManager provides the primary interface for state creation and management th
 
    @capability_node
    class DataAnalysisCapability(BaseCapability):
-       @staticmethod
-       async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
-           current_task = StateManager.get_current_task(state)
-           current_step = StateManager.get_current_step(state)
-           context = ContextManager(state)
+       requires = ["PV_ADDRESSES"]
+       provides = ["ANALYSIS_RESULTS"]
 
-           # Access persistent context data
-           step_inputs = current_step.get('inputs', [])
-           pv_data = None
-           for input_spec in step_inputs:
-               if 'PV_ADDRESSES' in input_spec:
-                   context_key = input_spec['PV_ADDRESSES']
-                   pv_data = context.get_context('PV_ADDRESSES', context_key)
-                   break
-
-           if not pv_data:
-               return {"error": "Required PV address data not available"}
+       async def execute(self) -> Dict[str, Any]:
+           # Get task objective and required contexts automatically
+           current_task = self.get_task_objective()
+           pv_data, = self.get_required_contexts()
 
            # Perform analysis
            analysis_result = await analyze_pv_data(pv_data.pvs, current_task)
@@ -221,9 +207,7 @@ StateManager provides the primary interface for state creation and management th
                timestamp=datetime.now()
            )
 
-           return StateManager.store_context(
-               state, "ANALYSIS_RESULTS", current_step.get('context_key'), analysis_context
-           )
+           return self.store_output_context(analysis_context)
 
 Working Example
 ===============
@@ -266,10 +250,13 @@ Best Practices
 
 .. code-block:: python
 
-   # ✅ Correct - using StateManager utilities
+   # ✅ Recommended - using helper methods (in capability execute)
    context_obj = MyContext(data='value')
-   updates = StateManager.store_context(state, 'NEW_TYPE', 'key', context_obj)
-   return updates
+   return self.store_output_context(context_obj)
+
+   # ✅ Also valid - manual StateManager utilities (for advanced use cases)
+   # updates = StateManager.store_context(state, 'NEW_TYPE', 'key', context_obj)
+   # return updates
 
 **Error Handling:**
 

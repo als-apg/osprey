@@ -5,17 +5,51 @@ Convention-based base class for all capabilities in the Osprey Agent framework.
 Implements the LangGraph-native architecture with configuration-driven patterns.
 """
 
+from __future__ import annotations
+
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Literal
 
 from osprey.base.errors import ErrorClassification, ErrorSeverity
 
 # Import types for type hints
 if TYPE_CHECKING:
+    from osprey.context import CapabilityContext
     from osprey.state import AgentState
 
 # Direct imports - no circular dependencies in practice
+
+
+class RequiredContexts(dict):
+    """Special dict that supports tuple unpacking in the order of requires field.
+
+    This class enables elegant syntax like:
+        channels, time_range = self.get_required_contexts()
+
+    While maintaining backward compatibility with dict access:
+        contexts = self.get_required_contexts()
+        channels = contexts["CHANNEL_ADDRESSES"]
+
+    The iteration order matches the order in the capability's requires field.
+    """
+
+    def __init__(self, data: dict, order: list[str]):
+        """
+        Initialize RequiredContexts with data and ordered keys.
+
+        Args:
+            data: Dictionary mapping context type names to context objects
+            order: List of context type names in the order they appear in requires
+        """
+        super().__init__(data)
+        self._order = order
+
+    def __iter__(self):
+        """Iterate in the order specified by requires field for tuple unpacking."""
+        for key in self._order:
+            if key in self:
+                yield self[key]
 
 
 class BaseCapability(ABC):
@@ -130,7 +164,12 @@ class BaseCapability(ABC):
 
     # Optional class attributes - defaults provided
     provides: list[str] = []
-    requires: list[str] = []
+    requires: list[str | tuple[str, Literal["single", "multiple"]]] = []
+
+    # Instance attributes (injected by @capability_node decorator at runtime)
+    # These are set by the decorator before calling execute() and are available within execute()
+    _state: AgentState | None = None
+    _step: dict[str, Any] | None = None
 
     def __init__(self):
         """Initialize the capability and validate required components.
@@ -144,9 +183,11 @@ class BaseCapability(ABC):
         1. Required class attributes (name, description) are defined and non-None
         2. The execute method is implemented as a static method
         3. Optional attributes are properly initialized with defaults if missing
+        4. The 'requires' field format is valid (strings or (context_type, cardinality) tuples)
 
         :raises NotImplementedError: If name or description class attributes are missing
         :raises NotImplementedError: If execute static method is not implemented
+        :raises ValueError: If requires field contains invalid format
 
         .. note::
            This initialization performs validation only. The actual LangGraph
@@ -173,90 +214,503 @@ class BaseCapability(ABC):
         if not hasattr(self.__class__, 'requires') or self.requires is None:
             self.__class__.requires = []
 
-    @staticmethod
-    @abstractmethod
-    async def execute(
-        state: 'AgentState',
-        **kwargs
+        # Validate requires field format at initialization
+        if self.requires:
+            for idx, req in enumerate(self.requires):
+                if isinstance(req, tuple):
+                    if len(req) != 2:
+                        raise ValueError(
+                            f"{self.__class__.__name__}.requires[{idx}]: "
+                            f"Invalid tuple format {req}. "
+                            f"Expected (context_type: str, cardinality: 'single'|'multiple')"
+                        )
+                    context_type, cardinality = req
+                    if not isinstance(context_type, str):
+                        raise ValueError(
+                            f"{self.__class__.__name__}.requires[{idx}]: "
+                            f"Context type must be string, got {type(context_type).__name__}"
+                        )
+                    if cardinality not in ("single", "multiple"):
+                        raise ValueError(
+                            f"{self.__class__.__name__}.requires[{idx}]: "
+                            f"Invalid cardinality '{cardinality}'. "
+                            f"Must be 'single' or 'multiple'. "
+                            f"\n\n"
+                            f"NOTE: constraint_mode ('hard'/'soft') is NOT a tuple value!\n"
+                            f"Use constraint_mode parameter in get_required_contexts() instead.\n"
+                            f"\n"
+                            f"Example:\n"
+                            f"  requires = ['OPTIONAL_DATA_TYPE1', 'OPTIONAL_DATA_TYPE2']  # No tuple!\n"
+                            f"  contexts = self.get_required_contexts(constraint_mode='soft')"
+                        )
+                elif not isinstance(req, str):
+                    raise ValueError(
+                        f"{self.__class__.__name__}.requires[{idx}]: "
+                        f"Invalid type {type(req).__name__}. "
+                        f"Expected string or (string, cardinality) tuple"
+                    )
+
+    # ========================================
+    # NEW: Automatic Context Management Methods
+    # ========================================
+
+    def get_required_contexts(
+        self,
+        constraint_mode: Literal["hard", "soft"] = "hard"
+    ) -> RequiredContexts:
+        """
+        Automatically extract contexts based on 'requires' field.
+
+        The constraint_mode applies uniformly to ALL requirements.
+        Use "hard" when all are required, "soft" when at least one is required.
+
+        Tuple format is ONLY for cardinality constraints:
+        - "single": Must be exactly one instance (not a list)
+        - "multiple": Must be a list (not single instance)
+
+        Args:
+            constraint_mode: "hard" (all required) or "soft" (at least one required)
+
+        Returns:
+            RequiredContexts object supporting both dict and tuple unpacking access
+
+        Raises:
+            RuntimeError: If called outside execute() (state not injected)
+            ValueError: If required contexts missing or cardinality violated
+            AttributeError: If context type not found in registry
+
+        Example:
+            ```python
+            # Define requirements
+            requires = ["CHANNEL_ADDRESSES", ("TIME_RANGE", "single")]
+
+            # Elegant tuple unpacking (matches order in requires)
+            channels, time_range = self.get_required_contexts()
+
+            # Traditional dict access (backward compatible)
+            contexts = self.get_required_contexts()
+            channels = contexts["CHANNEL_ADDRESSES"]
+            time_range = contexts["TIME_RANGE"]
+            ```
+
+        .. note::
+           Tuple unpacking only works reliably with constraint_mode="hard" (default).
+           When using "soft" mode, use dict access instead since the number of
+           returned contexts may vary:
+
+               contexts = self.get_required_contexts(constraint_mode="soft")
+               a = contexts.get("CONTEXT_A")
+               b = contexts.get("CONTEXT_B")
+        """
+        if not self.requires:
+            return RequiredContexts({}, [])
+
+        # Ensure we're in execution context (state injected by decorator)
+        if self._state is None:
+            raise RuntimeError(
+                f"{self.__class__.__name__}.get_required_contexts() requires self._state "
+                f"to be injected by @capability_node decorator.\n"
+                f"\n"
+                f"Possible causes:\n"
+                f"  1. Calling outside of execute() method\n"
+                f"  2. Missing @capability_node decorator on class\n"
+                f"  3. Manual instantiation without state injection\n"
+                f"\n"
+                f"Solution: Ensure @capability_node decorator is applied and only call "
+                f"this method from within execute()"
+            )
+
+        # Import here to avoid circular dependencies
+        from osprey.context.context_manager import ContextManager
+        from osprey.registry import get_registry
+
+        registry = get_registry()
+        context_manager = ContextManager(self._state)
+
+        # Parse requirements into constraints
+        # Format: "CONTEXT_TYPE" or ("CONTEXT_TYPE", "single"|"multiple")
+        constraints: list[str | tuple[str, str]] = []
+        resolved_types: dict[str, Any] = {}  # Cache resolved types to avoid redundant lookups
+
+        for req in self.requires:
+            if isinstance(req, tuple):
+                ctx_type_name, cardinality = req
+
+                # Look up context type in registry with error handling
+                try:
+                    ctx_type = getattr(registry.context_types, ctx_type_name)
+                except AttributeError:
+                    available = [
+                        attr for attr in dir(registry.context_types)
+                        if not attr.startswith('_')
+                    ]
+                    raise ValueError(
+                        f"[{self.name}] Context type '{ctx_type_name}' not found in registry.\n"
+                        f"Available types: {', '.join(available)}"
+                    ) from None
+
+                resolved_types[ctx_type_name] = ctx_type
+                constraints.append((ctx_type, cardinality))
+            else:
+                # Simple string format
+                ctx_type_name = req
+                try:
+                    ctx_type = getattr(registry.context_types, ctx_type_name)
+                except AttributeError:
+                    available = [
+                        attr for attr in dir(registry.context_types)
+                        if not attr.startswith('_')
+                    ]
+                    raise ValueError(
+                        f"[{self.name}] Context type '{ctx_type_name}' not found in registry.\n"
+                        f"Available types: {', '.join(available)}"
+                    ) from None
+
+                resolved_types[ctx_type_name] = ctx_type
+                constraints.append(ctx_type)
+
+        # Extract contexts with uniform constraint mode
+        try:
+            raw_contexts = context_manager.extract_from_step(
+                self._step,
+                self._state,
+                constraints=constraints,
+                constraint_mode=constraint_mode  # Applies uniformly to ALL
+            )
+        except ValueError as e:
+            # Add capability context to errors
+            raise ValueError(
+                f"[{self.name}] Failed to extract required contexts: {e}"
+            ) from e
+
+        # Convert registry types to string keys for cleaner access
+        # Note: In soft mode, raw_contexts might not have all requested keys
+        string_keyed: dict[str, CapabilityContext | list[CapabilityContext]] = {}
+        ordered_keys: list[str] = []  # Track order for tuple unpacking
+
+        for req in self.requires:
+            ctx_type_name = req[0] if isinstance(req, tuple) else req
+            ctx_type = resolved_types[ctx_type_name]  # Reuse cached lookup
+            # Only add if context was actually found (important for soft mode)
+            if ctx_type in raw_contexts:
+                string_keyed[ctx_type_name] = raw_contexts[ctx_type]
+                ordered_keys.append(ctx_type_name)
+
+        # Apply custom processing hook
+        processed = self.process_extracted_contexts(string_keyed)
+
+        # Return RequiredContexts with order preserved for tuple unpacking
+        return RequiredContexts(processed, ordered_keys)
+
+    def process_extracted_contexts(
+        self,
+        contexts: dict[str, CapabilityContext | list[CapabilityContext]]
+    ) -> dict[str, CapabilityContext | list[CapabilityContext]]:
+        """
+        Override to customize extracted contexts (e.g., flatten lists).
+
+        Args:
+            contexts: Dict mapping context type names to extracted objects
+
+        Returns:
+            Processed contexts dict
+
+        Example:
+            ```python
+            def process_extracted_contexts(self, contexts):
+                '''Flatten list of CHANNEL_ADDRESSES.'''
+                channels_raw = contexts["CHANNEL_ADDRESSES"]
+
+                if isinstance(channels_raw, list):
+                    flat = []
+                    for ctx in channels_raw:
+                        flat.extend(ctx.channels)
+                    contexts["CHANNEL_ADDRESSES"] = flat
+                else:
+                    contexts["CHANNEL_ADDRESSES"] = channels_raw.channels
+
+                return contexts
+            ```
+        """
+        return contexts
+
+    def get_parameters(self, default: dict[str, Any] | None = None) -> dict[str, Any]:
+        """
+        Get parameters from the current step.
+
+        The orchestrator can provide optional parameters in the step definition
+        that control capability behavior (e.g., precision, timeout, mode).
+
+        Args:
+            default: Default value to return if no parameters exist (defaults to empty dict)
+
+        Returns:
+            Parameters dictionary from the step
+
+        Raises:
+            RuntimeError: If called outside execute() (state not injected)
+
+        Example:
+            ```python
+            async def execute(self) -> dict[str, Any]:
+                params = self.get_parameters()
+                precision_ms = params.get('precision_ms', 1000)
+                timeout = params.get('timeout', 30)
+
+                # Or with a custom default
+                params = self.get_parameters(default={'precision_ms': 1000})
+                ```
+        """
+        if self._step is None:
+            raise RuntimeError(
+                f"{self.__class__.__name__}.get_parameters() requires self._step "
+                f"to be injected by @capability_node decorator.\n"
+                f"\n"
+                f"This method can only be called from within execute()."
+            )
+
+        if default is None:
+            default = {}
+
+        # Handle case where 'parameters' key exists but is None
+        params = self._step.get('parameters', default)
+        if params is None:
+            return default
+        return params
+
+    def get_task_objective(self, default: str | None = None) -> str:
+        """
+        Get the task objective for the current step.
+
+        The orchestrator provides task_objective in each step to describe what
+        the capability should accomplish. This is commonly used for logging,
+        search queries, and LLM prompts.
+
+        Args:
+            default: Default value if task_objective not in step.
+                    If None, falls back to current task from state.
+
+        Returns:
+            Task objective string
+
+        Raises:
+            RuntimeError: If called outside execute() (state not injected)
+
+        Example:
+            ```python
+            async def execute(self) -> dict[str, Any]:
+                # Get task objective with automatic fallback
+                task = self.get_task_objective()
+                logger.info(f"Starting: {task}")
+
+                # Or with custom default
+                task = self.get_task_objective(default="unknown task")
+
+                # Common pattern: use as search query
+                search_query = self.get_task_objective().lower()
+                ```
+        """
+        if self._step is None or self._state is None:
+            raise RuntimeError(
+                f"{self.__class__.__name__}.get_task_objective() requires self._step and self._state "
+                f"to be injected by @capability_node decorator.\n"
+                f"\n"
+                f"This method can only be called from within execute()."
+            )
+
+        # Try to get from step first
+        task_objective = self._step.get('task_objective')
+
+        if task_objective:
+            return task_objective
+
+        # If not in step, use provided default or fall back to current task
+        if default is not None:
+            return default
+
+        # Import here to avoid circular dependencies
+        from osprey.state import StateManager
+        return StateManager.get_current_task(self._state)
+
+    def store_output_context(
+        self,
+        context_data: CapabilityContext
     ) -> dict[str, Any]:
+        """
+        Store single output context - uses context's CONTEXT_TYPE attribute.
+
+        No need for provides field or state/step parameters!
+
+        Args:
+            context_data: Context object with CONTEXT_TYPE class variable
+
+        Returns:
+            State updates dict for LangGraph to merge
+
+        Raises:
+            AttributeError: If context_data lacks CONTEXT_TYPE class variable
+            RuntimeError: If called outside execute() (state not injected)
+            ValueError: If context_key missing from step
+
+        Example:
+            ```python
+            return self.store_output_context(ArchiverDataContext(...))
+            ```
+        """
+        # Delegate to the multiple contexts version
+        return self.store_output_contexts(context_data)
+
+    def store_output_contexts(
+        self,
+        *context_objects: CapabilityContext
+    ) -> dict[str, Any]:
+        """
+        Store multiple output contexts - all self-describing.
+
+        Args:
+            *context_objects: Context objects with CONTEXT_TYPE attributes
+
+        Returns:
+            Merged state updates dict for LangGraph
+
+        Raises:
+            AttributeError: If any context lacks CONTEXT_TYPE
+            RuntimeError: If called outside execute()
+            ValueError: If context types don't match provides field
+
+        Example:
+            ```python
+            return self.store_output_contexts(
+                ArchiverDataContext(...),
+                MetadataContext(...),
+                StatisticsContext(...)
+            )
+            ```
+        """
+        if self._state is None or self._step is None:
+            raise RuntimeError(
+                f"{self.__class__.__name__}.store_output_contexts() requires self._state and self._step "
+                f"to be injected by @capability_node decorator.\n"
+                f"\n"
+                f"This method can only be called from within execute()."
+            )
+
+        # Import here to avoid circular dependencies
+        from osprey.registry import get_registry
+        from osprey.state import StateManager
+
+        registry = get_registry()
+
+        # Optional validation if provides field exists
+        if self.provides and len(self.provides) > 0:
+            context_types = {obj.CONTEXT_TYPE for obj in context_objects}
+            if not context_types.issubset(set(self.provides)):
+                raise ValueError(
+                    f"[{self.name}] Context types {context_types} don't match provides: {self.provides}"
+                )
+
+        # Validate context_key exists
+        context_key = self._step.get("context_key")
+        if not context_key:
+            raise ValueError(
+                f"[{self.name}] No context_key in step - cannot store outputs.\n"
+                f"\n"
+                f"This indicates a framework issue: orchestrator must provide context_key.\n"
+                f"Step contents: {self._step}"
+            )
+
+        # Store each and merge updates
+        merged: dict[str, Any] = {}
+        for obj in context_objects:
+            if not hasattr(obj, 'CONTEXT_TYPE'):
+                raise AttributeError(
+                    f"Context {type(obj).__name__} must have CONTEXT_TYPE class variable"
+                )
+
+            try:
+                ctx_type = getattr(registry.context_types, obj.CONTEXT_TYPE)
+            except AttributeError:
+                available = [
+                    attr for attr in dir(registry.context_types)
+                    if not attr.startswith('_')
+                ]
+                raise ValueError(
+                    f"[{self.name}] Context type '{obj.CONTEXT_TYPE}' not found in registry.\n"
+                    f"Available types: {', '.join(available)}"
+                ) from None
+
+            updates = StateManager.store_context(
+                self._state,
+                ctx_type,
+                context_key,
+                obj
+            )
+            merged = {**merged, **updates}
+
+        return merged
+
+    @abstractmethod
+    async def execute(self) -> dict[str, Any]:
         """Execute the main capability logic with comprehensive state management.
 
         This is the core method that all capabilities must implement. It contains
         the primary business logic and integrates with the framework's state
-        management system. The method should be implemented as a static method
-        to support LangGraph's execution model and enable proper serialization.
+        management system.
 
-        The execute method receives the complete agent state and should return
-        state updates that LangGraph will automatically merge. The framework
-        handles timing, error classification, retry logic, and execution tracking
-        through the @capability_node decorator.
+        **NEW PATTERN** (Recommended - Simplified):
+            - NO parameters needed - use self._state and self._step
+            - Use self.get_required_contexts() for input extraction
+            - Use self.store_output_context() for result storage
+            - Access state via self._state, step via self._step
+            - NO @staticmethod decorator
 
-        State Management Patterns:
-        1. **Read from state**: Access required data using state.get() with defaults
-        2. **Process data**: Perform the capability's core business logic
-        3. **Return updates**: Return dictionary with state updates for merging
-        4. **Use structured keys**: Follow naming conventions for state organization
+        **OLD PATTERN** (Legacy - Still Supported):
+            - Static method with state parameter (and **kwargs that was never used)
+            - Manual StateManager and ContextManager usage
+            - Works during migration period
 
-        :param state: Current agent state containing all execution context and data
-        :type state: AgentState
-        :param kwargs: Additional parameters passed from the execution system
-        :type kwargs: dict
-        :return: Dictionary of state updates for LangGraph to merge into agent state
-        :rtype: Dict[str, Any]
+        The @capability_node decorator injects self._state and self._step before
+        calling execute(), so they are always available in the new pattern.
 
-        :raises NotImplementedError: This is an abstract method that must be implemented
-        :raises ValidationError: If required state data is missing or invalid
-        :raises CapabilityError: For capability-specific execution failures
+        Returns:
+            Dictionary of state updates for LangGraph to merge into agent state
+
+        Raises:
+            NotImplementedError: This is an abstract method that must be implemented
+            ValidationError: If required state data is missing or invalid
+            CapabilityError: For capability-specific execution failures
+
+        Example (NEW PATTERN - Recommended):
+            ```python
+            async def execute(self) -> dict[str, Any]:
+                # Auto-extract contexts using requires field
+                contexts = self.get_required_contexts()
+                input_data = contexts["INPUT_DATA"]
+
+                # Business logic
+                result = await process_data(input_data)
+
+                # Auto-store with type inference
+                return self.store_output_context(OutputContext(result))
+            ```
+
+        Example (OLD PATTERN - Still Supported):
+            ```python
+            @staticmethod
+            async def execute(state: AgentState) -> dict[str, Any]:
+                step = StateManager.get_current_step(state)
+                # ... manual extraction and storage ...
+                return state_updates
+            ```
 
         .. note::
-           The @capability_node decorator provides automatic error handling,
-           retry policies, timing, and execution tracking. Focus on the core
-           business logic in this method.
-
-        .. warning::
-           This method must be implemented as a static method. Instance methods
-           will not work with the LangGraph execution model.
-
-        Examples:
-            Simple data retrieval capability::
-
-                @staticmethod
-                async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
-                    query = state.get("user_query", "")
-                    if not query:
-                        raise ValidationError("No query provided")
-
-                    results = await search_database(query)
-                    return {
-                        "search_results": results,
-                        "search_timestamp": datetime.now().isoformat(),
-                        "search_result_count": len(results)
-                    }
-
-            Capability with data transformation::
-
-                @staticmethod
-                async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
-                    raw_data = state.get("raw_sensor_data", [])
-                    processing_config = state.get("processing_config", {})
-
-                    processed_data = await transform_sensor_data(
-                        raw_data,
-                        config=processing_config
-                    )
-
-                    return {
-                        "processed_sensor_data": processed_data,
-                        "processing_metadata": {
-                            "processed_at": datetime.now().isoformat(),
-                            "record_count": len(processed_data),
-                            "config_used": processing_config
-                        }
-                    }
+           The decorator provides automatic error handling, retry policies,
+           timing, and execution tracking. Focus on the core business logic.
 
         .. seealso::
            :func:`capability_node` : Decorator that provides execution infrastructure
-           :class:`AgentState` : State management and structure documentation
+           :meth:`get_required_contexts` : Automatic context extraction
+           :meth:`store_output_context` : Automatic context storage
         """
         logger = logging.getLogger(__name__)
         logger.warning("⚠️  Capability is using the empty base execute() - consider implementing execute() for proper functionality.")
@@ -265,7 +719,7 @@ class BaseCapability(ABC):
     # Optional methods for registry configuration - implement as needed
 
     @staticmethod
-    def classify_error(exc: Exception, context: dict) -> Optional['ErrorClassification']:
+    def classify_error(exc: Exception, context: dict) -> ErrorClassification | None:
         """Classify errors for capability-specific error handling and recovery.
 
         This method provides domain-specific error classification to determine

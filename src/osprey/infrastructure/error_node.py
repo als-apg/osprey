@@ -175,7 +175,7 @@ class ErrorContext:
            This property accesses a dynamically set attribute (_capability_name)
            that is populated during error context creation from agent state.
         """
-        return getattr(self, '_capability_name', None)
+        return getattr(self, "_capability_name", None)
 
 
 @infrastructure_node
@@ -324,11 +324,10 @@ class ErrorNode(BaseInfrastructureNode):
         return ErrorClassification(
             severity=ErrorSeverity.FATAL,
             user_message="Error node failed during error handling",
-            metadata={"technical_details": f"Error node failure: {str(exc)}"}
+            metadata={"technical_details": f"Error node failure: {str(exc)}"},
         )
 
-    @staticmethod
-    async def execute(state: AgentState, **kwargs) -> dict[str, Any]:
+    async def execute(self) -> dict[str, Any]:
         """Generate comprehensive error response with structured analysis and LLM insights.
 
         This method orchestrates the complete error response generation pipeline,
@@ -424,36 +423,40 @@ class ErrorNode(BaseInfrastructureNode):
            :func:`_generate_error_response` : Response generation pipeline
            :class:`AIMessage` : Response message format
         """
+        state = self._state
+
         logger.key_info("Starting error response generation")
 
         streaming = get_stream_writer()
         if streaming:
-            streaming({
-                "event_type": "status",
-                "message": "Generating error response...",
-                "progress": 0.1
-            })
+            streaming(
+                {"event_type": "status", "message": "Generating error response...", "progress": 0.1}
+            )
 
         try:
             error_context = _create_error_context_from_state(state)
             _populate_error_context(error_context, state)
 
             if streaming:
-                streaming({
-                    "event_type": "status",
-                    "message": "Generating LLM explanation...",
-                    "progress": 0.5
-                })
+                streaming(
+                    {
+                        "event_type": "status",
+                        "message": "Generating LLM explanation...",
+                        "progress": 0.5,
+                    }
+                )
 
             response = await _generate_error_response(error_context)
 
             if streaming:
-                streaming({
-                    "event_type": "status",
-                    "message": "Error response generated",
-                    "progress": 1.0,
-                    "complete": True
-                })
+                streaming(
+                    {
+                        "event_type": "status",
+                        "message": "Error response generated",
+                        "progress": 1.0,
+                        "complete": True,
+                    }
+                )
 
             logger.key_info(
                 f"Generated error response for {error_context.error_severity.value}: "
@@ -466,12 +469,14 @@ class ErrorNode(BaseInfrastructureNode):
             logger.error(f"Error response generation failed: {e}")
 
             if streaming:
-                streaming({
-                    "event_type": "status",
-                    "message": "Using fallback error response",
-                    "progress": 1.0,
-                    "complete": True
-                })
+                streaming(
+                    {
+                        "event_type": "status",
+                        "message": "Using fallback error response",
+                        "progress": 1.0,
+                        "complete": True,
+                    }
+                )
 
             return {"messages": [AIMessage(content=_create_fallback_response(state, e))]}
 
@@ -530,9 +535,9 @@ def _create_fallback_response(state: AgentState, generation_error: Exception) ->
        :func:`ErrorNode.execute` : Primary error response generation
        :func:`_generate_error_response` : LLM-based error analysis
     """
-    error_info = state.get('control_error_info', {})
-    original_error = error_info.get('original_error', 'Unknown error occurred')
-    capability_name = error_info.get('capability_name', 'unknown operation')
+    error_info = state.get("control_error_info", {})
+    original_error = error_info.get("original_error", "Unknown error occurred")
+    capability_name = error_info.get("capability_name", "unknown operation")
 
     return f"""⚠️ **System Error During Error Handling**
 
@@ -616,22 +621,22 @@ def _create_error_context_from_state(state: AgentState) -> ErrorContext:
        :func:`_populate_error_context` : Additional context population
     """
     current_task = state.get("task_current_task", "Unknown task")
-    error_info = state.get('control_error_info', {})
+    error_info = state.get("control_error_info", {})
 
     # Extract or create error classification
-    error_classification = error_info.get('classification')
+    error_classification = error_info.get("classification")
     if not error_classification:
-        original_error = error_info.get('original_error', 'Unknown error occurred')
+        original_error = error_info.get("original_error", "Unknown error occurred")
         error_classification = ErrorClassification(
             severity=ErrorSeverity.CRITICAL,
             user_message=original_error,
-            metadata={"technical_details": original_error}
+            metadata={"technical_details": original_error},
         )
 
     # Extract execution details
-    capability_name = error_info.get('capability_name') or error_info.get('node_name')
-    execution_time = error_info.get('execution_time', 0.0)
-    retry_count = state.get('control_retry_count', 0)
+    capability_name = error_info.get("capability_name") or error_info.get("node_name")
+    execution_time = error_info.get("execution_time", 0.0)
+    retry_count = state.get("control_retry_count", 0)
     failed_operation = capability_name or "Unknown operation"
 
     # Construct error context
@@ -641,7 +646,7 @@ def _create_error_context_from_state(state: AgentState) -> ErrorContext:
         failed_operation=failed_operation,
         execution_time=execution_time,
         retry_count=retry_count,
-        total_operations=StateManager.get_current_step_index(state) + 1
+        total_operations=StateManager.get_current_step_index(state) + 1,
     )
 
     # Store capability name for property access
@@ -728,18 +733,15 @@ def _populate_error_context(error_context: ErrorContext, state: AgentState) -> N
         return
 
     # Sort by step_index to maintain chronological order
-    ordered_results = sorted(
-        step_results.items(),
-        key=lambda x: x[1].get('step_index', 0)
-    )
+    ordered_results = sorted(step_results.items(), key=lambda x: x[1].get("step_index", 0))
 
     for step_key, result in ordered_results:
-        step_index = result.get('step_index', 0)
-        capability_name = result.get('capability', 'unknown')
-        task_objective = result.get('task_objective', capability_name)
+        step_index = result.get("step_index", 0)
+        capability_name = result.get("capability", "unknown")
+        task_objective = result.get("task_objective", capability_name)
         step_description = f"Step {step_index + 1}: {task_objective}"
 
-        if result.get('success', False):
+        if result.get("success", False):
             error_context.successful_steps.append(step_description)
         else:
             error_context.failed_steps.append(f"{step_description} - Failed")
@@ -898,14 +900,14 @@ def _build_structured_error_report(error_context: ErrorContext) -> str:
         f"⚠️  **ERROR REPORT** - {timestamp}",
         f"**Error Severity:** {error_context.error_severity.value.upper()}",
         f"**Task:** {error_context.current_task}",
-        f"**Failed Operation:** {error_context.failed_operation}"
+        f"**Failed Operation:** {error_context.failed_operation}",
     ]
 
     if error_context.capability_name:
         report_sections.append(f"**Capability:** {error_context.capability_name}")
 
     # Use standardized error formatting
-    if hasattr(error_context.error_classification, 'format_for_llm'):
+    if hasattr(error_context.error_classification, "format_for_llm"):
         error_details = error_context.error_classification.format_for_llm()
         report_sections.append(error_details)
     else:
@@ -1009,14 +1011,11 @@ def _generate_llm_explanation(error_context: ErrorContext) -> str:
         error_builder = prompt_provider.get_error_analysis_prompt_builder()
 
         prompt = error_builder.get_system_instructions(
-            capabilities_overview=capabilities_overview,
-            error_context=error_context
+            capabilities_overview=capabilities_overview, error_context=error_context
         )
 
         explanation = get_chat_completion(
-            model_config=get_model_config("response"),
-            message=prompt,
-            max_tokens=500
+            model_config=get_model_config("response"), message=prompt, max_tokens=500
         )
 
         if isinstance(explanation, str) and explanation.strip():

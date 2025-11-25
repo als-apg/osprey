@@ -450,13 +450,15 @@ The ALS Accelerator Assistant demonstrates key production patterns for scaling t
 
       .. code-block:: python
 
-         @capability_node(name="capability_name", provides=["OUTPUT"], requires=["INPUT"])
+         @capability_node
          class ExampleCapability(BaseCapability):
-             async def execute(self, state: AgentState) -> AgentState:
+             name = "capability_name"
+             provides = ["OUTPUT"]
+             requires = ["INPUT"]
 
-                 # Step 1: Extract inputs from current execution step
-                 step = StateManager.get_current_step(state)
-                 input_data = self._get_required_context(state, "INPUT")
+             async def execute(self) -> Dict[str, Any]:
+                 # Step 1: Get required inputs (automatically extracted)
+                 input_data, = self.get_required_contexts()
 
                  # Step 2: Process data (delegate to service layer if complex)
                  result = await self._process_data(input_data)
@@ -465,13 +467,7 @@ The ALS Accelerator Assistant demonstrates key production patterns for scaling t
                  output_context = OutputContext(data=result)
 
                  # Step 4: Store context and return state updates
-                 context_key = step.get("context_key")
-                 return StateManager.store_context(
-                     state,
-                     registry.context_types.OUTPUT,
-                     context_key,
-                     output_context
-                 )
+                 return self.store_output_context(output_context)
 
       **Result:** Consistent, testable, and maintainable capability implementation across all framework operations.
 
@@ -491,35 +487,26 @@ The ALS Accelerator Assistant demonstrates key production patterns for scaling t
 
          # === FRAMEWORK CAPABILITY ===
          # Focuses purely on framework orchestration and state management
-         @capability_node
-         class PVAddressFindingCapability(BaseCapability):
-             name = "pv_address_finding"
-             provides = ["PV_ADDRESSES"]
+        @capability_node
+        class PVAddressFindingCapability(BaseCapability):
+            name = "pv_address_finding"
+            provides = ["PV_ADDRESSES"]
 
-             @staticmethod
-             async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
-                 # Get current step and extract task objective
-                 step = StateManager.get_current_step(state)
-                 search_query = step.get('task_objective', 'unknown')
+            async def execute(self) -> Dict[str, Any]:
+                # Get task objective using helper method
+                search_query = self.get_task_objective()
 
-                 # Delegate complex logic to service layer
-                 response = await run_pv_finder_graph(user_query=search_query)
+                # Delegate complex logic to service layer
+                response = await run_pv_finder_graph(user_query=search_query)
 
-                 # Create framework context object
-                 pv_finder_context = PVAddresses(
-                     pvs=response.pvs,
-                     description=response.description,
-                 )
+                # Create framework context object
+                pv_finder_context = PVAddresses(
+                    pvs=response.pvs,
+                    description=response.description,
+                )
 
-                 # Store context using StateManager
-                 state_updates = StateManager.store_context(
-                     state,
-                     registry.context_types.PV_ADDRESSES,
-                     step.get("context_key"),
-                     pv_finder_context
-                 )
-
-                 return state_updates
+                # Store context using helper method
+                return self.store_output_context(pv_finder_context)
 
       **Result:** Independent testing, scaling, and maintenance of business logic vs. framework integration. This architecture also enables individual services to be deployed as standalone MCP servers for broader AI ecosystem integration (see :ref:`PV Finder MCP Service Integration <mcp-service-integration>`).
 
@@ -537,18 +524,17 @@ The ALS Accelerator Assistant demonstrates key production patterns for scaling t
              time_series_data: Dict[str, List[float]]      # PV name -> time series values
              available_pvs: List[str]                      # List of available PV names
 
-             def get_access_details(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+             def get_access_details(self, key: str) -> Dict[str, Any]:
                  """Rich description of the archiver data structure."""
-                 key_ref = key_name if key_name else "key_name"
                  return {
                      "total_points": len(self.timestamps),
                      "precision_ms": self.precision_ms,
                      "pv_count": len(self.available_pvs),
                      "available_pvs": self.available_pvs,
                      "CRITICAL_ACCESS_PATTERNS": {
-                         "get_pv_data": f"data = context.{self.CONTEXT_TYPE}.{key_ref}.time_series_data['PV_NAME']",
-                         "get_timestamps": f"timestamps = context.{self.CONTEXT_TYPE}.{key_ref}.timestamps",
-                         "get_single_value": f"value = context.{self.CONTEXT_TYPE}.{key_ref}.time_series_data['PV_NAME'][index]"
+                         "get_pv_data": f"data = context.{self.CONTEXT_TYPE}.{key}.time_series_data['PV_NAME']",
+                         "get_timestamps": f"timestamps = context.{self.CONTEXT_TYPE}.{key}.timestamps",
+                         "get_single_value": f"value = context.{self.CONTEXT_TYPE}.{key}.time_series_data['PV_NAME'][index]"
                      },
                      "datetime_features": "Full datetime functionality: arithmetic, comparison, formatting with .strftime(), timezone operations"
                  }
@@ -562,21 +548,19 @@ The ALS Accelerator Assistant demonstrates key production patterns for scaling t
 
       .. code-block:: python
 
-         @capability_node
-         class DataAnalysisCapability(BaseCapability):
-             """Data analysis capability with human approval workflow."""
-             name = "data_analysis"
-             provides = ["ANALYSIS_RESULTS"]
+        @capability_node
+        class DataAnalysisCapability(BaseCapability):
+            """Data analysis capability with human approval workflow."""
+            name = "data_analysis"
+            provides = ["ANALYSIS_RESULTS"]
 
-             @staticmethod
-             async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
-                 step = StateManager.get_current_step(state)
-                 python_service = registry.get_service("python_executor")
+            async def execute(self) -> Dict[str, Any]:
+                python_service = registry.get_service("python_executor")
 
-                 # ===== CHECK FOR APPROVAL RESUME =====
-                 has_approval_resume, approved_payload = get_approval_resume_data(
-                     state, create_approval_type("data_analysis")
-                 )
+                # ===== CHECK FOR APPROVAL RESUME =====
+                has_approval_resume, approved_payload = get_approval_resume_data(
+                    self._state, create_approval_type("data_analysis")
+                )
 
                  if has_approval_resume:
                      # Resume execution with user's approval decision
@@ -591,16 +575,16 @@ The ALS Accelerator Assistant demonstrates key production patterns for scaling t
                  else:
                      # ===== NORMAL EXECUTION PATH =====
 
-                     # Prepare execution request (details omitted for brevity)
-                     execution_request = PythonExecutionRequest(
-                         user_query=state.get("input_output", {}).get("user_query", ""),
-                         task_objective=step.get("task_objective"),
-                         capability_prompts=prompts,  # Generated elsewhere
-                         expected_results=expected_results,  # Generated elsewhere
-                         execution_folder_name="data_analysis",
-                         capability_context_data=state.get('capability_context_data', {}),
-                         config=kwargs.get("config", {})
-                     )
+                    # Prepare execution request (details omitted for brevity)
+                    execution_request = PythonExecutionRequest(
+                        user_query=self._state.get("input_output", {}).get("user_query", ""),
+                        task_objective=self.get_task_objective(),
+                        capability_prompts=prompts,  # Generated elsewhere
+                        expected_results=expected_results,  # Generated elsewhere
+                        execution_folder_name="data_analysis",
+                        capability_context_data=self._state.get('capability_context_data', {}),
+                        config=self._kwargs.get("config", {})
+                    )
 
                      # Execute with centralized approval handling
                      service_result = await handle_service_with_interrupts(
@@ -612,17 +596,14 @@ The ALS Accelerator Assistant demonstrates key production patterns for scaling t
                      )
                      approval_cleanup = None
 
-                 # ===== BOTH PATHS CONVERGE HERE =====
-                 analysis_context = _create_analysis_context(service_result)
-                 context_updates = StateManager.store_context(
-                     state, registry.context_types.ANALYSIS_RESULTS,
-                     step.get("context_key"), analysis_context
-                 )
+                # ===== BOTH PATHS CONVERGE HERE =====
+                analysis_context = _create_analysis_context(service_result)
+                context_updates = self.store_output_context(analysis_context)
 
-                 # Clean up approval state if needed
-                 if approval_cleanup:
-                     return {**context_updates, **approval_cleanup}
-                 return context_updates
+                # Clean up approval state if needed
+                if approval_cleanup:
+                    return {**context_updates, **approval_cleanup}
+                return context_updates
 
 
    .. tab-item:: Database Integration

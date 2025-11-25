@@ -56,18 +56,18 @@ class ClassificationNode(BaseInfrastructureNode):
         """
 
         # Retry LLM timeouts and network errors
-        if hasattr(exc, '__class__') and 'timeout' in exc.__class__.__name__.lower():
+        if hasattr(exc, "__class__") and "timeout" in exc.__class__.__name__.lower():
             return ErrorClassification(
                 severity=ErrorSeverity.RETRIABLE,
                 user_message="Classification service temporarily unavailable, retrying...",
-                metadata={"technical_details": f"LLM timeout: {str(exc)}"}
+                metadata={"technical_details": f"LLM timeout: {str(exc)}"},
             )
 
         if isinstance(exc, (ConnectionError, TimeoutError)):
             return ErrorClassification(
                 severity=ErrorSeverity.RETRIABLE,
                 user_message="Network connectivity issues during classification, retrying...",
-                metadata={"technical_details": f"Network error: {str(exc)}"}
+                metadata={"technical_details": f"Network error: {str(exc)}"},
             )
 
         # Don't retry validation errors (data/logic issues)
@@ -77,8 +77,8 @@ class ClassificationNode(BaseInfrastructureNode):
                 user_message="Task classification configuration error",
                 metadata={
                     "technical_details": f"Validation error: {str(exc)}",
-                    "safety_abort_reason": "Classification system misconfiguration detected"
-                }
+                    "safety_abort_reason": "Classification system misconfiguration detected",
+                },
             )
 
         # Don't retry import/module errors (missing dependencies or path issues)
@@ -87,7 +87,7 @@ class ClassificationNode(BaseInfrastructureNode):
             if isinstance(e, (ImportError, ModuleNotFoundError, NameError)):
                 return True
             # Check chained exceptions (from "raise X from Y")
-            if hasattr(e, '__cause__') and e.__cause__:
+            if hasattr(e, "__cause__") and e.__cause__:
                 return isinstance(e.__cause__, (ImportError, ModuleNotFoundError, NameError))
             return False
 
@@ -97,8 +97,8 @@ class ClassificationNode(BaseInfrastructureNode):
                 user_message="Task classification dependencies not available",
                 metadata={
                     "technical_details": f"Import error: {str(exc)}",
-                    "safety_abort_reason": "Required classification dependencies missing"
-                }
+                    "safety_abort_reason": "Required classification dependencies missing",
+                },
             )
 
         # Handle reclassification requirement
@@ -106,7 +106,7 @@ class ClassificationNode(BaseInfrastructureNode):
             return ErrorClassification(
                 severity=ErrorSeverity.RECLASSIFICATION,
                 user_message=f"Task needs reclassification: {str(exc)}",
-                metadata={"technical_details": str(exc)}
+                metadata={"technical_details": str(exc)},
             )
 
         # Default: CRITICAL for unknown errors (fail safe principle)
@@ -116,8 +116,8 @@ class ClassificationNode(BaseInfrastructureNode):
             user_message=f"Unknown classification error: {str(exc)}",
             metadata={
                 "technical_details": f"Error type: {type(exc).__name__}, Details: {str(exc)}",
-                "safety_abort_reason": "Unhandled classification system error"
-            }
+                "safety_abort_reason": "Unhandled classification system error",
+            },
         )
 
     @staticmethod
@@ -133,17 +133,12 @@ class ClassificationNode(BaseInfrastructureNode):
         Use more attempts with moderate delays for better reliability.
         """
         return {
-            "max_attempts": 4,        # More attempts for LLM classification
-            "delay_seconds": 1.0,     # Moderate delay for parallel LLM calls
-            "backoff_factor": 1.8     # Moderate backoff to handle rate limiting
+            "max_attempts": 4,  # More attempts for LLM classification
+            "delay_seconds": 1.0,  # Moderate delay for parallel LLM calls
+            "backoff_factor": 1.8,  # Moderate backoff to handle rate limiting
         }
 
-
-    @staticmethod
-    async def execute(
-        state: AgentState,
-        **kwargs
-    ) -> dict[str, Any]:
+    async def execute(self) -> dict[str, Any]:
         """Main classification logic with bypass support and sophisticated capability selection.
 
         Analyzes user tasks and selects appropriate capabilities using parallel
@@ -153,12 +148,10 @@ class ClassificationNode(BaseInfrastructureNode):
         Supports bypass mode where all available capabilities are activated,
         skipping LLM-based classification for performance optimization.
 
-        :param state: Current agent state
-        :type state: AgentState
-        :param kwargs: Additional LangGraph parameters
         :return: Dictionary of state updates for LangGraph
         :rtype: Dict[str, Any]
         """
+        state = self._state
 
         # Get the current task from state
         current_task = state.get("task_current_task")
@@ -171,7 +164,9 @@ class ClassificationNode(BaseInfrastructureNode):
         streamer = get_streamer("classifier", state)
 
         # Check if capability selection bypass is enabled
-        bypass_enabled = state.get("agent_control", {}).get("capability_selection_bypass_enabled", False)
+        bypass_enabled = state.get("agent_control", {}).get(
+            "capability_selection_bypass_enabled", False
+        )
 
         if bypass_enabled:
             logger.info("Capability selection bypass enabled - activating all capabilities")
@@ -179,7 +174,7 @@ class ClassificationNode(BaseInfrastructureNode):
 
             # Get all capability names directly from registry
             registry = get_registry()
-            active_capabilities = registry.get_stats()['capability_names']
+            active_capabilities = registry.get_stats()["capability_names"]
 
             logger.key_info(f"Bypass mode: activated all {len(active_capabilities)} capabilities")
             streamer.status("All capabilities activated")
@@ -189,7 +184,7 @@ class ClassificationNode(BaseInfrastructureNode):
                 active_capabilities=active_capabilities,
                 state=state,
                 message=f"Bypass mode: activated all {len(active_capabilities)} capabilities",
-                is_bypass=True
+                is_bypass=True,
             )
 
         # Original classification logic continues here...
@@ -197,7 +192,7 @@ class ClassificationNode(BaseInfrastructureNode):
         # Detect reclassification scenario from error state
         previous_failure = _detect_reclassification_scenario(state)
 
-        reclassification_count = state.get('control_reclassification_count', 0)
+        reclassification_count = state.get("control_reclassification_count", 0)
 
         if previous_failure:
             streamer.status(f"Reclassifying task (attempt {reclassification_count + 1})...")
@@ -221,10 +216,12 @@ class ClassificationNode(BaseInfrastructureNode):
             available_capabilities=available_capabilities,
             state=state,
             logger=logger,
-            previous_failure=previous_failure  # Pass failure context for reclassification
+            previous_failure=previous_failure,  # Pass failure context for reclassification
         )
 
-        logger.key_info(f"Classification completed with {len(active_capabilities)} active capabilities")
+        logger.key_info(
+            f"Classification completed with {len(active_capabilities)} active capabilities"
+        )
         logger.debug(f"Active capabilities: {active_capabilities}")
         streamer.status("Task classification complete")
         logger.info("Classification completed")
@@ -235,7 +232,7 @@ class ClassificationNode(BaseInfrastructureNode):
             state=state,
             message=f"Classification completed with {len(active_capabilities)} capabilities",
             is_bypass=False,
-            previous_failure=previous_failure
+            previous_failure=previous_failure,
         )
 
 
@@ -243,12 +240,13 @@ class ClassificationNode(BaseInfrastructureNode):
 # Classification helper functions
 # ====================================================
 
+
 def _create_classification_result(
     active_capabilities: list[str],
     state: AgentState,
     message: str,
     is_bypass: bool = False,
-    previous_failure: str | None = None
+    previous_failure: str | None = None,
 ) -> dict[str, Any]:
     """Create standardized classification result with all required state updates.
 
@@ -263,7 +261,7 @@ def _create_classification_result(
     :param previous_failure: Previous failure reason (for reclassification detection)
     :return: Complete state update dictionary for LangGraph
     """
-    reclassification_count = state.get('control_reclassification_count', 0)
+    reclassification_count = state.get("control_reclassification_count", 0)
 
     # Initialize error state cleanup as empty - only populate if this is a reclassification
     error_state_cleanup = {}
@@ -271,7 +269,9 @@ def _create_classification_result(
     # Only increment and clear error state if this is actually a reclassification
     if previous_failure:
         reclassification_count += 1
-        logger.info(f"Incremented reclassification count to {reclassification_count} due to previous failure: {previous_failure}")
+        logger.info(
+            f"Incremented reclassification count to {reclassification_count} due to previous failure: {previous_failure}"
+        )
 
         # Clear error state since we're handling the reclassification
         # This is safe because classifier provides a fresh start with new capabilities
@@ -280,20 +280,20 @@ def _create_classification_result(
             "control_error_info": None,
             "control_last_error": None,
             "control_retry_count": 0,
-            "control_current_step_retry_count": 0
+            "control_current_step_retry_count": 0,
         }
 
     # Planning state updates
     planning_fields = {
         "planning_active_capabilities": active_capabilities,
         "planning_execution_plan": None,
-        "planning_current_step_index": 0
+        "planning_current_step_index": 0,
     }
 
     # Control flow updates
     control_flow_update = {
         "control_reclassification_count": reclassification_count,
-        "control_reclassification_reason": None
+        "control_reclassification_reason": None,
     }
 
     # Status event with comprehensive metadata
@@ -306,7 +306,7 @@ def _create_classification_result(
         capability_names=active_capabilities,
         reclassification=bool(previous_failure),
         reclassification_count=reclassification_count,
-        bypass_mode=is_bypass
+        bypass_mode=is_bypass,
     )
 
     return {**planning_fields, **control_flow_update, **error_state_cleanup, **status_event}
@@ -325,33 +325,36 @@ def _detect_reclassification_scenario(state: AgentState) -> str | None:
     :rtype: Optional[str]
     """
     # Check if there's an active error state
-    has_error = state.get('control_has_error', False)
+    has_error = state.get("control_has_error", False)
     if not has_error:
         return None
 
     # Extract error information
-    error_info = state.get('control_error_info', {})
-    error_classification = error_info.get('classification')
+    error_info = state.get("control_error_info", {})
+    error_classification = error_info.get("classification")
 
     # Validate error classification exists and has required attributes
-    if not error_classification or not hasattr(error_classification, 'severity'):
+    if not error_classification or not hasattr(error_classification, "severity"):
         return None
 
     # Check if this is specifically a reclassification error
     try:
-        is_reclassification = error_classification.severity.name == 'RECLASSIFICATION'
+        is_reclassification = error_classification.severity.name == "RECLASSIFICATION"
     except AttributeError:
         # Handle case where severity doesn't have .name attribute
-        is_reclassification = str(error_classification.severity) == 'RECLASSIFICATION'
+        is_reclassification = str(error_classification.severity) == "RECLASSIFICATION"
 
     if not is_reclassification:
         return None
 
     # Build reclassification reason string
-    capability_name = error_info.get('capability_name', 'unknown')
-    user_message = getattr(error_classification, 'user_message', None) or 'Reclassification required'
+    capability_name = error_info.get("capability_name", "unknown")
+    user_message = (
+        getattr(error_classification, "user_message", None) or "Reclassification required"
+    )
 
     return f"Capability {capability_name} requested reclassification: {user_message}"
+
 
 class CapabilityClassifier:
     """Handles individual capability classification with proper resource management."""
@@ -381,7 +384,9 @@ class CapabilityClassifier:
 
         # Build classification prompt
         message = self._build_classification_prompt(classifier)
-        self.logger.debug(f"\n\nTask Analyzer System Prompt for capability '{capability.name}':\n{message}\n\n")
+        self.logger.debug(
+            f"\n\nTask Analyzer System Prompt for capability '{capability.name}':\n{message}\n\n"
+        )
 
         # Execute classification
         try:
@@ -405,14 +410,18 @@ class CapabilityClassifier:
         try:
             classifier = capability.classifier_guide
             if not classifier:
-                self.logger.warning(f"No classifier found for capability '{capability.name}' - skipping")
+                self.logger.warning(
+                    f"No classifier found for capability '{capability.name}' - skipping"
+                )
                 return None
             return classifier
         except Exception as e:
             self.logger.error(f"Error loading classifier for capability '{capability.name}': {e}")
             # For import errors, skip this capability instead of failing entire classification
             if isinstance(e, (ImportError, ModuleNotFoundError, NameError)):
-                self.logger.warning(f"Skipping capability '{capability.name}' due to import error: {e}")
+                self.logger.warning(
+                    f"Skipping capability '{capability.name}' due to import error: {e}"
+                )
                 return None
             # For other errors, re-raise with capability context for better error reporting
             raise Exception(f"Capability '{capability.name}' classifier failed: {e}") from e
@@ -428,7 +437,7 @@ class CapabilityClassifier:
             capability_instructions=capability_instructions,
             classifier_examples=examples_string,
             context=None,
-            previous_failure=self.previous_failure
+            previous_failure=self.previous_failure,
         )
         return f"{system_prompt}\n\nUser request:\n{self.task}"
 
@@ -437,7 +446,9 @@ class CapabilityClassifier:
         if isinstance(response_data, CapabilityMatch):
             return response_data.is_match
         else:
-            self.logger.error(f"Classification call for '{capability.name}' did not return a CapabilityMatch. Got: {type(response_data)}")
+            self.logger.error(
+                f"Classification call for '{capability.name}' did not return a CapabilityMatch. Got: {type(response_data)}"
+            )
             return False
 
 
@@ -446,7 +457,7 @@ async def select_capabilities(
     available_capabilities: list[BaseCapability],
     state: AgentState,
     logger,
-    previous_failure: str | None = None
+    previous_failure: str | None = None,
 ) -> list[str]:
     """Select capabilities needed for the task by using classification.
 
@@ -474,14 +485,18 @@ async def select_capabilities(
             active_capabilities.append(capability.name)
 
     # Step 2: Classify remaining capabilities (those not marked as always_active)
-    remaining_capabilities = [cap for cap in available_capabilities if cap.name not in always_active_names]
+    remaining_capabilities = [
+        cap for cap in available_capabilities if cap.name not in always_active_names
+    ]
 
     if remaining_capabilities:
         # Get classification configuration for concurrency control
         classification_config = get_classification_config()
-        max_concurrent = classification_config['max_concurrent_classifications']
+        max_concurrent = classification_config["max_concurrent_classifications"]
 
-        logger.info(f"Classifying {len(remaining_capabilities)} capabilities with max {max_concurrent} concurrent requests")
+        logger.info(
+            f"Classifying {len(remaining_capabilities)} capabilities with max {max_concurrent} concurrent requests"
+        )
 
         # Create classifier instance with shared context
         classifier = CapabilityClassifier(task, state, logger, previous_failure)
@@ -491,8 +506,7 @@ async def select_capabilities(
 
         # Create classification tasks with proper semaphore usage
         classification_tasks = [
-            classifier.classify(capability, semaphore)
-            for capability in remaining_capabilities
+            classifier.classify(capability, semaphore) for capability in remaining_capabilities
         ]
 
         # Execute all classifications in parallel with semaphore control
@@ -509,4 +523,3 @@ async def select_capabilities(
 
     logger.info(f"{len(active_capabilities)} capabilities required: {active_capabilities}")
     return active_capabilities
-

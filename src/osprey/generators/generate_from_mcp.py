@@ -442,18 +442,17 @@ class {context_class_name}(CapabilityContext):
     results: Dict[str, Any]
     description: str
 
-    def get_access_details(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+    def get_access_details(self, key: str) -> Dict[str, Any]:
         """Tell the LLM how to access this context data."""
-        key_ref = key_name if key_name else "key_name"
         return {{
             "tool_used": self.tool,
             "description": self.description,
             "data_structure": "Dict[str, Any]",
-            "access_pattern": f"context.{{self.CONTEXT_TYPE}}.{{key_ref}}.results",
+            "access_pattern": f"context.{{self.CONTEXT_TYPE}}.{{key}}.results",
             "available_fields": list(self.results.keys()) if isinstance(self.results, dict) else "results",
         }}
 
-    def get_summary(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+    def get_summary(self) -> Dict[str, Any]:
         """Format data for human display."""
         return {{
             "type": "{self.server_name} Results",

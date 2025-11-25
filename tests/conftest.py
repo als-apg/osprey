@@ -4,11 +4,36 @@ Pytest configuration and shared test utilities.
 This module provides shared fixtures and utilities for all Osprey tests.
 """
 
+from unittest.mock import MagicMock
+
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
 from osprey.base.planning import ExecutionPlan, PlannedStep
 from osprey.state import AgentState
+
+
+# ===================================================================
+# Registry Mock for Testing
+# ===================================================================
+
+@pytest.fixture(scope="session", autouse=True)
+def mock_registry_session():
+    """Mock the registry for the entire test session to avoid config requirement.
+    
+    This allows importing capabilities without needing a config.yml file.
+    """
+    import sys
+    from unittest.mock import MagicMock, patch
+    
+    # Create a mock registry
+    mock_reg = MagicMock()
+    mock_reg.context_types = MagicMock()
+    mock_reg.services = MagicMock()
+    
+    # Patch get_registry before any imports
+    with patch("osprey.registry.manager.get_registry", return_value=mock_reg):
+        yield mock_reg
 
 # ===================================================================
 # Test State Factory

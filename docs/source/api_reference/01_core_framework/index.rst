@@ -158,16 +158,15 @@ These systems work together to provide a unified development experience:
              current_state=previous_state  # Preserves context
          )
 
-         # 2. Access context through ContextManager
+         # 2. Access context through ContextManager (manual pattern)
          context = ContextManager(state)
 
          # 3. Retrieve typed context objects
          pv_data = context.get_context('PV_ADDRESSES', 'beam_current')
 
-         # 4. Store new context results
-         return StateManager.store_context(
-             state, 'ANALYSIS_RESULTS', 'step_1', analysis_results
-         )
+         # 4. Within capabilities, use helper methods instead:
+         # contexts = self.get_required_contexts()
+         # return self.store_output_context(analysis_results)
 
    .. tab-item:: Configuration Access
 
@@ -202,8 +201,6 @@ These systems work together to provide a unified development experience:
       .. code-block:: python
 
          from osprey.base import BaseCapability, capability_node
-         from osprey.state import AgentState, StateManager
-         from osprey.context import ContextManager
          from osprey.utils.config import get_model_config
          from applications.als_assistant.context_classes import AnalysisResultsContext
 
@@ -212,20 +209,17 @@ These systems work together to provide a unified development experience:
              name = "data_analysis"
              description = "General data analysis capability"
              provides = ["ANALYSIS_RESULTS"]
+             requires = ["INPUT_DATA"]
 
-             @staticmethod
-             async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
-                 # Extract current execution step
-                 step = StateManager.get_current_step(state)
-
-                 # Access context manager for input data
-                 context = ContextManager(state)
+             async def execute(self) -> Dict[str, Any]:
+                 # Get required contexts (automatically extracted)
+                 input_data, = self.get_required_contexts()
 
                  # Get configuration for models/services
                  model_config = get_model_config('python_code_generator')
 
                  # Process data (actual implementation logic)
-                 analysis_results = await process_analysis(step, context)
+                 analysis_results = await process_analysis(input_data)
 
                  # Create typed context object
                  result_context = AnalysisResultsContext(
@@ -234,12 +228,8 @@ These systems work together to provide a unified development experience:
                      **analysis_results.data
                  )
 
-                 # Store results in state
-                 return StateManager.store_context(
-                     state, 'ANALYSIS_RESULTS',
-                     step.get('context_key', 'default'),
-                     result_context
-                 )
+                 # Store results in state (automatic context_key handling)
+                 return self.store_output_context(result_context)
 
 .. dropdown:: Next Steps
    :color: primary

@@ -94,6 +94,7 @@ class TemplateManager:
             'ANTHROPIC_API_KEY',
             'GOOGLE_API_KEY',
             'STANFORD_API_KEY',
+            'ARGO_API_KEY',
             'PROJECT_ROOT',
             'LOCAL_PYTHON_VENV',
             'TZ',
@@ -325,7 +326,7 @@ class TemplateManager:
 
         # Create .env file only if API keys are detected
         detected_env_vars = ctx.get('env', {})
-        api_keys = ['CBORG_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GOOGLE_API_KEY']
+        api_keys = ['CBORG_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GOOGLE_API_KEY', 'ARGO_API_KEY']
         has_api_keys = any(key in detected_env_vars for key in api_keys)
 
         if has_api_keys:

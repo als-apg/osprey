@@ -8,6 +8,113 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Argo AI Provider** (ANL institutional service)
+  - New provider adapter for Argonne National Laboratory's Argo proxy service
+  - Supports 8 models: Claude (Haiku 4.5, Sonnet 4.5, Sonnet 3.7, Opus 4.1), Gemini (2.5 Flash, 2.5 Pro), GPT-5, GPT-5 Mini
+  - OpenAI-compatible interface with automatic structured output support
+  - Uses `$USER` environment variable for ANL authentication
+  - File: `src/osprey/models/providers/argo.py`
+  - Registered in framework registry
+  - Added `ARGO_API_KEY` to all project templates
+
+### Changed
+- **Infrastructure Node Instance Method Migration** ✅ **COMPLETE**
+  - **All 7 infrastructure nodes** migrated from static method pattern to instance method pattern
+  - Aligns infrastructure nodes with capability node implementation from v0.9.2
+  - **Decorator Enhancements**:
+    - Automatic detection of static vs instance methods (backward compatible)
+    - Runtime injection of `_state` for all infrastructure nodes
+    - Selective `_step` injection only for in-execution nodes (clarify, respond)
+    - Defensive None checks for step injection with warning logs
+    - Validation for invalid method types (classmethod, property)
+  - **Migrated Nodes**:
+    - ✅ Router: Minimal state usage, routing metadata
+    - ✅ Task Extraction: Data source integration, state refs updated
+    - ✅ Classification: Extensive state usage (100+ refs), bypass mode
+    - ✅ Clarify: First `_step` injection, task_objective extraction
+    - ✅ Respond: `_step` injection, response generation
+    - ✅ Error: NO `_step` injection (uses `StateManager.get_current_step_index()`)
+    - ✅ Orchestration: 200+ lines, nested functions via closure
+  - **Code Quality**:
+    - Extracted `state = self._state` at top of each method for readability
+    - `classify_error()` and `get_retry_policy()` remain static (pure functions)
+    - Module-level helpers unchanged (just updated call sites)
+  - **Testing**:
+    - Added 15 unit tests for infrastructure pattern (`tests/infrastructure/`)
+    - Tests validate decorator injection logic (_state, _step)
+    - Tests verify backward compatibility with static methods
+    - All 300 tests pass (285 original + 15 new infrastructure tests)
+  - Implementation plan: `_ISSUES/INFRASTRUCTURE_NODE_MIGRATION_PLAN.md`
+
+- **Capability Instance Method Pattern Testing** ✅ **COMPLETE**
+  - **Test Coverage**: Added 12 comprehensive tests for migrated capabilities
+  - **New Test Directory**: Created `tests/capabilities/` with fixtures and integration tests
+  - **Memory Capability Tests** (4 tests):
+    - Validates instance method signature (not `@staticmethod`)
+    - Tests state/step injection mechanism
+    - Verifies decorator creates `langgraph_node` attribute
+    - Integration test for approval path execution
+  - **Python Capability Tests** (3 tests):
+    - Signature validation for instance method pattern
+    - State injection validation
+    - Decorator integration verification
+  - **TimeRangeParsing Capability Tests** (5 tests):
+    - Full end-to-end integration test suite
+    - LLM-based time parsing with mocked dependencies
+    - Context storage validation
+    - Decorator wrapper execution test
+    - Validates complete execution flow with `self._state` and `self._step`
+  - **Test Infrastructure**:
+    - Shared fixtures in `tests/capabilities/conftest.py`
+    - Mock registry configuration to avoid config.yml dependency
+    - Mock state and step objects for consistent testing
+    - All tests formatted with black and linted
+  - **Results**: 27/27 tests passing (15 infrastructure + 12 capability tests)
+
+### Fixed
+- **Interactive Menu Registry Contamination** ([#29](https://github.com/als-apg/osprey/issues/29))
+  - Fixed bug where creating multiple projects in the same interactive menu session caused capability contamination
+  - Global registry singleton now properly reset when switching between projects
+  - Added `reset_registry()` calls in `handle_chat_action()` before launching chat
+  - Prevents second project from inheriting capabilities from first project
+  - Added comprehensive test suite to verify registry isolation
+
+## [0.9.2] - 2025-11-22
+
+### 🎉 Major Features
+
+#### Instance Method Pattern for Capabilities
+- **New Recommended Pattern**: Capabilities can now use instance methods instead of static methods
+  - Helper methods available via `self`: `get_required_contexts()`, `get_task_objective()`, `get_parameters()`, `store_output_context()`
+  - Eliminates ~60% of boilerplate code in capability implementations
+  - More intuitive and Pythonic API design
+  - Full backward compatibility maintained - static methods still work
+- **Automatic Context Extraction**: `get_required_contexts()` method with tuple unpacking support
+  - Matches order of `requires` field for elegant unpacking: `data, time = self.get_required_contexts()`
+  - Falls back to dict access when preferred: `contexts = self.get_required_contexts(); data = contexts["DATA"]`
+  - Automatic extraction with cardinality validation
+- **New Helper Methods** in `BaseCapability`:
+  - `get_required_contexts()` - Extract required contexts with automatic validation
+  - `get_task_objective()` - Get current task description
+  - `get_parameters()` - Get step parameters
+  - `store_output_context()` - Store single output context
+  - `store_output_contexts()` - Store multiple output contexts
+- **Runtime State Injection**: `@capability_node` decorator injects `_state` and `_step` at runtime
+  - Available within `execute()` method context
+  - Clean separation between class definition and runtime state
+- **Migration Guide**: Comprehensive documentation for upgrading from static to instance pattern
+  - Side-by-side code comparisons
+  - Migration checklist
+  - Common issues and solutions
+  - Gradual migration strategy
+  - Located at: `docs/source/developer-guides/migration-guide-instance-methods.rst`
+
+### Added
+- **Comprehensive Test Suite**: Added 15 tests for capability helper methods
+  - Tests for `get_required_contexts()`, `get_task_objective()`, `get_parameters()`
+  - Tests for `store_output_context()` and `store_output_contexts()`
+  - Error case validation and edge condition handling
+  - Located at: `tests/base/test_capability_helpers.py`
 - **Prompt-Based Capability Generator**: Natural language capability generation
   - `--from-prompt` CLI option for natural language capability descriptions
   - LLM-powered capability implementation generation
@@ -23,6 +130,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 2 integration tests (full workflow validation)
 - **Interactive Menu Enhancements**: Version number display in interactive menu banner
 - **Stanford AI Playground Provider**: Added Stanford AI playground as a built-in API provider
+- **Cardinality Constraints**: New optional cardinality validation in `requires` field
+  - Capabilities declare requirements with cardinality: `requires = [("CONTEXT_TYPE", "single")]`
+  - Framework automatically validates and raises clear errors if violated
+  - Eliminates repetitive `isinstance(context, list)` checks in capability code
+  - Options: `"single"` (exactly one), `"multiple"` (must be list), or plain string (any cardinality)
+  - Works seamlessly with `get_required_contexts()` helper method
+  - Added 9 comprehensive test cases for cardinality validation
+  - Updated all framework capability templates to use new pattern
 
 ### Changed
 - **Generator Architecture**: Refactored monolithic generator into modular design
@@ -43,6 +158,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **Stanford API Key Detection**: Added missing STANFORD_API_KEY to environment variable detection (Reported by Marty)
 - **Weather Template**: Fixed context extraction example in hello world weather template (PR #26)
+- **CRITICAL BUG FIX**: `ContextManager.extract_from_step()` now correctly handles multiple contexts of the same type
+  - Previously, when multiple contexts of the same type were requested (e.g., two `CURRENT_WEATHER` contexts), only the last one was returned, causing silent data loss
+  - Now returns a list when multiple contexts of the same type exist: `{"CURRENT_WEATHER": [ctx1, ctx2]}`
+  - Single contexts still returned as objects for backward compatibility: `{"CURRENT_WEATHER": ctx_obj}`
+  - Capabilities can check `isinstance(context, list)` to detect and handle multiple contexts
+  - Added 17 comprehensive test cases covering all scenarios
+
+### Changed
+- **BREAKING CHANGE**: `BaseCapabilityContext.get_access_details()` signature simplified
+  - **Old:** `get_access_details(self, key_name: Optional[str] = None)` with defensive fallback
+  - **New:** `get_access_details(self, key: str)` - key parameter is required
+  - **Reason:** Framework always provides the key; optional parameter was unnecessary defensive programming
+  - **Impact:** Custom context classes must update signature
+  - **Migration:** Remove `Optional[str] = None` and fallback logic; use `key` parameter directly
+- **BREAKING CHANGE**: `BaseCapabilityContext.get_summary()` signature simplified
+  - **Old:** `get_summary(self, key: str)` - required the storage key
+  - **New:** `get_summary(self)` - no parameters needed
+  - **Reason:** Summaries describe the context data, not storage details
+  - **Impact:** Custom context classes must remove `key` parameter
+  - **Migration:** Remove `key` parameter from method signature
+- **BREAKING CHANGE**: `ContextManager.get_summaries()` now returns `list[dict]` instead of `dict[str, Any]`
+  - Simplifies the API by eliminating flattened key format (e.g., `"CONTEXT_TYPE.key"`)
+  - Each summary dict already contains a `"type"` field for identification
+  - More natural format for UI/LLM consumption
+  - Updated 4 consumer files: `respond_node.py`, `clarify_node.py`, `memory.py`, `response_generation.py`
+- **Template Updates**: All capability templates now use instance method pattern
+  - `hello_world_weather` template updated with new pattern and helper methods
+  - `control_assistant` templates (archiver_retrieval, channel_finding, channel_value_retrieval) updated
+  - `minimal` template updated to show recommended pattern
+  - All templates include proper `requires` field with cardinality constraints
+
+### Documentation
+- **Complete Documentation Overhaul**: Updated 20+ documentation files for new patterns
+  - API Reference: Updated `BaseCapability` and `BaseCapabilityContext` documentation
+  - Developer Guides: Updated all capability and context management guides
+  - Quick Start: Updated building-your-first-capability guide with instance pattern
+  - Tutorials: Updated hello-world-tutorial with new recommended pattern
+  - Example Applications: Updated ALS Assistant and control assistant examples
+- **New Migration Guide**: Comprehensive migration documentation
+  - Side-by-side pattern comparisons (static vs instance)
+  - Step-by-step migration checklist
+  - Common migration issues with solutions
+  - Gradual migration strategy
+  - Testing patterns for migrated capabilities
+- **Context Management**: Enhanced context management system documentation
+  - Updated with list-handling examples for multiple contexts
+  - Added "Handling Multiple Contexts" pattern to integration guide
+  - Documented cardinality constraint usage patterns
+  - Explained two-phase extraction algorithm
+
+### Migration Notes
+- **Early Access Phase**: This is an acceptable breaking change as the framework is in early access (0.9.x)
+- **For Capability Developers (Cardinality)**: Replace `isinstance(context, list)` checks with cardinality constraints
+  - Old: `constraints=["PV_ADDRESSES"]` + manual `isinstance` check
+  - New: `constraints=[("PV_ADDRESSES", "single")]` - framework handles validation
+- **For Capability Developers (Multi-Context)**: Add `isinstance(context, list)` validation after extracting contexts to ensure your capability behavior matches expectations (only if not using cardinality constraints)
+- **For get_summaries() Consumers**: Update code to iterate over list instead of dict.items()
+  - Old: `for key, summary in summaries.items()`
+  - New: `for summary in summaries: context_type = summary.get('type')`
 
 ## [0.9.1] - 2025-11-16
 

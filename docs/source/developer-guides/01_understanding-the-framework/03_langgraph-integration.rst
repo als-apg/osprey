@@ -221,8 +221,7 @@ The framework handles service calls that may generate interrupts:
    class PythonExecutorCapability(BaseCapability):
        """Execute Python code with approval workflows."""
 
-       @staticmethod
-       async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
+       async def execute(self) -> Dict[str, Any]:
            # Get Python executor service
            service = registry.get_service("python_executor")
 
@@ -251,10 +250,9 @@ The framework provides real-time status updates through LangGraph's streaming:
 
    @capability_node
    class DataAnalysisCapability(BaseCapability):
-       @staticmethod
-       async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
+       async def execute(self) -> Dict[str, Any]:
            # Get streaming helper
-           streamer = get_streamer("osprey", "data_analysis", state)
+           streamer = get_streamer("osprey", "data_analysis", self._state)
 
            # Provide real-time status updates
            streamer.status("Loading data sources...")
@@ -349,7 +347,7 @@ Custom State Updates
    # Framework provides StateManager for consistent state updates
    from osprey.state import StateManager
 
-   # Store capability results
+   # Store capability results (or use self.store_output_context in capabilities)
    return StateManager.store_context(
        state, "PV_ADDRESSES", context_key, pv_data
    )

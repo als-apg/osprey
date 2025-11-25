@@ -1256,6 +1256,9 @@ class RegistryManager:
         the entire registry, allowing partial system functionality.
         """
         logger.debug("Initializing capabilities...")
+        successful_count = 0
+        failed_caps = []
+
         for reg in self.config.capabilities:
             try:
                 # Dynamically import and instantiate the capability
@@ -1276,11 +1279,18 @@ class RegistryManager:
                     logger.error(f"Capability {reg.name} missing langgraph_node attribute - ensure @capability_node decorator is applied")
 
                 logger.debug(f"Registered capability: {reg.name}")
+                successful_count += 1
 
             except Exception as e:
+                failed_caps.append(reg.name)
                 logger.warning(f"Failed to initialize capability {reg.name}: {e}")
+                # Also log the traceback for debugging
+                import traceback
+                logger.debug(f"Capability {reg.name} initialization traceback: {traceback.format_exc()}")
 
-        logger.info(f"Registered {len(self._registries['capabilities'])} capabilities")
+        if failed_caps:
+            logger.error(f"❌ Failed to initialize {len(failed_caps)} capabilities: {failed_caps}")
+        logger.info(f"Registered {len(self._registries['capabilities'])} capabilities ({successful_count} successful, {len(failed_caps)} failed)")
 
     def _initialize_framework_prompt_providers(self) -> None:
         """Initialize framework prompt providers with explicit mapping.
@@ -2426,7 +2436,8 @@ def reset_registry() -> None:
     1. Clears all component registries in the current instance
     2. Resets the initialization state to False
     3. Sets the global registry instance to None
-    4. Next get_registry() call will create a new instance from configuration
+    4. Clears the cached config path
+    5. Next get_registry() call will create a new instance from configuration
 
     This function provides a clean slate for testing different registry
     configurations or ensuring test isolation when registry state might
@@ -2478,10 +2489,11 @@ def reset_registry() -> None:
        :func:`initialize_registry` : Must be called after reset to use components
        :meth:`RegistryManager.clear` : Method called internally to clear registry data
     """
-    global _registry
+    global _registry, _registry_config_path
     if _registry:
         _registry.clear()
     _registry = None
+    _registry_config_path = None
 
 # ==============================================================================
 # GLOBAL REGISTRY INSTANCE EXPORT

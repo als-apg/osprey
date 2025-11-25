@@ -30,34 +30,42 @@ Configuration:
 
 import logging
 import textwrap
-from typing import Dict, Any, Optional, TYPE_CHECKING
 from datetime import datetime
+from typing import TYPE_CHECKING, Any, Dict, Optional
+
+if TYPE_CHECKING:
+    pass
+
+from osprey.base.capability import BaseCapability
 
 # Import production patterns
 from osprey.base.decorators import capability_node
-from osprey.base.capability import BaseCapability
 from osprey.base.errors import ErrorClassification, ErrorSeverity
-from osprey.base.examples import OrchestratorGuide, OrchestratorExample, TaskClassifierGuide, ClassifierExample, ClassifierActions
+from osprey.base.examples import (
+    ClassifierActions,
+    ClassifierExample,
+    OrchestratorExample,
+    OrchestratorGuide,
+    TaskClassifierGuide,
+)
 from osprey.base.planning import PlannedStep
-from osprey.state import AgentState
-from osprey.utils.logger import get_logger
-from osprey.utils.streaming import get_streamer
-from osprey.registry import get_registry
-from osprey.state import StateManager
-from osprey.context.context_manager import ContextManager
-
-# Import context classes
-from ..context_classes import ChannelValuesContext, ChannelValue, ChannelAddressesContext
 
 # Import connector factory for control system integration
 from osprey.connectors.factory import ConnectorFactory
+from osprey.context.context_manager import ContextManager
+from osprey.registry import get_registry
+from osprey.state import AgentState, StateManager
+from osprey.utils.logger import get_logger
+from osprey.utils.streaming import get_streamer
+
+# Import context classes
+from ..context_classes import ChannelAddressesContext, ChannelValue, ChannelValuesContext
 
 if TYPE_CHECKING:
     pass
 
 logger = get_logger("channel_value_retrieval")
 
-registry = get_registry()
 
 
 # ========================================================
@@ -98,30 +106,33 @@ class ChannelValueRetrievalCapability(BaseCapability):
     provides = ["CHANNEL_VALUES"]
     requires = ["CHANNEL_ADDRESSES"]
 
-    @staticmethod
-    async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
-        """Execute channel value retrieval with production patterns."""
+    async def execute(self) -> Dict[str, Any]:
+        """
+        Execute channel value retrieval.
 
-        # Extract current step - this is provided by the decorator
-        step = StateManager.get_current_step(state)
+        This method reads current values from control system channels using the
+        configured connector (mock or EPICS). It automatically extracts required
+        channel addresses from the execution context and returns structured results.
 
-        # Define streaming helper here for step awareness
-        streamer = get_streamer("channel_value_retrieval", state)
+        Returns:
+            State updates containing the CHANNEL_VALUES context with current readings.
+
+        Raises:
+            ChannelDependencyError: If required CHANNEL_ADDRESSES context is missing.
+            ChannelAccessError: If channel reading fails.
+        """
+
+        # Define streaming helper
+        streamer = get_streamer("channel_value_retrieval", self._state)
         streamer.status("Starting channel value retrieval...")
 
-        # Extract required CHANNEL_ADDRESSES context using ContextManager
+        # Extract channel addresses from execution context
         try:
-            context_manager = ContextManager(state)
-            contexts = context_manager.extract_from_step(
-                step, state,
-                constraints=["CHANNEL_ADDRESSES"],
-                constraint_mode="hard"
-            )
-            channel_addresses_context = contexts[registry.context_types.CHANNEL_ADDRESSES]
+            channels_to_read, = self.get_required_contexts()
         except ValueError as e:
             raise ChannelDependencyError(str(e))
 
-        streamer.status(f"Reading {len(channel_addresses_context.channels)} channel values...")
+        streamer.status(f"Reading {len(channels_to_read)} channel values...")
 
         # Create control system connector from configuration
         # This will use 'mock' for development or 'epics' for production
@@ -131,9 +142,9 @@ class ChannelValueRetrievalCapability(BaseCapability):
         try:
             # Get all channel values
             channel_values = {}
-            total_channels = len(channel_addresses_context.channels)
+            total_channels = len(channels_to_read)
 
-            for i, channel_address in enumerate(channel_addresses_context.channels):
+            for i, channel_address in enumerate(channels_to_read):
                 streamer.status(f"Reading channel {i+1}/{total_channels}: {channel_address}")
 
                 try:
@@ -162,15 +173,30 @@ class ChannelValueRetrievalCapability(BaseCapability):
 
         logger.info(f"Channel value retrieval result: {result.channel_count} channels retrieved")
 
-        # Store context using StateManager
-        context_updates = StateManager.store_context(
-            state,
-            registry.context_types.CHANNEL_VALUES,
-            step.get('context_key'),
-            result
-        )
+        # Store result in execution context
+        return self.store_output_context(result)
 
-        return context_updates
+    def process_extracted_contexts(self, contexts):
+        """
+        Flatten CHANNEL_ADDRESSES contexts into single list.
+
+        Handles both single and multiple CHANNEL_ADDRESSES contexts,
+        merging them into a flat list of channel addresses.
+        """
+        channels_raw = contexts["CHANNEL_ADDRESSES"]
+
+        if isinstance(channels_raw, list):
+            # Flatten multiple contexts into single channel list
+            channels_flat = []
+            for ctx in channels_raw:
+                channels_flat.extend(ctx.channels)
+            logger.info(f"Merged {len(channels_raw)} CHANNEL_ADDRESSES contexts into {len(channels_flat)} total channels")
+            contexts["CHANNEL_ADDRESSES"] = channels_flat
+        else:
+            # Single context - extract channel list
+            contexts["CHANNEL_ADDRESSES"] = channels_raw.channels
+
+        return contexts
 
     @staticmethod
     def classify_error(exc: Exception, context: dict) -> ErrorClassification:
@@ -225,9 +251,9 @@ class ChannelValueRetrievalCapability(BaseCapability):
         }
 
     def _create_orchestrator_guide(self) -> Optional[OrchestratorGuide]:
-        """Create prompt snippet for channel value retrieval."""
+        """Create orchestrator guide for channel value retrieval planning."""
 
-        # Define structured examples using simplified dict format
+        # Define structured examples for the orchestrator
         current_values_example = OrchestratorExample(
             step=PlannedStep(
                 context_key="read_monitor_values",
@@ -263,7 +289,7 @@ class ChannelValueRetrievalCapability(BaseCapability):
 
             **Step Structure:**
             - context_key: Unique identifier for output (e.g., "current_beam_values", "status_readings")
-            - inputs: Specify required inputs using simplified format:
+            - inputs: Specify required inputs as context type to context key mappings:
               {"CHANNEL_ADDRESSES": "context_key_with_channel_addresses"}
 
             **Required Inputs:**

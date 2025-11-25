@@ -71,8 +71,6 @@ from osprey.utils.streaming import get_streamer
 logger = get_logger("memory")
 
 
-registry = get_registry()
-
 # ===========================================================
 # Context Classes
 # ===========================================================
@@ -116,7 +114,7 @@ class MemoryContext(CapabilityContext):
     operation_type: str  # 'store', 'retrieve', 'search'
     operation_result: str | None = None
 
-    def get_access_details(self, key_name: str | None = None) -> dict[str, Any]:
+    def get_access_details(self, key: str) -> dict[str, Any]:
         """Provide detailed access information for capability context integration.
 
         Generates comprehensive access details for other capabilities to understand
@@ -132,17 +130,15 @@ class MemoryContext(CapabilityContext):
            This method is called by the framework's context management system
            to provide integration guidance for other capabilities.
         """
-        key_ref = key_name if key_name else "key_name"
-
         return {
             "operation": self.operation_type,
             "data_keys": list(self.memory_data.keys()) if self.memory_data else [],
-            "access_pattern": f"context.{self.CONTEXT_TYPE}.{key_ref}.memory_data",
-            "example_usage": f"context.{self.CONTEXT_TYPE}.{key_ref}.memory_data['user_preferences'] gives stored user preferences",
+            "access_pattern": f"context.{self.CONTEXT_TYPE}.{key}.memory_data",
+            "example_usage": f"context.{self.CONTEXT_TYPE}.{key}.memory_data['user_preferences'] gives stored user preferences",
             "operation_result": self.operation_result
         }
 
-    def get_summary(self, key_name: str | None = None) -> dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """Generate summary for response generation and UI display.
 
         Creates a formatted summary of the memory operation results suitable for
@@ -521,8 +517,7 @@ class MemoryOperationsCapability(BaseCapability):
     provides = ["MEMORY_CONTEXT"]
     requires = []
 
-    @staticmethod
-    async def execute(state: AgentState, **kwargs) -> dict[str, Any]:
+    async def execute(self) -> dict[str, Any]:
         """Execute memory operations with comprehensive approval and context integration.
 
         Implements a sophisticated 3-phase execution pattern that handles both
@@ -536,10 +531,6 @@ class MemoryOperationsCapability(BaseCapability):
         and memory retrieval operations, automatically handling context creation and
         state management for seamless integration with other capabilities.
 
-        :param state: Current agent state containing execution context and history
-        :type state: AgentState
-        :param kwargs: Additional execution parameters from the framework (architectural system)
-        :type kwargs: dict
         :return: State updates with memory operation results and context data
         :rtype: Dict[str, Any]
 
@@ -568,13 +559,13 @@ class MemoryOperationsCapability(BaseCapability):
 
 
         # Define streaming helper here for step awareness
-        streamer = get_streamer("memory", state)
+        streamer = get_streamer("memory", self._state)
 
         # =====================================================================
         # PHASE 1: CHECK FOR APPROVED MEMORY OPERATION (HIGHEST PRIORITY)
         # =====================================================================
 
-        has_approval_resume, approved_payload = get_approval_resume_data(state, create_approval_type("memory", "save"))
+        has_approval_resume, approved_payload = get_approval_resume_data(self._state, create_approval_type("memory", "save"))
 
         if has_approval_resume and approved_payload:
             logger.success("Using approved memory operation from agent state")
@@ -588,10 +579,10 @@ class MemoryOperationsCapability(BaseCapability):
             memory_context = await _perform_memory_save_operation(content, user_id, logger)
 
             # Store context using StateManager
-            step = StateManager.get_current_step(state)
+            step = self._step
             context_update = StateManager.store_context(
-                state,
-                registry.context_types.MEMORY_CONTEXT,
+                self._state,
+                "MEMORY_CONTEXT",
                 step.get("context_key"),
                 memory_context
             )
@@ -605,7 +596,7 @@ class MemoryOperationsCapability(BaseCapability):
         # =====================================================================
 
         # Extract current step from execution plan (single source of truth)
-        step = StateManager.get_current_step(state)
+        step = self._step
 
         try:
             # Get user ID from config system
@@ -629,8 +620,8 @@ class MemoryOperationsCapability(BaseCapability):
 
                 # Store context using StateManager
                 return StateManager.store_context(
-                    state,
-                    registry.context_types.MEMORY_CONTEXT,
+                    self._state,
+                    "MEMORY_CONTEXT",
                     step.get("context_key"),
                     memory_context
                 )
@@ -648,18 +639,21 @@ class MemoryOperationsCapability(BaseCapability):
                     chat_formatted = ChatHistoryFormatter.format_for_llm(messages)
 
                     # Check if we have context inputs from previous steps and include them
-                    step = StateManager.get_current_step(state)
+                    step = self._step
                     step_inputs = step.get('inputs', [])
                     context_section = ""
 
                     if step_inputs:
                         logger.info(f"Memory save: Including context from {len(step_inputs)} previous steps")
                         try:
-                            context_manager = ContextManager(state)
+                            context_manager = ContextManager(self._state)
                             context_summaries = context_manager.get_summaries(step)
 
                             if context_summaries:
-                                context_section = f"\n\nAVAILABLE CONTEXT FROM PREVIOUS STEPS:\n{context_summaries}\n"
+                                # Format list as readable string
+                                import json
+                                formatted_summaries = json.dumps(context_summaries, indent=2, default=str)
+                                context_section = f"\n\nAVAILABLE CONTEXT FROM PREVIOUS STEPS:\n{formatted_summaries}\n"
                                 logger.debug(f"Added context summaries: {context_summaries}")
                         except Exception as e:
                             logger.warning(f"Failed to get context summaries: {e}")
@@ -741,8 +735,8 @@ class MemoryOperationsCapability(BaseCapability):
 
                     # Store context using StateManager
                     return StateManager.store_context(
-                        state,
-                        registry.context_types.MEMORY_CONTEXT,
+                        self._state,
+                        "MEMORY_CONTEXT",
                         step.get("context_key"),
                         memory_context
                     )

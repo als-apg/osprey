@@ -127,17 +127,13 @@ class ExampleCapability(BaseCapability):
     description = "Example capability that demonstrates the implementation pattern"
     """Human-readable description. Helps LLM understand when to use this capability."""
 
-    provides = [
-        # List the context types this capability creates/outputs
-        # Must match CONTEXT_TYPE in your context classes
-        "EXAMPLE_CONTEXT"
-    ]
-    """What context types does this capability CREATE and return?"""
+    provides = ["EXAMPLE_CONTEXT"]
+    """What context types does this capability PROVIDE as output? Enables plan validation."""
 
     requires = [
         # List the context types this capability needs as input
-        # These must be provided by other capabilities or user input
-        # Example: registry.context_types.TIME_RANGE
+        # Format: "CONTEXT_TYPE" or ("CONTEXT_TYPE", "single"|"multiple")
+        # Example: "TIME_RANGE" or ("TIME_RANGE", "single")
     ]
     """What context types does this capability NEED as input?"""
 
@@ -145,57 +141,60 @@ class ExampleCapability(BaseCapability):
     # REQUIRED METHOD: execute()
     # ────────────────────────────────────────────────────────────────────────
 
-    @staticmethod
-    async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
-        """Execute the capability's main logic.
+    async def execute(self) -> Dict[str, Any]:
+        """
+        Execute the capability's main logic.
 
-        This is where your actual work happens:
-        - Extract required inputs from state
-        - Call your API / perform computations
-        - Create output context objects
-        - Store results back to state
+        This is the core method where you implement your capability's functionality.
+        The framework automatically provides access to execution state and step context
+        through self._state and self._step.
 
-        Args:
-            state: Current agent state containing all context and execution plan
-            **kwargs: Additional arguments (rarely used)
+        Implementation Steps:
+        1. Extract required inputs using self.get_required_contexts()
+        2. Get optional parameters using self.get_parameters()
+        3. Perform your main work (API calls, computations, etc.)
+        4. Create output context objects
+        5. Store results using self.store_output_context()
 
         Returns:
-            Dict with updated state modifications
+            State updates dictionary for LangGraph to merge.
 
         Raises:
-            MissingInputError: When required input context is not available
-            APICallError: When external API calls fail
+            MissingInputError: When required input context is not available.
+            APICallError: When external API calls fail.
         """
 
         # ──────────────────────────────────────────────────────────────────
-        # 3.1: Get current step information
-        # ──────────────────────────────────────────────────────────────────
-        step = StateManager.get_current_step(state)
-        logger.debug(f"Executing {__class__.__name__} for step: {step.get('context_key')}")
-
-        # ──────────────────────────────────────────────────────────────────
-        # 3.2: Setup streaming for user feedback (optional but recommended)
+        # 3.1: Setup streaming for user feedback (optional but recommended)
         # ──────────────────────────────────────────────────────────────────
         from osprey.utils.streaming import get_streamer
-        streamer = get_streamer("example_capability", state)
+        streamer = get_streamer("example_capability", self._state)
         streamer.status("Starting example capability execution...")
 
-        # ──────────────────────────────────────────────────────────────────
-        # 3.3: Extract required inputs (if any)
-        # ──────────────────────────────────────────────────────────────────
-        # If your capability has requires=[], extract those contexts here
+        logger.debug(f"Executing example_capability for step: {self._step.get('context_key')}")
 
-        # Example: Extract a required context
+        # ──────────────────────────────────────────────────────────────────
+        # 3.2: Extract required inputs (if any)
+        # ──────────────────────────────────────────────────────────────────
+        # If your capability has requires=["INPUT_DATA", "TIME_RANGE"], extract like this:
+
+        # Elegant tuple unpacking (order matches requires field):
         # try:
-        #     context_manager = ContextManager(state)
-        #     contexts = context_manager.extract_from_step(
-        #         step, state,
-        #         constraints=["REQUIRED_CONTEXT_TYPE"],
-        #         constraint_mode="hard"
-        #     )
-        #     required_input = contexts[registry.context_types.REQUIRED_CONTEXT_TYPE]
+        #     input_data, time_range = self.get_required_contexts()
         # except ValueError as e:
         #     raise MissingInputError(f"Missing required input: {e}")
+
+        # Alternative dict access (if you prefer):
+        # try:
+        #     contexts = self.get_required_contexts()
+        #     input_data = contexts["INPUT_DATA"]
+        #     time_range = contexts["TIME_RANGE"]
+        # except ValueError as e:
+        #     raise MissingInputError(f"Missing required input: {e}")
+
+        # For optional parameters from orchestrator:
+        # params = self.get_parameters()
+        # timeout = params.get('timeout', 30)
 
         # ──────────────────────────────────────────────────────────────────
         # 3.4: Perform your main work
@@ -248,12 +247,8 @@ class ExampleCapability(BaseCapability):
         # ──────────────────────────────────────────────────────────────────
         # 3.7: Store output context and return
         # ──────────────────────────────────────────────────────────────────
-        return StateManager.store_context(
-            state,
-            "EXAMPLE_CONTEXT",  # Must match provides=[]
-            step.get("context_key"),  # Storage key from execution plan
-            output_context
-        )
+        # Context objects are self-describing via their CONTEXT_TYPE attribute
+        return self.store_output_context(output_context)
 
     # ────────────────────────────────────────────────────────────────────────
     # OPTIONAL METHOD: classify_error()

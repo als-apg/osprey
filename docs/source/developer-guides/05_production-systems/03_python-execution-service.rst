@@ -248,9 +248,8 @@ Use the Python execution service directly in your capabilities with proper appro
    class DataAnalysisCapability(BaseCapability):
        """Data analysis capability using Python execution service."""
 
-       async def execute(state: AgentState, **kwargs) -> dict:
-           # Get current step and registry
-           step = StateManager.get_current_step(state)
+       async def execute(self) -> dict:
+           # Get registry
            registry = get_registry()
 
            # Get Python executor service from registry
@@ -263,14 +262,14 @@ Use the Python execution service directly in your capabilities with proper appro
            service_config = {
                "configurable": {
                    **main_configurable,
-                   "thread_id": f"data_analysis_{step.get('context_key', 'default')}",
+                   "thread_id": f"data_analysis_{self._step.get('context_key', 'default')}",
                    "checkpoint_ns": "python_executor"
                }
            }
 
            # Check for approval resume first
            has_approval_resume, approved_payload = get_approval_resume_data(
-               state, create_approval_type("data_analysis")
+               self._state, create_approval_type("data_analysis")
            )
 
            if has_approval_resume:
@@ -302,8 +301,8 @@ Use the Python execution service directly in your capabilities with proper appro
 
                # Create execution request
                execution_request = PythonExecutionRequest(
-                   user_query=state.get("input_output", {}).get("user_query", ""),
-                   task_objective=step.get("task_objective", "Analyze data"),
+                   user_query=self._state.get("input_output", {}).get("user_query", ""),
+                   task_objective=self.get_task_objective(),
                    capability_prompts=capability_prompts,
                    expected_results={
                        "statistics": "dict",
@@ -311,7 +310,7 @@ Use the Python execution service directly in your capabilities with proper appro
                        "visualizations": "list"
                    },
                    execution_folder_name="data_analysis",
-                   capability_context_data=state.get('capability_context_data', {}),
+                   capability_context_data=self._state.get('capability_context_data', {}),
                    retries=3
                )
 
@@ -328,13 +327,8 @@ Use the Python execution service directly in your capabilities with proper appro
            # Process results (both paths converge here)
            execution_result = service_result.execution_result
 
-           # Store context using StateManager
-           context_updates = StateManager.store_context(
-               state,
-               registry.context_types.ANALYSIS_RESULTS,
-               step.get("context_key"),
-               analysis_context
-           )
+           # Store context using helper method
+           context_updates = self.store_output_context(analysis_context)
 
            # Return with optional approval cleanup
            if approval_cleanup:
