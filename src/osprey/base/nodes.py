@@ -214,6 +214,21 @@ class BaseInfrastructureNode(ABC):
         """
         pass
 
+    def get_logger(self):
+        """Get unified logger with automatic streaming support.
+
+        Creates a logger that:
+        - Uses this infrastructure node's name automatically
+        - Has access to state for streaming via self._state
+        - Streams high-level messages automatically when in LangGraph context
+        - Logs to CLI with Rich formatting
+
+        Returns:
+            ComponentLogger instance with streaming capability
+        """
+        from osprey.utils.logger import get_logger
+        return get_logger(self.name, state=self._state)
+
     @staticmethod
     def classify_error(exc: Exception, context: dict) -> 'ErrorClassification':
         """Classify errors for infrastructure-specific error handling and recovery.

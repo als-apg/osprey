@@ -112,7 +112,7 @@ class RespondCapability(BaseCapability):
             logger.status("Gathering information for response...")
 
             # Gather all available information
-            response_context = _gather_information(state)
+            response_context = _gather_information(state, logger)
 
             logger.status("Generating response...")
 
@@ -208,7 +208,7 @@ class RespondCapability(BaseCapability):
 # --- Helper Functions ---
 
 
-def _gather_information(state: AgentState) -> ResponseContext:
+def _gather_information(state: AgentState, logger=None) -> ResponseContext:
     """Gather all relevant information for response generation.
 
     :param state: Current agent state
@@ -228,11 +228,13 @@ def _gather_information(state: AgentState) -> ResponseContext:
     if response_mode == "conversational":
         execution_history = []
         capabilities_overview = _get_capabilities_overview()
-        logger.info("Using conversational response mode (no execution context)")
+        if logger:
+            logger.info("Using conversational response mode (no execution context)")
     else:  # technical mode
         execution_history = _get_execution_history(state)
         capabilities_overview = None
-        logger.info(f"Using technical response mode (context type: {response_mode})")
+        if logger:
+            logger.info(f"Using technical response mode (context type: {response_mode})")
 
     # Get figure information from centralized registry
     ui_figures = state.get("ui_captured_figures", [])
@@ -247,7 +249,8 @@ def _gather_information(state: AgentState) -> ResponseContext:
     notebooks_available = len(ui_notebooks)
 
     # Log notebook availability for debugging
-    logger.debug(f"Respond node found {len(ui_notebooks)} notebook links")
+    if logger:
+        logger.debug(f"Respond node found {len(ui_notebooks)} notebook links")
 
     # Get interface context from configurable
     from osprey.utils.config import get_interface_context
