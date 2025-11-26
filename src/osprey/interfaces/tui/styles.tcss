@@ -176,6 +176,25 @@ OrchestrationBlock {
     margin: 0;
 }
 
+/* SelectionList for capability checkbox list */
+#capability-list {
+    width: 100%;
+    height: auto;
+    max-height: 10;
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+}
+
+#capability-list > SelectionListItem {
+    padding: 0;
+}
+
+#capability-list:disabled {
+    opacity: 1;
+}
+
 /* Debug block for event visualization */
 DebugBlock,
 .debug-block {
