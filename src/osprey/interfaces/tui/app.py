@@ -296,16 +296,15 @@ class ProcessingBlock(Static):
 
         Args:
             text: The output text to display.
-            status: The completion status ('success', 'error', or 'warning').
+            status: The completion status ('success' or 'error').
         """
         # Stop breathing animation
         self._stop_breathing()
 
-        # Update header indicator based on status
+        # Update header indicator based on status (only success/error as terminal states)
         indicators = {
             "success": self.INDICATOR_SUCCESS,
             "error": self.INDICATOR_ERROR,
-            "warning": self.INDICATOR_WARNING,
         }
         indicator = indicators.get(status, self.INDICATOR_SUCCESS)
         header = self.query_one("#block-header", Static)
@@ -373,7 +372,7 @@ class ProcessingBlock(Static):
 
         Args:
             text: The output text to display.
-            status: The completion status ('success', 'error', or 'warning').
+            status: The completion status ('success' or 'error').
         """
         self._status = status
         self._pending_output = (text, status)
@@ -900,6 +899,31 @@ class OspreyTUI(App):
         sequence = {"classifier": "task_extraction", "orchestrator": "classifier"}
         return sequence.get(component)
 
+    def _close_and_create_retry(
+        self,
+        close_component: str,
+        create_component: str,
+        user_query: str,
+        display: ChatDisplay,
+    ) -> None:
+        """Close a block as error and create a retry block.
+
+        Args:
+            close_component: Component whose block to close.
+            create_component: Component to create retry block for.
+            user_query: Original user query.
+            display: Chat display widget.
+        """
+        # Close the current block for close_component
+        block = self._get_current_block(close_component, display)
+        if block and block._status == "active":
+            block.set_output("Retry required", status="error")
+
+        # Mark retry and create new block
+        display._retry_triggered.add(create_component)
+        display._seen_start_events.discard(create_component)
+        self._create_and_activate_block(create_component, user_query, display)
+
     def _create_and_activate_block(
         self, component: str, user_query: str, display: ChatDisplay
     ) -> ProcessingBlock | None:
@@ -928,7 +952,7 @@ class OspreyTUI(App):
             return existing
 
         # If block exists and is COMPLETED, check if retry was triggered
-        if existing and existing._status in ("success", "error", "warning"):
+        if existing and existing._status in ("success", "error"):
             # Only create new block if retry was explicitly triggered
             if component in display._retry_triggered:
                 attempt_idx += 1
@@ -1140,21 +1164,12 @@ class OspreyTUI(App):
                 block.set_output(msg if msg else f"{component} error", status="error")
             return
 
-        # Handle WARNING events - log, trigger retry, and finalize block
+        # Handle WARNING events - just log, don't change block status
+        # Block closure is handled by retry indicators ("Reclassifying...", "Re-planning...")
         if event_type == "warning":
             block = self._get_current_block(component, display)
-            if block and block._status == "active":
-                if msg:
-                    block.add_log(msg, status="warning")
-                # Check if this triggers a retry (re-classification/retry keywords)
-                msg_lower = msg.lower()
-                if "re-classification" in msg_lower or "triggering" in msg_lower or "retry" in msg_lower:
-                    display._retry_triggered.add("classifier")
-                    display._retry_triggered.add("orchestrator")
-                    # Also clear seen_start_events so new blocks can be created
-                    display._seen_start_events.discard("classifier")
-                    display._seen_start_events.discard("orchestrator")
-                block.set_output(msg if msg else f"{component} warning", status="warning")
+            if block and block._status == "active" and msg:
+                block.add_log(msg, status="warning")
             return
 
         # Handle COMPLETION - log and set final output
@@ -1178,7 +1193,28 @@ class OspreyTUI(App):
             next_component = self._get_next_component(component)
             if next_component and next_component in display._seen_start_events:
                 self._create_and_activate_block(next_component, user_query, display)
+
+            # When classifier completes, check if orchestrator needs new attempt
+            if component == "classifier":
+                next_component = "orchestrator"
+                next_block = self._get_current_block(next_component, display)
+                if next_block and next_block._status == "error":
+                    # Orchestrator failed earlier, classifier just retried, create new O
+                    display._retry_triggered.add(next_component)
+                    self._create_and_activate_block(next_component, user_query, display)
             return
+
+        # Check for retry indicators - close old block and create retry immediately
+        if msg:
+            msg_lower = msg.lower()
+            if "reclassifying" in msg_lower:
+                # Orchestrator failed, need new capabilities
+                # Close orchestrator, create classifier retry
+                self._close_and_create_retry("orchestrator", "classifier", user_query, display)
+            elif "re-planning" in msg_lower:
+                # Orchestrator needs to retry planning
+                # Close orchestrator, create new orchestrator
+                self._close_and_create_retry("orchestrator", "orchestrator", user_query, display)
 
         # Only run block creation on FIRST event for this component
         is_first_event = component not in display._seen_start_events
@@ -1192,7 +1228,7 @@ class OspreyTUI(App):
                 # Check if previous is complete - if so, create now
                 prev_component = self._get_prev_component(component)
                 prev_block = self._get_current_block(prev_component, display)
-                if prev_block and prev_block._status in ("success", "error", "warning"):
+                if prev_block and prev_block._status in ("success", "error"):
                     self._create_and_activate_block(component, user_query, display)
                 # Otherwise: deferred, will be created when prev completes
 
