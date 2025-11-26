@@ -684,6 +684,172 @@ def select_channel_finder_mode() -> str | None:
 
 
 # ============================================================================
+# EPICS FACILITY SELECTION
+# ============================================================================
+
+def select_epics_facility() -> str | None:
+    """Interactive EPICS facility selection.
+
+    Returns:
+        Selected facility ('aps', 'als', 'custom', 'none'), or None if cancelled
+    """
+    console.print("[dim]Does your facility use EPICS PV gateway?[/dim]\n")
+
+    choices = [
+        Choice(
+            "APS              - Argonne National Laboratory (auto-detects network)",
+            value='aps'
+        ),
+        Choice(
+            "ALS              - Lawrence Berkeley National Laboratory",
+            value='als'
+        ),
+        Choice(
+            "Custom           - Configure custom facility interactively",
+            value='custom'
+        ),
+        Choice(
+            "None             - Skip EPICS configuration",
+            value='none'
+        ),
+    ]
+
+    return questionary.select(
+        "EPICS facility:",
+        choices=choices,
+        style=custom_style,
+        instruction="(Use arrow keys to navigate)"
+    ).ask()
+
+
+def configure_custom_epics() -> dict[str, Any] | None:
+    """Interactive configuration for custom EPICS facility.
+    
+    Allows users to specify all EPICS configuration details interactively,
+    including facility name, gateway address, port, and gateway strategy.
+    
+    Returns:
+        Dictionary with EPICS configuration, or None if cancelled
+        {
+            'facility_name': str,
+            'gateway_address': str,
+            'gateway_port': int,
+            'use_gateway_when': str,  # 'always', 'external', 'never'
+            'internal_domain': str (optional, only if use_gateway_when='external')
+        }
+    """
+    console.print("\n[bold]Custom EPICS Facility Configuration[/bold]\n")
+    console.print("[dim]Configure your facility's EPICS gateway settings.[/dim]\n")
+    
+    # 1. Facility name
+    facility_name = questionary.text(
+        "Facility name (lowercase, e.g., 'slac', 'nsls'):",
+        style=custom_style,
+        validate=lambda text: len(text) > 0 and text.islower() and text.replace('_', '').isalnum()
+    ).ask()
+    
+    if not facility_name:
+        return None
+    
+    # 2. Gateway strategy
+    console.print("\n[dim]How should the gateway be used?[/dim]\n")
+    
+    use_gateway_when = questionary.select(
+        "Gateway usage strategy:",
+        choices=[
+            Choice(
+                "always    - Always use gateway (recommended for most facilities)",
+                value='always'
+            ),
+            Choice(
+                "external  - Use gateway only when outside internal network (like APS)",
+                value='external'
+            ),
+            Choice(
+                "never     - Never use gateway (use local broadcast only)",
+                value='never'
+            ),
+        ],
+        style=custom_style,
+    ).ask()
+    
+    if not use_gateway_when:
+        return None
+    
+    config = {
+        'facility_name': facility_name,
+        'use_gateway_when': use_gateway_when
+    }
+    
+    # 3. Gateway details (if needed)
+    if use_gateway_when in ['always', 'external']:
+        console.print("\n[dim]Enter gateway connection details:[/dim]\n")
+        
+        gateway_address = questionary.text(
+            "Gateway address (hostname or IP):",
+            default=f"gateway.{facility_name}.example.com",
+            style=custom_style,
+            validate=lambda text: len(text) > 0
+        ).ask()
+        
+        if not gateway_address:
+            return None
+        
+        gateway_port = questionary.text(
+            "Gateway port:",
+            default="5064",
+            style=custom_style,
+            validate=lambda text: text.isdigit() and 1 <= int(text) <= 65535
+        ).ask()
+        
+        if not gateway_port:
+            return None
+        
+        config['gateway_address'] = gateway_address
+        config['gateway_port'] = int(gateway_port)
+    
+    # 4. Internal domain (if using 'external' strategy)
+    if use_gateway_when == 'external':
+        console.print("\n[dim]Specify the internal network domain for auto-detection:[/dim]\n")
+        
+        internal_domain = questionary.text(
+            "Internal domain (e.g., 'facility.example.com'):",
+            default=f"{facility_name}.example.com",
+            style=custom_style,
+            validate=lambda text: len(text) > 0 and '.' in text
+        ).ask()
+        
+        if not internal_domain:
+            return None
+        
+        config['internal_domain'] = internal_domain
+    
+    # 5. Summary and confirmation
+    console.print(f"\n{Messages.header('Custom EPICS Configuration Summary:')}")
+    console.print(f"  Facility:  [value]{config['facility_name']}[/value]")
+    console.print(f"  Strategy:  [value]{config['use_gateway_when']}[/value]")
+    
+    if 'gateway_address' in config:
+        console.print(f"  Gateway:   [value]{config['gateway_address']}:{config['gateway_port']}[/value]")
+    
+    if 'internal_domain' in config:
+        console.print(f"  Domain:    [value]{config['internal_domain']}[/value]")
+    
+    console.print()
+    
+    confirm = questionary.confirm(
+        "Use this EPICS configuration?",
+        default=True,
+        style=custom_style,
+    ).ask()
+    
+    if not confirm:
+        return None
+    
+    return config
+
+
+# ============================================================================
 # PROVIDER AND MODEL SELECTION
 # ============================================================================
 
@@ -807,6 +973,15 @@ def configure_api_key(provider: str, project_path: Path,
 
     if not key_name:
         console.print(Messages.success(f"Provider '{provider}' does not require an API key"))
+        return True
+
+    # Special handling for Argo - uses ${USER} environment variable
+    if provider == 'argo':
+        console.print(f"Provider: [accent]{provider}[/accent]")
+        console.print(f"Required: [accent]{key_name}[/accent]")
+        console.print(f"[dim]Argo uses your system username as the API key[/dim]\n")
+        write_env_file(project_path, key_name, '${USER}')
+        console.print(f"\n{Messages.success(f'{key_name} configured to use ${{USER}}')}\n")
         return True
 
     console.print(f"Provider: [accent]{provider}[/accent]")
@@ -1022,6 +1197,51 @@ def run_interactive_init() -> str:
         if channel_finder_mode is None:
             return 'menu'
 
+    # 2c. EPICS facility selection
+    epics_facility = None
+    epics_setup_function = None
+    epics_gateway_address = None
+    epics_gateway_port = 5064
+    epics_custom_config = None
+    
+    step_num = 4 if template == 'control_assistant' else 3
+    console.print(f"\n[bold]Step {step_num}: EPICS Configuration (Optional)[/bold]\n")
+    
+    epics_facility = select_epics_facility()
+    if epics_facility is None:
+        return 'menu'
+    
+    # Handle different facility selections
+    if epics_facility == 'aps':
+        epics_setup_function = 'setup_aps_epics'
+        epics_gateway_address = 'pvgatemain1.aps4.anl.gov'
+        epics_gateway_port = 5064
+    elif epics_facility == 'als':
+        epics_setup_function = 'setup_als_epics'
+        epics_gateway_address = 'cagw-alsdmz.als.lbl.gov'
+        epics_gateway_port = 5064
+    elif epics_facility == 'custom':
+        # Interactive custom configuration
+        epics_custom_config = configure_custom_epics()
+        if epics_custom_config is None:
+            # User cancelled custom configuration
+            console.print(f"\n{Messages.warning('EPICS configuration cancelled')}")
+            input("\nPress ENTER to continue...")
+            return 'menu'
+        
+        # Extract values from custom config
+        epics_facility = epics_custom_config['facility_name']
+        if 'gateway_address' in epics_custom_config:
+            epics_gateway_address = epics_custom_config['gateway_address']
+            epics_gateway_port = epics_custom_config['gateway_port']
+        # Note: Custom facilities will use manual .env configuration
+        epics_setup_function = None
+    elif epics_facility == 'none':
+        # No EPICS configuration
+        epics_facility = None
+        epics_setup_function = None
+        epics_gateway_address = None
+
     # Check if project directory already exists (before other configuration steps)
     project_path = Path.cwd() / project_name
     if project_path.exists():
@@ -1135,8 +1355,8 @@ def run_interactive_init() -> str:
                     input("\nPress ENTER to continue...")
                     return 'menu'
 
-    # 3. Registry style (step number adjusts if channel finder mode was shown)
-    step_num = 4 if template == 'control_assistant' else 3
+    # 3. Registry style (step number adjusts based on previous steps)
+    step_num = 5 if template == 'control_assistant' else 4
     console.print(f"\n[bold]Step {step_num}: Registry Style[/bold]\n")
 
     registry_style = questionary.select(
@@ -1153,14 +1373,14 @@ def run_interactive_init() -> str:
         return 'menu'
 
     # 4. Provider selection (step number adjusts)
-    step_num = 5 if template == 'control_assistant' else 4
+    step_num = 6 if template == 'control_assistant' else 5
     console.print(f"\n[bold]Step {step_num}: AI Provider[/bold]\n")
     provider = select_provider(providers)
     if provider is None:
         return 'menu'
 
     # 5. Model selection (step number adjusts)
-    step_num = 6 if template == 'control_assistant' else 5
+    step_num = 7 if template == 'control_assistant' else 6
     console.print(f"\n[bold]Step {step_num}: Model Selection[/bold]\n")
     model = select_model(provider, providers)
     if model is None:
@@ -1172,6 +1392,13 @@ def run_interactive_init() -> str:
     console.print(f"  Template: [value]{template}[/value]")
     if channel_finder_mode:
         console.print(f"  Pipeline: [value]{channel_finder_mode}[/value]")
+    if epics_facility and epics_facility != 'none':
+        epics_display = epics_facility.upper()
+        if epics_custom_config:
+            epics_display += f" (custom)"
+        console.print(f"  EPICS:    [value]{epics_display}[/value]")
+        if epics_gateway_address:
+            console.print(f"            [dim]{epics_gateway_address}:{epics_gateway_port}[/dim]")
     console.print(f"  Registry: [value]{registry_style}[/value]")
     console.print(f"  Provider: [value]{provider}[/value]")
     console.print(f"  Model:    [value]{model}[/value]\n")
@@ -1193,13 +1420,25 @@ def run_interactive_init() -> str:
 
     try:
         # Note: force=True because we already handled directory deletion if user chose override
-        # Build context dict with optional channel_finder_mode
+        # Build context dict with optional channel_finder_mode and EPICS configuration
         context = {
             'default_provider': provider,
             'default_model': model
         }
         if channel_finder_mode:
             context['channel_finder_mode'] = channel_finder_mode
+        
+        # Add EPICS configuration to context
+        if epics_facility and epics_facility != 'none':
+            context['epics_enabled'] = True
+            context['epics_facility'] = epics_facility
+            context['epics_setup_function'] = epics_setup_function
+            context['epics_gateway_address'] = epics_gateway_address
+            context['epics_gateway_port'] = epics_gateway_port
+            
+            # Add custom config details if present
+            if epics_custom_config:
+                context['epics_custom_config'] = epics_custom_config
 
         project_path = manager.create_project(
             project_name=project_name,
@@ -1226,6 +1465,35 @@ def run_interactive_init() -> str:
                 detected_keys = [key for key in api_keys if key in detected_env]
                 console.print(f"[dim]  Detected: {', '.join(detected_keys)}[/dim]\n")
 
+        # EPICS environment variable configuration (for custom facilities)
+        if epics_custom_config and 'gateway_address' in epics_custom_config:
+            console.print(f"\n{Messages.header('EPICS Environment Configuration')}\n")
+            console.print("[dim]Writing EPICS environment variables to .env file...[/dim]\n")
+            
+            # Write EPICS environment variables
+            from dotenv import set_key
+            env_file = project_path / ".env"
+            
+            # Ensure .env exists
+            if not env_file.exists():
+                env_example = project_path / ".env.example"
+                if env_example.exists():
+                    shutil.copy(env_example, env_file)
+                else:
+                    env_file.touch()
+            
+            # Set EPICS variables based on custom config
+            set_key(str(env_file), 'EPICS_CA_ADDR_LIST', epics_custom_config['gateway_address'])
+            set_key(str(env_file), 'EPICS_CA_SERVER_PORT', str(epics_custom_config['gateway_port']))
+            set_key(str(env_file), 'EPICS_CA_AUTO_ADDR_LIST', 'NO')
+            set_key(str(env_file), 'EPICS_CA_MAX_ARRAY_BYTES', '16777216')
+            
+            # Set permissions
+            os.chmod(env_file, 0o600)
+            
+            console.print(f"  {Messages.success('EPICS environment variables configured')}")
+            console.print(f"  [dim]Gateway: {epics_custom_config['gateway_address']}:{epics_custom_config['gateway_port']}[/dim]\n")
+        
         # API key configuration
         if providers[provider]['requires_key']:
             api_configured = configure_api_key(provider, project_path, providers)

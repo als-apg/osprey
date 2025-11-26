@@ -235,6 +235,12 @@ class TemplateManager:
             "template_name": template_name,  # Make template name available in config.yml
             # Add detected environment variables
             "env": detected_env_vars,
+            # EPICS configuration (will be set by CLI/interactive menu)
+            "epics_enabled": context.get('epics_enabled', False) if context else False,
+            "epics_facility": context.get('epics_facility', None) if context else None,
+            "epics_setup_function": context.get('epics_setup_function', None) if context else None,
+            "epics_gateway_address": context.get('epics_gateway_address', None) if context else None,
+            "epics_gateway_port": context.get('epics_gateway_port', 5064) if context else 5064,
             **(context or {})
         }
 

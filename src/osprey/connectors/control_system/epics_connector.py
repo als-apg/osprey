@@ -96,6 +96,11 @@ class EPICSConnector(ControlSystemConnector):
                 "Install with: pip install pyepics"
             )
 
+        # CRITICAL: Clear PyEPICS cache immediately after import to pick up
+        # any environment variables set before connector creation
+        self._epics.ca.clear_cache()
+        logger.debug("Cleared PyEPICS cache to pick up environment variables")
+
         # Extract gateway configuration
         gateway_config = config.get('gateways', {}).get('read_only', {})
         if gateway_config:
@@ -105,23 +110,32 @@ class EPICSConnector(ControlSystemConnector):
             # Config system automatically converts "true"/"false" strings to booleans
             use_name_server = gateway_config.get('use_name_server', False)
 
-            # Configure EPICS environment variables
-            if use_name_server:
-                # Use CA_NAME_SERVERS (required for SSH tunnels and some gateway configurations)
-                os.environ['EPICS_CA_NAME_SERVERS'] = f'{address}:{port}'
-                logger.debug(f"Using EPICS_CA_NAME_SERVERS: {address}:{port}")
+            # Only override environment if address is explicitly provided in config
+            if address:
+                # Configure EPICS environment variables
+                if use_name_server:
+                    # Use CA_NAME_SERVERS (required for SSH tunnels and some gateway configurations)
+                    os.environ['EPICS_CA_NAME_SERVERS'] = f'{address}:{port}'
+                    logger.debug(f"Using EPICS_CA_NAME_SERVERS: {address}:{port}")
+                else:
+                    # Use CA_ADDR_LIST (standard gateway configuration)
+                    os.environ['EPICS_CA_ADDR_LIST'] = address
+                    os.environ['EPICS_CA_SERVER_PORT'] = str(port)
+                    logger.debug(f"Using EPICS_CA_ADDR_LIST: {address}, CA_SERVER_PORT: {port}")
+
+                os.environ['EPICS_CA_AUTO_ADDR_LIST'] = 'NO'
+
+                # Clear EPICS cache again to pick up new environment
+                self._epics.ca.clear_cache()
+
+                logger.debug(f"Configured EPICS gateway: {address}:{port}")
             else:
-                # Use CA_ADDR_LIST (standard gateway configuration)
-                os.environ['EPICS_CA_ADDR_LIST'] = address
-                os.environ['EPICS_CA_SERVER_PORT'] = str(port)
-                logger.debug(f"Using EPICS_CA_ADDR_LIST: {address}, CA_SERVER_PORT: {port}")
+                # Address is empty - use environment variables set externally
+                addr_list = os.environ.get('EPICS_CA_ADDR_LIST', 'not set')
+                server_port = os.environ.get('EPICS_CA_SERVER_PORT', 'not set')
+                auto_addr = os.environ.get('EPICS_CA_AUTO_ADDR_LIST', 'not set')
+                logger.info(f"Using EPICS environment variables: ADDR_LIST={addr_list}, SERVER_PORT={server_port}, AUTO_ADDR_LIST={auto_addr}")
 
-            os.environ['EPICS_CA_AUTO_ADDR_LIST'] = 'NO'
-
-            # Clear EPICS cache to pick up new environment
-            self._epics.ca.clear_cache()
-
-            logger.debug(f"Configured EPICS gateway: {address}:{port}")
             self._epics_configured = True
 
         self._timeout = config.get('timeout', 5.0)

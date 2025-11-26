@@ -12,6 +12,18 @@ from osprey.registry import (
     RegistryConfig
 )
 
+{% if epics_enabled and epics_setup_function %}
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# EPICS GATEWAY CONFIGURATION
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Configure EPICS gateway for {{ epics_facility|upper }} facility before any EPICS operations.
+# This sets up environment variables that EPICSManager will use.
+from osprey.utils.epics_gateway_config import {{ epics_setup_function }}
+
+# Configure EPICS for {{ epics_facility|upper }} facility
+{{ epics_setup_function }}()
+{% endif %}
+
 
 class {{ app_class_name }}RegistryProvider(RegistryConfigProvider):
     """Registry provider for {{ app_display_name }}.

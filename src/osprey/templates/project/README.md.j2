@@ -21,6 +21,55 @@ framework deploy up
 framework chat
 ```
 
+{% if epics_enabled %}
+
+## EPICS Configuration
+
+This project is configured for **{{ epics_facility.upper() }}** facility.
+
+{% if epics_setup_function %}
+### Automatic Gateway Configuration
+
+EPICS gateway is automatically configured using `{{ epics_setup_function }}()`.
+
+{% if epics_facility == 'aps' %}
+- **On APS internal network** (*.aps4.anl.gov): Uses local broadcast
+- **Outside APS network**: Uses gateway pvgatemain1.aps4.anl.gov:5064
+{% elif epics_facility == 'als' %}
+- **Gateway**: cagw-alsdmz.als.lbl.gov:5064 (always used)
+{% endif %}
+
+No manual configuration needed! The setup function is called in `{{ package_name }}/registry.py`.
+
+{% else %}
+### Manual EPICS Configuration
+
+EPICS environment variables are configured in `.env`:
+
+```bash
+EPICS_CA_ADDR_LIST={{ epics_gateway_address }}
+EPICS_CA_SERVER_PORT={{ epics_gateway_port }}
+EPICS_CA_AUTO_ADDR_LIST=NO
+```
+
+{% endif %}
+
+### Using EPICS in Your Code
+
+```python
+from osprey.utils.epics_utils import EPICSManager
+
+# Create manager (uses configured gateway)
+epics_mgr = EPICSManager()
+
+# Read PV values
+value = epics_mgr.safe_caget("YOUR:PV:NAME")
+```
+
+For more information, see the [EPICS Facility Configuration Guide](https://github.com/als-apg/osprey/blob/main/docs/EPICS_FACILITY_CONFIGURATION.md).
+
+{% endif %}
+
 ## Project Structure
 
 ```
