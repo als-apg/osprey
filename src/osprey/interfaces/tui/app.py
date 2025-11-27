@@ -5,6 +5,7 @@ A Terminal User Interface for the Osprey Agent Framework built with Textual.
 
 import asyncio
 import logging
+import re
 import textwrap
 import uuid
 from typing import Any
@@ -22,43 +23,74 @@ from osprey.infrastructure.gateway import Gateway
 from osprey.registry import get_registry, initialize_registry
 from osprey.utils.config import get_config_value, get_full_configuration
 
+# Pattern to detect router execution step messages
+EXEC_STEP_PATTERN = re.compile(r"Executing step (\d+)/(\d+) - capability: (\w+)")
+
+# Components that create Task Preparation blocks (allowlist)
+TASK_PREP_COMPONENTS = {"task_extraction", "classifier", "orchestrator"}
+
 
 class QueueLogHandler(logging.Handler):
     """Routes Python log records to TUI event queue.
 
-    This handler captures ALL Python logs (not just streamed events) and
-    sends them to the TUI's event queue for display in block LOG sections.
+    Extracts ALL metadata from ComponentLogger's extra dict:
+    - raw_message, log_type (for LOG section)
+    - task, capabilities, steps, phase (for block lifecycle)
     """
+
+    # Fields to extract from LogRecord extra dict
+    EXTRA_FIELDS = [
+        "task",
+        "capabilities",
+        "capability_names",
+        "steps",
+        "phase",
+        "step_num",
+        "step_name",
+    ]
 
     def __init__(self, queue: asyncio.Queue, loop: asyncio.AbstractEventLoop):
         """Initialize the handler.
 
         Args:
             queue: The asyncio queue to send events to.
-            loop: The event loop for thread-safe queue access.
+            loop: The event loop for thread-safe queue operations.
         """
         super().__init__()
         self.queue = queue
         self.loop = loop
 
     def emit(self, record: logging.LogRecord) -> None:
-        """Emit a log record to the queue.
+        """Emit a log record to the TUI event queue.
 
         Args:
             record: The log record to emit.
         """
+        # Extract raw message from extra (set by ComponentLogger)
+        raw_msg = getattr(record, "raw_message", None)
+        log_type = getattr(record, "log_type", record.levelname.lower())
+
+        # Skip if no raw message (not from ComponentLogger)
+        if raw_msg is None:
+            return
+
         event = {
-            "event_type": "log",
-            "level": record.levelname.lower(),
-            "message": record.getMessage(),
-            "component": record.name,  # e.g., "classifier", "orchestrator"
+            "event_type": "log",  # ALL TUI events are "log" type
+            "level": log_type,
+            "message": raw_msg,
+            "component": record.name,
         }
-        # Thread-safe put (logging may happen from different threads)
+
+        # Extract ALL streaming data fields
+        for key in self.EXTRA_FIELDS:
+            val = getattr(record, key, None)
+            if val is not None:
+                event[key] = val
+
         try:
             self.loop.call_soon_threadsafe(self.queue.put_nowait, event)
         except RuntimeError:
-            # Loop may be closed during shutdown
-            pass
+            pass  # Event loop closed
 
 
 class ChatMessage(Static):
@@ -434,18 +466,42 @@ class ProcessingBlock(Static):
             self._update_log_display()
 
     def _format_log_messages(self) -> str:
-        """Format all log messages with status symbols."""
+        """Format all log messages with status symbols.
+
+        Uses minimal coloring with indicators for status differentiation.
+        Colors are chosen to be visible in both light and dark themes.
+        """
         if not self._log_messages:
             return ""
         lines = []
         for msg_status, msg in self._log_messages:
+            # Map log_type to colors visible in both light/dark themes
+            # Using "bright_" prefix for better visibility
+            color_map = {
+                "error": "bright_red",
+                "warning": "bright_yellow",
+                "success": "bright_green",
+                "key_info": "bold",  # Uses default text color
+                "info": "",  # Default text color
+                "debug": "dim",
+                "timing": "bright_cyan",
+                "status": "",  # Default text color
+                "approval": "bright_yellow",
+                "resume": "bright_green",
+            }
+            color = color_map.get(msg_status, "")
             prefix = {
                 "error": self.INDICATOR_ERROR,
                 "warning": self.INDICATOR_WARNING,
                 "success": self.INDICATOR_SUCCESS,
+                "key_info": self.INDICATOR_SUCCESS,
                 "status": self.INDICATOR_PENDING,
+                "approval": self.INDICATOR_WARNING,
             }.get(msg_status, self.INDICATOR_PENDING)
-            lines.append(f"{prefix} {msg}")
+            if color:
+                lines.append(f"[{color}]{prefix} {msg}[/{color}]")
+            else:
+                lines.append(f"{prefix} {msg}")
         return "\n".join(lines)
 
     def _update_log_display(self) -> None:
@@ -603,7 +659,7 @@ class ChatDisplay(ScrollableContainer):
         # Queue for messages that arrive before block is created
         # Format: {component: [(event_type, message, chunk), ...]}
         self._pending_messages: dict[str, list[tuple[str, str, dict]]] = {}
-        # Debug block for showing events (disabled by default)
+        # Debug block for showing events (enabled for debugging)
         self._debug_enabled = False
         self._debug_block: DebugBlock | None = None
         # Event queue for decoupling streaming from rendering
@@ -790,7 +846,8 @@ class OspreyTUI(App):
         self.gateway = None
         self.base_config = None
         self.current_state = None
-        self._log_handler: QueueLogHandler | None = None
+        # Shared data for passing info between blocks (T→C→O)
+        self._shared_data: dict[str, Any] = {}  # {task, capability_names, ...}
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
@@ -842,15 +899,15 @@ class OspreyTUI(App):
             "assistant",
         )
 
-        # Set up log handler to capture Python logs in TUI
+        # Set up log handler to capture Python logs via single-channel architecture
+        # All logs from ComponentLogger include raw_message and log_type in extra dict
         loop = asyncio.get_event_loop()
         self._log_handler = QueueLogHandler(chat_display._event_queue, loop)
-        self._log_handler.setLevel(logging.INFO)  # Capture INFO and above
+        self._log_handler.setLevel(logging.DEBUG)  # Capture all levels
 
-        # Attach to relevant loggers (Task Preparation phase components)
-        for logger_name in ["task_extraction", "classifier", "orchestrator"]:
-            logger = logging.getLogger(logger_name)
-            logger.addHandler(self._log_handler)
+        # Attach to root logger - captures ALL logs from any component
+        # QueueLogHandler.emit() filters to only ComponentLogger logs (via raw_message check)
+        logging.getLogger().addHandler(self._log_handler)
 
     def on_chat_input_submitted(self, event: ChatInput.Submitted) -> None:
         """Handle input submission.
@@ -874,10 +931,10 @@ class OspreyTUI(App):
     async def _consume_events(self, user_query: str, chat_display: ChatDisplay) -> None:
         """Event consumer - single gateway for all TUI block updates.
 
-        All block creation, updates, and closure for Task Preparation phase
-        goes through here. Execution phase is handled separately.
+        SINGLE-CHANNEL ARCHITECTURE: Only processes log events (event_type == "log").
+        Stream events from Gateway are ignored - all data comes from Python logs.
 
-        Block lifecycle: Open on first event, close when DIFFERENT component arrives.
+        Block lifecycle: Open on first log, close when DIFFERENT component arrives.
         Only one Task Preparation block is active at any time.
 
         Args:
@@ -887,38 +944,29 @@ class OspreyTUI(App):
         # Track single active block (for Task Preparation phase)
         current_component: str | None = None
         current_block: ProcessingBlock | None = None
-
-        # Buffer for logs that arrive before their block is created
-        pending_logs: dict[str, list[tuple[str, str]]] = {}  # component -> [(msg, level), ...]
+        # Track execution state for routing capability logs to correct step block
+        execution_started = False
+        current_capability: str | None = None
+        current_execution_step = 1
 
         while True:
             try:
                 chunk = await chat_display._event_queue.get()
 
                 event_type = chunk.get("event_type", "")
-                component = chunk.get("component", "")
-                phase = chunk.get("phase", "")
-                msg = chunk.get("message", "")
 
-                # Handle Python log events (from QueueLogHandler)
-                # Only log events go to LOG section (streaming events don't)
-                if event_type == "log":
-                    log_component = chunk.get("component", "")
-                    level = chunk.get("level", "info")
-
-                    if log_component == current_component and current_block and msg:
-                        # Matches current active block - add directly
-                        current_block.add_log(msg, status=level)
-                    elif msg:
-                        # Buffer for later - block may not exist yet
-                        if log_component not in pending_logs:
-                            pending_logs[log_component] = []
-                        pending_logs[log_component].append((msg, level))
+                # SINGLE-CHANNEL: Only process log events - ignore stream events
+                if event_type != "log":
                     chat_display._event_queue.task_done()
                     continue
 
-                # Skip if no component or not relevant event type
-                if not component or event_type not in ("status", "success", "error", "warning"):
+                component = chunk.get("component", "")
+                level = chunk.get("level", "info")
+                msg = chunk.get("message", "")
+                phase = chunk.get("phase", "")
+
+                # Skip if no component
+                if not component:
                     chat_display._event_queue.task_done()
                     continue
 
@@ -927,29 +975,73 @@ class OspreyTUI(App):
                 if debug_block:
                     debug_block.add_event(chunk)
 
+                # Determine phase using allowlist approach
+                # Only known components create blocks; skip infrastructure logs
+                if not phase:
+                    if component in TASK_PREP_COMPONENTS:
+                        phase = "Task Preparation"
+                    elif component == "router":
+                        # Router needs special handling below (EXEC_STEP_PATTERN)
+                        pass
+                    elif execution_started and component == current_capability:
+                        # Capability logs for active execution step
+                        phase = "Execution"
+                    else:
+                        # Skip infrastructure/unknown components (gateway, cli, etc.)
+                        chat_display._event_queue.task_done()
+                        continue
+
+                # Handle router messages - only process execution step patterns
+                if component == "router":
+                    if msg:
+                        match = EXEC_STEP_PATTERN.search(msg)
+                        if match:
+                            phase = "Execution"
+                            # Parse step info for _handle_execution_event
+                            step_num = int(match.group(1))
+                            chunk["step"] = step_num
+                            chunk["total_steps"] = int(match.group(2))
+                            component = match.group(3)  # Use capability as component
+                            # Track execution state for subsequent capability logs
+                            execution_started = True
+                            current_capability = component  # e.g., "current_weather"
+                            current_execution_step = step_num
+                        else:
+                            # Skip router messages that don't match execution step pattern
+                            chat_display._event_queue.task_done()
+                            continue
+                    else:
+                        # Skip router messages with no message
+                        chat_display._event_queue.task_done()
+                        continue
+
                 # Route by phase
                 if phase == "Task Preparation":
-                    current_component, current_block = self._consume_task_prep_event(
+                    current_component, current_block = self._consume_task_prep_log(
                         chunk,
                         component,
-                        event_type,
+                        level,
                         msg,
                         user_query,
                         chat_display,
                         current_component,
                         current_block,
-                        pending_logs,
                     )
                 elif phase == "Execution":
                     # Close last Task Prep block when Execution starts
-                    if current_block:
+                    if current_block and current_component in (
+                        "task_extraction",
+                        "classifier",
+                        "orchestrator",
+                    ):
                         self._close_task_prep_block(current_block, current_component)
                         current_component, current_block = None, None
+                    # Inject current step for capability logs that don't have step field
+                    if "step" not in chunk:
+                        chunk["step"] = current_execution_step
                     # Execution phase uses different approach (multiple step blocks)
-                    is_complete = (event_type == "success") or chunk.get("complete", False)
-                    self._handle_execution_event(
-                        chunk, component, is_complete, event_type, chat_display
-                    )
+                    is_complete = (level == "success") or chunk.get("complete", False)
+                    self._handle_execution_event(chunk, component, is_complete, level, chat_display)
 
                 chat_display._event_queue.task_done()
             except asyncio.CancelledError:
@@ -958,51 +1050,48 @@ class OspreyTUI(App):
                     self._close_task_prep_block(current_block, current_component)
                 break
 
-    def _consume_task_prep_event(
+    def _consume_task_prep_log(
         self,
         chunk: dict,
         component: str,
-        event_type: str,
+        level: str,
         msg: str,
         user_query: str,
         display: ChatDisplay,
         current_component: str | None,
         current_block: ProcessingBlock | None,
-        pending_logs: dict[str, list[tuple[str, str]]],
     ) -> tuple[str | None, ProcessingBlock | None]:
-        """Handle Task Preparation events in the consumer.
+        """Handle Task Preparation log events in the consumer.
 
-        Single gateway for T/C/O blocks. Block lifecycle:
-        - Open: First event for a component
-        - Close: When event from DIFFERENT component arrives
+        SINGLE-CHANNEL: All data comes from log events (via QueueLogHandler).
+        Block lifecycle:
+        - Open: First log for a component
+        - Close: When log from DIFFERENT component arrives
 
         Args:
-            chunk: The streaming event data.
+            chunk: The log event data (from QueueLogHandler).
             component: The component name.
-            event_type: The event type.
+            level: The log level/type (status, success, error, info, etc.).
             msg: The message text.
             user_query: The original user query.
             display: The chat display widget.
             current_component: Currently active component (or None).
             current_block: Currently active block (or None).
-            pending_logs: Buffer of logs waiting for their blocks.
 
         Returns:
             Tuple of (new_current_component, new_current_block).
         """
-        # 1. Detect retry signals - close current block and mark for retry
+        # 1. Detect retry signals for Orchestrator only
+        # Only "re-planning" triggers a new O block - Classifier doesn't need retry blocks
+        # (reclassifying messages are just logged, not used to create retry blocks)
         if msg:
             msg_lower = msg.lower()
-            is_reclassify = any(
+            is_replanning = any(
                 kw in msg_lower
-                for kw in ["reclassifying", "re-classification", "reclassification"]
+                for kw in ["re-planning", "replanning"]
             )
-            is_replan = any(kw in msg_lower for kw in ["re-planning", "replanning"])
-
-            if is_reclassify or is_replan:
-                # Close current block with error status
-                if current_block:
-                    current_block.set_output("Retry required", status="error")
+            if is_replanning and current_block:
+                current_block.set_output("Retry triggered", status="error")
                 current_component, current_block = None, None
 
         # 2. Component transition: close current block when different component arrives
@@ -1010,11 +1099,8 @@ class OspreyTUI(App):
             self._close_task_prep_block(current_block, current_component)
             current_component, current_block = None, None
 
-        # 3. Create new block if needed (only on STATUS events)
-        if current_block is None:
-            if event_type != "status":
-                # Ignore non-status events if no block exists
-                return current_component, current_block
+        # 3. Create new block if needed (on first log from this component)
+        if current_block is None and component:
             block = self._create_task_prep_block(component, user_query, display)
             if block:
                 current_component = component
@@ -1025,38 +1111,31 @@ class OspreyTUI(App):
                     block.set_input(user_query)
                     block._data["user_query"] = user_query
 
-                # Flush any pending logs for this component
-                if component in pending_logs:
-                    for log_msg, log_level in pending_logs[component]:
-                        block.add_log(log_msg, status=log_level)
-                    del pending_logs[component]
-
         if not current_block:
             return current_component, current_block
 
-        # 4. Extract data into block._data dict
+        # 4. Extract data into block._data dict (from log event's extra fields)
         for key in ["task", "capabilities", "capability_names", "steps", "user_query"]:
             if key in chunk:
                 current_block._data[key] = chunk[key]
 
-        # 5. Log to LOG section - REMOVED
-        # Streaming events don't go to LOG (only pure log events do, handled in consumer)
+        # 5. Add to LOG section
+        if msg:
+            current_block.add_log(msg, status=level)
 
         # 6. Real-time IN update (when data becomes available)
         self._update_input_from_data(current_block, component)
 
         # 7. Real-time OUT update on success/error (but DON'T close block)
-        if event_type == "success":
+        if level == "success":
             self._update_output_from_data(current_block, component, chunk)
-        elif event_type == "error":
+        elif level == "error":
             error_msg = msg if msg else f"{component} error"
             current_block.set_output(error_msg, status="error")
 
         return current_component, current_block
 
-    def _close_task_prep_block(
-        self, block: ProcessingBlock, component: str | None
-    ) -> None:
+    def _close_task_prep_block(self, block: ProcessingBlock, component: str | None) -> None:
         """Close a Task Preparation block by setting its final output.
 
         Args:
@@ -1134,6 +1213,16 @@ class OspreyTUI(App):
         display.mount(block)
         display.scroll_end(animate=False)
 
+        # Initialize block._data from shared_data (for IN sections)
+        if component == "classifier":
+            if "task" in self._shared_data:
+                block._data["task"] = self._shared_data["task"]
+        elif component == "orchestrator":
+            if "task" in self._shared_data:
+                block._data["task"] = self._shared_data["task"]
+            if "capability_names" in self._shared_data:
+                block._data["capabilities"] = self._shared_data["capability_names"]
+
         return block
 
     def _update_input_from_data(self, block: ProcessingBlock, component: str) -> None:
@@ -1170,6 +1259,8 @@ class OspreyTUI(App):
     def _update_output_from_data(self, block: ProcessingBlock, component: str, chunk: dict) -> None:
         """Update block OUT section from _data dict on completion.
 
+        Also updates _shared_data for passing info to subsequent blocks.
+
         Args:
             block: The processing block.
             component: The component name.
@@ -1182,12 +1273,17 @@ class OspreyTUI(App):
             # T:OUT = task
             task = data.get("task", "")
             block.set_output(task if task else (msg if msg else "Task extracted"))
+            # Save task to shared_data for C and O blocks
+            if task:
+                self._shared_data["task"] = task
 
         elif component == "classifier":
             # C:OUT = capability checklist
             selected_caps = data.get("capability_names", [])
             if selected_caps and isinstance(block, ClassificationBlock):
                 block.set_capabilities(self.all_capability_names, selected_caps)
+                # Save capability_names to shared_data for O block
+                self._shared_data["capability_names"] = selected_caps
             else:
                 block.set_output(msg if msg else "Classification complete")
 
@@ -1207,7 +1303,8 @@ class OspreyTUI(App):
         # Start new query - resets blocks and adds user message
         chat_display.start_new_query(user_input)
 
-        # Clear cached plan and step messages from previous query
+        # Clear shared data and cached plan from previous query
+        self._shared_data = {}
         self._cached_plan = None
         for attr in list(vars(self)):
             if attr.startswith("_step_") and attr.endswith("_msg"):
@@ -1346,6 +1443,13 @@ class OspreyTUI(App):
             # Store first message as potential input (if not using plan objective)
             if not objective and message:
                 setattr(self, f"_step_{step_index}_first_msg", message)
+
+        # Get block for LOG updates
+        block = display._current_blocks.get(block_key)
+
+        # Add message to LOG section (like T/C/O blocks)
+        if block and message:
+            block.add_log(message, status=event_type)
 
         # Always capture message for potential output (last message wins)
         if message:
