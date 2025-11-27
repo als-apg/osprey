@@ -4,6 +4,7 @@ A Terminal User Interface for the Osprey Agent Framework built with Textual.
 """
 
 import asyncio
+import logging
 import textwrap
 import uuid
 from typing import Any
@@ -20,6 +21,44 @@ from osprey.graph import create_graph
 from osprey.infrastructure.gateway import Gateway
 from osprey.registry import get_registry, initialize_registry
 from osprey.utils.config import get_config_value, get_full_configuration
+
+
+class QueueLogHandler(logging.Handler):
+    """Routes Python log records to TUI event queue.
+
+    This handler captures ALL Python logs (not just streamed events) and
+    sends them to the TUI's event queue for display in block LOG sections.
+    """
+
+    def __init__(self, queue: asyncio.Queue, loop: asyncio.AbstractEventLoop):
+        """Initialize the handler.
+
+        Args:
+            queue: The asyncio queue to send events to.
+            loop: The event loop for thread-safe queue access.
+        """
+        super().__init__()
+        self.queue = queue
+        self.loop = loop
+
+    def emit(self, record: logging.LogRecord) -> None:
+        """Emit a log record to the queue.
+
+        Args:
+            record: The log record to emit.
+        """
+        event = {
+            "event_type": "log",
+            "level": record.levelname.lower(),
+            "message": record.getMessage(),
+            "component": record.name,  # e.g., "classifier", "orchestrator"
+        }
+        # Thread-safe put (logging may happen from different threads)
+        try:
+            self.loop.call_soon_threadsafe(self.queue.put_nowait, event)
+        except RuntimeError:
+            # Loop may be closed during shutdown
+            pass
 
 
 class ChatMessage(Static):
@@ -751,6 +790,7 @@ class OspreyTUI(App):
         self.gateway = None
         self.base_config = None
         self.current_state = None
+        self._log_handler: QueueLogHandler | None = None
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
@@ -802,6 +842,16 @@ class OspreyTUI(App):
             "assistant",
         )
 
+        # Set up log handler to capture Python logs in TUI
+        loop = asyncio.get_event_loop()
+        self._log_handler = QueueLogHandler(chat_display._event_queue, loop)
+        self._log_handler.setLevel(logging.INFO)  # Capture INFO and above
+
+        # Attach to relevant loggers (Task Preparation phase components)
+        for logger_name in ["task_extraction", "classifier", "orchestrator"]:
+            logger = logging.getLogger(logger_name)
+            logger.addHandler(self._log_handler)
+
     def on_chat_input_submitted(self, event: ChatInput.Submitted) -> None:
         """Handle input submission.
 
@@ -846,6 +896,15 @@ class OspreyTUI(App):
                 component = chunk.get("component", "")
                 phase = chunk.get("phase", "")
                 msg = chunk.get("message", "")
+
+                # Handle Python log events (from QueueLogHandler)
+                if event_type == "log":
+                    # Route to current active block's LOG section
+                    if current_block and msg:
+                        level = chunk.get("level", "info")
+                        current_block.add_log(msg, status=level)
+                    chat_display._event_queue.task_done()
+                    continue
 
                 # Skip if no component or not relevant event type
                 if not component or event_type not in ("status", "success", "error", "warning"):
