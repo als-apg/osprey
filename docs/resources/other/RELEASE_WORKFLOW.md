@@ -24,29 +24,44 @@ This document provides the **definitive workflow** for creating releases that en
 
 2. **Run Unit & Integration Tests**
    ```bash
-   # Run fast tests (excludes e2e which require API keys and cost money)
-   pytest -v -m "not e2e"
+   # Run all unit tests (excluding e2e tests)
+   # IMPORTANT: Must exclude e2e tests due to registry mocking
+   pytest tests/ --ignore=tests/e2e -v
    ```
    - **Any failures = STOP**: Fix issues before proceeding
-   - **Expected**: ~50-100 tests, completes in <2 minutes
+   - **Expected**: ~370-380 tests, completes in <5 seconds
    - **Cost**: Free (no API calls)
+   - **What it tests**:
+     - Capability unit tests (with mocked registry)
+     - Infrastructure components
+     - Registry system
+     - Configuration management
+     - Channel finder databases
 
 3. **Run End-to-End Tutorial Tests**
    ```bash
-   # Run e2e tests with verbose output to see execution progress
-   pytest tests/e2e/ -v -s --e2e-verbose
+   # Run e2e tests separately (uses real registry, no mocks)
+   # IMPORTANT: Must run separately from unit tests
+   pytest tests/e2e/ -v
 
-   # Optional: See detailed LLM judge reasoning
+   # Optional: See detailed execution progress and LLM judge reasoning
    # pytest tests/e2e/ -v -s --e2e-verbose --judge-verbose
    ```
    - **Any failures = STOP**: These validate the core user experience
-   - **Expected**: 2-3 tests, completes in 2-5 minutes
+   - **Expected**: 5 tests, completes in 2-3 minutes
    - **Cost**: ~$0.10-$0.25 in API calls
    - **What it tests**:
-     - Complete tutorial workflows (BPM analysis, etc.)
-     - Project creation from templates
+     - Complete tutorial workflows (BPM analysis, weather tutorial)
+     - Project creation from templates (minimal, hello_world_weather, control_assistant)
      - Multi-capability orchestration
+     - Channel finder benchmarks
      - End-user experience
+
+   **⚠️ Why Separate Test Commands?**
+   - Unit tests use mocked registry for fast, isolated testing
+   - E2E tests use real registry for integration testing
+   - Running together causes registry contamination
+   - Always run both test suites before releasing
 
 4. **Verify All Tests Pass**
    - Unit & Integration tests: ✅
@@ -193,29 +208,56 @@ Before creating a release, ensure these files have the correct version. **All ve
   - `docs/source/getting-started/hello-world-tutorial.rst`
   - Any files with "New in v0.x.x" admonitions
 
-## 🧪 E2E Test Details
+## 🧪 Test Architecture
 
-End-to-end tests validate complete user workflows and are **mandatory** for releases but **optional** during development.
+Osprey has two separate test suites that **must be run independently**:
 
-### Test Suite Overview
-
+### Unit Tests (Fast, Mocked)
 ```bash
-# Run just e2e smoke tests (fastest e2e validation)
-pytest -v -m e2e_smoke
-
-# Run all e2e tests
-pytest -v -m e2e
-
-# Run with real-time progress (recommended for releases)
-pytest tests/e2e/ -v -s --e2e-verbose --judge-verbose
+# Run all unit tests excluding e2e tests
+pytest tests/ --ignore=tests/e2e -v
 ```
+- **Purpose**: Fast, isolated component testing
+- **Registry**: Mocked (in `tests/capabilities/conftest.py`)
+- **Duration**: ~3-5 seconds
+- **Count**: ~370-380 tests
+- **Cost**: Free (no API calls)
+
+### E2E Tests (Slow, Real Integration)
+```bash
+# Run e2e tests separately
+pytest tests/e2e/ -v
+
+# With verbose progress (recommended for releases)
+pytest tests/e2e/ -v -s --e2e-verbose
+```
+- **Purpose**: End-to-end user workflow validation
+- **Registry**: Real (no mocks)
+- **Duration**: ~2-3 minutes
+- **Count**: ~5 tests
+- **Cost**: ~$0.10-$0.25 in API calls
+
+### ⚠️ Critical: Why Separate?
+
+**DO NOT** run `pytest tests/` without `--ignore=tests/e2e`!
+
+The capability unit tests mock the registry globally, which will break e2e tests. The two test suites are incompatible when run together:
+
+- **Unit tests** need mocked registry for fast, isolated testing
+- **E2E tests** need real registry for integration testing
+- Running together causes registry contamination and failures
+
+**Always run both test commands separately before releasing.**
 
 ### Current E2E Test Coverage
 
 | Test | Duration | What It Validates |
 |------|----------|-------------------|
-| `test_simple_query_smoke_test` | ~10-20s | Basic framework initialization and query processing |
-| `test_bpm_timeseries_and_correlation_tutorial` | ~60-90s | Complete control assistant workflow: channel finding → archiver retrieval → Python plotting |
+| `test_simple_query_smoke_test` | ~10s | Basic framework initialization and query processing |
+| `test_bpm_timeseries_and_correlation_tutorial` | ~60s | Control assistant workflow: channel finding → archiver retrieval → Python plotting |
+| `test_hello_world_weather_tutorial` | ~30s | Hello World tutorial: weather capability, registry, mock API integration |
+| `test_in_context_pipeline_benchmark` | ~15s | In-context channel finder pipeline performance |
+| `test_hierarchical_pipeline_benchmark` | ~15s | Hierarchical channel finder pipeline performance |
 
 ### Why E2E Tests Matter for Releases
 
@@ -223,11 +265,13 @@ pytest tests/e2e/ -v -s --e2e-verbose --judge-verbose
 - **Multi-Component Integration**: Validates orchestration across capabilities
 - **Regression Detection**: Catches issues that unit tests miss
 - **LLM Judge Evaluation**: Flexible validation that adapts to reasonable variations
+- **Template Validation**: Ensures all project templates work correctly
 
 ### Cost & Performance
 
-- **Total runtime**: ~2-5 minutes for full e2e suite
-- **API cost**: ~$0.10-$0.25 per release
+- **Unit tests runtime**: ~3-5 seconds
+- **E2E tests runtime**: ~2-3 minutes
+- **Total API cost**: ~$0.10-$0.25 per release
 - **Value**: Prevents broken tutorials and user-facing bugs
 
-See `tests/e2e/README.md` for complete documentation.
+See `tests/e2e/README.md` for complete e2e test documentation.

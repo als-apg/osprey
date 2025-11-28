@@ -6,9 +6,8 @@ Runs channel finder benchmarks to evaluate performance and accuracy.
 Supports multiple datasets and provides detailed metrics.
 
 Usage:
-    python -m {{ package_name }}.services.channel_finder.benchmarks.cli
-    python -m {{ package_name }}.services.channel_finder.benchmarks.cli --dataset basic_queries
-    python -m {{ package_name }}.services.channel_finder.benchmarks.cli --queries 0:10
+    python src/{{ package_name }}/services/channel_finder/benchmarks/cli.py
+    python src/{{ package_name }}/services/channel_finder/benchmarks/cli.py --queries 0:10
 """
 
 import asyncio
@@ -18,8 +17,11 @@ import logging
 from pathlib import Path
 from datetime import datetime
 
-from .runner import BenchmarkRunner
-from ..utils.config import get_config
+# Add project root to path (enables running as standalone script)
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
+
+from {{ package_name }}.services.channel_finder.benchmarks.runner import BenchmarkRunner
+from {{ package_name }}.services.channel_finder.utils.config import get_config
 from osprey.cli.styles import console, Messages, Styles
 from rich.panel import Panel
 from rich.table import Table

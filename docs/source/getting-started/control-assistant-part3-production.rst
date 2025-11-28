@@ -1153,21 +1153,27 @@ The structure of your control system determines your approach:
       .. code-block:: json
 
          {
-           "hierarchy_definition": ["system", "family", "device", "field", "subfield"],
-           "naming_pattern": "{system}:{family}[{device}]:{field}:{subfield}",
+           "hierarchy": {
+             "levels": [
+               {"name": "system", "type": "tree"},
+               {"name": "family", "type": "tree"},
+               {"name": "device", "type": "instances"},
+               {"name": "field", "type": "tree"},
+               {"name": "subfield", "type": "tree"}
+             ],
+             "naming_pattern": "{system}:{family}[{device}]:{field}:{subfield}"
+           },
            "tree": {
              "MAGNETS": {
                "_description": "Magnet System: Your facility description...",
                "DIPOLE": {
                  "_description": "Dipole Magnets: Bend beam trajectory...",
-                 "devices": {"_type": "range", "_pattern": "D{:02d}", "_range": [1, 16]},
-                 "fields": {
+                 "DEVICE": {
+                   "_expansion": {"_type": "range", "_pattern": "D{:02d}", "_range": [1, 16]},
                    "CURRENT": {
                      "_description": "Magnet current in Amperes...",
-                     "subfields": {
-                       "SP": {"_description": "Setpoint (read-write)"},
-                       "RB": {"_description": "Readback (read-only)"}
-                     }
+                     "SP": {"_description": "Setpoint (read-write)"},
+                     "RB": {"_description": "Readback (read-only)"}
                    }
                  }
                }
@@ -1533,7 +1539,7 @@ Troubleshooting
    1. Check database path in ``config.yml``
    2. Validate database: ``python -m my_control_assistant.data.tools.validate_database``
    3. Preview database presentation: ``python -m my_control_assistant.data.tools.preview_database``
-   4. Test with CLI: ``python -m my_control_assistant.services.channel_finder.cli``
+   4. Test with CLI: ``python src/my_control_assistant/services/channel_finder/cli.py``
    5. Enable debug mode: ``config.yml`` → ``development.prompts.print_all: true``
    6. Review saved prompts in ``_agent_data/prompts/``
 

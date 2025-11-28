@@ -172,6 +172,123 @@ async def test_simple_query_smoke_test(e2e_project_factory, llm_judge):
     )
 
 
+@pytest.mark.e2e
+@pytest.mark.e2e_tutorial
+@pytest.mark.requires_cborg
+@pytest.mark.slow
+@pytest.mark.asyncio
+async def test_hello_world_weather_tutorial(e2e_project_factory, llm_judge):
+    """Test the Hello World Weather tutorial workflow end-to-end.
+
+    This test validates the complete beginner tutorial experience:
+    1. Create a hello_world_weather project
+    2. Query for weather in San Francisco
+    3. Verify the workflow completes successfully with weather data
+
+    This is the simplest tutorial in Osprey documentation showing:
+    - Basic capability creation and registration
+    - Mock external API integration
+    - Context class usage for structured data
+    - Single-step workflow execution
+    - Clean registry pattern with extend_framework_registry()
+    """
+    # Step 1: Create project from hello_world_weather template
+    project = await e2e_project_factory(
+        name="hello-weather",
+        template="hello_world_weather",
+        registry_style="extend"
+    )
+
+    # Step 2: Initialize framework
+    await project.initialize()
+
+    # Step 3: Execute the tutorial query
+    result = await project.query(
+        "What's the weather in San Francisco?"
+    )
+
+    # Step 4: Define expectations in plain text
+    expectations = """
+    The workflow should successfully complete the following:
+
+    1. **Query Classification**: Correctly identify this as a weather-related request
+       requiring the current_weather capability.
+
+    2. **Capability Execution**: Execute the current_weather capability without errors.
+       The capability should:
+       - Extract "San Francisco" as the location from the query
+       - Call the mock weather API service
+       - Return structured weather data
+
+    3. **Weather Data Retrieval**: Successfully retrieve weather information for
+       San Francisco containing:
+       - Location name (should be "San Francisco")
+       - Temperature value (numeric, in Celsius)
+       - Weather conditions (descriptive string like "Sunny", "Cloudy", etc.)
+       - Timestamp of when the data was retrieved
+
+    4. **Context Creation**: Create a CURRENT_WEATHER context object with the
+       retrieved data that's properly stored in the agent state.
+
+    5. **User Response**: Provide a clear response to the user that:
+       - Confirms the weather for San Francisco was retrieved
+       - Mentions the temperature
+       - Describes the weather conditions
+       - Feels natural and conversational
+
+    6. **No Critical Errors**: The workflow should complete without:
+       - Registry initialization errors
+       - Capability execution failures
+       - Missing context class definitions
+       - Exception traces or crashes
+       - Framework routing errors
+
+    7. **Mock API Integration**: The mock weather API should be called successfully,
+       demonstrating proper external service integration patterns (even though
+       it's mocked for the tutorial).
+
+    Expected behavior:
+    - Single-step execution (weather retrieval only, or weather + respond)
+    - Fast execution (mock API is instant)
+    - Structured data output (not just free text)
+    - Clean completion without retries
+
+    This is the "Hello World" of Osprey - it should feel smooth, simple, and
+    work perfectly as a beginner's first experience with the framework.
+    """
+
+    # Step 5: Evaluate with LLM judge
+    evaluation = await llm_judge.evaluate(
+        result=result,
+        expectations=expectations
+    )
+
+    # Step 6: Assert success with detailed failure info
+    assert evaluation.passed, (
+        f"Hello World Weather tutorial failed evaluation\n\n"
+        f"Confidence: {evaluation.confidence}\n\n"
+        f"Reasoning:\n{evaluation.reasoning}\n\n"
+        f"Warnings:\n" + "\n".join(f"  - {w}" for w in evaluation.warnings)
+    )
+
+    # Additional sanity checks
+    assert result.error is None, (
+        f"Workflow encountered error: {result.error}"
+    )
+
+    # Verify weather capability was mentioned in trace
+    trace_lower = result.execution_trace.lower()
+    assert "weather" in trace_lower or "current_weather" in trace_lower, (
+        "Weather capability not executed"
+    )
+
+    # Verify San Francisco was mentioned (either in trace or response)
+    full_output = (result.execution_trace + result.response).lower()
+    assert "san francisco" in full_output, (
+        "San Francisco not mentioned in workflow output"
+    )
+
+
 # Template for adding new tutorial tests:
 #
 # @pytest.mark.e2e

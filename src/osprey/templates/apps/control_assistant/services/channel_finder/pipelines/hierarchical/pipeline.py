@@ -8,16 +8,17 @@ import asyncio
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any, Optional
-from ...core.base_pipeline import BasePipeline
-from ...core.models import ChannelFinderResult, ChannelInfo, QuerySplitterOutput
-from ...core.exceptions import HierarchicalNavigationError
-from ...llm import get_chat_completion
-from ...utils.prompt_loader import load_prompts
-from .models import create_selection_model, NOTHING_FOUND_MARKER
+from typing import Any, Optional
 
 # Use Osprey's config system
 from osprey.utils.config import _get_config
+
+from ...core.base_pipeline import BasePipeline
+from ...core.exceptions import HierarchicalNavigationError
+from ...core.models import ChannelFinderResult, ChannelInfo, QuerySplitterOutput
+from ...llm import get_chat_completion
+from ...utils.prompt_loader import load_prompts
+from .models import NOTHING_FOUND_MARKER, create_selection_model
 
 logger = logging.getLogger(__name__)
 
@@ -47,15 +48,18 @@ def _save_prompt_to_file(prompt: str, stage: str, level: str = "", query: str = 
     if stage == 'query_split':
         filename = 'prompt_stage1_query_split.txt'
     elif stage == 'level_selection' and level:
-        # Stage 2 is hierarchical navigation with 5 levels
-        level_map = {
-            'system': 'prompt_stage2_level1_system.txt',
-            'family': 'prompt_stage2_level2_family.txt',
-            'device': 'prompt_stage2_level3_device.txt',
-            'field': 'prompt_stage2_level4_field.txt',
-            'subfield': 'prompt_stage2_level5_subfield.txt',
-        }
-        filename = level_map.get(level, f'prompt_stage2_level_{level}.txt')
+        # Dynamic level mapping based on hierarchy definition
+        config_builder = _get_config()
+        hierarchy_levels = config_builder.get(
+            'channel_finder.pipelines.hierarchical.database.hierarchy_levels',
+            []
+        )
+
+        try:
+            level_idx = hierarchy_levels.index(level) + 1
+            filename = f'prompt_stage2_level{level_idx}_{level}.txt'
+        except (ValueError, AttributeError):
+            filename = f'prompt_stage2_level_{level}.txt'
     else:
         filename = f'prompt_{stage}.txt'
 
@@ -175,7 +179,7 @@ class HierarchicalPipeline(BasePipeline):
         # Build result (detailed display happens in capability layer)
         return self._build_result(query, unique_channels)
 
-    async def _split_query(self, query: str) -> List[str]:
+    async def _split_query(self, query: str) -> list[str]:
         """Split query into atomic sub-queries (reuse from in-context)."""
         prompt = self.query_splitter.get_prompt(facility_name=self.facility_name)
         message = f"{prompt}\n\nQuery to process: {query}"
@@ -193,7 +197,7 @@ class HierarchicalPipeline(BasePipeline):
         return response.queries
 
 
-    async def _navigate_hierarchy(self, query: str) -> List[str]:
+    async def _navigate_hierarchy(self, query: str) -> list[str]:
         """
         Navigate through hierarchy levels for a single atomic query.
 
@@ -227,12 +231,12 @@ class HierarchicalPipeline(BasePipeline):
     async def _navigate_recursive(
         self,
         query: str,
-        remaining_levels: List[str],
-        selections: Dict,
-        branch_path: List[str],
+        remaining_levels: list[str],
+        selections: dict,
+        branch_path: list[str],
         branch_num: int,
         total_branches: int
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Recursively navigate hierarchy with automatic branching.
 
@@ -282,10 +286,14 @@ class HierarchicalPipeline(BasePipeline):
 
         logger.info(f"{indent}  → Selected: {selected[:3] if len(selected) > 3 else selected}{'...' if len(selected) > 3 else ''}")
 
-        # Determine if we should branch
+        # Determine if we should branch based on level type
+        level_config = self.database.hierarchy_config["levels"][level]
+        # Tree levels allow branching, instance levels don't
+        allow_branching = (level_config["type"] == "tree")
+
         should_branch = (
             len(selected) > 1 and
-            level in ['system', 'family', 'field']  # Branching levels
+            allow_branching
         )
 
         if should_branch:
@@ -342,9 +350,9 @@ class HierarchicalPipeline(BasePipeline):
         self,
         query: str,
         level: str,
-        options: List[Dict],
-        previous_selections: Dict
-    ) -> List[str]:
+        options: list[dict],
+        previous_selections: dict
+    ) -> list[str]:
         """
         Use LLM to select option(s) at current hierarchy level.
 
@@ -393,8 +401,8 @@ class HierarchicalPipeline(BasePipeline):
         self,
         query: str,
         level: str,
-        options: List[Dict],
-        previous_selections: Dict
+        options: list[dict],
+        previous_selections: dict
     ) -> str:
         """Build prompt for hierarchical level selection with path-aware domain context."""
         # Format options (limit to reasonable number for prompt)
@@ -438,6 +446,34 @@ class HierarchicalPipeline(BasePipeline):
         level_instruction = ""
         if self.hierarchical_context and level in self.hierarchical_context:
             level_instruction = f"\n{self.hierarchical_context[level].strip()}\n"
+        else:
+            # Fallback guidance based on level type for arbitrary hierarchies
+            level_config = self.database.hierarchy_config["levels"][level]
+            if level_config["type"] == "instances":
+                level_instruction = f"""
+Select specific instance(s) of {level} based on the query.
+
+Guidelines:
+- Specific number/name mentioned → select that instance exactly
+- "all" or no specific instance → select all available instances
+- Range mentioned → select instances in that range
+- Multiple instances can be selected - they share the same structure
+"""
+            elif level_config["type"] == "tree":
+                level_instruction = f"""
+Select the {level} category/categories that match the query.
+
+BRANCHING BEHAVIOR: If you select multiple options, each will be explored
+separately with its own subtree. This is important when different options
+have different structures or children.
+
+Select multiple when the query spans multiple categories or is ambiguous.
+"""
+            else:
+                # Fallback for legacy container mode
+                level_instruction = f"""
+Select the {level} option that best matches the query context.
+"""
 
         # Add facility description for system-level navigation (provides device naming conventions)
         facility_context = ""
@@ -471,14 +507,14 @@ If no options are relevant, use '{NOTHING_FOUND_MARKER}'."""
 
         return prompt
 
-    def _get_single_selection(self, selections: Dict, key: str) -> Optional[str]:
+    def _get_single_selection(self, selections: dict, key: str) -> Optional[str]:
         """Get single selection value (handle lists by taking first element)."""
         value = selections.get(key)
         if isinstance(value, list):
             return value[0] if value else None
         return value
 
-    def _build_result(self, query: str, channels: List[str]) -> ChannelFinderResult:
+    def _build_result(self, query: str, channels: list[str]) -> ChannelFinderResult:
         """Build final result object."""
         channel_infos = []
 
@@ -504,7 +540,7 @@ If no options are relevant, use '{NOTHING_FOUND_MARKER}'."""
             processing_notes=notes
         )
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         """Return pipeline statistics."""
         db_stats = self.database.get_statistics()
         return {

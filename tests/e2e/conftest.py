@@ -14,7 +14,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from osprey.cli.init_cmd import init
 from osprey.graph import create_graph
 from osprey.infrastructure.gateway import Gateway
-from osprey.registry import get_registry, initialize_registry
+from osprey.registry import get_registry, initialize_registry, reset_registry
 from osprey.utils.config import get_full_configuration
 from tests.e2e.judge import LLMJudge, WorkflowResult
 
@@ -33,6 +33,10 @@ class E2EProject:
 
     async def initialize(self):
         """Initialize the framework for this project."""
+        # Reset registry to ensure clean state for this project
+        # This prevents contamination from previous test projects
+        reset_registry()
+
         # Set config file environment variable (needed for Python executor)
         os.environ['CONFIG_FILE'] = str(self.config_path)
 
@@ -313,10 +317,10 @@ def llm_judge(request):
     """Fixture providing an LLM judge for evaluation.
 
     Can be configured via pytest command line:
-        pytest --judge-provider=cborg --judge-model=anthropic/claude-sonnet
+        pytest --judge-provider=cborg --judge-model=anthropic/claude-haiku
     """
     provider = request.config.getoption("--judge-provider", default="cborg")
-    model = request.config.getoption("--judge-model", default="anthropic/claude-sonnet")
+    model = request.config.getoption("--judge-model", default="anthropic/claude-haiku")
     verbose = request.config.getoption("--judge-verbose", default=False)
 
     return LLMJudge(
@@ -337,7 +341,7 @@ def pytest_addoption(parser):
     parser.addoption(
         "--judge-model",
         action="store",
-        default="anthropic/claude-sonnet",
+        default="anthropic/claude-haiku",
         help="Model to use for LLM judge evaluation"
     )
     parser.addoption(
@@ -367,5 +371,9 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "e2e_tutorial: Tutorial workflow validation tests"
+    )
+    config.addinivalue_line(
+        "markers",
+        "e2e_benchmark: Channel finder benchmark validation tests"
     )
 

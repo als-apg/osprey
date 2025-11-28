@@ -1,15 +1,26 @@
-"""Shared fixtures for capability tests."""
+"""Shared fixtures for capability tests.
 
-import sys
+NOTE: This conftest.py mocks the registry for capability unit tests.
+Do NOT run these tests together with e2e tests - run them separately:
+  - Unit tests: pytest tests/ --ignore=tests/e2e
+  - E2E tests:   pytest tests/e2e/
+"""
+
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 
+from osprey.state import AgentState
+
 
 def pytest_configure(config):
-    """Configure pytest to mock registry before any imports."""
-    # Create mock registry
+    """Configure pytest to mock registry before any imports.
+
+    This mock is ONLY for capability unit tests.
+    E2E tests should be run separately: pytest tests/e2e/
+    """
+    # Create mock registry for capability unit tests
     mock_reg = MagicMock()
     mock_reg.context_types = MagicMock()
     mock_reg.services = MagicMock()
@@ -24,10 +35,10 @@ def pytest_configure(config):
     import osprey.registry.manager
 
     osprey.registry.manager._registry = mock_reg
-    osprey.registry.manager.get_registry = lambda: mock_reg
+    # Accept optional keyword arguments for compatibility
+    osprey.registry.manager.get_registry = lambda **kwargs: mock_reg
 
 
-from osprey.state import AgentState
 
 
 @pytest.fixture

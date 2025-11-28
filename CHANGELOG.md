@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Channel Finder E2E Benchmarks**
+  - New benchmark test suite for hierarchical channel finder pipeline
+  - Tests query processing across all hierarchy complexity levels
+  - Performance metrics: navigation depth, branching factor, channel count
+  - Validates correct channel finding across diverse hierarchy patterns
+  - Example queries testing system understanding and multi-level navigation
+- **Flexible Hierarchical Database Schema**
+  - Clean, flexible schema for defining arbitrary control system hierarchies
+  - Single `hierarchy` section combines level definitions and naming pattern with built-in validation
+  - Support arbitrary mixing of tree navigation (semantic categories) and instance expansion (numbered/patterned devices) at any level
+  - Enable multiple consecutive instance levels (e.g., SECTOR→DEVICE, FLOOR→ROOM), instance-first hierarchies, or any tree/instance pattern
+  - Automatic validation ensures level names and naming patterns stay in sync (catches errors at load time, not runtime)
+  - Each level specifies `name` and `type` (`tree` for semantic categories, `instances` for numbered expansions)
+  - Removed redundant/confusing fields from schema (eliminated `_structure` documentation field, consolidated three separate config fields into one)
+  - Comprehensive test suite with 33 unit tests including 6 new naming pattern validation tests (all passing)
+  - Example databases demonstrating real-world use cases:
+    - `hierarchical.json`: Accelerator control (1,048 channels) - SYSTEM[tree]→FAMILY[tree]→DEVICE[instances]→FIELD[tree]→SUBFIELD[tree]
+    - `mixed_hierarchy.json`: Building management (1,720 channels) - SECTOR[instances]→BUILDING[tree]→FLOOR[instances]→ROOM[instances]→EQUIPMENT[tree]
+    - `instance_first.json`: Manufacturing (85 channels) - LINE[instances]→STATION[tree]→PARAMETER[tree]
+    - `consecutive_instances.json`: Accelerator naming (4,996 channels) - SYSTEM[tree]→FAMILY[tree]→SECTOR[instances]→DEVICE[instances]→PROPERTY[tree]
+  - Backward compatibility: Legacy databases with implicit configuration automatically converted with deprecation warnings
+  - Support hierarchies from 1 to 15+ levels with any combination of types
+  - Updated documentation with clean schema examples and comprehensive guides
+- **Hello World Weather E2E Test**
+  - New end-to-end test validating complete Hello World tutorial workflow
+  - Tests weather capability execution, mock API integration, and registry initialization
+  - LLM judge evaluation ensures beginner-friendly experience
+  - Validates template generation and framework setup for new users
+
+### Changed
+- **Test Infrastructure**
+  - Fixed test isolation between unit tests and e2e tests using `reset_registry()`
+  - Updated all e2e tests to use Claude Haiku (faster, more cost-effective)
+  - Separated unit test and e2e test execution to prevent registry mock contamination
+  - Updated channel finder tests to use new unified database schema (`"type"` instead of `"structure"`)
+  - Documentation: Updated `RELEASE_WORKFLOW.md` with clear instructions for running unit tests (`pytest tests/ --ignore=tests/e2e`) and e2e tests (`pytest tests/e2e/`) separately
+
 ## [0.9.3] - 2025-11-27
 
 ### Added
