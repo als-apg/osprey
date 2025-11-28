@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Channel Finder E2E Benchmarks**
+  - New benchmark test suite for hierarchical channel finder pipeline
+  - Tests query processing across all hierarchy complexity levels
+  - Performance metrics: navigation depth, branching factor, channel count
+  - Validates correct channel finding across diverse hierarchy patterns
+  - Example queries testing system understanding and multi-level navigation
 - **Flexible Hierarchical Database Schema**
   - Clean, flexible schema for defining arbitrary control system hierarchies
   - Single `hierarchy` section combines level definitions and naming pattern with built-in validation

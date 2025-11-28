@@ -368,4 +368,8 @@ def pytest_configure(config):
         "markers",
         "e2e_tutorial: Tutorial workflow validation tests"
     )
+    config.addinivalue_line(
+        "markers",
+        "e2e_benchmark: Channel finder benchmark validation tests"
+    )
 

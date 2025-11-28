@@ -62,6 +62,17 @@ This shows real-time status updates during test execution so you can see what's 
 pytest tests/e2e/test_tutorials.py::test_bpm_timeseries_and_correlation_tutorial -v -s
 ```
 
+### Run channel finder benchmark tests:
+
+```bash
+# Run all benchmark tests (both pipelines)
+pytest tests/e2e/test_channel_finder_benchmarks.py -v -s
+
+# Run specific pipeline benchmark
+pytest tests/e2e/test_channel_finder_benchmarks.py::test_in_context_pipeline_benchmark -v -s
+pytest tests/e2e/test_channel_finder_benchmarks.py::test_hierarchical_pipeline_benchmark -v -s
+```
+
 ### Command-line options:
 
 | Option | Default | Description |
@@ -77,6 +88,28 @@ pytest tests/e2e/test_tutorials.py::test_bpm_timeseries_and_correlation_tutorial
 
 - **`test_bpm_timeseries_and_correlation_tutorial`**: Validates channel finding, archiver retrieval, and plotting (~60-90s)
 - **`test_simple_query_smoke_test`**: Quick validation of E2E infrastructure (~10-20s)
+
+### Channel Finder Benchmark Tests (`test_channel_finder_benchmarks.py`)
+
+These tests validate that the control-assistant channel finder pipelines meet production-quality benchmarks:
+
+- **`test_in_context_pipeline_benchmark`**: Validates in-context pipeline achieves ≥90% accuracy
+  - Tests the in-context pipeline as shown in the tutorial
+  - 30 diverse natural language queries
+  - Validates precision, recall, F1 score, and consistency
+
+- **`test_hierarchical_pipeline_benchmark`**: Validates hierarchical pipeline achieves ≥90% accuracy
+  - Tests the hierarchical pipeline as shown in the tutorial
+  - 47 diverse natural language queries
+  - Validates multi-level navigation and channel selection
+
+**Success Criteria (per test):**
+- ≥80% perfect match rate (F1 score = 1.0)
+- ≥95% completion rate (no crashes)
+- Overall F1 score ≥ 0.80
+- High consistency across runs
+
+**Note**: Run both tests to validate both pipelines, or run individually to test specific pipeline changes.
 
 ## Writing New Tests
 
@@ -138,6 +171,7 @@ expectations = "Must find exactly 17 channels named..."
 - `@pytest.mark.e2e` - All E2E tests
 - `@pytest.mark.e2e_smoke` - Fast smoke tests (~10-20s)
 - `@pytest.mark.e2e_tutorial` - Tutorial workflow validation
+- `@pytest.mark.e2e_benchmark` - Channel finder benchmark validation (2-8 min per test)
 - `@pytest.mark.requires_cborg` - Requires CBORG API key
 - `@pytest.mark.slow` - Takes >30 seconds
 
@@ -184,17 +218,6 @@ jobs:
           CBORG_API_KEY: ${{ secrets.CBORG_API_KEY }}
         run: pytest tests/e2e/ -v
 ```
-
-## Cost Considerations
-
-Each E2E test involves 5-10 LLM calls for workflow execution plus 1 judge evaluation call. Approximate cost: $0.01-$0.05 per test, or $0.10-$0.50 for the complete suite.
-
-Recommended usage:
-- Before releases
-- When testing tutorial changes
-- On-demand during development
-- Not on every commit
-
 
 ## Test Reliability
 
@@ -261,8 +284,16 @@ For critical workflows, use `--e2e-verbose` to watch execution in real-time and 
 - Check if expectations match what the workflow actually does
 - Verify expectations are clear and measurable
 
+### Benchmark test fails
+- Check benchmark results files for detailed per-query analysis
+- Review failed queries to identify patterns
+- Verify database and prompts are up to date
+- Consider if model temperature or other settings need adjustment
+- Run individual benchmark queries manually to debug
+
 ## Additional Resources
 
+- `tests/e2e/BENCHMARK_TESTS.md` - Detailed guide to channel finder benchmark tests
 - `tests/integration/test_e2e_workflow.py` - Integration tests without LLM judge
 - `TESTING_GUIDE.md` - General testing documentation
 
