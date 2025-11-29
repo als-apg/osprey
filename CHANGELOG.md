@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **CLI Commands**: New `osprey generate claude-config` command to generate Claude Code generator configuration files with sensible defaults and auto-detection of provider settings
 - **Interactive Menu**: Added 'generate' command to project selection submenu, centralized menu choice management with `get_project_menu_choices()`, improved consistency between main and project selection flows
+- **E2E Test Suites**: Added comprehensive end-to-end test coverage
+  - **Claude Config Generation Tests** (`test_claude_config_generation.py`): Validates `osprey generate claude-config` command, tests configuration file structure, provider auto-detection, and profile customization
+  - **Code Generator Workflow Tests** (`test_code_generator_workflows.py`): Tests complete code generation pipeline with basic and Claude Code generators. Validates example script guidance following, instruction adherence, and deterministic assertions for generated code content
+  - **MCP Capability Generation Tests** (`test_mcp_capability_generation.py`): End-to-end MCP integration testing including server generation/launch, capability generation from live MCP server, registry integration, and query execution with LLM judge verification
 
 ### Changed
 - **API Call Logging**: Enhanced with caller context tracking across all LLM-calling components. Logging metadata now includes capability/module/operation details for better debugging. Improved JSON serialization with Pydantic model support (mode='json') and better error visibility (warnings instead of silent failures)
