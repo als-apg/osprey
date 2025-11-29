@@ -47,7 +47,7 @@ secure, isolated code execution with comprehensive monitoring and result collect
    resource limits and monitoring are configured in production environments.
 
 .. seealso::
-   :class:`osprey.services.python_executor.executor_node.ContainerCodeExecutor` : High-level executor
+   :class:`osprey.services.python_executor.execution.node.create_executor_node` : High-level executor
    :class:`osprey.services.python_executor.models.PythonExecutionEngineResult` : Result structure
    :class:`osprey.services.python_executor.exceptions.ContainerConnectivityError` : Container errors
 
@@ -89,8 +89,8 @@ import websocket
 
 from osprey.utils.logger import get_logger
 
-from .exceptions import CodeRuntimeError, ContainerConnectivityError, ExecutionTimeoutError
-from .models import PythonExecutionEngineResult
+from ..exceptions import CodeRuntimeError, ContainerConnectivityError, ExecutionTimeoutError
+from ..models import PythonExecutionEngineResult
 
 logger = get_logger("python_executor")
 
@@ -286,35 +286,35 @@ class JupyterSessionManager:
                 host=self.endpoint.host,
                 port=self.endpoint.port,
                 technical_details={"timeout": 30}
-            )
+            ) from e
         except requests.exceptions.ConnectionError as e:
             raise ContainerConnectivityError(
                 f"Jupyter container connection error: {e}",
                 host=self.endpoint.host,
                 port=self.endpoint.port,
                 technical_details={"connection_error": str(e)}
-            )
-        except requests.exceptions.HTTPError:
+            ) from e
+        except requests.exceptions.HTTPError as e:
             raise ContainerConnectivityError(
                 f"Jupyter session creation failed: HTTP {response.status_code} - {response.text[:200]}",
                 host=self.endpoint.host,
                 port=self.endpoint.port,
                 technical_details={"http_error": response.status_code, "response": response.text[:200]}
-            )
+            ) from e
         except requests.exceptions.RequestException as e:
             raise ContainerConnectivityError(
                 f"Jupyter session creation request failed: {e}",
                 host=self.endpoint.host,
                 port=self.endpoint.port,
                 technical_details={"request_error": str(e)}
-            )
+            ) from e
         except Exception as e:
             raise ContainerConnectivityError(
                 f"Unexpected Jupyter session creation error: {e}",
                 host=self.endpoint.host,
                 port=self.endpoint.port,
                 technical_details={"unexpected_error": str(e)}
-            )
+            ) from e
 
         session_info = response.json()
         session = SessionInfo(
@@ -384,21 +384,21 @@ class CodeExecutionEngine:
                 host=self.endpoint.host,
                 port=self.endpoint.port,
                 technical_details={"websocket_timeout": True}
-            )
+            ) from e
         except websocket.WebSocketException as e:
             raise ContainerConnectivityError(
                 f"WebSocket connection error: {e}",
                 host=self.endpoint.host,
                 port=self.endpoint.port,
                 technical_details={"websocket_error": str(e)}
-            )
+            ) from e
         except Exception as e:
             raise ContainerConnectivityError(
                 f"WebSocket connection failed: {e}",
                 host=self.endpoint.host,
                 port=self.endpoint.port,
                 technical_details={"connection_failed": str(e)}
-            )
+            ) from e
 
         try:
             msg_id = self._send_execute_request(ws, code, session)
@@ -600,6 +600,22 @@ class FileBasedResultCollector:
                 else:
                     combined_output = stderr
 
+            # Runtime validation: Check if results variable was created
+            if success and metadata.get("results_missing", False):
+                error_msg = (
+                    "Code executed successfully but did not create required 'results' dictionary. "
+                    "Please ensure your code assigns a dictionary to the 'results' variable. "
+                    "Example: results = {'key': value}"
+                )
+                logger.warning(f"⚠️  {error_msg}")
+
+                # This is a code generation issue - raise error to trigger regeneration
+                raise CodeRuntimeError(
+                    message=error_msg,
+                    traceback_info="Runtime validation failed: 'results' variable not found in execution namespace",
+                    execution_attempt=1
+                )
+
             # Include traceback in error message if execution failed
             if not success and error_message:
                 traceback_info = metadata.get("traceback")
@@ -652,7 +668,7 @@ class FileBasedResultCollector:
                 traceback_info="",
                 execution_attempt=1,
                 technical_details={"collection_error": str(e)}
-            )
+            ) from e
 
     async def _read_json_file(self, filename: str) -> dict[str, Any] | None:
         """Read a JSON file from the execution folder"""
@@ -815,7 +831,7 @@ class ContainerExecutor:
             session = await self.session_manager.ensure_session()
 
             # 2. Execute the wrapped code using unified wrapper
-            from .execution_wrapper import ExecutionWrapper
+            from .wrapper import ExecutionWrapper
             wrapper = ExecutionWrapper(execution_mode="container")
             wrapped_code = wrapper.create_wrapper(code, self.execution_folder)
 
@@ -831,7 +847,6 @@ class ContainerExecutor:
             # Re-raise known exceptions
             raise
         except Exception as e:
-            execution_time = time.time() - start_time
             logger.error(f"Container code execution failed: {str(e)}")
 
             # Convert unexpected errors to connectivity errors
@@ -840,7 +855,7 @@ class ContainerExecutor:
                 host=self.endpoint.host,
                 port=self.endpoint.port,
                 technical_details={"unexpected_error": str(e)}
-            )
+            ) from e
         finally:
             # Clean up session if needed
             await self.session_manager.cleanup_session()

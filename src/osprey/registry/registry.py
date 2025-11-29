@@ -79,6 +79,7 @@ Examples:
 
 from .base import (
     CapabilityRegistration,
+    CodeGeneratorRegistration,
     ConnectorRegistration,
     ContextClassRegistration,
     DataSourceRegistration,
@@ -475,15 +476,35 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                 ),
             ],
 
+            # Framework code generators for Python executor
+            code_generators=[
+                # Basic LLM-based generator (always available)
+                CodeGeneratorRegistration(
+                    name="basic",
+                    module_path="osprey.services.python_executor.generation.basic_generator",
+                    class_name="BasicLLMCodeGenerator",
+                    description="Simple single-pass LLM code generator"
+                ),
+                # Claude Code SDK generator (optional dependency)
+                CodeGeneratorRegistration(
+                    name="claude_code",
+                    module_path="osprey.services.python_executor.generation.claude_code_generator",
+                    class_name="ClaudeCodeGenerator",
+                    description="Claude Code SDK-based generator with multi-turn reasoning and codebase awareness",
+                    optional_dependencies=["claude-agent-sdk"]
+                ),
+            ],
+
             # Simplified initialization order - decorators and subgraphs are imported directly when needed
             initialization_order=[
                 "context_classes",    # First - needed by capabilities
                 "data_sources",       # Second - needed by capabilities
                 "providers",          # Third - AI model providers early for use by capabilities
                 "connectors",         # Fourth - control system/archiver connectors
-                "core_nodes",         # Fifth - infrastructure nodes
-                "services",           # Sixth - internal service graphs
-                "capabilities",       # Seventh - depends on everything else including services
+                "code_generators",    # Fifth - code generators for Python executor
+                "core_nodes",         # Sixth - infrastructure nodes
+                "services",           # Seventh - internal service graphs
+                "capabilities",       # Eighth - depends on everything else including services
                 "framework_prompt_providers"  # Last - imports applications that may need capabilities/context
             ]
         )

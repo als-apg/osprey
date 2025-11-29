@@ -56,16 +56,13 @@ from osprey.context.context_manager import ContextManager, recursively_summarize
 from osprey.prompts.loader import get_framework_prompts
 from osprey.registry import get_registry
 from osprey.services.python_executor import PythonServiceResult
-from osprey.services.python_executor.models import PythonExecutionRequest
+from osprey.services.python_executor.models import PlanningMode, PythonExecutionRequest
 from osprey.state import AgentState, StateManager
 from osprey.utils.config import get_full_configuration
 from osprey.utils.logger import get_logger
 
 # Module-level logger for helper functions
 logger = get_logger("python")
-
-
-registry = get_registry()
 
 
 # ========================================================
@@ -403,7 +400,8 @@ class PythonCapability(BaseCapability):
 
         logger.status("Initializing Python executor service...")
 
-        # Get Python executor service from registry
+        # Get Python executor service from registry (call get_registry() at runtime, not module import time)
+        registry = get_registry()
         python_service = registry.get_service("python_executor")
 
         if not python_service:
@@ -493,7 +491,8 @@ class PythonCapability(BaseCapability):
                 execution_folder_name="python_capability",
                 capability_context_data=capability_contexts,
                 config=self._state.get("config"),
-                retries=3
+                retries=3,
+                planning_mode=PlanningMode.GENERATOR_DRIVEN
             )
 
             logger.status("Invoking Python executor service...")

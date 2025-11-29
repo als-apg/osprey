@@ -45,7 +45,7 @@ clear separation between different types of errors.
 .. seealso::
    :class:`PythonExecutorService` : Service that raises and handles these exceptions
    :class:`ErrorCategory` : Enumeration of error categories for recovery logic
-   :func:`osprey.services.python_executor.analyzer_node` : Analysis node error handling
+   :func:`osprey.services.python_executor.analysis.node` : Analysis node error handling
 
 Examples:
     Catching and handling different error categories::

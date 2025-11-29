@@ -55,10 +55,7 @@ from osprey.base.errors import ErrorClassification, ErrorSeverity
 from osprey.base.examples import OrchestratorGuide, TaskClassifierGuide
 from osprey.context.base import CapabilityContext
 from osprey.prompts.loader import get_framework_prompts
-from osprey.registry import get_registry
 from osprey.utils.config import get_model_config
-
-registry = get_registry()
 
 # Import model completion - adapt based on your model system
 try:
@@ -536,6 +533,15 @@ class TimeRangeParsingCapability(BaseCapability):
         try:
             # Get model config from LangGraph configurable
             model_config = get_model_config("time_parsing")
+
+            # Set caller context for API call logging (propagates through asyncio.to_thread)
+            from osprey.models import set_api_call_context
+            set_api_call_context(
+                function="execute",
+                module="time_range_parsing",
+                class_name="TimeRangeParsingCapability",
+                extra={"capability": "time_range_parsing"}
+            )
 
             # LLM call with structured output
             response_data = await asyncio.to_thread(

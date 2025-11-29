@@ -81,6 +81,49 @@ python -m {{ package_name }}.services.channel_finder.cli
 python -m {{ package_name }}.services.channel_finder.benchmarks.cli
 ```
 
+{% if code_generator == 'claude_code' %}
+### 5. Configure Claude Code Generator
+
+The Claude Code generator requires advanced configuration in `claude_generator_config.yml`:
+
+{% if default_provider in ['cborg', 'anthropic'] %}
+**Provider Compatibility:** ✓ Your provider ({{ default_provider }}) is compatible with Claude Code!
+
+{% else %}
+**⚠️ Important:** Claude Code requires Anthropic's Claude models, but your main config uses {{ default_provider }}.
+
+The code generator will use direct Anthropic API access. You need **both**:
+- `{{ default_provider|upper }}_API_KEY` for your main orchestrator/framework
+- `ANTHROPIC_API_KEY` for the Claude Code generator
+
+Add both to your `.env` file:
+```bash
+{{ default_provider|upper }}_API_KEY=your_{{ default_provider }}_key
+ANTHROPIC_API_KEY=your_anthropic_key  # Required for Claude Code generator
+```
+
+{% endif %}
+**Quality/Speed Profiles:**
+```yaml
+# In config.yml:
+execution:
+  generators:
+    claude_code:
+      profile: "fast"  # Options: fast (DEFAULT, single-phase) | robust (multi-phase)
+```
+
+- **fast**: Quick one-pass generation (~5s, ~$0.02)
+- **fast**: Single-phase direct generation (~20s, ~$0.03) - DEFAULT
+- **robust**: Maximum quality with extended workflow (~30s, ~$0.15)
+
+**Advanced Features:**
+- **Example Learning**: Add your own examples to `_agent_data/example_scripts/` for Claude to learn from
+- **Custom Workflows**: Modify the 3-phase workflow (scan → plan → generate) in `claude_generator_config.yml`
+- **Model Selection**: Use different models for each workflow phase (Haiku for speed, Sonnet for quality)
+
+See `claude_generator_config.yml` for detailed configuration options.
+
+{% endif %}
 ---
 
 ## 💻 Command Line Tools

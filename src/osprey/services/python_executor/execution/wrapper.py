@@ -213,6 +213,8 @@ print(f"Container working directory: {{Path.cwd()}}")
                 "stderr": "",
                 "error_type": None,
                 "results_saved": False,
+                "results_captured": False,  # Runtime validation flag
+                "results_missing": False,   # Set to True if results not found
                 "figures_saved": [],
                 "figure_count": 0,
                 "execution_mode": "{self.execution_mode}"
@@ -340,17 +342,31 @@ print(f"Container working directory: {{Path.cwd()}}")
                 # Import robust serialization function
                 from osprey.services.python_executor.services import serialize_results_to_file
 
-                # Save results dictionary if it exists
-                if 'results' in globals() and results is not None:
-                    # Use robust serialization function
-                    serialization_metadata = serialize_results_to_file(results, 'results.json')
-                    execution_metadata["results_saved"] = serialization_metadata["success"]
+                # Runtime validation: Check if 'results' exists in globals
+                if 'results' in globals():
+                    execution_metadata["results_captured"] = True
 
-                    if not serialization_metadata["success"]:
-                        # Serialization failed, capture detailed error info
-                        execution_metadata["results_save_error"] = serialization_metadata["error"]
-                        if "fallback_saved" in serialization_metadata:
-                            execution_metadata["fallback_results_saved"] = serialization_metadata["fallback_saved"]
+                    if results is not None:
+                        # Use robust serialization function
+                        serialization_metadata = serialize_results_to_file(results, 'results.json')
+                        execution_metadata["results_saved"] = serialization_metadata["success"]
+
+                        if not serialization_metadata["success"]:
+                            # Serialization failed, capture detailed error info
+                            execution_metadata["results_save_error"] = serialization_metadata["error"]
+                            if "fallback_saved" in serialization_metadata:
+                                execution_metadata["fallback_results_saved"] = serialization_metadata["fallback_saved"]
+                    else:
+                        # results exists but is None
+                        execution_metadata["results_captured"] = True
+                        execution_metadata["results_is_none"] = True
+                        print("⚠️  Warning: 'results' variable exists but is set to None", file=sys.stderr)
+                else:
+                    # results variable was never created
+                    execution_metadata["results_captured"] = False
+                    execution_metadata["results_missing"] = True
+                    print("⚠️  Warning: Code did not create required 'results' variable", file=sys.stderr)
+                    print("    Downstream code may expect a 'results' dictionary to be present", file=sys.stderr)
 
                 # Save matplotlib figures
                 try:

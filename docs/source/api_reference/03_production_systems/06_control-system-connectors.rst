@@ -201,7 +201,7 @@ Analyzes Python code using configurable regex patterns to detect control system 
 
 .. code-block:: python
 
-   from osprey.services.python_executor.pattern_detection import detect_control_system_operations
+   from osprey.services.python_executor.analysis.pattern_detection import detect_control_system_operations
 
    code = """
    current = epics.caget('BEAM:CURRENT')
@@ -390,7 +390,7 @@ Detect control system operations in generated code:
 
 .. code-block:: python
 
-   from osprey.services.python_executor.pattern_detection import detect_control_system_operations
+   from osprey.services.python_executor.analysis.pattern_detection import detect_control_system_operations
 
    code = """
    # Read beam current

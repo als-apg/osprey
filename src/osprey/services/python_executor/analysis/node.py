@@ -13,23 +13,24 @@ from osprey.approval.approval_system import create_code_approval_interrupt
 from osprey.utils.config import get_full_configuration
 from osprey.utils.logger import get_logger
 
-from .exceptions import (
+from ..exceptions import (
     CodeGenerationError,
     CodeSyntaxError,
     ContainerConfigurationError,
 )
-from .execution_policy_analyzer import (
-    BasicAnalysisResult,
-    DomainAnalysisManager,
-    ExecutionPolicyManager,
-)
-from .models import (
+from ..models import (
     AnalysisResult,
+    ExecutionError,
     PythonExecutionState,
     get_execution_mode_config_from_configurable,
     validate_result_structure,
 )
-from .services import FileManager, NotebookManager
+from ..services import FileManager, NotebookManager
+from .policy_analyzer import (
+    BasicAnalysisResult,
+    DomainAnalysisManager,
+    ExecutionPolicyManager,
+)
 
 logger = get_logger("osprey")
 
@@ -68,8 +69,14 @@ class StaticCodeAnalyzer:
             import_issues = self._check_imports(code)
             prohibited_imports = self._get_prohibited_imports(import_issues)
 
-            # 4. Result structure validation
+            # 4. Result structure validation (static check - warns but doesn't fail)
             has_result_structure = validate_result_structure(code)
+            if not has_result_structure:
+                logger.warning(
+                    "⚠️  Generated code does not appear to assign to 'results' variable. "
+                    "This may cause issues if downstream code expects results. "
+                    "Note: This is a static check - runtime validation will confirm."
+                )
 
             # Create basic analysis result
             basic_analysis = BasicAnalysisResult(
@@ -153,7 +160,7 @@ class StaticCodeAnalyzer:
             raise ContainerConfigurationError(
                 f"Static analysis failed: {str(e)}",
                 technical_details={"original_error": str(e)}
-            )
+            ) from e
 
     def _check_syntax(self, code: str) -> list[str]:
         """Check Python syntax validity"""
@@ -253,8 +260,13 @@ def create_analyzer_node():
         # Check if we have code to analyze
         generated_code = state.get("generated_code")
         if not generated_code:
-            error_message = "No code available for static analysis"
-            error_chain = state.get("error_chain", []) + [error_message]
+            error = ExecutionError(
+                error_type="generation",
+                error_message="No code available for static analysis",
+                attempt_number=state.get("generation_attempt", 0),
+                stage="generation"
+            )
+            error_chain = state.get("error_chain", []) + [error]
 
             return {
                 "analysis_failed": True,
@@ -277,21 +289,35 @@ def create_analyzer_node():
 
             if not analysis_result.passed:
                 # Analysis failed - need to regenerate
-                error_message = f"Static analysis failed: {', '.join(analysis_result.issues)}"
-                error_chain = state.get("error_chain", []) + [error_message]
+                error = ExecutionError(
+                    error_type="analysis",
+                    error_message="Static analysis failed",
+                    failed_code=generated_code,
+                    analysis_issues=analysis_result.issues,
+                    attempt_number=state.get("generation_attempt", 0),
+                    stage="analysis"
+                )
+                error_chain = state.get("error_chain", []) + [error]
 
                 # Create attempt notebook for debugging static analysis failures
+                error_message = f"Static analysis failed: {', '.join(analysis_result.issues)}"
                 await _create_analysis_failure_attempt_notebook(
                     state, configurable, generated_code, error_message, analysis_result.issues
                 )
+
+                # Check retry limit here (not in conditional edge!)
+                max_retries = state["request"].retries
+                retry_limit_exceeded = len(error_chain) >= max_retries
 
                 return {
                     "analysis_result": analysis_result,
                     "analysis_failed": True,
                     "error_chain": error_chain,
-                    "current_stage": "generation"
+                    "current_stage": "generation",
+                    # Mark as permanently failed if retry limit exceeded
+                    "is_failed": retry_limit_exceeded,
+                    "failure_reason": f"Code generation failed after {max_retries} attempts (analysis failures)" if retry_limit_exceeded else None,
                 }
-
             # Analysis passed - check if approval needed
             requires_approval = analysis_result.needs_approval
 
@@ -299,18 +325,26 @@ def create_analyzer_node():
             logger.status(status_msg)
 
             if requires_approval:
-                # CRITICAL: Create approval interrupt data here to avoid double execution
-                # Use the new LangGraph-native approval system
+                # Create pre-approval notebook for user review
+                # This gives users a clickable Jupyter link to review code before approving
+                execution_folder, notebook_path, notebook_link = await _create_pre_approval_notebook(
+                    state, configurable, generated_code, analysis_result
+                )
+
+                # Create approval interrupt data with REAL notebook paths
+                # Users now get clickable links instead of generic "code is available" message
+                execution_mode_str = analysis_result.recommended_execution_mode.value if hasattr(analysis_result.recommended_execution_mode, 'value') else str(analysis_result.recommended_execution_mode)
+
                 approval_interrupt_data = create_code_approval_interrupt(
                     code=state["generated_code"],
                     analysis_details=analysis_result.__dict__ if analysis_result else {},
-                    execution_mode=analysis_result.recommended_execution_mode.value if hasattr(analysis_result.recommended_execution_mode, 'value') else str(analysis_result.recommended_execution_mode),
+                    execution_mode=execution_mode_str,
                     safety_concerns=analysis_result.issues + analysis_result.recommendations,
-                    notebook_path=None,  # Will be set during execution setup
-                    notebook_link=None,  # Will be set during execution setup
+                    notebook_path=notebook_path,  # Real path for user review
+                    notebook_link=notebook_link,  # Real clickable link
                     execution_request=state["request"],
                     expected_results=state["request"].expected_results,
-                    execution_folder_path=None,  # Will be set during execution setup
+                    execution_folder_path=execution_folder.folder_path,  # Real execution folder
                     step_objective=state["request"].task_objective
                 )
 
@@ -319,6 +353,7 @@ def create_analyzer_node():
                     "analysis_failed": False,
                     "requires_approval": True,
                     "approval_interrupt_data": approval_interrupt_data,  # Use new LangGraph-native system
+                    "execution_folder": execution_folder,  # Save folder to state for executor node
                     "current_stage": "approval"
                 }
             else:
@@ -333,19 +368,33 @@ def create_analyzer_node():
         except (CodeSyntaxError, CodeGenerationError) as e:
             # Expected code quality issues - treat as analysis failure, not system error
             logger.warning(f"⚠️  Code analysis failed: {e}")
-            error_message = f"Code quality issue: {str(e)}"
-            error_chain = state.get("error_chain", []) + [error_message]
+
+            error = ExecutionError(
+                error_type="syntax",
+                error_message=str(e),
+                failed_code=generated_code,
+                attempt_number=state.get("generation_attempt", 0),
+                stage="analysis",
+                analysis_issues=[str(e)]
+            )
+            error_chain = state.get("error_chain", []) + [error]
 
             # Create attempt notebook for debugging syntax errors
             await _create_syntax_error_attempt_notebook(
                 state, configurable, generated_code, str(e)
             )
 
+            # Check retry limit here (not in conditional edge!)
+            max_retries = state["request"].retries
+            retry_limit_exceeded = len(error_chain) >= max_retries
+
             return {
                 "analysis_failed": True,  # Retry with regeneration
                 "error_chain": error_chain,
                 "failure_reason": str(e),
-                "current_stage": "generation"
+                "current_stage": "generation",
+                # Mark as permanently failed if retry limit exceeded
+                "is_failed": retry_limit_exceeded,
             }
 
         except Exception as e:
@@ -354,11 +403,21 @@ def create_analyzer_node():
             logger.error(f"Critical system error: Analyzer crashed unexpectedly: {e}")
             logger.error("This indicates a framework bug, not a code quality issue")
 
+            import traceback
+            error = ExecutionError(
+                error_type="system",
+                error_message=f"Critical analyzer error: {str(e)}",
+                failed_code=state.get("generated_code"),
+                traceback=traceback.format_exc(),
+                attempt_number=state.get("generation_attempt", 0),
+                stage="analysis"
+            )
+
             return {
                 "analysis_failed": False,  # Don't retry - this is a system bug
                 "is_failed": True,         # Mark as permanently failed
                 "failure_reason": f"Critical analyzer error: {str(e)}",
-                "error_chain": state.get("error_chain", []) + [f"System error: {str(e)}"],
+                "error_chain": state.get("error_chain", []) + [error],
                 "current_stage": "failed"
             }
 
@@ -463,3 +522,75 @@ async def _create_syntax_error_attempt_notebook(
     except Exception as e:
         logger.warning(f"Failed to create attempt notebook for syntax error: {e}")
         # Don't fail the entire analysis just because notebook creation failed
+
+
+async def _create_pre_approval_notebook(
+    state: PythonExecutionState,
+    configurable: dict[str, Any],
+    code: str,
+    analysis_result: BasicAnalysisResult
+) -> tuple[Any, Any, str]:
+    """Create pre-approval notebook for user review with clickable Jupyter link.
+
+    This function creates the execution folder and a review notebook when code
+    requires human approval. The notebook contains the generated code and analysis
+    context, giving users a proper environment to review before approving.
+
+    Returns:
+        tuple: (execution_folder, notebook_path, notebook_link)
+    """
+    try:
+        # Set up file and notebook managers
+        file_manager = FileManager(configurable)
+        notebook_manager = NotebookManager(configurable)
+
+        # Ensure execution folder exists
+        execution_folder = state.get("execution_folder")
+        if not execution_folder:
+            execution_folder = file_manager.create_execution_folder(
+                state["request"].execution_folder_name
+            )
+
+        # Format execution mode for display
+        execution_mode = analysis_result.recommended_execution_mode.value if hasattr(
+            analysis_result.recommended_execution_mode, 'value'
+        ) else str(analysis_result.recommended_execution_mode)
+
+        # Create approval context for the notebook
+        approval_context = f"""**Code Analysis Passed - Approval Required**
+
+**Execution Mode:** {execution_mode}
+
+**Analysis Summary:**
+- Safety Assessment: {'PASSED' if analysis_result.passed else 'FAILED'}
+- Approval Required: {analysis_result.needs_approval}
+
+**Safety Considerations:**
+{chr(10).join(f'- {issue}' for issue in (analysis_result.issues + analysis_result.recommendations)) if (analysis_result.issues + analysis_result.recommendations) else '- No specific concerns identified'}
+
+**Next Steps:**
+Review the code below and approve/reject execution accordingly."""
+
+        # Create pre-approval notebook for user review
+        notebook_path = notebook_manager.create_attempt_notebook(
+            context=execution_folder,
+            code=code,
+            stage="awaiting_approval",
+            approval_context=approval_context,
+            silent=True  # Don't log creation as we'll log it below
+        )
+
+        # Generate Jupyter notebook link for user
+        notebook_link = file_manager._create_jupyter_url(notebook_path)
+
+        logger.info(f"📓 Created pre-approval notebook for user review: {notebook_path}")
+        logger.info(f"🔗 Notebook link: {notebook_link}")
+
+        return execution_folder, notebook_path, notebook_link
+
+    except Exception as e:
+        logger.warning(f"Failed to create pre-approval notebook: {e}")
+        # Fall back to None values if notebook creation fails
+        # This maintains backward compatibility but logs the failure
+        execution_folder = state.get("execution_folder")
+        return execution_folder, None, None

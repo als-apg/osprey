@@ -90,6 +90,15 @@ class BaseCapabilityGenerator:
                 if self.verbose and attempt > 1:
                     print(f"   Retry attempt {attempt}/{max_attempts}...")
 
+                # Set caller context for API call logging (propagates through asyncio.to_thread)
+                from osprey.models import set_api_call_context
+                set_api_call_context(
+                    function="_call_llm",
+                    module="base_generator",
+                    class_name=self.__class__.__name__,
+                    extra={"attempt": attempt, "max_attempts": max_attempts}
+                )
+
                 response = await asyncio.to_thread(
                     get_chat_completion,
                     message=prompt,

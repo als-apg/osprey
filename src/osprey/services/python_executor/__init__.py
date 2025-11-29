@@ -208,6 +208,11 @@ osprey:
 ```
 """
 
+# Import from restructured subsystems
+from .analysis import (
+    detect_control_system_operations,
+    get_default_patterns,
+)
 from .exceptions import (
     # Code errors (retry code generation)
     CodeGenerationError,
@@ -224,7 +229,15 @@ from .exceptions import (
     PythonExecutorException,
     WorkflowError,
 )
-from .execution_control import ExecutionControlConfig, ExecutionMode, get_execution_control_config
+from .execution.control import ExecutionControlConfig, ExecutionMode, get_execution_control_config
+from .generation import (
+    CLAUDE_SDK_AVAILABLE,
+    BasicLLMCodeGenerator,
+    ClaudeCodeGenerator,
+    CodeGenerator,
+    MockCodeGenerator,
+    create_code_generator,
+)
 from .models import (
     ContainerEndpointConfig,
     ExecutionModeConfig,
@@ -253,6 +266,19 @@ __all__ = [
     "PythonExecutionSuccess",
     "PythonExecutionState",
     "PythonServiceResult",
+
+    # Code generator interfaces
+    "CodeGenerator",
+    "BasicLLMCodeGenerator",
+    "ClaudeCodeGenerator",  # Optional - requires claude-agent-sdk
+    "MockCodeGenerator",  # For testing - no external dependencies
+    "CLAUDE_SDK_AVAILABLE",
+    "create_code_generator",
+    # Note: Generator registration now via registry system (see osprey.registry.base.CodeGeneratorRegistration)
+
+    # Analysis utilities
+    "detect_control_system_operations",
+    "get_default_patterns",
 
     # Execution context and notebook management
     "NotebookAttempt",

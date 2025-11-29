@@ -12,15 +12,15 @@ from typing import TYPE_CHECKING, Any
 from osprey.context.context_manager import ContextManager
 from osprey.utils.logger import get_logger
 
-from .config import PythonExecutorConfig
-from .exceptions import CodeRuntimeError, ContainerConfigurationError, ContainerConnectivityError
-from .models import PythonExecutionState, PythonExecutionSuccess
-from .services import FileManager, NotebookManager
+from ..config import PythonExecutorConfig
+from ..exceptions import CodeRuntimeError, ContainerConfigurationError, ContainerConnectivityError
+from ..models import ExecutionError, PythonExecutionState, PythonExecutionSuccess
+from ..services import FileManager, NotebookManager
 
 logger = get_logger("python_executor")
 
 if TYPE_CHECKING:
-    from .execution_control import ExecutionMode
+    from .control import ExecutionMode
 
 class LocalCodeExecutor:
     """Local Python execution that replicates container execution features using unified wrapper"""
@@ -40,13 +40,13 @@ class LocalCodeExecutor:
 
         # Set default execution mode
         if execution_mode is None:
-            from .execution_control import ExecutionMode
+            from .control import ExecutionMode
             execution_mode = ExecutionMode.READ_ONLY
 
         logger.info(f"LOCAL EXECUTION: Running code in {execution_mode.value} mode")
 
         # Create unified wrapper for local execution
-        from .execution_wrapper import ExecutionWrapper
+        from .wrapper import ExecutionWrapper
         wrapper = ExecutionWrapper(execution_mode="local")
         wrapped_code = wrapper.create_wrapper(code, execution_folder)
 
@@ -166,6 +166,21 @@ class LocalCodeExecutor:
                     raise CodeRuntimeError(
                         message=f"Python execution error: {error_msg}",
                         traceback_info=traceback_info,
+                        execution_attempt=1
+                    )
+                # Runtime validation: Check if results variable was created
+                elif metadata.get("results_missing", False):
+                    error_msg = (
+                        "Code executed successfully but did not create required 'results' dictionary. "
+                        "Please ensure your code assigns a dictionary to the 'results' variable. "
+                        "Example: results = {'key': value}"
+                    )
+                    logger.warning(f"⚠️  {error_msg}")
+
+                    # This is a code generation issue - raise error to trigger regeneration
+                    raise CodeRuntimeError(
+                        message=error_msg,
+                        traceback_info="Runtime validation failed: 'results' variable not found in execution namespace",
                         execution_attempt=1
                     )
 
@@ -324,7 +339,7 @@ class ContainerCodeExecutor:
 
         # Set default execution mode
         if execution_mode is None:
-            from .execution_control import ExecutionMode
+            from .control import ExecutionMode
             execution_mode = ExecutionMode.READ_ONLY
 
         try:
@@ -390,13 +405,13 @@ class ContainerCodeExecutor:
                 host="unknown",
                 port=0,
                 technical_details={"original_error": str(e)}
-            )
+            ) from e
 
     async def _get_container_endpoint(self, execution_mode: str):
         """Get container endpoint - raises exceptions on failure"""
         try:
+            from ..models import get_container_endpoint_config_from_configurable
             from .container_engine import ContainerEndpoint
-            from .models import get_container_endpoint_config_from_configurable
 
             # Get endpoint config
             endpoint_config = get_container_endpoint_config_from_configurable(self.configurable, execution_mode)
@@ -418,7 +433,7 @@ class ContainerCodeExecutor:
             raise ContainerConfigurationError(
                 f"Failed to configure container endpoint: {str(e)}",
                 technical_details={"execution_mode": execution_mode}
-            )
+            ) from e
 
     async def _determine_working_host(self, configured_host: str, port: int) -> str:
         """Determine working host with proper exception handling"""
@@ -474,8 +489,13 @@ def create_executor_node():
         # Check if we have code to execute
         generated_code = state.get("generated_code")
         if not generated_code:
-            error_message = "Code execution failed: No code available for execution"
-            error_chain = state.get("error_chain", []) + [error_message]
+            error = ExecutionError(
+                error_type="execution",
+                error_message="No code available for execution",
+                attempt_number=state.get("generation_attempt", 0),
+                stage="execution"
+            )
+            error_chain = state.get("error_chain", []) + [error]
 
             return {
                 "is_successful": False,
@@ -576,9 +596,20 @@ def create_executor_node():
                 detailed_error_context
             )
 
-            # Add error to chain for generator feedback (EXACT SAME PATTERN AS ANALYZER)
-            error_message = f"Code execution failed: {str(e)}"
-            error_chain = state.get("error_chain", []) + [error_message]
+            # Add structured error to chain for generator feedback
+            execution_error = ExecutionError(
+                error_type="execution",
+                error_message=str(e),
+                failed_code=generated_code,
+                traceback=full_traceback,
+                attempt_number=state.get("generation_attempt", 0),
+                stage="execution"
+            )
+            error_chain = state.get("error_chain", []) + [execution_error]
+
+            # Check retry limit here (not in conditional edge!)
+            max_retries = state["request"].retries
+            retry_limit_exceeded = len(error_chain) >= max_retries
 
             return {
                 "is_successful": False,
@@ -586,7 +617,10 @@ def create_executor_node():
                 "execution_error": str(e),
                 "error_chain": error_chain,
                 "error_notebook_path": error_notebook,
-                "current_stage": "generation"
+                "current_stage": "generation",
+                # Mark as permanently failed if retry limit exceeded
+                "is_failed": retry_limit_exceeded,
+                "failure_reason": f"Code execution failed after {max_retries} attempts" if retry_limit_exceeded else None,
             }
 
     return executor_node
@@ -603,7 +637,7 @@ async def _create_execution_folder(file_manager: FileManager, state: PythonExecu
 
 def _get_execution_mode_from_state(state: PythonExecutionState):
     """Get execution mode from analysis result in state."""
-    from .execution_control import ExecutionMode
+    from .control import ExecutionMode
 
     analysis_result = state.get("analysis_result")
     if analysis_result and hasattr(analysis_result, 'recommended_execution_mode'):

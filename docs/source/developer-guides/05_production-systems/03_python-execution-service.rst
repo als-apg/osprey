@@ -169,7 +169,7 @@ Use pattern detection directly in your code:
 
 .. code-block:: python
 
-   from osprey.services.python_executor.pattern_detection import detect_control_system_operations
+   from osprey.services.python_executor.analysis.pattern_detection import detect_control_system_operations
 
    # Analyze generated code
    code = """

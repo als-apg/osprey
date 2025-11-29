@@ -45,6 +45,7 @@ models:
   python_code_generator:
     provider: {{ default_provider }}
     model_id: {{ default_model }}
+    max_tokens: 8192  # Allow longer code generation
   time_parsing:
     provider: {{ default_provider }}
     model_id: {{ default_model }}
@@ -373,6 +374,24 @@ channel_finder:
 execution:
   execution_method: "local"              # Options: local | container
   python_env_path: {{ current_python_env }}  # Path to Python with dependencies
+
+  # Code generation configuration
+  code_generator: "{{ code_generator | default('basic') }}"  # Options: basic | claude_code
+  generators:
+    basic:
+      # Reference the model config defined in 'models' section
+      model_config_name: "python_code_generator"
+      save_prompts: true  # Save prompts and responses for transparency/debugging
+      # Or define inline configuration here (overrides model_config_name):
+      # provider: cborg
+      # model_id: anthropic/claude-haiku
+      # temperature: 0.7
+
+    # Claude Code configuration (requires claude-agent-sdk)
+    claude_code:
+      claude_config_path: "claude_generator_config.yml"  # Path to detailed config
+      profile: "fast"        # Options: fast (DEFAULT, single-phase) | robust (multi-phase)
+      # Advanced settings are in claude_generator_config.yml
 
   # EPICS infrastructure (DEPRECATED - use control_system section above)
   # Maintained for backward compatibility during migration

@@ -1,9 +1,8 @@
 """Tests for pattern detection module."""
 
-import pytest
-from osprey.services.python_executor.pattern_detection import (
+from osprey.services.python_executor.analysis.pattern_detection import (
     detect_control_system_operations,
-    get_default_patterns
+    get_default_patterns,
 )
 
 

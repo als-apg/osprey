@@ -5,7 +5,7 @@ to provide multi-turn agentic reasoning for complex code generation tasks. Unlik
 LLM-based generators, Claude Code can:
 
 - **Read the codebase** to learn from successful examples
-- **Execute multi-phase workflows** (scan → plan → generate)
+- **Execute multi-phase workflows** (scan → plan → implement)
 - **Iterate intelligently** with reasoning and self-correction
 - **Balance quality and speed** through configurable profiles
 
@@ -13,15 +13,16 @@ The generator integrates seamlessly into Osprey's Python executor pipeline, prov
 enhanced code generation while maintaining all existing security and approval workflows.
 
 Architecture:
-    The generator supports two workflow modes:
+    The generator supports two simple workflow modes:
 
-    1. **Direct Mode** (fast):
-       User Request → Claude Code → Python Code
+    1. **FAST Mode** (DEFAULT, single-phase):
+       User Request → Claude (optional example lookup) → Python Code
+       Claude can optionally check examples before generating code, all in one phase.
 
-    2. **Phased Mode** (high quality):
+    2. **ROBUST Mode** (multi-phase, thorough):
        Phase 1: SCAN (find relevant examples, identify patterns)
        Phase 2: PLAN (create implementation plan)
-       Phase 3: GENERATE (write Python code following plan)
+       Phase 3: IMPLEMENT (write Python code following plan)
 
 Configuration:
     The generator can be configured via config.yml or a separate configuration file:
@@ -33,21 +34,54 @@ Configuration:
             code_generator: "claude_code"
             generators:
               claude_code:
-                profile: "balanced"  # fast | balanced | robust
+                profile: "fast"  # fast (DEFAULT) | robust
 
     Full (claude_generator_config.yml)::
 
+        # API Configuration (choose one)
+        api_config:
+          provider: "anthropic"  # or "cborg" for LBL
+
+        # Phase Definitions (reusable building blocks)
+        phases:
+          generate:
+            prompt: "Generate high-quality Python code..."
+            tools: ["Read", "Grep", "Glob"]
+            max_turns: 3
+          scan:
+            prompt: "Search codebase for relevant examples..."
+            tools: ["Read", "Grep", "Glob"]
+            max_turns: 3
+          plan:
+            prompt: "Create detailed implementation plan..."
+            tools: ["Read"]
+            max_turns: 2
+          implement:
+            prompt: "Generate Python code following the plan..."
+            tools: []
+            max_turns: 2
+
+        # Quality Profiles (compose phases into workflows)
         profiles:
           fast:
-            workflow_mode: "direct"
-            model: "anthropic/claude-haiku"
-            max_turns: 2
-            max_budget_usd: 0.05
-          balanced:
-            workflow_mode: "phased"
-            model: "anthropic/claude-haiku"
-            max_turns: 5
+            phases: [generate]  # Single-phase generation
+            model: "claude-haiku-4-5-20251001"
+            max_turns: 3
+            max_budget_usd: 0.10
+            save_prompts: true
+          robust:
+            phases: [scan, plan, implement]  # Multi-phase workflow
+            model: "claude-haiku-4-5-20251001"
+            max_turns: 10
             max_budget_usd: 0.25
+            save_prompts: true
+
+        # Codebase Learning (optional)
+        codebase_guidance:
+          plotting:
+            directories:
+              - "_agent_data/example_scripts/plotting/"
+            guidance: "Use for plotting and visualization requests"
 
 Safety:
     The generator is read-only by design with multiple security layers:
@@ -91,9 +125,9 @@ Examples:
         >>> generator = ClaudeCodeGenerator({"profile": "fast"})
         >>> code = await generator.generate_code(request, [])
 
-    Using balanced profile (default)::
+    Using robust profile for complex tasks::
 
-        >>> generator = ClaudeCodeGenerator({"profile": "balanced"})
+        >>> generator = ClaudeCodeGenerator({"profile": "robust"})
         >>> code = await generator.generate_code(request, [])
 """
 
@@ -169,13 +203,9 @@ class ClaudeCodeGenerator:
     Provides advanced code generation capabilities through the Claude Code SDK,
     supporting multiple workflow modes and quality profiles.
 
-    Workflow Modes:
-        - direct: Fast, one-pass code generation
-        - phased: 3-phase workflow (scan → plan → generate)
-
-    Quality Profiles:
-        - fast: Quick generation for development (Haiku 4.5, ~5s)
-        - balanced: DEFAULT - Good quality with reasonable latency (Sonnet 4.5, ~15s)
+    Profiles:
+        - fast: DEFAULT - Single-phase generation with optional example lookup (~20s)
+        - robust: Multi-phase workflow (scan → plan → implement) for complex tasks (~60s)
 
     Configuration:
         The generator reads configuration from either inline model_config or
@@ -205,13 +235,12 @@ class ClaudeCodeGenerator:
         Creating generator with default settings::
 
             >>> generator = ClaudeCodeGenerator()
-            >>> # Uses balanced profile from config or defaults
+            >>> # Uses fast profile from config or defaults
 
         Creating generator with inline configuration::
 
             >>> config = {
             ...     "profile": "fast",
-            ...     "workflow_mode": "direct",
             ...     "max_budget_usd": 0.10
             ... }
             >>> generator = ClaudeCodeGenerator(model_config=config)
@@ -266,9 +295,10 @@ class ClaudeCodeGenerator:
 
         # Compact initialization logging
         save_prompts_indicator = " [SAVE_PROMPTS]" if self._save_prompts else ""
+        phases = self.config.get('profile_phases', ['generate'])
         logger.info(
-            f"Claude Code: {self.config.get('profile', 'balanced')} profile, "
-            f"{self.config.get('workflow_mode', 'sequential')} mode{save_prompts_indicator}"
+            f"Claude Code: {self.config.get('profile', 'fast')} profile, "
+            f"phases={phases}{save_prompts_indicator}"
         )
 
     def _load_claude_config(self) -> dict[str, Any]:
@@ -300,130 +330,58 @@ class ClaudeCodeGenerator:
                 full_config = yaml.safe_load(f)
 
             # Get profile
-            profile_name = self.model_config.get("profile", "balanced")
+            profile_name = self.model_config.get("profile", "fast")
             if profile_name not in full_config.get("profiles", {}):
-                logger.warning(f"Profile '{profile_name}' not found, using 'balanced'")
-                profile_name = "balanced"
+                logger.warning(f"Profile '{profile_name}' not found, using 'fast'")
+                profile_name = "fast"
 
             profile = full_config["profiles"][profile_name]
 
-            # Merge profile with full config
-            # Get base phases and apply profile-specific model overrides
-            phases = full_config.get("phases", {})
-            phases = self._apply_profile_model_overrides(phases, profile)
-
             return {
                 "profile": profile_name,
-                "workflow_mode": profile.get("workflow_mode", "phased"),
-                "planning_mode": profile.get("planning_mode", "generator_driven"),
-                "model": profile.get("model", "sonnet"),
+                "profile_phases": profile.get("phases"),  # Direct phase specification from profile
+                "model": profile.get("model", "claude-haiku-4-5-20251001"),
                 "max_turns": profile.get("max_turns", 5),
                 "max_budget_usd": profile.get("max_budget_usd", 0.50),
                 "save_prompts": profile.get("save_prompts", True),  # Default to True for transparency
                 "codebase_dirs": self._get_codebase_dirs(full_config, profile),
                 "codebase_guidance": full_config.get("codebase_guidance", {}),
-                "phases": phases,
-                "planning_modes": full_config.get("planning_modes", {}),
-                "workflows": full_config.get("workflows", {}),
+                "phase_definitions": full_config.get("phases", {}),  # Phase definitions (scan, plan, generate, implement)
                 "api_config": full_config.get("api_config", {}),
             }
         else:
             # Inline configuration
             logger.info("Using inline configuration (no separate config file)")
             return {
-                "profile": self.model_config.get("profile", "balanced"),
-                "workflow_mode": self.model_config.get("workflow_mode", "direct"),
-                "model": self.model_config.get("model", "sonnet"),
+                "profile": self.model_config.get("profile", "fast"),
+                "profile_phases": self.model_config.get("phases", ["generate"]),  # Direct phase specification
+                "model": self.model_config.get("model", "claude-haiku-4-5-20251001"),
                 "max_turns": self.model_config.get("max_turns", 5),
                 "max_budget_usd": self.model_config.get("max_budget_usd", 0.50),
                 "save_prompts": self.model_config.get("save_prompts", True),  # Default to True for transparency
                 "codebase_dirs": [],
                 "codebase_guidance": {},
-                "workflows": {},
+                "phase_definitions": {},  # No phase definitions in inline mode
                 "api_config": self.model_config.get("api_config", {}),
             }
 
-    def _apply_profile_model_overrides(self, phases: dict, profile: dict) -> dict:
-        """Apply profile-specific model overrides to phase definitions.
-
-        Profiles can specify phase-specific models (scan_model, plan_model, generate_model)
-        that override the models defined in the base phase definitions.
-
-        Args:
-            phases: Base phase definitions from YAML
-            profile: Profile configuration with optional model overrides
-
-        Returns:
-            Updated phases dictionary with profile model overrides applied
-
-        .. note::
-           This allows profiles to control which models are used for each phase
-           without duplicating the entire phase configuration.
-
-        Examples:
-            Profile with model overrides::
-
-                balanced:
-                  scan_model: "claude-haiku-4-5-20251001"
-                  plan_model: "claude-haiku-4-5-20251001"
-                  generate_model: "claude-sonnet-4-5-20250929"
-        """
-        # Deep copy to avoid modifying the original
-        import copy
-
-        phases = copy.deepcopy(phases)
-
-        # Map profile model keys to phase names
-        model_overrides = {
-            "scan": profile.get("scan_model"),
-            "plan": profile.get("plan_model"),
-            "generate": profile.get("generate_model"),
-        }
-
-        # Apply overrides where specified
-        for phase_name, model in model_overrides.items():
-            if model and phase_name in phases:
-                phases[phase_name]["model"] = model
-                logger.debug(f"Applied profile model override: {phase_name} -> {model}")
-
-        return phases
-
-    def _get_workflow_model(self, phase_defs: dict) -> str:
-        """Select the best model for a multi-phase workflow.
+    def _get_workflow_model(self) -> str:
+        """Get the model for the workflow.
 
         Since ClaudeSDKClient maintains conversation context across phases,
-        we must use a single model for the entire workflow. This method
-        selects the most appropriate model based on phase priorities.
-
-        Priority order:
-        1. generate phase model (most critical for code quality)
-        2. plan phase model (important for structure)
-        3. scan phase model (least critical)
-        4. Global config model (fallback)
-
-        Args:
-            phase_defs: Phase definitions with model specifications
+        we use a single model for the entire workflow. The model is configured
+        at the profile level, not per-phase.
 
         Returns:
             Model name/ID to use for the workflow
 
         .. note::
-           This is necessary because ClaudeSDKClient doesn't support
-           changing models mid-conversation. The profile's model
-           overrides are already applied to phase_defs at this point.
+           All phases in a workflow use the SAME model. This is a limitation
+           of ClaudeSDKClient which doesn't support changing models mid-conversation.
         """
-        # Priority: generate > plan > scan > global
-        for phase_name in ["generate", "plan", "scan"]:
-            if phase_name in phase_defs:
-                model = phase_defs[phase_name].get("model")
-                if model:
-                    logger.info(f"Using {phase_name} phase model for workflow: {model}")
-                    return model
-
-        # Fallback to global config model
-        fallback = self.config.get("model", "claude-sonnet-4-5-20250929")
-        logger.info(f"Using fallback model for workflow: {fallback}")
-        return fallback
+        model = self.config.get("model", "claude-haiku-4-5-20251001")
+        logger.info(f"Using workflow model: {model}")
+        return model
 
     def _get_codebase_dirs(self, full_config: dict, profile: dict) -> list[str]:
         """Extract ALL codebase directories from configuration.
@@ -699,8 +657,7 @@ class ClaudeCodeGenerator:
                 "generation_metadata": self.generation_metadata,
                 "config": {
                     "profile": self.config.get("profile"),
-                    "workflow_mode": self.config.get("workflow_mode"),
-                    "planning_mode": self.config.get("planning_mode"),
+                    "phases": self.config.get("profile_phases"),
                     "model": self.config.get("model"),
                 },
             }
@@ -716,13 +673,15 @@ class ClaudeCodeGenerator:
     async def generate_code(
         self, request: PythonExecutionRequest, error_chain: list[ExecutionError]
     ) -> str:
-        """Generate code using request's planning mode.
+        """Generate code using phase-based workflow.
 
         This is the main entry point that implements the CodeGenerator protocol.
-        It dispatches to the appropriate generation method based on the planning mode
-        specified in the request:
-        - GENERATOR_DRIVEN: Generator scans, plans, and implements
-        - CAPABILITY_DRIVEN: Implement capability's pre-built plan
+        All code generation flows through a unified phase-based execution model where
+        different planning modes simply configure which phases to run:
+
+        - fast: Single-phase [generate] with optional example lookup (DEFAULT)
+        - robust: Multi-phase [scan → plan → implement] for complex tasks
+        - capability_driven: Single-phase [implement] with pre-built plan
 
         Supports LangGraph streaming if running within a LangGraph context.
         Will gracefully degrade if streaming is not available.
@@ -738,8 +697,7 @@ class ClaudeCodeGenerator:
             CodeGenerationError: If generation fails or produces invalid output
 
         .. seealso::
-           :meth:`_generate_with_planning_mode` : Mode-aware generation dispatcher
-           :meth:`_generate_phased` : Multi-phase workflow generation
+           :meth:`_execute_phases` : Unified phase execution implementation
            :meth:`get_generation_metadata` : Access thinking blocks and tool usage
         """
         # Reset metadata for new generation
@@ -769,59 +727,23 @@ class ClaudeCodeGenerator:
         if self._stream_writer:
             logger.debug("LangGraph streaming enabled for this generation")
 
-        # Use planning mode from request (falls back to config if not set)
-        planning_mode = (
-            request.planning_mode.value
-            if hasattr(request, "planning_mode")
-            else self.config.get("planning_mode", "generator_driven")
-        )
+        # Determine which phases to run:
+        # 1. If request has structured_plan → capability-driven mode, use [implement]
+        # 2. Otherwise, use phases from profile
+        # 3. Fallback to [generate] if nothing specified
 
-        logger.info(f"Using planning mode: {planning_mode}")
-
-        try:
-            code = await self._generate_with_planning_mode(request, error_chain, planning_mode)
-            return code
-        finally:
-            # Save prompts if enabled
-            if self._save_prompts:
-                self._save_prompt_data()
-
-    async def _generate_with_planning_mode(
-        self, request: PythonExecutionRequest, error_chain: list[ExecutionError], planning_mode: str
-    ) -> str:
-        """Generate code based on planning mode.
-
-        Dispatcher method that routes to the appropriate generation workflow based on
-        the planning mode. Handles both generator-driven and capability-driven modes.
-
-        Args:
-            request: Execution request with task details and optional structured plan
-            error_chain: List of previous errors from failed attempts
-            planning_mode: Planning mode string ("generator_driven" or "capability_driven")
-
-        Returns:
-            Generated Python code as string
-
-        Raises:
-            CodeGenerationError: If generation fails or planning mode is invalid
-
-        .. note::
-           Generator-driven mode runs configured phases (scan → plan → generate).
-           Capability-driven mode only runs generate phase with capability's plan.
-        """
-        # Get planning mode configuration
-        planning_modes_config = self.config.get("planning_modes", {})
-        mode_config = planning_modes_config.get(planning_mode, {})
-
-        if not mode_config:
-            logger.warning(
-                f"Planning mode '{planning_mode}' not found in config, falling back to generator_driven"
-            )
-            planning_mode = "generator_driven"
-            mode_config = planning_modes_config.get(planning_mode, {})
-
-        # Get phases to run for this mode
-        phases_to_run = mode_config.get("phases", ["scan", "plan", "generate"])
+        if hasattr(request, "structured_plan") and request.structured_plan is not None:
+            # Capability-driven mode: capability provided a structured plan
+            phases_to_run = ["implement"]
+            logger.info("Capability-driven mode: using structured plan from capability")
+        elif "profile_phases" in self.config and self.config["profile_phases"]:
+            # Profile directly specifies phases
+            phases_to_run = self.config["profile_phases"]
+            logger.info(f"Using phases from profile: {phases_to_run}")
+        else:
+            # Fallback to single-phase generation
+            phases_to_run = ["generate"]
+            logger.info("No phases specified, defaulting to [generate]")
 
         # OPTIMIZATION: On retries, skip scan and plan - go directly to generate with error feedback
         # The scan and plan from the first attempt are already done, we just need to fix the code
@@ -833,20 +755,14 @@ class ClaudeCodeGenerator:
         else:
             logger.info(f"First attempt - running full workflow: {phases_to_run}")
 
-        # For capability-driven mode, validate structured plan is provided
-        if planning_mode == "capability_driven":
-            if not hasattr(request, "structured_plan") or request.structured_plan is None:
-                raise CodeGenerationError(
-                    "Capability-driven mode requires structured_plan in request",
-                    generation_attempt=len(error_chain) + 1,
-                    error_chain=error_chain,
-                )
-            logger.info("Using capability-provided structured plan")
-
-        # Execute the workflow with configured phases
-        return await self._generate_phased_with_modes(
-            request, error_chain, phases_to_run, mode_config
-        )
+        try:
+            # Execute the workflow with configured phases
+            code = await self._execute_phases(request, error_chain, phases_to_run)
+            return code
+        finally:
+            # Save prompts if enabled
+            if self._save_prompts:
+                self._save_prompt_data()
 
     def _get_stream_writer(self):
         """Get LangGraph stream writer if available.
@@ -922,87 +838,52 @@ class ClaudeCodeGenerator:
         """
         return self.generation_metadata.copy()
 
-    async def _generate_direct(
-        self, request: PythonExecutionRequest, error_chain: list[ExecutionError]
-    ) -> str:
-        """Direct code generation (one-pass mode).
-
-        Generates code in a single agentic conversation. Claude can still read
-        files, search code, and iterate, but everything happens in one pass
-        without explicit scan/plan/generate phases.
-
-        Args:
-            request: Execution request
-            error_chain: Previous errors for retry feedback
-
-        Returns:
-            Generated Python code
-
-        Raises:
-            CodeGenerationError: If generation fails
-
-        .. note::
-           This mode is faster but may produce lower quality code for complex
-           tasks compared to phased mode. Good for development and simple tasks.
-        """
-        # SECURITY: Get restricted working directory (with examples copied in)
-        restricted_cwd = self._get_restricted_cwd()
-
-        options = ClaudeAgentOptions(
-            system_prompt=self._build_system_prompt(request),
-            allowed_tools=["Read", "Grep", "Glob"] if self.config["codebase_dirs"] else [],
-            disallowed_tools=["Write", "Edit", "MultiEdit", "Delete", "Bash", "Python"],
-            cwd=restricted_cwd,  # 🔒 Examples copied into cwd, no add_dirs needed
-            model=self.config["model"],
-            max_turns=self.config["max_turns"],
-            max_budget_usd=self.config["max_budget_usd"],
-            hooks={"PreToolUse": [HookMatcher(matcher=None, hooks=[self._safety_hook])]},
-            env=self._build_api_environment(),
-        )
-
-        prompt = self._build_generation_prompt(request, error_chain)
-
-        return await self._execute_query(prompt, options, error_chain, extract_code=True)
-
-    async def _generate_phased_with_modes(
+    async def _execute_phases(
         self,
         request: PythonExecutionRequest,
         error_chain: list[ExecutionError],
         phases_to_run: list[str],
-        mode_config: dict[str, Any],
     ) -> str:
-        """Flexible phased code generation supporting planning modes.
+        """Execute configured phases in sequence.
 
-        Executes a configurable workflow where different phases can be enabled/disabled
-        based on the planning mode. Supports both generator-driven and capability-driven modes.
+        This is the unified implementation for all code generation workflows.
+        Different planning modes simply configure which phases to run:
+        - fast: [generate] - single phase
+        - robust: [scan, plan, implement] - multi-phase
+        - capability_driven: [implement] - single phase with pre-built plan
+
+        Phases maintain conversation context via ClaudeSDKClient, enabling
+        Claude to build on previous phase outputs for higher quality results.
 
         Args:
             request: Execution request with optional structured plan
             error_chain: Previous errors for retry feedback
             phases_to_run: List of phase names to execute (e.g., ["scan", "plan", "generate"])
-            mode_config: Planning mode configuration from config file
 
         Returns:
             Generated Python code
 
         Raises:
-            CodeGenerationError: If any phase fails
+            CodeGenerationError: If any phase fails or no code-generating phase is run
 
         .. note::
-           For capability-driven mode, the generate phase uses the structured plan
-           provided by the capability instead of creating its own plan.
+           For capability-driven mode, the implement/generate phase uses the structured
+           plan provided by the capability instead of creating its own plan.
         """
         # Get phase definitions
-        phase_defs = self.config.get("phases", {})
+        phase_defs = self.config.get("phase_definitions", {})
 
         if not phase_defs:
-            logger.warning("No phase definitions found, falling back to direct mode")
-            return await self._generate_direct(request, error_chain)
+            # This should never happen - config always defines phases
+            raise CodeGenerationError(
+                "No phase definitions found in configuration. Please check claude_generator_config.yml",
+                generation_attempt=len(error_chain) + 1,
+                error_chain=error_chain,
+            )
 
         # Use ClaudeSDKClient for stateful multi-turn conversation
         # Since ClaudeSDKClient maintains context, we use a single model for all phases.
-        # We prefer the generate phase's model since that's the most critical phase.
-        workflow_model = self._get_workflow_model(phase_defs)
+        workflow_model = self._get_workflow_model()
 
         # SECURITY: Set up restricted working directory
         # Claude Code's cwd parameter controls the base workspace directory.
@@ -1025,9 +906,9 @@ class ClaudeCodeGenerator:
             env=self._build_api_environment(),
         )
 
+        import time
+
         try:
-            # Track overall workflow timing
-            import time
             workflow_start_time = time.time()
 
             async with ClaudeSDKClient(options=options) as client:
@@ -1042,8 +923,6 @@ class ClaudeCodeGenerator:
                         logger.warning(f"Phase '{phase_name}' not found in configuration, skipping")
                         continue
 
-                    # Timing: Track phase duration
-                    import time
                     phase_start_time = time.time()
 
                     logger.info(f"⚡ {phase_name.upper()}")
@@ -1051,31 +930,10 @@ class ClaudeCodeGenerator:
                         {"type": "claude_code", "event": "phase_start", "phase": phase_name}
                     )
 
-                    # Build prompt for this phase with explicit references to previous phases
-                    if phase_name == "scan":
-                        prompt = self._build_scan_prompt(request, phase_def, executed_phases)
-                    elif phase_name == "plan":
-                        prompt = self._build_plan_prompt_for_client(
-                            request, phase_def, executed_phases
-                        )
-                    elif phase_name == "generate":
-                        # For capability-driven mode, inject structured plan
-                        if (
-                            hasattr(request, "structured_plan")
-                            and request.structured_plan is not None
-                        ):
-                            prompt = self._build_generate_prompt_with_capability_plan(
-                                request, error_chain, phase_def
-                            )
-                        else:
-                            prompt = self._build_generate_prompt_for_client(
-                                request, error_chain, phase_def, executed_phases
-                            )
-                    else:
-                        # Generic phase
-                        prompt = self._build_generic_phase_prompt(
-                            request, phase_def, executed_phases
-                        )
+                    # Build prompt for this phase
+                    prompt = self._build_phase_prompt(
+                        phase_name, request, error_chain, phase_def, executed_phases
+                    )
 
                     # Log what examples are available for scan phase
                     if phase_name == "scan":
@@ -1111,8 +969,8 @@ class ClaudeCodeGenerator:
                     # Track this phase as executed for context chaining
                     executed_phases.append(phase_name)
 
-                    # For generate phase, extract and return code
-                    if phase_name == "generate":
+                    # For generate/implement phases, extract and return code
+                    if phase_name in ("generate", "implement"):
                         code = self._extract_code_from_text(response)
                         if not code:
                             # Debug: log what we actually got
@@ -1149,9 +1007,9 @@ class ClaudeCodeGenerator:
 
                         return self._clean_generated_code(code)
 
-                # If we get here without returning, no generate phase was run
+                # If we get here without returning, no code-generating phase was run
                 raise CodeGenerationError(
-                    "No generate phase in workflow - cannot produce code",
+                    "No code-generating phase (generate/implement) in workflow - cannot produce code",
                     generation_attempt=len(error_chain) + 1,
                     error_chain=error_chain,
                 )
@@ -1164,147 +1022,6 @@ class ClaudeCodeGenerator:
                 error_chain=error_chain,
             ) from e
 
-    async def _generate_phased(
-        self, request: PythonExecutionRequest, error_chain: list[ExecutionError]
-    ) -> str:
-        """Phased 3-phase code generation (structured workflow mode).
-
-        Executes a multi-phase workflow using ClaudeSDKClient for context retention:
-        1. SCAN: Search codebase for relevant examples and patterns
-        2. PLAN: Create detailed implementation plan (builds on scan context)
-        3. GENERATE: Generate code following the plan (builds on scan + plan context)
-
-        Using ClaudeSDKClient enables Claude to retain conversation context across
-        phases, producing higher quality output than separate queries.
-
-        Args:
-            request: Execution request
-            error_chain: Previous errors for retry feedback
-
-        Returns:
-            Generated Python code
-
-        Raises:
-            CodeGenerationError: If any phase fails
-
-        .. note::
-           Falls back to direct mode if workflow configuration is missing.
-           This mode is slower but produces higher quality code for complex tasks.
-        """
-        workflow = self.config["workflows"].get("phased", {})
-        phases = workflow.get("phases", {})
-
-        if not phases:
-            logger.warning("Phased workflow not configured, falling back to direct mode")
-            return await self._generate_direct(request, error_chain)
-
-        # SECURITY: Get restricted working directory
-        restricted_cwd = self._get_restricted_cwd()
-
-        # Use ClaudeSDKClient for stateful multi-turn conversation
-        options = ClaudeAgentOptions(
-            system_prompt=self._build_system_prompt(request),
-            allowed_tools=["Read", "Grep", "Glob"] if self.config["codebase_dirs"] else [],
-            disallowed_tools=["Write", "Edit", "MultiEdit", "Delete", "Bash", "Python"],
-            cwd=restricted_cwd,  # 🔒 Examples copied into cwd, no add_dirs needed
-            model=self.config["model"],
-            max_budget_usd=self.config["max_budget_usd"],
-            hooks={"PreToolUse": [HookMatcher(matcher=None, hooks=[self._safety_hook])]},
-            env=self._build_api_environment(),
-        )
-
-        try:
-            async with ClaudeSDKClient(options=options) as client:
-                executed_phases = []
-
-                # Phase 1: SCAN
-                logger.info("Phase 1: Scanning codebase for relevant examples")
-                self._stream({"type": "claude_code", "event": "phase_start", "phase": "scan"})
-
-                scan_phase = phases.get("scan", {})
-                scan_prompt = self._build_scan_prompt(request, scan_phase, executed_phases)
-                await client.query(scan_prompt)
-
-                analysis = await self._collect_response(client, "scan")
-                logger.info(f"Scan complete: {len(analysis)} characters of analysis")
-                executed_phases.append("scan")
-
-                # Phase 2: PLAN (builds on scan context - now with explicit instructions!)
-                logger.info("Phase 2: Creating implementation plan")
-                self._stream({"type": "claude_code", "event": "phase_start", "phase": "plan"})
-
-                plan_phase = phases.get("plan", {})
-                # Use the new builder that explicitly references scan results
-                plan_prompt = self._build_plan_prompt_for_client(
-                    request, plan_phase, executed_phases
-                )
-                await client.query(plan_prompt)
-
-                plan = await self._collect_response(client, "plan")
-                logger.info(f"Plan complete: {len(plan)} characters")
-                executed_phases.append("plan")
-
-                # Phase 3: GENERATE (builds on scan + plan context - now with explicit instructions!)
-                logger.info("Phase 3: Generating Python code")
-                self._stream({"type": "claude_code", "event": "phase_start", "phase": "generate"})
-
-                gen_phase = phases.get("generate", {})
-                gen_prompt = self._build_generate_prompt_for_client(
-                    request, error_chain, gen_phase, executed_phases
-                )
-                await client.query(gen_prompt)
-
-                code_text = await self._collect_response(client, "generate")
-
-                # Extract code from the response
-                code = self._extract_code_from_text(code_text)
-                if not code:
-                    raise CodeGenerationError(
-                        "No code found in phased generation response",
-                        generation_attempt=len(error_chain) + 1,
-                        error_chain=error_chain,
-                    )
-
-                logger.success(f"Phased generation complete: {len(code)} characters")
-                return self._clean_generated_code(code)
-
-        except ClaudeSDKError as e:
-            logger.error(f"Claude SDK error during phased generation: {e}")
-            raise CodeGenerationError(
-                f"Phased generation failed: {str(e)}",
-                generation_attempt=len(error_chain) + 1,
-                error_chain=error_chain,
-            ) from e
-
-    def _build_phase_options(self, phase_config: dict) -> ClaudeAgentOptions:
-        """Build SDK options for a specific workflow phase.
-
-        Args:
-            phase_config: Phase configuration from workflow definition
-
-        Returns:
-            ClaudeAgentOptions configured for the phase
-
-        .. note::
-           Each phase can have its own model, tools, and turn limits while
-           sharing the global budget limit for cost control.
-        """
-        tools = phase_config.get("tools", [])
-
-        # SECURITY: Get restricted working directory
-        restricted_cwd = self._get_restricted_cwd()
-
-        return ClaudeAgentOptions(
-            system_prompt=phase_config.get("prompt", ""),
-            allowed_tools=tools,
-            disallowed_tools=["Write", "Edit", "MultiEdit", "Delete", "Bash", "Python"],
-            cwd=restricted_cwd,  # 🔒 Examples copied into cwd, no add_dirs needed
-            model=phase_config.get("model", self.config["model"]),
-            max_turns=phase_config.get("max_turns", 3),
-            max_budget_usd=self.config["max_budget_usd"],
-            hooks={"PreToolUse": [HookMatcher(matcher=None, hooks=[self._safety_hook])]},
-            env=self._build_api_environment(),
-        )
 
     async def _execute_query(
         self,
@@ -1515,6 +1232,154 @@ class ClaudeCodeGenerator:
                 technical_details={"error_type": type(e).__name__, "details": str(e)},
             ) from e
 
+    def _build_phase_prompt(
+        self,
+        phase_name: str,
+        request: PythonExecutionRequest,
+        error_chain: list[ExecutionError],
+        phase_def: dict,
+        executed_phases: list[str],
+    ) -> str:
+        """Build prompt for a specific phase using data-driven approach.
+
+        Constructs prompts by combining:
+        1. Base prompt from phase config
+        2. Phase-specific context (referencing previous phases)
+        3. Common request details (task, query, expected results)
+        4. Phase-specific additions (errors, structured plans, etc.)
+
+        Args:
+            phase_name: Name of the phase ("scan", "plan", "generate", "implement", etc.)
+            request: Execution request with task details
+            error_chain: Previous errors for retry feedback
+            phase_def: Phase configuration from config file
+            executed_phases: List of phases already executed (for context chaining)
+
+        Returns:
+            Complete prompt string for the phase
+        """
+        parts = [phase_def.get("prompt", "")]
+
+        # Add phase-specific context about previous phases
+        if phase_name == "scan":
+            # Scan is usually first, but can reference previous phases if present
+            if executed_phases:
+                parts.append(f"\n**Context:** Building on: {', '.join(executed_phases)}")
+
+        elif phase_name == "plan":
+            if "scan" in executed_phases:
+                parts.append("\n**Context from Scan Phase:**")
+                parts.append("Based on the codebase analysis you just performed above, create a detailed implementation plan.")
+
+        elif phase_name in ("generate", "implement"):
+            # Reference workflow context
+            if "scan" in executed_phases and "plan" in executed_phases:
+                parts.append("\n**Context from Previous Phases:**")
+                parts.append("You have already:")
+                parts.append("1. Scanned the codebase and identified relevant patterns and examples")
+                parts.append("2. Created a detailed implementation plan")
+                parts.append("\nNow use BOTH the codebase insights AND your implementation plan to generate high-quality code.")
+            elif "plan" in executed_phases:
+                parts.append("\n**Context from Plan Phase:**")
+                parts.append("You created an implementation plan above. Now implement it with high-quality Python code.")
+            elif "scan" in executed_phases:
+                parts.append("\n**Context from Scan Phase:**")
+                parts.append("You analyzed the codebase above. Now use those insights to generate high-quality code.")
+
+        # Add common request details
+        if request.task_objective:
+            parts.append(f"\n**Task Objective:** {request.task_objective}")
+
+        if request.user_query:
+            parts.append(f"\n**User Query:** {request.user_query}")
+
+        if request.expected_results:
+            parts.append(f"\n**Expected Results:** {request.expected_results}")
+
+        # Add phase-specific content
+        if phase_name == "scan":
+            # Add codebase guidance
+            codebase_guidance = self.config.get("codebase_guidance", {})
+            if codebase_guidance:
+                parts.append("\n**Available Example Code Libraries:**")
+                parts.append("Example code has been provided in your working directory:")
+                for library_name, library_config in codebase_guidance.items():
+                    guidance = library_config.get("guidance", "")
+                    parts.append(f"\n**{library_name.upper()} Examples:**")
+                    parts.append("**Directory:** `example_scripts/plotting/`")
+                    if guidance:
+                        parts.append(f"\n**Use when:** {guidance}")
+                parts.append(
+                    "\n**Scanning Strategy:**"
+                    "\n1. Use Glob/Read/Grep to search example_scripts/ directory"
+                    "\n2. Example: `Glob(pattern='example_scripts/**/*.py')`"
+                    "\n3. Read relevant examples and explain patterns to follow"
+                    "\n4. If no relevant examples exist, use standard best practices"
+                )
+            parts.append("\n**Important:** Provide a clear, structured analysis that can be used in the next phase for planning.")
+
+        elif phase_name == "plan":
+            parts.append("\n**Important:** Provide a clear, actionable implementation plan that will guide the code generation in the next phase.")
+
+        elif phase_name in ("generate", "implement"):
+            # Handle capability prompts
+            if request.capability_prompts:
+                parts.append("\n**Additional Guidance:**")
+                parts.extend(request.capability_prompts)
+
+            # Handle capability-driven structured plan
+            if hasattr(request, "structured_plan") and request.structured_plan is not None:
+                parts.extend(self._format_structured_plan(request.structured_plan))
+
+            # Handle error chain
+            if error_chain:
+                parts.append("\n**Previous Errors - Learn and Fix:**")
+                for error in error_chain[-2:]:
+                    parts.append(error.to_prompt_text())
+                parts.append("\nGenerate IMPROVED code that fixes these errors.")
+            else:
+                parts.append("\n**Final Step:** Generate the complete, executable Python code.")
+
+        return "\n".join(parts)
+
+    def _format_structured_plan(self, plan) -> list[str]:
+        """Format structured plan from capability into prompt sections.
+
+        Args:
+            plan: StructuredPlan object from capability
+
+        Returns:
+            List of prompt sections to append
+        """
+        import json
+
+        sections = []
+
+        if plan.domain_guidance:
+            sections.append(f"\n**IMPLEMENTATION PLAN (from capability):**\n{plan.domain_guidance}")
+
+        # Format phases
+        if plan.phases:
+            sections.append("\n**EXECUTION PHASES:**")
+            for i, phase_obj in enumerate(plan.phases, 1):
+                sections.append(f"\nPhase {i}: {phase_obj.phase}")
+                if phase_obj.subtasks:
+                    for subtask in phase_obj.subtasks:
+                        sections.append(f"  • {subtask}")
+                if phase_obj.output_state:
+                    sections.append(f"  → Output: {phase_obj.output_state}")
+
+        # Format required result structure
+        if plan.result_schema:
+            sections.append("\n**REQUIRED RESULT STRUCTURE:**")
+            sections.append("```python")
+            sections.append(f"results = {json.dumps(plan.result_schema, indent=2)}")
+            sections.append("```")
+            sections.append("\nIMPORTANT: Your code MUST produce a 'results' dictionary matching this exact structure.")
+            sections.append("Replace placeholder values (like '<float>', '<string>') with actual computed values.")
+
+        return sections
+
     async def _safety_hook(
         self, input_data: HookInput, tool_use_id: str | None, context: HookContext
     ) -> HookJSONOutput:
@@ -1598,363 +1463,6 @@ and executed in a secure environment."""
             self._prompt_data["system_prompt"] = prompt
 
         return prompt
-
-    def _build_generation_prompt(
-        self, request: PythonExecutionRequest, error_chain: list[ExecutionError]
-    ) -> str:
-        """Build prompt for single-shot generation with structured error feedback.
-
-        Args:
-            request: Execution request
-            error_chain: Previous ExecutionError objects for retry feedback
-
-        Returns:
-            Complete prompt for code generation with rich error context
-        """
-        parts = [
-            f"**Task:** {request.task_objective}",
-            f"**User Query:** {request.user_query}",
-        ]
-
-        if request.expected_results:
-            parts.append(f"**Expected Results:** {request.expected_results}")
-
-        if request.capability_context_data:
-            parts.append("\n**Available Context:** A 'context' object will be provided at runtime.")
-
-        if request.capability_prompts:
-            parts.append("\n**Additional Guidance:**")
-            parts.extend(request.capability_prompts)
-
-        if error_chain:
-            parts.append("\n**PREVIOUS ATTEMPT(S) FAILED - LEARN FROM THESE ERRORS:**")
-            parts.append("\nAnalyze what went wrong and address the root cause, not just symptoms.")
-
-            # Show last 2 attempts with full structured context
-            for error in error_chain[-2:]:
-                parts.append(f"\n{'=' * 60}")
-                parts.append(error.to_prompt_text())
-
-            parts.append(f"\n{'=' * 60}")
-            parts.append("\n**Your Task:** Generate IMPROVED code that fixes these issues.")
-
-        parts.append("\nGenerate complete Python code for this task.")
-
-        return "\n\n".join(parts)
-
-    def _build_scan_prompt(
-        self, request: PythonExecutionRequest, phase: dict, executed_phases: list[str]
-    ) -> str:
-        """Build prompt for scan phase.
-
-        Args:
-            request: Execution request
-            phase: Scan phase configuration
-            executed_phases: List of phases already executed (for context chaining)
-
-        Returns:
-            Scan prompt
-        """
-        parts = [phase.get("prompt", "")]
-
-        if request.task_objective:
-            parts.append(f"\n**Task Objective:** {request.task_objective}")
-
-        if request.user_query:
-            parts.append(f"\n**User Query:** {request.user_query}")
-
-        if request.expected_results:
-            parts.append(f"\n**Expected Results:** {request.expected_results}")
-
-        # Tell Claude about available example directories (now copied into cwd)
-        codebase_guidance = self.config.get("codebase_guidance", {})
-
-        if codebase_guidance:
-            parts.append("\n**Available Example Code Libraries:**")
-            parts.append("Example code has been provided in your working directory:")
-
-            for library_name, library_config in codebase_guidance.items():
-                guidance = library_config.get("guidance", "")
-
-                parts.append(f"\n**{library_name.upper()} Examples:**")
-                parts.append("**Directory:** `example_scripts/plotting/`")
-                if guidance:
-                    parts.append(f"\n**Use when:** {guidance}")
-
-            parts.append(
-                "\n**Scanning Strategy:**"
-                "\n1. Use Glob/Read/Grep to search example_scripts/ directory"
-                "\n2. Example: `Glob(pattern='example_scripts/**/*.py')`"
-                "\n3. Read relevant examples and explain patterns to follow"
-                "\n4. If no relevant examples exist, use standard best practices"
-            )
-
-        # Explicit output instruction for next phase
-        parts.append(
-            "\n**Important:** Provide a clear, structured analysis that can be used in the next phase for planning."
-        )
-
-        return "\n".join(parts)
-
-    def _build_plan_prompt(
-        self, request: PythonExecutionRequest, analysis: str, phase: dict
-    ) -> str:
-        """Build prompt for plan phase (legacy - not used with ClaudeSDKClient).
-
-        Args:
-            request: Execution request
-            analysis: Analysis from scan phase
-            phase: Plan phase configuration
-
-        Returns:
-            Plan prompt
-        """
-        return f"{phase.get('prompt', '')}\n\nAnalysis:\n{analysis}\n\nTask: {request.user_query}"
-
-    def _build_plan_prompt_for_client(
-        self, request: PythonExecutionRequest, phase: dict, executed_phases: list[str]
-    ) -> str:
-        """Build prompt for plan phase when using ClaudeSDKClient.
-
-        Since ClaudeSDKClient retains conversation context, we don't need
-        to repeat the scan results - Claude already has them!
-
-        Args:
-            request: Execution request
-            phase: Plan phase configuration
-            executed_phases: List of phases already executed (for context chaining)
-
-        Returns:
-            Plan prompt with full request context
-        """
-        parts = [phase.get("prompt", "")]
-
-        # Explicitly reference previous phases if they were executed
-        if "scan" in executed_phases:
-            parts.append("\n**Context from Scan Phase:**")
-            parts.append(
-                "Based on the codebase analysis you just performed above, create a detailed implementation plan."
-            )
-
-        if request.task_objective:
-            parts.append(f"\n**Task Objective:** {request.task_objective}")
-
-        if request.user_query:
-            parts.append(f"\n**User Query:** {request.user_query}")
-
-        if request.expected_results:
-            parts.append(f"\n**Expected Results:** {request.expected_results}")
-
-        # Explicit output instruction for next phase
-        parts.append(
-            "\n**Important:** Provide a clear, actionable implementation plan that will guide the code generation in the next phase."
-        )
-
-        return "\n".join(parts)
-
-    def _build_generic_phase_prompt(
-        self, request: PythonExecutionRequest, phase: dict, executed_phases: list[str]
-    ) -> str:
-        """Build prompt for generic phase with full request context.
-
-        Args:
-            request: Execution request
-            phase: Phase configuration
-            executed_phases: List of phases already executed (for context chaining)
-
-        Returns:
-            Generic phase prompt
-        """
-        parts = [phase.get("prompt", "")]
-
-        # Reference previous phases if any
-        if executed_phases:
-            parts.append(
-                f"\n**Context:** Building on the results from previous phases: {', '.join(executed_phases)}"
-            )
-
-        if request.task_objective:
-            parts.append(f"\n**Task Objective:** {request.task_objective}")
-
-        if request.user_query:
-            parts.append(f"\n**User Query:** {request.user_query}")
-
-        if request.expected_results:
-            parts.append(f"\n**Expected Results:** {request.expected_results}")
-
-        return "\n".join(parts)
-
-    def _build_generate_prompt(
-        self,
-        request: PythonExecutionRequest,
-        plan: str,
-        error_chain: list[ExecutionError],
-        phase: dict,
-    ) -> str:
-        """Build prompt for generate phase (used in non-client mode).
-
-        Args:
-            request: Execution request
-            plan: Implementation plan from plan phase
-            error_chain: Previous ExecutionError objects for retry feedback
-            phase: Generate phase configuration
-
-        Returns:
-            Generate prompt
-        """
-        parts = [
-            phase.get("prompt", ""),
-            f"\n**Implementation Plan:**\n{plan}",
-            f"\n**User Query:** {request.user_query}",
-        ]
-
-        if error_chain:
-            parts.append("\n**Previous Errors:**")
-            for error in error_chain[-2:]:
-                parts.append(error.to_prompt_text())
-
-        parts.append("\nGenerate the complete Python code following this plan.")
-
-        return "\n".join(parts)
-
-    def _build_generate_prompt_for_client(
-        self,
-        request: PythonExecutionRequest,
-        error_chain: list[ExecutionError],
-        phase: dict,
-        executed_phases: list[str],
-    ) -> str:
-        """Build prompt for generate phase when using ClaudeSDKClient.
-
-        Since ClaudeSDKClient retains conversation context, we don't need
-        to repeat the scan results or plan - Claude already has them!
-
-        Args:
-            request: Execution request
-            error_chain: Previous ExecutionError objects for retry feedback
-            phase: Generate phase configuration
-            executed_phases: List of phases already executed (for context chaining)
-
-        Returns:
-            Generate prompt
-        """
-        parts = [phase.get("prompt", "")]
-
-        # EXPLICIT INSTRUCTION: Reference the workflow so far
-        if "scan" in executed_phases and "plan" in executed_phases:
-            parts.append("\n**Context from Previous Phases:**")
-            parts.append("You have already:")
-            parts.append("1. Scanned the codebase and identified relevant patterns and examples")
-            parts.append("2. Created a detailed implementation plan")
-            parts.append(
-                "\nNow use BOTH the codebase insights AND your implementation plan to generate high-quality code."
-            )
-        elif "plan" in executed_phases:
-            parts.append("\n**Context from Plan Phase:**")
-            parts.append(
-                "You created an implementation plan above. Now implement it with high-quality Python code."
-            )
-        elif "scan" in executed_phases:
-            parts.append("\n**Context from Scan Phase:**")
-            parts.append(
-                "You analyzed the codebase above. Now use those insights to generate high-quality code."
-            )
-
-        if request.task_objective:
-            parts.append(f"\n**Task Objective:** {request.task_objective}")
-
-        if request.user_query:
-            parts.append(f"\n**User Query:** {request.user_query}")
-
-        if request.expected_results:
-            parts.append(f"\n**Expected Results:** {request.expected_results}")
-
-        if request.capability_prompts:
-            parts.append("\n**Additional Guidance:**")
-            parts.extend(request.capability_prompts)
-
-        if error_chain:
-            parts.append("\n**Previous Errors - Learn and Fix:**")
-            for error in error_chain[-2:]:
-                parts.append(error.to_prompt_text())
-            parts.append(
-                "\nGenerate IMPROVED code that fixes these errors AND follows the plan you created earlier."
-            )
-        else:
-            parts.append("\n**Final Step:** Generate the complete, executable Python code.")
-
-        return "\n".join(parts)
-
-    def _build_generate_prompt_with_capability_plan(
-        self, request: PythonExecutionRequest, error_chain: list[ExecutionError], phase: dict
-    ) -> str:
-        """Build prompt for generate phase with capability-provided structured plan.
-
-        For capability-driven mode, injects the structured plan from the capability
-        to guide code generation with precise analysis structure and result schema.
-
-        Args:
-            request: Execution request with structured_plan field
-            error_chain: Previous ExecutionError objects for retry feedback
-            phase: Generate phase configuration
-
-        Returns:
-            Generate prompt with injected structured plan
-        """
-        import json
-
-        plan = request.structured_plan
-
-        # Format the structured plan for Claude
-        plan_text = []
-        if plan.domain_guidance:
-            plan_text.append(
-                f"\n**IMPLEMENTATION PLAN (from capability):**\n{plan.domain_guidance}"
-            )
-
-        # Format phases
-        if plan.phases:
-            plan_text.append("\n**EXECUTION PHASES:**")
-            for i, phase_obj in enumerate(plan.phases, 1):
-                plan_text.append(f"\nPhase {i}: {phase_obj.phase}")
-                if phase_obj.subtasks:
-                    for subtask in phase_obj.subtasks:
-                        plan_text.append(f"  • {subtask}")
-                if phase_obj.output_state:
-                    plan_text.append(f"  → Output: {phase_obj.output_state}")
-
-        # Format required result structure
-        if plan.result_schema:
-            plan_text.append("\n**REQUIRED RESULT STRUCTURE:**")
-            plan_text.append("```python")
-            plan_text.append(f"results = {json.dumps(plan.result_schema, indent=2)}")
-            plan_text.append("```")
-            plan_text.append(
-                "\nIMPORTANT: Your code MUST produce a 'results' dictionary matching this exact structure."
-            )
-            plan_text.append(
-                "Replace placeholder values (like '<float>', '<string>') with actual computed values."
-            )
-
-        parts = [
-            phase.get("prompt", ""),
-            f"\n**User Query:** {request.user_query}",
-            "".join(plan_text),
-        ]
-
-        if error_chain:
-            parts.append("\n**Previous Errors - Learn and Fix:**")
-            for error in error_chain[-2:]:
-                parts.append(error.to_prompt_text())
-            parts.append(
-                "\nGenerate IMPROVED code that fixes these errors AND follows the plan above."
-            )
-        else:
-            parts.append(
-                "\nGenerate the complete Python code following the structured plan provided above."
-            )
-
-        return "\n".join(parts)
 
     async def _collect_response(self, client: ClaudeSDKClient, phase: str) -> str:
         """Collect and stream response from ClaudeSDKClient.

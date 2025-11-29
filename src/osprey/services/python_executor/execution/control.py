@@ -37,7 +37,7 @@ for manual control when needed.
 .. seealso::
    :class:`osprey.services.python_executor.execution_policy_analyzer` : Code analysis integration
    :class:`osprey.services.python_executor.models.ExecutionModeConfig` : Container configuration
-   :class:`osprey.services.python_executor.analyzer_node` : Analysis node using these modes
+   :class:`osprey.services.python_executor.analysis.node` : Analysis node using these modes
 
 Examples:
     Basic execution control configuration::
@@ -120,7 +120,7 @@ class ExecutionMode(Enum):
 
 @dataclass
 class ExecutionControlConfig:
-    """Configuration class for EPICS execution control and security policy management.
+    """Configuration class for control system execution control and security policy management.
 
     This configuration class encapsulates the security policies and settings that
     determine how Python code execution is controlled within the system. It provides
@@ -132,8 +132,13 @@ class ExecutionControlConfig:
     code. This ensures that potentially dangerous operations require both
     configuration permission and explicit code intent.
 
-    :param epics_writes_enabled: Whether EPICS write operations are permitted in this deployment
+    :param epics_writes_enabled: (Deprecated) Whether EPICS write operations are permitted.
+                                 Use control_system_writes_enabled instead.
     :type epics_writes_enabled: bool
+    :param control_system_writes_enabled: Whether control system write operations are permitted in this deployment
+    :type control_system_writes_enabled: bool
+    :param control_system_type: Type of control system (epics, mock, tango, etc.)
+    :type control_system_type: str
 
     .. note::
        This configuration should be set based on the deployment environment and
@@ -141,7 +146,7 @@ class ExecutionControlConfig:
        the implications of enabling write access.
 
     .. warning::
-       Enabling EPICS writes allows executed code to potentially affect physical
+       Enabling control system writes allows executed code to potentially affect physical
        systems. Ensure appropriate approval workflows and monitoring are in place.
 
     .. seealso::
@@ -151,22 +156,30 @@ class ExecutionControlConfig:
     Examples:
         Creating a read-only configuration for safe analysis::
 
-            >>> config = ExecutionControlConfig(epics_writes_enabled=False)
+            >>> config = ExecutionControlConfig(control_system_writes_enabled=False)
             >>> mode = config.get_execution_mode(has_epics_writes=True, has_epics_reads=True)
             >>> print(f"Mode: {mode}")  # Always READ_ONLY when writes disabled
             Mode: ExecutionMode.READ_ONLY
 
         Enabling controlled write access::
 
-            >>> write_config = ExecutionControlConfig(epics_writes_enabled=True)
+            >>> write_config = ExecutionControlConfig(control_system_writes_enabled=True)
             >>> # Only grants write access when code actually contains write operations
             >>> read_mode = write_config.get_execution_mode(has_epics_writes=False, has_epics_reads=True)
             >>> write_mode = write_config.get_execution_mode(has_epics_writes=True, has_epics_reads=True)
             >>> print(f"Read mode: {read_mode}, Write mode: {write_mode}")
     """
 
-    # EPICS settings
-    epics_writes_enabled: bool
+    # Control system settings
+    epics_writes_enabled: bool = False  # Deprecated - kept for backward compatibility
+    control_system_writes_enabled: bool | None = None
+    control_system_type: str = "epics"  # Default for backward compatibility
+
+    def __post_init__(self):
+        """Handle backward compatibility for epics_writes_enabled."""
+        # If control_system_writes_enabled not explicitly set, use epics_writes_enabled
+        if self.control_system_writes_enabled is None:
+            self.control_system_writes_enabled = self.epics_writes_enabled
 
     def get_execution_mode(self, has_epics_writes: bool, has_epics_reads: bool) -> ExecutionMode:
         """Determine appropriate execution mode based on code analysis and security policy.

@@ -119,6 +119,15 @@ class RespondCapability(BaseCapability):
             # Build prompt dynamically based on available information
             prompt = _get_base_system_prompt(response_context.current_task, response_context)
 
+            # Set caller context for API call logging (propagates through asyncio.to_thread)
+            from osprey.models import set_api_call_context
+            set_api_call_context(
+                function="execute",
+                module="respond_node",
+                class_name="RespondCapability",
+                extra={"capability": "respond"}
+            )
+
             # Single LLM call - run in thread pool to avoid blocking event loop for streaming
             response = await asyncio.to_thread(
                 get_chat_completion,

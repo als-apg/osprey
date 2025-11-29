@@ -252,6 +252,7 @@ class RegistryManager:
             'framework_prompt_providers': {},
             'providers': {},
             'connectors': {},
+            'code_generators': {},
         }
 
         # Provider-specific storage for metadata introspection
@@ -314,6 +315,7 @@ class RegistryManager:
                     framework_prompt_providers=framework_config.framework_prompt_providers.copy(),
                     providers=framework_config.providers.copy(),
                     connectors=framework_config.connectors.copy(),
+                    code_generators=framework_config.code_generators.copy(),
                     initialization_order=framework_config.initialization_order.copy()
                 )
 
@@ -783,6 +785,28 @@ class RegistryManager:
         if connectors_added:
             logger.info(f"Application {app_name} added {len(connectors_added)} new connector(s): {connectors_added}")
 
+        # Merge code generators with override support
+        framework_generator_names = {gen.name for gen in merged.code_generators}
+        generator_overrides = []
+        generators_added = []
+
+        app_generators = getattr(app_config, 'code_generators', [])
+        for app_generator in app_generators:
+            if app_generator.name in framework_generator_names:
+                # Remove framework generator and add application override
+                merged.code_generators = [gen for gen in merged.code_generators if gen.name != app_generator.name]
+                generator_overrides.append(app_generator.name)
+                merged.code_generators.append(app_generator)
+            else:
+                # New generator, not in framework
+                generators_added.append(app_generator.name)
+                merged.code_generators.append(app_generator)
+
+        if generator_overrides:
+            logger.info(f"Application {app_name} overrode framework code generators: {generator_overrides}")
+        if generators_added:
+            logger.info(f"Application {app_name} added {len(generators_added)} new code generator(s): {generators_added}")
+
     def _validate_standalone_registry(self, config: RegistryConfig, app_name: str) -> None:
         """Validate that standalone registry has required framework components.
 
@@ -942,7 +966,8 @@ class RegistryManager:
             self._initialize_execution_policy_analyzers()
         elif component_type == "connectors":
             self._initialize_connectors()
-
+        elif component_type == "code_generators":
+            self._initialize_code_generators()
         else:
             raise ValueError(f"Unknown component type: {component_type}")
 
@@ -1115,6 +1140,57 @@ class RegistryManager:
                 raise RegistryError(f"Connector registration failed for {registration.name}") from e
 
         logger.info(f"Connector initialization complete: {len(self._registries['connectors'])} connectors loaded")
+
+    def _initialize_code_generators(self) -> None:
+        """Initialize code generators from registry configuration.
+
+        Loads code generator classes and registers them with the generator factory for runtime use.
+        This integrates the code generator system with the registry, providing unified management
+        of all framework components while maintaining the factory pattern for runtime generator creation.
+
+        Code generators with optional dependencies are handled gracefully - if dependencies are
+        missing, the generator is skipped with a warning but initialization continues.
+
+        :raises RegistryError: If code generator class cannot be imported (non-optional deps)
+        """
+        logger.info(f"Initializing {len(self.config.code_generators)} code generator(s)...")
+
+        for registration in self.config.code_generators:
+            try:
+                # Lazy load code generator class
+                module = importlib.import_module(registration.module_path)
+                generator_class = getattr(module, registration.class_name)
+
+                # Store in registry for factory discovery
+                self._registries['code_generators'][registration.name] = {
+                    'class': generator_class,
+                    'registration': registration
+                }
+
+                logger.info(f"  ✓ Registered code generator: {registration.name}")
+                logger.debug(f"    - Description: {registration.description}")
+                logger.debug(f"    - Module: {registration.module_path}")
+                logger.debug(f"    - Class: {registration.class_name}")
+                if registration.optional_dependencies:
+                    logger.debug(f"    - Optional dependencies: {registration.optional_dependencies}")
+
+            except ImportError as e:
+                # Check if this is due to optional dependencies
+                if registration.optional_dependencies:
+                    logger.warning(
+                        f"  ⊘ Skipping code generator '{registration.name}' "
+                        f"(optional dependencies {registration.optional_dependencies} not installed): {e}"
+                    )
+                    logger.debug(f"    To use '{registration.name}', install: pip install {' '.join(registration.optional_dependencies)}")
+                else:
+                    # Not optional - this is a real error
+                    logger.error(f"  ✗ Failed to import code generator '{registration.name}': {e}")
+                    raise RegistryError(f"Code generator registration failed for {registration.name}") from e
+            except Exception as e:
+                logger.error(f"  ✗ Failed to register code generator '{registration.name}': {e}")
+                raise RegistryError(f"Code generator registration failed for {registration.name}") from e
+
+        logger.info(f"Code generator initialization complete: {len(self._registries['code_generators'])} generators loaded")
 
     def _initialize_execution_policy_analyzers(self) -> None:
         """Initialize execution policy analyzer registry with instantiation.

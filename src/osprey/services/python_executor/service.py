@@ -17,12 +17,12 @@ from osprey.graph.graph_builder import (
 from osprey.utils.config import get_full_configuration
 from osprey.utils.logger import get_logger
 
-from .analyzer_node import create_analyzer_node
-from .approval_node import create_approval_node
+from .analysis import create_analyzer_node
+from .approval import create_approval_node
 from .config import PythonExecutorConfig
 from .exceptions import CodeRuntimeError
-from .executor_node import create_executor_node
-from .generator_node import create_generator_node
+from .execution import create_executor_node
+from .generation import create_generator_node
 from .models import PythonExecutionRequest, PythonExecutionState, PythonServiceResult
 
 logger = get_logger("python")
@@ -239,16 +239,7 @@ class PythonExecutorService:
                 result = await compiled_graph.ainvoke(input_data, config)
 
                 # Check for execution failure and raise exception
-                if not result.get("is_successful", False):
-                    failure_reason = result.get("failure_reason") or result.get("execution_error", "Code execution failed")
-                    logger.error(f"Python execution failed: {failure_reason}")
-
-                    # Raise appropriate exception based on failure type
-                    raise CodeRuntimeError(
-                        message=f"Python code execution failed: {failure_reason}",
-                        traceback_info=result.get("execution_error", ""),
-                        execution_attempt=result.get("generation_attempt", 1)
-                    )
+                self._handle_execution_failure(result)
 
                 return result
             else:
@@ -268,16 +259,7 @@ class PythonExecutorService:
             result = await compiled_graph.ainvoke(internal_state, config)
 
             # Check for execution failure and raise exception
-            if not result.get("is_successful", False):
-                failure_reason = result.get("failure_reason") or result.get("execution_error", "Code execution failed")
-                logger.error(f"Python execution failed: {failure_reason}")
-
-                # Raise appropriate exception based on failure type
-                raise CodeRuntimeError(
-                    message=f"Python code execution failed: {failure_reason}",
-                    traceback_info=result.get("execution_error", ""),
-                    execution_attempt=result.get("generation_attempt", 1)
-                )
+            self._handle_execution_failure(result)
 
             # Transform to structured result - no more dict validation needed by capabilities!
             return PythonServiceResult(
@@ -292,6 +274,22 @@ class PythonExecutorService:
             raise TypeError(
                 f"Python executor service received unsupported input type: {type(input_data).__name__}. "
                 f"Supported types: {', '.join(supported_types)}"
+            )
+
+    def _handle_execution_failure(self, result: dict) -> None:
+        """Check result and raise exception if execution failed.
+
+        :param result: Execution result dictionary to check
+        :type result: dict
+        :raises CodeRuntimeError: If execution was not successful
+        """
+        if not result.get("is_successful", False):
+            failure_reason = result.get("failure_reason") or result.get("execution_error", "Code execution failed")
+            logger.error(f"Python execution failed: {failure_reason}")
+            raise CodeRuntimeError(
+                message=f"Python code execution failed: {failure_reason}",
+                traceback_info=result.get("execution_error", ""),
+                execution_attempt=result.get("generation_attempt", 1)
             )
 
     def _build_and_compile_graph(self):
@@ -383,23 +381,19 @@ class PythonExecutorService:
         )
 
     def _analyzer_conditional_edge(self, state: PythonExecutionState) -> str:
-        """Route after static analysis."""
+        """Route after static analysis.
+
+        Pure routing function - no state mutations.
+        Retry limit checking is done in the analyzer node itself.
+        """
+        # Check permanent failure first (set by nodes when retry limit exceeded)
         if state.get("is_failed", False):
             return "__end__"  # Permanently failed - don't retry
-        elif state.get("analysis_failed", False):
-            # Check retry limit to prevent infinite loops
-            generation_attempt = state.get("generation_attempt", 0)
-            max_retries = self.executor_config.max_generation_retries
 
-            if generation_attempt >= max_retries:
-                logger.error(f"Max retries ({max_retries}) exceeded for code generation")
-                # Force permanent failure instead of infinite retries
-                state["is_failed"] = True
-                state["failure_reason"] = f"Code generation failed after {max_retries} attempts"
-                return "__end__"
-            else:
-                logger.warning(f"⚠️ Retrying code generation (attempt {generation_attempt + 1}/{max_retries})")
-                return "retry"
+        # Route based on analysis results
+        elif state.get("analysis_failed", False):
+            # Node already checked retry limits and set is_failed if needed
+            return "retry"
         elif state.get("requires_approval", False):
             return "approve"
         else:
@@ -413,23 +407,21 @@ class PythonExecutorService:
             return "rejected"
 
     def _executor_conditional_edge(self, state: PythonExecutionState) -> str:
-        """Route after code execution."""
-        if state.get("execution_failed", False):
-            # Check retry limit to prevent infinite loops
-            generation_attempt = state.get("generation_attempt", 0)
-            max_retries = self.executor_config.max_execution_retries
+        """Route after code execution.
 
-            if generation_attempt >= max_retries:
-                logger.error(f"Max retries ({max_retries}) exceeded for code execution")
-                # Force permanent failure instead of infinite retries
-                state["is_failed"] = True
-                state["failure_reason"] = f"Code execution failed after {max_retries} attempts"
-                return "__end__"
-            else:
-                logger.warning(f"⚠️ Retrying code generation due to execution failure (attempt {generation_attempt + 1}/{max_retries})")
-                return "retry"
+        Pure routing function - no state mutations.
+        Retry limit checking is done in the executor node itself.
+        """
+        # Check permanent failure first (set by nodes when retry limit exceeded)
+        if state.get("is_failed", False):
+            return "__end__"  # Permanently failed - don't retry
+
+        # Route based on execution results
+        elif state.get("execution_failed", False):
+            # Node already checked retry limits and set is_failed if needed
+            return "retry"
         else:
-            return "__end__"  # Success or unknown state - end either way
+            return "__end__"  # Success - complete the workflow
 
     def _create_checkpointer(self):
         """Create checkpointer using same logic as main graph."""

@@ -187,6 +187,15 @@ class HierarchicalPipeline(BasePipeline):
         # Save prompt for debugging
         _save_prompt_to_file(message, stage='query_split', query=query)
 
+        # Set caller context for API call logging (propagates through asyncio.to_thread)
+        from osprey.models import set_api_call_context
+        set_api_call_context(
+            function="_split_query",
+            module="hierarchical.pipeline",
+            class_name="HierarchicalPipeline",
+            extra={"stage": "query_split"}
+        )
+
         response = await asyncio.to_thread(
             get_chat_completion,
             message=message,
@@ -377,6 +386,15 @@ class HierarchicalPipeline(BasePipeline):
 
         # Save prompt for debugging
         _save_prompt_to_file(prompt, stage='level_selection', level=level, query=query)
+
+        # Set caller context for API call logging (propagates through asyncio.to_thread)
+        from osprey.models import set_api_call_context
+        set_api_call_context(
+            function="_select_at_level",
+            module="hierarchical.pipeline",
+            class_name="HierarchicalPipeline",
+            extra={"stage": "level_selection", "level": level}
+        )
 
         # Get LLM response with dynamic model
         response = await asyncio.to_thread(

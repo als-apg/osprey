@@ -43,7 +43,7 @@ Developer Guides
          * :doc:`02_quick-start-patterns/01_building-your-first-capability` - @capability_node patterns
          * :doc:`03_core-framework-systems/05_message-and-execution-flow` - Router-controlled architecture
          * :doc:`04_infrastructure-components/04_orchestrator-planning` - LLM-powered execution coordination
-         * :doc:`05_production-systems/03_python-execution-service` - Container & local execution
+         * :doc:`05_production-systems/03_python-execution-service/index` - Pluggable code generation & execution
 
          **Advanced Integration Patterns:**
 
@@ -77,7 +77,7 @@ Developer Guides
          **Security & Approval Systems**
 
          * :doc:`05_production-systems/01_human-approval-workflows` - LangGraph-native interrupts
-         * :doc:`05_production-systems/03_python-execution-service` - Code analysis & container execution
+         * :doc:`05_production-systems/03_python-execution-service/index` - Code generation, analysis & secure execution
          * :doc:`04_infrastructure-components/01_gateway-architecture` - Universal entry point security
 
          **Deployment & Integration**
@@ -101,7 +101,7 @@ Developer Guides
 
          **Add approval workflows** → :doc:`05_production-systems/01_human-approval-workflows`
 
-         **Enable Python execution** → :doc:`05_production-systems/03_python-execution-service`
+         **Enable Python execution** → :doc:`05_production-systems/03_python-execution-service/index`
 
          **Store user context** → :doc:`03_core-framework-systems/02_context-management-system`
 
@@ -250,7 +250,7 @@ Guide Categories
 
    * :doc:`05_production-systems/01_human-approval-workflows` - LangGraph-native approval with rich context
    * :doc:`05_production-systems/02_data-source-integration` - Parallel retrieval and intelligent provider discovery
-   * :doc:`05_production-systems/03_python-execution-service` - Secure code execution with security analysis
+   * :doc:`05_production-systems/03_python-execution-service/index` - Pluggable code generation and secure execution
    * :doc:`05_production-systems/04_memory-storage-service` - Persistent user memory with framework integration
    * :doc:`05_production-systems/05_container-and-deployment` - Service orchestration and template-based deployment
 

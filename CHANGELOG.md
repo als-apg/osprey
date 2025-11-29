@@ -5,6 +5,89 @@ All notable changes to the Osprey Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **CLI Commands**: New `osprey generate claude-config` command to generate Claude Code generator configuration files with sensible defaults and auto-detection of provider settings
+- **Interactive Menu**: Added 'generate' command to project selection submenu, centralized menu choice management with `get_project_menu_choices()`, improved consistency between main and project selection flows
+- **E2E Test Suites**: Added comprehensive end-to-end test coverage
+  - **Claude Config Generation Tests** (`test_claude_config_generation.py`): Validates `osprey generate claude-config` command, tests configuration file structure, provider auto-detection, and profile customization
+  - **Code Generator Workflow Tests** (`test_code_generator_workflows.py`): Tests complete code generation pipeline with basic and Claude Code generators. Validates example script guidance following, instruction adherence, and deterministic assertions for generated code content
+  - **MCP Capability Generation Tests** (`test_mcp_capability_generation.py`): End-to-end MCP integration testing including server generation/launch, capability generation from live MCP server, registry integration, and query execution with LLM judge verification
+
+### Changed
+- **API Call Logging**: Enhanced with caller context tracking across all LLM-calling components. Logging metadata now includes capability/module/operation details for better debugging. Improved JSON serialization with Pydantic model support (mode='json') and better error visibility (warnings instead of silent failures)
+- **Claude Code Generator Configuration**: Major simplification - profiles now directly specify phases to run instead of using planning_modes abstraction. Default profile changed from 'balanced' to 'fast'. Unified prompt building into single data-driven `_build_phase_prompt()` method. Reduced codebase by 564 lines through elimination of duplicate prompt builders and dead code
+- **Registry Display**: Filtered infrastructure nodes table to exclude capability nodes (avoid duplication with Capabilities table), moved context classes to verbose-only mode, improved handling of tuple types in provides/requires fields
+- **MCP Generator Error Handling**: Added pre-flight connectivity checks using httpx, much clearer error messages when server is not running, and actionable instructions in error messages
+- **Test Infrastructure**: Added auto-reset registry fixtures in both unit and E2E test conftest files to ensure complete test isolation. Fixtures now reset registry, clear config caches, and clear CONFIG_FILE env var before/after each test to prevent state leakage. Removed manual registry reset calls from individual tests
+
+### Removed
+- **Claude Code Generator Profiles**: Removed 'balanced' profile (consolidated to 'fast' and 'robust' only)
+- **Claude Code Generator Configuration**: Removed 'workflow_mode' setting (use direct 'phases' list specification), removed 'planning_modes' abstraction (profiles specify phases directly), removed dead code (_generate_direct, _generate_phased, _build_phase_options, 7 duplicate prompt builders)
+
+### Fixed
+- **Registry Import Timing**: Fixed module-level `get_registry()` calls that could cause initialization order issues. Moved registry access to runtime (function/method level) in python capability, time_range_parsing capability, generate_from_prompt, and hello_world_weather template
+- **Python Executor Logging**: Replaced deprecated `get_streamer` with unified `get_logger` API in code generator node for consistent streaming support
+- **MCP Generator Configuration**: Added proper model configuration validation with clear error messages when provider is not configured. Improved error handling with unused variable cleanup and better logging integration
+- **Time Range Parsing Tests**: Added mock for `store_output_context` to bypass registry validation, allowing tests to run independently of registry state. Removed obsolete decorator integration tests that were duplicating coverage
+- **Tutorial E2E Tests**: Relaxed over-strict plot count assertion (1+ PNG files instead of 2+) to accommodate both single-figure and multi-figure plotting approaches
+- **Claude Code Generator Tests**: Refactored to skip low-level prompt building tests (implementation details now covered by E2E tests). Improved test maintainability by focusing on behavior rather than internal methods
+- **E2E Test Documentation**: Complete rewrite of tests/e2e/README.md with clearer structure, better isolation guidance, and comprehensive examples. Added warnings about running E2E tests separately from unit tests
+- **Documentation**: Updated all Claude Code generator documentation to reflect simplified configuration model. Restructured generator-claude.rst with improved UX using collapsible dropdowns and tabbed sections. Updated all examples to use 'fast' as default profile
+- **Tests**: Updated Claude Code generator tests to check 'profile_phases' instead of removed 'workflow_mode', removed tests for removed features, added tests for new phase-based configuration model
+
+### Added
+- **Python Executor Service - Complete Modular Refactoring**
+  - **Modular Subdirectory Structure**: Reorganized python_executor service into focused subdirectories
+    - `analysis/` - Code analysis, pattern detection, and policy enforcement
+    - `approval/` - Human approval workflows
+    - `execution/` - Container management and code execution
+    - `generation/` - Pluggable code generator system
+    - Each subdirectory has proper `__init__.py` and dedicated README documentation
+
+  - **Pluggable Code Generator System**: New extensible architecture for code generation
+    - **Abstract Interface**: `CodeGenerator` protocol defining standard generator contract
+    - **Generator Factory**: Dynamic registration and instantiation with `GeneratorFactory`
+    - **Multiple Implementations**:
+      * `BasicGenerator` - Simple template-based generation for straightforward tasks
+      * `ClaudeCodeGenerator` - Advanced AI-powered generation with:
+        - Full conversation history management
+        - Result validation and error recovery
+        - Streaming support with callbacks
+        - Tool use integration
+        - Configurable via `execution.code_generator` and `execution.generators` settings
+      * `MockGenerator` - Deterministic generator for testing
+    - **Registry Integration**: Generator lifecycle managed through framework registry system
+    - **State Model Extensions**: `PythonExecutorState` enhanced to support generator configuration
+
+  - **Generator Configuration**: Explicit, flexible configuration structure
+    - New `execution.code_generator` setting specifies active generator
+    - Generator-specific config in `execution.generators` with model references or inline config
+    - Deprecation warnings for old `models.python_code_generator` approach (backward compatible)
+    - Updated project templates with examples for all generator types
+
+  - **Integration Enhancements**: Connected generator system to framework
+    - Python capability updated to support generator configuration
+    - Analysis node enhanced with generator-aware validation
+    - Execution pipeline improved for generator output handling
+    - Container engine with better error reporting
+
+  - **Comprehensive Test Suite**: Extensive test coverage for new system
+    - Unit tests for all generator implementations (BasicGenerator, ClaudeCodeGenerator, MockGenerator)
+    - Integration tests for generator-service interaction
+    - Pattern detection integration tests
+    - Result validation test suites
+    - State reducer tests
+    - Shared test fixtures and utilities in `tests/services/python_executor/`
+
+  - **CLI and Template Improvements**: Enhanced user experience
+    - Generator selection and configuration in interactive menu
+    - Template system with generator-specific configurations
+    - Claude generator config template (`claude_generator_config.yml.j2`)
+    - Example plotting scripts for common use cases (time series, multi-subplot, publication-quality)
+    - Improved README templates with generator setup instructions
+
 ## [0.9.4] - 2025-11-28
 
 ### Added
@@ -101,6 +184,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.9.2] - 2025-11-25
 
 ### 🎉 Major Features
+
+- **Complete Documentation**: Comprehensive docs for new architecture
+  - Main python_executor service documentation with architecture overview
+  - Per-subdirectory READMEs (analysis, approval, execution, generation)
+  - Detailed generator implementation guides:
+    * BasicGenerator usage and customization
+    * ClaudeCodeGenerator configuration and features
+    * MockGenerator for testing
+  - Updated developer guides with new modular architecture
+  - API reference documentation updates
+
+**Benefits of New Architecture**:
+- **Extensibility**: Easy to add new code generators (e.g., Claude Code SDK, GPT-4, custom generators)
+- **Testability**: MockGenerator enables deterministic testing without API calls
+- **Maintainability**: Clear separation of concerns with modular subdirectories
+- **Flexibility**: Swap generators without modifying core service logic
+- **Zero Breaking Changes**: Existing configurations continue to work with deprecation warnings
+
+### Fixed
+- **Interactive Menu Registry Contamination** ([#29](https://github.com/als-apg/osprey/issues/29))
+  - Fixed bug where creating multiple projects in the same interactive menu session caused capability contamination
+  - Global registry singleton now properly reset when switching between projects
+  - Added `reset_registry()` calls in `handle_chat_action()` before launching chat
+  - Prevents second project from inheriting capabilities from first project
+  - Added comprehensive test suite to verify registry isolation
 
 #### Argo AI Provider (ANL Institutional Service)
 - **New provider adapter** for Argonne National Laboratory's Argo proxy service
@@ -232,6 +340,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Single contexts still returned as objects for backward compatibility: `{"CURRENT_WEATHER": ctx_obj}`
   - Capabilities can check `isinstance(context, list)` to detect and handle multiple contexts
   - Added 17 comprehensive test cases covering all scenarios
+- **Interactive Menu Registry Contamination** ([#29](https://github.com/als-apg/osprey/issues/29))
+  - Fixed bug where creating multiple projects in the same interactive menu session caused capability contamination
+  - Global registry singleton now properly reset when switching between projects
+  - Added `reset_registry()` calls in `handle_chat_action()` before launching chat
+  - Prevents second project from inheriting capabilities from first project
+  - Added comprehensive test suite to verify registry isolation
 
 ### Breaking Changes
 - **BREAKING CHANGE**: `BaseCapabilityContext.get_access_details()` signature simplified

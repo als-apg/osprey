@@ -159,6 +159,32 @@ class MCPCapabilityGenerator(BaseCapabilityGenerator):
             # FastMCP SSE endpoint is at /sse
             sse_url = mcp_url if mcp_url.endswith('/sse') else f"{mcp_url}/sse"
 
+            # Pre-flight check: Try to connect to the server first
+            try:
+                import httpx
+                # Quick check to see if server is reachable
+                async with httpx.AsyncClient(timeout=2.0) as client:
+                    try:
+                        # Try a simple GET to the base URL
+                        _ = await client.get(mcp_url)
+                        # We expect this might fail, but at least we know server is responding
+                    except httpx.ConnectError as e:
+                        # Server is not reachable at all
+                        error_msg = (
+                            f"\n❌ Cannot connect to MCP server at {mcp_url}\n\n"
+                            f"The server is not running or not reachable.\n\n"
+                            f"To start the demo MCP server:\n"
+                            f"  1. Generate the server: osprey generate mcp-server\n"
+                            f"  2. Run it: python demo_mcp_server.py\n\n"
+                            f"Or use simulated mode (no server needed):\n"
+                            f"  osprey generate capability --from-mcp simulated --name {self.capability_name}\n\n"
+                            f"Connection error: {e}"
+                        )
+                        raise RuntimeError(error_msg) from e
+            except ImportError:
+                # httpx not available, skip pre-flight check
+                pass
+
             try:
                 # Use native MCP client to get tools in standardized format
                 async with sse_client(sse_url) as (read, write):
@@ -186,29 +212,36 @@ class MCPCapabilityGenerator(BaseCapabilityGenerator):
                 # Connection-specific errors - likely server not running
                 error_msg = (
                     f"\n❌ Cannot connect to MCP server at {sse_url}\n\n"
-                    f"The MCP server appears to be down or not responding.\n"
-                    f"Please ensure the MCP server is running before generating capabilities.\n\n"
-                    f"To use simulated mode instead (no server needed), add --simulated flag.\n\n"
-                    f"Error details: {type(e).__name__}: {e}"
+                    f"The MCP server appears to be down or not responding.\n\n"
+                    f"To start the demo MCP server:\n"
+                    f"  1. Generate the server: osprey generate mcp-server\n"
+                    f"  2. Run it: python demo_mcp_server.py\n\n"
+                    f"Or use simulated mode (no server needed):\n"
+                    f"  osprey generate capability --from-mcp simulated --name {self.capability_name}\n\n"
+                    f"Error: {type(e).__name__}: {e}"
                 )
                 raise RuntimeError(error_msg) from e
             except Exception as e:
                 # Check if this looks like a connection/TaskGroup error (common when server is down)
                 error_str = str(e).lower()
-                if any(term in error_str for term in ["taskgroup", "connection", "refused", "timeout", "unreachable", "connecterror"]):
+                if any(term in error_str for term in ["taskgroup", "connection", "refused", "timeout", "unreachable", "connecterror", "incomplete chunked read", "peer closed"]):
                     error_msg = (
                         f"\n❌ Cannot connect to MCP server at {sse_url}\n\n"
-                        f"The MCP server appears to be down or unreachable.\n"
-                        f"Please start the MCP server before generating capabilities.\n\n"
-                        f"To use simulated mode instead (no server needed), add --simulated flag.\n\n"
-                        f"Error details: {type(e).__name__}: {e}"
+                        f"The MCP server appears to be down, crashed during handshake, or is incompatible.\n\n"
+                        f"To start the demo MCP server:\n"
+                        f"  1. Generate the server: osprey generate mcp-server\n"
+                        f"  2. Install FastMCP: pip install fastmcp\n"
+                        f"  3. Run it: python demo_mcp_server.py\n\n"
+                        f"Or use simulated mode (no server needed):\n"
+                        f"  osprey generate capability --from-mcp simulated --name {self.capability_name}\n\n"
+                        f"Technical details: {type(e).__name__}"
                     )
                     raise RuntimeError(error_msg) from e
                 else:
                     # Some other error during tool discovery
                     error_msg = (
                         f"\n❌ Failed to discover tools from MCP server at {sse_url}\n\n"
-                        f"Error details: {type(e).__name__}: {e}"
+                        f"Error: {type(e).__name__}: {e}"
                     )
                     raise RuntimeError(error_msg) from e
 
@@ -398,6 +431,7 @@ from osprey.base.examples import OrchestratorGuide, OrchestratorExample, TaskCla
 from osprey.context import CapabilityContext
 from osprey.state import StateManager
 from osprey.registry import get_registry
+from osprey.utils.logger import get_logger
 
 # MCP and LangGraph imports
 try:
@@ -411,9 +445,6 @@ except ImportError:
 
 # Get model for ReAct agent
 from osprey.utils.config import get_model_config, get_provider_config
-
-
-registry = get_registry()
 
 
 # =============================================================================
@@ -513,6 +544,9 @@ class {class_name}(BaseCapability):
     async def _get_react_agent(cls):
         """Get or create ReAct agent with MCP tools (cached)."""
         if cls._react_agent is None:
+            # Get logger for initialization (classmethod doesn't have self)
+            logger = get_logger("{self.capability_name}")
+
             try:
                 # Initialize MCP client
                 if cls._mcp_client is None:
@@ -525,13 +559,20 @@ class {class_name}(BaseCapability):
 
                 # Get LLM instance for ReAct agent
                 # Try to use dedicated "{self.capability_name}_react" model first, fallback to "orchestrator"
-                try:
-                    model_config = get_model_config("{self.capability_name}_react")
-                except Exception:
+                model_config = get_model_config("{self.capability_name}_react")
+                if not model_config or not model_config.get("provider"):
+                    # Model config doesn't exist or is incomplete, fallback to orchestrator
                     model_config = get_model_config("orchestrator")
 
                 provider = model_config.get("provider")
                 model_id = model_config.get("model_id")
+
+                if not provider:
+                    raise ValueError(
+                        f"No provider configured for {{self.capability_name}}_react or orchestrator model. "
+                        f"Please configure a model in config.yml under models section."
+                    )
+
                 provider_config = get_provider_config(provider)
 
                 # Create LangChain ChatModel based on provider

@@ -186,6 +186,23 @@ execution:
   execution_method: "local"              # Options: local | container
   python_env_path: {{ current_python_env }}  # Path to Python with dependencies
 
+  # Code generation configuration
+  code_generator: "{{ code_generator | default('basic') }}"  # Options: basic | claude_code
+  generators:
+    basic:
+      # Reference the model config defined in 'models' section
+      model_config_name: "python_code_generator"
+      # Or define inline configuration here (overrides model_config_name):
+      # provider: cborg
+      # model_id: anthropic/claude-haiku
+      # temperature: 0.7
+
+    # Claude Code configuration (requires claude-agent-sdk)
+    claude_code:
+      claude_config_path: "claude_generator_config.yml"  # Path to detailed config
+      profile: "fast"    # Options: fast | robust (or custom profiles you define)
+      # Advanced settings are in claude_generator_config.yml
+
   # EPICS infrastructure (for hardware control applications)
   epics:
     timeout: 5.0

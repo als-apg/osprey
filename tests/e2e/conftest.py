@@ -19,6 +19,45 @@ from osprey.utils.config import get_full_configuration
 from tests.e2e.judge import LLMJudge, WorkflowResult
 
 
+@pytest.fixture(autouse=True, scope="function")
+def reset_registry_between_tests():
+    """Auto-reset registry before each e2e test to ensure isolation.
+
+    This is critical for e2e tests as they create full framework instances
+    with registries that can leak state between tests.
+
+    IMPORTANT: Also clears config cache AND CONFIG_FILE env var to prevent
+    stale configuration from leaking between tests that use different config files.
+    """
+    # Reset before test
+    reset_registry()
+
+    # CRITICAL: Clear config cache to prevent stale config from previous tests
+    # The config module has global caches that persist across registry resets
+    from osprey.utils import config as config_module
+    config_module._default_config = None
+    config_module._default_configurable = None
+    config_module._config_cache.clear()
+
+    # Clear CONFIG_FILE environment variable to prevent contamination
+    if 'CONFIG_FILE' in os.environ:
+        del os.environ['CONFIG_FILE']
+
+    yield
+
+    # Reset after test for good measure
+    reset_registry()
+
+    # Clear config cache again after test
+    config_module._default_config = None
+    config_module._default_configurable = None
+    config_module._config_cache.clear()
+
+    # Clear CONFIG_FILE env var again
+    if 'CONFIG_FILE' in os.environ:
+        del os.environ['CONFIG_FILE']
+
+
 class E2EProject:
     """Wrapper for an E2E test project with query execution capabilities."""
 
@@ -33,10 +72,6 @@ class E2EProject:
 
     async def initialize(self):
         """Initialize the framework for this project."""
-        # Reset registry to ensure clean state for this project
-        # This prevents contamination from previous test projects
-        reset_registry()
-
         # Set config file environment variable (needed for Python executor)
         os.environ['CONFIG_FILE'] = str(self.config_path)
 

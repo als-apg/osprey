@@ -426,6 +426,69 @@ class ConnectorRegistration:
     class_name: str
     description: str
 
+
+@dataclass
+class CodeGeneratorRegistration:
+    """Registration metadata for Python executor code generators.
+
+    Defines the metadata required for lazy loading of code generator classes that
+    implement the CodeGenerator protocol for Python code generation. This enables
+    applications to register custom code generation strategies alongside framework
+    defaults like the basic LLM generator and Claude Code SDK generator.
+
+    :param name: Unique generator name (e.g., 'basic', 'claude_code', 'custom')
+    :type name: str
+    :param module_path: Python module path for lazy import
+    :type module_path: str
+    :param class_name: Generator class name within the module
+    :type class_name: str
+    :param description: Human-readable description of the generator
+    :type description: str
+    :param optional_dependencies: Optional list of package names required for this generator
+    :type optional_dependencies: list[str]
+
+    Examples:
+        Framework code generator registration::
+
+            >>> CodeGeneratorRegistration(
+            ...     name="claude_code",
+            ...     module_path="osprey.services.python_executor.claude_code_generator",
+            ...     class_name="ClaudeCodeGenerator",
+            ...     description="Claude Code SDK-based generator with multi-turn reasoning",
+            ...     optional_dependencies=["claude-agent-sdk"]
+            ... )
+
+        Application custom generator registration::
+
+            >>> CodeGeneratorRegistration(
+            ...     name="domain_specific",
+            ...     module_path="applications.myapp.generators.domain_generator",
+            ...     class_name="DomainSpecificGenerator",
+            ...     description="Domain-specific code generator with specialized templates"
+            ... )
+
+    .. note::
+       Code generators must implement the CodeGenerator protocol with an async
+       generate_code(request, error_chain) method. The factory will validate
+       protocol compliance at runtime.
+
+    .. note::
+       Generators with optional_dependencies will be skipped if dependencies
+       are not installed, allowing graceful degradation to fallback generators.
+
+    .. seealso::
+       :class:`osprey.services.python_executor.code_generator_interface.CodeGenerator` : Protocol all generators must implement
+       :class:`osprey.services.python_executor.generator_factory.create_code_generator` : Factory that uses these registrations
+       :class:`osprey.services.python_executor.basic_generator.BasicLLMCodeGenerator` : Built-in basic generator
+       :class:`osprey.services.python_executor.claude_code_generator.ClaudeCodeGenerator` : Built-in Claude Code generator
+    """
+    name: str
+    module_path: str
+    class_name: str
+    description: str
+    optional_dependencies: list[str] = field(default_factory=list)
+
+
 @dataclass
 class RegistryConfig:
     """Complete registry configuration with all component metadata.
@@ -469,6 +532,8 @@ class RegistryConfig:
     :type providers: list[ProviderRegistration]
     :param connectors: Registration entries for control system and archiver connectors (optional)
     :type connectors: list[ConnectorRegistration]
+    :param code_generators: Registration entries for Python executor code generators (optional)
+    :type code_generators: list[CodeGeneratorRegistration]
     :param framework_exclusions: Framework component names to exclude by type (optional)
     :type framework_exclusions: dict[str, list[str]]
     :param initialization_order: Component type initialization sequence (optional)
@@ -487,6 +552,7 @@ class RegistryConfig:
     framework_prompt_providers: list[FrameworkPromptProviderRegistration] = field(default_factory=list)
     providers: list[ProviderRegistration] = field(default_factory=list)
     connectors: list[ConnectorRegistration] = field(default_factory=list)
+    code_generators: list[CodeGeneratorRegistration] = field(default_factory=list)
     framework_exclusions: dict[str, list[str]] = field(default_factory=dict)
     initialization_order: list[str] = field(default_factory=lambda: [
         "context_classes",
@@ -495,6 +561,7 @@ class RegistryConfig:
         "execution_policy_analyzers",
         "providers",
         "connectors",
+        "code_generators",
         "capabilities",
         "framework_prompt_providers",
         "core_nodes",

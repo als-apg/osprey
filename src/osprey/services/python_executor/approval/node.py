@@ -27,7 +27,7 @@ the clean architecture principles of the Python executor service.
    being set up by the analyzer node.
 
 .. seealso::
-   :class:`osprey.services.python_executor.analyzer_node` : Creates approval interrupt data
+   :class:`osprey.services.python_executor.analysis.node` : Creates approval interrupt data
    :class:`osprey.approval.ApprovalManager` : Framework-level approval management
    :func:`langgraph.types.interrupt` : LangGraph interrupt mechanism
 
@@ -60,7 +60,7 @@ from langgraph.types import interrupt
 
 from osprey.utils.logger import get_logger
 
-from .models import PythonExecutionState
+from ..models import PythonExecutionState
 
 logger = get_logger("python")
 
@@ -90,7 +90,7 @@ def create_approval_node():
        returned function should be used as a LangGraph node, not this factory.
 
     .. seealso::
-       :func:`osprey.services.python_executor.analyzer_node.create_analyzer_node` : Creates interrupt data
+       :func:`osprey.services.python_executor.analysis.node.create_analyzer_node` : Creates interrupt data
        :class:`PythonExecutionState` : State structure containing interrupt data
 
     Examples:

@@ -186,13 +186,6 @@ async def _run_benchmark(project, pipeline_mode: str):
         logging.getLogger(f'{package_name}').setLevel(logging.WARNING)
         logging.getLogger('channel_finder').setLevel(logging.WARNING)
 
-        # IMPORTANT: Reset the config cache to pick up the modified config file
-        # The config system caches globally, so we need to clear it before each test
-        from osprey.utils import config as config_module
-        config_module._default_config = None
-        config_module._default_configurable = None
-        config_module._config_cache.clear()
-
         # Import the benchmark runner
         runner_module = __import__(
             f'{package_name}.services.channel_finder.benchmarks.runner',

@@ -15,7 +15,7 @@ from typing import Any, NamedTuple
 
 from osprey.utils.logger import get_logger
 
-from .execution_control import ExecutionMode
+from ..execution.control import ExecutionMode
 
 logger = get_logger("python_analyzer")
 
@@ -134,7 +134,9 @@ class DefaultFrameworkDomainAnalyzer(DomainAnalyzer):
         self,
         basic_analysis: BasicAnalysisResult
     ) -> DomainAnalysisResult:
-        """Implement existing framework EPICS detection logic"""
+        """Use config-based pattern detection for control system operations"""
+
+        from .pattern_detection import detect_control_system_operations
 
         detected_operations = []
         risk_categories = []
@@ -142,37 +144,40 @@ class DefaultFrameworkDomainAnalyzer(DomainAnalyzer):
 
         code = basic_analysis.code
 
-        # EPICS operation detection (existing logic)
-        epics_write_patterns = [
-            r'\bcaput\s*\(',
-            r'\.put\s*\(',
-            r'\.set_value\s*\(',
-            r'PV\([^)]*\)\.put',
-        ]
+        # Use the pattern detection module (reads from config or uses defaults)
+        # The pattern_detection module handles the fallback to defaults internally
+        detection_result = detect_control_system_operations(
+            code=code,
+            patterns=None,  # Load from config: control_system.patterns (or use defaults)
+            control_system_type=None  # Load from config: control_system.type
+        )
 
-        epics_read_patterns = [
-            r'\bcaget\s*\(',
-            r'\.get\s*\(',
-            r'\.get_value\s*\(',
-            r'PV\([^)]*\)\.get',
-        ]
+        # Map detection results to domain analysis format
+        control_system_type = detection_result['control_system_type']
 
-        import re
+        if detection_result['has_writes']:
+            detected_operations.append(f"{control_system_type}_writes")
+            risk_categories.append("control_system_write")
+            domain_data[f"{control_system_type}_write_operations"] = True
+            domain_data["detected_write_patterns"] = detection_result['detected_patterns']['writes']
 
-        # Check for EPICS writes
-        for pattern in epics_write_patterns:
-            if re.search(pattern, code, re.IGNORECASE):
+        if detection_result['has_reads']:
+            detected_operations.append(f"{control_system_type}_reads")
+            domain_data[f"{control_system_type}_read_operations"] = True
+            domain_data["detected_read_patterns"] = detection_result['detected_patterns']['reads']
+
+        # Store control system type for downstream use
+        domain_data["control_system_type"] = control_system_type
+
+        # Backward compatibility: also set epics_* operations if control system is EPICS
+        if control_system_type == "epics":
+            if detection_result['has_writes']:
                 detected_operations.append("epics_writes")
                 risk_categories.append("accelerator_control")
                 domain_data["epics_write_operations"] = True
-                break
-
-        # Check for EPICS reads
-        for pattern in epics_read_patterns:
-            if re.search(pattern, code, re.IGNORECASE):
+            if detection_result['has_reads']:
                 detected_operations.append("epics_reads")
                 domain_data["epics_read_operations"] = True
-                break
 
         return DomainAnalysisResult(
             detected_operations=detected_operations,
@@ -340,13 +345,24 @@ class DefaultFrameworkPolicyAnalyzer(ExecutionPolicyAnalyzer):
                 analysis_passed=False
             )
 
-        # Extract EPICS-specific information from domain analysis
+        # Get control system type from domain analysis
+        control_system_type = domain_analysis.domain_data.get("control_system_type", "unknown")
+
+        # Extract control system operations (generic, not EPICS-specific)
+        has_control_writes = any(
+            op.endswith("_writes") for op in domain_analysis.detected_operations
+        )
+        has_control_reads = any(
+            op.endswith("_reads") for op in domain_analysis.detected_operations
+        )
+
+        # Backward compatibility: also check for legacy epics_* operations
         has_epics_writes = "epics_writes" in domain_analysis.detected_operations
         has_epics_reads = "epics_reads" in domain_analysis.detected_operations
 
         # Get execution control configuration
         try:
-            from .models import get_execution_control_config_from_configurable
+            from ..models import get_execution_control_config_from_configurable
             exec_control = get_execution_control_config_from_configurable(self.configurable)
         except Exception as e:
             logger.error(f"Failed to get execution control config: {e}")
@@ -359,38 +375,46 @@ class DefaultFrameworkPolicyAnalyzer(ExecutionPolicyAnalyzer):
                 analysis_passed=False
             )
 
-        # Determine execution mode based on EPICS operations
-        if has_epics_writes:
-            if exec_control.epics_writes_enabled:
+        # Determine execution mode based on control system operations
+        if has_control_writes:
+            # Check if control system writes are enabled (with backward compatibility)
+            writes_enabled = getattr(exec_control, 'control_system_writes_enabled',
+                                    getattr(exec_control, 'epics_writes_enabled', False))
+
+            if writes_enabled:
                 execution_mode = ExecutionMode.WRITE_ACCESS
-                additional_issues = ["EPICS writes detected - using write access mode"]
+                additional_issues = [f"{control_system_type.upper()} writes detected - using write access mode"]
             else:
                 return ExecutionPolicyDecision(
                     execution_mode=ExecutionMode.READ_ONLY,
                     needs_approval=False,
-                    approval_reasoning="EPICS writes detected but writes disabled in configuration",
-                    additional_issues=["EPICS writes blocked by configuration"],
-                    recommendations=["Enable EPICS writes in configuration if needed"],
+                    approval_reasoning=f"{control_system_type.upper()} writes detected but writes disabled in configuration",
+                    additional_issues=[f"{control_system_type.upper()} writes blocked by configuration"],
+                    recommendations=["Enable control system writes in configuration if needed"],
                     analysis_passed=False
                 )
         else:
             execution_mode = ExecutionMode.READ_ONLY
-            additional_issues = ["No EPICS writes detected - using read-only mode"]
+            additional_issues = [f"No {control_system_type.upper()} writes detected - using read-only mode"]
 
         # Determine approval requirements using existing approval system
+        # Use has_control_writes, but fall back to has_epics_writes for backward compatibility
         from osprey.approval.approval_manager import get_python_execution_evaluator
         approval_evaluator = get_python_execution_evaluator()
-        approval_decision = approval_evaluator.evaluate(has_epics_writes, has_epics_reads)
+        approval_decision = approval_evaluator.evaluate(
+            has_control_writes or has_epics_writes,
+            has_control_reads or has_epics_reads
+        )
 
         needs_approval = approval_decision.needs_approval
         approval_reasoning = approval_decision.reasoning
 
         # Generate recommendations
         recommendations = []
-        if has_epics_reads and not has_epics_writes:
-            recommendations.append("Read-only EPICS operations detected - safe for execution")
-        if has_epics_writes:
-            recommendations.append("EPICS write operations require careful review")
+        if has_control_reads and not has_control_writes:
+            recommendations.append(f"Read-only {control_system_type.upper()} operations detected - safe for execution")
+        if has_control_writes:
+            recommendations.append(f"{control_system_type.upper()} write operations require careful review")
 
         return ExecutionPolicyDecision(
             execution_mode=execution_mode,
@@ -400,9 +424,15 @@ class DefaultFrameworkPolicyAnalyzer(ExecutionPolicyAnalyzer):
             recommendations=recommendations,
             analysis_passed=True,
             additional_context={
+                "has_control_writes": has_control_writes,
+                "has_control_reads": has_control_reads,
+                "control_system_type": control_system_type,
+                "control_system_writes_enabled": getattr(exec_control, 'control_system_writes_enabled',
+                                                         getattr(exec_control, 'epics_writes_enabled', False)),
+                # Backward compatibility fields
                 "has_epics_writes": has_epics_writes,
                 "has_epics_reads": has_epics_reads,
-                "epics_writes_enabled": exec_control.epics_writes_enabled
+                "epics_writes_enabled": getattr(exec_control, 'epics_writes_enabled', False)
             }
         )
 

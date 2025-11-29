@@ -69,7 +69,7 @@ def set_api_call_context(
     :type class_name: str | None
     :param line: Optional line number
     :type line: int
-    :param extra: Optional extra metadata (e.g., capability_name, task_id)
+    :param extra: Optional extra metadata (e.g., capability, task_id, operation)
     :type extra: dict[str, Any] | None
 
     .. note::
@@ -87,7 +87,7 @@ def set_api_call_context(
                 module="classification_node",
                 class_name="CapabilityClassifier",
                 line=387,
-                extra={"capability_name": "python"}
+                extra={"capability": "python"}
             )
 
             response = await asyncio.to_thread(
@@ -334,8 +334,8 @@ def _format_metadata_header(
 
     # Build capability context if available (for classifier)
     capability_context = ""
-    if "capability_name" in caller_info:
-        capability_context = f"\n# Capability: {caller_info['capability_name']}"
+    if "capability" in caller_info:
+        capability_context = f"\n# Capability: {caller_info['capability']}"
 
     # Build skipped frames info for debugging complex call chains
     skipped_info = ""
@@ -398,10 +398,11 @@ def _sanitize_result_for_logging(result: Any) -> str:
     if isinstance(result, str):
         return result
     elif hasattr(result, "model_dump"):
-        # Pydantic BaseModel
-        return json.dumps(result.model_dump(), indent=2)
+        # Pydantic BaseModel - use mode='json' to serialize datetime and other complex types
+        return json.dumps(result.model_dump(mode='json'), indent=2)
     elif isinstance(result, (dict, list)):
-        return json.dumps(result, indent=2)
+        # For plain dicts/lists, use default JSON encoder with fallback for non-serializable types
+        return json.dumps(result, indent=2, default=str)
     else:
         return str(result)
 
@@ -499,9 +500,9 @@ def log_api_call(
         else:
             base_name = f"{caller_module}_{caller_function}"
 
-        # Add extra metadata to filename if provided (e.g., capability_name)
-        if "capability_name" in caller_info:
-            base_name = f"{base_name}_{caller_info['capability_name']}"
+        # Add extra metadata to filename if provided (e.g., capability)
+        if "capability" in caller_info:
+            base_name = f"{base_name}_{caller_info['capability']}"
 
         if latest_only:
             filename = f"{base_name}_latest.txt"
@@ -546,5 +547,6 @@ def log_api_call(
         logger.debug(f"API call logged to {filepath}")
 
     except Exception as e:
-        # Silently handle errors to prevent breaking the main application
-        logger.debug(f"Error logging API call: {e}")
+        # Don't break execution if logging fails, but make errors visible
+        logger.warning(f"Failed to log API call: {e}")
+        logger.debug(f"API logging traceback: {traceback.format_exc()}")

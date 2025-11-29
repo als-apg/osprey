@@ -9,7 +9,6 @@ Related to Issue #18 - Control System Abstraction (Layer 1)
 """
 
 import re
-from typing import Optional
 
 from osprey.utils.logger import get_logger
 
@@ -68,10 +67,18 @@ def detect_control_system_operations(
                 control_system_type = get_config_value('control_system.type', 'epics')
 
             if patterns is None:
-                patterns = get_config_value('control_system.patterns', {})
+                patterns = get_config_value('control_system.patterns', None)
+
+                # If config doesn't have patterns, use defaults
+                if patterns is None or not patterns:
+                    logger.warning("No patterns in config, using default patterns")
+                    patterns = get_default_patterns()
         except Exception as e:
             logger.warning(f"Could not load patterns from config: {e}")
-            patterns = patterns or {}
+            # Fall back to default patterns instead of empty dict
+            if patterns is None:
+                logger.debug("Using default patterns as fallback")
+                patterns = get_default_patterns()
             control_system_type = control_system_type or 'epics'
 
     # Get patterns for the specified control system type
@@ -142,14 +149,18 @@ def get_default_patterns() -> dict[str, dict[str, list[str]]]:
         },
         'epics': {
             'write': [
-                r'epics\.caput\(',
-                r'epics\.PV\([^)]*\)\.put\(',
-                r'\.put\(',  # For pv.put()
+                r'\bcaput\s*\(',  # Standalone caput (from epics import caput)
+                r'epics\.caput\(',  # Module-qualified epics.caput
+                r'\.put\s*\(',  # pv.put()
+                r'\.set_value\s*\(',  # pv.set_value()
+                r'PV\([^)]*\)\.put',  # PV(...).put
             ],
             'read': [
-                r'epics\.caget\(',
-                r'epics\.PV\([^)]*\)\.get\(',
-                r'\.get\(',  # For pv.get()
+                r'\bcaget\s*\(',  # Standalone caget (from epics import caget)
+                r'epics\.caget\(',  # Module-qualified epics.caget
+                r'\.get\s*\(',  # pv.get()
+                r'\.get_value\s*\(',  # pv.get_value()
+                r'PV\([^)]*\)\.get',  # PV(...).get
             ]
         },
         # Future patterns can be added here

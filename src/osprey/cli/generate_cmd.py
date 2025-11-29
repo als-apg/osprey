@@ -103,6 +103,7 @@ def generate():
     \b
       - capability: Generate Osprey capability from MCP server or natural language prompt
       - mcp-server: Generate demo MCP server for testing
+      - claude-config: Generate Claude Code generator configuration file
 
     Examples:
 
@@ -118,6 +119,9 @@ def generate():
 
       # Generate a demo MCP server
       $ osprey generate mcp-server --name my_server --output ./server.py
+
+      # Generate Claude Code configuration
+      $ osprey generate claude-config
     """
     pass
 
@@ -362,6 +366,16 @@ def _generate_from_mcp(
     except KeyboardInterrupt:
         console.print(f"\n{Messages.warning('Generation cancelled by user')}")
         raise click.Abort() from None
+    except RuntimeError as e:
+        # RuntimeError with clear message - don't show traceback
+        error_msg = str(e)
+        if error_msg.startswith('\n'):
+            # Error already formatted with newlines
+            console.print(error_msg)
+        else:
+            console.print(f"\n{Messages.error('Generation failed: ')}")
+            console.print(f"\n{error_msg}")
+        raise click.Abort() from e
     except Exception as e:
         console.print(f"\n{Messages.error(f'Generation failed: {e}')}")
         if not quiet:
@@ -897,6 +911,149 @@ def mcp_server(
         console.print(f"  1. Install dependencies: [{Styles.ACCENT}]pip install fastmcp[/{Styles.ACCENT}]")
         console.print(f"  2. Run the server: [{Styles.ACCENT}]python {output_path}[/{Styles.ACCENT}]")
         console.print(f"  3. Generate capability: [{Styles.ACCENT}]osprey generate capability --from-mcp http://localhost:{port} -n {server_name}[/{Styles.ACCENT}]")
+        console.print()
+
+    except Exception as e:
+        console.print(f"\n{Messages.error(f'Generation failed: {e}')}")
+        import traceback
+        console.print(f"[dim]{traceback.format_exc()}[/dim]")
+        raise click.Abort() from e
+
+
+@generate.command(name='claude-config')
+@click.option(
+    '--output', '-o',
+    'output_file',
+    default="claude_generator_config.yml",
+    help='Output file path (default: ./claude_generator_config.yml)'
+)
+@click.option(
+    '--force', '-f',
+    is_flag=True,
+    help='Overwrite existing file if it exists'
+)
+def claude_config(
+    output_file: str,
+    force: bool
+):
+    """Generate Claude Code generator configuration file.
+
+    Creates a claude_generator_config.yml file with sensible defaults for
+    the Claude Code generator. This file is required when using the
+    'claude_code' code generator in your config.yml.
+
+    The generated configuration includes:
+
+    \b
+      - API configuration (Anthropic or CBORG)
+      - Phase definitions (scan, plan, implement, generate)
+      - Pre-configured profiles (fast, robust)
+      - Codebase guidance for example scripts
+      - Security settings and documentation
+
+    Examples:
+
+    \b
+      # Generate with default settings
+      $ osprey generate claude-config
+
+      # Custom output location
+      $ osprey generate claude-config --output ./configs/claude.yml
+
+      # Overwrite existing file
+      $ osprey generate claude-config --force
+
+    After generation:
+
+    \b
+      1. Review the generated configuration
+      2. Update config.yml to use 'claude_code' generator
+      3. Set API key: ANTHROPIC_API_KEY or CBORG_API_KEY
+      4. Optionally add example scripts to _agent_data/example_scripts/
+    """
+    import yaml
+
+    from .templates import TemplateManager
+
+    output_path = Path(output_file)
+
+    # Check if file exists
+    if output_path.exists() and not force:
+        console.print(f"\n{Messages.error(f'File already exists: {output_path}')}")
+        console.print()
+        console.print("  Use [accent]--force[/accent] to overwrite:")
+        console.print(f"    {Messages.command(f'osprey generate claude-config --force')}")
+        console.print()
+        raise click.Abort()
+
+    console.print("\n⚙️  [header]Generating Claude Code Configuration[/header]\n")
+    console.print(f"  [{Styles.LABEL}]Output:[/{Styles.LABEL}] [{Styles.VALUE}]{output_path}[/{Styles.VALUE}]")
+
+    try:
+        # Try to detect provider from config.yml if available
+        default_provider = "anthropic"
+        default_model = "claude-haiku-4-5-20251001"
+
+        config_path = Path.cwd() / "config.yml"
+        if config_path.exists():
+            try:
+                with open(config_path) as f:
+                    config = yaml.safe_load(f)
+                    if config and 'llm' in config:
+                        default_provider = config['llm'].get('default_provider', 'anthropic')
+                        console.print(f"  [{Styles.LABEL}]Detected provider:[/{Styles.LABEL}] [{Styles.VALUE}]{default_provider}[/{Styles.VALUE}]")
+            except Exception:
+                pass
+        else:
+            console.print(f"  [{Styles.DIM}]No config.yml found - using defaults[/{Styles.DIM}]")
+
+        # Create template context
+        ctx = {
+            "default_provider": default_provider,
+            "default_model": default_model
+        }
+
+        # Render template
+        console.print(f"\n  [{Styles.DIM}]Rendering template...[/{Styles.DIM}]")
+
+        template_manager = TemplateManager()
+        template_manager.render_template(
+            "apps/control_assistant/claude_generator_config.yml.j2",
+            ctx,
+            output_path
+        )
+
+        console.print(f"  {Messages.success(f'Configuration generated: {output_path}')}\n")
+
+        # Success summary
+        console.print(f"[{Styles.HEADER}]What was created:[/{Styles.HEADER}]")
+        console.print("  ✓ API configuration (ready for " + default_provider + ")")
+        console.print("  ✓ Phase definitions (scan, plan, implement, generate)")
+        console.print("  ✓ Pre-configured profiles (fast, robust)")
+        console.print("  ✓ Codebase guidance configuration")
+        console.print("  ✓ Security and documentation")
+
+        console.print(f"\n[{Styles.HEADER}]Next Steps:[/{Styles.HEADER}]")
+        console.print(f"  1. Review: [{Styles.VALUE}]{output_path}[/{Styles.VALUE}]")
+        console.print()
+        console.print("  2. Enable in [accent]config.yml[/accent]:")
+        console.print()
+        console.print("     [dim]execution:[/dim]")
+        console.print("     [dim]  code_generator: \"claude_code\"[/dim]")
+        console.print("     [dim]  generators:[/dim]")
+        console.print("     [dim]    claude_code:[/dim]")
+        console.print("     [dim]      profile: \"fast\"  # or \"robust\"[/dim]")
+        console.print(f"     [dim]      claude_config_path: \"{output_path.name}\"[/dim]")
+        console.print()
+        console.print(f"  3. Set API key in [accent].env[/accent]:")
+        if default_provider == "cborg":
+            console.print("     [dim]CBORG_API_KEY=your-key-here[/dim]")
+        else:
+            console.print("     [dim]ANTHROPIC_API_KEY=your-key-here[/dim]")
+        console.print()
+        console.print("  4. (Optional) Add example scripts:")
+        console.print("     [dim]mkdir -p _agent_data/example_scripts/plotting[/dim]")
+        console.print("     [dim]# Add your example Python files...[/dim]")
         console.print()
 
     except Exception as e:

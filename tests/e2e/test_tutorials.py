@@ -73,10 +73,10 @@ async def test_bpm_timeseries_and_correlation_tutorial(e2e_project_factory, llm_
        square matrix (e.g., 20x20) with correlation coefficients ranging
        from -1 to +1.
 
-    6. **Output Artifacts**: Produce at least two distinct figure files:
-       - A timeseries plot (*.png)
-       - A correlation heatmap (*.png)
-       Optionally may include Jupyter notebooks documenting the analysis.
+    6. **Output Artifacts**: Produce at least one figure file (*.png).
+       The plots may be combined as subplots in a single figure, or created
+       as separate files - either approach is acceptable. Optionally may
+       include Jupyter notebooks documenting the analysis.
 
     7. **User Response**: Provide a coherent markdown response that:
        - Summarizes what was done
@@ -114,8 +114,10 @@ async def test_bpm_timeseries_and_correlation_tutorial(e2e_project_factory, llm_
     )
 
     # Additional sanity checks (belt and suspenders)
-    assert len(result.artifacts) >= 2, (
-        f"Expected at least 2 artifacts (plots), got {len(result.artifacts)}"
+    # Check for at least one PNG (plots may be combined in one figure)
+    png_files = [a for a in result.artifacts if a.suffix == '.png']
+    assert len(png_files) >= 1, (
+        f"Expected at least 1 PNG file, got {len(png_files)}"
     )
 
     assert result.error is None, (

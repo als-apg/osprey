@@ -264,7 +264,7 @@ Pattern detection enables the approval system to identify control system operati
 
 .. code-block:: python
 
-   from osprey.services.python_executor.pattern_detection import detect_control_system_operations
+   from osprey.services.python_executor.analysis.pattern_detection import detect_control_system_operations
 
    code = """
    current = epics.caget('BEAM:CURRENT')

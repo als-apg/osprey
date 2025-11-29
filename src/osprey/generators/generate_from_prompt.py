@@ -239,10 +239,6 @@ from osprey.base.planning import PlannedStep
 from osprey.base.examples import OrchestratorGuide, OrchestratorExample, TaskClassifierGuide, ClassifierExample, ClassifierActions
 from osprey.context import CapabilityContext
 from osprey.state import StateManager
-from osprey.registry import get_registry
-
-
-registry = get_registry()
 
 
 # =============================================================================

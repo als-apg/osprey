@@ -373,6 +373,15 @@ async def _classify_memory_operation(task_objective: str, logger) -> MemoryOpera
         # Create full message combining system and user prompts
         full_message = f"{system_prompt}\n\nUser task: {user_prompt}"
 
+        # Set caller context for API call logging (propagates through asyncio.to_thread)
+        from osprey.models import set_api_call_context
+        set_api_call_context(
+            function="_classify_memory_operation",
+            module="memory",
+            class_name="MemoryCapability",
+            extra={"capability": "memory", "operation": "classification"}
+        )
+
         response_data = await asyncio.to_thread(
             get_chat_completion,
             model_config=classifier_config,
@@ -660,6 +669,16 @@ class MemoryOperationsCapability(BaseCapability):
 
                         # Use structured LLM generation for memory extraction
                         message = f"{system_instructions}\n\n{query}"
+
+                        # Set caller context for API call logging (propagates through asyncio.to_thread)
+                        from osprey.models import set_api_call_context
+                        set_api_call_context(
+                            function="_extract_memory_content",
+                            module="memory",
+                            class_name="MemoryCapability",
+                            extra={"capability": "memory", "operation": "extraction"}
+                        )
+
                         response_data = await asyncio.to_thread(
                             get_chat_completion,
                             message=message,
