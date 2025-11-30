@@ -7,9 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Error Node**: Removed deprecated manual streaming code and progress tracking in favor of unified logger system with automatic streaming
+
 ## [0.9.5] - 2025-12-01
 
 ### Added
+- **Channel Write Capability**: New dedicated capability for writing values to control system channels
+  - **Simple Write Operations**: Direct value assignment to channels ("Set X to 50")
+  - **Multiple Channel Writes**: Support for writing multiple channels in one operation
+  - **Boundary Checking Integration**: Automatically uses configured boundary validation system
+  - **Approval Workflow**: Integrates with framework approval system for safety
+  - **Clear Separation**: Distinct from Python capability - Python for calculations/loops, channel_write for direct value assignment
+  - **Comprehensive Guides**: Orchestrator and classifier guides with clear examples and safety notes
+  - **Context Class**: New `CHANNEL_WRITE_RESULTS` context type with detailed write results including success/failure status
+  - **Template Integration**: Fully integrated into control_assistant template with proper registry and config
+
+- **Runtime PV Boundary Checking**: Comprehensive safety system for validating Process Variable writes at runtime
+  - **Validation Engine** (`boundary_validator.py`): Validates all PV writes against configured safety boundaries with min/max limits, read-only enforcement, optional step size checking, and unlisted PV policy
+  - **Monkeypatch Integration**: Automatic interception of all `epics.caput()` and `PV.put()` calls via execution wrapper monkeypatch, ensuring no bypass possible
+  - **Failsafe Design**: All errors block writes (fail-closed), empty database blocks all writes, read failures block writes when step checking is configured
+  - **Configuration System**: Simple YAML configuration with JSON boundary database, supports per-PV min/max/max_step/writable settings
+  - **Exception Handling**: New `PVBoundaryViolationError` exception with detailed violation messages including PV address, attempted value, current value, configured limits, and clear safety warnings
+  - **Comprehensive Testing**: Unit tests (200+ lines) covering all validation scenarios, integration tests for end-to-end workflow, test fixtures for boundary databases
+  - **Documentation**: Complete feature documentation in `docs/source/features/boundary_checking.rst` with architecture diagrams, configuration examples, deployment guide, troubleshooting, and API reference
+  - **Example Configuration**: Sample `channel_boundaries.json` with examples of min/max validation, step size limits, read-only PVs, and metadata fields
+  - **Performance Optimized**: Instant validation for min/max checks (no I/O), optional ~50-100ms overhead for step size checking (pay-for-what-you-use model)
+  - **Integration Points**: Property-based config loading in `PythonExecutorConfig`, validator injection in `LocalCodeExecutor` and `ContainerCodeExecutor`, config serialization in `ExecutionWrapper`
+
 - **CLI Commands**: New `osprey generate claude-config` command to generate Claude Code generator configuration files with sensible defaults and auto-detection of provider settings
 - **Interactive Menu**: Added 'generate' command to project selection submenu, centralized menu choice management with `get_project_menu_choices()`, improved consistency between main and project selection flows
 - **E2E Test Suites**: Added comprehensive end-to-end test coverage
@@ -18,6 +43,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **MCP Capability Generation Tests** (`test_mcp_capability_generation.py`): End-to-end MCP integration testing including server generation/launch, capability generation from live MCP server, registry integration, and query execution with LLM judge verification
 
 ### Changed
+- **Channel Value Retrieval Renamed to Channel Read**: Renamed `channel_value_retrieval` capability to `channel_read` throughout the entire codebase for consistency and clarity
+  - **Capability Name**: `channel_value_retrieval` → `channel_read`
+  - **Class Name**: `ChannelValueRetrievalCapability` → `ChannelReadCapability`
+  - **File Name**: `channel_value_retrieval.py.j2` → `channel_read.py.j2`
+  - **Description**: Updated from "Retrieve current values" to "Read current values"
+  - **Documentation**: Updated all references in .rst files, README, and examples
+  - **Symmetric Naming**: Now matches `channel_read` (read) / `channel_write` (write) pattern
+  - **Registry**: Updated capability registration and context type references
+  - **Config**: Updated logging colors and capability lists
+
 - **API Call Logging**: Enhanced with caller context tracking across all LLM-calling components. Logging metadata now includes capability/module/operation details for better debugging. Improved JSON serialization with Pydantic model support (mode='json') and better error visibility (warnings instead of silent failures)
 - **Claude Code Generator Configuration**: Major simplification - profiles now directly specify phases to run instead of using planning_modes abstraction. Default profile changed from 'balanced' to 'fast'. Unified prompt building into single data-driven `_build_phase_prompt()` method. Reduced codebase by 564 lines through elimination of duplicate prompt builders and dead code
 - **Registry Display**: Filtered infrastructure nodes table to exclude capability nodes (avoid duplication with Capabilities table), moved context classes to verbose-only mode, improved handling of tuple types in provides/requires fields
