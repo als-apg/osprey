@@ -423,15 +423,11 @@ class ErrorNode(BaseInfrastructureNode):
         state = self._state
         logger = self.get_logger()
 
-        logger.status("Starting Error Response Generation")
-
         try:
             error_context = _create_error_context_from_state(state)
             _populate_error_context(error_context, state)
 
             response = await _generate_error_response(error_context)
-
-            logger.success("Completed Error Response Generation")
 
             return {"messages": [AIMessage(content=response)]}
 
