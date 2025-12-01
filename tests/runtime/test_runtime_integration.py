@@ -22,12 +22,18 @@ def setup_registry(tmp_path):
     import os
     import yaml
 
-    # Create test config with writes enabled
+    # Create test config with writes enabled and no noise
     config_file = tmp_path / "config.yml"
     config_data = {
         'control_system': {
             'type': 'mock',
             'writes_enabled': True,  # Enable writes for integration tests
+            'connector': {
+                'mock': {
+                    'noise_level': 0.0,  # Disable noise for predictable tests
+                    'response_delay_ms': 1  # Minimal delay for fast tests
+                }
+            }
         }
     }
     config_file.write_text(yaml.dump(config_data))
@@ -68,7 +74,10 @@ def mock_control_system_context():
                 'type': 'mock',
                 'writes_enabled': True,  # Enable writes for testing
                 'connector': {
-                    'mock': {}
+                    'mock': {
+                        'noise_level': 0.0,  # No noise for predictable tests
+                        'response_delay_ms': 1  # Minimal delay
+                    }
                 }
             }
         }
@@ -165,13 +174,16 @@ def test_context_snapshot_reproducibility(clear_runtime_state):
     """Test that context snapshot ensures reproducible configuration."""
     import osprey.runtime as runtime
 
-    # Create context with EPICS config
+    # Create context with mock config
     epics_context = MockContext({
         '_execution_config': {
             'control_system': {
                 'type': 'mock',  # Using mock for testing
                 'connector': {
-                    'mock': {}
+                    'mock': {
+                        'noise_level': 0.0,  # No noise for predictable tests
+                        'response_delay_ms': 1
+                    }
                 }
             }
         }
@@ -280,11 +292,16 @@ def test_fallback_to_global_config(clear_runtime_state):
     # Create context without execution config
     empty_context = MockContext({})
 
-    # Mock get_config_value to return mock config
+    # Mock get_config_value to return mock config with no noise
     with patch('osprey.utils.config.get_config_value') as mock_get_config:
         mock_get_config.return_value = {
             'type': 'mock',
-            'connector': {'mock': {}}
+            'connector': {
+                'mock': {
+                    'noise_level': 0.0,  # No noise for predictable tests
+                    'response_delay_ms': 1
+                }
+            }
         }
 
         # Configure should fall back to global config
