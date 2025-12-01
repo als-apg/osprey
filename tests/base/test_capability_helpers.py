@@ -531,6 +531,154 @@ def test_get_task_objective_common_patterns():
 
 
 # ========================================
+# Test get_step_inputs()
+# ========================================
+
+
+def test_get_step_inputs_from_step():
+    """Test getting inputs when they exist in step."""
+
+    class TestCap(BaseCapability):
+        name = "test"
+        description = "test"
+
+        async def execute(self) -> dict:
+            return {}
+
+    instance = TestCap()
+    instance._state = {}
+    instance._step = {
+        "context_key": "test_key",
+        "inputs": [
+            {"CHANNEL_ADDRESSES": "channels"},
+            {"TIME_RANGE": "time_range"}
+        ]
+    }
+
+    inputs = instance.get_step_inputs()
+
+    # Should return step's inputs list
+    assert inputs == [
+        {"CHANNEL_ADDRESSES": "channels"},
+        {"TIME_RANGE": "time_range"}
+    ]
+
+
+def test_get_step_inputs_empty_list():
+    """Test getting inputs when step has no inputs."""
+
+    class TestCap(BaseCapability):
+        name = "test"
+        description = "test"
+
+        async def execute(self) -> dict:
+            return {}
+
+    instance = TestCap()
+    instance._state = {}
+    instance._step = {"context_key": "test_key"}  # No inputs!
+
+    inputs = instance.get_step_inputs()
+
+    # Should return empty list as default
+    assert inputs == []
+
+
+def test_get_step_inputs_with_custom_default():
+    """Test using custom default instead of empty list."""
+
+    class TestCap(BaseCapability):
+        name = "test"
+        description = "test"
+
+        async def execute(self) -> dict:
+            return {}
+
+    instance = TestCap()
+    instance._state = {}
+    instance._step = {"context_key": "test_key"}  # No inputs!
+
+    custom_default = [{"DEFAULT": "value"}]
+    inputs = instance.get_step_inputs(default=custom_default)
+
+    # Should return custom default
+    assert inputs == custom_default
+
+
+def test_get_step_inputs_none_value():
+    """Test that None value in inputs returns default."""
+
+    class TestCap(BaseCapability):
+        name = "test"
+        description = "test"
+
+        async def execute(self) -> dict:
+            return {}
+
+    instance = TestCap()
+    instance._state = {}
+    instance._step = {
+        "context_key": "test_key",
+        "inputs": None  # Explicitly None
+    }
+
+    inputs = instance.get_step_inputs()
+
+    # Should return default (empty list) when inputs is None
+    assert inputs == []
+
+
+def test_get_step_inputs_without_step():
+    """Test error when called outside execute()."""
+
+    class TestCap(BaseCapability):
+        name = "test"
+        description = "test"
+
+        async def execute(self) -> dict:
+            return {}
+
+    instance = TestCap()
+    # Don't inject step
+
+    with pytest.raises(RuntimeError, match="requires self._step"):
+        instance.get_step_inputs()
+
+
+def test_get_step_inputs_common_patterns():
+    """Test common usage patterns."""
+
+    class TestCap(BaseCapability):
+        name = "test"
+        description = "test"
+
+        async def execute(self) -> dict:
+            return {}
+
+    instance = TestCap()
+    instance._state = {}
+    instance._step = {
+        "context_key": "test_key",
+        "inputs": [
+            {"CHANNEL_ADDRESSES": "channels"},
+            {"TIME_RANGE": "time"}
+        ]
+    }
+
+    # Pattern 1: Use directly
+    inputs = instance.get_step_inputs()
+    assert len(inputs) == 2
+
+    # Pattern 2: Check if any inputs exist
+    has_inputs = bool(instance.get_step_inputs())
+    assert has_inputs is True
+
+    # Pattern 3: Count inputs for logging
+    count = len(instance.get_step_inputs())
+    assert count == 2
+
+
+# ========================================
 # Test store_output_context()
 # ========================================
 

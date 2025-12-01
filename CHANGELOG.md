@@ -46,6 +46,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Clear approval prompts with channel addresses and target values
   - Resume payload includes complete operation context
 
+- BaseCapability helper method: get_step_inputs() for accessing orchestrator-provided input contexts
+  - Simplifies access to step inputs list from within execute()
+  - Handles None values gracefully with configurable defaults
+  - Comprehensive tests for various edge cases
+
 - **Channel Write Capability**: New dedicated capability for writing values to control system channels
   - **Simple Write Operations**: Direct value assignment to channels ("Set X to 50")
   - **Multiple Channel Writes**: Support for writing multiple channels in one operation

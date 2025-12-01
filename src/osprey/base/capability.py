@@ -532,6 +532,56 @@ class BaseCapability(ABC):
         from osprey.state import StateManager
         return StateManager.get_current_task(self._state)
 
+    def get_step_inputs(self, default: list[dict[str, str]] | None = None) -> list[dict[str, str]]:
+        """
+        Get the inputs list from the current step.
+
+        The orchestrator provides inputs in each step as a list of {context_type: context_key}
+        mappings that specify which contexts are available for this step. This is commonly
+        used for building context descriptions, validation, and informing the LLM about
+        available data.
+
+        Args:
+            default: Default value to return if no inputs exist (defaults to empty list)
+
+        Returns:
+            List of input mappings from the step
+
+        Raises:
+            RuntimeError: If called outside execute() (state not injected)
+
+        Example:
+            ```python
+            async def execute(self) -> dict[str, Any]:
+                # Get step inputs
+                step_inputs = self.get_step_inputs()
+
+                # Use with ContextManager to build description
+                from osprey.context import ContextManager
+                context_manager = ContextManager(self._state)
+                context_description = context_manager.get_context_access_description(step_inputs)
+
+                # Or with a custom default
+                step_inputs = self.get_step_inputs(default=[])
+                ```
+        """
+        if self._step is None:
+            raise RuntimeError(
+                f"{self.__class__.__name__}.get_step_inputs() requires self._step "
+                f"to be injected by @capability_node decorator.\n"
+                f"\n"
+                f"This method can only be called from within execute()."
+            )
+
+        if default is None:
+            default = []
+
+        # Handle case where 'inputs' key exists but is None
+        inputs = self._step.get('inputs', default)
+        if inputs is None:
+            return default
+        return inputs
+
     def store_output_context(
         self,
         context_data: CapabilityContext
