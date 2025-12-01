@@ -16,6 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Complete unit and integration test coverage
   - API reference documentation with usage examples
 
+### Added
+- **Control System Prompt Builders**: Custom prompt builders teaching LLMs to use runtime utilities
+  - New ControlSystemPythonPromptBuilder with osprey.runtime documentation
+  - Automatic injection of domain-specific instructions into capability prompts
+  - Enhanced classifier examples for control system operations
+  - Graceful fallback if custom prompts unavailable
+  - Comprehensive test coverage for prompt builder integration
+  - Complete tutorial on framework prompt customization
+
 ### Changed
 - **Python Execution Infrastructure**: Integrated runtime utilities with execution wrapper and notebooks
   - Execution wrapper automatically configures runtime from context snapshots

@@ -9,6 +9,7 @@ from osprey.registry import (
     extend_framework_registry,
     CapabilityRegistration,
     ContextClassRegistration,
+    FrameworkPromptProviderRegistration,
     RegistryConfig
 )
 
@@ -83,6 +84,14 @@ class {{ app_class_name }}RegistryProvider(RegistryConfigProvider):
                     module_path="{{ package_name }}.context_classes",
                     class_name="ArchiverDataContext"
                 ),
+            ],
+            framework_prompt_providers=[
+                FrameworkPromptProviderRegistration(
+                    module_path="{{ package_name }}.framework_prompts",
+                    prompt_builders={
+                        "python": "ControlSystemPythonPromptBuilder"
+                    }
+                )
             ]
         )
 

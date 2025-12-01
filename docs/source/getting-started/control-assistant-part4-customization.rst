@@ -43,6 +43,7 @@ The framework prompt provider system allows you to customize how the agent think
 - **Classifier**: How the agent decides which capabilities to invoke for a given task
 - **Task Extraction**: How conversations are compressed into concrete tasks
 - **Response Generation**: How final answers are formatted and presented to users
+- **Python Code Generation**: How Python code is generated for data analysis and control system operations
 
 **The Prompt Provider Architecture**
 
@@ -50,68 +51,139 @@ OSPREY uses a **provider registration system** that allows you to override defau
 
 **Step 1: Create Your Custom Prompt Builder**
 
-Create a new module in your agent project (e.g., ``src/my_control_assistant/framework_prompts/``) and subclass the appropriate default builder:
+Create a new module in your agent project (e.g., ``src/my_control_assistant/framework_prompts/``) and subclass the appropriate default builder.
 
-.. code-block:: python
+.. dropdown:: **Example: Python Prompt Builder (Already in Your Template!)**
+   :color: success
 
-   # src/my_control_assistant/framework_prompts/orchestrator.py
-   import textwrap
-   from osprey.prompts.defaults.orchestrator import DefaultOrchestratorPromptBuilder
-   from osprey.registry import get_registry
+   The control assistant template already includes a custom Python prompt builder that teaches the LLM to use ``osprey.runtime`` utilities for control system operations. This is located at ``src/my_control_assistant/framework_prompts/python.py``:
 
-   class MyFacilityOrchestratorPromptBuilder(DefaultOrchestratorPromptBuilder):
-       """Facility-specific orchestrator prompt customization."""
+   .. code-block:: python
 
-       def get_role_definition(self) -> str:
-           """Override the agent's role description."""
-           return "You are an expert execution planner for the MyFacility control system assistant."
+      # src/my_control_assistant/framework_prompts/python.py
+      import textwrap
+      from osprey.prompts.defaults.python import DefaultPythonPromptBuilder
 
-       def get_instructions(self) -> str:
-           """Extend base instructions with facility-specific guidance."""
-           registry = get_registry()
-           base_instructions = super().get_instructions()
+      class ControlSystemPythonPromptBuilder(DefaultPythonPromptBuilder):
+          """Python prompt builder with control system runtime utilities guidance.
 
-           facility_guidance = textwrap.dedent("""
-               MyFacility-Specific Planning Rules:
+          Extends the framework's default Python prompts to teach LLMs how to
+          interact with control systems using osprey.runtime utilities.
+          """
 
-               1. SAFETY PRIORITIES:
-                  - Always verify beam status before executing magnet changes
-                  - For vacuum operations, check interlocks before valve commands
-                  - Never plan writes to critical systems without explicit user confirmation
+          def get_instructions(self) -> str:
+              """Get Python instructions with control system operations guidance."""
+              # Get base framework instructions
+              base_instructions = super().get_instructions()
 
-               2. STANDARD WORKFLOWS:
-                  - Beam current queries: Use MAIN_DCCT (not backup DCCTs unless specified)
-                  - Magnet tuning: Always read current values before planning changes
-                  - Vacuum readbacks: Prefer ION-PUMP channels over GAUGE channels for routine monitoring
+              # Add control system-specific guidance
+              control_system_guidance = textwrap.dedent("""
 
-               3. OPERATIONAL CONTEXT:
-                  - Morning startup procedures require sequential system checks
-                  - Magnet ramping needs 2-second settling time between steps
-                  - RF cavity adjustments affect beam stability—plan conservatively
+                  === CONTROL SYSTEM OPERATIONS ===
+                  For reading/writing to control systems, use osprey.runtime utilities:
 
-               Focus on being practical and efficient while ensuring robust execution.
-               Never plan for simulated or fictional data - only real MyFacility operations.
-           """).strip()
+                  from osprey.runtime import write_channel, read_channel, write_channels
 
-           return f"{base_instructions}\n\n{facility_guidance}"
+                  Examples:
+                      # Write a calculated value
+                      from osprey.runtime import write_channel
+                      import math
+                      voltage = math.sqrt(4150)
+                      write_channel("TerminalVoltageSetPoint", voltage)
+                      results = {"voltage_set": voltage}
+
+                      # Read current value
+                      from osprey.runtime import read_channel
+                      current = read_channel("BeamCurrent")
+                      print(f"Current: {current}")
+                      results = {"beam_current": current}
+
+                  These utilities work with ANY control system (EPICS, Mock, etc.) - you don't
+                  need to know which one is configured. All safety checks (limits validation,
+                  approval workflows) happen automatically.
+
+                  IMPORTANT:
+                  - Never use epics.caput() or epics.caget() directly - use osprey.runtime utilities
+                  """).strip()
+
+              return base_instructions + "\n\n" + control_system_guidance
+
+   **What This Does:**
+
+   - Extends ``DefaultPythonPromptBuilder`` with control system-specific instructions
+   - Teaches the LLM to use ``osprey.runtime`` utilities instead of direct EPICS calls
+   - Provides concrete examples of read/write operations
+   - Ensures generated code works with any configured control system (EPICS, Mock, LabVIEW, etc.)
+
+   **Result:** When the Python capability generates code, the LLM automatically uses ``osprey.runtime`` utilities for control system operations, ensuring consistency, safety, and control-system-agnostic code.
+
+.. dropdown:: **Example: Orchestrator Prompt Builder (Custom Facility Rules)**
+   :color: info
+
+   You can create additional custom prompt builders for other framework components. Here's an example of customizing the orchestrator with facility-specific planning rules:
+
+   .. code-block:: python
+
+      # src/my_control_assistant/framework_prompts/orchestrator.py
+      import textwrap
+      from osprey.prompts.defaults.orchestrator import DefaultOrchestratorPromptBuilder
+      from osprey.registry import get_registry
+
+      class MyFacilityOrchestratorPromptBuilder(DefaultOrchestratorPromptBuilder):
+          """Facility-specific orchestrator prompt customization."""
+
+          def get_role_definition(self) -> str:
+              """Override the agent's role description."""
+              return "You are an expert execution planner for the MyFacility control system assistant."
+
+          def get_instructions(self) -> str:
+              """Extend base instructions with facility-specific guidance."""
+              registry = get_registry()
+              base_instructions = super().get_instructions()
+
+              facility_guidance = textwrap.dedent("""
+                  MyFacility-Specific Planning Rules:
+
+                  1. SAFETY PRIORITIES:
+                     - Always verify beam status before executing magnet changes
+                     - For vacuum operations, check interlocks before valve commands
+                     - Never plan writes to critical systems without explicit user confirmation
+
+                  2. STANDARD WORKFLOWS:
+                     - Beam current queries: Use MAIN_DCCT (not backup DCCTs unless specified)
+                     - Magnet tuning: Always read current values before planning changes
+                     - Vacuum readbacks: Prefer ION-PUMP channels over GAUGE channels for routine monitoring
+
+                  3. OPERATIONAL CONTEXT:
+                     - Morning startup procedures require sequential system checks
+                     - Magnet ramping needs 2-second settling time between steps
+                     - RF cavity adjustments affect beam stability—plan conservatively
+
+                  Focus on being practical and efficient while ensuring robust execution.
+                  Never plan for simulated or fictional data - only real MyFacility operations.
+              """).strip()
+
+              return f"{base_instructions}\n\n{facility_guidance}"
 
 **Step 2: Create the Module __init__.py**
 
-Create an ``__init__.py`` file in your framework_prompts module to export your builders:
+Create an ``__init__.py`` file in your framework_prompts module to export your builders. The control assistant template already has this set up:
 
 .. code-block:: python
 
    # src/my_control_assistant/framework_prompts/__init__.py
-   from .orchestrator import MyFacilityOrchestratorPromptBuilder
+   from .python import ControlSystemPythonPromptBuilder  # Already in template!
+   # from .orchestrator import MyFacilityOrchestratorPromptBuilder  # Add your own
    # Add other builders as you create them
 
    __all__ = [
-       "MyFacilityOrchestratorPromptBuilder",
+       "ControlSystemPythonPromptBuilder",  # Already exported
+       # "MyFacilityOrchestratorPromptBuilder",  # Add your own
    ]
 
 **Step 3: Register Your Custom Prompt Provider**
 
-In your agent's ``registry.py``, extend the existing registry configuration to include your custom prompt builders. This builds on the ``RegistryConfigProvider`` pattern you already have from Parts 1-3:
+In your agent's ``registry.py``, extend the existing registry configuration to include your custom prompt builders. **The template already registers the Python prompt builder** - you can add more as needed:
 
 .. code-block:: python
 
@@ -155,13 +227,14 @@ In your agent's ``registry.py``, extend the existing registry configuration to i
                    # ... other context classes ...
                ],
 
-               # Add custom framework prompts
+               # Custom framework prompts (Python already registered in template!)
                framework_prompt_providers=[
                    FrameworkPromptProviderRegistration(
                        module_path="my_control_assistant.framework_prompts",
                        prompt_builders={
-                           "orchestrator": "MyFacilityOrchestratorPromptBuilder",
-                           # Add other builders as needed:
+                           "python": "ControlSystemPythonPromptBuilder",  # ✅ Already in template!
+                           # Add your own custom builders:
+                           # "orchestrator": "MyFacilityOrchestratorPromptBuilder",
                            # "task_extraction": "MyFacilityTaskExtractionPromptBuilder",
                            # "response_generation": "MyFacilityResponseGenerationPromptBuilder",
                            # "classification": "MyFacilityClassificationPromptBuilder",
@@ -184,6 +257,9 @@ The framework automatically discovers and uses your custom builders. You can ove
    * - Builder Type
      - Base Class
      - Purpose
+   * - ``python``
+     - ``DefaultPythonPromptBuilder``
+     - Controls Python code generation (**already customized in template**)
    * - ``orchestrator``
      - ``DefaultOrchestratorPromptBuilder``
      - Controls execution planning and capability sequencing

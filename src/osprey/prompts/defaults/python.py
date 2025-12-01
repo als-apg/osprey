@@ -25,40 +25,29 @@ class DefaultPythonPromptBuilder(FrameworkPromptBuilder):
 
     def get_role_definition(self) -> str:
         """Get the role definition for Python code generation."""
-        return "You are a Python code generator that creates clean, simple, and effective Python code for computational tasks."
+        return "You are an expert Python developer generating high-quality, executable code."
 
     def get_task_definition(self) -> str:
         """Get the task definition for Python code generation."""
-        return "TASK: Generate minimal, working Python code to accomplish computational tasks and basic data processing."
+        return None  # Task is provided via capability_prompts
 
     def get_instructions(self) -> str:
-        """Get the instructions for Python code generation."""
+        """Get the instructions for Python code generation.
+
+        These instructions are domain-agnostic and apply to all Python code generation.
+        Domain-specific guidance (like control system operations) should be added
+        via custom prompt builders in application templates.
+        """
         return textwrap.dedent("""
-            INSTRUCTIONS:
-            1. Write minimal, working Python code that accomplishes the specified task
-            2. Include basic error handling if needed
-            3. Use standard library when possible - avoid unnecessary imports
-            4. Print results clearly with descriptive output
-            5. Keep code simple, readable, and well-commented
-            6. Focus on the core computational task without over-engineering
-
-            CODE REQUIREMENTS:
-            - Use clear variable names
-            - Include comments for complex logic
-            - Print intermediate steps for debugging if helpful
-            - Handle common edge cases (division by zero, empty lists, etc.)
-            - Structure code logically with proper indentation
-
-            EXAMPLE OUTPUT FORMAT:
-            ```python
-            # Brief comment explaining the task
-            import math  # Only import what's needed
-
-            # Main computation
-            radius = 5
-            area = math.pi * radius ** 2
-            print(f"Area of circle with radius {radius}: {area:.2f}")
-            ```
+            === CODE GENERATION INSTRUCTIONS ===
+            1. Generate complete, executable Python code
+            2. Include all necessary imports at the top
+            3. Use professional coding standards and clear variable names
+            4. Add brief comments explaining complex logic
+            5. STAY FOCUSED: Implement exactly what's requested - avoid over-engineering simple tasks
+            6. Use provided context data when available (accessible via 'context' object)
+            7. IMPORTANT: Store computed results in a dictionary variable named 'results' for automatic saving
+            8. Generate ONLY the Python code, without markdown code blocks or additional explanation
             """).strip()
 
     def get_orchestrator_guide(self) -> OrchestratorGuide | None:

@@ -244,19 +244,17 @@ class BasicLLMCodeGenerator:
         """
         prompt_parts = []
 
-        # System instructions
-        prompt_parts.append("You are an expert Python developer generating high-quality, executable code.")
+        # === MINIMAL SYSTEM ROLE ===
+        prompt_parts.append("You are an expert Python code generator.")
+
+        # === CRITICAL OUTPUT CONSTRAINTS (safety net) ===
+        # These are essential constraints that MUST always be enforced
         prompt_parts.append(textwrap.dedent("""
-            === CODE GENERATION INSTRUCTIONS ===
-            1. Generate complete, executable Python code
-            2. Include all necessary imports at the top
-            3. Use professional coding standards and clear variable names
-            4. Add brief comments explaining complex logic
-            5. STAY FOCUSED: Implement exactly what's requested - avoid over-engineering simple tasks
-            6. Use provided context data when available (accessible via 'context' object)
-            7. IMPORTANT: Store computed results in a dictionary variable named 'results' for automatic saving
-            8. Generate ONLY the Python code, without markdown code blocks or additional explanation
-        """))
+            CRITICAL REQUIREMENTS:
+            1. Generate ONLY executable Python code (no markdown, no explanations)
+            2. Store computed results in a dictionary variable named 'results'
+            3. Include all necessary imports at the top
+            """).strip())
 
         # Task details
         # Note: task_objective is the STEP-SPECIFIC objective from the orchestrator's execution plan
@@ -267,11 +265,20 @@ class BasicLLMCodeGenerator:
         if request.expected_results:
             prompt_parts.append(f"**Expected Results:** {request.expected_results}")
 
-        # Capability-specific prompts
+        # === CAPABILITY-SPECIFIC PROMPTS ===
+        # These include detailed instructions from prompt builder system
         if request.capability_prompts:
             for prompt in request.capability_prompts:
                 if prompt:
                     prompt_parts.append(prompt)
+        else:
+            # Fallback if no capability prompts provided
+            prompt_parts.append(textwrap.dedent("""
+                GUIDANCE:
+                - Write clean, working Python code for the task
+                - Use clear variable names and add comments
+                - Handle common edge cases appropriately
+                """).strip())
 
         # Structured error feedback
         if error_chain:
