@@ -4,14 +4,11 @@ Pytest configuration and shared test utilities.
 This module provides shared fixtures and utilities for all Osprey tests.
 """
 
-import os
-
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
 from osprey.base.planning import ExecutionPlan, PlannedStep
 from osprey.state import AgentState
-
 
 # ===================================================================
 # Auto-reset Registry and Config Between Tests

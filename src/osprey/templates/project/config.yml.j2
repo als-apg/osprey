@@ -132,16 +132,12 @@ approval:
   capabilities:
     python_execution:
       enabled: true
-      mode: "epics_writes"   # Options: disabled | epics_writes | all_code
+      mode: "control_writes"   # Options: disabled | control_writes | all_code
     memory:
       enabled: true
 
 # Execution limits and safety controls
 execution_control:
-  # EPICS writes (hardware control) - Master safety switch
-  epics:
-    writes_enabled: false    # Set true only for production hardware control
-
   # Agent control - Runtime behavior configuration
   agent_control:
     task_extraction_bypass_enabled: false    # Skip LLM task extraction
@@ -208,10 +204,10 @@ execution:
     timeout: 5.0
     gateways:
       read_only:
-        address: cagw-alsdmz.als.lbl.gov
+        address: your-gateway.example.com  # Replace with your EPICS gateway address
         port: 5064
       write_access:
-        address: cagw-alsdmz.als.lbl.gov
+        address: your-gateway.example.com  # Replace with your EPICS gateway address
         port: 5084
 
   # Python/Jupyter execution modes
@@ -231,6 +227,58 @@ execution:
       environment:
         EPICS_CA_AUTO_ADDR_LIST: "NO"
         EPICS_EXECUTION_MODE: "write_access"
+
+# ============================================================
+# CONTROL SYSTEM CONFIGURATION
+# ============================================================
+# Control system type, write access, limits checking, and verification
+
+control_system:
+  # Control system type - determines connector and pattern detection
+  type: "mock"  # Options: mock | epics
+
+  # Write Access Control - Master safety switch
+  writes_enabled: false  # Set true only for production hardware control
+
+  # Runtime Channel Limits Checking
+  limits_checking:
+    enabled: false  # Enable for production safety
+    database_path: null  # Path to channel_limits.json
+    allow_unlisted_channels: true
+    on_violation: "skip"  # Options: error | skip
+
+  # Write Verification Configuration
+  write_verification:
+    enabled: false  # Enable verification for production
+    default_level: "callback"  # Options: none | callback | readback
+    default_tolerance_percent: 0.1
+    timeout: 5.0
+    fail_on_mismatch: false
+
+  # Connector-specific configuration
+  connector:
+    mock:
+      simulate_delays: false
+    epics:
+      timeout: 5.0
+      gateways:
+        read_only:
+          address: your-gateway.example.com  # Replace with your EPICS gateway address
+          port: 5064
+          use_name_server: false  # Set true for SSH tunnels
+        write_access:
+          address: your-gateway.example.com  # Replace with your EPICS gateway address
+          port: 5084
+          use_name_server: false
+
+  # Pattern detection for control system operations in generated code
+  patterns:
+    mock:
+      write: ['\.caput\(', '\.write_channel\(', '\.write_pv\(']
+      read: ['\.caget\(', '\.read_channel\(', '\.read_pv\(']
+    epics:
+      write: ['\bcaput\s*\(', 'epics\.caput\(', '\.put\s*\(', '\.set_value\s*\(']
+      read: ['\bcaget\s*\(', 'epics\.caget\(', '\.get\s*\(', '\.get_value\s*\(']
 
 # Python executor settings
 python_executor:

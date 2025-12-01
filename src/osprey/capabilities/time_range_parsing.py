@@ -522,11 +522,10 @@ class TimeRangeParsingCapability(BaseCapability):
         # Get unified logger with automatic streaming support
         logger = self.get_logger()
 
-        # Current step is injected by decorator
-        step = self._step
+        # Get task objective using helper method
+        task_objective = self.get_task_objective()
 
         # Display task with structured formatting
-        task_objective = step.get('task_objective', 'unknown')
         logger.info("Starting time range parsing")
         logger.info(f'[bold]Query:[/bold] "[italic]{task_objective}[/italic]"')
         logger.status("Parsing time range with LLM...")
@@ -534,7 +533,7 @@ class TimeRangeParsingCapability(BaseCapability):
         # Build sophisticated system prompt
         full_prompt = _get_time_parsing_system_prompt(task_objective)
 
-        logger.debug(f"Time parsing for task '{step.get('task_objective', 'unknown')}': {task_objective}")
+        logger.debug(f"Time parsing for task '{task_objective}': {task_objective}")
 
         try:
             # Get model config from LangGraph configurable

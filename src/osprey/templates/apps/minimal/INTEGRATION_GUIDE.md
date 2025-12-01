@@ -52,11 +52,8 @@ class YourCapability(BaseCapability):
             field2=result['values']
         )
 
-        # 4. Store and return
-        return StateManager.store_context(
-            state, "YOUR_DATA",
-            step.get("context_key"), output
-        )
+        # 4. Store and return using helper method
+        return self.store_output_context(output)
 ```
 
 ### Step 3: Register Components
@@ -161,15 +158,14 @@ class KnowledgeCapability(BaseCapability):
     provides = ["KNOWLEDGE"]
     requires = []
 
-    @staticmethod
-    async def execute(state: AgentState, **kwargs):
-        step = StateManager.get_current_step(state)
-        query = step.get("task_objective", "")
+    async def execute(self):
+        # Get task objective using helper method
+        query = self.get_task_objective()
 
         docs = await knowledge_base.search(query)
 
         output = KnowledgeContext(documents=docs)
-        return StateManager.store_context(...)
+        return self.store_output_context(output)
 ```
 
 ---

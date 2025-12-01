@@ -110,11 +110,8 @@ class MyAPICapability(BaseCapability):
             timestamp=datetime.now()
         )
 
-        # Store and return
-        return StateManager.store_context(
-            state, "MY_API_RESPONSE",
-            step.get("context_key"), output
-        )
+        # Store and return using helper method
+        return self.store_output_context(output)
 ```
 
 **👉 The template has 200+ lines of documentation explaining every part!**

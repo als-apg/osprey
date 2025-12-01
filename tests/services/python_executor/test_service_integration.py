@@ -474,8 +474,8 @@ class TestApprovalWorkflow:
         config_data['agent_control_defaults']['epics_writes_enabled'] = True
         config_data['agent_control_defaults']['control_system_writes_enabled'] = True
 
-        # Set approval mode to epics_writes
-        config_data['approval']['capabilities']['python_execution']['mode'] = 'epics_writes'
+        # Set approval mode to control_writes
+        config_data['approval']['capabilities']['python_execution']['mode'] = 'control_writes'
 
         with open(test_config_with_approval, 'w') as f:
             yaml.dump(config_data, f)
@@ -548,17 +548,18 @@ class TestApprovalWorkflow:
         config_data['agent_control_defaults']['epics_writes_enabled'] = True
         config_data['agent_control_defaults']['control_system_writes_enabled'] = True
         config_data['approval']['capabilities']['python_execution']['enabled'] = True
-        config_data['approval']['capabilities']['python_execution']['mode'] = 'epics_writes'
+        config_data['approval']['capabilities']['python_execution']['mode'] = 'control_writes'
 
         with open(test_config_with_approval, 'w') as f:
             yaml.dump(config_data, f)
 
         # Reset and reinitialize
+        from langgraph.types import Command
+
         import osprey.approval.approval_manager as approval_module
         import osprey.utils.config as config_module
         from osprey.registry import initialize_registry, reset_registry
         from osprey.utils.config import get_full_configuration
-        from langgraph.types import Command
 
         config_module._default_config = None
         config_module._default_configurable = None
@@ -646,17 +647,18 @@ class TestApprovalWorkflow:
             config_data['agent_control_defaults'] = {}
         config_data['agent_control_defaults']['epics_writes_enabled'] = True
         config_data['approval']['capabilities']['python_execution']['enabled'] = True
-        config_data['approval']['capabilities']['python_execution']['mode'] = 'epics_writes'
+        config_data['approval']['capabilities']['python_execution']['mode'] = 'control_writes'
 
         with open(test_config_with_approval, 'w') as f:
             yaml.dump(config_data, f)
 
         # Reset and reinitialize
+        from langgraph.types import Command
+
         import osprey.approval.approval_manager as approval_module
         import osprey.utils.config as config_module
         from osprey.registry import initialize_registry, reset_registry
         from osprey.utils.config import get_full_configuration
-        from langgraph.types import Command
 
         config_module._default_config = None
         config_module._default_configurable = None
@@ -721,7 +723,7 @@ class TestApprovalWorkflow:
             config_data = yaml.safe_load(f)
 
         config_data['approval']['capabilities']['python_execution']['enabled'] = True
-        config_data['approval']['capabilities']['python_execution']['mode'] = 'epics_writes'
+        config_data['approval']['capabilities']['python_execution']['mode'] = 'control_writes'
 
         with open(test_config, 'w') as f:
             yaml.dump(config_data, f)

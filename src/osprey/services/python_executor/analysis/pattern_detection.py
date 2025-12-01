@@ -140,11 +140,13 @@ def get_default_patterns() -> dict[str, dict[str, list[str]]]:
         'mock': {
             'write': [
                 r'\.caput\(',
-                r'\.write_pv\(',
+                r'\.write_channel\(',  # New unified API
+                r'\.write_pv\(',  # Deprecated but still detected
             ],
             'read': [
                 r'\.caget\(',
-                r'\.read_pv\(',
+                r'\.read_channel\(',  # New unified API
+                r'\.read_pv\(',  # Deprecated but still detected
             ]
         },
         'epics': {

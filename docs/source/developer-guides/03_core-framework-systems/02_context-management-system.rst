@@ -349,7 +349,7 @@ After extracting contexts, use their attributes directly without redundant nesti
    # ✅ GOOD: Work with lists from context
    channels, = self.get_required_contexts()
    for channel in channels.channel_list:
-       values = await read_pv(channel)
+       values = await read_channel(channel)
 
    # ❌ AVOID: Redundant nesting (anti-pattern)
    location_context, = self.get_required_contexts()

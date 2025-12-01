@@ -615,8 +615,8 @@ class MemoryOperationsCapability(BaseCapability):
             if not user_id:
                 raise UserIdNotAvailableError("Cannot perform memory operations: user ID not available in config")
 
-            # Extract and classify the request
-            task_objective = step.get('task_objective', '')
+            # Extract and classify the request using helper method
+            task_objective = self.get_task_objective(default='unknown')
 
             # Use LLM-based classification
             operation = await _classify_memory_operation(task_objective, logger)
@@ -643,15 +643,14 @@ class MemoryOperationsCapability(BaseCapability):
                     chat_formatted = ChatHistoryFormatter.format_for_llm(messages)
 
                     # Check if we have context inputs from previous steps and include them
-                    step = self._step
-                    step_inputs = step.get('inputs', [])
+                    step_inputs = self.get_step_inputs()
                     context_section = ""
 
                     if step_inputs:
                         logger.info(f"Memory save: Including context from {len(step_inputs)} previous steps")
                         try:
                             context_manager = ContextManager(self._state)
-                            context_summaries = context_manager.get_summaries(step)
+                            context_summaries = context_manager.get_summaries(self._step)
 
                             if context_summaries:
                                 # Format list as readable string
@@ -726,7 +725,7 @@ class MemoryOperationsCapability(BaseCapability):
                         content=memory_extraction_result.content,
                         operation_type="save",
                         user_id=user_id,
-                        step_objective=step.get('task_objective', 'Save content to memory')
+                        step_objective=self.get_task_objective(default='Save content to memory')
                     )
 
                     logger.approval("Interrupting execution for memory approval")

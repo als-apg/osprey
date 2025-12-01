@@ -459,11 +459,12 @@ class PythonCapability(BaseCapability):
             # Create execution request
             # Build capability-specific prompts with task information
             user_query = self._state.get("input_output", {}).get("user_query", "")
-            task_objective = step.get("task_objective", "")
+            task_objective = self.get_task_objective(default="")
 
-            # Build capability-specific prompts
+            # Build capability-specific prompts using helper methods
+            step_inputs = self.get_step_inputs()
             context_manager = ContextManager(self._state)
-            context_description = context_manager.get_context_access_description(step.get('inputs', []))
+            context_description = context_manager.get_context_access_description(step_inputs)
 
             # Create capability-specific prompts
             capability_prompts = _create_python_capability_prompts(
@@ -472,8 +473,8 @@ class PythonCapability(BaseCapability):
                 context_description=context_description
             )
 
-            if step.get('inputs', []):
-                logger.info(f"Added context access description for {len(step.get('inputs', []))} inputs")
+            if step_inputs:
+                logger.info(f"Added context access description for {len(step_inputs)} inputs")
 
             # Get main graph's context data (raw dictionary that contains context data)
             # Python service will recreate ContextManager from this dictionary data

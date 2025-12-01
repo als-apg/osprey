@@ -192,11 +192,7 @@ Context classes are Pydantic models that define the structure of data stored in 
           description = "Retrieve current weather conditions"
           provides = ["WEATHER_DATA"]
 
-          @staticmethod
-          async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
-              # Get current execution step
-              step = StateManager.get_current_step(state)
-
+          async def execute(self) -> Dict[str, Any]:
               # Your business logic here
               weather_data = await fetch_weather_data()
 
@@ -208,15 +204,10 @@ Context classes are Pydantic models that define the structure of data stored in 
                   timestamp=datetime.now().isoformat()
               )
 
-              # Store and return state updates
-              return StateManager.store_context(
-                  state,
-                  "WEATHER_DATA",              # Context type
-                  step.get("context_key"),     # Unique key
-                  context                      # Pydantic context object
-              )
+              # Store and return state updates using helper method
+              return self.store_output_context(context)
 
-   **Note:** Use the automatic context management pattern shown below instead for simpler, more maintainable code.
+   **Note:** This uses the recommended instance method pattern with automatic context management. For the legacy static method pattern, see :doc:`../migration-guide-instance-methods`.
 
 Context Management
 ==================

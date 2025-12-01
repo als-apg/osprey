@@ -215,6 +215,7 @@ from .analysis import (
 )
 from .exceptions import (
     # Code errors (retry code generation)
+    ChannelLimitsViolationError,
     CodeGenerationError,
     CodeRuntimeError,
     CodeSyntaxError,
@@ -302,6 +303,7 @@ __all__ = [
     "CodeGenerationError",
     "CodeSyntaxError",
     "CodeRuntimeError",
+    "ChannelLimitsViolationError",
     "ExecutionTimeoutError",
     "MaxAttemptsExceededError",
     "WorkflowError",

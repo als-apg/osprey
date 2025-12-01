@@ -235,7 +235,7 @@ class ConfigBuilder:
             'capabilities': {
                 'python_execution': {
                     'enabled': True,
-                    'mode': 'epics_writes'
+                    'mode': 'control_writes'  # Generic name for control-system-agnostic config
                 },
                 'memory': {
                     'enabled': True
@@ -286,6 +286,30 @@ class ConfigBuilder:
                 }
             }
         }
+
+    def _get_writes_enabled_with_fallback(self) -> bool:
+        """Get control system writes_enabled with backward compatibility.
+
+        Tries new location first (control_system.writes_enabled), then falls back
+        to deprecated location (execution_control.epics.writes_enabled) without warnings.
+
+        Returns:
+            bool: Whether control system writes are enabled
+        """
+        # Try new location first (silent check - no warning if missing)
+        writes_enabled = self.get('control_system.writes_enabled', None)
+
+        if writes_enabled is not None:
+            return writes_enabled
+
+        # Fall back to old location (silent check - no warning)
+        writes_enabled_old = self.get('execution_control.epics.writes_enabled', None)
+
+        if writes_enabled_old is not None:
+            return writes_enabled_old
+
+        # Neither location set - default to False (safe default)
+        return False
 
     def _get_python_executor_config(self) -> dict[str, Any]:
         """Get python executor configuration with sensible defaults.
@@ -387,8 +411,9 @@ class ConfigBuilder:
             # Planning control
             "planning_mode_enabled": False,
 
-            # EPICS control
-            "epics_writes_enabled": self._require_config('execution_control.epics.writes_enabled', False),
+            # Control system writes control (with backward compatibility)
+            "epics_writes_enabled": self._get_writes_enabled_with_fallback(),
+            "control_system_writes_enabled": self._get_writes_enabled_with_fallback(),
 
             # Approval control
             "approval_global_mode": self._require_config('approval.global_mode', 'selective'),

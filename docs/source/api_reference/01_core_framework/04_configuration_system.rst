@@ -289,10 +289,10 @@ approval.capabilities.python_execution
 .. code-block:: yaml
 
    approval:
-     capabilities:
-       python_execution:
-         enabled: true
-         mode: "epics_writes"
+   capabilities:
+     python_execution:
+       enabled: true
+       mode: "control_writes"
 
 **Fields:**
 
@@ -306,8 +306,11 @@ approval.capabilities.python_execution
    When to require approval:
 
    - ``"disabled"`` - No approval required
-   - ``"epics_writes"`` - Approve only code that writes to EPICS
+   - ``"control_writes"`` - Approve only code that writes to control systems
    - ``"all_code"`` - Approve all Python code execution
+
+   .. deprecated:: 0.9.5
+      The mode ``"epics_writes"`` is deprecated. Use ``"control_writes"`` instead.
 
 **Example:**
 
@@ -315,10 +318,10 @@ approval.capabilities.python_execution
 
    # In config.yml (root)
    approval:
-     capabilities:
-       python_execution:
-         enabled: true
-         mode: "epics_writes"  # Approve only EPICS write operations
+   capabilities:
+     python_execution:
+       enabled: true
+       mode: "control_writes"  # Approve only control system write operations
 
 approval.capabilities.memory
 ----------------------------
@@ -347,8 +350,8 @@ Execution Control
 
 Runtime behavior configuration and safety limits.
 
-execution_control.epics.writes_enabled
---------------------------------------
+control_system.writes_enabled
+------------------------------
 
 **Type:** Boolean
 
@@ -356,20 +359,134 @@ execution_control.epics.writes_enabled
 
 **Default:** ``false``
 
-**Purpose:** Master switch for EPICS hardware write operations.
+**Purpose:** Master switch for control system hardware write operations.
 
 .. code-block:: yaml
 
-   execution_control:
-     epics:
-       writes_enabled: false
+   control_system:
+     writes_enabled: false  # Set true only for production hardware control
 
 **Details:**
 
-- ``true`` - EPICS write operations can execute (production mode)
-- ``false`` - All EPICS writes blocked (safe default for development)
+- ``true`` - Control system write operations can execute (production mode)
+- ``false`` - All control system writes blocked (safe default for development)
 - Operator-level safety control
+- Works with any control system type (EPICS, Tango, etc.)
+
+.. deprecated:: 0.9.5
+   The setting ``execution_control.epics.writes_enabled`` is deprecated.
+   Use ``control_system.writes_enabled`` instead. The old location is still
+   supported for backward compatibility but will be removed in a future version.
 - Independent of approval settings
+
+control_system.limits_checking
+-------------------------------
+
+**Type:** Object
+
+**Location:** Root ``config.yml`` (operator control)
+
+**Purpose:** Runtime validation of channel writes against configured safety boundaries.
+
+.. code-block:: yaml
+
+   control_system:
+     limits_checking:
+       enabled: true
+       database_path: "data/channel_limits.json"
+       policy: "strict"  # or "skip"
+       check_max_step: false
+
+**Fields:**
+
+``enabled`` (boolean)
+   Enable runtime limits validation
+
+   - ``true`` - All channel writes validated against limits database
+   - ``false`` (default) - No limits checking (backward compatible)
+
+``database_path`` (string)
+   Path to JSON file containing channel limits
+
+   - Absolute or relative to agent directory
+   - Example: ``"data/channel_limits.json"``
+   - See developer guide for database schema details
+
+``policy`` (string)
+   Behavior when limits are violated
+
+   - ``"strict"`` (default) - Raise ChannelLimitsViolationError
+   - ``"skip"`` - Log warning and skip write (continue execution)
+
+``check_max_step`` (boolean)
+   Whether to validate step size constraints
+
+   - ``false`` (default) - Skip step validation (avoids I/O overhead)
+   - ``true`` - Read current value and validate step size (adds I/O latency)
+   - Logs warning if enabled due to performance impact
+
+**Details:**
+
+- Failsafe design: unlisted channels are blocked by default
+- JSON parsing errors block all writes (fail-safe)
+- Integrates with Python executor wrapper via monkeypatching
+- Works with ``epics.caput()``, ``PV.put()``, and connector methods
+
+**See Also:**
+
+- :doc:`../../developer-guides/05_production-systems/03_python-execution-service/index` - Complete limits checking guide with examples
+- :class:`~osprey.services.python_executor.exceptions.ChannelLimitsViolationError` - Exception reference
+
+control_system.write_verification
+----------------------------------
+
+**Type:** Object
+
+**Location:** Root ``config.yml``
+
+**Purpose:** Configure write verification behavior for channel write operations.
+
+.. code-block:: yaml
+
+   control_system:
+     write_verification:
+       level: "readback"  # "none", "callback", "readback"
+       tolerance: 0.01
+       timeout: 2.0
+
+**Fields:**
+
+``level`` (string)
+   Verification method for channel writes
+
+   - ``"none"`` (default) - No verification
+   - ``"callback"`` - Use Channel Access callback (EPICS only, fast)
+   - ``"readback"`` - Read back value and compare (universal, slower)
+
+``tolerance`` (float)
+   Tolerance for readback verification
+
+   - Default: ``0.01`` (1%)
+   - Absolute tolerance for floating-point comparison
+   - Only used when ``level: "readback"``
+
+``timeout`` (float)
+   Timeout for verification operations in seconds
+
+   - Default: ``2.0``
+   - Maximum time to wait for readback
+
+**Details:**
+
+- Callback verification uses Channel Access put-callback (EPICS only)
+- Readback verification works with any control system
+- Returns ``ChannelWriteResult`` with verification status
+
+**See Also:**
+
+- :class:`~osprey.connectors.control_system.base.WriteVerification` - Verification result model
+- :class:`~osprey.connectors.control_system.base.ChannelWriteResult` - Write result model
+- :doc:`../../developer-guides/05_production-systems/06_control-system-integration` - Connector implementation guide
 
 execution_control.agent_control
 -------------------------------
@@ -1283,12 +1400,12 @@ Complete Configuration Example
    # Safety controls
    approval:
      global_mode: "selective"
-     capabilities:
-       python_execution:
-         enabled: true
-         mode: "epics_writes"
-       memory:
-         enabled: true
+   capabilities:
+     python_execution:
+       enabled: true
+       mode: "control_writes"
+     memory:
+       enabled: true
 
    execution_control:
      epics:
