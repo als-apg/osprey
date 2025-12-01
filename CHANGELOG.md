@@ -25,6 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Comprehensive test coverage for prompt builder integration
   - Complete tutorial on framework prompt customization
 
+- **Runtime Utilities E2E Tests**: Comprehensive end-to-end test suite validating complete workflows
+  - LLM learning osprey.runtime API from prompts
+  - Context snapshot preservation and configuration
+  - Channel limits safety integration (validates runtime respects boundaries)
+  - Positive and negative test cases for write operations
+  - Calculation + write workflows (e.g., "set voltage to sqrt(4150)")
+
 ### Changed
 - **Python Execution Infrastructure**: Integrated runtime utilities with execution wrapper and notebooks
   - Execution wrapper automatically configures runtime from context snapshots
