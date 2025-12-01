@@ -267,9 +267,8 @@ def _create_python_capability_prompts(task_objective: str, user_query: str, cont
     available data context. These prompts guide the LLM in generating
     appropriate Python code for the specific task.
 
-    The function creates focused prompts that distinguish between the specific
-    task objective, broader user context, and available data sources to enable
-    sophisticated code generation that leverages all available information.
+    This function now integrates with the prompt builder system to inject
+    domain-specific instructions from application-level prompt builders.
 
     :param task_objective: Specific task objective from the execution plan step
     :type task_objective: str
@@ -298,6 +297,17 @@ def _create_python_capability_prompts(task_objective: str, user_query: str, cont
         prompts.append(f"USER REQUEST: {user_query}")
     if context_description:
         prompts.append(f"CONTEXT ACCESS DESCRIPTION: {context_description}")
+
+    # Inject domain-specific instructions from prompt builder system
+    try:
+        python_builder = get_framework_prompts().get_python_prompt_builder()
+        domain_instructions = python_builder.get_instructions()
+        if domain_instructions:
+            prompts.append(domain_instructions)
+    except Exception as e:
+        # Graceful degradation if no custom prompts or prompt system not initialized
+        logger.debug(f"Could not load Python prompt builder instructions: {e}")
+        pass
 
     return prompts
 
