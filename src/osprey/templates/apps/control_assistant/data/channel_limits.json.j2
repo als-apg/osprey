@@ -1,0 +1,42 @@
+{
+  "_comment": "Channel Limits Database - defines safety limits and verification for runtime validation",
+  "_version": "1.0",
+
+  "defaults": {
+    "writable": true,
+    "verification": {
+      "level": "callback"
+    }
+  },
+
+  "MAG:HCM[H01]:CURRENT:SP": {
+    "min_value": -10.0,
+    "max_value": 10.0,
+    "max_step": 2.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.1
+    }
+  },
+
+  "MAG:QF[QF01]:CURRENT:SP": {
+    "writable": false
+  },
+
+  "ElectronGunFilamentCurrentSetPoint": {
+    "min_value": 0.0,
+    "max_value": 10.0,
+    "max_step": 0.5,
+    "verification": {
+      "level": "readback",
+      "tolerance_absolute": 0.01
+    }
+  },
+
+  "TerminalVoltageSetValue": {
+    "min_value": 0.0,
+    "max_value": 100.0
+  }
+
+}
+

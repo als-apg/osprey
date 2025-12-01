@@ -1,10 +1,10 @@
 """
-Channel Value Retrieval Capability
+Channel Read Capability
 
 This capability handles reading current values of control system channels.
 It provides real-time access to live channel data.
 
-Based on ALS Assistant's PV Value Retrieval capability pattern.
+Based on ALS Assistant's channel value retrieval capability pattern.
 
 Configuration:
     The control system connector is configured in config.yml. By default, the template
@@ -76,17 +76,17 @@ class ChannelDependencyError(ChannelError):
 # ========================================================
 
 @capability_node
-class ChannelValueRetrievalCapability(BaseCapability):
-    """Channel value retrieval capability for reading current channel values."""
+class ChannelReadCapability(BaseCapability):
+    """Channel read capability for reading current channel values."""
 
-    name = "channel_value_retrieval"
-    description = "Retrieve current values of control system channels"
+    name = "channel_read"
+    description = "Read current values of control system channels"
     provides = ["CHANNEL_VALUES"]
     requires = ["CHANNEL_ADDRESSES"]
 
     async def execute(self) -> Dict[str, Any]:
         """
-        Execute channel value retrieval.
+        Execute channel read operation.
 
         This method reads current values from control system channels using the
         configured connector (mock or EPICS). It automatically extracts required
@@ -102,7 +102,7 @@ class ChannelValueRetrievalCapability(BaseCapability):
 
         # Get unified logger with automatic streaming
         logger = self.get_logger()
-        logger.status("Starting channel value retrieval...")
+        logger.status("Starting channel read operation...")
 
         # Extract channel addresses from execution context
         try:
@@ -126,14 +126,14 @@ class ChannelValueRetrievalCapability(BaseCapability):
                 logger.status(f"Reading channel {i+1}/{total_channels}: {channel_address}")
 
                 try:
-                    # Read PV using connector (returns PVValue with metadata)
-                    pv_result = await connector.read_pv(channel_address)
+                    # Read channel using connector (returns ChannelValue with metadata)
+                    channel_result = await connector.read_channel(channel_address)
 
                     # Convert to ChannelValue format expected by context
                     channel_values[channel_address] = ChannelValue(
-                        value=str(pv_result.value),
-                        timestamp=pv_result.timestamp,
-                        units=pv_result.metadata.units if pv_result.metadata else ""
+                        value=str(channel_result.value),
+                        timestamp=channel_result.timestamp,
+                        units=channel_result.metadata.units if channel_result.metadata else ""
                     )
                 except Exception as e:
                     logger.error(f"Failed to read channel {channel_address}: {e}")
@@ -147,9 +147,9 @@ class ChannelValueRetrievalCapability(BaseCapability):
         # Create structured result
         result = ChannelValuesContext(channel_values=channel_values)
 
-        logger.status(f"Successfully retrieved {result.channel_count} channel values")
+        logger.status(f"Successfully read {result.channel_count} channel values")
 
-        logger.info(f"Channel value retrieval result: {result.channel_count} channels retrieved")
+        logger.info(f"Channel read result: {result.channel_count} channels read")
 
         # Store result in execution context
         return self.store_output_context(result)
@@ -222,7 +222,7 @@ class ChannelValueRetrievalCapability(BaseCapability):
 
     @staticmethod
     def get_retry_policy() -> Dict[str, Any]:
-        """Define retry policy for channel value retrieval."""
+        """Define retry policy for channel read operations."""
         return {
             "max_attempts": 3,
             "delay_seconds": 1.0,
@@ -230,13 +230,13 @@ class ChannelValueRetrievalCapability(BaseCapability):
         }
 
     def _create_orchestrator_guide(self) -> Optional[OrchestratorGuide]:
-        """Create orchestrator guide for channel value retrieval planning."""
+        """Create orchestrator guide for channel read planning."""
 
         # Define structured examples for the orchestrator
         current_values_example = OrchestratorExample(
             step=PlannedStep(
                 context_key="read_monitor_values",
-                capability="channel_value_retrieval",
+                capability="channel_read",
                 task_objective="Read current beam position monitor values for orbit analysis",
                 expected_output="CHANNEL_VALUES",
                 success_criteria="Position values successfully retrieved",
@@ -249,7 +249,7 @@ class ChannelValueRetrievalCapability(BaseCapability):
         status_check_example = OrchestratorExample(
             step=PlannedStep(
                 context_key="system_status_values",
-                capability="channel_value_retrieval",
+                capability="channel_read",
                 task_objective="Check current values of critical power supply and magnet parameters for system health assessment",
                 expected_output="CHANNEL_VALUES",
                 success_criteria="Status values retrieved and within expected ranges",
@@ -261,7 +261,7 @@ class ChannelValueRetrievalCapability(BaseCapability):
 
         return OrchestratorGuide(
             instructions=textwrap.dedent("""
-            **When to plan "channel_value_retrieval" steps:**
+            **When to plan "channel_read" steps:**
             - When the user requests current status, readings, or values of specific channels
             - For real-time monitoring of control system parameters
             - When current channel values are needed as inputs for subsequent steps
@@ -292,7 +292,7 @@ class ChannelValueRetrievalCapability(BaseCapability):
         )
 
     def _create_classifier_guide(self) -> Optional[TaskClassifierGuide]:
-        """Create classifier for channel value retrieval."""
+        """Create classifier for channel read capability."""
         return TaskClassifierGuide(
             instructions="Determine if the task requires fetching current channel values. Look for requests about current values, statuses, or readings of specific channels.",
             examples=[
@@ -314,7 +314,7 @@ class ChannelValueRetrievalCapability(BaseCapability):
                 ClassifierExample(
                     query="What's the beam current right now?",
                     result=True,
-                    reason="The query asks for a current value, which requires channel value retrieval."
+                    reason="The query asks for a current value, which requires reading channel values."
                 ),
                 ClassifierExample(
                     query="Show me historical beam current data.",

@@ -18,7 +18,8 @@ class {{ app_class_name }}RegistryProvider(RegistryConfigProvider):
 
     Registers control system integration capabilities:
     - Channel finding (semantic search for control system channels)
-    - Channel value retrieval (read current values from channels)
+    - Channel read (read current values from channels)
+    - Channel write (write values to channels)
     - Archiver retrieval (query historical time-series data)
 
     Based on production patterns from ALS Assistant.
@@ -37,11 +38,19 @@ class {{ app_class_name }}RegistryProvider(RegistryConfigProvider):
                     requires=[]
                 ),
                 CapabilityRegistration(
-                    name="channel_value_retrieval",
-                    module_path="{{ package_name }}.capabilities.channel_value_retrieval",
-                    class_name="ChannelValueRetrievalCapability",
-                    description="Retrieve current values from control system channels",
+                    name="channel_read",
+                    module_path="{{ package_name }}.capabilities.channel_read",
+                    class_name="ChannelReadCapability",
+                    description="Read current values from control system channels",
                     provides=["CHANNEL_VALUES"],
+                    requires=["CHANNEL_ADDRESSES"]
+                ),
+                CapabilityRegistration(
+                    name="channel_write",
+                    module_path="{{ package_name }}.capabilities.channel_write",
+                    class_name="ChannelWriteCapability",
+                    description="Write values to control system channels",
+                    provides=["CHANNEL_WRITE_RESULTS"],
                     requires=["CHANNEL_ADDRESSES"]
                 ),
                 CapabilityRegistration(
@@ -63,6 +72,11 @@ class {{ app_class_name }}RegistryProvider(RegistryConfigProvider):
                     context_type="CHANNEL_VALUES",
                     module_path="{{ package_name }}.context_classes",
                     class_name="ChannelValuesContext"
+                ),
+                ContextClassRegistration(
+                    context_type="CHANNEL_WRITE_RESULTS",
+                    module_path="{{ package_name }}.context_classes",
+                    class_name="ChannelWriteResultsContext"
                 ),
                 ContextClassRegistration(
                     context_type="ARCHIVER_DATA",

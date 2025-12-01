@@ -51,6 +51,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Handles None values gracefully with configurable defaults
   - Comprehensive tests for various edge cases
 
+- Control Assistant channel capabilities: Production-ready read/write with comprehensive safety
+  - channel_read: Current value retrieval with connector abstraction
+  - channel_write: LLM-based value parsing with three-tier safety (writes_enabled/limits/approval)
+  - Write verification, example channel limits database, and comprehensive safety tests
+
 - **Channel Write Capability**: New dedicated capability for writing values to control system channels
   - **Simple Write Operations**: Direct value assignment to channels ("Set X to 50")
   - **Multiple Channel Writes**: Support for writing multiple channels in one operation

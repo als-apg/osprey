@@ -47,16 +47,17 @@ First, launch the interactive chat interface:
       [11/11/25 11:20:35] INFO     Loading configuration from explicit path:
                                    <workspace>/my-control-assistant/config.yml
       🔄 Initializing framework...
-      [11/11/25 11:20:36] INFO     Registry: Registry initialization complete!
-                                   Components loaded:
-                                      • 8 capabilities: memory, time_range_parsing, python, respond, clarify,
-                                                        channel_finding, channel_value_retrieval, archiver_retrieval
-                                      • 13 nodes (including 5 core infrastructure)
-                                      • 6 context types: MEMORY_CONTEXT, TIME_RANGE, PYTHON_RESULTS,
-                                                         CHANNEL_ADDRESSES, CHANNEL_VALUES, ARCHIVER_DATA
+     [11/29/25 14:06:30] INFO     Registry: Registry initialization complete!
+                                  Components loaded:
+                                     • 9 capabilities: memory, time_range_parsing, python, respond, clarify,
+                                                       channel_finding, channel_read, channel_write, archiver_retrieval
+                                     • 14 nodes (including 5 core infrastructure)
+                                     • 6 context types: MEMORY_CONTEXT, TIME_RANGE, PYTHON_RESULTS,
+                                                        CHANNEL_ADDRESSES, CHANNEL_VALUES, CHANNEL_WRITE_RESULTS,
+                                                        ARCHIVER_DATA
                                       • 1 data sources: core_user_memory
                                       • 1 services: python_executor
-      ✅ Framework initialized! Thread ID: cli_session_dceb3a13
+      ✅ Framework initialized! Thread ID: cli_session_76681b34
 
    **Further Reading:** :doc:`../developer-guides/03_core-framework-systems/03_registry-and-discovery`, :doc:`../developer-guides/01_understanding-the-framework/01_infrastructure-architecture`
 
@@ -143,7 +144,8 @@ Your query goes through three intelligent phases that transform natural language
       **Your application capabilities:**
 
       - ``channel_finding`` - Find control system channels using semantic search
-      - ``channel_value_retrieval`` - Retrieve current values from control system channels
+      - ``channel_write`` - Write values to control system channels with LLM-based parsing
+      - ``channel_read`` - Read current values from control system channels
       - ``archiver_retrieval`` - Query historical time-series data from the archiver
 
       The framework evaluates all 6 capabilities independently using their classifier guides. For the request "Show me the beam current over the last 24 hours", it asks:
@@ -152,7 +154,7 @@ Your query goes through three intelligent phases that transform natural language
       - "Does this task require ``memory``?" → **NO** (not storing/recalling information)
       - "Does this task require ``python``?" → **YES** (need to plot the data)
       - "Does this task require ``channel_finding``?" → **YES** (need to find the beam current channel)
-      - "Does this task require ``channel_value_retrieval``?" → **NO** (need historical data, not current values)
+      - "Does this task require ``channel_read``?" → **NO** (need historical data, not current values)
       - "Does this task require ``archiver_retrieval``?" → **YES** (need to retrieve time-series data)
 
       The classification happens in parallel for efficiency, with each capability evaluated independently based on the examples and instructions in its ``_create_classifier_guide()`` method.
@@ -174,7 +176,7 @@ Your query goes through three intelligent phases that transform natural language
             INFO Classifier: Classifying 6 capabilities with max 5 concurrent requests
             INFO Classifier:  >>> Capability 'time_range_parsing' >>> True
             INFO Classifier:  >>> Capability 'memory' >>> False
-            INFO Classifier:  >>> Capability 'channel_value_retrieval' >>> False
+            INFO Classifier:  >>> Capability 'channel_read' >>> False
             INFO Classifier:  >>> Capability 'channel_finding' >>> True
             INFO Classifier:  >>> Capability 'python' >>> True
             INFO Classifier:  >>> Capability 'archiver_retrieval' >>> True
@@ -1490,7 +1492,7 @@ The template includes two Jupyter containers configured with different execution
          allows_writes: true
          requires_approval: true
 
-The framework automatically selects between containers using :doc:`pattern detection <../developer-guides/05_production-systems/03_python-execution-service>` - it analyzes generated code for control system write operations (like ``epics.caput()``) and routes to the appropriate container:
+The framework automatically selects between containers using :doc:`pattern detection <../developer-guides/05_production-systems/03_python-execution-service/index>` - it analyzes generated code for control system write operations (like ``epics.caput()``) and routes to the appropriate container:
 
 - **Read-only** container (port 8088) is used when no write patterns are detected
 - **Write access** container (port 8089) is used when write patterns are detected (potentially triggering approval workflows)

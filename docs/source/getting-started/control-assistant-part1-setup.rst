@@ -74,7 +74,8 @@ The interactive menu provides the best onboarding experience with channel finder
    ├── src/my_control_assistant/
    │   ├── capabilities/                   # ← Agent capabilities (Osprey integration)
    │   │   ├── channel_finding.py          # Wraps channel_finder service
-   │   │   ├── channel_value_retrieval.py  # Live value reads via ConnectorFactory
+   │   │   ├── channel_read.py             # Live value reads via ConnectorFactory
+   │   │   ├── channel_write.py            # Channel writes with LLM-based value parsing
    │   │   └── archiver_retrieval.py       # Historical data via ConnectorFactory
    │   ├── services/                       # ← Service Layer (key pattern!)
    │   │   └── channel_finder/             # Standalone, testable business logic
@@ -295,7 +296,7 @@ You'll see this pattern detection in action when you use the Python execution ca
 
 .. seealso::
    For more details about pattern detection and how it integrates with the approval system,
-   see :doc:`../developer-guides/05_production-systems/03_python-execution-service`.
+   see :doc:`../developer-guides/05_production-systems/03_python-execution-service/index`.
 
 Safety Controls
 ~~~~~~~~~~~~~~~~
@@ -308,11 +309,11 @@ Critical for production deployments - control what code can execute:
    approval:
      global_mode: "selective"     # disabled | selective | all_capabilities
      capabilities:
-       python_execution:
-         enabled: true
-         mode: "epics_writes"     # disabled | all_code | epics_writes
-       memory:
-         enabled: true
+     python_execution:
+       enabled: true
+       mode: "control_writes"   # disabled | all_code | control_writes
+     memory:
+       enabled: true
 
    # Execution limits and master safety switches
    execution_control:

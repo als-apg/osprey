@@ -16,20 +16,20 @@ class ChannelAddressesContext(CapabilityContext):
     Framework context for channel finding capability results.
 
     This is the rich context object used throughout the framework for channel address data.
-    Based on ALS Assistant's PVAddresses pattern.
+    Based on ALS Assistant's ChannelAddresses pattern.
     """
     CONTEXT_TYPE: ClassVar[str] = "CHANNEL_ADDRESSES"
     CONTEXT_CATEGORY: ClassVar[str] = "METADATA"
 
     channels: List[str]  # List of found channel addresses
-    description: str  # Description or additional information about the channels
+    original_query: str  # Original natural language query that led to these channels
 
     def get_access_details(self, key: str) -> Dict[str, Any]:
         """Rich description for LLM consumption."""
         return {
             "channels": self.channels,
             "total_available": len(self.channels),
-            "comments": self.description,
+            "original_query": self.original_query,
             "data_structure": "List of channel address strings",
             "access_pattern": f"context.{self.CONTEXT_TYPE}.{key}.channels",
             "example_usage": f"context.{self.CONTEXT_TYPE}.{key}.channels[0] gives '{self.channels[0] if self.channels else 'CHANNEL:NAME'}'",
@@ -43,8 +43,8 @@ class ChannelAddressesContext(CapabilityContext):
         return {
             "type": "Channel Addresses",
             "total_channels": len(self.channels),
+            "original_query": self.original_query,
             "channel_list": self.channels,
-            "description": self.description,
         }
 
 
@@ -55,10 +55,33 @@ class ChannelValue(BaseModel):
     units: str
 
 
+class WriteVerificationInfo(BaseModel):
+    """Verification information for a channel write operation."""
+    level: str  # "none", "callback", "readback"
+    verified: bool  # Whether verification succeeded
+    readback_value: Optional[float] = None  # Actual value read back (for "readback" level)
+    tolerance_used: Optional[float] = None  # Tolerance used for comparison
+    notes: Optional[str] = None  # Additional verification details
+
+
+class ChannelWriteResult(BaseModel):
+    """
+    Individual channel write result data with optional verification.
+
+    This is the high-level result model used in capabilities and context classes.
+    Provides detailed information about write success and verification status.
+    """
+    channel_address: str
+    value_written: Any
+    success: bool  # Write command succeeded
+    verification: Optional[WriteVerificationInfo] = None  # Verification details (if performed)
+    error_message: Optional[str] = None
+
+
 class ChannelValuesContext(CapabilityContext):
     """
     Result from channel value retrieval operation and context for downstream capabilities.
-    Based on ALS Assistant's PVValues pattern.
+    Based on ALS Assistant's ChannelValues pattern.
     """
     CONTEXT_TYPE: ClassVar[str] = "CHANNEL_VALUES"
     CONTEXT_CATEGORY: ClassVar[str] = "COMPUTATIONAL_DATA"
@@ -106,6 +129,72 @@ class ChannelValuesContext(CapabilityContext):
         return {
             "type": "Channel Values",
             "channel_data": channel_data,
+        }
+
+
+class ChannelWriteResultsContext(CapabilityContext):
+    """
+    Result from channel write operation and context for downstream capabilities.
+    Provides detailed results for each write operation including success/failure status.
+    """
+    CONTEXT_TYPE: ClassVar[str] = "CHANNEL_WRITE_RESULTS"
+    CONTEXT_CATEGORY: ClassVar[str] = "COMPUTATIONAL_DATA"
+
+    results: List[ChannelWriteResult]  # List of write results
+    total_writes: int
+    successful_count: int
+    failed_count: int
+
+    def get_access_details(self, key: str) -> Dict[str, Any]:
+        """Rich description for LLM consumption."""
+        # Get first few channel names for preview
+        channels_preview = [r.channel_address for r in self.results[:3]]
+        example_channel = channels_preview[0] if channels_preview else "MAG:HCM01:CURRENT:SP"
+        example_value = self.results[0].value_written if self.results else '50.0'
+
+        return {
+            "total_writes": self.total_writes,
+            "successful_writes": self.successful_count,
+            "failed_writes": self.failed_count,
+            "channels": channels_preview,
+            "data_structure": "List[ChannelWriteResult] where each result has .channel_address, .value_written, .success, .verification (optional), .error_message fields",
+            "access_pattern": f"context.{self.CONTEXT_TYPE}.{key}.results[index].success",
+            "example_usage": f"context.{self.CONTEXT_TYPE}.{key}.results[0].channel_address gives '{example_channel}', .value_written gives '{example_value}', .verification.verified shows if write was verified",
+            "available_fields": ["channel_address", "value_written", "success", "verification", "error_message"],
+            "verification_fields": ["level", "verified", "readback_value", "tolerance_used", "notes"],
+        }
+
+    def get_summary(self) -> Dict[str, Any]:
+        """
+        FOR HUMAN DISPLAY: Create readable summary for UI/debugging.
+        Always customize for better user experience.
+        """
+        results_summary = []
+        for r in self.results:
+            result_dict = {
+                "channel": r.channel_address,
+                "value": r.value_written,
+                "success": r.success,
+                "error": r.error_message
+            }
+
+            # Add verification info if available
+            if r.verification:
+                result_dict["verification"] = {
+                    "level": r.verification.level,
+                    "verified": r.verification.verified,
+                    "readback_value": r.verification.readback_value,
+                    "notes": r.verification.notes
+                }
+
+            results_summary.append(result_dict)
+
+        return {
+            "type": "Channel Write Results",
+            "total_writes": self.total_writes,
+            "successful": self.successful_count,
+            "failed": self.failed_count,
+            "results": results_summary
         }
 
 

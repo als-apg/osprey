@@ -1271,7 +1271,7 @@ The channel finder integrates into OSPREY as a **capability**—a reusable compo
 
 3. **Execution**: The capability calls the service layer (``ChannelFinderService``) to find matching channels
 4. **Context Storage**: Results are stored in the agent state as ``CHANNEL_ADDRESSES`` context
-5. **Downstream Use**: Other capabilities (like ``channel_value_retrieval``) consume the ``CHANNEL_ADDRESSES`` context
+5. **Downstream Use**: Other capabilities (like ``channel_read``) consume the ``CHANNEL_ADDRESSES`` context
 
 **Error Handling:**
 

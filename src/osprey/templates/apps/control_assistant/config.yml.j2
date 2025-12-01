@@ -49,6 +49,10 @@ models:
   time_parsing:
     provider: {{ default_provider }}
     model_id: {{ default_model }}
+  channel_write:
+    provider: {{ default_provider }}
+    model_id: {{ default_model }}
+    max_tokens: 2048  # For write operation parsing
 
 # ============================================================
 # API CONFIGURATION
@@ -171,16 +175,12 @@ approval:
   capabilities:
     python_execution:
       enabled: true
-      mode: "epics_writes"   # Options: disabled | epics_writes | all_code
+      mode: "control_writes"   # Options: disabled | control_writes | all_code
     memory:
       enabled: true
 
 # Execution limits and safety controls
 execution_control:
-  # EPICS writes (hardware control) - Master safety switch
-  epics:
-    writes_enabled: false    # Set true only for production hardware control
-
   # Agent control - Runtime behavior configuration
   agent_control:
     task_extraction_bypass_enabled: false    # Skip LLM task extraction
@@ -212,6 +212,35 @@ control_system:
   #   - mock: Development mode (accepts any channel names, no hardware)
   #   - epics: Production EPICS control system
   type: mock  # <-- Change to 'epics' for production
+
+  # Write Access Control - Master safety switch for hardware control
+  # This is OPERATOR-LEVEL authorization (always hard-stops if false)
+  writes_enabled: false  # Set true only for production hardware control
+                         # If disabled, ALL writes are blocked (non-configurable hard error)
+
+  # Runtime Channel Limits Checking
+  limits_checking:
+    enabled: true
+    database_path: "src/{{ package_name }}/data/channel_limits.json"
+    allow_unlisted_channels: true  # Permissive mode for tutorial
+    on_violation: "skip"   # Options: "error" | "skip" (DEFAULT)
+                           # - error: Strict - ANY violation blocks entire operation
+                           # - skip: Resilient - skip invalid writes, continue with valid ones
+                           # Production: "skip" recommended for multi-channel operations
+
+  # Write Verification Configuration
+  # Configures how channel writes are verified for accuracy
+  write_verification:
+    enabled: true  # Enable verification by default
+    default_level: callback  # Options: none, callback, readback
+                            # - none: Fast write, no verification
+                            # - callback: Control system confirms processing (e.g., EPICS IOC callback)
+                            # - readback: Full verification with readback comparison
+    default_tolerance_percent: 0.1  # Default tolerance: 0.1% (one per mil)
+                                    # Only used for "readback" verification level
+                                    # Can be overridden per-channel in channel_limits.json
+    timeout: 5.0  # Timeout for verification operations
+    fail_on_mismatch: false  # false: log warning, true: raise error on verification failure
 
   # Pattern Detection (Layer 1)
   # Used by: Code analyzer, approval system
@@ -533,7 +562,8 @@ logging:
 
     # Accelerator-specific components
     channel_finding: "light_green"
-    channel_value_retrieval: "light_cyan1"
+    channel_read: "light_cyan1"
+    channel_write: "light_salmon3"
     archiver_retrieval: "turquoise2"
 
 # ============================================================
