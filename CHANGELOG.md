@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.9.5] - 2025-12-01
 
 ### Added
+- Runtime channel limits validation: Comprehensive safety system for validating writes against configured boundaries
+  - Synchronous validation engine with min/max/step/writable constraints
+  - Failsafe design blocks all unlisted channels by default
+  - Optional max_step checking with I/O overhead warnings
+  - Configurable policy modes: strict (error) vs resilient (skip)
+  - JSON-based limits database with embedded defaults support
+  - New exception: ChannelLimitsViolationError with detailed violation context
+
 - **Channel Write Capability**: New dedicated capability for writing values to control system channels
   - **Simple Write Operations**: Direct value assignment to channels ("Set X to 50")
   - **Multiple Channel Writes**: Support for writing multiple channels in one operation
