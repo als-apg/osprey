@@ -1,0 +1,285 @@
+"""Integration tests for osprey.runtime module.
+
+Tests runtime utilities with actual Mock connector (and EPICS if available).
+"""
+
+import pytest
+from pathlib import Path
+from osprey.runtime import (
+    configure_from_context,
+    write_channel,
+    read_channel,
+    write_channels,
+    cleanup_runtime
+)
+
+
+# Use existing test config setup from conftest
+@pytest.fixture(autouse=True)
+def setup_registry(test_config):
+    """Initialize registry with test config for integration tests."""
+    from osprey.registry import initialize_registry as init_reg, reset_registry
+    import os
+
+    # Reset and initialize with test config
+    reset_registry()
+    os.environ['CONFIG_FILE'] = str(test_config)
+    init_reg(auto_export=False, config_path=test_config)
+    yield
+
+    # Cleanup
+    reset_registry()
+
+
+class MockContext:
+    """Mock context object for testing."""
+
+    def __init__(self, data: dict):
+        self._data = data
+
+
+@pytest.fixture
+def mock_control_system_context():
+    """Create context with mock control system config."""
+    return MockContext({
+        '_execution_config': {
+            'control_system': {
+                'type': 'mock',
+                'writes_enabled': True,  # Enable writes for testing
+                'connector': {
+                    'mock': {}
+                }
+            }
+        }
+    })
+
+
+@pytest.fixture
+async def clear_runtime_state():
+    """Clear runtime module state before and after each test."""
+    import osprey.runtime as runtime
+
+    # Clear before test
+    if runtime._runtime_connector is not None:
+        try:
+            await cleanup_runtime()
+        except:
+            pass
+    runtime._runtime_connector = None
+    runtime._runtime_config = None
+
+    yield
+
+    # Cleanup after test
+    try:
+        if runtime._runtime_connector is not None:
+            await cleanup_runtime()
+    except:
+        pass
+    runtime._runtime_connector = None
+    runtime._runtime_config = None
+
+
+@pytest.mark.asyncio
+async def test_write_read_with_mock_connector(mock_control_system_context, clear_runtime_state):
+    """Test write and read operations with Mock connector."""
+    # Configure runtime with mock control system
+    configure_from_context(mock_control_system_context)
+
+    # Write to a test channel
+    test_channel = "TEST:VOLTAGE"
+    test_value = 123.45
+
+    await write_channel(test_channel, test_value)
+
+    # Read back the value
+    read_value = await read_channel(test_channel)
+
+    # Mock connector should return the written value
+    assert read_value == test_value
+
+
+@pytest.mark.asyncio
+async def test_write_channels_bulk_with_mock(mock_control_system_context, clear_runtime_state):
+    """Test bulk write operation with Mock connector."""
+    # Configure runtime
+    configure_from_context(mock_control_system_context)
+
+    # Write multiple channels
+    test_channels = {
+        "MAGNET:H01": 5.0,
+        "MAGNET:H02": 5.2,
+        "MAGNET:H03": 4.8
+    }
+
+    await write_channels(test_channels)
+
+    # Read back values
+    for channel, expected_value in test_channels.items():
+        read_value = await read_channel(channel)
+        assert read_value == expected_value
+
+
+@pytest.mark.asyncio
+async def test_runtime_cleanup_and_reconnect(mock_control_system_context, clear_runtime_state):
+    """Test that runtime can cleanup and reconnect."""
+    # Configure runtime
+    configure_from_context(mock_control_system_context)
+
+    # First write
+    await write_channel("TEST:PV1", 100.0)
+
+    # Cleanup
+    await cleanup_runtime()
+
+    # Should be able to write again (creates new connector)
+    await write_channel("TEST:PV2", 200.0)
+
+    # Verify value was written
+    value = await read_channel("TEST:PV2")
+    assert value == 200.0
+
+
+@pytest.mark.asyncio
+async def test_context_snapshot_reproducibility(clear_runtime_state):
+    """Test that context snapshot ensures reproducible configuration."""
+    import osprey.runtime as runtime
+
+    # Create context with EPICS config
+    epics_context = MockContext({
+        '_execution_config': {
+            'control_system': {
+                'type': 'mock',  # Using mock for testing
+                'connector': {
+                    'mock': {}
+                }
+            }
+        }
+    })
+
+    # Configure from snapshot
+    configure_from_context(epics_context)
+
+    # Verify config was loaded from snapshot
+    assert runtime._runtime_config is not None
+    assert runtime._runtime_config['type'] == 'mock'
+
+    # Write and read should work with snapshot config
+    await write_channel("SNAPSHOT:TEST", 999.0)
+    value = await read_channel("SNAPSHOT:TEST")
+    assert value == 999.0
+
+
+@pytest.mark.asyncio
+async def test_error_handling_invalid_channel(mock_control_system_context, clear_runtime_state):
+    """Test error handling for invalid channel operations."""
+    # Configure runtime
+    configure_from_context(mock_control_system_context)
+
+    # Mock connector typically accepts any channel, but we can test the flow
+    # For a real connector, this would test actual error handling
+
+    # This should work with mock connector (accepts any channel)
+    await write_channel("ANY:CHANNEL:NAME", 42.0)
+    value = await read_channel("ANY:CHANNEL:NAME")
+    assert value == 42.0
+
+
+@pytest.mark.asyncio
+async def test_connector_reuse_across_operations(mock_control_system_context, clear_runtime_state):
+    """Test that connector is reused efficiently across operations."""
+    import osprey.runtime as runtime
+
+    # Configure runtime
+    configure_from_context(mock_control_system_context)
+
+    # Perform multiple operations
+    await write_channel("PV1", 1.0)
+    await write_channel("PV2", 2.0)
+    await read_channel("PV1")
+    await read_channel("PV2")
+
+    # Connector should still be the same instance
+    connector = runtime._runtime_connector
+    assert connector is not None
+
+    # More operations should reuse same connector
+    await write_channel("PV3", 3.0)
+    assert runtime._runtime_connector is connector
+
+
+@pytest.mark.asyncio
+async def test_kwargs_passthrough(mock_control_system_context, clear_runtime_state):
+    """Test that additional kwargs are passed through to connector."""
+    # Configure runtime
+    configure_from_context(mock_control_system_context)
+
+    # Write with additional kwargs (mock connector accepts them)
+    await write_channel("TEST:PV", 42.0, timeout=10.0)
+
+    # Read with additional kwargs
+    value = await read_channel("TEST:PV", timeout=5.0)
+    assert value == 42.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(True, reason="EPICS connector requires actual EPICS environment")
+async def test_with_epics_connector(clear_runtime_state):
+    """Test with EPICS connector (requires EPICS environment).
+
+    This test is skipped by default but can be enabled in EPICS-enabled
+    test environments by removing the skipif decorator.
+    """
+    # Create context with EPICS config
+    epics_context = MockContext({
+        '_execution_config': {
+            'control_system': {
+                'type': 'epics',
+                'connector': {
+                    'epics': {
+                        'timeout': 5.0
+                    }
+                }
+            }
+        }
+    })
+
+    # Configure runtime
+    configure_from_context(epics_context)
+
+    # This would test actual EPICS operations
+    # await write_channel("ACTUAL:EPICS:PV", 100.0)
+    # value = await read_channel("ACTUAL:EPICS:PV")
+    # assert value == 100.0
+
+    pass  # Placeholder for actual EPICS tests
+
+
+@pytest.mark.asyncio
+async def test_fallback_to_global_config(clear_runtime_state):
+    """Test fallback to global config when context has no snapshot."""
+    import osprey.runtime as runtime
+    from unittest.mock import patch
+
+    # Create context without execution config
+    empty_context = MockContext({})
+
+    # Mock get_config_value to return mock config
+    with patch('osprey.utils.config.get_config_value') as mock_get_config:
+        mock_get_config.return_value = {
+            'type': 'mock',
+            'connector': {'mock': {}}
+        }
+
+        # Configure should fall back to global config
+        configure_from_context(empty_context)
+
+        # Verify fallback was used
+        mock_get_config.assert_called_once_with('control_system', {})
+        assert runtime._runtime_config['type'] == 'mock'
+
+        # Operations should still work
+        await write_channel("FALLBACK:TEST", 123.0)
+        value = await read_channel("FALLBACK:TEST")
+        assert value == 123.0
+

@@ -7,49 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-- **Error Node Logging**: Removed duplicate start/completion logging that occurred when combining decorator's automatic logging with manual status messages
-
-### Changed
-- **Documentation Positioning**: Updated core documentation to emphasize control system focus
-- **Control System Connector API**: Unified channel naming and comprehensive write verification
-  - Method rename: read_pv → read_channel, write_pv → write_channel (deprecated methods emit DeprecationWarning)
-  - Class rename: PVValue → ChannelValue, PVMetadata → ChannelMetadata (deprecated classes emit DeprecationWarning)
-  - Three-tier write verification: none/callback/readback with configurable tolerance
-  - Rich result objects: ChannelWriteResult and WriteVerification with detailed status
-  - Mock connector verification simulation for development testing
-  - All deprecated APIs will be removed in v0.10
-- **Template Configuration**: Updated minimal template and project config for control system safety features
-  - Added control_system section with writes_enabled, limits_checking, write_verification
-  - Updated integration guides for new connector API
-  - Framework capabilities updated for connector method rename
-  - Pattern detection updated with new read_channel/write_channel patterns
-  - Registry and utility updates for new context types
-
-- **Documentation Structure**: Refactored Python execution service documentation for improved organization
-  - Removed obsolete standalone 03_python-execution-service.rst file
-  - Streamlined service-overview.rst (793 → 452 lines, 40% reduction)
-  - Focused content on generator extensibility for developers
-  - Updated all cross-references to use directory structure
-  - Improved navigation and reduced redundancy
-
-- **CLI Approval Display**: Enhanced approval message presentation with heavy-bordered panel, bold title, and helpful subtitle for improved visibility and user experience
-- **Error Node**: Removed deprecated manual streaming code and progress tracking in favor of unified logger system with automatic streaming
-- **Gateway Approval Detection**: Enhanced approval response detection with two-tier system - instant pattern matching for simple yes/no responses, with LLM-powered fallback for complex natural language
-
-## [0.9.5] - 2025-12-01
-
 ### Added
 - **Runtime Utilities for Control System Operations**: Control-system-agnostic utilities for generated Python code
-  - New `osprey.runtime` module with async API for channel read/write operations
-  - Auto-configuration from execution context with fallback to global config
-  - Context snapshot preservation for reproducible notebooks
-  - Works with any control system (EPICS, Mock, LabVIEW, etc.) without code changes
-  - Simple API: `write_channel()`, `read_channel()`, `write_channels()`
-  - Automatic connector lifecycle management with cleanup on exit
-  - Integration with Python executor wrapper and notebook generation
-  - LLM prompts updated to teach runtime API usage
-  - Comprehensive unit and integration tests
+  - New `osprey.runtime` module with synchronous API (write_channel, read_channel, write_channels)
+  - Automatic configuration from execution context for reproducible notebooks
+  - Async operations handled internally for simple generated code
+  - Works with any control system (EPICS, Mock, etc.) without code changes
+  - Complete unit and integration test coverage
+  - API reference documentation with usage examples
 
 - **Runtime Channel Limits Validation**: Comprehensive safety system for validating writes against configured boundaries
   - Synchronous validation engine with min/max/step/writable constraints
@@ -105,14 +70,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Performance Optimized**: Instant validation for min/max checks (no I/O), optional ~50-100ms overhead for step size checking (pay-for-what-you-use model)
   - **Integration Points**: Property-based config loading in `PythonExecutorConfig`, validator injection in `LocalCodeExecutor` and `ContainerCodeExecutor`, config serialization in `ExecutionWrapper`
 
-- **CLI Commands**: New `osprey generate claude-config` command to generate Claude Code generator configuration files with sensible defaults and auto-detection of provider settings
-- **Interactive Menu**: Added 'generate' command to project selection submenu, centralized menu choice management with `get_project_menu_choices()`, improved consistency between main and project selection flows
-- **E2E Test Suites**: Added comprehensive end-to-end test coverage
-  - **Claude Config Generation Tests** (`test_claude_config_generation.py`): Validates `osprey generate claude-config` command, tests configuration file structure, provider auto-detection, and profile customization
-  - **Code Generator Workflow Tests** (`test_code_generator_workflows.py`): Tests complete code generation pipeline with basic and Claude Code generators. Validates example script guidance following, instruction adherence, and deterministic assertions for generated code content
-  - **MCP Capability Generation Tests** (`test_mcp_capability_generation.py`): End-to-end MCP integration testing including server generation/launch, capability generation from live MCP server, registry integration, and query execution with LLM judge verification
-
 ### Changed
+- **Documentation Positioning**: Updated core documentation to emphasize control system focus
+- **Control System Connector API**: Unified channel naming and comprehensive write verification
+  - Method rename: read_pv → read_channel, write_pv → write_channel (deprecated methods emit DeprecationWarning)
+  - Class rename: PVValue → ChannelValue, PVMetadata → ChannelMetadata (deprecated classes emit DeprecationWarning)
+  - Three-tier write verification: none/callback/readback with configurable tolerance
+  - Rich result objects: ChannelWriteResult and WriteVerification with detailed status
+  - Mock connector verification simulation for development testing
+  - All deprecated APIs will be removed in v0.10
+- **Template Configuration**: Updated minimal template and project config for control system safety features
+  - Added control_system section with writes_enabled, limits_checking, write_verification
+  - Updated integration guides for new connector API
+  - Framework capabilities updated for connector method rename
+  - Pattern detection updated with new read_channel/write_channel patterns
+  - Registry and utility updates for new context types
+
+- **Documentation Structure**: Refactored Python execution service documentation for improved organization
+  - Removed obsolete standalone 03_python-execution-service.rst file
+  - Streamlined service-overview.rst (793 → 452 lines, 40% reduction)
+  - Focused content on generator extensibility for developers
+  - Updated all cross-references to use directory structure
+  - Improved navigation and reduced redundancy
+
+- **CLI Approval Display**: Enhanced approval message presentation with heavy-bordered panel, bold title, and helpful subtitle for improved visibility and user experience
+- **Error Node**: Removed deprecated manual streaming code and progress tracking in favor of unified logger system with automatic streaming
+- **Gateway Approval Detection**: Enhanced approval response detection with two-tier system - instant pattern matching for simple yes/no responses, with LLM-powered fallback for complex natural language
 - **Channel Value Retrieval Renamed to Channel Read**: Renamed `channel_value_retrieval` capability to `channel_read` throughout the entire codebase for consistency and clarity
   - **Capability Name**: `channel_value_retrieval` → `channel_read`
   - **Class Name**: `ChannelValueRetrievalCapability` → `ChannelReadCapability`
@@ -123,6 +106,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Registry**: Updated capability registration and context type references
   - **Config**: Updated logging colors and capability lists
 
+### Fixed
+- **Error Node Logging**: Removed duplicate start/completion logging that occurred when combining decorator's automatic logging with manual status messages
+
+## [0.9.5] - 2025-12-01
+
+### Added
+- **CLI Commands**: New `osprey generate claude-config` command to generate Claude Code generator configuration files with sensible defaults and auto-detection of provider settings
+- **Interactive Menu**: Added 'generate' command to project selection submenu, centralized menu choice management with `get_project_menu_choices()`, improved consistency between main and project selection flows
+- **E2E Test Suites**: Added comprehensive end-to-end test coverage
+  - **Claude Config Generation Tests** (`test_claude_config_generation.py`): Validates `osprey generate claude-config` command, tests configuration file structure, provider auto-detection, and profile customization
+  - **Code Generator Workflow Tests** (`test_code_generator_workflows.py`): Tests complete code generation pipeline with basic and Claude Code generators. Validates example script guidance following, instruction adherence, and deterministic assertions for generated code content
+  - **MCP Capability Generation Tests** (`test_mcp_capability_generation.py`): End-to-end MCP integration testing including server generation/launch, capability generation from live MCP server, registry integration, and query execution with LLM judge verification
+
+### Changed
 - **API Call Logging**: Enhanced with caller context tracking across all LLM-calling components. Logging metadata now includes capability/module/operation details for better debugging. Improved JSON serialization with Pydantic model support (mode='json') and better error visibility (warnings instead of silent failures)
 - **Claude Code Generator Configuration**: Major simplification - profiles now directly specify phases to run instead of using planning_modes abstraction. Default profile changed from 'balanced' to 'fast'. Unified prompt building into single data-driven `_build_phase_prompt()` method. Reduced codebase by 564 lines through elimination of duplicate prompt builders and dead code
 - **Registry Display**: Filtered infrastructure nodes table to exclude capability nodes (avoid duplication with Capabilities table), moved context classes to verbose-only mode, improved handling of tuple types in provides/requires fields

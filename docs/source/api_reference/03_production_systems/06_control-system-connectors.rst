@@ -395,6 +395,36 @@ Create and use a connector from global configuration:
    finally:
        await connector.disconnect()
 
+Usage in Generated Python Code
+------------------------------
+
+When the Python execution service generates code that needs to interact with control systems, it uses the ``osprey.runtime`` module instead of direct connector imports. This provides a simple, synchronous API that works with any configured control system:
+
+.. code-block:: python
+
+   # In generated Python code
+   from osprey.runtime import write_channel, read_channel
+
+   # Read from control system (synchronous, like EPICS caget)
+   current = read_channel("BEAM:CURRENT")
+   print(f"Current: {current} mA")
+
+   # Write to control system (synchronous, like EPICS caput)
+   write_channel("MAGNET:SETPOINT", 5.0)
+
+**Key Benefits:**
+
+- **Control-System Agnostic**: Same code works with EPICS, Mock, LabVIEW, or any registered connector
+- **Automatic Configuration**: Uses control system settings from execution context (reproducible notebooks)
+- **Safety Integration**: All boundary checking, limits validation, and approval workflows happen automatically
+- **Simple API**: Synchronous functions (async handled internally)
+
+The runtime module is automatically configured by the execution wrapper and uses the same connector configuration shown above.
+
+.. seealso::
+   :doc:`../../../getting-started/control-assistant-part3-production`
+      Complete tutorial on how generated code interacts with control systems
+
 Custom Configuration
 --------------------
 
