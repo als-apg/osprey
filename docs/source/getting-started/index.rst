@@ -10,7 +10,7 @@ Getting Started
 
    We welcome feedback! If you find issues or have suggestions, please open an issue on our GitHub page.
 
-Welcome to Osprey Framework! This comprehensive guide will take you from zero to building sophisticated intelligent agents, with working results at every step.
+Welcome to Osprey Framework! This comprehensive guide will take you from zero to building production-ready control system agents, with working results at every step.
 
 **What You'll Accomplish**
 --------------------------

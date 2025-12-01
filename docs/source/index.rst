@@ -16,14 +16,14 @@ Osprey Framework Documentation
 What is Osprey Framework?
 --------------------------
 
-The **Osprey Framework** provides a production-ready architecture for building domain-specific agentic systems. Built on :doc:`LangGraph's StateGraph foundation <developer-guides/01_understanding-the-framework/03_langgraph-integration>`, it implements a structured pipeline that transforms natural language inputs into reliable, orchestrated execution plans.
+The **Osprey Framework** is a production-ready architecture for deploying agentic AI in large-scale, safety-critical control system environments. Built on :doc:`LangGraph's StateGraph foundation <developer-guides/01_understanding-the-framework/03_langgraph-integration>`, it transforms natural language inputs into transparent, auditable execution plans designed for operational safety and reliability.
 
-The framework addresses common challenges in agentic system development: :doc:`tool management at scale <developer-guides/04_infrastructure-components/03_classification-and-routing>`, :doc:`structured orchestration without hallucination <developer-guides/01_understanding-the-framework/04_orchestrator-first-philosophy>`, and seamless integration of :doc:`human oversight workflows <api_reference/03_production_systems/01_human-approval>`.
+Developed for scientific facilities managing complex technical infrastructure such as particle accelerators, fusion experiments, beamlines, and large telescopes, Osprey addresses control-specific challenges: :doc:`semantic addressing across large channel namespaces <getting-started/control-assistant-part2-channel-finder>`, :doc:`plan-first orchestration <developer-guides/01_understanding-the-framework/04_orchestrator-first-philosophy>` with hardware-write detection, :doc:`protocol-agnostic integration with control stacks <developer-guides/05_production-systems/06_control-system-integration>` (EPICS, LabVIEW, Tango), and :doc:`mandatory human oversight for safety-critical operations <api_reference/03_production_systems/01_human-approval>`.
 
 Core Architecture
 ------------------
 
-Our framework provides a domain-agnostic architecture for safety-critical systems, turning natural-language requests into reliable action through a four-stage pipeline—Task Extraction, Classification, Orchestration, and Execution with checkpointing and artifact tracking:
+Osprey transforms control room operations through a control-aware architecture designed for safety-critical environments. The framework converts natural-language requests into transparent, executable plans through a four-stage pipeline—Task Extraction, Classification, Orchestration, and Execution—with comprehensive safety enforcement, checkpointing, and artifact tracking:
 
 1. :doc:`Task Extraction <developer-guides/04_infrastructure-components/02_task-extraction-system>` → Convert conversational context into structured, actionable objectives
 
@@ -43,15 +43,15 @@ Our framework provides a domain-agnostic architecture for safety-critical system
 
 The framework provides:
 
-* **Capability-Based Architecture**: :doc:`Modular agent construction <developer-guides/02_quick-start-patterns/01_building-your-first-capability>` with selective capability activation based on task requirements
-* **Orchestrator-First Design**: :doc:`Complete execution planning <developer-guides/04_infrastructure-components/04_orchestrator-planning>` prior to capability invocation, eliminating iterative tool-calling patterns
-* **Secure Python Execution**: :doc:`Containerized code generation and execution <developer-guides/05_production-systems/03_python-execution-service/index>` with static analysis, human approval, and flexible deployment environments
-* **Registry-Based Discovery**: :doc:`Convention-driven component loading <developer-guides/01_understanding-the-framework/02_convention-over-configuration>` enables seamless integration of capabilities, data sources, and services across applications
-* **Control System Abstraction**: :doc:`Pluggable connectors for control systems <developer-guides/05_production-systems/06_control-system-integration>` (EPICS, LabVIEW, Tango, Mock) enable development without hardware and seamless migration to production through configuration
-* **External Data Integration**: :doc:`Automatic retrieval from databases and knowledge bases <developer-guides/05_production-systems/02_data-source-integration>` during task understanding and capability execution for data-driven responses
-* **LangGraph Integration**: Native StateGraph workflows with :doc:`checkpoints, interrupts <developer-guides/01_understanding-the-framework/03_langgraph-integration>`, and :doc:`persistent state management <developer-guides/03_core-framework-systems/01_state-management-architecture>`
-* **Human-in-the-Loop Integration**: :ref:`Transparent execution plans <planning-mode-example>` with :doc:`approval workflows <developer-guides/05_production-systems/01_human-approval-workflows>` for high-stakes operational environments
-* **Domain Abstraction**: Framework patterns applicable across diverse infrastructure, from :doc:`simple agents <getting-started/hello-world-tutorial>` to complex :doc:`production control systems <getting-started/control-assistant>`
+* **Plan-First Orchestration**: :doc:`Complete execution planning <developer-guides/04_infrastructure-components/04_orchestrator-planning>` with explicit dependencies before any hardware interaction, enabling operator review of all proposed control system operations
+* **Control-System Awareness**: Pattern detection and static analysis identify hardware writes; :doc:`PV boundary checking <developer-guides/05_production-systems/06_control-system-integration>` validates setpoints against facility-defined limits before execution
+* **Protocol-Agnostic Integration**: :doc:`Pluggable connectors <developer-guides/05_production-systems/06_control-system-integration>` for EPICS, LabVIEW, Tango, and mock environments enable development without hardware and seamless production migration through configuration
+* **Scalable Capability Management**: :doc:`Dynamic classification <developer-guides/04_infrastructure-components/03_classification-and-routing>` selects relevant capabilities from large inventories, preventing prompt explosion as facilities expand toolsets
+* **Secure Code Execution**: :doc:`Containerized Python generation and execution <developer-guides/05_production-systems/03_python-execution-service/index>` with read-only and write-enabled environments, static analysis, and mandatory approval for hardware-interacting scripts
+* **Facility Data Integration**: :doc:`Automatic retrieval from archiver appliances, channel databases, and knowledge bases <developer-guides/05_production-systems/02_data-source-integration>` with intelligent downsampling for large time-series datasets
+* **LangGraph Foundation**: Native StateGraph workflows with :doc:`checkpoints, interrupts <developer-guides/01_understanding-the-framework/03_langgraph-integration>`, and :doc:`persistent state management <developer-guides/03_core-framework-systems/01_state-management-architecture>`
+* **Safety-First Design**: :ref:`Transparent execution plans <planning-mode-example>` with :doc:`human approval workflows <developer-guides/05_production-systems/01_human-approval-workflows>` and network-level isolation for control room deployment
+* **Proven in Production**: Deployed at :doc:`Lawrence Berkeley National Laboratory's Advanced Light Source <example-applications/als-assistant>` managing hundreds of thousands of control channels across accelerator operations
 
 
 Documentation Structure
@@ -72,7 +72,7 @@ Documentation Structure
       :link-type: doc
       :class-header: bg-info text-white
 
-      Architectural concepts and implementation patterns for building sophisticated agentic systems.
+      Architectural concepts and implementation patterns for deploying agentic AI in control system environments.
 
 .. grid:: 1 1 3 3
    :gutter: 3

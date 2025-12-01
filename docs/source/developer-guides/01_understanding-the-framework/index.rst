@@ -11,7 +11,7 @@ Understanding Osprey
    03_langgraph-integration
    04_orchestrator-first-philosophy
 
-The Osprey Framework is a production-ready conversational agentic system built on LangGraph's StateGraph foundation. Its distinctive architecture centers on **Classification and Orchestration** - capability selection followed by upfront execution planning - providing reliable, scalable multi-step operations with human oversight that scales well to a large number of domain specific tools.
+The Osprey Framework is a production-ready architecture for deploying agentic AI in large-scale, safety-critical control system environments. Built on LangGraph's StateGraph foundation, its distinctive architecture centers on **Classification and Orchestration** - capability selection followed by plan-first execution planning - providing transparent, auditable multi-step operations with mandatory safety checks for hardware-interacting workflows.
 
 .. image:: ../../_static/resources/workflow_overview.pdf
    :alt: Osprey Framework Workflow Overview

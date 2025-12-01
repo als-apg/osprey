@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Error Node Logging**: Removed duplicate start/completion logging that occurred when combining decorator's automatic logging with manual status messages
 
 ### Changed
+- **Documentation Positioning**: Updated core documentation to emphasize control system focus
 - **Control System Connector API**: Unified channel naming and comprehensive write verification
   - Method rename: read_pv → read_channel, write_pv → write_channel (deprecated methods emit DeprecationWarning)
   - Class rename: PVValue → ChannelValue, PVMetadata → ChannelMetadata (deprecated classes emit DeprecationWarning)
@@ -39,6 +40,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.9.5] - 2025-12-01
 
 ### Added
+- **Runtime Utilities for Control System Operations**: Control-system-agnostic utilities for generated Python code
+  - New `osprey.runtime` module with async API for channel read/write operations
+  - Auto-configuration from execution context with fallback to global config
+  - Context snapshot preservation for reproducible notebooks
+  - Works with any control system (EPICS, Mock, LabVIEW, etc.) without code changes
+  - Simple API: `write_channel()`, `read_channel()`, `write_channels()`
+  - Automatic connector lifecycle management with cleanup on exit
+  - Integration with Python executor wrapper and notebook generation
+  - LLM prompts updated to teach runtime API usage
+  - Comprehensive unit and integration tests
+
 - **Runtime Channel Limits Validation**: Comprehensive safety system for validating writes against configured boundaries
   - Synchronous validation engine with min/max/step/writable constraints
   - Failsafe design blocks all unlisted channels by default
