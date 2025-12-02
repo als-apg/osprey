@@ -1494,13 +1494,20 @@ class OspreyTUI(App):
                 task = state.get("task_current_task", "")
                 caps = state.get("planning_active_capabilities", [])
                 or_block.set_input(f"{task} → [{', '.join(caps)}]")
-            # Set output from execution plan
-            plan = state.get("planning_execution_plan", {})
-            steps = plan.get("steps", []) if plan else []
-            or_block.set_plan(steps)
+
+            # Only update output if block hasn't already been set to error
+            # (error state from streaming should be preserved)
+            if or_block._status != "error":
+                plan = state.get("planning_execution_plan", {})
+                steps = plan.get("steps", []) if plan else []
+                if steps:
+                    or_block.set_plan(steps)
+                else:
+                    # No plan and not already error - show generic message
+                    or_block.set_output("No execution plan")
 
             # Cache execution plan for step block creation during execution phase
-            self._cached_plan = plan
+            self._cached_plan = state.get("planning_execution_plan", {})
 
         # Finalize execution step blocks using captured status messages
         plan = state.get("planning_execution_plan", {})
