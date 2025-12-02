@@ -5,9 +5,11 @@ A Terminal User Interface for the Osprey Agent Framework built with Textual.
 
 import asyncio
 import logging
+import os
 import re
 import textwrap
 import uuid
+from datetime import datetime
 from typing import Any
 
 from langgraph.checkpoint.memory import MemorySaver
@@ -806,6 +808,78 @@ class ChatInput(TextArea):
         """Initialize the chat input."""
         super().__init__(**kwargs)
         self.show_line_numbers = False
+        # History support
+        self._history: list[str] = []
+        self._history_index: int = -1  # -1 means current input (not in history)
+        self._current_input: str = ""  # Save current input when navigating history
+        self._history_file = os.path.expanduser("~/.osprey_cli_history")
+        self._load_history()
+
+    def _load_history(self) -> None:
+        """Load history from file (prompt_toolkit FileHistory format)."""
+        try:
+            if os.path.exists(self._history_file):
+                with open(self._history_file) as f:
+                    for line in f:
+                        line = line.strip()
+                        # Skip empty lines and timestamp comments
+                        if not line or line.startswith("#"):
+                            continue
+                        # Lines starting with + are queries
+                        if line.startswith("+"):
+                            self._history.append(line[1:])  # Strip the + prefix
+        except Exception:
+            self._history = []
+
+    def _save_to_history(self, query: str) -> None:
+        """Append query to history file (prompt_toolkit FileHistory format)."""
+        if not query.strip():
+            return
+        query = query.strip()
+        # Add to in-memory history
+        self._history.append(query)
+        # Append to file in prompt_toolkit format
+        try:
+            with open(self._history_file, "a") as f:
+                # Write timestamp comment
+                f.write(f"\n# {datetime.now()}\n")
+                # Write query with + prefix
+                f.write(f"+{query}\n")
+        except Exception:
+            pass
+
+    def _history_up(self) -> None:
+        """Navigate to previous history entry."""
+        if not self._history:
+            return
+
+        # Save current input if starting to navigate
+        if self._history_index == -1:
+            self._current_input = self.text
+
+        # Move up in history (toward older entries)
+        if self._history_index < len(self._history) - 1:
+            self._history_index += 1
+            # History is stored oldest-first, so we navigate from end
+            history_entry = self._history[-(self._history_index + 1)]
+            self.text = history_entry
+            # Move cursor to end
+            self.move_cursor(self.document.end)
+
+    def _history_down(self) -> None:
+        """Navigate to next history entry (toward current input)."""
+        if self._history_index <= 0:
+            # Return to current input
+            self._history_index = -1
+            self.text = self._current_input
+            self.move_cursor(self.document.end)
+            return
+
+        # Move down in history (toward newer entries)
+        self._history_index -= 1
+        history_entry = self._history[-(self._history_index + 1)]
+        self.text = history_entry
+        self.move_cursor(self.document.end)
 
     def _on_key(self, event: Key) -> None:
         """Handle key events - Enter submits, Option+Enter for newline."""
@@ -815,6 +889,9 @@ class ChatInput(TextArea):
             event.stop()
             text = self.text.strip()
             if text:
+                self._save_to_history(text)  # Save to history
+                self._history_index = -1  # Reset history position
+                self._current_input = ""  # Clear saved input
                 self.post_message(self.Submitted(text))
                 self.clear()
             return
@@ -857,6 +934,17 @@ class ChatInput(TextArea):
             event.prevent_default()
             event.stop()
             self.move_cursor(self.document.end)
+            return
+        # History navigation (Up/Down arrows)
+        elif event.key == "up":
+            event.prevent_default()
+            event.stop()
+            self._history_up()
+            return
+        elif event.key == "down":
+            event.prevent_default()
+            event.stop()
+            self._history_down()
             return
         # Let parent handle all other keys
         super()._on_key(event)
