@@ -144,12 +144,12 @@ class DefaultFrameworkDomainAnalyzer(DomainAnalyzer):
 
         code = basic_analysis.code
 
-        # Use the pattern detection module (reads from config or uses defaults)
-        # The pattern_detection module handles the fallback to defaults internally
+        # Use framework-standard pattern detection (control-system-agnostic)
+        # Users can optionally override patterns via control_system.patterns in config.yml
         detection_result = detect_control_system_operations(
             code=code,
-            patterns=None,  # Load from config: control_system.patterns (or use defaults)
-            control_system_type=None  # Load from config: control_system.type
+            patterns=None,  # Use framework standard (or config override if provided)
+            control_system_type=None  # Load from config for logging/metadata
         )
 
         # Map detection results to domain analysis format

@@ -28,6 +28,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CLI Organization**: Deprecated `osprey export-config` in favor of `osprey config export`
   - Backward compatibility maintained with deprecation notice
   - All configuration operations now unified under `osprey config` namespace
+- **Pattern Detection Architecture**: Refactored to framework-standard patterns with security enhancements
+  - Control-system-agnostic patterns work across all connector types
+  - Comprehensive security coverage detects circumvention attempts (epics.caput, tango.DeviceProxy, etc.)
+  - Framework provides sensible defaults; users can override in config.yml
+  - Separated approved API patterns (write_channel, read_channel) from direct library call detection
+  - `control_system.type` config now only affects runtime connector, not pattern detection
 
 ### Fixed
 - **Test Configuration Pattern Detection**: Removed pattern overrides from test fixtures to use framework defaults
