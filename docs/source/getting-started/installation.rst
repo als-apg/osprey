@@ -524,13 +524,16 @@ OpenWebUI Configuration
 
 **Ollama Connection:**
 
-For Ollama running on localhost, use ``http://host.containers.internal:11434`` instead of ``http://localhost:11434`` because containers cannot access the host's localhost directly. This should match your ``config.yml`` Ollama base URL setting (see `Configuration`_ section above).
+The framework automatically configures OpenWebUI to connect to Ollama at ``http://host.docker.internal:11434``. This special hostname allows containers to access services running on the host machine (containers cannot access the host's localhost directly).
 
-Once the correct URL is configured and Ollama is serving, `OpenWebUI <https://openwebui.com/>`_ will automatically discover all models currently available in your Ollama installation.
+.. note::
+   On **Linux with Podman**, use ``host.containers.internal`` instead of ``host.docker.internal``. Update the URL in ``services/open-webui/docker-compose.yml`` if needed.
+
+Once Ollama is serving, `OpenWebUI <https://openwebui.com/>`_ will automatically discover all models currently available in your Ollama installation.
 
 **Pipeline Connection:**
 
-The Osprey framework provides a pipeline connection to the OpenWebUI service.
+The Osprey framework provides a pipeline connection to integrate the agent framework with OpenWebUI.
 
 .. dropdown:: Understanding Pipelines
    :color: info
@@ -544,16 +547,43 @@ The Osprey framework provides a pipeline connection to the OpenWebUI service.
 
    Pipelines appear as models with an "External" designation in your model selector and enable advanced functionality like real-time data retrieval, custom processing workflows, and integration with external AI services.
 
-1. Go to **Admin Panel** → **Settings** (upper panel) → **Connections** (left panel)
-2. Click the **(+)** button in **Manage OpenAI API Connections**
-3. Configure the pipeline connection with these details:
+The framework automatically configures the pipeline connection with these settings:
 
-   - **URL**: ``http://pipelines:9099`` (if using default configuration)
-   - **API Key**: Found in ``services/osprey/pipelines/docker-compose.yml.j2`` under ``PIPELINES_API_KEY`` (default ``0p3n-w3bu!``)
+- **URL**: ``http://pipelines:9099`` (default configuration)
+- **API Key**: ``0p3n-w3bu!`` (default, can be changed in ``services/osprey/pipelines/docker-compose.yml.j2`` under ``PIPELINES_API_KEY``)
 
-   **Note**: The URL uses ``pipelines:9099`` instead of ``localhost:9099`` because OpenWebUI runs inside a container and communicates with the pipelines service through the container network.
+**Note**: The URL uses ``pipelines:9099`` instead of ``localhost:9099`` because OpenWebUI runs inside a container and communicates with the pipelines service through the container network.
 
+.. dropdown:: Manual Configuration (if needed)
+   :color: secondary
+   :icon: tools
 
+   If you need to manually configure or verify the pipeline connection:
+
+   1. Go to **Admin Panel** → **Settings** (upper panel) → **Connections** (left panel)
+   2. Click the **(+)** button in **Manage OpenAI API Connections**
+   3. Configure the pipeline connection with these details:
+
+      - **URL**: ``http://pipelines:9099`` (if using default configuration)
+      - **API Key**: Found in ``services/osprey/pipelines/docker-compose.yml.j2`` under ``PIPELINES_API_KEY`` (default ``0p3n-w3bu!``)
+
+**Authentication:**
+
+For local development convenience, OpenWebUI authentication is disabled (``WEBUI_AUTH=false``). This means:
+
+- **No login required** - Access the interface immediately at `http://localhost:8080 <http://localhost:8080>`_
+- **Full admin access** - All features and settings are available without authentication
+- **Faster workflow** - No need to manage passwords or user accounts
+
+.. warning::
+   **Security Consideration**: If you deploy OpenWebUI on a shared server or expose it to a network, you should enable authentication for security. To enable authentication:
+
+   1. Open ``services/osprey/open-webui/docker-compose.yml.j2``
+   2. Change ``WEBUI_AUTH=false`` to ``WEBUI_AUTH=true``
+   3. Redeploy with ``osprey deploy up``
+   4. On first visit, you'll be prompted to create an admin account
+
+   For localhost-only deployments (default), authentication is not necessary.
 
 
 

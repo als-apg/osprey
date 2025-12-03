@@ -546,14 +546,15 @@ Host Access from Containers
 
 For containers to access services running on the host (like Ollama):
 
-- Use ``host.containers.internal`` instead of ``localhost``
-- Example: ``http://host.containers.internal:11434`` for Ollama
+- Use ``host.docker.internal`` instead of ``localhost`` (Docker on macOS/Windows)
+- Use ``host.containers.internal`` on Linux with Podman
+- Example: ``http://host.docker.internal:11434`` for Ollama
 
 .. code-block:: yaml
 
    # In docker-compose.yml.j2
    environment:
-     - OLLAMA_BASE_URL=http://host.containers.internal:11434
+     - OLLAMA_BASE_URL=http://host.docker.internal:11434  # Use host.containers.internal for Podman
 
 Port Mapping
 ------------

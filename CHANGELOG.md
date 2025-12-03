@@ -50,6 +50,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Advanced code generation now available in all installations
   - No longer requires separate installation with [claude-agent] extra
   - Minimum framework version 0.9.6+ for Claude Code generator support
+- **OpenWebUI**: Enhanced configuration for improved out-of-box experience
+  - Auto-configure Ollama and Pipeline connections in docker-compose
+  - Disable authentication for local development (WEBUI_AUTH=false)
+  - Documentation: automatic vs manual configuration guidance
+  - Documentation: Docker vs Podman container networking (host.docker.internal vs host.containers.internal)
 
 ### Fixed
 - **Test Configuration Pattern Detection**: Removed pattern overrides from test fixtures to use framework defaults

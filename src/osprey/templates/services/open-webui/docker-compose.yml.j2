@@ -17,11 +17,27 @@ services:
     environment:
       # Timezone synchronization with host (from system configuration)
       - TZ={{system.timezone}}
-      - OLLAMA_BASE_URL={{api.providers.ollama.host}}:{{api.providers.ollama.port}}
-      # Proxy settings (optional - uncomment if behind corporate firewall)
-      # - NO_PROXY=${NO_PROXY}
+
+      # ==== API CONNECTIONS (Auto-configured) ====
+      # Ollama API (for model hosting)
+      # Note: Use host.docker.internal on macOS/Windows, host.containers.internal on Linux/Podman
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - OLLAMA_BASE_URLS=http://host.docker.internal:11434
+
+      # OpenAI API (Pipelines - for Osprey agent integration)
+      - OPENAI_API_BASE_URLS=http://pipelines:9099
+      - OPENAI_API_KEYS=0p3n-w3bu!
+
+      # ==== AUTHENTICATION ====
+      # Disable auth for local development (no login required)
+      - WEBUI_AUTH=false
+
+      # ==== UI CUSTOMIZATION ====
       - WEBUI_CUSTOM_CSS_URL=/static/custom.css
       - USER_MEMORY_DIR=/app/{{file_paths.user_memory_dir}}
+
+      # Proxy settings (optional - uncomment if behind corporate firewall)
+      # - NO_PROXY=${NO_PROXY}
     volumes:
       - open-webui:/app/backend/data
       - {{project_root}}/{{file_paths.agent_data_dir}}:/app/backend/open_webui/static/agent_data:ro
