@@ -72,7 +72,7 @@ def export_config(project: str, output: str, format: str):
         "   Use [bold cyan]osprey config export[/bold cyan] instead.\n",
         style=Styles.DIM
     )
-    
+
     try:
         # Load osprey's configuration template (known location in osprey structure)
         template_path = Path(__file__).parent.parent / "templates" / "project" / "config.yml.j2"

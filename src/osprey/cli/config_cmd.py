@@ -63,13 +63,13 @@ def config(ctx, project):
         try:
             from .interactive_menu import handle_config_action
             from .project_utils import resolve_config_path, resolve_project_path
-            
+
             # Check if we're in a project directory
             try:
                 project_path = resolve_project_path(project)
                 config_path_str = resolve_config_path(project)
                 config_path = Path(config_path_str)
-                
+
                 if not config_path.exists():
                     console.print(
                         "❌ No Osprey project found in current directory",
@@ -88,7 +88,7 @@ def config(ctx, project):
                         style=Styles.DIM
                     )
                     sys.exit(1)
-                
+
             except Exception:
                 console.print(
                     "❌ No Osprey project found",
@@ -103,10 +103,10 @@ def config(ctx, project):
                     style=Styles.DIM
                 )
                 sys.exit(1)
-            
+
             # Launch interactive menu (shared implementation)
             handle_config_action(project_path)
-            
+
         except KeyboardInterrupt:
             console.print("\n⚠️  Operation cancelled", style=Styles.WARNING)
             sys.exit(0)
@@ -155,7 +155,7 @@ def show(project: str, format: str):
     """
     try:
         from .project_utils import resolve_config_path
-        
+
         # Resolve config path (returns string)
         try:
             config_path_str = resolve_config_path(project)
@@ -174,7 +174,7 @@ def show(project: str, format: str):
                 style=Styles.DIM
             )
             raise click.Abort()
-        
+
         if not config_path.exists():
             console.print(
                 f"❌ Configuration file not found: {config_path}",
@@ -371,7 +371,7 @@ def set_control_system(system_type: str, project: str):
     try:
         from .project_utils import resolve_config_path
         from osprey.generators.config_updater import update_control_system_type
-        
+
         try:
             config_path_str = resolve_config_path(project)
             config_path = Path(config_path_str)
@@ -389,7 +389,7 @@ def set_control_system(system_type: str, project: str):
                 style=Styles.DIM
             )
             raise click.Abort()
-        
+
         if not config_path.exists():
             console.print(
                 f"❌ Configuration file not found: {config_path}",
@@ -461,7 +461,7 @@ def set_epics_gateway(facility: str, address: str, port: int, project: str):
     try:
         from .project_utils import resolve_config_path
         from osprey.generators.config_updater import update_epics_gateway
-        
+
         try:
             config_path_str = resolve_config_path(project)
             config_path = Path(config_path_str)
@@ -479,7 +479,7 @@ def set_epics_gateway(facility: str, address: str, port: int, project: str):
                 style=Styles.DIM
             )
             raise click.Abort()
-        
+
         if not config_path.exists():
             console.print(
                 f"❌ Configuration file not found: {config_path}",

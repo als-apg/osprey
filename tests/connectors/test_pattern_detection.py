@@ -100,11 +100,11 @@ if current < 400:
     def test_control_system_agnostic_patterns(self):
         """Test that patterns work regardless of control_system_type."""
         code = "write_channel('BEAM:CURRENT', 500.0)"
-        
+
         # Should work the same regardless of control_system_type
         result_epics = detect_control_system_operations(code, control_system_type='epics')
         result_mock = detect_control_system_operations(code, control_system_type='mock')
-        
+
         assert result_epics['has_writes'] == result_mock['has_writes']
         assert result_epics['has_writes'] is True
 

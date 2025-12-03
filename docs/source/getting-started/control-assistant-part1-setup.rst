@@ -295,7 +295,7 @@ The framework detects:
 
    control_system:
      type: epics  # Only controls runtime connector, not patterns!
-     
+
      # Pattern detection is automatic - comprehensive security coverage
      # Catches: write_channel(), epics.caput(), tango writes, LabVIEW, etc.
 

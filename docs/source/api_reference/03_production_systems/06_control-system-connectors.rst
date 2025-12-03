@@ -291,7 +291,7 @@ calls that would bypass connector safety features (limits checking, verification
    code_approved = "write_channel('BEAM:CURRENT', 500)"
    result = detect_control_system_operations(code_approved)
    # result['has_writes'] == True
-   
+
    # Also detects circumvention attempts
    code_circumvent = "epics.caput('BEAM:CURRENT', 500)"
    result = detect_control_system_operations(code_circumvent)

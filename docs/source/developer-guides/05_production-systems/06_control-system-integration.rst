@@ -276,7 +276,7 @@ The framework automatically detects:
 
    control_system:
      type: epics  # This controls runtime connector, NOT patterns!
-     
+
      # Pattern detection works automatically - comprehensive security coverage
      # Advanced: Extend for custom control system libraries (rarely needed)
      # patterns:
