@@ -130,9 +130,9 @@ def create_code_generator(config: dict[str, Any] | None = None):
                 profile: "fast"  # fast (DEFAULT, single-phase) | robust (multi-phase)
 
     .. note::
-       The function gracefully handles missing optional dependencies. For example,
-       if "claude_code" is requested but claude-agent-sdk isn't installed, it will
-       log a warning and fall back to the basic generator.
+       The function gracefully handles generator initialization failures.
+       If a generator cannot be initialized, it logs a warning and falls back
+       to the basic generator.
 
     .. note::
        Generators are discovered through the registry system automatically.

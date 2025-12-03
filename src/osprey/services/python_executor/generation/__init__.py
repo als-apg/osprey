@@ -58,7 +58,7 @@ __all__ = [
     "create_code_generator",
     # Generators
     "BasicLLMCodeGenerator",
-    "ClaudeCodeGenerator",  # May be None if SDK not installed
+    "ClaudeCodeGenerator",  # Included as core dependency (v0.9.6+)
     "MockCodeGenerator",  # For testing
     "CLAUDE_SDK_AVAILABLE",
     # Node

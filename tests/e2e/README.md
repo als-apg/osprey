@@ -123,8 +123,8 @@ Some E2E tests require additional dependencies:
 # For MCP capability generation tests
 pip install fastmcp
 
-# For Claude Code generator tests
-pip install claude-agent-sdk
+# Claude Code generator is included in core (v0.9.6+)
+# No additional installation needed
 ```
 
 ### Test Options

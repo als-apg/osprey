@@ -102,8 +102,8 @@ Safety:
       All existing executor security analysis and approval workflows remain unchanged
 
 .. note::
-   Requires claude-agent-sdk package. Install with:
-   pip install osprey-framework[claude-agent]
+   The Claude Agent SDK is included as a core dependency in Osprey v0.9.6+.
+   No additional installation required.
 
 .. seealso::
    :class:`osprey.services.python_executor.generation.interface.CodeGenerator`
@@ -220,9 +220,6 @@ class ClaudeCodeGenerator:
     Args:
         model_config: Configuration dictionary with profile and settings
 
-    Raises:
-        ImportError: If claude-agent-sdk is not installed
-
     .. note::
        The generator only generates code. All security analysis, approval
        workflows, and execution remain unchanged in the executor pipeline.
@@ -261,7 +258,7 @@ class ClaudeCodeGenerator:
             model_config: Optional configuration dictionary. If None, uses defaults.
 
         Raises:
-            ImportError: If Claude Agent SDK is not installed
+            ImportError: If Claude Agent SDK is not available (upgrade to v0.9.6+)
 
         .. note::
            Configuration is loaded from either an external YAML file (if specified
@@ -269,8 +266,9 @@ class ClaudeCodeGenerator:
         """
         if not CLAUDE_SDK_AVAILABLE:
             raise ImportError(
-                "Claude Agent SDK not installed. "
-                "Install with: pip install osprey-framework[claude-agent]"
+                "Claude Agent SDK not available. "
+                "Upgrade osprey to v0.9.6+ where it's included as a core dependency: "
+                "pip install --upgrade osprey-framework"
             )
 
         self.model_config = model_config or {}

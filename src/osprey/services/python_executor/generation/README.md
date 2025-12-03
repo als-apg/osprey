@@ -27,7 +27,7 @@ This subsystem handles all Python code generation for the executor, providing a 
   - Multi-turn agentic reasoning
   - Codebase-aware (reads successful examples)
   - Two quality profiles: fast (single-phase, DEFAULT) / robust (multi-phase)
-  - Optional dependency: `claude-agent-sdk`
+  - Included as core dependency (claude-agent-sdk)
 
 - **`mock_generator.py`**: Mock generator for testing
   - Configurable behavior (success/syntax_error/runtime_error)

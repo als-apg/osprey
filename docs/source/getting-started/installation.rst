@@ -146,16 +146,25 @@ After creating and activating the virtual environment, install the framework pac
 
    **Optional Dependencies** (install with extras):
 
-   * **[scientific]**: NumPy, Pandas, SciPy, Matplotlib, Seaborn, Scikit-learn, ipywidgets *(required for Python execution capability)*
+   * **[scientific]**: SciPy, Seaborn, Scikit-learn, ipywidgets *(for advanced data analysis)*
    * **[docs]**: Sphinx and documentation tools
    * **[dev]**: pytest, black, mypy, and development tools
+
+   .. note::
+      The following packages are now included in the core installation:
+
+      * **Claude Agent SDK**: Advanced code generation with multi-turn agentic reasoning
+      * **NumPy, Pandas, Matplotlib**: Required for data handling and visualization in Python execution capability
 
    **Installation Examples:**
 
    .. code-block:: bash
 
-      # Recommended: Core + scientific computing
+      # Recommended: Core + scientific computing for advanced data analysis
       pip install osprey-framework[scientific]
+
+      # Minimal installation (includes Claude Code SDK)
+      pip install osprey-framework
 
       # Core + documentation
       pip install osprey-framework[docs]
