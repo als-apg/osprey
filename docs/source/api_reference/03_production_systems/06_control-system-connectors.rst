@@ -125,19 +125,23 @@ Result container for channel write operations with success status, written value
 
 .. code-block:: python
 
-   result = await connector.write_channel(
-       'BEAM:SETPOINT',
-       450.0,
-       verification_level='readback',
-       tolerance=0.01
-   )
+   # Automatic verification (uses per-channel or global config)
+   result = await connector.write_channel('BEAM:SETPOINT', 450.0)
 
-   if result.success and result.verification.verified:
-       print(f"Write verified: {result.written_value}")
+   if result.success and result.verification and result.verification.verified:
+       print(f"Write verified ({result.verification.level}): {result.written_value}")
    elif result.success:
        print(f"Write succeeded but not verified")
    else:
        print(f"Write failed")
+
+   # Manual override (optional)
+   result = await connector.write_channel(
+       'BEAM:SETPOINT',
+       450.0,
+       verification_level='readback',  # Override auto-config
+       tolerance=0.01
+   )
 
 .. autoclass:: osprey.connectors.control_system.base.WriteVerification
    :members:
@@ -162,18 +166,13 @@ Verification result for channel write operations.
 
 .. code-block:: python
 
-   # Readback verification
-   result = await connector.write_channel(
-       'BEAM:CURRENT',
-       400.0,
-       verification_level='readback',
-       tolerance=0.01,
-       timeout=2.0
-   )
+   # Automatic verification (connector determines level from config)
+   result = await connector.write_channel('BEAM:CURRENT', 400.0)
 
-   if result.verification.verified:
-       print(f"Readback: {result.verification.readback_value}")
-       print(f"Within tolerance: {result.verification.tolerance_check}")
+   if result.verification and result.verification.verified:
+       print(f"Verification: {result.verification.level}")
+       if result.verification.readback_value is not None:
+           print(f"Readback: {result.verification.readback_value}")
    else:
        print("Verification failed")
 

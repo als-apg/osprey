@@ -283,14 +283,22 @@ Control System & Archiver Configuration
 
    control_system:
      type: epics
-     patterns:                     # Used by approval system
+     patterns:                       # Used by approval system
        epics:
          write:
-           - 'epics\.caput\('       # Matches: epics.caput(...)
-           - '\.put\('              # Matches: pv.put(...)
+           - '\bwrite_channel\s*\('  # osprey.runtime: write_channel('PV', value)
+           - '\bwrite_channels\s*\(' # osprey.runtime: write_channels({...})
+           - '\bcaput\s*\('          # Legacy EPICS: caput('PV', value)
+           - '\.put\s*\('            # Legacy EPICS: pv.put(...)
          read:
-           - 'epics\.caget\('       # Matches: epics.caget(...)
-           - '\.get\('              # Matches: pv.get(...)
+           - '\bread_channel\s*\('   # osprey.runtime: read_channel('PV')
+           - '\bcaget\s*\('          # Legacy EPICS: caget('PV')
+           - '\.get\s*\('            # Legacy EPICS: pv.get(...)
+
+.. note::
+   The pattern detection includes both the unified ``osprey.runtime`` API (``write_channel``,
+   ``read_channel``) and legacy EPICS functions (``caput``, ``caget``) for backward compatibility.
+   Default patterns are used if none are configured.
 
 You'll see this pattern detection in action when you use the Python execution capability in :doc:`Part 3 <control-assistant-part3-production>`.
 

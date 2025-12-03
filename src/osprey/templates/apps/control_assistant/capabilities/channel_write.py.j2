@@ -7,14 +7,25 @@ comprehensive safety controls.
 Safety Layers (enforced in order):
 1. Global writes_enabled flag (control_system.writes_enabled)
    - Master safety switch - all writes blocked if false
+   - Checked by capability before calling connector
 2. Human approval workflow (approval.capabilities.python_execution)
    - Requires user approval before executing writes (asked FIRST)
+   - Handled by capability through approval system
 3. Channel limits validation (control_system.limits_checking)
-   - Enforces min/max/step/writable constraints from limits database (validated AFTER approval)
+   - Enforces min/max/step/writable constraints from limits database
+   - Handled automatically by connector during write_channel()
 4. Write verification (control_system.write_verification)
    - Verifies write success via callback or readback
+   - Handled automatically by connector (per-channel or global config)
 
 All safety layers must pass for writes to succeed.
+
+Architecture Note:
+The capability focuses on high-level orchestration (parsing, approval) while
+the connector handles low-level safety (limits, verification). This clean
+separation means the capability doesn't need to know about limits databases
+or verification configuration - it just calls connector.write_channel() and
+the connector handles everything automatically.
 
 The capability uses LLM-based parsing to extract write operations from task
 descriptions and available context data (PYTHON_RESULTS, CHANNEL_VALUES, etc.).
@@ -381,155 +392,6 @@ class ChannelWriteCapability(BaseCapability):
     provides = ["CHANNEL_WRITE_RESULTS"]
     requires = ["CHANNEL_ADDRESSES"]
 
-    def _load_limits_config(self, channel_address: str) -> Optional[Dict[str, Any]]:
-        """
-        Load limits configuration for a specific channel with defaults applied.
-
-        Merges channel-specific config with 'defaults' section from the limits file.
-        This allows you to set common values once in 'defaults' instead of repeating them.
-
-        Priority:
-        1. Channel-specific values (highest priority)
-        2. 'defaults' from limits file
-        3. None if channel not in database
-
-        Args:
-            channel_address: Channel address to look up
-
-        Returns:
-            Limits config dict with defaults merged, or None if not found
-
-        Example database structure:
-            {
-                "defaults": {
-                    "writable": true,
-                    "verification_level": "callback"
-                },
-                "MAGNET:CURRENT": {
-                    "min_value": 0.0,
-                    "max_value": 100.0
-                    // writable and verification_level inherited from defaults
-                }
-            }
-        """
-        from osprey.utils.config import get_config
-        config = get_config()
-
-        # Get limits database path from config
-        limits_config = config.get("control_system", {}).get("limits_checking", {})
-        if not limits_config.get("enabled", False):
-            return None
-
-        database_path = limits_config.get("database_path")
-        if not database_path:
-            return None
-
-        # Load limits database
-        try:
-            import json
-            from pathlib import Path
-
-            db_path = Path(database_path)
-            if not db_path.exists():
-                return None
-
-            with open(db_path) as f:
-                limits_db = json.load(f)
-
-            # Extract defaults configuration (explicit functional field)
-            defaults = limits_db.get("defaults", {})
-
-            # Get channel-specific config
-            channel_config = limits_db.get(channel_address)
-            if channel_config is None:
-                return None
-
-            # Merge: channel-specific overrides defaults
-            # Deep merge for nested dicts like "verification"
-            merged = {}
-
-            # Apply defaults first
-            for key, value in defaults.items():
-                if isinstance(value, dict):
-                    merged[key] = value.copy()
-                else:
-                    merged[key] = value
-
-            # Override with channel-specific values
-            for key, value in channel_config.items():
-                if isinstance(value, dict) and key in merged and isinstance(merged[key], dict):
-                    # Deep merge for nested dicts
-                    merged[key] = {**merged[key], **value}
-                else:
-                    merged[key] = value
-
-            return merged
-
-        except Exception as e:
-            logger = self.get_logger()
-            logger.debug(f"Could not load limits config for {channel_address}: {e}")
-            return None
-
-    def _get_verification_config(
-        self,
-        channel_address: str,
-        value: float
-    ) -> tuple[str, Optional[float]]:
-        """
-        Get verification level and tolerance for a channel write.
-
-        Priority:
-        1. Channel-specific config in boundaries file
-        2. Global default from config.yml
-        3. Fallback: callback with 0.1% tolerance
-
-        Args:
-            channel_address: Channel address being written
-            value: Value being written (used for percentage calculation)
-
-        Returns:
-            Tuple of (verification_level, tolerance)
-            - verification_level: "none", "callback", or "readback"
-            - tolerance: Absolute tolerance for readback (None if not applicable)
-        """
-        from osprey.utils.config import get_config
-        config = get_config()
-
-        # Get limits config if available
-        limits_config = self._load_limits_config(channel_address)
-
-        # Determine verification level
-        if limits_config and "verification" in limits_config:
-            level = limits_config["verification"].get("level", "callback")
-        else:
-            level = config.get("control_system", {}).get(
-                "write_verification", {}
-            ).get("default_level", "callback")
-
-        # Calculate tolerance (only needed for readback level)
-        tolerance = None
-        if level == "readback":
-            if limits_config and "verification" in limits_config:
-                verif = limits_config["verification"]
-
-                # Absolute tolerance takes priority
-                if "tolerance_absolute" in verif:
-                    tolerance = verif["tolerance_absolute"]
-                # Otherwise use percentage
-                elif "tolerance_percent" in verif:
-                    tolerance = abs(value) * verif["tolerance_percent"] / 100.0
-                else:
-                    # Default: 0.1% (one per mil)
-                    tolerance = abs(value) * 0.1 / 100.0
-            else:
-                # Global default
-                default_percent = config.get("control_system", {}).get(
-                    "write_verification", {}
-                ).get("default_tolerance_percent", 0.1)
-                tolerance = abs(value) * default_percent / 100.0
-
-        return level, tolerance
-
     async def execute(self) -> Dict[str, Any]:
         """
         Execute channel write operation with LLM-based value parsing.
@@ -660,64 +522,9 @@ class ChannelWriteCapability(BaseCapability):
                 # If we reach here, something went wrong with the interrupt mechanism
                 raise RuntimeError("Interrupt mechanism failed - execution should have paused")
 
-        # Validate channel limits AFTER approval (Safety Layer 3)
-        # User has approved the intent - now validate the values are safe
-        from osprey.services.python_executor.execution.limits_validator import LimitsValidator
-        from osprey.services.python_executor.exceptions import ChannelLimitsViolationError
-
-        # Get limits validator (returns None if disabled in config)
-        limits_validator = LimitsValidator.from_config()
-
-        # Track which operations pass validation and which were skipped
-        validated_operations = []
-        skipped_count = 0
-
-        if limits_validator:
-            logger.debug("Validating channel limits after approval")
-            violation_mode = limits_validator.on_violation  # "error" or "skip"
-
-            for operation in write_operations:
-                try:
-                    # This raises ChannelLimitsViolationError if validation fails
-                    limits_validator.validate(
-                        operation.channel_address,
-                        operation.value
-                    )
-                    logger.debug(f"✓ Limits check passed: {operation.channel_address}={operation.value}")
-                    validated_operations.append(operation)
-                except ChannelLimitsViolationError as e:
-                    if violation_mode == "error":
-                        # Strict mode: raise exception and stop
-                        logger.error(
-                            f"Limits validation failed after approval: {operation.channel_address}={operation.value}"
-                        )
-                        raise ChannelWriteAccessError(
-                            f"Channel limits violation for {operation.channel_address}: {e.violation_reason}"
-                        ) from e
-                    else:
-                        # Skip mode: log warning and continue with other writes
-                        logger.warning(
-                            f"⚠️  Skipping write due to limits violation: {operation.channel_address}={operation.value}"
-                        )
-                        logger.warning(f"   Reason: {e.violation_reason}")
-                        skipped_count += 1
-
-            # Update write_operations to only include validated ones if in skip mode
-            if violation_mode == "skip":
-                if skipped_count > 0:
-                    logger.warning(f"⚠️  Skipped {skipped_count} write(s) due to limits violations")
-                write_operations = validated_operations
-
-                if not write_operations:
-                    # All operations were invalid
-                    error_msg = "All write operations violated channel limits - nothing to execute"
-                    logger.error(error_msg)
-                    raise ChannelWriteAccessError(error_msg)
-        else:
-            # No limits checking - all operations proceed
-            validated_operations = write_operations
-
-        # Create control system connector from configuration (Safety Layer 4)
+        # Create control system connector from configuration
+        # NOTE: Connector now handles limits validation (Safety Layer 3) and
+        # verification config (Safety Layer 4) automatically
         connector = await ConnectorFactory.create_control_system_connector()
 
         try:
@@ -730,18 +537,10 @@ class ChannelWriteCapability(BaseCapability):
                 logger.status(f"Writing {i}/{total_writes}: {operation.channel_address}...")
 
                 try:
-                    # Get verification config for this channel
-                    verify_level, tolerance = self._get_verification_config(
-                        operation.channel_address,
-                        operation.value
-                    )
-
-                    # Write with verification using connector
+                    # Write using connector (handles limits validation and verification automatically)
                     connector_result = await connector.write_channel(
                         operation.channel_address,
-                        operation.value,
-                        verification_level=verify_level,
-                        tolerance=tolerance
+                        operation.value
                     )
 
                     # Convert connector result to context model

@@ -55,6 +55,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added comprehensive tutorial section on how generated code interacts with control systems using osprey.runtime
 
 ### Changed
+- **Channel Write Capability Template**: Simplified by removing limits config loading (now automatic in connector)
+  - Capabilities focus on orchestration (parsing, approval)
+  - Connectors handle safety (limits, verification)
+  - Cleaner separation of concerns
+
 - **Python Execution Infrastructure**: Integrated runtime utilities with execution wrapper and notebooks
   - Execution wrapper automatically configures runtime from context snapshots
   - Context manager preserves control system config for reproducible execution

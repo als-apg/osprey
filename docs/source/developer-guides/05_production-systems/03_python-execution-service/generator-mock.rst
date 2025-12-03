@@ -71,11 +71,11 @@ The mock generator provides behaviors for common test scenarios:
    # Code missing results dictionary (tests validation)
    generator = MockCodeGenerator(behavior="missing_results")
 
-   # Code with EPICS write operations (tests approval triggers)
-   generator = MockCodeGenerator(behavior="epics_write")
+   # Code with control system write operations (tests approval triggers)
+   generator = MockCodeGenerator(behavior="channel_write")
 
-   # Code with EPICS read operations (no approval needed)
-   generator = MockCodeGenerator(behavior="epics_read")
+   # Code with control system read operations (no approval needed)
+   generator = MockCodeGenerator(behavior="channel_read")
 
    # Code with security concerns (tests security analysis)
    generator = MockCodeGenerator(behavior="security_risk")

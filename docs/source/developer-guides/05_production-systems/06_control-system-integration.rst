@@ -265,11 +265,21 @@ Pattern detection enables the approval system to identify control system operati
      patterns:
        epics:
          write:
-           - 'epics\.caput\('        # Matches: epics.caput(...)
-           - '\.put\('               # Matches: pv.put(...)
+           - '\bcaput\s*\('           # Matches: caput('PV', value)
+           - 'epics\.caput\('         # Matches: epics.caput(...)
+           - '\.put\s*\('             # Matches: pv.put(...)
+           - '\bwrite_channel\s*\('   # Matches: write_channel('PV', value)
+           - '\bwrite_channels\s*\('  # Matches: write_channels({...})
          read:
-           - 'epics\.caget\('        # Matches: epics.caget(...)
-           - '\.get\('               # Matches: pv.get(...)
+           - '\bcaget\s*\('           # Matches: caget('PV')
+           - 'epics\.caget\('         # Matches: epics.caget(...)
+           - '\.get\s*\('             # Matches: pv.get(...)
+           - '\bread_channel\s*\('    # Matches: read_channel('PV')
+
+.. note::
+   The patterns include both legacy EPICS functions (``caput``, ``caget``) and the unified
+   ``osprey.runtime`` API (``write_channel``, ``read_channel``). The pattern detection module
+   uses sensible defaults if no patterns are configured.
 
 **Usage in capabilities:**
 
@@ -277,10 +287,13 @@ Pattern detection enables the approval system to identify control system operati
 
    from osprey.services.python_executor.analysis.pattern_detection import detect_control_system_operations
 
+   # Detects both legacy EPICS and unified runtime API
    code = """
-   current = epics.caget('BEAM:CURRENT')
+   from osprey.runtime import read_channel, write_channel
+
+   current = read_channel('BEAM:CURRENT')
    if current < 400:
-       epics.caput('ALARM:STATUS', 1)
+       write_channel('ALARM:STATUS', 1)
    """
 
    result = detect_control_system_operations(code)
@@ -299,7 +312,7 @@ Verify that channel writes succeeded using callback or readback confirmation.
 
    .. tab-item:: Quick Start
 
-      Write with automatic verification:
+      Write with automatic verification (uses per-channel or global config):
 
       .. code-block:: python
 
@@ -307,26 +320,22 @@ Verify that channel writes succeeded using callback or readback confirmation.
 
          connector = await ConnectorFactory.create_control_system_connector()
 
-         # Callback verification (fast, confirms CA callback)
-         result = await connector.write_channel(
-             "BEAM:CURRENT",
-             100.0,
-             verification_level="callback"
-         )
+         # Automatic verification (connector determines level from config)
+         result = await connector.write_channel("BEAM:CURRENT", 100.0)
 
-         # Readback verification (full confirmation)
+         # Check result
+         if result.verification and result.verification.verified:
+             print(f"✅ Write confirmed ({result.verification.level})")
+         else:
+             print(f"⚠️ Verification failed: {result.verification.notes}")
+
+         # Manual override (if needed)
          result = await connector.write_channel(
              "MOTOR:POSITION",
              50.0,
-             verification_level="readback",
-             tolerance=0.1  # Allow 0.1 units difference
+             verification_level="readback",  # Override auto-config
+             tolerance=0.1  # Explicit tolerance
          )
-
-         # Check result
-         if result.verification.verified:
-             print("✅ Write confirmed")
-         else:
-             print(f"⚠️ Verification failed: {result.verification.notes}")
 
    .. tab-item:: Configuration
 

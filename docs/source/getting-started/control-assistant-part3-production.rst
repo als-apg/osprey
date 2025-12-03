@@ -1549,7 +1549,7 @@ The template includes two Jupyter containers configured with different execution
          allows_writes: true
          requires_approval: true
 
-The framework automatically selects between containers using :doc:`pattern detection <../developer-guides/05_production-systems/03_python-execution-service/index>` - it analyzes generated code for control system write operations (like ``epics.caput()``) and routes to the appropriate container:
+The framework automatically selects between containers using :doc:`pattern detection <../developer-guides/05_production-systems/03_python-execution-service/index>` - it analyzes generated code for control system write operations (like ``write_channel()``) and routes to the appropriate container:
 
 - **Read-only** container (port 8088) is used when no write patterns are detected
 - **Write access** container (port 8089) is used when write patterns are detected (potentially triggering approval workflows)

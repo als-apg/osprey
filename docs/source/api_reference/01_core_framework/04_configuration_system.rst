@@ -429,8 +429,9 @@ control_system.limits_checking
 
 - Failsafe design: unlisted channels are blocked by default
 - JSON parsing errors block all writes (fail-safe)
-- Integrates with Python executor wrapper via monkeypatching
-- Works with ``epics.caput()``, ``PV.put()``, and connector methods
+- Automatic validation: Control system connectors validate all writes transparently
+- Works with ``write_channel()``, ``epics.caput()``, ``PV.put()`` in generated code
+- No application-level validation needed - handled by connector layer
 
 **See Also:**
 

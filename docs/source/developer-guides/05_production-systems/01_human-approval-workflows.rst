@@ -131,29 +131,29 @@ Integrate approval workflows into capabilities using the framework's approval fu
 
            # Evaluate approval requirement
            evaluator = get_python_execution_evaluator()
-           has_epics_writes = self._analyze_for_epics_writes(generated_code)
+           has_control_writes = self._analyze_for_control_writes(generated_code)
 
            decision = evaluator.evaluate(
-               has_epics_writes=has_epics_writes,
-               has_epics_reads=False
+               has_control_writes=has_control_writes,
+               has_control_reads=False
            )
 
            if decision.needs_approval:
                # Create approval interrupt with rich context
                analysis_details = {
-                   'safety_level': 'medium' if has_epics_writes else 'low',
-                   'operations_detected': ['EPICS writes'] if has_epics_writes else [],
+                   'safety_level': 'medium' if has_control_writes else 'low',
+                   'operations_detected': ['control system writes'] if has_control_writes else [],
                    'risk_assessment': decision.reasoning
                }
 
                safety_concerns = []
-               if has_epics_writes:
-                   safety_concerns.append("Code modifies EPICS control system setpoints")
+               if has_control_writes:
+                   safety_concerns.append("Code modifies control system setpoints")
 
                interrupt_data = create_code_approval_interrupt(
                    code=generated_code,
                    analysis_details=analysis_details,
-                   execution_mode='write_access' if has_epics_writes else 'readonly',
+                   execution_mode='write_access' if has_control_writes else 'readonly',
                    safety_concerns=safety_concerns
                )
 
@@ -197,20 +197,22 @@ Implement domain-specific security analysis:
 
 .. code-block:: python
 
-   def _analyze_for_epics_writes(self, code: str) -> bool:
-       """Detect EPICS write operations in code."""
-       epics_write_patterns = [
-           'caput(',
-           '.put(',
-           'epics.caput',
-           'PV.put',
-           'setpoint'
-       ]
-       return any(pattern in code for pattern in epics_write_patterns)
+   def _analyze_for_control_writes(self, code: str) -> bool:
+       """Detect control system write operations in code.
+
+       Uses the pattern_detection module which handles both legacy EPICS
+       patterns (caput, PV.put) and the unified osprey.runtime API
+       (write_channel, write_channels).
+       """
+       from osprey.services.python_executor.analysis.pattern_detection import (
+           detect_control_system_operations
+       )
+       result = detect_control_system_operations(code)
+       return result['has_writes']
 
    def _assess_safety_level(self, security_analysis: dict) -> str:
        """Assess overall safety level based on detected operations."""
-       if security_analysis.get('has_epics_writes'):
+       if security_analysis.get('has_control_writes'):
            return 'high'
        elif security_analysis.get('has_file_operations'):
            return 'medium'
@@ -294,7 +296,7 @@ Require human approval before executing control system channel writes.
        else:
            # First time execution - check if approval is needed
            approval_evaluator = get_python_execution_evaluator()
-           decision = approval_evaluator.evaluate(has_epics_writes=True)
+           decision = approval_evaluator.evaluate(has_control_writes=True)
 
            if decision.needs_approval:
                # Create approval interrupt
@@ -325,7 +327,7 @@ Require human approval before executing control system channel writes.
    approval:
      capabilities:
        python_execution:
-         mode: "epics_writes"  # Triggers approval for channel writes
+         mode: "control_writes"  # Triggers approval for control system writes
 
 **Interrupt Data Structure:**
 
@@ -400,7 +402,7 @@ Troubleshooting
 
    # Verify approval evaluator behavior
    evaluator = get_python_execution_evaluator()
-   decision = evaluator.evaluate(has_epics_writes=True, has_epics_reads=False)
+   decision = evaluator.evaluate(has_control_writes=True, has_control_reads=False)
    print(f"Approval decision: {decision}")
 
 .. seealso::

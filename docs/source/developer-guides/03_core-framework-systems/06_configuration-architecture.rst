@@ -84,7 +84,7 @@ Project Configuration
      capabilities:
        python_execution:
          enabled: true
-         mode: "epics_writes"
+         mode: "control_writes"
 
    execution_control:
      epics:

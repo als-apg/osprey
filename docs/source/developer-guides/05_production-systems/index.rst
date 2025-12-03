@@ -162,8 +162,8 @@ Production Integration Patterns
          data = result.execution_result.results
 
       - **Pluggable code generators** (Basic LLM, Claude Code, Mock)
-      - **Automatic pattern detection** for EPICS reads/writes
-      - **Configurable approval modes** (disabled, epics_writes, all_code)
+      - **Automatic pattern detection** for control system reads/writes
+      - **Configurable approval modes** (disabled, control_writes, all_code)
       - **Container or local execution** with seamless switching
 
    .. tab-item:: Data Integration
