@@ -7,7 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Test Configuration Pattern Detection**: Removed pattern overrides from test fixtures to use framework defaults
+  - Test configs now use complete default patterns from `pattern_detection.py`
+  - Fixes approval workflow tests to correctly detect `write_channel`/`read_channel` operations
+  - Ensures tests validate actual framework behavior rather than incomplete test-specific patterns
+  - Fixed 3 failing tests in `TestApprovalWorkflow` integration test suite
+
 ### Added
+- **Connector Auto-Verification**: Connectors automatically determine verification level and tolerance from configuration
+  - Per-channel verification config from limits database (highest priority)
+  - Global verification config from config.yml (fallback)
+  - Hardcoded safe defaults if no config available (test environments)
+  - New `LimitsValidator.get_verification_config()` method for per-channel lookup
+  - Automatic limits validation on all connector writes (no application-level checks needed)
+  - Comprehensive test coverage including mock and EPICS connectors
+
 - **Runtime Utilities for Control System Operations**: Control-system-agnostic utilities for generated Python code
   - New `osprey.runtime` module with synchronous API (write_channel, read_channel, write_channels)
   - Automatic configuration from execution context for reproducible notebooks

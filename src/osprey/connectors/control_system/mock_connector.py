@@ -57,6 +57,7 @@ class MockConnector(ControlSystemConnector):
         self._connected = False
         self._state: dict[str, float] = {}
         self._subscriptions: dict[str, tuple] = {}
+        self._limits_validator = None  # Initialized during connect()
 
     async def connect(self, config: dict[str, Any]) -> None:
         """
@@ -72,8 +73,6 @@ class MockConnector(ControlSystemConnector):
         self._noise_level = config.get('noise_level', 0.01)
 
         # Use global writes_enabled flag (with deprecation support)
-        from osprey.utils.config import get_config_value
-
         # Check for deprecated parameter
         local_enable = config.get('enable_writes')
         if local_enable is not None:
@@ -85,19 +84,32 @@ class MockConnector(ControlSystemConnector):
             # Honor it for now for backward compatibility
             self._enable_writes = local_enable
         else:
-            # Use global flag - try new location first
-            writes_enabled = get_config_value('control_system.writes_enabled', None)
+            # Use global flag - try new location first (with fallback for test environments)
+            try:
+                from osprey.utils.config import get_config_value
 
-            # Fall back to old location for backward compatibility
-            if writes_enabled is None:
-                writes_enabled = get_config_value('execution_control.epics.writes_enabled', None)
-                if writes_enabled is not None:
-                    logger.warning("⚠️  DEPRECATED: 'execution_control.epics.writes_enabled' is deprecated.")
-                    logger.warning("   Please move this setting to 'control_system.writes_enabled' in your config.yml")
-                else:
-                    writes_enabled = False  # Default to safe
+                writes_enabled = get_config_value('control_system.writes_enabled', None)
 
-            self._enable_writes = writes_enabled
+                # Fall back to old location for backward compatibility
+                if writes_enabled is None:
+                    writes_enabled = get_config_value('execution_control.epics.writes_enabled', None)
+                    if writes_enabled is not None:
+                        logger.warning("⚠️  DEPRECATED: 'execution_control.epics.writes_enabled' is deprecated.")
+                        logger.warning("   Please move this setting to 'control_system.writes_enabled' in your config.yml")
+                    else:
+                        writes_enabled = False  # Default to safe
+
+                self._enable_writes = writes_enabled
+            except (FileNotFoundError, KeyError, RuntimeError):
+                # Config not available (test environment) - default to False (safe)
+                self._enable_writes = False
+                logger.debug("Config unavailable - defaulting writes_enabled to False")
+
+        # Initialize limits validator for automatic validation and verification config
+        from osprey.services.python_executor.execution.limits_validator import LimitsValidator
+        self._limits_validator = LimitsValidator.from_config()
+        if self._limits_validator:
+            logger.debug("Mock connector: limits validator initialized")
 
         self._connected = True
         logger.debug(f"Mock connector initialized (writes_enabled={self._enable_writes})")
@@ -146,27 +158,98 @@ class MockConnector(ControlSystemConnector):
             )
         )
 
+    def _get_verification_config(self, channel_address: str, value: float) -> tuple[str, float | None]:
+        """Get verification level and tolerance for a channel write.
+
+        Priority:
+        1. Explicit parameters (for backward compatibility / manual override)
+        2. Per-channel config from limits database
+        3. Global config from config.yml
+        4. Fallback: callback with 0.1% tolerance
+
+        Args:
+            channel_address: Channel being written
+            value: Value being written (for percentage tolerance calculation)
+
+        Returns:
+            Tuple of (verification_level, tolerance)
+        """
+        # Try per-channel config first (if limits validator available)
+        if self._limits_validator:
+            level, tolerance = self._limits_validator.get_verification_config(channel_address, value)
+            if level is not None:
+                logger.debug(f"Using per-channel verification for {channel_address}: {level}")
+                return level, tolerance
+
+        # Fall back to global config (or hardcoded defaults if config unavailable)
+        try:
+            from osprey.utils.config import get_config_value
+            level = get_config_value('control_system.write_verification.default_level', 'callback')
+
+            # Calculate tolerance for readback verification
+            tolerance = None
+            if level == 'readback':
+                default_percent = get_config_value('control_system.write_verification.default_tolerance_percent', 0.1)
+                tolerance = abs(value) * default_percent / 100.0
+
+            logger.debug(f"Using global verification config for {channel_address}: {level}")
+            return level, tolerance
+        except (FileNotFoundError, KeyError, RuntimeError):
+            # Config not available - use hardcoded safe defaults
+            logger.debug(f"Using hardcoded verification defaults for {channel_address} (config unavailable)")
+            return 'callback', None
+
     async def write_channel(
         self,
         channel_address: str,
         value: Any,
         timeout: float | None = None,
-        verification_level: str = "callback",
+        verification_level: str | None = None,
         tolerance: float | None = None
     ) -> ChannelWriteResult:
         """
-        Write channel - updates internal state with simulated verification.
+        Write channel with automatic limits validation and verification.
+
+        The connector automatically:
+        1. Validates limits (min/max/step/writable) if limits checking enabled
+        2. Determines verification level from per-channel or global config
+        3. Executes write with appropriate verification
 
         Args:
             channel_address: Any channel name
             value: Value to write
             timeout: Ignored for mock connector
-            verification_level: "none", "callback", or "readback"
-            tolerance: Absolute tolerance for readback verification
+            verification_level: Optional override for verification level (auto-determined if None)
+            tolerance: Optional override for tolerance (auto-calculated if None)
 
         Returns:
             ChannelWriteResult with write status and verification details
+
+        Raises:
+            ChannelLimitsViolationError: If limits validation fails (when enabled)
         """
+        # Step 1: Validate limits (if enabled)
+        if self._limits_validator:
+            try:
+                self._limits_validator.validate(channel_address, value)
+                logger.debug(f"✓ Limits validation passed: {channel_address}={value}")
+            except Exception as e:
+                # Import here to avoid circular dependency
+                from osprey.services.python_executor.exceptions import ChannelLimitsViolationError
+
+                # Re-raise limits violations
+                if isinstance(e, ChannelLimitsViolationError):
+                    raise
+
+                # Log unexpected errors but don't block (fail-open for non-limit errors)
+                logger.warning(f"Limits validation error (non-blocking): {e}")
+
+        # Step 2: Auto-determine verification config if not provided
+        if verification_level is None:
+            verification_level, auto_tolerance = self._get_verification_config(channel_address, float(value))
+            if tolerance is None:
+                tolerance = auto_tolerance
+        # Step 3: Check writes_enabled flag
         if not self._enable_writes:
             logger.warning(f"Write to {channel_address} rejected (writes disabled)")
             return ChannelWriteResult(
@@ -181,6 +264,7 @@ class MockConnector(ControlSystemConnector):
                 error_message="Mock connector has writes disabled"
             )
 
+        # Step 4: Execute write with verification
         # Simulate network delay
         await asyncio.sleep(self._response_delay)
 

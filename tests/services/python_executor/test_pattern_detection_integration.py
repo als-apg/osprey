@@ -20,10 +20,11 @@ class TestPatternDetectionIntegration:
         """Verify that domain analyzer uses pattern_detection module."""
         analyzer = DefaultFrameworkDomainAnalyzer(configurable={})
 
-        epics_write_code = """
-from epics import caget, caput
-current = caget('BEAM:CURRENT')
-caput('BEAM:CURRENT', current * 1.1)
+        # Use new osprey.runtime API
+        runtime_write_code = """
+from osprey.runtime import read_channel, write_channel
+current = read_channel('BEAM:CURRENT')
+write_channel('BEAM:CURRENT', current * 1.1)
 results = {'status': 'success'}
 """
 
@@ -35,8 +36,8 @@ results = {'status': 'success'}
             import_issues=[],
             prohibited_imports=[],
             has_result_structure=True,
-            code=epics_write_code,
-            code_length=len(epics_write_code)
+            code=runtime_write_code,
+            code_length=len(runtime_write_code)
         )
 
         result = await analyzer.analyze_domain(basic_analysis)
@@ -54,12 +55,13 @@ results = {'status': 'success'}
 
     @pytest.mark.asyncio
     async def test_detects_epics_writes(self):
-        """Test detection of EPICS write operations."""
+        """Test detection of control system write operations using osprey.runtime."""
         analyzer = DefaultFrameworkDomainAnalyzer(configurable={})
 
+        # Use new osprey.runtime API
         code = """
-from epics import caput
-caput('DEVICE:PV', 42.0)
+from osprey.runtime import write_channel
+write_channel('DEVICE:PV', 42.0)
 results = {}
 """
 
@@ -83,12 +85,13 @@ results = {}
 
     @pytest.mark.asyncio
     async def test_detects_epics_reads(self):
-        """Test detection of EPICS read operations."""
+        """Test detection of control system read operations using osprey.runtime."""
         analyzer = DefaultFrameworkDomainAnalyzer(configurable={})
 
+        # Use new osprey.runtime API
         code = """
-from epics import caget
-value = caget('DEVICE:PV')
+from osprey.runtime import read_channel
+value = read_channel('DEVICE:PV')
 results = {'value': value}
 """
 
@@ -180,11 +183,12 @@ results = {'mean': mean}
         """Test detection of different write pattern styles."""
         analyzer = DefaultFrameworkDomainAnalyzer(configurable={})
 
-        # Test different EPICS write patterns
+        # Test osprey.runtime write patterns (unified API)
+        # The connector abstraction uses write_channel/read_channel, NOT caput/caget
         codes = [
-            "caput('PV', 42)",
-            "pv.put(42)",
-            "from epics import caput\ncaput('PV', 42)",
+            "from osprey.runtime import write_channel\nwrite_channel('PV', 42)",  # Standalone runtime utility
+            "from osprey.runtime import write_channels\nwrite_channels({'PV': 42})",  # Bulk write utility
+            "connector.write_channel('PV', 42)",  # Connector method (unified API)
         ]
 
         for code in codes:
@@ -212,9 +216,10 @@ results = {'mean': mean}
         """Test that risk categories are set for control system writes."""
         analyzer = DefaultFrameworkDomainAnalyzer(configurable={})
 
+        # Use new osprey.runtime API
         code = """
-from epics import caput
-caput('CRITICAL:PV', 100.0)
+from osprey.runtime import write_channel
+write_channel('CRITICAL:PV', 100.0)
 results = {}
 """
 

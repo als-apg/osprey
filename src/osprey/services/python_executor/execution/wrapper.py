@@ -252,6 +252,15 @@ print(f"Container working directory: {{Path.cwd()}}")
                 _limits_validator = LimitsValidator(_limits_db, _policy)
                 print("🛡️  Runtime channel limits checking ENABLED")
 
+                # IMPORTANT: Also inject validator into osprey.runtime module
+                # This ensures write_channel() uses the same embedded validator
+                try:
+                    import osprey.runtime as _runtime_module
+                    _runtime_module._limits_validator = _limits_validator
+                    print("✅ Injected limits validator into osprey.runtime")
+                except ImportError:
+                    print("ℹ️  osprey.runtime not available for limits injection")
+
                 try:
                     import epics
 
@@ -276,7 +285,7 @@ print(f"Container working directory: {{Path.cwd()}}")
                     print("✅ Monkeypatched epics.caput() and PV.put()")
 
                 except ImportError:
-                    print("ℹ️  pyepics not available - limits checking disabled")
+                    print("ℹ️  pyepics not available - EPICS limits checking disabled")
             except Exception as e:
                 print(f"⚠️  Limits checking setup failed: {{e}}")
                 import traceback

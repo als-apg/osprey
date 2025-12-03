@@ -82,19 +82,19 @@ value = 100 / 0  # This will raise ZeroDivisionError
 results = {'value': value}
 """.strip(),
 
-        'epics_write': """
-from epics import caget, caput
+        'channel_write': """
+from osprey.runtime import read_channel, write_channel
 
-current = caget('TEST:PV')
-caput('TEST:PV', current * 1.1)
+current = read_channel('TEST:PV')
+write_channel('TEST:PV', current * 1.1)
 
-results = {'operation': 'write', 'pv': 'TEST:PV'}
+results = {'operation': 'write', 'channel': 'TEST:PV'}
 """.strip(),
 
-        'epics_read': """
-from epics import caget
+        'channel_read': """
+from osprey.runtime import read_channel
 
-value = caget('TEST:PV')
+value = read_channel('TEST:PV')
 
 results = {'operation': 'read', 'value': value}
 """.strip(),

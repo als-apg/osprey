@@ -49,11 +49,11 @@ generator = MockCodeGenerator(behavior="runtime_error")
 # Missing results dictionary
 generator = MockCodeGenerator(behavior="missing_results")
 
-# EPICS write operations (for testing approval)
-generator = MockCodeGenerator(behavior="epics_write")
+# Control system write operations (for testing approval)
+generator = MockCodeGenerator(behavior="channel_write")
 
-# EPICS read operations (read-only, safe)
-generator = MockCodeGenerator(behavior="epics_read")
+# Control system read operations (read-only, safe)
+generator = MockCodeGenerator(behavior="channel_read")
 
 # Security-sensitive operations
 generator = MockCodeGenerator(behavior="security_risk")
@@ -207,7 +207,7 @@ generator.set_code_sequence([
 
 ```python
 # Code that triggers approval
-generator = MockCodeGenerator(behavior="epics_write")
+generator = MockCodeGenerator(behavior="channel_write")
 
 # This will trigger approval interrupt
 result = await service.ainvoke(request, config)
@@ -222,9 +222,9 @@ generator = MockCodeGenerator(behavior="security_risk")
 # Generated code will have subprocess/os.system calls
 # Static analyzer should flag these
 
-# Test EPICS detection
-generator = MockCodeGenerator(behavior="epics_write")
-# Analyzer should detect caput calls
+# Test control system write detection
+generator = MockCodeGenerator(behavior="channel_write")
+# Analyzer should detect write_channel calls
 ```
 
 ## Benefits

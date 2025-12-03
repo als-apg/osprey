@@ -280,24 +280,22 @@ class TestAnalysisAndSecurity:
 
     @pytest.mark.asyncio
     @pytest.mark.integration
-    async def test_epics_write_detection(self, tmp_path):
-        """Test that control system write operations are detected (using EPICS as example)."""
-        # Mock generator with EPICS write code
-        # Note: EPICS is used as an example control system - the pattern detection
-        # system is generic and works with any control system defined in config
-        mock_gen = MockCodeGenerator(behavior="epics_write")
+    async def test_channel_write_detection(self, tmp_path):
+        """Test that control system write operations are detected."""
+        # Mock generator with control system write code
+        mock_gen = MockCodeGenerator(behavior="channel_write")
 
         with patch('osprey.services.python_executor.generation.node.create_code_generator', return_value=mock_gen):
             service = PythonExecutorService()
 
             request = PythonExecutionRequest(
-                user_query="Write to EPICS PV",
-                task_objective="EPICS write test",
+                user_query="Write to control system channel",
+                task_objective="Channel write test",
                 execution_folder_name=f"test_{tmp_path.name}"
             )
 
             config = {
-                "thread_id": "test_epics_write",
+                "thread_id": "test_channel_write",
                 "configurable": {
                     "execution": {
                         "execution_method": "local"
@@ -312,29 +310,27 @@ class TestAnalysisAndSecurity:
                 # If executed, verify code was analyzed
                 assert mock_gen.call_count >= 1
             except Exception as e:
-                # May require approval or fail due to missing epics module
+                # May require approval or fail due to missing control system module
                 assert mock_gen.call_count >= 1
 
     @pytest.mark.asyncio
     @pytest.mark.integration
-    async def test_epics_read_allowed(self, tmp_path):
-        """Test that control system read operations are allowed (using EPICS as example)."""
-        # Mock generator with EPICS read code
-        # Note: EPICS is used as an example control system - the pattern detection
-        # system is generic and works with any control system defined in config
-        mock_gen = MockCodeGenerator(behavior="epics_read")
+    async def test_channel_read_allowed(self, tmp_path):
+        """Test that control system read operations are allowed."""
+        # Mock generator with control system read code
+        mock_gen = MockCodeGenerator(behavior="channel_read")
 
         with patch('osprey.services.python_executor.generation.node.create_code_generator', return_value=mock_gen):
             service = PythonExecutorService()
 
             request = PythonExecutionRequest(
-                user_query="Read from EPICS PV",
-                task_objective="EPICS read test",
+                user_query="Read from control system channel",
+                task_objective="Channel read test",
                 execution_folder_name=f"test_{tmp_path.name}"
             )
 
             config = {
-                "thread_id": "test_epics_read",
+                "thread_id": "test_channel_read",
                 "configurable": {
                     "execution": {
                         "execution_method": "local"
@@ -343,7 +339,6 @@ class TestAnalysisAndSecurity:
             }
 
             # Read operations should not require approval
-            # (though may fail due to missing epics module)
             try:
                 result = await service.ainvoke(request, config)
                 assert mock_gen.call_count >= 1
@@ -455,8 +450,8 @@ class TestApprovalWorkflow:
 
     @pytest.mark.asyncio
     @pytest.mark.integration
-    async def test_approval_with_epics_writes(self, tmp_path, test_config_with_approval):
-        """Test that EPICS write operations trigger approval when configured."""
+    async def test_approval_with_channel_writes(self, tmp_path, test_config_with_approval):
+        """Test that control system write operations trigger approval when configured."""
         # Use test_config_with_approval which is already set up for approval workflows
         os.environ['CONFIG_FILE'] = str(test_config_with_approval)
 
@@ -497,7 +492,7 @@ class TestApprovalWorkflow:
         initialize_registry()
 
         # Create mock generator with EPICS write code
-        mock_gen = MockCodeGenerator(behavior="epics_write")
+        mock_gen = MockCodeGenerator(behavior="channel_write")
 
         with patch('osprey.services.python_executor.generation.node.create_code_generator', return_value=mock_gen):
             service = PythonExecutorService()
@@ -570,7 +565,7 @@ class TestApprovalWorkflow:
         initialize_registry()
 
         # Create mock generator with EPICS write code
-        mock_gen = MockCodeGenerator(behavior="epics_write")
+        mock_gen = MockCodeGenerator(behavior="channel_write")
 
         with patch('osprey.services.python_executor.generation.node.create_code_generator', return_value=mock_gen):
             service = PythonExecutorService()
@@ -669,7 +664,7 @@ class TestApprovalWorkflow:
         initialize_registry()
 
         # Create mock generator
-        mock_gen = MockCodeGenerator(behavior="epics_write")
+        mock_gen = MockCodeGenerator(behavior="channel_write")
 
         with patch('osprey.services.python_executor.generation.node.create_code_generator', return_value=mock_gen):
             service = PythonExecutorService()
@@ -713,8 +708,8 @@ class TestApprovalWorkflow:
     @pytest.mark.asyncio
     @pytest.mark.integration
     async def test_no_approval_for_read_operations(self, tmp_path, test_config):
-        """Test that read-only operations don't require approval with epics_writes mode."""
-        # Set test config with EPICS write approval (but read should be allowed)
+        """Test that read-only operations don't require approval with control_writes mode."""
+        # Set test config with control_writes approval (but read should be allowed)
         os.environ['CONFIG_FILE'] = str(test_config)
 
         # Modify config
@@ -745,7 +740,7 @@ class TestApprovalWorkflow:
         initialize_registry()
 
         # Create mock generator with EPICS READ code (no writes)
-        mock_gen = MockCodeGenerator(behavior="epics_read")
+        mock_gen = MockCodeGenerator(behavior="channel_read")
 
         with patch('osprey.services.python_executor.generation.node.create_code_generator', return_value=mock_gen):
             service = PythonExecutorService()

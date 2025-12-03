@@ -276,7 +276,7 @@ class TestLimitsValidator:
         }
         db_file.write_text(json.dumps(db_content))
 
-        db = LimitsValidator._load_limits_database(str(db_file))
+        db, raw_db = LimitsValidator._load_limits_database(str(db_file))
 
         assert len(db) == 3
         assert "TEST:PV1" in db
@@ -300,7 +300,7 @@ class TestLimitsValidator:
         }
         db_file.write_text(json.dumps(db_content))
 
-        db = LimitsValidator._load_limits_database(str(db_file))
+        db, raw_db = LimitsValidator._load_limits_database(str(db_file))
 
         assert len(db) == 1
         assert "TEST:PV" in db
@@ -360,7 +360,7 @@ class TestLimitsValidator:
         }
         db_file.write_text(json.dumps(db_content))
 
-        db = LimitsValidator._load_limits_database(str(db_file))
+        db, raw_db = LimitsValidator._load_limits_database(str(db_file))
 
         # Should load only valid entries
         assert len(db) == 2

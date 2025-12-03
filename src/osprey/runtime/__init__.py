@@ -20,6 +20,11 @@ Configuration:
 
     This ensures notebooks are reproducible - re-running a notebook a week
     later will use the same control system configuration it was created with.
+
+Limits Validation:
+    The control system connector automatically validates all write operations
+    against the configured limits database. This provides runtime safety for
+    control system writes without requiring application-level checks.
 """
 
 import asyncio
@@ -125,7 +130,11 @@ async def _get_connector():
 # ========================================================
 
 async def _write_channel_async(channel_address: str, value: Any, **kwargs) -> None:
-    """Internal async implementation for writing to a channel."""
+    """Internal async implementation for writing to a channel.
+
+    The connector handles limits validation and verification automatically.
+    No need to validate here - connector does it all.
+    """
     connector = await _get_connector()
     result = await connector.write_channel(channel_address, value, **kwargs)
 
@@ -134,8 +143,11 @@ async def _write_channel_async(channel_address: str, value: Any, **kwargs) -> No
             f"Write failed for {channel_address}: {result.error_message}"
         )
 
-    # Log success
-    print(f"✓ Wrote {channel_address} = {value}")
+    # Log success with verification info if available
+    if result.verification and result.verification.verified:
+        print(f"✓ Wrote {channel_address} = {value} [{result.verification.level} verified]")
+    else:
+        print(f"✓ Wrote {channel_address} = {value}")
 
 
 async def _read_channel_async(channel_address: str, **kwargs) -> Any:

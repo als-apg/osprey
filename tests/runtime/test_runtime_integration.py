@@ -292,23 +292,30 @@ def test_fallback_to_global_config(clear_runtime_state):
     # Create context without execution config
     empty_context = MockContext({})
 
-    # Mock get_config_value to return mock config with no noise
-    with patch('osprey.utils.config.get_config_value') as mock_get_config:
-        mock_get_config.return_value = {
-            'type': 'mock',
-            'connector': {
-                'mock': {
-                    'noise_level': 0.0,  # No noise for predictable tests
-                    'response_delay_ms': 1
+    # Mock get_config_value to return mock config with writes enabled and limits checking disabled
+    def mock_config_side_effect(key, default=None):
+        if key == 'control_system':
+            return {
+                'type': 'mock',
+                'writes_enabled': True,  # Enable writes for this test
+                'connector': {
+                    'mock': {
+                        'noise_level': 0.0,  # No noise for predictable tests
+                        'response_delay_ms': 1
+                    }
                 }
             }
-        }
+        elif key == 'control_system.writes_enabled':
+            return True  # Enable writes for this test
+        elif key == 'control_system.limits_checking.enabled':
+            return False  # Disable limits checking for this test
+        return default
 
+    with patch('osprey.utils.config.get_config_value', side_effect=mock_config_side_effect):
         # Configure should fall back to global config
         configure_from_context(empty_context)
 
         # Verify fallback was used
-        mock_get_config.assert_called_once_with('control_system', {})
         assert runtime._runtime_config['type'] == 'mock'
 
         # Operations should still work (synchronous API)

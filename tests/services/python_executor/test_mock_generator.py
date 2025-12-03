@@ -289,9 +289,9 @@ class TestPredefinedBehaviors:
         assert 'results = {' not in code or 'results = {}' not in code
 
     @pytest.mark.asyncio
-    async def test_behavior_epics_write(self):
-        """EPICS write behavior should generate code with caput."""
-        generator = MockCodeGenerator(behavior="epics_write")
+    async def test_behavior_channel_write(self):
+        """Channel write behavior should generate code with write_channel."""
+        generator = MockCodeGenerator(behavior="channel_write")
 
         request = PythonExecutionRequest(
             user_query="Test",
@@ -301,15 +301,15 @@ class TestPredefinedBehaviors:
 
         code = await generator.generate_code(request, [])
 
-        # Should have EPICS imports and write operations
-        assert 'epics' in code
-        assert 'caput' in code
+        # Should have runtime imports and write operations
+        assert 'osprey.runtime' in code
+        assert 'write_channel' in code
         assert 'results' in code
 
     @pytest.mark.asyncio
-    async def test_behavior_epics_read(self):
-        """EPICS read behavior should generate code with caget only."""
-        generator = MockCodeGenerator(behavior="epics_read")
+    async def test_behavior_channel_read(self):
+        """Channel read behavior should generate code with read_channel only."""
+        generator = MockCodeGenerator(behavior="channel_read")
 
         request = PythonExecutionRequest(
             user_query="Test",
@@ -319,11 +319,11 @@ class TestPredefinedBehaviors:
 
         code = await generator.generate_code(request, [])
 
-        # Should have EPICS imports and read operations
-        assert 'epics' in code
-        assert 'caget' in code
+        # Should have runtime imports and read operations
+        assert 'osprey.runtime' in code
+        assert 'read_channel' in code
         # Should NOT have write operations
-        assert 'caput' not in code
+        assert 'write_channel' not in code
 
     @pytest.mark.asyncio
     async def test_behavior_security_risk(self):

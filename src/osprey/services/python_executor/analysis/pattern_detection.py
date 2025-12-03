@@ -140,13 +140,16 @@ def get_default_patterns() -> dict[str, dict[str, list[str]]]:
         'mock': {
             'write': [
                 r'\.caput\(',
-                r'\.write_channel\(',  # New unified API
+                r'\.write_channel\(',  # Connector method
                 r'\.write_pv\(',  # Deprecated but still detected
+                r'\bwrite_channel\s*\(',  # osprey.runtime utility (standalone)
+                r'\bwrite_channels\s*\(',  # osprey.runtime bulk utility
             ],
             'read': [
                 r'\.caget\(',
-                r'\.read_channel\(',  # New unified API
+                r'\.read_channel\(',  # Connector method
                 r'\.read_pv\(',  # Deprecated but still detected
+                r'\bread_channel\s*\(',  # osprey.runtime utility (standalone)
             ]
         },
         'epics': {
@@ -156,6 +159,8 @@ def get_default_patterns() -> dict[str, dict[str, list[str]]]:
                 r'\.put\s*\(',  # pv.put()
                 r'\.set_value\s*\(',  # pv.set_value()
                 r'PV\([^)]*\)\.put',  # PV(...).put
+                r'\bwrite_channel\s*\(',  # osprey.runtime utility (standalone)
+                r'\bwrite_channels\s*\(',  # osprey.runtime bulk utility
             ],
             'read': [
                 r'\bcaget\s*\(',  # Standalone caget (from epics import caget)
@@ -163,6 +168,7 @@ def get_default_patterns() -> dict[str, dict[str, list[str]]]:
                 r'\.get\s*\(',  # pv.get()
                 r'\.get_value\s*\(',  # pv.get_value()
                 r'PV\([^)]*\)\.get',  # PV(...).get
+                r'\bread_channel\s*\(',  # osprey.runtime utility (standalone)
             ]
         },
         # Future patterns can be added here

@@ -6,7 +6,7 @@ testing the Python executor service without external dependencies or API calls.
 Key Features:
     - Instant code generation (no API calls)
     - Deterministic output (same input → same output)
-    - Configurable behaviors (success, errors, EPICS operations, etc.)
+    - Configurable behaviors (success, errors, control system operations, etc.)
     - Protocol compliant (drop-in replacement for real generators)
 
 Usage:
@@ -27,8 +27,8 @@ Behaviors:
     - "syntax_error": Code with syntax error
     - "runtime_error": Code that fails at runtime
     - "missing_results": Code without results dictionary
-    - "epics_write": Code with EPICS write operations
-    - "epics_read": Code with EPICS read operations
+    - "channel_write": Code with control system write operations
+    - "channel_read": Code with control system read operations
     - "security_risk": Code with security concerns
     - "error_aware": Adapts code based on error feedback
 
@@ -50,7 +50,7 @@ class MockCodeGenerator:
     Operation Modes:
         - **Static**: Returns same code every time
         - **Sequence**: Returns different code on successive calls
-        - **Behavior**: Uses predefined scenarios (success, errors, EPICS, etc.)
+        - **Behavior**: Uses predefined scenarios (success, errors, channel operations, etc.)
         - **Error-Aware**: Adapts code based on error feedback
 
     Args:
@@ -180,8 +180,8 @@ class MockCodeGenerator:
             "syntax_error": self._behavior_syntax_error,
             "runtime_error": self._behavior_runtime_error,
             "missing_results": self._behavior_missing_results,
-            "epics_write": self._behavior_epics_write,
-            "epics_read": self._behavior_epics_read,
+            "channel_write": self._behavior_channel_write,
+            "channel_read": self._behavior_channel_read,
             "error_aware": None,  # Handled in generate_code
             "security_risk": self._behavior_security_risk,
         }
@@ -248,37 +248,45 @@ value = 42 * 2
 print(f"Value is {value}")
 """.strip())
 
-    def _behavior_epics_write(self) -> None:
-        """Generate code with EPICS write operations."""
-        self.set_code("""
-# Mock generated code - EPICS write operation
-from epics import caget, caput
+    def _behavior_channel_write(self) -> None:
+        """Generate code with control system write operations.
 
-current_value = caget('DEVICE:PV:SETPOINT')
+        Uses the unified osprey.runtime API for control system operations.
+        Works with any configured control system (EPICS, Mock, etc.).
+        """
+        self.set_code("""
+# Mock generated code - control system write operation
+from osprey.runtime import read_channel, write_channel
+
+current_value = read_channel('DEVICE:PV:SETPOINT')
 
 # Write new value (requires approval!)
 new_value = current_value * 1.1
-caput('DEVICE:PV:SETPOINT', new_value)
+write_channel('DEVICE:PV:SETPOINT', new_value)
 
 results = {
     'old_value': current_value,
     'new_value': new_value,
-    'pv': 'DEVICE:PV:SETPOINT'
+    'channel': 'DEVICE:PV:SETPOINT'
 }
 """.strip())
 
-    def _behavior_epics_read(self) -> None:
-        """Generate code with EPICS read operations only."""
-        self.set_code("""
-# Mock generated code - EPICS read operation
-from epics import caget
+    def _behavior_channel_read(self) -> None:
+        """Generate code with control system read operations only.
 
-pv_value = caget('DEVICE:PV:READBACK')
-pv_status = caget('DEVICE:STATUS')
+        Uses the unified osprey.runtime API for control system operations.
+        Works with any configured control system (EPICS, Mock, etc.).
+        """
+        self.set_code("""
+# Mock generated code - control system read operation
+from osprey.runtime import read_channel
+
+channel_value = read_channel('DEVICE:PV:READBACK')
+channel_status = read_channel('DEVICE:STATUS')
 
 results = {
-    'value': pv_value,
-    'status': pv_status,
+    'value': channel_value,
+    'status': channel_status,
     'operation': 'read_only'
 }
 """.strip())

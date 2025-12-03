@@ -105,6 +105,53 @@ def generate_context_registration(
                 ),'''
 
 
+def _find_last_registration_entry(content: str, registration_type: str) -> int | None:
+    """Find the position after the last registration entry of a given type.
+
+    Uses a robust approach: finds all complete registration blocks and returns
+    the position after the last one (including its trailing comma and newline).
+
+    Args:
+        content: File content to search
+        registration_type: Either 'CapabilityRegistration' or 'ContextClassRegistration'
+
+    Returns:
+        Position after the last entry, or None if no entries found
+    """
+    # Match complete registration blocks: TypeName(...),
+    # We need to handle nested parentheses (e.g., provides=["TYPE"])
+    # Strategy: find all occurrences and track balanced parentheses
+
+    pattern = rf'{registration_type}\s*\('
+    matches = list(re.finditer(pattern, content))
+
+    if not matches:
+        return None
+
+    # Find the end of the last registration (balanced parentheses)
+    last_match = matches[-1]
+    start = last_match.start()
+    pos = last_match.end()  # Position after opening (
+    depth = 1
+
+    while pos < len(content) and depth > 0:
+        char = content[pos]
+        if char == '(':
+            depth += 1
+        elif char == ')':
+            depth -= 1
+        pos += 1
+
+    # Now pos is right after the closing )
+    # Skip trailing comma and whitespace to find the insertion point
+    while pos < len(content) and content[pos] in ' \t':
+        pos += 1
+    if pos < len(content) and content[pos] == ',':
+        pos += 1
+
+    return pos
+
+
 def add_to_registry(
     registry_path: Path,
     capability_name: str,
@@ -114,6 +161,10 @@ def add_to_registry(
     description: str = ""
 ) -> tuple[str, str]:
     """Add capability to registry file.
+
+    Uses a robust insertion strategy: finds the last entry of each registration
+    type and inserts after it. This approach doesn't depend on what follows
+    the list (context_classes, framework_prompt_providers, or closing paren).
 
     Args:
         registry_path: Path to registry.py
@@ -137,33 +188,16 @@ def add_to_registry(
         context_type, context_class_name, module_name, capability_name
     )
 
-    # Find the capabilities list and add before the closing ]
-    # Look for the pattern: capabilities=[...], followed by context_classes
-    # This prevents matching ],  inside CapabilityRegistration entries (e.g., provides=["TYPE"],)
-    capabilities_pattern = r'(capabilities=\s*\[)(.*?)(\s*\],\s*context_classes)'
+    # Find insertion point after last CapabilityRegistration
+    cap_insert_pos = _find_last_registration_entry(content, 'CapabilityRegistration')
+    if cap_insert_pos is not None:
+        content = content[:cap_insert_pos] + "\n" + cap_reg + content[cap_insert_pos:]
 
-    def add_to_capabilities(match):
-        prefix = match.group(1)
-        existing = match.group(2)
-        suffix = match.group(3)
-
-        # Add new capability registration
-        return f"{prefix}{existing}\n{cap_reg}{suffix}"
-
-    new_content = re.sub(capabilities_pattern, add_to_capabilities, content, flags=re.DOTALL)
-
-    # Find the context_classes list and add
-    context_pattern = r'(context_classes=\s*\[)(.*?)(\s*\]\s*\))'
-
-    def add_to_contexts(match):
-        prefix = match.group(1)
-        existing = match.group(2)
-        suffix = match.group(3)
-
-        # Add new context registration
-        return f"{prefix}{existing}\n{ctx_reg}{suffix}"
-
-    new_content = re.sub(context_pattern, add_to_contexts, new_content, flags=re.DOTALL)
+    # Find insertion point after last ContextClassRegistration
+    # (search in updated content to account for capability insertion)
+    ctx_insert_pos = _find_last_registration_entry(content, 'ContextClassRegistration')
+    if ctx_insert_pos is not None:
+        content = content[:ctx_insert_pos] + "\n" + ctx_reg + content[ctx_insert_pos:]
 
     # Create preview showing what was added
     preview = f"""
@@ -174,7 +208,7 @@ def add_to_registry(
 {ctx_reg}
 """
 
-    return new_content, preview
+    return content, preview
 
 
 def is_already_registered(registry_path: Path, capability_name: str) -> bool:

@@ -344,25 +344,7 @@ class TestRegistryProvider(RegistryConfigProvider):
             }
         },
         'control_system': {
-            'type': 'epics',
-            'patterns': {
-                'epics': {
-                    'write': [
-                        r'\bcaput\s*\(',
-                        r'epics\.caput\(',
-                        r'\.put\s*\(',
-                    ],
-                    'read': [
-                        r'\bcaget\s*\(',
-                        r'epics\.caget\(',
-                        r'\.get\s*\(',
-                    ]
-                },
-                'mock': {
-                    'write': [r'\.caput\(', r'\.write_pv\('],
-                    'read': [r'\.caget\(', r'\.read_pv\(']
-                }
-            }
+            'type': 'mock',  # Use mock for tests - default patterns include write_channel/read_channel
         },
         'execution': {
             'execution_method': 'local',  # Fast for tests
@@ -476,25 +458,7 @@ class TestRegistryProvider(RegistryConfigProvider):
             }
         },
         'control_system': {
-            'type': 'epics',
-            'patterns': {
-                'epics': {
-                    'write': [
-                        r'\bcaput\s*\(',
-                        r'epics\.caput\(',
-                        r'\.put\s*\(',
-                    ],
-                    'read': [
-                        r'\bcaget\s*\(',
-                        r'epics\.caget\(',
-                        r'\.get\s*\(',
-                    ]
-                },
-                'mock': {
-                    'write': [r'\.caput\(', r'\.write_pv\('],
-                    'read': [r'\.caget\(', r'\.read_pv\(']
-                }
-            }
+            'type': 'mock',  # Use mock for tests - default patterns include write_channel/read_channel
         },
         'execution': {
             'execution_method': 'local',

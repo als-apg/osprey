@@ -139,6 +139,7 @@ dev = [
     "mypy",
     "pre-commit",
     "ruff",
+    "pyepics",  # EPICS connector support for testing
 ]
 
 # Natural language processing

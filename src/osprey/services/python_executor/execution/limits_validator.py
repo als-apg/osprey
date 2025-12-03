@@ -33,39 +33,122 @@ class LimitsValidator:
     Raises exceptions directly instead of returning result objects.
     """
 
-    def __init__(self, limits_database: dict[str, ChannelLimitsConfig], policy_config: dict):
+    def __init__(self, limits_database: dict[str, ChannelLimitsConfig], policy_config: dict, raw_db: dict = None):
         self.limits = limits_database
         self.policy = policy_config
+        self._raw_db = raw_db  # Keep raw database for verification config access
         # Validation behavior: "error" (raise exception) or "skip" (return False, log warning)
         self.on_violation = policy_config.get('on_violation', 'error')
 
     @classmethod
     def from_config(cls):
-        """Load validator from Osprey configuration."""
-        from osprey.utils.config import get_config_value
+        """Load validator from Osprey configuration.
 
-        enabled = get_config_value('control_system.limits_checking.enabled', False)
-        if not enabled:
+        Returns None if configuration is not available or limits checking is disabled.
+        This allows connectors to work in test environments without config files.
+        """
+        try:
+            from osprey.utils.config import get_config_value
+
+            enabled = get_config_value('control_system.limits_checking.enabled', False)
+            if not enabled:
+                return None
+
+            db_path = get_config_value('control_system.limits_checking.database_path', None)
+            # Validate db_path is actually a string path (not None, False, or other types)
+            if not db_path or not isinstance(db_path, str):
+                logger.warning("Limits checking enabled but no database path configured - blocking all writes")
+                return cls({}, {}, {})  # Empty DB = blocks all (failsafe)
+
+            limits_db, raw_db = cls._load_limits_database(db_path)
+            logger.debug(f"Loaded limits database with {len(limits_db)} channels")
+
+            policy = {
+                'allow_unlisted_channels': get_config_value(
+                    'control_system.limits_checking.allow_unlisted_channels', False
+                ),
+                'on_violation': get_config_value(
+                    'control_system.limits_checking.on_violation', 'skip'  # Default to skip for resilience
+                )
+            }
+
+            return cls(limits_db, policy, raw_db)
+        except (FileNotFoundError, KeyError, RuntimeError) as e:
+            # Config not available (test environment, etc.) - limits checking disabled
+            logger.debug(f"Limits validator not initialized (config unavailable): {e}")
             return None
 
-        db_path = get_config_value('control_system.limits_checking.database_path', None)
-        if not db_path:
-            logger.warning("Limits checking enabled but no database path configured - blocking all writes")
-            return cls({}, {})  # Empty DB = blocks all (failsafe)
+    def get_limits_config(self, channel_address: str) -> Optional[dict]:
+        """Get raw limits configuration for a channel (with defaults merged).
 
-        limits_db = cls._load_limits_database(db_path)
-        logger.debug(f"Loaded limits database with {len(limits_db)} channels")
+        Returns the channel's configuration dictionary with defaults applied,
+        or None if channel is not in database and unlisted channels are allowed.
 
-        policy = {
-            'allow_unlisted_channels': get_config_value(
-                'control_system.limits_checking.allow_unlisted_channels', False
-            ),
-            'on_violation': get_config_value(
-                'control_system.limits_checking.on_violation', 'skip'  # Default to skip for resilience
-            )
+        Args:
+            channel_address: Channel address to look up
+
+        Returns:
+            Configuration dictionary with defaults merged, or None if not found
+        """
+        channel_config = self.limits.get(channel_address)
+        if channel_config is None:
+            return None
+
+        # Convert ChannelLimitsConfig dataclass to dict for compatibility
+        return {
+            'channel_address': channel_config.channel_address,
+            'min_value': channel_config.min_value,
+            'max_value': channel_config.max_value,
+            'max_step': channel_config.max_step,
+            'writable': channel_config.writable,
         }
 
-        return cls(limits_db, policy)
+    def get_verification_config(self, channel_address: str, value: float) -> tuple[str, Optional[float]]:
+        """Get verification level and tolerance for a channel write.
+
+        Extracts verification configuration from the limits database if available.
+        Note: This requires access to the raw database before it's converted to dataclasses.
+
+        Priority:
+        1. Channel-specific config in limits database
+        2. Returns None if no per-channel config (caller should use global defaults)
+
+        Args:
+            channel_address: Channel address being written
+            value: Value being written (used for percentage tolerance calculation)
+
+        Returns:
+            Tuple of (verification_level, tolerance) or (None, None) if no per-channel config
+            - verification_level: "none", "callback", or "readback", or None for global default
+            - tolerance: Absolute tolerance for readback, or None if not applicable
+        """
+        # Access the raw database to get verification config
+        # (This is stored in the raw DB but not in ChannelLimitsConfig dataclass)
+        if not hasattr(self, '_raw_db') or self._raw_db is None:
+            return None, None
+
+        # Get raw channel config
+        raw_config = self._raw_db.get(channel_address)
+        if not raw_config or 'verification' not in raw_config:
+            return None, None
+
+        verif = raw_config['verification']
+        level = verif.get('level', 'callback')
+
+        # Calculate tolerance (only for readback level)
+        tolerance = None
+        if level == 'readback':
+            # Absolute tolerance takes priority
+            if 'tolerance_absolute' in verif:
+                tolerance = verif['tolerance_absolute']
+            # Otherwise use percentage
+            elif 'tolerance_percent' in verif:
+                tolerance = abs(value) * verif['tolerance_percent'] / 100.0
+            else:
+                # Default: 0.1% (one per mil)
+                tolerance = abs(value) * 0.1 / 100.0
+
+        return level, tolerance
 
     @staticmethod
     def _validate_channel_config(channel_name: str, config_dict: dict) -> None:
@@ -112,20 +195,38 @@ class LimitsValidator:
                     f"Field 'verification' must be a dictionary, got {type(verification).__name__}"
                 )
 
+            # Validate verification fields
+            valid_verif_fields = {'level', 'tolerance_absolute', 'tolerance_percent'}
+            unknown_verif = set(verification.keys()) - valid_verif_fields
+            if unknown_verif:
+                logger.warning(
+                    f"Channel '{channel_name}' verification has unknown fields: {unknown_verif}"
+                )
+
+            if 'level' in verification:
+                level = verification['level']
+                if level not in ('none', 'callback', 'readback'):
+                    raise ValueError(
+                        f"verification.level must be 'none', 'callback', or 'readback', got '{level}'"
+                    )
+
     @staticmethod
-    def _load_limits_database(db_path: str) -> dict[str, ChannelLimitsConfig]:
+    def _load_limits_database(db_path: str) -> tuple[dict[str, ChannelLimitsConfig], dict]:
         """Load and validate limits database from JSON file.
 
         The database supports:
         - Channel-specific configurations
         - 'defaults' field for common settings (functional, not metadata)
         - Metadata fields with underscore prefix (_comment, _version, etc.)
+        - Per-channel verification config (stored in raw DB)
 
         Args:
             db_path: Path to JSON database file
 
         Returns:
-            Dictionary mapping channel addresses to validated configurations
+            Tuple of (parsed_limits_db, raw_db):
+            - parsed_limits_db: Dict mapping channel addresses to ChannelLimitsConfig
+            - raw_db: Raw dict from JSON file (for verification config access)
 
         Raises:
             ValueError: If database structure is invalid
@@ -204,7 +305,7 @@ class LimitsValidator:
                     logger.error(f"Invalid config for channel '{channel_name}': {e} - SKIPPING")
 
             logger.info(f"Successfully loaded {len(limits_db)} channel configurations from {db_path}")
-            return limits_db
+            return limits_db, raw_db
 
         except json.JSONDecodeError as e:
             logger.error("=" * 80)
