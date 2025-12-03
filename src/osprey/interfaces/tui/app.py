@@ -18,7 +18,7 @@ from textual.app import App, ComposeResult
 from textual.containers import ScrollableContainer, Vertical
 from textual.events import Key
 from textual.message import Message
-from textual.widgets import Collapsible, Footer, Header, Static, TextArea
+from textual.widgets import Collapsible, Footer, Header, Markdown, Static, TextArea
 
 from osprey.graph import create_graph
 from osprey.infrastructure.gateway import Gateway
@@ -113,7 +113,7 @@ class ChatMessage(Static):
 
     def compose(self) -> ComposeResult:
         """Compose the message with content."""
-        yield Static(self.message_content, classes="message-content")
+        yield Markdown(self.message_content, classes="message-content")
 
 
 class StreamingMessage(Static):
@@ -130,7 +130,7 @@ class StreamingMessage(Static):
 
     def compose(self) -> ComposeResult:
         """Compose the streaming message with placeholders."""
-        yield Static("", classes="message-content")
+        yield Markdown("", classes="message-content")
         yield Static("", classes="streaming-status")
 
     def on_mount(self) -> None:
@@ -148,7 +148,7 @@ class StreamingMessage(Static):
 
     def _apply_content(self, content: str) -> None:
         """Internal: apply content and clear status."""
-        content_widget = self.query_one(".message-content", Static)
+        content_widget = self.query_one(".message-content", Markdown)
         content_widget.update(content)
         status_widget = self.query_one(".streaming-status", Static)
         status_widget.update("")
