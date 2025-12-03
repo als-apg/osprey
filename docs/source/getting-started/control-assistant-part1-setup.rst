@@ -48,11 +48,19 @@ The interactive menu provides the best onboarding experience with channel finder
             ○ hierarchical - Structured navigation (best for >1,000 channels, scalable)
             ● both         - Include both pipelines (maximum flexibility, comparison)
 
-      5. **Registry Style** → Choose ``extend`` (recommended)
-      6. **Provider & Model** → Configure AI provider and model (recommended: Claude Haiku)
-      7. **API Key** → Automatic detection or secure input
+      5. **Code Generator** → Choose ``basic`` or ``claude_code`` (recommended: basic)
+      6. **Registry Style** → Choose ``extend`` (recommended)
+      7. **Provider & Model** → Configure AI provider and model (recommended: Claude Haiku)
+      8. **API Key** → Automatic detection or secure input
 
-      **Result:** Complete project ready to run with your chosen pipeline configuration.
+      **Result:** Complete project ready to run with Mock connector (tutorial mode).
+
+      .. tip::
+         Projects start in **Mock mode** by default for safe learning and development.
+         When ready for production, use the interactive config menu to switch to EPICS:
+         ``osprey`` → Your project → ``config`` → ``set-control-system``
+
+         See :ref:`Migrate to Production <migrate-to-production>` in Part 3 for details.
 
    .. tab-item:: Direct CLI Command
 
@@ -277,23 +285,19 @@ Control System & Archiver Configuration
 
 **The Power of Connectors:** Your capabilities use the ``ConnectorFactory`` API, which means the same code works in both modes. No capability changes needed when migrating from tutorial to production - just update the config! See :doc:`Control System Integration Guide <../developer-guides/05_production-systems/06_control-system-integration>` for implementing custom connectors.
 
-**Pattern Detection:** The framework automatically detects control system operations in generated Python code using configurable regex patterns. This enables the approval system to identify when code will read or write to control systems:
+**Pattern Detection (Security Layer):** The framework automatically detects ALL control system operations in generated Python code - both approved API usage AND circumvention attempts. This is a critical security feature that ensures the approval workflow catches any attempt to bypass the connector's safety features.
+
+The framework detects:
+- ✅ **Approved API**: ``write_channel()``, ``read_channel()`` (has limits, verification)
+- 🔒 **Circumvention**: Direct library calls like ``epics.caput()``, ``tango.DeviceProxy().write_attribute()``
 
 .. code-block:: yaml
 
    control_system:
-     type: epics
-     patterns:                       # Used by approval system
-       epics:
-         write:
-           - '\bwrite_channel\s*\('  # osprey.runtime: write_channel('PV', value)
-           - '\bwrite_channels\s*\(' # osprey.runtime: write_channels({...})
-           - '\bcaput\s*\('          # Legacy EPICS: caput('PV', value)
-           - '\.put\s*\('            # Legacy EPICS: pv.put(...)
-         read:
-           - '\bread_channel\s*\('   # osprey.runtime: read_channel('PV')
-           - '\bcaget\s*\('          # Legacy EPICS: caget('PV')
-           - '\.get\s*\('            # Legacy EPICS: pv.get(...)
+     type: epics  # Only controls runtime connector, not patterns!
+     
+     # Pattern detection is automatic - comprehensive security coverage
+     # Catches: write_channel(), epics.caput(), tango writes, LabVIEW, etc.
 
 .. note::
    The pattern detection includes both the unified ``osprey.runtime`` API (``write_channel``,
