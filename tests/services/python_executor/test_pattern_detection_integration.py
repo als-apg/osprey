@@ -251,102 +251,92 @@ class TestPatternDetectionDirect:
         """Verify pattern_detection module can be imported."""
         from osprey.services.python_executor.analysis.pattern_detection import (
             detect_control_system_operations,
-            get_default_patterns
+            get_framework_standard_patterns
         )
         assert detect_control_system_operations is not None
-        assert get_default_patterns is not None
+        assert get_framework_standard_patterns is not None
 
-    def test_default_patterns_structure(self):
-        """Test that default patterns have correct structure."""
+    def test_framework_patterns_structure(self):
+        """Test that framework patterns have correct structure."""
         from osprey.services.python_executor.analysis.pattern_detection import (
-            get_default_patterns
+            get_framework_standard_patterns
         )
 
-        patterns = get_default_patterns()
+        patterns = get_framework_standard_patterns()
 
-        # Should have patterns for different control systems
-        assert 'epics' in patterns
-        assert 'mock' in patterns
-
-        # Each should have write and read patterns
-        for cs_type in ['epics', 'mock']:
-            assert 'write' in patterns[cs_type]
-            assert 'read' in patterns[cs_type]
-            assert isinstance(patterns[cs_type]['write'], list)
-            assert isinstance(patterns[cs_type]['read'], list)
-            assert len(patterns[cs_type]['write']) > 0
-            assert len(patterns[cs_type]['read']) > 0
+        # Should have flat structure with write and read patterns
+        assert 'write' in patterns
+        assert 'read' in patterns
+        assert isinstance(patterns['write'], list)
+        assert isinstance(patterns['read'], list)
+        assert len(patterns['write']) > 0
+        assert len(patterns['read']) > 0
 
     def test_detect_epics_operations(self):
-        """Test direct pattern detection for EPICS."""
+        """Test pattern detection for EPICS operations."""
         from osprey.services.python_executor.analysis.pattern_detection import (
             detect_control_system_operations,
-            get_default_patterns
         )
 
-        patterns = get_default_patterns()
-
-        # Test EPICS write
+        # Test EPICS write (uses framework patterns automatically)
         write_code = "caput('PV', 42)"
-        result = detect_control_system_operations(
-            code=write_code,
-            patterns=patterns,
-            control_system_type='epics'
-        )
+        result = detect_control_system_operations(code=write_code)
 
         assert result['has_writes'] is True
-        assert result['control_system_type'] == 'epics'
         assert len(result['detected_patterns']['writes']) > 0
 
         # Test EPICS read
         read_code = "value = caget('PV')"
-        result = detect_control_system_operations(
-            code=read_code,
-            patterns=patterns,
-            control_system_type='epics'
-        )
+        result = detect_control_system_operations(code=read_code)
 
         assert result['has_reads'] is True
         assert len(result['detected_patterns']['reads']) > 0
 
-    def test_detect_mock_operations(self):
-        """Test direct pattern detection for mock control system."""
+    def test_detect_unified_api_operations(self):
+        """Test pattern detection for unified API operations."""
         from osprey.services.python_executor.analysis.pattern_detection import (
             detect_control_system_operations,
-            get_default_patterns
         )
 
-        patterns = get_default_patterns()
-
-        # Test mock write
-        write_code = "cs.caput('PV', 42)"
-        result = detect_control_system_operations(
-            code=write_code,
-            patterns=patterns,
-            control_system_type='mock'
-        )
+        # Test unified API write
+        write_code = "write_channel('PV', 42)"
+        result = detect_control_system_operations(code=write_code)
 
         assert result['has_writes'] is True
-        assert result['control_system_type'] == 'mock'
+
+        # Test unified API read
+        read_code = "value = read_channel('PV')"
+        result = detect_control_system_operations(code=read_code)
+
+        assert result['has_reads'] is True
 
     def test_no_operations_detected_direct(self):
         """Test that non-control-system code doesn't trigger detection."""
         from osprey.services.python_executor.analysis.pattern_detection import (
             detect_control_system_operations,
-            get_default_patterns
         )
-
-        patterns = get_default_patterns()
 
         code = "import numpy as np\nresult = np.mean([1, 2, 3])"
-        result = detect_control_system_operations(
-            code=code,
-            patterns=patterns,
-            control_system_type='epics'
-        )
+        result = detect_control_system_operations(code=code)
 
         assert result['has_writes'] is False
         assert result['has_reads'] is False
+
+    def test_control_system_agnostic_detection(self):
+        """Test that patterns work regardless of control_system_type."""
+        from osprey.services.python_executor.analysis.pattern_detection import (
+            detect_control_system_operations,
+        )
+
+        # Patterns should work the same regardless of control_system_type
+        code = "write_channel('PV', 42)"
+        
+        result_epics = detect_control_system_operations(code, control_system_type='epics')
+        result_mock = detect_control_system_operations(code, control_system_type='mock')
+        
+        # Should detect writes regardless of control system type
+        assert result_epics['has_writes'] is True
+        assert result_mock['has_writes'] is True
         assert len(result['detected_patterns']['writes']) == 0
         assert len(result['detected_patterns']['reads']) == 0
 

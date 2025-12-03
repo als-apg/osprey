@@ -6,7 +6,8 @@ including security pattern detection and execution policy analysis.
 Components:
     - create_analyzer_node: LangGraph node for code analysis
     - detect_control_system_operations: Detect control system operations in code
-    - get_default_patterns: Get default pattern configurations
+    - get_framework_standard_patterns: Get framework-standard control-system-agnostic patterns
+    - get_default_patterns: DEPRECATED - Get old nested pattern format (backward compat)
     - ExecutionPolicyAnalyzer: Execution mode and approval decision logic
 
 The analysis subsystem validates generated code before execution,
@@ -27,11 +28,16 @@ Examples:
 """
 
 from .node import create_analyzer_node
-from .pattern_detection import detect_control_system_operations, get_default_patterns
+from .pattern_detection import (
+    detect_control_system_operations,
+    get_default_patterns,
+    get_framework_standard_patterns,
+)
 
 __all__ = [
     "create_analyzer_node",
     "detect_control_system_operations",
     "get_default_patterns",
+    "get_framework_standard_patterns",
 ]
 
