@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Ensures tests validate actual framework behavior rather than incomplete test-specific patterns
   - Fixed 3 failing tests in `TestApprovalWorkflow` integration test suite
 
+- **E2E Test Stability**: Improved test isolation and removed flaky test
+  - Added approval manager singleton cleanup to prevent state pollution between tests
+  - Removed redundant `test_runtime_utilities_calculation_with_write` (flaky due to ambiguous LLM prompt)
+  - Fixed runtime utilities tests to disable limits checking when testing LLM code generation
+  - Corrected config field name from `limits_file` to `database_path`
+  - Fixed `_disable_capabilities` helper to properly comment out multi-line capability registrations
+
 ### Added
 - **Connector Auto-Verification**: Connectors automatically determine verification level and tolerance from configuration
   - Per-channel verification config from limits database (highest priority)

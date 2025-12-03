@@ -21,6 +21,7 @@ def reset_state_between_tests():
     This prevents state leakage between tests by:
     - Resetting the registry
     - Clearing config caches
+    - Resetting approval manager singleton
 
     Note: Does NOT clear CONFIG_FILE env var since test fixtures may set it.
     Tests that need a clean CONFIG_FILE state should handle it explicitly.
@@ -34,6 +35,13 @@ def reset_state_between_tests():
     config_module._default_configurable = None
     config_module._config_cache.clear()
 
+    # Reset approval manager singleton to prevent approval state pollution
+    try:
+        import osprey.approval.approval_manager as approval_module
+        approval_module._approval_manager = None
+    except ImportError:
+        pass  # Approval manager might not be available in all test environments
+
     yield
 
     # Reset after test
@@ -41,6 +49,13 @@ def reset_state_between_tests():
     config_module._default_config = None
     config_module._default_configurable = None
     config_module._config_cache.clear()
+
+    # Reset approval manager singleton again
+    try:
+        import osprey.approval.approval_manager as approval_module
+        approval_module._approval_manager = None
+    except ImportError:
+        pass
 
 # ===================================================================
 # Test State Factory

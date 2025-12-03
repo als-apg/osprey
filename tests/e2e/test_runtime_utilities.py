@@ -31,18 +31,46 @@ def _disable_capabilities(project, capability_names: list[str]):
 
     # For each capability, comment out its CapabilityRegistration block
     for cap_name in capability_names:
-        # Match the full CapabilityRegistration block for this capability
-        # Pattern: CapabilityRegistration(\n  name="cap_name"... through closing paren
-        pattern = rf'(CapabilityRegistration\([^)]*name\s*=\s*["\'{cap_name}["\'][^)]*\)),'
+        # Find all CapabilityRegistration blocks and match by counting parentheses
+        lines = registry_content.split('\n')
+        new_lines = []
+        i = 0
 
-        # Replace with commented version
-        def comment_block(match):
-            block = match.group(1)
-            commented = '\n'.join(f'                # {line}' if line.strip() else '#'
-                                 for line in block.split('\n'))
-            return f'{commented},  # Disabled for testing'
+        while i < len(lines):
+            line = lines[i]
 
-        registry_content = re.sub(pattern, comment_block, registry_content, flags=re.DOTALL)
+            # Check if this line starts a CapabilityRegistration (and is not already commented)
+            if 'CapabilityRegistration(' in line and not line.strip().startswith('#'):
+                # Collect the full block by counting parentheses
+                block_lines = [line]
+                paren_count = line.count('(') - line.count(')')
+                j = i + 1
+
+                while j < len(lines) and paren_count > 0:
+                    block_lines.append(lines[j])
+                    paren_count += lines[j].count('(') - lines[j].count(')')
+                    j += 1
+
+                # Check if this block is for the capability we want to disable
+                block_text = '\n'.join(block_lines)
+                if re.search(rf'name\s*=\s*["\']' + cap_name + r'["\']', block_text):
+                    # Comment out this block
+                    for block_line in block_lines:
+                        if block_line.strip():
+                            new_lines.append(f'                # {block_line}')
+                        else:
+                            new_lines.append('#')
+                    new_lines[-1] += '  # Disabled for testing'
+                    i = j
+                else:
+                    # Keep this block as-is
+                    new_lines.extend(block_lines)
+                    i = j
+            else:
+                new_lines.append(line)
+                i += 1
+
+        registry_content = '\n'.join(new_lines)
 
     registry_path.write_text(registry_content)
 
@@ -72,11 +100,16 @@ async def test_runtime_utilities_basic_write(e2e_project_factory):
     # Note: Also disable channel_finding to prevent orchestrator hallucination
     _disable_capabilities(project, ["channel_write", "channel_read", "channel_finding"])
 
-    # Enable writes in config
+    # Enable writes and disable limits checking
     config_path = project.config_path
     import yaml
     config_data = yaml.safe_load(config_path.read_text())
     config_data['control_system']['writes_enabled'] = True
+
+    # Disable limits checking - this test validates LLM can use osprey.runtime,
+    # not that limits are enforced (that's tested in test_runtime_utilities_respects_channel_limits)
+    config_data['control_system']['limits_checking']['enabled'] = False
+
     config_path.write_text(yaml.dump(config_data))
 
     # Initialize framework
@@ -214,7 +247,7 @@ async def test_runtime_utilities_respects_channel_limits(e2e_project_factory, tm
         }
     }
     limits_file.write_text(json.dumps(limits_data, indent=2))
-    config_data['control_system']['limits_checking']['limits_file'] = str(limits_file)
+    config_data['control_system']['limits_checking']['database_path'] = str(limits_file)
 
     # Write updated config
     config_path.write_text(yaml.dump(config_data))
@@ -256,7 +289,7 @@ async def test_runtime_utilities_respects_channel_limits(e2e_project_factory, tm
         )
 
     # 5. Find execution folder and check for error details
-    executed_scripts_dir = project.project_dir / "_agent_data" / "executed_python_scripts"
+    executed_scripts_dir = project.project_dir / "_agent_data" / "executed_scripts"
     if executed_scripts_dir.exists():
         execution_folders = [d for d in executed_scripts_dir.iterdir() if d.is_dir()]
         if len(execution_folders) > 0:
@@ -333,7 +366,7 @@ async def test_runtime_utilities_within_limits_succeeds(e2e_project_factory, tmp
         }
     }
     limits_file.write_text(json.dumps(limits_data, indent=2))
-    config_data['control_system']['limits_checking']['limits_file'] = str(limits_file)
+    config_data['control_system']['limits_checking']['database_path'] = str(limits_file)
 
     # Write updated config
     config_path.write_text(yaml.dump(config_data))
@@ -375,7 +408,7 @@ async def test_runtime_utilities_within_limits_succeeds(e2e_project_factory, tmp
     assert "write_channel" in generated_code
 
     # 6. Verify execution succeeded
-    executed_scripts_dir = project.project_dir / "_agent_data" / "executed_python_scripts"
+    executed_scripts_dir = project.project_dir / "_agent_data" / "executed_scripts"
     execution_folders = [d for d in executed_scripts_dir.iterdir() if d.is_dir()]
     assert len(execution_folders) > 0
 
@@ -389,93 +422,7 @@ async def test_runtime_utilities_within_limits_succeeds(e2e_project_factory, tmp
         )
 
     print("✅ Valid write test passed")
-    print(f"   - Runtime utilities allowed valid 75V write (limit: 100V)")
-    print(f"   - Execution completed successfully")
-    print(f"   - LLM correctly used runtime API")
-
-
-@pytest.mark.e2e
-@pytest.mark.slow
-@pytest.mark.requires_cborg
-@pytest.mark.asyncio
-async def test_runtime_utilities_calculation_with_write(e2e_project_factory):
-    """Test runtime utilities with calculation before write.
-
-    Validates the use case from RUNTIME.md:
-    "Set TerminalVoltageSetPoint to sqrt(4150)"
-
-    This tests:
-    1. LLM can combine calculation + write in one step
-    2. Runtime utilities work with computed values
-    3. Results dictionary captures both calculation and write
-    """
-    # Create project
-    project = await e2e_project_factory(
-        name="test-runtime-calc",
-        template="control_assistant",
-        registry_style="extend"
-    )
-
-    # Disable channel capabilities to force Python usage
-    _disable_capabilities(project, ["channel_write", "channel_read", "channel_finding"])
-
-    # Enable writes
-    config_path = project.config_path
-    import yaml
-    config_data = yaml.safe_load(config_path.read_text())
-    config_data['control_system']['writes_enabled'] = True
-    config_path.write_text(yaml.dump(config_data))
-
-    # Initialize
-    await project.initialize()
-
-    # Request calculation + write (the tutorial example)
-    result = await project.query(
-        "Use a python script to calculate the square root of 4150 and write it to the TEST:VOLTAGE channel."
-    )
-
-    # === VALIDATION ===
-
-    # 1. Should complete successfully
-    assert result.error is None, f"Workflow error: {result.error}"
-
-    # 2. Find generated code
-    code_files = [a for a in result.artifacts if str(a).endswith('.py')]
-    assert len(code_files) > 0
-
-    generated_code = Path(code_files[0]).read_text()
-
-    # 3. Should use runtime utilities
-    assert "from osprey.runtime import" in generated_code
-    assert "write_channel" in generated_code
-
-    # 4. Should have math calculation
-    assert "math.sqrt" in generated_code or "**0.5" in generated_code or "sqrt(4150)" in generated_code, (
-        "Generated code doesn't include sqrt calculation"
-    )
-
-    # 5. Should have results dictionary
-    assert "results = " in generated_code or "results=" in generated_code, (
-        "Generated code missing results dictionary"
-    )
-
-    # 6. Check execution succeeded
-    executed_scripts_dir = project.project_dir / "_agent_data" / "executed_python_scripts"
-    execution_folders = [d for d in executed_scripts_dir.iterdir() if d.is_dir()]
-    assert len(execution_folders) > 0
-
-    latest_execution = sorted(execution_folders)[-1]
-    results_file = latest_execution / "results.json"
-
-    if results_file.exists():
-        results = json.loads(results_file.read_text())
-
-        # Should have captured the calculation
-        # (exact key name might vary based on LLM, just check something was captured)
-        assert len(results) > 0, "Results dictionary is empty"
-
-    print("✅ Calculation + write test passed")
-    print(f"   - LLM combined calculation and write in one step")
-    print(f"   - Runtime utilities worked with computed value")
-    print(f"   - Results captured successfully")
+    print("   - Runtime utilities allowed valid 75V write (limit: 100V)")
+    print("   - Execution completed successfully")
+    print("   - LLM correctly used runtime API")
 

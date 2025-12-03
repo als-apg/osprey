@@ -39,6 +39,13 @@ def reset_registry_between_tests():
     config_module._default_configurable = None
     config_module._config_cache.clear()
 
+    # Reset approval manager singleton to prevent approval state pollution
+    try:
+        import osprey.approval.approval_manager as approval_module
+        approval_module._approval_manager = None
+    except ImportError:
+        pass  # Approval manager might not be available in all test environments
+
     # Clear CONFIG_FILE environment variable to prevent contamination
     if 'CONFIG_FILE' in os.environ:
         del os.environ['CONFIG_FILE']
@@ -52,6 +59,13 @@ def reset_registry_between_tests():
     config_module._default_config = None
     config_module._default_configurable = None
     config_module._config_cache.clear()
+
+    # Reset approval manager singleton again
+    try:
+        import osprey.approval.approval_manager as approval_module
+        approval_module._approval_manager = None
+    except ImportError:
+        pass
 
     # Clear CONFIG_FILE env var again
     if 'CONFIG_FILE' in os.environ:
