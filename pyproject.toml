@@ -68,6 +68,9 @@ dependencies = [
     "google-generativeai",
     "ollama>=0.5.1",
 
+    # Advanced code generation
+    "claude-agent-sdk>=0.0.20",  # Claude Code SDK for multi-turn agentic code generation
+
     # Data processing - required for archiver connectors and data handling
     # Archiver connectors return pandas DataFrames for time-series data
     "pandas>=2.2.3",
@@ -152,14 +155,9 @@ utils = [
     "unique-namer>=0.1.0",
 ]
 
-# Claude Code SDK for advanced code generation
-claude-agent = [
-    "claude-agent-sdk>=0.0.20",
-]
-
 # All optional dependencies for complete installation
 all = [
-    "osprey-framework[docs,scientific,databases,postgres,memory,dev,nlp,utils,claude-agent]"
+    "osprey-framework[docs,scientific,databases,postgres,memory,dev,nlp,utils]"
 ]
 
 [project.urls]

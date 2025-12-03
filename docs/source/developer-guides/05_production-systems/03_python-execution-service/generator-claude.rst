@@ -67,13 +67,13 @@ This Osprey generator leverages the Claude Code SDK to provide capabilities beyo
 
       .. tab-item:: Dependencies
 
-        **Optional Dependency**
+        **Included in Core**
 
-        Requires Claude Agent SDK:
+        The Claude Agent SDK is included as a core dependency in Osprey v0.9.6+. No additional installation needed:
 
         .. code-block:: bash
 
-            pip install osprey-framework[claude-agent]
+            pip install osprey-framework
 
       .. tab-item:: API Keys
 
@@ -750,8 +750,8 @@ Usage Examples
 
          .. code-block:: bash
 
-            # ImportError
-            pip install osprey-framework[claude-agent]
+            # ImportError (upgrade osprey to v0.9.6+)
+            pip install --upgrade osprey-framework
 
             # API key not found
             export ANTHROPIC_API_KEY='your-key'

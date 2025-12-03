@@ -46,6 +46,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Clear guidance on when to override patterns (advanced/custom workflows only)
   - Updated README with EPICS gateway configuration instructions
   - Mock-first approach: Projects start in Mock mode, switch to EPICS when ready
+- **Dependencies**: Promoted Claude Agent SDK from optional to core dependency
+  - Advanced code generation now available in all installations
+  - No longer requires separate installation with [claude-agent] extra
+  - Minimum framework version 0.9.6+ for Claude Code generator support
 
 ### Fixed
 - **Test Configuration Pattern Detection**: Removed pattern overrides from test fixtures to use framework defaults
