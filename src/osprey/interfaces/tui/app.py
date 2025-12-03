@@ -827,6 +827,7 @@ class ChatInput(TextArea):
         self._history_index: int = -1  # -1 means current input (not in history)
         self._current_input: str = ""  # Save current input when navigating history
         self._history_file = os.path.expanduser("~/.osprey_cli_history")
+        self._expected_text: str = ""  # Track expected text after programmatic changes
         self._load_history()
 
     def _load_history(self) -> None:
@@ -876,15 +877,21 @@ class ChatInput(TextArea):
             self._history_index += 1
             # History is stored oldest-first, so we navigate from end
             history_entry = self._history[-(self._history_index + 1)]
+            self._expected_text = history_entry
             self.text = history_entry
-            # Move cursor to end
-            self.move_cursor(self.document.end)
+            # Move cursor to first line (so up arrow can continue navigating history)
+            self.move_cursor((0, 0))
 
     def _history_down(self) -> None:
         """Navigate to next history entry (toward current input)."""
-        if self._history_index <= 0:
+        # If not navigating history, do nothing (prevents losing current input)
+        if self._history_index == -1:
+            return
+
+        if self._history_index == 0:
             # Return to current input
             self._history_index = -1
+            self._expected_text = self._current_input
             self.text = self._current_input
             self.move_cursor(self.document.end)
             return
@@ -892,8 +899,17 @@ class ChatInput(TextArea):
         # Move down in history (toward newer entries)
         self._history_index -= 1
         history_entry = self._history[-(self._history_index + 1)]
+        self._expected_text = history_entry
         self.text = history_entry
         self.move_cursor(self.document.end)
+
+    def _on_text_area_changed(self, event: TextArea.Changed) -> None:
+        """Reset history state when user edits text (not programmatic changes)."""
+        if self._history_index > -1 and self.text != self._expected_text:
+            # User edited a history entry - treat as new input
+            self._current_input = self.text
+            self._history_index = -1
+            self._expected_text = ""
 
     def _on_key(self, event: Key) -> None:
         """Handle key events - Enter submits, Option+Enter for newline."""
@@ -949,16 +965,29 @@ class ChatInput(TextArea):
             event.stop()
             self.move_cursor(self.document.end)
             return
-        # History navigation (Up/Down arrows)
+        # History navigation (Up/Down arrows) - only when on first/last line
         elif event.key == "up":
-            event.prevent_default()
-            event.stop()
-            self._history_up()
+            row, _ = self.cursor_location
+            if row == 0:
+                # On first line - navigate history
+                event.prevent_default()
+                event.stop()
+                self._history_up()
+                return
+            # Otherwise, let parent handle normal line navigation
+            super()._on_key(event)
             return
         elif event.key == "down":
-            event.prevent_default()
-            event.stop()
-            self._history_down()
+            row, _ = self.cursor_location
+            last_row = self.document.line_count - 1
+            if row >= last_row:
+                # On last line - navigate history
+                event.prevent_default()
+                event.stop()
+                self._history_down()
+                return
+            # Otherwise, let parent handle normal line navigation
+            super()._on_key(event)
             return
         # Let parent handle all other keys
         super()._on_key(event)
