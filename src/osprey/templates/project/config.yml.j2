@@ -234,7 +234,8 @@ execution:
 # Control system type, write access, limits checking, and verification
 
 control_system:
-  # Control system type - determines connector and pattern detection
+  # Control system type - determines which runtime connector to use
+  # Note: Pattern detection is control-system-agnostic (same for all types)
   type: "mock"  # Options: mock | epics
 
   # Write Access Control - Master safety switch
@@ -271,14 +272,18 @@ control_system:
           port: 5084
           use_name_server: false
 
-  # Pattern detection for control system operations in generated code
-  patterns:
-    mock:
-      write: ['\.caput\(', '\.write_channel\(', '\.write_pv\(']
-      read: ['\.caget\(', '\.read_channel\(', '\.read_pv\(']
-    epics:
-      write: ['\bcaput\s*\(', 'epics\.caput\(', '\.put\s*\(', '\.set_value\s*\(']
-      read: ['\bcaget\s*\(', 'epics\.caget\(', '\.get\s*\(', '\.get_value\s*\(']
+  # Pattern Detection (Security Layer)
+  # Purpose: Detect ALL control system operations for approval workflows
+  # Security: Catches approved API AND circumvention attempts (direct library calls)
+  # Framework Default: Detects osprey.runtime API + EPICS/Tango/LabVIEW direct calls
+  # Advanced: Extend for custom control system libraries (rarely needed)
+  # patterns:
+  #   write: ['my_custom_cs_lib\.write\(']
+  #   read: ['my_custom_cs_lib\.read\(']
+
+  # Runtime Connectors
+  # Used by: Capabilities and osprey.runtime API
+  # Purpose: Actual I/O operations with built-in safety features
 
 # Python executor settings
 python_executor:

@@ -386,42 +386,64 @@ The template uses the **Osprey Connector Abstraction** (Issue #18) which provide
 - **Production Mode**: Real connectors (EPICS, LabVIEW, Tango, etc.) with same API
 - **Zero Code Changes**: Switch modes by editing `config.yml`
 
-### Migration to Production (3 Simple Steps)
+### Migration to Production
+
+#### Interactive Configuration (Recommended)
 
 **Step 1:** Install production dependencies (if using EPICS):
 
 ```bash
-pip install pyepics archivertools
+pip install pyepics als-archiver-client
 ```
 
-**Step 2:** Edit `config.yml` - change connector types:
+**Step 2:** Use interactive menu to switch to production mode:
 
-```yaml
-control_system:
-  type: epics  # Changed from 'mock' to 'epics'
-  connector:
-    epics:
-      timeout: 5.0
-      gateways:
-        read_only:
-          address: cagw.your-facility.edu
-          port: 5064
-
-archiver:
-  type: epics_archiver  # Changed from 'mock_archiver' to 'epics_archiver'
-  epics_archiver:
-    url: https://archiver.your-facility.edu:8443
-    timeout: 60
+```bash
+osprey  # Launch interactive menu
 ```
 
-**Step 3:** Test your connection:
+Navigate: **Your Project** → `config` → `set-control-system`
+- Select: **EPICS - Production mode**
+- Confirm archiver switch: **Yes - Use EPICS Archiver Appliance**
+
+**Step 3:** Configure EPICS gateway for your facility:
+
+Navigate: **Your Project** → `config` → `set-epics-gateway`
+- Select your facility: **APS** / **ALS** / **Custom**
+
+Supported facilities:
+- **APS** (Argonne): `pvgatemain1.aps4.anl.gov:5064`
+- **ALS** (Berkeley): `cagw-alsdmz.als.lbl.gov:5064` (read), `5084` (write)
+- **Custom**: Interactive prompts for your gateway
+
+**Step 4:** Test your connection:
 
 ```bash
 osprey chat
 # Try: "What is the current beam current?"
 ```
 
-**That's it!** Your capabilities (`channel_read.py`, `archiver_retrieval.py`) work unchanged.
+**That's it!** Your capabilities work unchanged - `ConnectorFactory` automatically uses the configured connector.
+
+#### Manual Configuration (Alternative)
+
+You can also edit `config.yml` directly:
+
+```yaml
+control_system:
+  type: epics  # Changed from 'mock'
+  connector:
+    epics:
+      gateways:
+        read_only:
+          address: cagw.your-facility.edu
+          port: 5064
+
+archiver:
+  type: epics_archiver  # Changed from 'mock_archiver'
+  epics_archiver:
+    url: https://archiver.your-facility.edu:8443
+```
 
 ### Why This Works
 

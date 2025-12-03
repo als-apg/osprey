@@ -34,6 +34,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Framework provides sensible defaults; users can override in config.yml
   - Separated approved API patterns (write_channel, read_channel) from direct library call detection
   - `control_system.type` config now only affects runtime connector, not pattern detection
+- **Project Templates**: Simplified pattern detection configuration with framework defaults
+  - Removed verbose per-control-system pattern definitions
+  - Framework automatically provides comprehensive security patterns
+  - Clear guidance on when to override patterns (advanced/custom workflows only)
+  - Updated README with EPICS gateway configuration instructions
+  - Mock-first approach: Projects start in Mock mode, switch to EPICS when ready
 
 ### Fixed
 - **Test Configuration Pattern Detection**: Removed pattern overrides from test fixtures to use framework defaults

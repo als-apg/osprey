@@ -207,7 +207,8 @@ execution_control:
 # Switch modes by changing 'type' field
 
 control_system:
-  # Control system type - determines both pattern detection and runtime connector
+  # Control system type - determines which runtime connector to use
+  # Note: Pattern detection is control-system-agnostic (same for all types)
   # Options:
   #   - mock: Development mode (accepts any channel names, no hardware)
   #   - epics: Production EPICS control system
@@ -242,31 +243,30 @@ control_system:
     timeout: 5.0  # Timeout for verification operations
     fail_on_mismatch: false  # false: log warning, true: raise error on verification failure
 
-  # Pattern Detection (Layer 1)
-  # Used by: Code analyzer, approval system
-  # Purpose: Detect control system operations in generated code
-  patterns:
-    mock:
-      write:
-        - '\.caput\('
-        - '\.write_pv\('
-      read:
-        - '\.caget\('
-        - '\.read_pv\('
-
-    epics:
-      write:
-        - 'epics\.caput\('
-        - 'epics\.PV\([^)]*\)\.put\('
-        - '\.put\('
-      read:
-        - 'epics\.caget\('
-        - 'epics\.PV\([^)]*\)\.get\('
-        - '\.get\('
+  # Pattern Detection (Layer 1 - Security)
+  # Purpose: Detect ALL control system operations in generated code for approval workflows
+  #
+  # SECURITY: Catches both approved API usage AND circumvention attempts
+  # The framework automatically detects:
+  #   - Approved: osprey.runtime API (write_channel, read_channel) - has all safety features
+  #   - Security: Direct library calls (epics.caput, tango.DeviceProxy, etc.) - bypasses safety
+  #   - Future: Other control systems (LabVIEW, custom) - comprehensive detection
+  #
+  # This ensures LLM-generated code cannot bypass connector safety features (limits, verification)
+  # by directly importing control system libraries.
+  #
+  # Advanced: Extend patterns for custom control system libraries (rarely needed)
+  # Uncomment and add to customize:
+  # patterns:
+  #   write:
+  #     - 'my_custom_cs_lib\.write\('
+  #   read:
+  #     - 'my_custom_cs_lib\.read\('
 
   # Runtime Connectors (Layer 2)
-  # Used by: Capabilities (channel_value_retrieval, archiver_retrieval)
-  # Purpose: Actual I/O operations to control systems
+  # Used by: Capabilities (channel_value_retrieval, channel_write, archiver_retrieval)
+  #          and osprey.runtime API (read_channel, write_channel)
+  # Purpose: Actual I/O operations to control systems with built-in safety features
   connector:
     timeout: 5.0  # Default timeout in seconds
 
