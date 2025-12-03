@@ -23,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `osprey config set-control-system` - Switch between Mock/EPICS connectors
   - `osprey config set-epics-gateway` - Configure EPICS gateway (APS, ALS, custom)
   - Interactive menu integration for guided configuration workflows
+- **Documentation**: Comprehensive EPICS integration and configuration management guides
+  - Getting Started: Mock-first workflow with clear migration path to EPICS
+  - CLI Reference: Complete `osprey config` command documentation
+  - Production Guide: EPICS gateway configuration with facility presets
+  - Architecture Guide: Pattern detection security model and design principles
+  - API Reference: Framework-standard pattern detection reference
 
 ### Changed
 - **CLI Organization**: Deprecated `osprey export-config` in favor of `osprey config export`

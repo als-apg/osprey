@@ -15,7 +15,7 @@ CLI Reference
    - Generating capabilities from MCP servers with ``osprey generate`` (prototype)
    - Managing deployments with ``osprey deploy``
    - Running interactive sessions with ``osprey chat``
-   - Exporting configuration with ``osprey export-config``
+   - Managing configuration with ``osprey config``
 
    **Prerequisites:** Framework installed (``pip install osprey-framework``)
 
@@ -26,10 +26,6 @@ Overview
 
 The Osprey Framework provides a unified CLI for all framework operations. All commands are accessed through the ``osprey`` command with subcommands for specific operations.
 
-.. admonition:: New in v0.7+: Unified CLI
-   :class: version-07plus-change
-
-   The framework CLI provides a modern, unified interface for all operations. Previous Python script-based workflows have been replaced with convenient CLI commands.
 
 **Quick Reference:**
 
@@ -42,7 +38,7 @@ The Osprey Framework provides a unified CLI for all framework operations. All co
    osprey generate COMMAND   # Generate components (MCP capabilities, servers)
    osprey deploy COMMAND     # Manage services
    osprey chat               # Start interactive chat
-   osprey export-config      # Export configuration
+   osprey config             # Manage configuration
 
 Interactive Mode
 ================
@@ -126,7 +122,7 @@ These options work with all ``osprey`` commands.
 ``--project`` / ``-p``
 ----------------------
 
-The ``--project`` flag allows you to specify the project directory for commands that operate on existing projects (``chat``, ``deploy``, ``health``, ``export-config``), enabling multi-project workflows and CI/CD automation from any directory.
+The ``--project`` flag allows you to specify the project directory for commands that operate on existing projects (``chat``, ``deploy``, ``health``, ``config``), enabling multi-project workflows and CI/CD automation from any directory.
 
 .. code-block:: bash
 
@@ -169,7 +165,7 @@ When determining which project to use, the framework checks in this order:
 - ``osprey chat --project PATH``
 - ``osprey deploy COMMAND --project PATH``
 - ``osprey health --project PATH``
-- ``osprey export-config --project PATH``
+- ``osprey config --project PATH``
 
 **Note**: The ``osprey init`` command does not use ``--project`` because it creates a new project. Use ``--output-dir`` instead to specify where the new project should be created.
 
@@ -199,7 +195,7 @@ Show help message for any command.
    osprey init --help
    osprey deploy --help
    osprey chat --help
-   osprey export-config --help
+   osprey config --help
 
 CLI Customization
 =================
@@ -744,8 +740,230 @@ Before using ``framework chat``:
 2. Configuration must be valid: ``config.yml`` with proper model settings
 3. API keys must be set: ``.env`` file with required credentials
 
-osprey export-config
-=======================
+osprey config
+=============
+
+Manage project configuration settings. All configuration-related operations are unified
+under this command group following industry standard CLI patterns (git config, docker config, etc.).
+
+If no subcommand is provided, launches an interactive configuration menu.
+
+Subcommands
+-----------
+
+- ``osprey config show`` - Display current project configuration
+- ``osprey config export`` - Export framework default configuration
+- ``osprey config set-control-system`` - Switch control system connector (mock/epics/tango)
+- ``osprey config set-epics-gateway`` - Configure EPICS gateway settings
+
+Syntax
+------
+
+.. code-block:: bash
+
+   osprey config [SUBCOMMAND] [OPTIONS]
+
+Examples
+--------
+
+**Launch interactive config menu:**
+
+.. code-block:: bash
+
+   osprey config
+
+**Show current configuration:**
+
+.. code-block:: bash
+
+   osprey config show
+
+**Export framework defaults:**
+
+.. code-block:: bash
+
+   osprey config export
+
+**Switch to EPICS:**
+
+.. code-block:: bash
+
+   osprey config set-control-system epics
+
+osprey config show
+-------------------
+
+Display current project configuration with syntax highlighting.
+
+Syntax
+~~~~~~
+
+.. code-block:: bash
+
+   osprey config show [OPTIONS]
+
+Options
+~~~~~~~
+
+``--project PATH`` / ``-p PATH``
+   Project directory to use. If not specified, uses current directory or ``OSPREY_PROJECT`` env var.
+
+``--format FORMAT``
+   Output format: ``yaml`` (default) or ``json``
+
+Examples
+~~~~~~~~
+
+.. code-block:: bash
+
+   # Show current project's config
+   osprey config show
+
+   # Show specific project's config
+   osprey config show --project ~/my-agent
+
+   # Export as JSON
+   osprey config show --format json
+
+osprey config export
+---------------------
+
+Export the Osprey framework's default configuration template.
+
+This shows the complete framework template with all available options and default values.
+Useful for understanding what configuration options are available.
+
+Syntax
+~~~~~~
+
+.. code-block:: bash
+
+   osprey config export [OPTIONS]
+
+Options
+~~~~~~~
+
+``--output PATH`` / ``-o PATH``
+   Save configuration to file instead of printing to console.
+
+``--format FORMAT``
+   Output format: ``yaml`` (default) or ``json``
+
+Examples
+~~~~~~~~
+
+.. code-block:: bash
+
+   # Display to console
+   osprey config export
+
+   # Save to file
+   osprey config export -o defaults.yml
+
+   # Export as JSON
+   osprey config export --format json -o defaults.json
+
+   # Use as reference when customizing
+   osprey config export --output reference.yml
+   diff reference.yml config.yml
+
+osprey config set-control-system
+----------------------------------
+
+Switch control system connector type (mock, epics, tango, labview).
+
+This changes the ``control_system.type`` setting in config.yml, which determines
+which connector is used at runtime for control system operations.
+
+.. note::
+   Pattern detection is control-system-agnostic. This setting only affects which
+   connector is loaded at runtime, not which patterns are used for security detection.
+
+Syntax
+~~~~~~
+
+.. code-block:: bash
+
+   osprey config set-control-system SYSTEM_TYPE [OPTIONS]
+
+Arguments
+~~~~~~~~~
+
+``SYSTEM_TYPE``
+   Control system type: ``mock``, ``epics``, ``tango``, or ``labview``
+
+Options
+~~~~~~~
+
+``--project PATH`` / ``-p PATH``
+   Project directory to use. If not specified, uses current directory.
+
+Examples
+~~~~~~~~
+
+.. code-block:: bash
+
+   # Switch to mock mode (development)
+   osprey config set-control-system mock
+
+   # Switch to EPICS (production)
+   osprey config set-control-system epics
+
+   # Switch to Tango
+   osprey config set-control-system tango
+
+osprey config set-epics-gateway
+---------------------------------
+
+Configure EPICS gateway address and port settings.
+
+Can use facility presets (ALS, APS) or specify custom gateway settings.
+
+Syntax
+~~~~~~
+
+.. code-block:: bash
+
+   osprey config set-epics-gateway [OPTIONS]
+
+Options
+~~~~~~~
+
+``--facility FACILITY``
+   Facility preset: ``als``, ``aps``, or ``custom``
+
+``--address ADDRESS``
+   Gateway address (required for custom facility)
+
+``--port PORT``
+   Gateway port (required for custom facility)
+
+``--project PATH`` / ``-p PATH``
+   Project directory to use. If not specified, uses current directory.
+
+Examples
+~~~~~~~~
+
+.. code-block:: bash
+
+   # Use ALS gateway preset
+   osprey config set-epics-gateway --facility als
+
+   # Use APS gateway preset
+   osprey config set-epics-gateway --facility aps
+
+   # Set custom gateway
+   osprey config set-epics-gateway --facility custom \
+       --address gateway.example.com --port 5064
+
+============
+
+osprey export-config (DEPRECATED)
+===================================
+
+.. deprecated::
+   Use ``osprey config export`` instead. This command is kept for backward compatibility
+   but will be removed in a future version.
 
 Export the framework's default configuration for reference.
 
@@ -756,53 +974,20 @@ Syntax
 
    osprey export-config [OPTIONS]
 
-Options
--------
+Migration
+---------
 
-``--project PATH`` / ``-p PATH``
-   Project directory to use. If not specified, uses ``OSPREY_PROJECT`` environment variable or current directory.
-
-   This affects which project's configuration is exported.
-
-``--output PATH`` / ``-o PATH``
-   Save configuration to file instead of printing to console.
-
-Examples
---------
-
-**View configuration:**
+Replace ``osprey export-config`` with ``osprey config export``:
 
 .. code-block:: bash
 
+   # Old (deprecated)
    osprey export-config
+   osprey export-config -o file.yml
 
-**View specific project's configuration:**
-
-.. code-block:: bash
-
-   osprey export-config --project ~/projects/my-agent
-
-**Save to file:**
-
-.. code-block:: bash
-
-   osprey export-config --output osprey-defaults.yml
-
-**Export from specific project and save:**
-
-.. code-block:: bash
-
-   osprey export-config --project ~/agent --output agent-config.yml
-
-**Use as reference when customizing:**
-
-.. code-block:: bash
-
-   # Export defaults
-   osprey export-config --output reference.yml
-
-   # Compare with your config
-   diff reference.yml config.yml
+   # New (recommended)
+   osprey config export
+   osprey config export -o file.yml
 
 Use Cases
 ---------
@@ -822,6 +1007,102 @@ The exported configuration includes:
 - **Execution Control**: Timeouts, retry policies, safety limits
 - **File Paths**: Directory structures and artifact locations
 - **Logging**: Log levels and output settings
+
+
+Interactive Configuration
+=========================
+
+.. admonition:: New in v0.9.6: Interactive Configuration Management
+   :class: version-09plus-change
+
+   The interactive menu now includes a configuration submenu for managing project settings.
+   Access it via: **Project Menu** → ``config`` → Choose action
+
+Available Configuration Actions
+-------------------------------
+
+When you select ``config`` from the project menu, you get access to:
+
+**1. Show Configuration**
+   Display current project configuration (equivalent to ``osprey config show``)
+
+**2. Set Control System Type**
+   Switch between Mock (tutorial/development) and EPICS (production) connectors
+
+   - Automatically updates ``control_system.type``
+   - Optionally updates ``archiver.type``
+   - Shows current configuration before changes
+   - Provides next-step guidance
+
+**3. Set EPICS Gateway**
+   Configure EPICS gateway for production deployment
+
+   - **APS** preset: ``pvgatemain1.aps4.anl.gov:5064``
+   - **ALS** preset: ``cagw-alsdmz.als.lbl.gov:5064`` (read), ``5084`` (write)
+   - **Custom**: Interactive prompts for your facility
+   - Automatically detects current facility configuration
+
+Example Workflow
+----------------
+
+**Tutorial → Production Migration:**
+
+.. code-block:: text
+
+   1. Create project (starts in Mock mode by default)
+      $ osprey init my-control-assistant --template control_assistant
+
+   2. Develop with Mock data (no hardware needed)
+      $ osprey chat
+      You: "What is the beam current?"
+
+   3. When ready for production, launch interactive menu:
+      $ osprey
+
+   4. Select your project → config → set-control-system
+      → Choose: EPICS - Production mode
+      → Choose: Yes - Use EPICS Archiver Appliance
+      → Confirm changes
+
+   5. Configure EPICS gateway:
+      config → set-epics-gateway
+      → Choose: ALS (or APS, or Custom)
+      → Confirm changes
+
+   6. Test production connection:
+      $ osprey chat
+      You: "What is the beam current?"
+
+**What Changes Under the Hood:**
+
+The interactive commands update your ``config.yml``:
+
+.. code-block:: yaml
+
+   # Before (Tutorial Mode)
+   control_system:
+     type: mock
+   archiver:
+     type: mock_archiver
+
+   # After (Production Mode)
+   control_system:
+     type: epics
+     connector:
+       epics:
+         gateways:
+           read_only:
+             address: cagw-alsdmz.als.lbl.gov  # From facility preset
+             port: 5064
+   archiver:
+     type: epics_archiver
+
+Your capabilities work unchanged - ``ConnectorFactory`` automatically uses the configured connector.
+
+**See Also:**
+
+- :ref:`Migrate to Production Control System <migrate-to-production>` in Control Assistant Part 3
+- :doc:`../05_production-systems/06_control-system-integration` for connector architecture
 
 
 Environment Variables
@@ -1009,10 +1290,10 @@ Configuration Reference
 .. code-block:: bash
 
    # View framework defaults
-   osprey export-config
+   osprey config export
 
    # Export to file for reference
-   osprey export-config --output defaults.yml
+   osprey config export --output defaults.yml
 
    # Create new project and compare configs
    osprey init test-project
@@ -1059,7 +1340,7 @@ Configuration Errors
 .. code-block:: bash
 
    # Validate against framework defaults
-   osprey export-config --output defaults.yml
+   osprey config export --output defaults.yml
 
    # Check your config syntax
    cat config.yml

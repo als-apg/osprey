@@ -253,33 +253,46 @@ Control which connector is used via ``config.yml``:
 
 **That's it!** Your capability automatically uses the configured connector.
 
-Step 3: Configure Pattern Detection
------------------------------------
+Step 3: Pattern Detection (Security Layer)
+-------------------------------------------
 
-Pattern detection enables the approval system to identify control system operations in generated Python code:
+Pattern detection is a **critical security layer** that ensures the approval system catches ALL control system operations in generated Python code.
+
+**Security Purpose:** An LLM could try to circumvent the connector's safety features (limits checking, verification, approval) by directly importing control system libraries (``epics``, ``PyTango``, etc.) instead of using the approved ``osprey.runtime`` API. Pattern detection catches such attempts.
+
+**The framework provides comprehensive detection automatically** - no configuration needed!
+
+**Framework-Standard Patterns:**
+
+The framework automatically detects:
+
+- **Approved API** (with all safety features): ``write_channel()``, ``read_channel()``
+- **EPICS Circumvention**: ``epics.caput()``, ``caput()``, ``pv.put()``
+- **Tango Circumvention**: ``DeviceProxy().write_attribute()``, ``device.read_attribute()``
+- **LabVIEW Circumvention**: Common LabVIEW Python integration patterns
+- **Direct Connector Access**: ``connector.write_channel()`` (advanced use)
 
 .. code-block:: yaml
 
    control_system:
-     type: epics
-     patterns:
-       epics:
-         write:
-           - '\bcaput\s*\('           # Matches: caput('PV', value)
-           - 'epics\.caput\('         # Matches: epics.caput(...)
-           - '\.put\s*\('             # Matches: pv.put(...)
-           - '\bwrite_channel\s*\('   # Matches: write_channel('PV', value)
-           - '\bwrite_channels\s*\('  # Matches: write_channels({...})
-         read:
-           - '\bcaget\s*\('           # Matches: caget('PV')
-           - 'epics\.caget\('         # Matches: epics.caget(...)
-           - '\.get\s*\('             # Matches: pv.get(...)
-           - '\bread_channel\s*\('    # Matches: read_channel('PV')
+     type: epics  # This controls runtime connector, NOT patterns!
+     
+     # Pattern detection works automatically - comprehensive security coverage
+     # Advanced: Extend for custom control system libraries (rarely needed)
+     # patterns:
+     #   write: ['my_custom_cs_lib\.write\(']
+     #   read: ['my_custom_cs_lib\.read\(']
+
+.. warning::
+   **Security Design:** Patterns detect both approved API usage AND circumvention attempts.
+   This ensures LLM-generated code cannot bypass connector safety by directly importing
+   control system libraries. All detected operations go through the approval workflow,
+   regardless of which library/API is used.
 
 .. note::
-   The patterns include both legacy EPICS functions (``caput``, ``caget``) and the unified
-   ``osprey.runtime`` API (``write_channel``, ``read_channel``). The pattern detection module
-   uses sensible defaults if no patterns are configured.
+   **Control-System-Agnostic:** The ``control_system.type`` config only affects which
+   connector is used at runtime, not which patterns are detected. Detection is comprehensive
+   across all control systems to prevent circumvention.
 
 **Usage in capabilities:**
 
@@ -287,7 +300,7 @@ Pattern detection enables the approval system to identify control system operati
 
    from osprey.services.python_executor.analysis.pattern_detection import detect_control_system_operations
 
-   # Detects both legacy EPICS and unified runtime API
+   # Detects both modern unified API and legacy EPICS calls
    code = """
    from osprey.runtime import read_channel, write_channel
 

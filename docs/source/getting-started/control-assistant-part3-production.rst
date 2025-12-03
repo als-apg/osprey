@@ -1261,15 +1261,92 @@ The structure of your control system determines your approach:
 
 .. tab-set::
 
-   .. tab-item:: Quick Start
+   .. tab-item:: Interactive Configuration (Recommended)
+
+      The framework provides interactive commands to configure EPICS for production use.
 
       **Step 1:** Install dependencies:
 
       .. code-block:: bash
 
+         cd my-control-assistant
          pip install pyepics
 
-      **Step 2:** Edit ``config.yml``:
+      **Step 2:** Launch interactive menu and configure control system:
+
+      .. code-block:: bash
+
+         osprey  # Launch interactive menu
+
+      Then navigate: **Project Menu** → ``config`` → ``set-control-system``
+
+      .. code-block:: text
+
+         Configuration
+         Manage project configuration settings
+
+         ? What would you like to do?
+           [→] show
+         » [→] set-control-system - Switch between Mock/EPICS connectors
+           [→] set-epics-gateway  - Configure EPICS gateway
+           [←] back
+
+         ──────────────────────────────────────
+
+         Configure Control System
+
+         Current control system: mock
+         Current archiver: mock_archiver
+
+         ? Select control system type:
+         » EPICS - Production mode (connects to real control system)
+           Mock - Tutorial/Development mode (safe, no hardware)
+           [←] Back
+
+         ──────────────────────────────────────
+
+         Archiver Configuration
+
+         ? Also switch archiver to EPICS?
+         » Yes - Use EPICS Archiver Appliance
+           No - Keep mock archiver
+
+      **Step 3:** Configure EPICS gateway:
+
+      Navigate: **Project Menu** → ``config`` → ``set-epics-gateway``
+
+      .. code-block:: text
+
+         Configure EPICS Gateway
+
+         ? Select EPICS facility:
+         » APS (Argonne National Laboratory) - Advanced Photon Source
+           ALS (Lawrence Berkeley National Laboratory) - Advanced Light Source
+           Custom - Manual configuration
+           [←] Back
+
+      Select your facility (APS or ALS), and the framework automatically configures:
+
+      - Gateway addresses
+      - Port numbers
+      - Connection mode (``use_name_server``)
+
+      **Supported Facilities:**
+
+      - **APS**: ``pvgatemain1.aps4.anl.gov:5064``
+      - **ALS**: ``cagw-alsdmz.als.lbl.gov:5064`` (read), ``5084`` (write)
+      - **Custom**: Interactive prompts for your facility's gateway
+
+      **Step 4:** Test connection:
+
+      .. code-block:: bash
+
+         osprey chat
+         # Try: "What is the beam current?"
+
+      **What Happened Under the Hood:**
+
+      The interactive commands updated your ``config.yml``:
 
       .. code-block:: yaml
 
@@ -1277,24 +1354,49 @@ The structure of your control system determines your approach:
            type: epics          # ← Changed from 'mock'
            connector:
              epics:
+               timeout: 5.0
                gateways:
                  read_only:
-                   address: cagw.your-facility.edu
+                   address: cagw-alsdmz.als.lbl.gov  # ← From facility preset
                    port: 5064
-                   use_name_server: false  # false = EPICS_CA_ADDR_LIST (direct gateway)
-                                           # true = EPICS_CA_NAME_SERVERS (SSH tunnels, some setups)
-               timeout: 5.0
+                   use_name_server: false
 
-      **Step 3:** Test connection:
+         archiver:
+           type: epics_archiver  # ← Changed from 'mock_archiver'
+           epics_archiver:
+             url: https://archiver.als.lbl.gov:8443
 
-      .. code-block:: bash
+      Your capabilities work unchanged - ``ConnectorFactory`` automatically uses the EPICS connector based on configuration.
 
-         osprey chat
-         # Try: "What is the beam current?"
+      .. note::
+         **Pattern Detection is a Security Layer**
 
-      **That's it!** Your capabilities work unchanged - ``ConnectorFactory`` automatically uses the EPICS connector based on configuration.
+         The framework provides comprehensive pattern detection automatically - **no configuration needed!**
 
-   .. tab-item:: Advanced Configuration
+         **Security Purpose:** Detects both approved API usage AND circumvention attempts. An LLM could try
+         to bypass connector safety features (limits, verification) by directly importing control system
+         libraries. Pattern detection catches this.
+
+         The framework automatically detects:
+
+         - ✅ **Approved**: ``osprey.runtime`` API (``write_channel``, ``read_channel``) - has all safety features
+         - 🔒 **EPICS Circumvention**: ``epics.caput()``, ``pv.put()`` - bypasses safety
+         - 🔒 **Tango Circumvention**: ``DeviceProxy().write_attribute()`` - bypasses safety
+         - 🔒 **LabVIEW Circumvention**: Common LabVIEW patterns - bypasses safety
+
+         .. code-block:: yaml
+
+            control_system:
+              type: epics  # Only controls runtime connector, not patterns!
+
+              # Pattern detection is automatic - comprehensive security coverage
+              # Detects: write_channel() AND direct library calls (epics, tango, etc.)
+
+         **Security Design:** The ``control_system.type`` config only affects which *connector* is used at runtime,
+         not which patterns are detected. Detection is control-system-agnostic to prevent circumvention regardless
+         of which library an LLM might try to use.
+
+   .. tab-item:: Manual Configuration
 
       **Gateway Configuration (Read-Only + Read-Write)**
 
@@ -1322,28 +1424,27 @@ The structure of your control system determines your approach:
 
       .. code-block:: yaml
 
-         execution_control:
-           epics:
-             writes_enabled: false  # Must be true to allow writes
-
-      **Pattern Detection for Approval Workflows**
-
-      Configure regex patterns for identifying control system operations in generated code:
-
-      .. code-block:: yaml
-
          control_system:
-           type: epics
-           patterns:
-             epics:
-               write:
-                 - 'epics\.caput\('
-                 - '\.put\('
-               read:
-                 - 'epics\.caget\('
-                 - '\.get\('
+           writes_enabled: false  # Must be true to allow writes
 
-      This enables the approval system to require human review for write operations.
+      .. note::
+         **Pattern Detection is Framework-Standard (Security Layer)**
+
+         The framework provides comprehensive **control-system-agnostic** pattern detection
+         automatically - no configuration needed!
+
+         **Security Purpose:** Detects both approved API usage AND circumvention attempts where
+         an LLM might try to bypass connector safety by directly importing control system libraries.
+
+         Patterns automatically detect:
+         - ✅ **Approved**: ``osprey.runtime`` API (``write_channel``, ``read_channel``) - has all safety features
+         - 🔒 **EPICS Circumvention**: ``epics.caput``, ``pv.put()`` - bypasses safety
+         - 🔒 **Tango Circumvention**: ``DeviceProxy().write_attribute()`` - bypasses safety
+         - 🔒 **LabVIEW Circumvention**: Common patterns - bypasses safety
+
+         The ``control_system.type`` setting only affects which *connector* is used at runtime,
+         **not** which patterns are detected. This ensures comprehensive security regardless of
+         which control system an LLM might try to use.
 
       **Development + Production Config Pattern**
 

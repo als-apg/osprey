@@ -271,11 +271,15 @@ Pattern Detection
 
 .. currentmodule:: osprey.services.python_executor.pattern_detection
 
-Static code analysis for detecting control system operations in generated code. Used by approval system to identify reads and writes.
+Static code analysis for detecting control system operations in generated code. **Critical security layer** that catches both approved API usage and circumvention attempts.
 
 .. autofunction:: detect_control_system_operations
 
-Analyzes Python code using configurable regex patterns to detect control system operations. Returns detection results including operation types and matched patterns.
+Analyzes Python code using framework-standard or custom patterns to detect control system operations.
+The framework provides comprehensive security-focused patterns by default - no configuration needed.
+
+**Security Purpose:** Detects both approved ``osprey.runtime`` API usage AND direct control system library
+calls that would bypass connector safety features (limits checking, verification, approval workflows).
 
 **Example:**
 
@@ -283,15 +287,25 @@ Analyzes Python code using configurable regex patterns to detect control system 
 
    from osprey.services.python_executor.analysis.pattern_detection import detect_control_system_operations
 
-   code = """
-   current = epics.caget('BEAM:CURRENT')
-   if current < 400:
-       epics.caput('ALARM:STATUS', 1)
-   """
-
-   result = detect_control_system_operations(code)
+   # Detects approved API
+   code_approved = "write_channel('BEAM:CURRENT', 500)"
+   result = detect_control_system_operations(code_approved)
    # result['has_writes'] == True
-   # result['has_reads'] == True
+   
+   # Also detects circumvention attempts
+   code_circumvent = "epics.caput('BEAM:CURRENT', 500)"
+   result = detect_control_system_operations(code_circumvent)
+   # result['has_writes'] == True  # Caught by security layer!
+
+.. autofunction:: get_framework_standard_patterns
+
+Returns framework-standard security-focused patterns. These patterns detect:
+
+- ✅ Approved ``osprey.runtime`` API (with all safety features)
+- 🔒 EPICS direct calls (``epics.caput``, ``PV().put`` - bypasses safety)
+- 🔒 Tango direct calls (``DeviceProxy().write_attribute`` - bypasses safety)
+- 🔒 LabVIEW integration patterns (bypasses safety)
+- 🔒 Direct connector access (advanced use)
 
 Configuration Schema
 ====================
@@ -306,17 +320,15 @@ Control system connector configuration in ``config.yml``:
    control_system:
      type: mock | epics | labview | tango | custom
 
-     # Pattern detection for approval system
-     patterns:
-       <control_system_type>:
-         write:
-           - '<regex_pattern_1>'
-           - '<regex_pattern_2>'
-         read:
-           - '<regex_pattern_1>'
-           - '<regex_pattern_2>'
+     # Pattern detection is automatic - framework provides defaults
+     # Optional: Override for custom workflows (rarely needed)
+     # patterns:
+     #   write:
+     #     - 'custom_write_function\('
+     #   read:
+     #     - 'custom_read_function\('
 
-     # Type-specific configurations
+     # Type-specific connector configurations
      connector:
        mock:
          response_delay_ms: 10
