@@ -1,0 +1,433 @@
+{
+  "_metadata": {
+    "generated_from": "data/raw/address_list.csv",
+    "generation_date": "2025-11-08",
+    "generator": "build_channel_database.py",
+    "llm_naming": {
+      "enabled": true,
+      "model": "anthropic/claude-haiku",
+      "purpose": "Generated descriptive PascalCase names for 53 standalone channels"
+    },
+    "description": "Template-based channel database with automatic common description extraction",
+    "stats": {
+      "template_entries": 5,
+      "standalone_entries": 53,
+      "total_entries": 58
+    },
+    "command": "python tools/build_channel_database.py --use-llm --config ../../config.yml"
+  },
+  "channels": [
+    {
+      "template": false,
+      "channel": "TerminalVoltageReadBack",
+      "address": "TerminalVoltageReadBack",
+      "description": "Actual value of the terminal potential where electron gun and collector are located measured capacitively by the generating votmeter"
+    },
+    {
+      "template": false,
+      "channel": "TerminalVoltageSetPoint",
+      "address": "TerminalVoltageSetValue",
+      "description": "Set value of the terminal where electron gun and collector are located"
+    },
+    {
+      "template": false,
+      "channel": "AcceleratingTubeBeginningGunPressureReadBack",
+      "address": "GunPressure",
+      "description": "Pressure inside gun located at the beginning of accelerating tube measured in Tor"
+    },
+    {
+      "template": false,
+      "channel": "DeceleratingTubeEndCollectorPressureReadBack",
+      "address": "CollectorPressure",
+      "description": "Pressure inside collector located at the end of decelerating tube measured in Tor"
+    },
+    {
+      "template": false,
+      "channel": "AcceleratingTubeEndIonPumpIP41PressureReadBack",
+      "address": "IP41Pressure",
+      "description": "Pressure at IP41 ion pump located at the end of accelerating tube and beginning of beamline1 (beam transport), inside of tank, measured in Tor"
+    },
+    {
+      "template": false,
+      "channel": "BeamLine1MiddleIonPumpIP78PressureReadBack",
+      "address": "IP78Pressure",
+      "description": "Pressure at IP78 ion pump located in the middle of beamline1 (beam transport) measured in Tor"
+    },
+    {
+      "template": false,
+      "channel": "BeamLine1EndIonPumpIP125PressureReadBack",
+      "address": "IP125Pressure",
+      "description": "Pressure at IP125 ion pump located at the end of beamline1 (beam transport) measured in Tor"
+    },
+    {
+      "template": false,
+      "channel": "XRayBeamLineDiagnosticIonPumpIP130DPressureReadBack",
+      "address": "IP130DPressure",
+      "description": "Pressure at IP130D ion pump located in the xray beamline (diagnostic branch) measured in Tor"
+    },
+    {
+      "template": false,
+      "channel": "HFELBeamLineBeginningIonPumpIP149APressureReadBack",
+      "address": "IP149APressure",
+      "description": "Pressure at IP149A ion pump located in the beginning of HFEL beamline (FEL output beamline) measured in Tor"
+    },
+    {
+      "template": false,
+      "channel": "FIRBeamLineBeginningIonPumpIP149BPressureReadBack",
+      "address": "IP149BPressure",
+      "description": "Pressure at IP149B ion pump located in the beginning of FIR beamline (FEL output beamline) measured in Tor"
+    },
+    {
+      "template": false,
+      "channel": "MMFELBeamLineBeginningIonPumpPressure",
+      "address": "IP149CPressure",
+      "description": "Pressure at IP149C ion pump located in the beginning of MM FEL beamline (FEL output beamline) measured in Tor"
+    },
+    {
+      "template": false,
+      "channel": "HFELBeamLineEndIonPumpPressure",
+      "address": "IP186APressure",
+      "description": "Pressure at IP186A ion pump located at the end of HFEL beamline (FEL output beamline) measured in Tor"
+    },
+    {
+      "template": false,
+      "channel": "FIRBeamLineEndIonPumpPressure",
+      "address": "IP186B",
+      "description": "Pressure at IP186B ion pump located at the end of FIR beamline (FEL output beamline) measured in Tor"
+    },
+    {
+      "template": false,
+      "channel": "MMBeamLineEndIonPumpPressure",
+      "address": "IP186C",
+      "description": "Pressure at IP186C ion pump located at the end of MM beamline (FEL output beamline) measured in Tor"
+    },
+    {
+      "template": false,
+      "channel": "BeamLine2IonPumpPressure",
+      "address": "IP200",
+      "description": "Pressure at IP200 ion pump located in beamline2 (beam transport return path) measured in Tor"
+    },
+    {
+      "template": false,
+      "channel": "BeamLine2EndDeceleratingTubeBeginningIonPumpPressure",
+      "address": "IP231",
+      "description": "Pressure at IP231 ion pump located at the end of beamline2 (beam transport return path) and beginning of decelerating tube, inside of tank, measured in Tor"
+    },
+    {
+      "template": false,
+      "channel": "AcceleratorTerminalTemperature",
+      "address": "Terminal temperature",
+      "description": "This is the temperature of the accelerator"
+    },
+    {
+      "template": false,
+      "channel": "TerminalRegulatingNeedlesExposureDistanceSetPoint",
+      "address": "RegulatingNeedlesSet",
+      "description": "Exposure distance of needles providing sink current for the terminal voltage regulation, set value"
+    },
+    {
+      "template": false,
+      "channel": "TerminalRegulatingNeedlesExposureDistanceReadBack",
+      "address": "RegulatingNeedlesRB",
+      "description": "Exposure distance of needles providing sink current for the terminal voltage regulation, read back value"
+    },
+    {
+      "template": false,
+      "channel": "TerminalCoronaTriodCurrentReadBack",
+      "address": "CoronaTriodCurrent",
+      "description": "Current flowing through needles controlled by corona triod - part of terminal voltage regulation, only read back value"
+    },
+    {
+      "template": false,
+      "channel": "ElectronGunFilamentCurrentSetPoint",
+      "address": "FilamentCurrentSet",
+      "description": "Current of filament in the electron gun, set value"
+    },
+    {
+      "template": false,
+      "channel": "ElectronGunFilamentCurrentReadBack",
+      "address": "FilamentCurrentRB",
+      "description": "Current of filament in the electron gun, read back value"
+    },
+    {
+      "template": false,
+      "channel": "TerminalVoltageCapacitivePickupReadBack",
+      "address": "CapacitivePickup",
+      "description": "AC component of terminal voltage measure capacitively, only read back value - wavefrom from digitizer"
+    },
+    {
+      "template": false,
+      "channel": "TerminalVoltageCoronaTriodErrorSignalReadBack",
+      "address": "CoronaTriodError",
+      "description": "Error signal fed to the corona triod grid, part of terminal voltage regulation, only read back value - waveform from digitizer"
+    },
+    {
+      "template": false,
+      "channel": "BeamPulseDurationSetPoint",
+      "address": "BeamPulseDuration",
+      "description": "Length of electron beam pulse set in microseconds"
+    },
+    {
+      "template": false,
+      "channel": "ElectronGunVoltageSetPoint",
+      "address": "GunVoltageSet",
+      "description": "Voltage of the electron gun in kV, set value"
+    },
+    {
+      "template": false,
+      "channel": "ElectronGunVoltageReadBack",
+      "address": "GunVoltageRB",
+      "description": "Voltage of the electron gun in kV, read back value"
+    },
+    {
+      "template": false,
+      "channel": "TerminalTopPelletronChargingVoltageSetPoint",
+      "address": "ChargingVoltageTopSet",
+      "description": "Value of high voltage power supply output charging pelletron chains inside of terminal, set value"
+    },
+    {
+      "template": false,
+      "channel": "TerminalTopPelletronChargingVoltageReadBack",
+      "address": "ChargingVoltageTopRB",
+      "description": "Value of high voltage power supply output charging pelletron chains inside of terminal, read back value"
+    },
+    {
+      "template": false,
+      "channel": "TankBottomPelletronChargingCurrentSetPoint",
+      "address": "ChargingCurrentBottomSet",
+      "description": "Value of high voltage power supply output charging pelletron chains at the bottom of the tank, set value"
+    },
+    {
+      "template": false,
+      "channel": "PelletronChargingCurrentBottomReadBack",
+      "address": "ChargingCurrentBottomRB",
+      "description": "Value of high voltage power supply output charging pelletron chains at the bottom of the tank, read back value"
+    },
+    {
+      "template": false,
+      "channel": "AcceleratingTubeTopSteeringCoilXSetPoint",
+      "address": "SX3Set",
+      "description": "Steering coil current tilting beam in X direction inside accelerating tube (top position, inside tank), set value"
+    },
+    {
+      "template": false,
+      "channel": "AcceleratingTubeTopSteeringCoilXReadBack",
+      "address": "SX3RB",
+      "description": "Steering coil current tilting beam in X direction inside accelerating tube (top position, inside tank), read back value"
+    },
+    {
+      "template": false,
+      "channel": "AcceleratingTubeTopSteeringCoilYSetPoint",
+      "address": "SY3Set",
+      "description": "Steering coil current tilting beam in Y direction inside accelerating tube (top position, inside tank), set value"
+    },
+    {
+      "template": false,
+      "channel": "AcceleratingTubeTopSteeringCoilYReadBack",
+      "address": "SY3RB",
+      "description": "Steering coil current tilting beam in Y direction inside accelerating tube (top position, inside tank), read back value"
+    },
+    {
+      "template": false,
+      "channel": "ElectronGunGridVoltageSetPoint",
+      "address": "GridSet",
+      "description": "Grid voltage in electron gun, releasing beam current during the pulse, set value"
+    },
+    {
+      "template": false,
+      "channel": "ElectronGunGridVoltageReadBack",
+      "address": "GridRB",
+      "description": "Grid voltage in electron gun, releasing beam current during the pulse, read back value"
+    },
+    {
+      "template": false,
+      "channel": "TerminalRotatingGeneratorACPowerReadBack",
+      "address": "ACPowerInTerminal",
+      "description": "AC power supply voltage generated in the terminal by the rotating generator (terminal power source), read back value"
+    },
+    {
+      "template": false,
+      "channel": "TerminalCoolingFanVoltageReadBack",
+      "address": "FansVoltage",
+      "description": "Voltage of fans cooling terminal electronics, only read back value"
+    },
+    {
+      "template": false,
+      "channel": "AcceleratingTubeFocusingSolenoidVoltageSetPoint",
+      "address": "L39Set",
+      "description": "Focusing solenoid voltage inside of accelerating tube, set value"
+    },
+    {
+      "template": false,
+      "channel": "AcceleratingTubeFocusingSolenoidVoltageReadBack",
+      "address": "L39RB",
+      "description": "Focusing solenoid voltage inside of accelerating tube, read back value"
+    },
+    {
+      "template": false,
+      "channel": "AcceleratingTubeBottomSteeringCoilXSetPoint",
+      "address": "SX40Set",
+      "description": "Steering coil current tilting beam in X direction inside accelerating tube (bottom position, inside tank), set value"
+    },
+    {
+      "template": false,
+      "channel": "AcceleratingTubeBottomSteeringCoilXReadBack",
+      "address": "SX40RB",
+      "description": "Steering coil current tilting beam in X direction inside accelerating tube (bottom position, inside tank), read back value"
+    },
+    {
+      "template": false,
+      "channel": "AcceleratingTubeBottomSteeringCoilYSetPoint",
+      "address": "SY40Set",
+      "description": "Steering coil current tilting beam in Y direction inside accelerating tube (bottom position, inside tank), set value"
+    },
+    {
+      "template": false,
+      "channel": "AcceleratingTubeBottomSteeringCoilYReadBack",
+      "address": "SY40RB",
+      "description": "Steering coil current tilting beam in Y direction inside accelerating tube (bottom position, inside tank), read back value"
+    },
+    {
+      "template": false,
+      "channel": "DeceleratingTubeFocusingSolenoidVoltageSetPoint",
+      "address": "L234Set",
+      "description": "Focusing solenoid voltage inside of decelerating tube, set value"
+    },
+    {
+      "template": false,
+      "channel": "DeceleratingTubeFocusingSolenoidVoltageReadBack",
+      "address": "L234RB",
+      "description": "Focusing solenoid voltage inside of decelerating tube, read back value"
+    },
+    {
+      "template": false,
+      "channel": "DeceleratingTubeBottomSteeringCoilXSetPoint",
+      "address": "SX233Set",
+      "description": "Steering coil current tilting beam in X direction inside decelerating tube (bottom position, inside tank), set value"
+    },
+    {
+      "template": false,
+      "channel": "DeceleratingTubeBottomSteeringCoilXReadBack",
+      "address": "SX233RB",
+      "description": "Steering coil current tilting beam in X direction inside decelerating tube (bottom position, inside tank), read back value"
+    },
+    {
+      "template": false,
+      "channel": "DeceleratingTubeBottomSteeringCoilYSetPoint",
+      "address": "SY233Set",
+      "description": "Steering coil current tilting beam in Y direction inside decelerating tube (bottom position, inside tank), set value"
+    },
+    {
+      "template": false,
+      "channel": "DeceleratingTubeBottomSteeringCoilYReadBack",
+      "address": "SY233RB",
+      "description": "Steering coil current tilting beam in Y direction inside decelerating tube (bottom position, inside tank), read back value"
+    },
+    {
+      "template": false,
+      "channel": "DeceleratingTubeGradingResistorDiagnosticCurrent",
+      "address": "I_mtrs",
+      "description": "Diagnostic current through grading resistor chain in decelerating tube (monitors voltage distribution health)"
+    },
+    {
+      "template": false,
+      "channel": "AcceleratingTubeGradingResistorDiagnosticCurrent",
+      "address": "Acc_I",
+      "description": "Diagnostic current through grading resistor chain in accelerating tube (monitors voltage distribution health)"
+    },
+    {
+      "template": true,
+      "base_name": "DipoleMagnet",
+      "instances": [
+        1,
+        9
+      ],
+      "sub_channels": [
+        "SetPoint",
+        "ReadBack"
+      ],
+      "description": "Dipole magnets for beam bending",
+      "address_pattern": "DipoleMagnet{instance:02d}{suffix}",
+      "channel_descriptions": {
+        "SetPoint": "set point for magnet {instance}",
+        "ReadBack": "readback for magnet {instance}"
+      }
+    },
+    {
+      "template": true,
+      "base_name": "QuadrupoleMagnet",
+      "instances": [
+        1,
+        17
+      ],
+      "sub_channels": [
+        "SetPoint",
+        "ReadBack"
+      ],
+      "description": "Quadrupole magnets for beam focusing",
+      "address_pattern": "QuadrupoleMagnet{instance:02d}{suffix}",
+      "channel_descriptions": {
+        "SetPoint": "set point for magnet {instance}",
+        "ReadBack": "readback for magnet {instance}"
+      }
+    },
+    {
+      "template": true,
+      "base_name": "SteeringCoil",
+      "instances": [
+        1,
+        19
+      ],
+      "sub_channels": [
+        "XSetPoint",
+        "XReadBack",
+        "YSetPoint",
+        "YReadBack"
+      ],
+      "description": "Steering coils for beam trajectory corrections",
+      "address_pattern": "SteeringCoil{instance:02d}{suffix}",
+      "channel_descriptions": {
+        "XSetPoint": "set point for coil {instance} X direction (horizontal)",
+        "XReadBack": "readback for coil {instance} X direction (horizontal)",
+        "YSetPoint": "set point for coil {instance} Y direction (vertical)",
+        "YReadBack": "readback for coil {instance} Y direction (vertical)"
+      }
+    },
+    {
+      "template": true,
+      "base_name": "ObservationScreen",
+      "instances": [
+        1,
+        23
+      ],
+      "sub_channels": [
+        "Motor",
+        "MotorReadBack",
+        "Image"
+      ],
+      "description": "Observation screens for beam profile imaging",
+      "address_pattern": "ObservationScreen{instance:02d}{suffix}",
+      "channel_descriptions": {
+        "Motor": "motor command for screen {instance} (in/out)",
+        "MotorReadBack": "motor readback for screen {instance} (in/out)",
+        "Image": "camera image from screen {instance}"
+      }
+    },
+    {
+      "template": true,
+      "base_name": "CurrentMonitor",
+      "instances": [
+        1,
+        5
+      ],
+      "sub_channels": [
+        "Waveform"
+      ],
+      "description": "Current monitors for non-destructive beam current measurement - waveform from monitor {instance}",
+      "address_pattern": "CurrentMonitor{instance:02d}{suffix}",
+      "channel_descriptions": {
+        "Waveform": ""
+      }
+    }
+  ]
+}

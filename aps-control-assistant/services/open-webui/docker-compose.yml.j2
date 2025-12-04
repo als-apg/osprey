@@ -1,0 +1,32 @@
+volumes:
+  open-webui:
+
+services:
+  open-webui:
+    container_name: open-webui
+    labels:
+      osprey.project.name: "{{ osprey_labels.project_name }}"
+      osprey.project.root: "{{ osprey_labels.project_root }}"
+      osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
+    build:
+      context: ./open-webui
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "{{services.open_webui.port_host}}:{{services.open_webui.port_container}}"
+    environment:
+      # Timezone synchronization with host (from system configuration)
+      - TZ={{system.timezone}}
+      - OLLAMA_BASE_URL={{api.providers.ollama.host}}:{{api.providers.ollama.port}}
+      # Proxy settings (optional - uncomment if behind corporate firewall)
+      # - NO_PROXY=${NO_PROXY}
+      - WEBUI_CUSTOM_CSS_URL=/static/custom.css
+      - USER_MEMORY_DIR=/app/{{file_paths.user_memory_dir}}
+    volumes:
+      - open-webui:/app/backend/data
+      - {{project_root}}/{{file_paths.agent_data_dir}}:/app/backend/open_webui/static/agent_data:ro
+      - ./open-webui/custom.css:/app/backend/static/custom.css
+      - {{project_root}}/config.yml:/app/config.yml:ro
+      - {{project_root}}/src:/app/src:ro
+    networks:
+      - osprey-network

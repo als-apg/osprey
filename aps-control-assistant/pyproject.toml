@@ -1,0 +1,35 @@
+[project]
+name = "aps-control-assistant"
+version = "0.1.0"
+description = "aps-control-assistant - Osprey Agent Application"
+requires-python = ">=3.11"
+
+dependencies = [
+    # Framework dependency
+    "osprey-framework>=0.9.5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "black",
+    "ruff",
+]
+
+[build-system]
+requires = ["setuptools>=65.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["aps_control_assistant*"]
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+

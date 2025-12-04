@@ -1,0 +1,62 @@
+services:
+  pipelines:
+    image: ghcr.io/open-webui/pipelines:main
+    # build:
+    #   context: ./pipelines
+    #   dockerfile: Dockerfile
+    container_name: pipelines
+    labels:
+      osprey.project.name: "{{ osprey_labels.project_name }}"
+      osprey.project.root: "{{ osprey_labels.project_root }}"
+      osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
+    restart: "no"
+    working_dir: /pipelines
+    entrypoint: ["/bin/bash", "/pipelines/start.sh"]
+    ports:
+      - {{services.pipelines.port_host}}:{{services.pipelines.port_container}} # Expose pipeline port
+    volumes:
+      - ./pipelines:/pipelines
+      - {{project_root}}/{{file_paths.agent_data_dir}}:/app/{{file_paths.agent_data_dir}}
+    environment:
+      # Tell pipelines where to find the scripts within the container
+      # Pipeline interface files (main.py, __init__.py) are copied to /pipelines during init
+      - PIPELINES_DIR=/pipelines
+      - PIPELINES_REQUIREMENTS_PATH=/pipelines/repo_src/requirements.txt
+      - PROJECT_ROOT=/pipelines
+      - AGENT_DATA_DIR={{file_paths.agent_data_dir}}
+      # Development mode flag for local osprey override
+      - DEV_MODE=${DEV_MODE:-false}
+      # Point to config.yml for framework initialization
+      - CONFIG_FILE=/pipelines/config.yml
+      # Default API key for local dev (can be changed)
+      - PIPELINES_API_KEY=0p3n-w3bu!
+      # Python executable path for local execution mode (container-specific override)
+      - CONTAINER_PYTHON_ENV=/usr/local/bin/python3
+      # User app in repo_src if needed
+      - PYTHONPATH=/pipelines/repo_src
+      # Timezone synchronization with host (from system configuration)
+      - TZ={{system.timezone}}
+      # Enable colored output in container
+      - TERM=xterm-256color
+      - COLORTERM=truecolor
+      - FORCE_COLOR=1
+      # External API keys
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - CBORG_API_KEY=${CBORG_API_KEY}
+      - STANFORD_API_KEY=${STANFORD_API_KEY}
+      - ARGO_API_KEY=${ARGO_API_KEY}
+      # Langfuse observability (optional - uncomment to enable LLM monitoring/tracing)
+      # - LANGFUSE_ENABLED=${LANGFUSE_ENABLED}
+      # - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      # - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      # - LANGFUSE_HOST=${LANGFUSE_HOST}
+      # Proxy settings (optional - uncomment if behind corporate firewall)
+      # - HTTP_PROXY=${HTTP_PROXY}
+      # - HTTPS_PROXY=${HTTPS_PROXY}
+      # - http_proxy=${http_proxy}
+      # - https_proxy=${https_proxy}
+      # - NO_PROXY=${NO_PROXY}
+    networks:
+      - osprey-network

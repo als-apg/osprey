@@ -1,0 +1,168 @@
+{
+  "_comment": "Example: Consecutive Instances Pattern - Multiple instance levels in sequence. Use case: Accelerator naming (CEBAF pattern), distributed systems with region+number, any case with nested instance expansions. Example channel: MQB0L07.S = Magnet(M) Quadrupole(QB) Injector(0L) #7(07) CurrentSetpoint(.S). Key feature: Two consecutive instance levels (SECTOR + DEVICE) demonstrate that multiple expansions can follow each other.",
+  "hierarchy": {
+    "levels": [
+      {"name": "system", "type": "tree"},
+      {"name": "family", "type": "tree"},
+      {"name": "sector", "type": "instances"},
+      {"name": "device", "type": "instances"},
+      {"name": "property", "type": "tree"}
+    ],
+    "naming_pattern": "{system}{family}{sector}{device}{property}"
+  },
+
+  "tree": {
+    "M": {
+      "_description": "Magnet System (M): Beam steering and focusing magnets throughout the accelerator. Controls beam trajectory, focusing, and energy.",
+      "QB": {
+        "_description": "Quadrupole Magnets (QB): Focusing and defocusing magnets that control beam size and shape. Four-pole magnets that focus in one plane while defocusing in the perpendicular plane. Essential for maintaining beam quality throughout the accelerator.",
+        "SECTOR": {
+          "_expansion": {
+            "_type": "list",
+            "_instances": ["0L", "1A", "1B", "2A", "2B", "3A"],
+            "_comment": "Accelerator sectors: 0L=injector, 1A/1B=first arc, 2A/2B=second arc, 3A=third arc"
+          },
+          "_sector_descriptions": {
+            "0L": "Injector region - low energy beam injection and initial acceleration",
+            "1A": "First arc section A - first 90° bend after injector",
+            "1B": "First arc section B - completing 180° bend",
+            "2A": "Second arc section A - first long straight section",
+            "2B": "Second arc section B - second long straight section",
+            "3A": "Third arc section A - approach to experimental hall"
+          },
+          "DEVICE": {
+            "_expansion": {
+              "_type": "range",
+              "_pattern": "{:02d}",
+              "_range": [1, 99],
+              "_comment": "Sequential numbering of quadrupoles within each sector (01-99)"
+            },
+            ".S": {
+              "_description": "Current Setpoint (read-write): Commanded excitation current for the quadrupole magnet. Operators or control systems set this to achieve desired focusing strength. Typical range 0-500A depending on beam energy."
+            },
+            ".BDL": {
+              "_description": "Integrated Magnetic Field Setpoint (read-write): Commanded integrated field strength (B·dL) in Tesla-meters. Alternative to current setpoint for field-based control. Automatically converted to current based on magnet calibration."
+            },
+            "M": {
+              "_description": "Current Readback (read-only): Measured excitation current from precision DCCT sensor. High-accuracy measurement (±0.01%) used for feedback control and diagnostics. Should track setpoint when power supply is regulating."
+            },
+            ".STAT": {
+              "_description": "Status (read-only): Power supply and magnet health status. Indicates operational state, faults, and interlock conditions."
+            }
+          }
+        }
+      },
+      "DP": {
+        "_description": "Dipole Magnets (DP): Bending magnets that deflect the beam to create the curved beam path. Two-pole magnets that create uniform magnetic field perpendicular to beam direction. Control beam energy and trajectory in arcs.",
+        "SECTOR": {
+          "_expansion": {
+            "_type": "list",
+            "_instances": ["1A", "1B", "2A", "2B", "3A"],
+            "_comment": "Dipoles not present in injector (0L)"
+          },
+          "DEVICE": {
+            "_expansion": {
+              "_type": "range",
+              "_pattern": "{:02d}",
+              "_range": [1, 50]
+            },
+            ".S": {
+              "_description": "Current Setpoint (read-write): Commanded bending magnet current. Directly controls beam energy."
+            },
+            ".BDL": {
+              "_description": "Integrated Field Setpoint (read-write): Commanded bending field in Tesla-meters."
+            },
+            "M": {
+              "_description": "Current Readback (read-only): Measured bending current from DCCT."
+            },
+            ".STAT": {
+              "_description": "Status (read-only): Power supply operational status and faults."
+            }
+          }
+        }
+      },
+      "CM": {
+        "_description": "Corrector Magnets (CM): Small steering magnets for fine beam position adjustments. Dipole correctors provide small angle kicks to compensate for alignment errors and field imperfections. Used in orbit feedback systems running at 1-100 Hz.",
+        "SECTOR": {
+          "_expansion": {
+            "_type": "list",
+            "_instances": ["0L", "1A", "1B", "2A", "2B", "3A"]
+          },
+          "DEVICE": {
+            "_expansion": {
+              "_type": "range",
+              "_pattern": "{:02d}",
+              "_range": [1, 30]
+            },
+            ".S": {
+              "_description": "Current Setpoint (read-write): Commanded corrector current. Bipolar ±10A range for horizontal/vertical steering."
+            },
+            "M": {
+              "_description": "Current Readback (read-only): Measured corrector current. Updated at feedback loop rate."
+            },
+            ".STAT": {
+              "_description": "Status (read-only): Corrector power supply status."
+            }
+          }
+        }
+      }
+    },
+    "V": {
+      "_description": "Vacuum System (V): Maintains ultra-high vacuum in the beam chamber. Includes ion pumps, gauges, and control valves. Operating pressure typically 10^-9 to 10^-10 Torr for good beam lifetime.",
+      "IP": {
+        "_description": "Ion Pumps (IP): Sputter-ion vacuum pumps distributed around the ring. Maintain UHV without moving parts. High voltage (3-7 kV) ionizes and traps residual gas molecules.",
+        "SECTOR": {
+          "_expansion": {
+            "_type": "list",
+            "_instances": ["0L", "1A", "1B", "2A", "2B", "3A"]
+          },
+          "DEVICE": {
+            "_expansion": {
+              "_type": "range",
+              "_pattern": "{:02d}",
+              "_range": [1, 20]
+            },
+            ".P": {
+              "_description": "Pressure (read-only): Vacuum pressure in Torr calculated from pump current. Target <1×10^-9 Torr."
+            },
+            ".V": {
+              "_description": "High Voltage (read-only): Operating voltage of ion pump, typically 5-7 kV."
+            },
+            ".I": {
+              "_description": "Pump Current (read-only): Current proportional to pumping rate. Low current indicates good vacuum."
+            }
+          }
+        }
+      }
+    },
+    "D": {
+      "_description": "Diagnostic System (D): Beam measurement and monitoring instrumentation. Includes position monitors, current monitors, and profile monitors. Essential for beam optimization and feedback.",
+      "BP": {
+        "_description": "Beam Position Monitors (BP): Measure transverse beam position at many locations. Use pickup electrodes to detect beam image charges. Typical resolution 1-10 microns for orbit feedback.",
+        "SECTOR": {
+          "_expansion": {
+            "_type": "list",
+            "_instances": ["0L", "1A", "1B", "2A", "2B", "3A"]
+          },
+          "DEVICE": {
+            "_expansion": {
+              "_type": "range",
+              "_pattern": "{:02d}",
+              "_range": [1, 40]
+            },
+            ".X": {
+              "_description": "Horizontal Position (read-only): Beam X position in millimeters. Positive = outward from ring center."
+            },
+            ".Y": {
+              "_description": "Vertical Position (read-only): Beam Y position in millimeters. Positive = upward."
+            },
+            ".Q": {
+              "_description": "Signal Quality (read-only): BPM measurement quality indicator. 0=invalid, 1=valid data."
+            }
+          }
+        }
+      }
+    }
+  }
+}
+

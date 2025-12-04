@@ -1,0 +1,85 @@
+services:
+  # Read EPICS Container (Read-Only + Simulation)
+  jupyter-read:
+    container_name: jupyter-read
+    labels:
+      osprey.project.name: "{{ osprey_labels.project_name }}"
+      osprey.project.root: "{{ osprey_labels.project_root }}"
+      osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
+    build:
+      context: ./jupyter
+      dockerfile: Dockerfile
+    restart: "no"
+    ports:
+      - "{{services.jupyter.containers.read.port_host}}:{{services.jupyter.containers.read.port_container}}"
+    volumes:
+      - ./jupyter:/jupyter
+      - {{project_root}}/{{file_paths.agent_data_dir}}/{{file_paths.executed_python_scripts_dir}}:/home/jovyan/work/executed_scripts/
+      # Mount safe kernels only
+      - ./jupyter/python3-epics-readonly:/opt/conda/share/jupyter/kernels/python3-epics-readonly
+    environment:
+      - NOTEBOOK_DIR=/home/jovyan/work
+      - JUPYTER_ENABLE_LAB=yes
+      - PYTHONPATH=/jupyter/repo_src
+      # Development mode flag for local osprey override
+      - DEV_MODE=${DEV_MODE:-false}
+      # Point to config.yml for framework initialization
+      - CONFIG_FILE=/jupyter/config.yml
+      - PROJECT_ROOT=/jupyter
+      # Override registry_path for container execution (absolute path needed for subdirectory execution)
+      - REGISTRY_PATH=/jupyter/repo_src/{{project_name.replace('-', '_')}}/registry.py
+      - AGENT_DATA_DIR={{file_paths.agent_data_dir}}
+      # Timezone synchronization with host (from system configuration)
+      - TZ={{system.timezone}}
+      # Proxy settings (optional - uncomment if behind corporate firewall)
+      # - HTTP_PROXY=${HTTP_PROXY}
+      # - NO_PROXY=${NO_PROXY}
+      # EPICS Read Container Configuration (kernels define specific gateways)
+      - EPICS_CA_AUTO_ADDR_LIST=NO
+      - EPICS_EXECUTION_MODE=read
+    command: ["/bin/bash", "/jupyter/custom_start.sh"]
+    networks:
+      - osprey-network
+
+  # Write Access EPICS Container (DANGEROUS - DEV ONLY)
+  jupyter-write:
+    container_name: jupyter-write
+    labels:
+      osprey.project.name: "{{ osprey_labels.project_name }}"
+      osprey.project.root: "{{ osprey_labels.project_root }}"
+      osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
+    build:
+      context: ./jupyter
+      dockerfile: Dockerfile
+    restart: "no"
+    ports:
+      - "{{services.jupyter.containers.write.port_host}}:{{services.jupyter.containers.write.port_container}}"
+    volumes:
+      - ./jupyter:/jupyter
+      - {{project_root}}/{{file_paths.agent_data_dir}}/{{file_paths.executed_python_scripts_dir}}:/home/jovyan/work/executed_scripts/
+      # Mount all kernels (full flexibility in write container)
+      - ./jupyter/python3-epics-readonly:/opt/conda/share/jupyter/kernels/python3-epics-readonly
+      - ./jupyter/python3-epics-write:/opt/conda/share/jupyter/kernels/python3-epics-write
+    environment:
+      - NOTEBOOK_DIR=/home/jovyan/work
+      - JUPYTER_ENABLE_LAB=yes
+      # Development mode flag for local osprey override
+      - DEV_MODE=${DEV_MODE:-false}
+      # Point to config.yml for framework initialization
+      - CONFIG_FILE=/jupyter/config.yml
+      - PROJECT_ROOT=/jupyter
+      # Override registry_path for container execution (absolute path needed for subdirectory execution)
+      - REGISTRY_PATH=/jupyter/repo_src/{{project_name.replace('-', '_')}}/registry.py
+      - AGENT_DATA_DIR={{file_paths.agent_data_dir}}
+      # Timezone synchronization with host (from system configuration)
+      - TZ={{system.timezone}}
+      # Proxy settings (optional - uncomment if behind corporate firewall)
+      # - HTTP_PROXY=${HTTP_PROXY}
+      # - NO_PROXY=${NO_PROXY}
+      # EPICS Write Access Configuration (kernels define specific gateways)
+      - EPICS_CA_AUTO_ADDR_LIST=NO
+      - EPICS_EXECUTION_MODE=write_access
+      - EPICS_WRITE_ACCESS=development
+    command: ["/bin/bash", "/jupyter/custom_start.sh"]
+    networks:
+      - osprey-network

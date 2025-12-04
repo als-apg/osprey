@@ -1,0 +1,190 @@
+{
+  "SR Fast Correctors": {
+    "suffix": {
+      "setpoint": ":PS:SetCurrentC",
+      "setpoint readback": ":PS:SetCurrentM",
+      "current": ":PS:MeasCurrentM",
+      "DCCT output": ":DCCT:CurrentM",
+      "Output voltage": ":PS:VoltageM",
+      "Capacitor Temperature": ":PS:CapacitorTempM",
+      "Heatsink Temperature": ":PS:HeatSinkTempM",
+      "Damping Resistor Temperature": ":PS:DampResTempM",
+      "Fan 1 speed": ":PS:Fan1SpeedM",
+      "Fan 2 speed": ":PS:Fan2SpeedM",
+      "PSID": ":PS:PowerSupplyIdM",
+      "Faults": ":PS:FaultStatusM",
+      "OnOffStatus": ":PS:OnOffStatusM"
+    },
+    "Sector ${sector} fast correctors": [
+      { "channel": "Fast H corrector", "address_template": "S${sector}A:FH1", "description": "Fast H corrector", "tags": ["FH1", "SR FH1", "Fast H"] },
+      { "channel": "Fast H corrector", "address_template": "S${sector}A:FH2", "description": "Fast H corrector", "tags": ["FH2", "SR FH2", "Fast H"] },
+      { "channel": "Fast H corrector", "address_template": "S${sector}B:FH1", "description": "Fast H corrector", "tags": ["FH1", "SR FH1", "Fast H"] },
+      { "channel": "Fast H corrector", "address_template": "S${sector}B:FH2", "description": "Fast H corrector", "tags": ["FH2", "SR FH2", "Fast H"] },
+      { "channel": "Fast V corrector", "address_template": "S${sector}A:FV1", "description": "Fast V corrector", "tags": ["FV1", "SR FV1", "Fast V"] },
+      { "channel": "Fast V corrector", "address_template": "S${sector}A:FV2", "description": "Fast V corrector", "tags": ["FV2", "SR FV2", "Fast V"] },
+      { "channel": "Fast V corrector", "address_template": "S${sector}B:FV1", "description": "Fast V corrector", "tags": ["FV1", "SR FV1", "Fast V"] },
+      { "channel": "Fast V corrector", "address_template": "S${sector}B:FV2", "description": "Fast V corrector", "tags": ["FV2", "SR FV2", "Fast V"] }
+    ]
+  },
+  "SR Correctors": {
+    "suffix": {
+      "setpoint": ":PS:SetCurrentC",
+      "setpoint readback": ":PS:SetCurrentM",
+      "current": ":PS:MeasCurrentM",
+      "DCCT output": ":DCCT:CurrentM",
+      "Output voltage": ":PS:VoltageM",
+      "Capacitor Temperature": ":PS:CapacitorTempM",
+      "Heatsink Temperature": ":PS:HeatSinkTempM",
+      "Damping Resistor Temperature": ":PS:DampResTempM",
+      "Fan 1 speed": ":PS:Fan1SpeedM",
+      "Fan 2 speed": ":PS:Fan2SpeedM",
+      "PSID": ":PS:PowerSupplyIdM",
+      "Faults": ":PS:FaultStatusM",
+      "OnOffStatus": ":PS:OnOffStatusM"
+    },
+    "Sector ${sector} correctors": [
+      { "channel": "H corrector", "address_template": "S${sector}A:H1", "description": "H corrector", "tags": ["AH1", "SR AH1", "SR H"] },
+      { "channel": "H corrector", "address_template": "S${sector}A:H7", "description": "H corrector", "tags": ["AH7", "SR AH7", "SR H"] },
+      { "channel": "H corrector", "address_template": "S${sector}B:H1", "description": "H corrector", "tags": ["BH1", "SR BH1", "SR H"] },
+      { "channel": "H corrector", "address_template": "S${sector}B:H7", "description": "H corrector", "tags": ["BH7", "SR BH7", "SR H"] },
+      { "channel": "V corrector", "address_template": "S${sector}A:V1", "description": "V corrector", "tags": ["BV1", "SR BV1", "SR V"] },
+      { "channel": "V corrector", "address_template": "S${sector}A:V7", "description": "V corrector", "tags": ["BV7", "SR BV7", "SR V"] },
+      { "channel": "V corrector", "address_template": "S${sector}B:V1", "description": "V corrector", "tags": ["BV1", "SR BV1", "SR V"] },
+      { "channel": "V corrector", "address_template": "S${sector}B:V7", "description": "V corrector", "tags": ["BV7", "SR BV7", "SR V"] },
+      { "channel": "H corrector", "address_template": "S${sector}C:H2", "description": "H corrector", "sectors": [2, 3, 4, 6, 8, 11, 12, 13, 14, 15, 16, 19, 21, 22, 23, 24, 25, 26, 27, 28, 30, 31, 32, 34, 35], "tags": ["H2", "SR H2", "C:H2"] }
+    ]
+  },
+  "SR Skew Quadrupoles": {
+    "suffix": {
+      "setpoint": ":PS:SetCurrentC",
+      "setpoint readback": ":PS:SetCurrentM",
+      "current": ":PS:MeasCurrentM",
+      "DCCT output": ":DCCT:CurrentM",
+      "Output voltage": ":PS:VoltageM",
+      "Capacitor Temperature": ":PS:CapacitorTempM",
+      "Heatsink Temperature": ":PS:HeatSinkTempM",
+      "Damping Resistor Temperature": ":PS:DampResTempM",
+      "Fan 1 speed": ":PS:Fan1SpeedM",
+      "Fan 2 speed": ":PS:Fan2SpeedM",
+      "PSID": ":PS:PowerSupplyIdM",
+      "Faults": ":PS:FaultStatusM",
+      "OnOffStatus": ":PS:OnOffStatusM"
+    },
+    "Sector ${sector} skew quadrupoles": [
+      { "channel": "Skew quadrupole", "address_template": "S${sector}A:SQ1", "description": "Skew quadrupole", "tags": ["SQ1", "SR SQ1"] },
+      { "channel": "Skew quadrupole", "address_template": "S${sector}A:SQ2", "description": "Skew quadrupole", "tags": ["SQ2", "SR SQ2"] },
+      { "channel": "Skew quadrupole", "address_template": "S${sector}B:SQ1", "description": "Skew quadrupole", "tags": ["SQ1", "SR SQ1"] },
+      { "channel": "Skew quadrupole", "address_template": "S${sector}B:SQ2", "description": "Skew quadrupole", "tags": ["SQ2", "SR SQ2"] }
+    ]
+  },
+  "SR Quadrupoles": {
+    "suffix": {
+      "setpoint": ":PS:SetCurrentC",
+      "current": ":PS:MeasCurrentM",
+      "DCCT output": ":DCCT:CurrentM",
+      "Output voltage": ":PS:VoltageM",
+      "Capacitor Temperature": ":PS:CapacitorTempM",
+      "Buck Temperature": ":PS:BuckTempM",
+      "Magnet Temperature": ":TemperatureM",
+      "Faults": ":PS:FaultStatusM",
+      "OnOffStatus": ":PS:OnOffM"
+    },
+    "Sector ${sector} quadrupoles": [
+      { "channel": "A Q1", "address_template": "S${sector}A:Q1", "description": "A Q1", "tags": ["AQ1", "SR AQ1"] },
+      { "channel": "A Q2", "address_template": "S${sector}A:Q2", "description": "A Q2", "tags": ["AQ2", "SR AQ2"] },
+      { "channel": "A Q3", "address_template": "S${sector}A:Q3", "description": "A Q3", "tags": ["AQ3", "SR AQ3"] },
+      { "channel": "A Q6", "address_template": "S${sector}A:Q6", "description": "A Q6", "tags": ["AQ6", "SR AQ6"] },
+      { "channel": "A Q7", "address_template": "S${sector}A:Q7", "description": "A Q7", "tags": ["AQ7", "SR AQ7"] },
+      { "channel": "B Q1", "address_template": "S${sector}B:Q1", "description": "A Q1", "tags": ["BQ1", "SR BQ1"] },
+      { "channel": "B Q2", "address_template": "S${sector}B:Q2", "description": "B Q2", "tags": ["BQ2", "SR BQ2"] },
+      { "channel": "B Q3", "address_template": "S${sector}B:Q3", "description": "B Q3", "tags": ["BQ3", "SR BQ3"] },
+      { "channel": "B Q6", "address_template": "S${sector}B:Q6", "description": "B Q6", "tags": ["BQ6", "SR BQ6"] },
+      { "channel": "B Q7", "address_template": "S${sector}A:Q7", "description": "B Q7", "tags": ["BQ7", "SR BQ7"] }
+    ]
+  },
+  "SR Sextupoles": {
+    "suffix": {
+      "setpoint": ":PS:SetCurrentC",
+      "current": ":PS:MeasCurrentM",
+      "DCCT output": ":DCCT:CurrentM",
+      "Output voltage": ":PS:VoltageM",
+      "Capacitor Temperature": ":PS:CapacitorTempM",
+      "Buck Temperature": ":PS:BuckTempM",
+      "Magnet Temperature": ":TemperatureM",
+      "Faults": ":PS:FaultStatusM",
+      "OnOffStatus": ":PS:OnOffM"
+    },
+    "Sector ${sector} sextupoles": [
+      { "channel": "A S1", "address_template": "S${sector}A:S1", "description": "A S1", "tags": ["S1", "SR S1"] },
+      { "channel": "A S2", "address_template": "S${sector}A:S2", "description": "A S2", "tags": ["S2", "SR S2"] },
+      { "channel": "A S3", "address_template": "S${sector}A:S3", "description": "A S3", "tags": ["S3", "SR S3"] },
+      { "channel": "B S3", "address_template": "S${sector}B:S3", "description": "B S3", "tags": ["S3", "SR S3"] },
+      { "channel": "B S2", "address_template": "S${sector}B:S2", "description": "B S2", "tags": ["S2", "SR S2"] },
+      { "channel": "B S1", "address_template": "S${sector}B:S1", "description": "B S1", "tags": ["S1", "SR S1"] }
+    ]
+  },
+  "SR Dipoles": {
+    "suffix": {
+      "setpoint": ":PS:SetCurrentC",
+      "setpoint readback": ":PS:SetCurrentM",
+      "current": ":PS:MeasCurrentM",
+      "DCCT output": ":DCCT:CurrentM",
+      "Output voltage": ":PS:VoltageM",
+      "Capacitor Temperature": ":PS:CapacitorTempM",
+      "Heatsink Temperature": ":PS:HeatSinkTempM",
+      "Damping Resistor Temperature": ":PS:DampResTempM",
+      "Fan 1 speed": ":PS:Fan1SpeedM",
+      "Fan 2 speed": ":PS:Fan2SpeedM",
+      "PSID": ":PS:PowerSupplyIdM",
+      "Faults": ":PS:FaultStatusM",
+      "OnOffStatus": ":PS:OnOffStatusM"
+    },
+    "Sector ${sector} dipoles": [
+      { "channel": "Dipole", "address_template": "S${sector}A:M3", "description": "Dipole", "tags": ["M3", "SR M3"] },
+      { "channel": "Dipole", "address_template": "S${sector}A:M4", "description": "Dipole", "tags": ["M4", "SR M4"] },
+      { "channel": "Dipole", "address_template": "S${sector}A:Q4", "description": "Dipole", "tags": ["Q4", "SR Q4"] },
+      { "channel": "Dipole", "address_template": "S${sector}A:Q5", "description": "Dipole", "tags": ["Q5", "SR Q5"] },
+      { "channel": "Dipole", "address_template": "S${sector}A:Q8", "description": "Dipole", "tags": ["Q8", "SR Q8"] },
+      { "channel": "Dipole", "address_template": "S${sector}B:Q8", "description": "Dipole", "tags": ["Q8", "SR Q8"] },
+      { "channel": "Dipole", "address_template": "S${sector}B:Q5", "description": "Dipole", "tags": ["Q5", "SR Q5"] },
+      { "channel": "Dipole", "address_template": "S${sector}B:Q4", "description": "Dipole", "tags": ["Q4", "SR Q4"] },
+      { "channel": "Dipole", "address_template": "S${sector}B:M3", "description": "Dipole", "tags": ["M3", "SR M3"] },
+      {
+        "channel": "Dipole",
+        "address_template": "S${sector}C:M1",
+        "description": "Dipole",
+        "sectors": [2, 6, 11, 12, 13, 21, 22, 23, 24, 25, 28, 31, 32, 34],
+        "tags": ["M1", "SR M1"]
+      }
+    ]
+  },
+  "SR Dipole Trim": {
+    "suffix": {
+      "setpoint": ":PS:SetCurrentC",
+      "setpoint readback": ":PS:SetCurrentM",
+      "current": ":PS:MeasCurrentM",
+      "DCCT output": ":DCCT:CurrentM",
+      "Output voltage": ":PS:VoltageM",
+      "Capacitor Temperature": ":PS:CapacitorTempM",
+      "Heatsink Temperature": ":PS:HeatSinkTempM",
+      "Damping Resistor Temperature": ":PS:DampResTempM",
+      "Fan 1 speed": ":PS:Fan1SpeedM",
+      "Fan 2 speed": ":PS:Fan2SpeedM",
+      "PSID": ":PS:PowerSupplyIdM",
+      "Faults": ":PS:FaultStatusM",
+      "OnOffStatus": ":PS:OnOffStatusM"
+    },
+    "Sector ${sector} dipole trim": [
+      { "channel": "Dipole trim", "address_template": "S${sector}A:M3T", "description": "Dipole trim", "tags": ["M3T", "SR M3T"] },
+      { "channel": "Dipole trim", "address_template": "S${sector}A:M4T", "description": "Dipole trim", "tags": ["M4T", "SR M4T"] },
+      { "channel": "Dipole trim", "address_template": "S${sector}A:Q4T", "description": "Dipole trim", "tags": ["Q4T", "SR Q4T"] },
+      { "channel": "Dipole trim", "address_template": "S${sector}A:Q5T", "description": "Dipole trim", "tags": ["Q5T", "SR Q5T"] },
+      { "channel": "Dipole trim", "address_template": "S${sector}A:Q8T", "description": "Dipole trim", "tags": ["Q8T", "SR Q8T"] },
+      { "channel": "Dipole trim", "address_template": "S${sector}B:Q8T", "description": "Dipole trim", "tags": ["Q8T", "SR Q8T"] },
+      { "channel": "Dipole trim", "address_template": "S${sector}B:Q5T", "description": "Dipole trim", "tags": ["Q5T", "SR Q5T"] },
+      { "channel": "Dipole trim", "address_template": "S${sector}B:Q4T", "description": "Dipole trim", "tags": ["Q4T", "SR Q4T"] },
+      { "channel": "Dipole trim", "address_template": "S${sector}B:M4T", "description": "Dipole trim", "tags": ["M4T", "SR M4T"] },
+      { "channel": "Dipole trim", "address_template": "S${sector}B:M3T", "description": "Dipole trim", "tags": ["M3T", "SR M3T"] }
+    ]
+  }
+}

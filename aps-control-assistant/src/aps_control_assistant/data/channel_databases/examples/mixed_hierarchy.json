@@ -1,0 +1,105 @@
+{
+  "_comment": "Example: Mixed Hierarchy Pattern - Complex facility with variable subtree structures. Pattern: SECTOR[instances] → BUILDING[tree] → FLOOR[instances] → ROOM[instances] → EQUIPMENT[tree]. Key feature: Different buildings have different numbers of floors/rooms - demonstrates flexible subtree structures.",
+  "hierarchy": {
+    "levels": [
+      {"name": "sector", "type": "instances"},
+      {"name": "building", "type": "tree"},
+      {"name": "floor", "type": "instances"},
+      {"name": "room", "type": "instances"},
+      {"name": "equipment", "type": "tree"}
+    ],
+    "naming_pattern": "S{sector}:{building}:F{floor}:R{room}:{equipment}"
+  },
+
+  "tree": {
+    "SECTOR": {
+      "_expansion": {
+        "_type": "range",
+        "_pattern": "{:02d}",
+        "_range": [1, 4],
+        "_comment": "4 sectors: 01, 02, 03, 04"
+      },
+      "MAIN_BUILDING": {
+        "_description": "Main office building - 5 floors, 20 rooms per floor",
+        "FLOOR": {
+          "_expansion": {
+            "_type": "range",
+            "_pattern": "{}",
+            "_range": [1, 5]
+          },
+          "ROOM": {
+            "_expansion": {
+              "_type": "range",
+              "_pattern": "{:03d}",
+              "_range": [101, 120],
+              "_comment": "Rooms 101-120 on each floor"
+            },
+            "HVAC": {
+              "_description": "Heating, Ventilation, Air Conditioning control"
+            },
+            "LIGHTING": {
+              "_description": "Lighting control and monitoring"
+            },
+            "OCCUPANCY": {
+              "_description": "Occupancy sensors and status"
+            }
+          }
+        }
+      },
+      "ANNEX": {
+        "_description": "Annex building - 3 floors, 15 rooms per floor",
+        "FLOOR": {
+          "_expansion": {
+            "_type": "range",
+            "_pattern": "{}",
+            "_range": [1, 3]
+          },
+          "ROOM": {
+            "_expansion": {
+              "_type": "range",
+              "_pattern": "{:03d}",
+              "_range": [201, 215],
+              "_comment": "Rooms 201-215 on each floor"
+            },
+            "HVAC": {
+              "_description": "Climate control systems"
+            },
+            "LIGHTING": {
+              "_description": "Lighting systems"
+            }
+          }
+        }
+      },
+      "LAB": {
+        "_description": "Laboratory building - 2 floors with specialized equipment",
+        "FLOOR": {
+          "_expansion": {
+            "_type": "range",
+            "_pattern": "{}",
+            "_range": [1, 2]
+          },
+          "ROOM": {
+            "_expansion": {
+              "_type": "list",
+              "_instances": ["LAB_A", "LAB_B", "LAB_C", "LAB_D", "CLEAN_ROOM"],
+              "_comment": "Named labs instead of numbered rooms"
+            },
+            "HVAC": {
+              "_description": "Precision climate control"
+            },
+            "LIGHTING": {
+              "_description": "Specialized lighting"
+            },
+            "FUME_HOOD": {
+              "_description": "Fume hood exhaust control (lab rooms only)"
+            },
+            "PRESSURE": {
+              "_description": "Room pressure differential"
+            }
+          }
+        }
+      }
+    }
+  }
+}
+

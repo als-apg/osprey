@@ -1,0 +1,8 @@
+# Project Dependencies for aps-control-assistant
+# Add your application-specific dependencies here
+
+# Framework dependency with scientific computing support
+# Includes: numpy, pandas, scipy, matplotlib, scikit-learn
+osprey-framework[scientific]>=0.9.5
+
+

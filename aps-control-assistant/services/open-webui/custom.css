@@ -1,0 +1,58 @@
+/* Open WebUI Custom Styling - Hide Continue and Regenerate Buttons */
+
+/* Hide Continue response button */
+button[title*="Continue"],
+button[aria-label*="Continue"],
+button:has-text("Continue response"),
+.continue-response-button,
+[data-testid="continue-button"] {
+    display: none !important;
+}
+
+/* Hide Regenerate button */
+button[title*="Regenerate"],
+button[aria-label*="Regenerate"], 
+button:has-text("Regenerate"),
+.regenerate-button,
+[data-testid="regenerate-button"] {
+    display: none !important;
+}
+
+/* Target buttons by text content using more specific selectors */
+button[class*="btn"]:has-text("Continue response"),
+button[class*="btn"]:has-text("Regenerate"),
+button[class*="button"]:has-text("Continue response"),
+button[class*="button"]:has-text("Regenerate") {
+    display: none !important;
+}
+
+/* Hide buttons in message action areas */
+.message-actions button:has-text("Continue"),
+.message-actions button:has-text("Regenerate"),
+.chat-message-actions button:has-text("Continue"),
+.chat-message-actions button:has-text("Regenerate") {
+    display: none !important;
+}
+
+/* Alternative approach - target by common class patterns */
+button[class*="continue"],
+button[class*="regenerate"] {
+    display: none !important;
+}
+
+/* Fallback - hide buttons containing specific text anywhere */
+button:contains("Continue response"),
+button:contains("Regenerate") {
+    display: none !important;
+}
+
+/* More aggressive approach if needed - target specific button positions */
+/* Uncomment these if the above doesn't work and you know the button positions */
+/*
+.chat-actions button:nth-child(1),
+.chat-actions button:nth-child(2),
+.message-toolbar button:nth-child(1),
+.message-toolbar button:nth-child(2) {
+    display: none !important;
+}
+*/ 

@@ -1,0 +1,29 @@
+address,description,family_name,instances,sub_channel
+# === STANDALONE CHANNELS (no templating) ===
+# Use for unique channels that don't belong to a device family
+# Just fill in address and description, leave family_name/instances/sub_channel empty
+BeamCurrent,Total electron beam current measured in milliamps,,,
+VacuumPressure,Main beamline vacuum pressure in Torr,,,
+RFFrequency,Radio frequency cavity frequency in MHz,,,
+# === DEVICE FAMILY TEMPLATES (Simple) ===
+# Use for device families with multiple instances
+# Pattern: {instance:02d} will be replaced with 01, 02, 03, etc.
+# Pattern: {sub_channel} will be replaced with the sub_channel value from this row
+# All rows with same family_name will be grouped into one template
+BPM{instance:02d}{sub_channel},Horizontal position reading from BPM {instance} in millimeters,BPM,10,XPosition
+BPM{instance:02d}{sub_channel},Vertical position reading from BPM {instance} in millimeters,BPM,10,YPosition
+# === DEVICE FAMILY TEMPLATES (With Control + Readback) ===
+# Common pattern for devices with setpoint and readback
+Valve{instance:02d}{sub_channel},Valve {instance} position command (0=closed 1=open),Valve,8,SetPoint
+Valve{instance:02d}{sub_channel},Valve {instance} actual position (0=closed 1=open),Valve,8,ReadBack
+# === DEVICE FAMILY TEMPLATES (Single Sub-channel) ===
+# Use when devices only have one channel per instance
+PowerSupply{instance:02d}{sub_channel},Output voltage of power supply {instance} in Volts,PowerSupply,3,Voltage
+# === DEVICE FAMILY TEMPLATES (Multi-Axis) ===
+# For multi-axis devices, just name your sub-channels explicitly (XSetPoint, YSetPoint, etc.)
+# No automatic axis detection - keep it simple!
+Corrector{instance:02d}{sub_channel},Horizontal corrector {instance} setpoint current in Amps,Corrector,5,XSetPoint
+Corrector{instance:02d}{sub_channel},Horizontal corrector {instance} readback current in Amps,Corrector,5,XReadBack
+Corrector{instance:02d}{sub_channel},Vertical corrector {instance} setpoint current in Amps,Corrector,5,YSetPoint
+Corrector{instance:02d}{sub_channel},Vertical corrector {instance} readback current in Amps,Corrector,5,YReadBack
+

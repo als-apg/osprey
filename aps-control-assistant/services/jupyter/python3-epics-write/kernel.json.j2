@@ -1,0 +1,21 @@
+{
+ "argv": [
+  "python",
+  "-m",
+  "ipykernel_launcher",
+  "-f",
+  "{connection_file}"
+ ],
+ "display_name": "⚠️  Write Access - DEV ONLY (Python 3.11)",
+ "language": "python",
+ "env": {
+   "EPICS_CA_AUTO_ADDR_LIST": "{{execution.modes.write_access.environment.EPICS_CA_AUTO_ADDR_LIST}}",
+   "EPICS_CA_ADDR_LIST": "{{execution.epics.gateways.write_access.address}}",
+   "EPICS_CA_SERVER_PORT": "{{execution.epics.gateways.write_access.port}}",
+   "EPICS_EXECUTION_MODE": "{{execution.modes.write_access.environment.EPICS_EXECUTION_MODE}}",
+   "PYTHONPATH": ""
+ },
+ "metadata": {
+  "debugger": true
+ }
+}
