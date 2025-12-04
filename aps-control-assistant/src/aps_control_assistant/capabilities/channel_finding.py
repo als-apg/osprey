@@ -188,11 +188,7 @@ class ChannelFindingCapability(BaseCapability):
                 result = await service.find_channels(search_query)
 
             except Exception as e:
-                logger.warning(
-                    "Channel finder service unavailable for query '%s': %s. Using PV catalog only.",
-                    search_query,
-                    e,
-                )
+                logger.warning(f"Channel finder service unavailable for query '{search_query}': {e}. Using PV catalog only.")
                 result = None
                 channel_list = []
                 description = ""

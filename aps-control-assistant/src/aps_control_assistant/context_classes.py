@@ -203,18 +203,37 @@ class ArchiverDataContext(CapabilityContext):
                     "time_range": {
                         "start": self.timestamps[0] if self.timestamps else None,
                         "end": self.timestamps[-1] if self.timestamps else None
-                    },
-                    "downsampling_info": f"Showing {len(sample_indices)} sample points out of {total_points} total points"
+                    }
                 },
-                "channel_data": channel_summary,
-                "IMPORTANT_NOTE": "Use this only for understanding data structure. For analysis results, request ANALYSIS_RESULTS context."
+                "sampled_channels": channel_summary
             }
-
         except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Error downsampling archiver data: {e}")
             return {
                 "ERROR": f"Failed to downsample archiver data: {str(e)}",
                 "WARNING": "Could not process archiver data - use ANALYSIS_RESULTS instead"
             }
+
+class PlotImageContext(CapabilityContext):
+    """
+    Context for generated plots (PNG images) with optional description.
+    """
+    CONTEXT_TYPE: ClassVar[str] = "PLOT_IMAGE"
+    CONTEXT_CATEGORY: ClassVar[str] = "COMPUTATIONAL_DATA"
+
+    path: str
+    description: str
+
+    def get_access_details(self, key: str) -> Dict[str, Any]:
+        return {
+            "path": self.path,
+            "description": self.description,
+            "data_structure": "Path to PNG plot image plus description",
+            "access_pattern": f"context.{self.CONTEXT_TYPE}.{key}.path",
+        }
+
+    def get_summary(self) -> Dict[str, Any]:
+        return {
+            "type": "Plot Image",
+            "path": self.path,
+            "description": self.description,
+        }

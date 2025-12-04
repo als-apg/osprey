@@ -51,6 +51,7 @@ models:
   python_code_generator:
     provider: argo
     model_id: gpt41
+    max_tokens: 4096
   time_parsing:
     provider: argo
     model_id: gpt41
@@ -67,7 +68,6 @@ api:
       base_url: https://api.cborg.lbl.gov/v1
     argo:
       api_key: ${ARGO_API_KEY}
-      #base_url: https://argo-bridge.cels.anl.gov
       base_url: http://localhost:61817/v1
     openai:
       api_key: ${OPENAI_API_KEY}

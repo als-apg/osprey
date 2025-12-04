@@ -52,6 +52,14 @@ class ApsControlAssistantRegistryProvider(RegistryConfigProvider):
                     provides=["ARCHIVER_DATA"],
                     requires=["CHANNEL_ADDRESSES", "TIME_RANGE"]
                 ),
+                CapabilityRegistration(
+                    name="archiver_plotting",
+                    module_path="aps_control_assistant.capabilities.archiver_plotting",
+                    class_name="ArchiverPlottingCapability",
+                    description="Plot archiver data to PNG and CSV outputs",
+                    provides=["PLOT_IMAGE"],
+                    requires=["ARCHIVER_DATA"]
+                ),
             ],
             context_classes=[
                 ContextClassRegistration(
@@ -69,6 +77,10 @@ class ApsControlAssistantRegistryProvider(RegistryConfigProvider):
                     module_path="aps_control_assistant.context_classes",
                     class_name="ArchiverDataContext"
                 ),
+                ContextClassRegistration(
+                    context_type="PLOT_IMAGE",
+                    module_path="aps_control_assistant.context_classes",
+                    class_name="PlotImageContext"
+                ),
             ]
         )
-

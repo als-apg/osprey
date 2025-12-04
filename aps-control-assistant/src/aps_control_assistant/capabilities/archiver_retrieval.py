@@ -10,22 +10,21 @@ Configuration:
     The archiver connector is configured in config.yml. By default, the template
     uses the mock archiver connector which works with any channel names.
 
-    Development Mode (config.yml):
-        archiver:
-            type: mock_archiver
-            # Mock uses sensible defaults - no config needed!
-
     Production Mode (config.yml):
         archiver:
             type: epics_archiver
             epics_archiver:
-                url: https://archiver.your-facility.edu:8443
+                url: https://pvarchiver.aps.anl.gov   # optionally include /retrieval
                 timeout: 60
+                verify_ssl: false
 
     The capability code remains the same - just change the config!
 """
 
+import asyncio
 import textwrap
+from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from osprey.base.capability import BaseCapability
@@ -39,9 +38,10 @@ from osprey.base.examples import (
     TaskClassifierGuide,
 )
 from osprey.base.planning import PlannedStep
-from osprey.connectors.factory import ConnectorFactory
+from osprey.utils.config import _get_config
 
 from ..context_classes import ArchiverDataContext
+from .aps_archiver import ArchiverRequestError, fetch_archiver_history
 
 
 
@@ -133,37 +133,84 @@ class ArchiverRetrievalCapability(BaseCapability):
             params = self.get_parameters()
             precision_ms = params.get('precision_ms', 1000)
 
-            # Create archiver connector from configuration
-            # This will use 'mock_archiver' for development or 'epics_archiver' for production
-            # based on the 'archiver' section in config.yml
-            connector = await ConnectorFactory.create_archiver_connector()
+            config_builder = _get_config()
+            archiver_cfg = config_builder.get('archiver', {}) or {}
+            epics_cfg = archiver_cfg.get('epics_archiver', {}) if isinstance(archiver_cfg, dict) else {}
+            base_url = epics_cfg.get('url') or "http://pvarchiver.aps.anl.gov:17668/retrieval"
+            timeout = epics_cfg.get('timeout', 60)
+            verify_ssl = epics_cfg.get('verify_ssl', False)
+            local_tz = archiver_cfg.get('local_timezone', "America/Chicago")
 
+            # Retrieve the data from archiver (returns pandas DataFrame)
             try:
-                # Retrieve the data from archiver (returns pandas DataFrame)
-                archiver_df = await connector.get_data(
-                    pv_list=channels_to_retrieve,
-                    start_date=time_range_context.start_date,
-                    end_date=time_range_context.end_date,
-                    precision_ms=precision_ms
+                archiver_df = await asyncio.to_thread(
+                    fetch_archiver_history,
+                    channels_to_retrieve,
+                    time_range_context.start_date,
+                    time_range_context.end_date,
+                    base_url,
+                    timeout,
+                    verify_ssl,
+                    local_tz,
                 )
+            except ArchiverRequestError as exc:
+                raise ArchiverConnectionError(str(exc)) from exc
 
-                logger.status("Converting archiver data to structured format...")
+            if archiver_df.empty:
+                raise ArchiverDataError("Archiver returned no data for the requested time range.")
 
-                # Extract timestamps from DataFrame index
-                timestamps = [ts.to_pydatetime() for ts in archiver_df.index]
+            logger.status("Converting archiver data to structured format...")
 
-                # Extract time series data for each channel
-                time_series_data = {
-                    channel: archiver_df[channel].tolist()
-                    for channel in channels_to_retrieve
-                    if channel in archiver_df.columns
-                }
+            # Extract timestamps from DataFrame index
+            timestamps = [ts.to_pydatetime() for ts in archiver_df.index]
 
-                logger.debug(f"Retrieved archiver data with {len(timestamps)} timestamps and {len(time_series_data)} channels")
+            # Extract time series data for each channel
+            time_series_data = {
+                channel: archiver_df[channel].tolist()
+                for channel in channels_to_retrieve
+                if channel in archiver_df.columns
+            }
 
-            finally:
-                # Always disconnect connector
-                await connector.disconnect()
+            # Optional: persist CSV and plot to disk for downstream use
+            save_outputs = params.get("save_outputs", True)
+            output_dir_param = params.get("output_dir")
+            if save_outputs:
+                project_root = Path(config_builder.get("project_root"))
+                timestamp_label = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+                output_dir = Path(output_dir_param) if output_dir_param else project_root / "build" / "archiver_outputs" / timestamp_label
+                output_dir.mkdir(parents=True, exist_ok=True)
+
+                csv_path = output_dir / "archiver_data.csv"
+                try:
+                    archiver_df.to_csv(csv_path)
+                    logger.info(f"Saved archiver data CSV to {csv_path}")
+                except Exception as exc:
+                    logger.warning(f"Failed to write archiver CSV: {exc}")
+
+                # Attempt to plot using matplotlib if available
+                try:
+                    import matplotlib.pyplot as plt  # type: ignore
+
+                    plt.figure(figsize=(10, 5))
+                    for channel in channels_to_retrieve:
+                        if channel in archiver_df.columns:
+                            plt.plot(archiver_df.index, archiver_df[channel], label=channel)
+
+                    plt.xlabel("Time (UTC)")
+                    plt.ylabel("Value")
+                    plt.title("Archiver Data")
+                    plt.legend()
+                    plt.grid(True)
+                    plt.tight_layout()
+
+                    plot_path = output_dir / "archiver_plot.png"
+                    plt.savefig(plot_path, dpi=150)
+                    plt.close()
+                    logger.info(f"Saved archiver plot to {plot_path}")
+                except Exception as exc:
+                    logger.warning(f"Failed to generate archiver plot: {exc}")
+
+            logger.debug(f"Retrieved archiver data with {len(timestamps)} timestamps and {len(time_series_data)} channels")
 
             logger.status("Creating archiver data context...")
 
