@@ -49,26 +49,32 @@ Footer {
     border: tall $primary;
 }
 
-/* Command autocomplete dropdown */
+/* Command autocomplete dropdown - floats above content */
+/* Styled to match Textual's CommandPalette */
 #command-dropdown {
-    width: 100%;
+    width: 1fr;
     max-height: 12;
-    margin: 0 2;
-    padding: 0 1;
+    margin: 0 2 7 2;
+    padding: 0;
     background: $surface;
-    border: tall $primary;
+    border: tall $background;
+    overlay: screen;
+    constrain: none inside;
 }
 
 #command-dropdown:focus {
-    border: tall $primary;
+    border: tall $input-selection-background;
 }
 
 #command-dropdown > .option-list--option {
-    padding: 0 1;
+    padding: 0 2;
+    color: $foreground;
+    # text-style: bold;
 }
 
 #command-dropdown > .option-list--option-highlighted {
-    background: $primary-muted;
+    color: $block-cursor-blurred-foreground;
+    background: $block-cursor-blurred-background;
 }
 
 /* Status panel - tips and shortcuts */
