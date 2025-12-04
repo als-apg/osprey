@@ -162,7 +162,7 @@ OrchestrationBlock,
 ExecutionStepBlock {
     width: 100%;
     height: auto;
-    margin: 1 0 0 0;
+    margin: 0 0 1 0;
     padding: 0 2;
     border: tall $surface-lighten-1;
     background: transparent;  /* Subtle - blends in, highlight on select */
