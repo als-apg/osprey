@@ -18,7 +18,8 @@ from textual.app import App, ComposeResult
 from textual.containers import ScrollableContainer, Vertical
 from textual.events import Key
 from textual.message import Message
-from textual.widgets import Collapsible, Footer, Header, Markdown, Static, TextArea
+from textual.widgets import Collapsible, Footer, Header, Markdown, OptionList, Static, TextArea
+from textual.widgets.option_list import Option
 
 from osprey.graph import create_graph
 from osprey.infrastructure.gateway import Gateway
@@ -912,9 +913,108 @@ class ChatInput(TextArea):
             self._history_index = -1
             self._expected_text = ""
 
+        # Update command dropdown
+        self._update_command_dropdown()
+
+    def _get_dropdown(self) -> "CommandDropdown | None":
+        """Get the command dropdown widget."""
+        try:
+            return self.app.query_one("#command-dropdown", CommandDropdown)
+        except Exception:
+            return None
+
+    def _update_command_dropdown(self) -> None:
+        """Show/hide command dropdown based on current text."""
+        dropdown = self._get_dropdown()
+        if not dropdown:
+            return
+
+        text = self.text.strip()
+        if text.startswith("/") and "\n" not in text:
+            # Show dropdown with matching commands
+            dropdown.show_matches(text)
+        else:
+            # Hide dropdown
+            dropdown.hide()
+            # Reset status panel when dropdown hides
+            self._reset_status_panel()
+
+    def _get_status_panel(self) -> "StatusPanel | None":
+        """Get the status panel widget."""
+        try:
+            return self.app.query_one("#status-panel", StatusPanel)
+        except Exception:
+            return None
+
+    def _show_options_hint(self, options: list[str]) -> None:
+        """Show options hint in the status panel.
+
+        Args:
+            options: List of available options.
+        """
+        status = self._get_status_panel()
+        if status:
+            options_str = ", ".join(options)
+            status.update(f"Options: {options_str}")
+
+    def _reset_status_panel(self) -> None:
+        """Reset status panel to default tips."""
+        status = self._get_status_panel()
+        if status:
+            status.update("Enter to send · Option + Enter for newline · ↑↓ for history")
+
     def _on_key(self, event: Key) -> None:
         """Handle key events - Enter submits, Option+Enter for newline."""
+        dropdown = self._get_dropdown()
+        dropdown_visible = dropdown and dropdown.is_visible
+
+        # Handle Escape - hide dropdown
+        if event.key == "escape" and dropdown_visible:
+            event.prevent_default()
+            event.stop()
+            dropdown.hide()
+            self._reset_status_panel()
+            return
+
+        # Handle Tab - select from dropdown if visible
+        if event.key == "tab" and dropdown_visible:
+            event.prevent_default()
+            event.stop()
+            command, is_complete = dropdown.select_highlighted()
+            if command:
+                if is_complete:
+                    # Complete command - just insert it
+                    self.text = command
+                    self.move_cursor(self.document.end)
+                else:
+                    # Incomplete command - show with colon for options
+                    self.text = command + ":"
+                    self.move_cursor(self.document.end)
+                    # Update status panel to show options hint
+                    self._show_options_hint(dropdown._pending_options)
+            return
+
         if event.key == "enter":
+            # If dropdown visible, handle selection
+            if dropdown_visible:
+                event.prevent_default()
+                event.stop()
+                command, is_complete = dropdown.select_highlighted()
+                if command:
+                    if is_complete:
+                        # Complete command - execute immediately
+                        self._history_index = -1
+                        self._current_input = ""
+                        self.post_message(self.Submitted(command, is_command=True))
+                        self.clear()
+                    else:
+                        # Incomplete command - show with colon for options
+                        self.text = command + ":"
+                        self.move_cursor(self.document.end)
+                        # Update status panel to show options hint
+                        self._show_options_hint(dropdown._pending_options)
+                return
+
             # Enter = submit
             event.prevent_default()
             event.stop()
@@ -968,8 +1068,15 @@ class ChatInput(TextArea):
             event.stop()
             self.move_cursor(self.document.end)
             return
-        # History navigation (Up/Down arrows) - only when on first/last line
+        # History/dropdown navigation (Up/Down arrows)
         elif event.key == "up":
+            # If dropdown visible, navigate dropdown
+            if dropdown_visible:
+                event.prevent_default()
+                event.stop()
+                dropdown.move_highlight_up()
+                return
+
             row, _ = self.cursor_location
             if row == 0:
                 # On first line - navigate history
@@ -981,6 +1088,13 @@ class ChatInput(TextArea):
             super()._on_key(event)
             return
         elif event.key == "down":
+            # If dropdown visible, navigate dropdown
+            if dropdown_visible:
+                event.prevent_default()
+                event.stop()
+                dropdown.move_highlight_down()
+                return
+
             row, _ = self.cursor_location
             last_row = self.document.line_count - 1
             if row >= last_row:
@@ -1003,6 +1117,168 @@ class StatusPanel(Static):
         """Initialize the status panel with default tips."""
         super().__init__(**kwargs)
         self.update("Enter to send · Option + Enter for newline · ↑↓ for history")
+
+
+class CommandDropdown(OptionList):
+    """Dropdown showing matching slash commands with descriptions."""
+
+    # Available commands with metadata (description and options)
+    COMMANDS = {
+        # Simple commands (no options)
+        "/help": {"desc": "Show available commands", "options": None},
+        "/clear": {"desc": "Clear conversation", "options": None},
+        "/config": {"desc": "Show configuration", "options": None},
+        "/status": {"desc": "System health check", "options": None},
+        "/exit": {"desc": "Exit the application", "options": None},
+        # Toggle commands (with options)
+        "/planning": {"desc": "Toggle planning mode", "options": ["on", "off"]},
+        "/approval": {"desc": "Control approval workflow", "options": ["on", "off", "selective"]},
+        "/task": {"desc": "Toggle task extraction", "options": ["on", "off"]},
+        "/caps": {"desc": "Toggle capability selection", "options": ["on", "off"]},
+    }
+
+    # Max command length for alignment (computed once)
+    _MAX_CMD_LEN = max(len(cmd) for cmd in COMMANDS.keys())
+
+    class CommandSelected(Message):
+        """Event posted when a command is selected from dropdown."""
+
+        def __init__(self, command: str):
+            super().__init__()
+            self.command = command
+
+    def __init__(self, **kwargs):
+        """Initialize the command dropdown."""
+        super().__init__(**kwargs)
+        self._visible = False
+        self._mode = "commands"  # "commands" or "options"
+        self._pending_command: str | None = None  # e.g., "/planning" when showing options
+        self._pending_options: list[str] = []  # ["on", "off"] for the pending command
+
+    def on_mount(self) -> None:
+        """Hide dropdown initially."""
+        self.display = False
+
+    def show_matches(self, prefix: str) -> None:
+        """Show dropdown with commands or options matching the prefix.
+
+        Args:
+            prefix: The current input text (should start with /).
+        """
+        self.clear_options()
+        prefix_lower = prefix.lower()
+
+        # Check if we're in options mode (text has ":" and we have a pending command)
+        if ":" in prefix_lower and self._pending_command:
+            base_cmd, partial_opt = prefix_lower.rsplit(":", 1)
+            if base_cmd == self._pending_command.lower():
+                self._mode = "options"
+                for opt in self._pending_options:
+                    if opt.startswith(partial_opt):
+                        self.add_option(Option(opt, id=opt))
+                if self.option_count > 0:
+                    self.display = True
+                    self._visible = True
+                    self.highlighted = 0
+                else:
+                    self.hide()
+                return
+
+        # Normal command matching mode
+        self._mode = "commands"
+        self._pending_command = None
+        self._pending_options = []
+
+        matches = []
+        for cmd, meta in self.COMMANDS.items():
+            if cmd.startswith(prefix_lower):
+                matches.append((cmd, meta["desc"]))
+
+        if matches:
+            for cmd, desc in matches:
+                # Pad command to align descriptions (table-like)
+                padded_cmd = cmd.ljust(self._MAX_CMD_LEN + 2)
+                self.add_option(Option(f"{padded_cmd}[dim]{desc}[/dim]", id=cmd))
+            self.display = True
+            self._visible = True
+            # Highlight first option
+            self.highlighted = 0
+        else:
+            self.hide()
+
+    def hide(self) -> None:
+        """Hide the dropdown and reset state."""
+        self.display = False
+        self._visible = False
+        self._mode = "commands"
+        self._pending_command = None
+        self._pending_options = []
+
+    @property
+    def is_visible(self) -> bool:
+        """Check if dropdown is currently visible."""
+        return self._visible
+
+    def select_highlighted(self) -> tuple[str | None, bool]:
+        """Select the currently highlighted option.
+
+        Returns:
+            Tuple of (command_string, is_complete).
+            is_complete=False means we need to show options dropdown.
+        """
+        if self.highlighted is None or self.option_count == 0:
+            return (None, False)
+
+        option = self.get_option_at_index(self.highlighted)
+        if not option or not option.id:
+            return (None, False)
+
+        selected_id = str(option.id)
+
+        if self._mode == "commands":
+            # Selecting a command
+            meta = self.COMMANDS.get(selected_id)
+
+            if meta and meta["options"]:
+                # Has options - switch to options mode
+                self._pending_command = selected_id
+                self._pending_options = meta["options"]
+                self._show_options_dropdown()
+                return (selected_id, False)  # Incomplete - need option
+            else:
+                # Simple command - complete
+                self.hide()
+                return (selected_id, True)
+
+        elif self._mode == "options":
+            # Selecting an option
+            full_command = f"{self._pending_command}:{selected_id}"
+            self.hide()
+            return (full_command, True)
+
+        return (None, False)
+
+    def _show_options_dropdown(self) -> None:
+        """Show options dropdown for a toggle command."""
+        self.clear_options()
+        self._mode = "options"
+
+        for opt in self._pending_options:
+            self.add_option(Option(opt, id=opt))
+
+        self.display = True
+        self._visible = True
+        self.highlighted = 0
+
+    def move_highlight_up(self) -> None:
+        """Move highlight to previous option."""
+        if self.highlighted is not None and self.highlighted > 0:
+            self.highlighted = self.highlighted - 1
+
+    def move_highlight_down(self) -> None:
+        """Move highlight to next option."""
+        if self.highlighted is not None and self.highlighted < self.option_count - 1:
+            self.highlighted = self.highlighted + 1
 
 
 class OspreyTUI(App):
@@ -1046,6 +1322,7 @@ class OspreyTUI(App):
         yield Header()
         yield Vertical(
             ChatDisplay(id="chat-display"),
+            CommandDropdown(id="command-dropdown"),
             ChatInput(id="chat-input"),
             StatusPanel(id="status-panel"),
             id="main-content",
