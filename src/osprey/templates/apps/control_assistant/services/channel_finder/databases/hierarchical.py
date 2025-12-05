@@ -58,7 +58,8 @@ class HierarchicalChannelDatabase(BaseDatabase):
             self.hierarchy_config = {"levels": {}}
             for level_def in levels_list:
                 self.hierarchy_config["levels"][level_def['name']] = {
-                    "type": level_def['type']
+                    "type": level_def['type'],
+                    "optional": level_def.get('optional', False)
                 }
 
             # Validate naming_pattern references correct level names
@@ -170,6 +171,23 @@ class HierarchicalChannelDatabase(BaseDatabase):
                 "These levels will be used for navigation only."
             )
 
+        # Validate optional levels are in pattern
+        # (Optional levels must be in pattern since they're conditionally included)
+        for level in self.hierarchy_levels:
+            level_config = self.hierarchy_config["levels"][level]
+            is_optional = level_config.get("optional", False)
+
+            if is_optional and level not in pattern_placeholders:
+                raise ValueError(
+                    f"Optional level '{level}' must appear in naming_pattern.\n"
+                    f"Optional levels are conditionally included in channel names, "
+                    f"so they need a placeholder in the pattern.\n"
+                    f"Current pattern: {self.naming_pattern}\n"
+                    f"Missing placeholder: {{{level}}}\n\n"
+                    f"Note: If you want a navigation-only level (not in channel names), "
+                    f"don't mark it as optional - just omit it from the pattern."
+                )
+
     def _validate_hierarchy_config(self):
         """
         Validate hierarchy configuration structure with helpful error messages.
@@ -239,10 +257,22 @@ class HierarchicalChannelDatabase(BaseDatabase):
             level_name: Name of the level to validate
             level_idx: Index in hierarchy_levels
         """
+        level_config = self.hierarchy_config["levels"][level_name]
+        is_optional = level_config.get("optional", False)
+
         # Find the container for this level
         container = self._find_level_container(self.tree, level_name, level_idx)
 
         if not container:
+            # Optional levels don't need to have containers in all branches
+            if is_optional:
+                logger.info(
+                    f"Optional instance level '{level_name}' has no container in some branches. "
+                    f"This is acceptable for optional levels."
+                )
+                return
+
+            # Required levels must have containers
             # Helpful error message with suggestions
             raise ValueError(
                 f"Instance level '{level_name}' requires container named '{level_name.upper()}' in tree.\n\n"
@@ -256,7 +286,8 @@ class HierarchicalChannelDatabase(BaseDatabase):
                 f"Troubleshooting:\n"
                 f"  1. Check that container name matches level name (case-insensitive)\n"
                 f"  2. Verify container is at correct nesting depth\n"
-                f"  3. Ensure previous levels are properly configured"
+                f"  3. Ensure previous levels are properly configured\n"
+                f"  4. If this level is optional, add '\"optional\": true' to its configuration"
             )
 
         # Validate expansion definition exists
@@ -491,6 +522,124 @@ class HierarchicalChannelDatabase(BaseDatabase):
         if '_channel_part' in node:
             return node['_channel_part']
         return tree_key  # Default: backward compatible
+
+    def _is_leaf_node(self, node: dict, current_level_idx: int) -> bool:
+        """
+        Detect if a node represents a complete channel (leaf node).
+
+        Supports optional hierarchy levels by allowing channels to terminate
+        before all hierarchy levels are traversed.
+
+        Criteria for leaf detection:
+        1. Explicit _is_leaf marker set to True
+        2. All hierarchy levels processed (reached end)
+        3. All remaining levels are optional AND node has no children for those levels
+
+        Args:
+            node: Current tree node
+            current_level_idx: Current position in hierarchy_levels
+
+        Returns:
+            True if node is a complete channel, False otherwise
+
+        Examples:
+            # Explicit marker
+            {"SIGNAL-X": {"_is_leaf": True}} → True
+
+            # Leaf with children (suffix optional)
+            {"SIGNAL-Y": {"_is_leaf": True, "RB": {...}}} → True
+
+            # All levels processed
+            (current_level_idx >= len(hierarchy_levels)) → True
+
+            # All remaining optional AND no children
+            (subdevice optional, no SUBDEVICE container) → True
+        """
+        # Explicit _is_leaf marker takes precedence
+        if node.get('_is_leaf', False):
+            return True
+
+        # All hierarchy levels processed - definitely a leaf
+        if current_level_idx >= len(self.hierarchy_levels):
+            return True
+
+        # Check if all remaining levels are optional AND no children for next level
+        remaining_levels = self.hierarchy_levels[current_level_idx:]
+        if remaining_levels:
+            all_remaining_optional = all(
+                self.hierarchy_config["levels"][level].get("optional", False)
+                for level in remaining_levels
+            )
+            if all_remaining_optional:
+                # Check if node has children for the next level
+                next_level = remaining_levels[0]
+                next_config = self.hierarchy_config["levels"][next_level]
+
+                if next_config["type"] == "instances":
+                    # Look for instance container matching next level name
+                    has_next_level_container = any(
+                        key.upper() == next_level.upper()
+                        for key in node.keys()
+                        if isinstance(node[key], dict) and not key.startswith('_')
+                    )
+                    # Only a leaf if there's NO container for the next instance level
+                    return not has_next_level_container
+                elif next_config["type"] == "tree":
+                    # Look for any tree children (non-meta keys)
+                    has_tree_children = any(
+                        not key.startswith('_') and isinstance(node[key], dict)
+                        for key in node.keys()
+                    )
+                    # Only a leaf if there are NO tree children
+                    return not has_tree_children
+
+        return False
+
+    def _clean_optional_separators(self, channel: str) -> str:
+        """
+        Remove artifacts from skipped optional levels in channel names.
+
+        When optional levels are skipped, their separators may leave artifacts
+        like consecutive delimiters (::, --) or trailing separators.
+        This method cleans up these artifacts to produce valid channel names.
+
+        Args:
+            channel: Raw channel name with potential separator artifacts
+
+        Returns:
+            Cleaned channel name with artifacts removed
+
+        Examples:
+            # Double colons from skipped subdevice
+            "SYSTEM:DEV01::SIGNAL" → "SYSTEM:DEV01:SIGNAL"
+
+            # Trailing underscore from missing suffix
+            "SYSTEM:SIGNAL_" → "SYSTEM:SIGNAL"
+
+            # Multiple consecutive dashes
+            "SYSTEM--SUBSYS-DEV" → "SYSTEM-SUBSYS-DEV"
+
+            # Leading separator from skipped first optional
+            ":SYSTEM:SIGNAL" → "SYSTEM:SIGNAL"
+        """
+        import re
+
+        # Multiple consecutive separators of same type
+        channel = re.sub(r':{2,}', ':', channel)   # :: → :
+        channel = re.sub(r'-{2,}', '-', channel)   # -- → -
+        channel = re.sub(r'_{2,}', '_', channel)   # __ → _
+
+        # Trailing separators
+        channel = re.sub(r'[:_-]+$', '', channel)  # Remove trailing : _ -
+
+        # Leading separators (except intentional ones)
+        channel = re.sub(r'^[_:]', '', channel)    # Remove leading _ :
+
+        # Mixed consecutive separators (e.g., ":_" when both parts empty)
+        # Keep the first separator type
+        channel = re.sub(r'[:_-]([:_-])+', lambda m: m.group(0)[0], channel)
+
+        return channel
 
     def get_options_at_level(
         self,
@@ -756,15 +905,68 @@ class HierarchicalChannelDatabase(BaseDatabase):
 
         def expand_tree(path: dict[str, str], node: dict, level_idx: int):
             """Recursively expand tree with flexible level handling."""
-            # Base case: processed all levels
-            if level_idx >= len(self.hierarchy_levels):
+            # Check for leaf nodes (supports optional hierarchy levels)
+            if self._is_leaf_node(node, level_idx):
                 # Build channel from path using only pattern-referenced levels
                 pattern_params = {k: v for k, v in path.items() if k in pattern_levels}
+
+                # Handle optional levels not yet in path
+                for level in pattern_levels:
+                    if level not in pattern_params:
+                        # Optional level was skipped - use empty string
+                        pattern_params[level] = ""
+
+                # Build and clean channel name
                 channel_name = self.naming_pattern.format(**pattern_params)
+                channel_name = self._clean_optional_separators(channel_name)
+
+                # Store channel
                 channels[channel_name] = {
                     'channel': channel_name,
                     'path': path.copy()
                 }
+
+                # Process children of leaf nodes to handle optional levels
+                # A node can be both a complete channel AND have children for optional suffixes
+                # Example: SIGNAL-Y is a valid channel, but may also have RB/SP suffix variants
+                if level_idx < len(self.hierarchy_levels):
+                    # Check if node has children (non-meta keys)
+                    has_children = any(
+                        not k.startswith('_') and isinstance(v, dict)
+                        for k, v in node.items()
+                    )
+
+                    if has_children:
+                        # Find next tree level after current position
+                        next_tree_level_idx = None
+                        for idx in range(level_idx, len(self.hierarchy_levels)):
+                            next_config = self.hierarchy_config["levels"][self.hierarchy_levels[idx]]
+                            if next_config["type"] == "tree":
+                                next_tree_level_idx = idx
+                                break
+
+                        if next_tree_level_idx is not None:
+                            # Process children as nodes at the next tree level
+                            next_level = self.hierarchy_levels[next_tree_level_idx]
+                            children = {
+                                k: v for k, v in node.items()
+                                if not k.startswith('_') and isinstance(v, dict)
+                            }
+
+                            for child_key, child_node in children.items():
+                                channel_part = self._get_channel_part(child_node, child_key)
+                                # Assign child to next tree level
+                                expand_tree({**path, next_level: channel_part}, child_node, next_tree_level_idx + 1)
+
+                            # Children processed, return
+                            return
+
+                # No children or all levels processed
+                if level_idx >= len(self.hierarchy_levels):
+                    return
+
+            # Base case: processed all levels (already handled above if leaf)
+            if level_idx >= len(self.hierarchy_levels):
                 return
 
             current_level = self.hierarchy_levels[level_idx]
@@ -778,12 +980,39 @@ class HierarchicalChannelDatabase(BaseDatabase):
                     if not k.startswith('_') and isinstance(v, dict)
                 }
 
+                is_optional_level = level_config.get("optional", False)
+
                 for child_key, child_node in children.items():
                     # Get channel part (supports _channel_part override)
                     channel_part = self._get_channel_part(child_node, child_key)
 
-                    # Store the channel part in path (will be used if level is in pattern)
-                    expand_tree({**path, current_level: channel_part}, child_node, level_idx + 1)
+                    # Handle hybrid pattern: tree node with instance expansion
+                    # Allows tree categories that expand into multiple numbered instances
+                    # Example: A tree node "SUBDEV" that expands to SUBDEV-01, SUBDEV-02, etc.
+                    if "_expansion" in child_node:
+                        # Tree node with instance expansion - expand instances
+                        instances = self._get_instance_names(child_node["_expansion"])
+                        for instance_name in instances:
+                            # Assign instance to current level and recurse
+                            expand_tree({**path, current_level: instance_name}, child_node, level_idx + 1)
+                        # Don't process this node as regular tree node
+                        continue
+
+                    # OPTIONAL LEVEL SKIP: If this is an optional level and the child is a leaf,
+                    # the child should skip this level and be assigned to the NEXT tree level instead
+                    if is_optional_level and child_node.get('_is_leaf', False):
+                        # Find next tree level to assign this child to
+                        next_level_idx = level_idx + 1
+                        if next_level_idx < len(self.hierarchy_levels):
+                            next_level = self.hierarchy_levels[next_level_idx]
+                            # Skip current optional level, assign child to next level
+                            expand_tree({**path, next_level: channel_part}, child_node, next_level_idx + 1)
+                        else:
+                            # No next level exists, expand normally
+                            expand_tree(path, child_node, level_idx + 1)
+                    else:
+                        # Normal tree expansion: assign child to current level
+                        expand_tree({**path, current_level: channel_part}, child_node, level_idx + 1)
 
             elif level_config["type"] == "instances":
                 # Expansion: find expansion definition and generate instances
