@@ -184,13 +184,17 @@ class ChatInput(TextArea):
         status = self._get_status_panel()
         if status:
             options_str = ", ".join(options)
-            status.update(f"Options: {options_str}")
+            status.set_tips([("Options:", options_str)])
 
     def _reset_status_panel(self) -> None:
         """Reset status panel to default tips."""
         status = self._get_status_panel()
         if status:
-            status.update("/ for commands · option + ⏎ for newline · ↑↓ for history")
+            status.set_tips([
+                ("/", "for commands"),
+                ("option + ⏎", "for newline"),
+                ("↑↓", "for history"),
+            ])
 
     def _on_key(self, event: Key) -> None:
         """Handle key events - Enter submits, Option+Enter for newline."""
@@ -342,10 +346,54 @@ class ChatInput(TextArea):
 class StatusPanel(Static):
     """Status panel showing tips and shortcuts below the input area."""
 
+    COMPONENT_CLASSES: ClassVar[set[str]] = {
+        "status-panel--command",
+        "status-panel--description",
+    }
+
     def __init__(self, **kwargs):
         """Initialize the status panel with default tips."""
         super().__init__(**kwargs)
-        self.update("/ for commands · option + ⏎ for newline · ↑↓ for history")
+        # Defer styled tips until mounted (CSS not available in __init__)
+        self._default_tips = [
+            ("/", "for commands"),
+            ("option + ⏎", "for newline"),
+            ("↑↓", "for history"),
+        ]
+
+    def on_mount(self) -> None:
+        """Set styled tips after mount when CSS is available."""
+        self.set_tips(self._default_tips)
+
+    def set_message(self, parts: list[tuple[str, str]]) -> None:
+        """Set styled message with explicit style for each part.
+
+        Args:
+            parts: List of (text, style) tuples where style is "cmd" or "desc".
+        """
+        cmd_style = Style.from_styles(self.get_component_styles("status-panel--command"))
+        desc_style = Style.from_styles(self.get_component_styles("status-panel--description"))
+
+        styled_parts = []
+        for text, style in parts:
+            s = cmd_style if style == "cmd" else desc_style
+            styled_parts.append((text, s))
+
+        self.update(Content.assemble(*styled_parts))
+
+    def set_tips(self, tips: list[tuple[str, str]]) -> None:
+        """Set tips with (command, description) pairs separated by ·.
+
+        Args:
+            tips: List of (command, description) tuples.
+        """
+        parts = []
+        for i, (cmd, desc) in enumerate(tips):
+            if i > 0:
+                parts.append((" · ", "desc"))
+            parts.append((cmd, "cmd"))
+            parts.append((f" {desc}", "desc"))
+        self.set_message(parts)
 
 
 class CommandDropdown(OptionList):

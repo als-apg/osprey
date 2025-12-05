@@ -170,7 +170,17 @@ CommandDropdown > .command-dropdown--description {
     margin: 1 2 1 3;
     padding: 0;
     color: $text-muted;
-    # text-style: italic;
+}
+
+/* Command text in status panel - component class */
+StatusPanel > .status-panel--command {
+    color: $block-cursor-blurred-foreground;
+    text-style: bold;
+}
+
+/* Description text in status panel - component class */
+StatusPanel > .status-panel--description {
+    color: $text-muted;
 }
 
 /* Individual chat message - compact card style */
