@@ -62,6 +62,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Channel limits safety integration (validates runtime respects boundaries)
   - Positive and negative test cases for write operations
   - Calculation + write workflows (e.g., "set voltage to sqrt(4150)")
+- **E2E Test Infrastructure**: Warnings and cleanup mechanisms to prevent state pollution from incorrect test invocation
+- **Unit Tests**: Registry isolation and channel finder registration test coverage
 
 #### Documentation
 - **EPICS Integration and Configuration Guides**: Comprehensive documentation for production deployment

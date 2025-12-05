@@ -53,7 +53,7 @@ def _disable_capabilities(project, capability_names: list[str]):
 
                 # Check if this block is for the capability we want to disable
                 block_text = '\n'.join(block_lines)
-                if re.search(rf'name\s*=\s*["\']' + cap_name + r'["\']', block_text):
+                if re.search(r'name\s*=\s*["\']' + cap_name + r'["\']', block_text):
                     # Comment out this block
                     for block_line in block_lines:
                         if block_line.strip():
@@ -183,8 +183,9 @@ async def test_runtime_utilities_basic_write(e2e_project_factory):
     )
 
     # 8. Verify notebook includes runtime configuration
+    # After execution completes, a final notebook should be created in the execution folder root
     notebook_files = list(latest_execution.glob("*.ipynb"))
-    assert len(notebook_files) > 0, "No notebook generated"
+    assert len(notebook_files) > 0, f"No notebook generated in {latest_execution}"
 
     import nbformat
     notebook = nbformat.read(notebook_files[0], as_version=4)

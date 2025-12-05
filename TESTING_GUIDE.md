@@ -3,6 +3,23 @@
 **Branch**: `feat/pv-boundary-checking`
 **Requirements**: Python 3.11+
 
+## ⚠️ CRITICAL: How to Run Tests
+
+```bash
+# ✅ CORRECT: Run unit tests
+pytest tests/ --ignore=tests/e2e -v
+
+# ✅ CORRECT: Run e2e tests
+pytest tests/e2e/ -v
+
+# ❌ WRONG: Do NOT use -m e2e (causes test collection issues)
+pytest -m e2e  # DON'T DO THIS!
+```
+
+**Why?** Using `-m e2e` causes pytest to collect tests in the wrong order, leading to registry initialization failures. Always use `pytest tests/e2e/` directly. See [tests/e2e/README.md](tests/e2e/README.md) for full details.
+
+---
+
 ## Overview
 
 This branch introduces the `osprey.runtime` module - control-system-agnostic utilities that enable LLMs to interact with control systems through a simple synchronous API. The feature includes execution wrapper integration, custom prompt builders, and comprehensive safety integration with channel limits validation.

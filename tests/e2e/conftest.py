@@ -1,4 +1,8 @@
-"""Pytest fixtures for end-to-end workflow tests."""
+"""Pytest fixtures for end-to-end workflow tests.
+
+⚠️ IMPORTANT: Run these tests with 'pytest tests/e2e/' NOT 'pytest -m e2e'
+See tests/e2e/README.md for details.
+"""
 
 import asyncio
 import logging
@@ -17,6 +21,37 @@ from osprey.infrastructure.gateway import Gateway
 from osprey.registry import get_registry, initialize_registry, reset_registry
 from osprey.utils.config import get_full_configuration
 from tests.e2e.judge import LLMJudge, WorkflowResult
+
+
+# Warn if tests are being run the wrong way
+def pytest_configure(config):
+    """Warn users if e2e tests are being run incorrectly."""
+    # Check if we're running with -m e2e marker from outside tests/e2e/
+    if config.option.markexpr and 'e2e' in config.option.markexpr:
+        # Get the invocation directory
+        invocation_dir = config.invocation_params.dir
+        e2e_dir = Path(__file__).parent
+
+        # If not invoked from tests/e2e/ directory, warn
+        if not str(invocation_dir).endswith('tests/e2e'):
+            import warnings
+            warnings.warn(
+                "\n" + "="*80 + "\n"
+                "⚠️  WARNING: You are running e2e tests with '-m e2e' marker!\n"
+                "\n"
+                "This can cause test collection order issues and registry failures.\n"
+                "\n"
+                "✅ CORRECT way to run e2e tests:\n"
+                "   pytest tests/e2e/ -v\n"
+                "\n"
+                "❌ AVOID using:\n"
+                "   pytest -m e2e\n"
+                "\n"
+                "See tests/e2e/README.md for details.\n"
+                + "="*80,
+                UserWarning,
+                stacklevel=2
+            )
 
 
 @pytest.fixture(autouse=True, scope="function")
@@ -95,6 +130,16 @@ class E2EProject:
         os.chdir(self.project_dir)
 
         try:
+            # CRITICAL: Force fresh registry to avoid state pollution from previous tests
+            # Even though the fixture should have reset it, explicitly ensure it's clean
+            reset_registry()
+
+            # Clear config caches to force reload from this project's config
+            from osprey.utils import config as config_module
+            config_module._default_config = None
+            config_module._default_configurable = None
+            config_module._config_cache.clear()
+
             # Initialize framework following CLI pattern
             # 1. Load configuration and get full configurable
             configurable = get_full_configuration(str(self.config_path)).copy()

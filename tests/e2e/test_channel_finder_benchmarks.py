@@ -231,6 +231,16 @@ async def _run_benchmark(project, pipeline_mode: str):
         if src_dir in sys.path:
             sys.path.remove(src_dir)
 
+        # CRITICAL: Clean up imported modules to prevent state pollution
+        # The benchmark runner imports application modules that can leave
+        # stale registry references that interfere with subsequent tests
+        modules_to_remove = [
+            key for key in sys.modules.keys()
+            if package_name in key
+        ]
+        for module in modules_to_remove:
+            del sys.modules[module]
+
 
 
 

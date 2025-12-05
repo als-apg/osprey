@@ -1,5 +1,19 @@
 # End-to-End (E2E) Tests
 
+## 🚨 CRITICAL: How to Run These Tests
+
+```bash
+# ✅ CORRECT: Always use direct path
+pytest tests/e2e/ -v
+
+# ❌ WRONG: Do NOT use -m e2e marker
+pytest -m e2e  # This causes test collection issues and failures!
+```
+
+**Why?** Using `-m e2e` causes pytest to collect tests in the wrong order, leading to registry initialization failures and mysterious "Registry contains no nodes" errors. Always run e2e tests using the direct path `pytest tests/e2e/`.
+
+---
+
 ## Overview
 
 E2E tests validate complete workflows through the Osprey framework including:

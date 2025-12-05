@@ -41,6 +41,19 @@ osprey chat
 
 **[📖 Read the Full Documentation →](https://als-apg.github.io/osprey)**
 
+### 🧪 Testing
+
+```bash
+# Run unit tests (fast, no API keys required)
+pytest tests/ --ignore=tests/e2e -v
+
+# Run e2e tests (slow, requires API keys)
+# ⚠️ IMPORTANT: Use 'pytest tests/e2e/' NOT 'pytest -m e2e'
+pytest tests/e2e/ -v
+```
+
+See [TESTING_GUIDE.md](TESTING_GUIDE.md) and [tests/e2e/README.md](tests/e2e/README.md) for details.
+
 
 ## Key Features
 
