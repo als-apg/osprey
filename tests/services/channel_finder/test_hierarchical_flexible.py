@@ -133,9 +133,9 @@ class TestMixedInstanceTree:
             "naming_pattern": "LINE{line}:{station}:{parameter}",
             "hierarchy_config": {
                 "levels": {
-                    "line": {"type": "instances", "type": "instances", "allow_branching": False},
-                    "station": {"type": "tree", "type": "tree", "allow_branching": True},
-                    "parameter": {"type": "tree", "type": "tree", "allow_branching": True}
+                    "line": {"type": "instances"},
+                    "station": {"type": "tree"},
+                    "parameter": {"type": "tree"}
                 }
             },
             "tree": {
@@ -203,11 +203,11 @@ class TestMixedInstanceTree:
             "naming_pattern": "S{sector}:{building}:F{floor}:R{room}:{equipment}",
             "hierarchy_config": {
                 "levels": {
-                    "sector": {"type": "instances", "type": "instances", "allow_branching": False},
-                    "building": {"type": "tree", "type": "tree", "allow_branching": True},
-                    "floor": {"type": "instances", "type": "instances", "allow_branching": False},
-                    "room": {"type": "instances", "type": "instances", "allow_branching": False},
-                    "equipment": {"type": "tree", "type": "tree", "allow_branching": True}
+                    "sector": {"type": "instances"},
+                    "building": {"type": "tree"},
+                    "floor": {"type": "instances"},
+                    "room": {"type": "instances"},
+                    "equipment": {"type": "tree"}
                 }
             },
             "tree": {
@@ -317,9 +317,9 @@ class TestMultipleConsecutiveInstances:
             "naming_pattern": "F{floor}:R{room}:{equipment}",
             "hierarchy_config": {
                 "levels": {
-                    "floor": {"type": "instances", "allow_branching": False},
-                    "room": {"type": "instances", "allow_branching": False},
-                    "equipment": {"type": "tree", "allow_branching": True}
+                    "floor": {"type": "instances"},
+                    "room": {"type": "instances"},
+                    "equipment": {"type": "tree"}
                 }
             },
             "tree": {
@@ -360,8 +360,8 @@ class TestInstanceFirstLevel:
             "naming_pattern": "LINE{line}:{station}",
             "hierarchy_config": {
                 "levels": {
-                    "line": {"type": "instances", "allow_branching": False},
-                    "station": {"type": "tree", "allow_branching": True}
+                    "line": {"type": "instances"},
+                    "station": {"type": "tree"}
                 }
             },
             "tree": {
@@ -789,9 +789,9 @@ class TestEdgeCases:
             "naming_pattern": "R{rack}:S{shelf}:SLOT{slot}",
             "hierarchy_config": {
                 "levels": {
-                    "rack": {"type": "instances", "allow_branching": False},
-                    "shelf": {"type": "instances", "allow_branching": False},
-                    "slot": {"type": "instances", "allow_branching": False}
+                    "rack": {"type": "instances"},
+                    "shelf": {"type": "instances"},
+                    "slot": {"type": "instances"}
                 }
             },
             "tree": {
@@ -829,9 +829,9 @@ class TestEdgeCases:
             "naming_pattern": "{building}:{wing}:{type}",
             "hierarchy_config": {
                 "levels": {
-                    "building": {"type": "tree", "allow_branching": True},
-                    "wing": {"type": "tree", "allow_branching": True},
-                    "type": {"type": "tree", "allow_branching": True}
+                    "building": {"type": "tree"},
+                    "wing": {"type": "tree"},
+                    "type": {"type": "tree"}
                 }
             },
             "tree": {
@@ -1097,24 +1097,34 @@ class TestNamingPatternValidation:
             Path(db_path).unlink()
 
     def test_naming_pattern_missing_level(self):
-        """Naming pattern missing a level name should raise error."""
-        bad_db = {
+        """Naming pattern with subset of levels is now allowed (navigation-only levels)."""
+        good_db = {
             "hierarchy": {
                 "levels": [
                     {"name": "system", "type": "tree"},
                     {"name": "device", "type": "instances"},
                     {"name": "field", "type": "tree"}
                 ],
-                "naming_pattern": "{system}:{field}"  # Missing {device}!
+                "naming_pattern": "{system}:{field}"  # Device level not in pattern (navigation-only)
             },
-            "tree": {}
+            "tree": {
+                "SYS1": {
+                    "DEVICE": {
+                        "_expansion": {"_type": "range", "_pattern": "{:02d}", "_range": [1, 1]},
+                        "FIELD1": {"_description": "Field 1"}
+                    }
+                }
+            }
         }
 
-        db_path = create_temp_database(bad_db)
+        db_path = create_temp_database(good_db)
 
         try:
-            with pytest.raises(ValueError, match="Missing from pattern.*device"):
-                HierarchicalChannelDatabase(db_path)
+            # This should now work - device is navigation-only
+            db = HierarchicalChannelDatabase(db_path)
+            # Pattern should extract only system and field
+            pattern_levels = db._get_pattern_levels()
+            assert set(pattern_levels) == {"system", "field"}
         finally:
             Path(db_path).unlink()
 
@@ -1134,7 +1144,7 @@ class TestNamingPatternValidation:
         db_path = create_temp_database(bad_db)
 
         try:
-            with pytest.raises(ValueError, match="Extra in pattern.*device"):
+            with pytest.raises(ValueError, match="undefined hierarchy levels"):
                 HierarchicalChannelDatabase(db_path)
         finally:
             Path(db_path).unlink()
@@ -1156,7 +1166,7 @@ class TestNamingPatternValidation:
         db_path = create_temp_database(bad_db)
 
         try:
-            with pytest.raises(ValueError, match="(Missing from pattern|Extra in pattern)"):
+            with pytest.raises(ValueError, match="undefined hierarchy levels"):
                 HierarchicalChannelDatabase(db_path)
         finally:
             Path(db_path).unlink()

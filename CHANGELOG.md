@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Discovery API: `list_available_pipelines()` and `list_available_databases()`
   - Config-driven selection without modifying framework code
   - Examples for RAG pipeline and PostgreSQL database implementations
+- **Hierarchical Channel Finder: Flexible Naming Configuration**: Navigation-only levels and decoupled naming
+  - Naming pattern can reference subset of hierarchy levels (not all required in pattern)
+  - New `_channel_part` field decouples tree keys from naming components
+  - Enables semantic tree organization with PV names at leaf (JLab CEBAF pattern)
+  - Enables friendly navigation with technical naming ("Magnets" → "MAG")
+  - Backward compatible: existing databases work unchanged
+  - Example database: `hierarchical_jlab_style.json` demonstrating both features
+  - Test coverage: 18 new tests for flexible naming functionality
 
 #### Configuration Management
 - **EPICS Gateway Presets**: Built-in configurations for APS and ALS facilities

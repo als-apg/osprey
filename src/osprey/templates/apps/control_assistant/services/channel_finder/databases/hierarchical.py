@@ -9,9 +9,12 @@ Supports flexible hierarchy with arbitrary mixing of:
 
 import itertools
 import json
+import logging
 from typing import Any, Optional
 
 from ..core.base_database import BaseDatabase
+
+logger = logging.getLogger(__name__)
 
 
 class HierarchicalChannelDatabase(BaseDatabase):
@@ -132,7 +135,11 @@ class HierarchicalChannelDatabase(BaseDatabase):
 
     def _validate_naming_pattern(self):
         """
-        Validate that naming_pattern references exactly the level names defined in hierarchy.
+        Validate that naming_pattern references valid level names.
+
+        Pattern placeholders must be a subset of hierarchy levels.
+        Not all hierarchy levels need to appear in the pattern - some levels
+        may be used only for navigation/organization.
 
         Prevents out-of-sync errors between level names and naming pattern.
         """
@@ -142,19 +149,26 @@ class HierarchicalChannelDatabase(BaseDatabase):
         pattern_placeholders = set(re.findall(r'\{(\w+)\}', self.naming_pattern))
         expected_placeholders = set(self.hierarchy_levels)
 
-        if pattern_placeholders != expected_placeholders:
-            missing = expected_placeholders - pattern_placeholders
+        # Pattern placeholders must be subset of hierarchy levels
+        # (but hierarchy can have extra levels not used in pattern)
+        if not pattern_placeholders.issubset(expected_placeholders):
             extra = pattern_placeholders - expected_placeholders
 
-            error_msg = "naming_pattern does not match hierarchy level names:\n"
-            if missing:
-                error_msg += f"  Missing from pattern: {sorted(missing)}\n"
-            if extra:
-                error_msg += f"  Extra in pattern: {sorted(extra)}\n"
-            error_msg += f"  Expected levels: {self.hierarchy_levels}\n"
-            error_msg += f"  Pattern: {self.naming_pattern}"
+            error_msg = "naming_pattern references undefined hierarchy levels:\n"
+            error_msg += f"  Undefined levels in pattern: {sorted(extra)}\n"
+            error_msg += f"  Defined hierarchy levels: {self.hierarchy_levels}\n"
+            error_msg += f"  Pattern: {self.naming_pattern}\n\n"
+            error_msg += "All placeholders in naming_pattern must correspond to defined hierarchy levels."
 
             raise ValueError(error_msg)
+
+        # Info message if some levels are not used in pattern (navigation-only levels)
+        unused_levels = expected_placeholders - pattern_placeholders
+        if unused_levels:
+            logger.info(
+                f"Note: {len(unused_levels)} hierarchy level(s) not used in naming pattern: {sorted(unused_levels)}. "
+                "These levels will be used for navigation only."
+            )
 
     def _validate_hierarchy_config(self):
         """
@@ -431,6 +445,53 @@ class HierarchicalChannelDatabase(BaseDatabase):
         """Get the hierarchy level names."""
         return self.hierarchy_levels.copy()
 
+    def _get_pattern_levels(self) -> list[str]:
+        """
+        Extract level names referenced in naming pattern, in order of appearance.
+
+        Returns:
+            List of level names that appear as placeholders in naming_pattern,
+            in the order they appear in hierarchy_levels (not pattern order).
+        """
+        import re
+
+        # Extract all placeholders from pattern
+        pattern_placeholders = set(re.findall(r'\{(\w+)\}', self.naming_pattern))
+
+        # Return in hierarchy order (not pattern order) for consistent Cartesian product
+        return [level for level in self.hierarchy_levels if level in pattern_placeholders]
+
+    def _get_channel_part(self, node: dict, tree_key: str) -> str:
+        """
+        Get the channel name component for a tree node.
+
+        Supports decoupling tree keys (for navigation) from naming components.
+        This enables human-readable tree keys while maintaining technical naming conventions.
+
+        Args:
+            node: Tree node dictionary
+            tree_key: The key used in the tree structure
+
+        Returns:
+            Channel name component:
+            - node['_channel_part'] if specified (explicit override)
+            - Empty string if _channel_part is explicitly ""  (skip in naming)
+            - tree_key if _channel_part not specified (backward compatible default)
+
+        Examples:
+            # Backward compatible - uses tree key
+            {"MAG": {}} → "MAG"
+
+            # Friendly tree key, technical naming
+            {"Magnets": {"_channel_part": "MAG"}} → "MAG"
+
+            # Skip in naming (navigation only)
+            {"Building-1": {"_channel_part": ""}} → ""
+        """
+        if '_channel_part' in node:
+            return node['_channel_part']
+        return tree_key  # Default: backward compatible
+
     def get_options_at_level(
         self,
         level: str,
@@ -629,6 +690,7 @@ class HierarchicalChannelDatabase(BaseDatabase):
         Build fully-qualified channel names from hierarchical selections.
 
         Works with any number of levels - uses Cartesian product.
+        Only includes levels that are referenced in the naming pattern.
 
         Args:
             selections: Dict mapping level names to selected values (strings or lists)
@@ -636,9 +698,12 @@ class HierarchicalChannelDatabase(BaseDatabase):
         Returns:
             List of complete channel names
         """
-        # Convert all selections to lists for uniform handling
+        # Get levels that appear in naming pattern (may be subset of all hierarchy levels)
+        pattern_levels = self._get_pattern_levels()
+
+        # Convert selections for pattern levels to lists for uniform handling
         selection_lists = []
-        for level in self.hierarchy_levels:
+        for level in pattern_levels:
             values = self._ensure_list(selections.get(level, []))
             selection_lists.append(values)
 
@@ -646,7 +711,7 @@ class HierarchicalChannelDatabase(BaseDatabase):
         channels = []
         for combination in itertools.product(*selection_lists):
             # Build channel name using naming pattern
-            params = dict(zip(self.hierarchy_levels, combination))
+            params = dict(zip(pattern_levels, combination))
             channel = self.naming_pattern.format(**params)
             channels.append(channel)
 
@@ -681,18 +746,21 @@ class HierarchicalChannelDatabase(BaseDatabase):
         Expand hierarchical tree into flat channel map.
 
         Works with flexible hierarchy configuration.
+        Only includes pattern-referenced levels in channel names.
 
         Returns:
             Dict mapping channel names to channel info
         """
         channels = {}
+        pattern_levels = self._get_pattern_levels()
 
         def expand_tree(path: dict[str, str], node: dict, level_idx: int):
             """Recursively expand tree with flexible level handling."""
             # Base case: processed all levels
             if level_idx >= len(self.hierarchy_levels):
-                # Build channel from complete path
-                channel_name = self.naming_pattern.format(**path)
+                # Build channel from path using only pattern-referenced levels
+                pattern_params = {k: v for k, v in path.items() if k in pattern_levels}
+                channel_name = self.naming_pattern.format(**pattern_params)
                 channels[channel_name] = {
                     'channel': channel_name,
                     'path': path.copy()
@@ -710,8 +778,12 @@ class HierarchicalChannelDatabase(BaseDatabase):
                     if not k.startswith('_') and isinstance(v, dict)
                 }
 
-                for child_name, child_node in children.items():
-                    expand_tree({**path, current_level: child_name}, child_node, level_idx + 1)
+                for child_key, child_node in children.items():
+                    # Get channel part (supports _channel_part override)
+                    channel_part = self._get_channel_part(child_node, child_key)
+
+                    # Store the channel part in path (will be used if level is in pattern)
+                    expand_tree({**path, current_level: channel_part}, child_node, level_idx + 1)
 
             elif level_config["type"] == "instances":
                 # Expansion: find expansion definition and generate instances
