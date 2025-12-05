@@ -677,11 +677,10 @@ class PythonExecutionRequest(BaseModel):
     # Planning mode fields
     planning_mode: PlanningMode = Field(
         default=PlanningMode.GENERATOR_DRIVEN,
-        description="Code generation planning mode (generator_driven or capability_driven)"
+        description="Code generation planning mode (generator_driven or capability_driven)",
     )
     structured_plan: StructuredPlan | None = Field(
-        None,
-        description="Pre-built plan from capability (required for capability_driven mode)"
+        None, description="Pre-built plan from capability (required for capability_driven mode)"
     )
     # Optional fields
     capability_context_data: dict[str, Any] | None = Field(
@@ -1178,7 +1177,7 @@ def validate_result_structure(code: str) -> bool:
         for node in ast.walk(tree):
             if isinstance(node, ast.Assign):
                 for target in node.targets:
-                    if isinstance(target, ast.Name) and target.id == 'results':
+                    if isinstance(target, ast.Name) and target.id == "results":
                         found_results_assignment = True
                         value = node.value
 
@@ -1188,7 +1187,7 @@ def validate_result_structure(code: str) -> bool:
 
                         # Check for dict() call
                         elif isinstance(value, ast.Call):
-                            if isinstance(value.func, ast.Name) and value.func.id == 'dict':
+                            if isinstance(value.func, ast.Name) and value.func.id == "dict":
                                 found_dict_like_assignment = True
 
                         # Check for dict comprehension: {k: v for ...}

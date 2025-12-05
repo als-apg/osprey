@@ -26,11 +26,7 @@ class OpenAIProviderAdapter(BaseProvider):
     default_base_url = "https://api.openai.com/v1"
     default_model_id = "gpt-5"  # GPT-5 for general use
     health_check_model_id = "gpt-5-nano"  # Cheapest GPT-5 model for health checks
-    available_models = [
-        "gpt-5",
-        "gpt-5-mini",
-        "gpt-5-nano"
-    ]
+    available_models = ["gpt-5", "gpt-5-mini", "gpt-5-nano"]
 
     # API key acquisition information
     api_key_url = "https://platform.openai.com/api-keys"
@@ -38,7 +34,7 @@ class OpenAIProviderAdapter(BaseProvider):
         "Sign up or log in to your OpenAI account",
         "Add billing information if not already set up",
         "Click '+ Create new secret key'",
-        "Name your key and copy it (shown only once!)"
+        "Name your key and copy it (shown only once!)",
     ]
     api_key_note = None
 
@@ -48,23 +44,17 @@ class OpenAIProviderAdapter(BaseProvider):
         api_key: str | None,
         base_url: str | None,
         timeout: float | None,
-        http_client: httpx.AsyncClient | None
+        http_client: httpx.AsyncClient | None,
     ) -> OpenAIModel:
         """Create OpenAI model instance for PydanticAI."""
         if http_client:
-            client_args = {
-                "api_key": api_key,
-                "http_client": http_client
-            }
+            client_args = {"api_key": api_key, "http_client": http_client}
             if base_url:
                 client_args["base_url"] = base_url
             openai_client = openai.AsyncOpenAI(**client_args)
         else:
             effective_timeout = timeout if timeout is not None else 60.0
-            client_args = {
-                "api_key": api_key,
-                "timeout": effective_timeout
-            }
+            client_args = {"api_key": api_key, "timeout": effective_timeout}
             if base_url:
                 client_args["base_url"] = base_url
             openai_client = openai.AsyncOpenAI(**client_args)
@@ -87,7 +77,7 @@ class OpenAIProviderAdapter(BaseProvider):
         thinking: dict | None = None,
         system_prompt: str | None = None,
         output_format: Any | None = None,
-        **kwargs
+        **kwargs,
     ) -> str | Any:
         """Execute OpenAI chat completion."""
         # Check for thinking parameters (not supported by OpenAI)
@@ -130,7 +120,11 @@ class OpenAIProviderAdapter(BaseProvider):
         except openai.BadRequestError as e:
             # Fall back to old API if max_completion_tokens not supported
             error_str = str(e).lower()
-            if "max_tokens" in error_str or "unsupported parameter" in error_str or "max_completion_tokens" in error_str:
+            if (
+                "max_tokens" in error_str
+                or "unsupported parameter" in error_str
+                or "max_completion_tokens" in error_str
+            ):
                 if output_format is not None:
                     response = client.beta.chat.completions.parse(
                         model=model_id,
@@ -153,7 +147,7 @@ class OpenAIProviderAdapter(BaseProvider):
         if output_format is not None:
             result = response.choices[0].message.parsed
             # Handle TypedDict conversion
-            if is_typed_dict_output and hasattr(result, 'model_dump'):
+            if is_typed_dict_output and hasattr(result, "model_dump"):
                 return result.model_dump()
             return result
         else:
@@ -164,7 +158,7 @@ class OpenAIProviderAdapter(BaseProvider):
         api_key: str | None,
         base_url: str | None,
         timeout: float = 5.0,
-        model_id: str | None = None
+        model_id: str | None = None,
     ) -> tuple[bool, str]:
         """Check OpenAI API health.
 
@@ -195,7 +189,7 @@ class OpenAIProviderAdapter(BaseProvider):
                         model=test_model,
                         messages=[{"role": "user", "content": "Hi"}],
                         max_completion_tokens=50,
-                        timeout=timeout
+                        timeout=timeout,
                     )
                 except openai.BadRequestError as e:
                     error_str = str(e).lower()
@@ -205,7 +199,7 @@ class OpenAIProviderAdapter(BaseProvider):
                             model=test_model,
                             messages=[{"role": "user", "content": "Hi"}],
                             max_tokens=50,
-                            timeout=timeout
+                            timeout=timeout,
                         )
                     else:
                         raise
@@ -236,7 +230,7 @@ class OpenAIProviderAdapter(BaseProvider):
         try:
             import requests
 
-            test_url = base_url.rstrip('/') + '/models'
+            test_url = base_url.rstrip("/") + "/models"
             headers = {"Authorization": f"Bearer {api_key}"}
 
             response = requests.get(test_url, headers=headers, timeout=timeout)
@@ -254,4 +248,3 @@ class OpenAIProviderAdapter(BaseProvider):
             return False, f"Connection failed: {str(e)[:50]}"
         except Exception as e:
             return False, f"Health check failed: {str(e)[:50]}"
-

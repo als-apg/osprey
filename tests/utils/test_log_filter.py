@@ -9,7 +9,7 @@ from io import StringIO
 
 import pytest
 
-from osprey.utils.log_filter import quiet_logger, LoggerFilter
+from osprey.utils.log_filter import LoggerFilter, quiet_logger
 
 
 class TestQuietLogger:
@@ -17,14 +17,14 @@ class TestQuietLogger:
 
     def test_suppresses_info_messages(self, caplog):
         """Test that INFO messages are suppressed within context."""
-        logger = logging.getLogger('TEST_LOGGER')
+        logger = logging.getLogger("TEST_LOGGER")
 
         with caplog.at_level(logging.INFO):
             # Outside context - should appear
             logger.info("This should appear")
 
             # Inside context - should be suppressed
-            with quiet_logger('TEST_LOGGER'):
+            with quiet_logger("TEST_LOGGER"):
                 logger.info("This should be suppressed")
 
             # After context - should appear again
@@ -39,10 +39,10 @@ class TestQuietLogger:
 
     def test_warnings_still_show_through(self, caplog):
         """Test that WARNING and ERROR messages still appear."""
-        logger = logging.getLogger('TEST_LOGGER')
+        logger = logging.getLogger("TEST_LOGGER")
 
         with caplog.at_level(logging.WARNING):
-            with quiet_logger('TEST_LOGGER'):
+            with quiet_logger("TEST_LOGGER"):
                 logger.warning("Warning should show")
                 logger.error("Error should show")
 
@@ -52,11 +52,11 @@ class TestQuietLogger:
 
     def test_multiple_loggers_suppressed(self, caplog):
         """Test suppressing multiple loggers at once."""
-        logger1 = logging.getLogger('LOGGER1')
-        logger2 = logging.getLogger('LOGGER2')
+        logger1 = logging.getLogger("LOGGER1")
+        logger2 = logging.getLogger("LOGGER2")
 
         with caplog.at_level(logging.INFO):
-            with quiet_logger(['LOGGER1', 'LOGGER2']):
+            with quiet_logger(["LOGGER1", "LOGGER2"]):
                 logger1.info("Suppressed 1")
                 logger2.info("Suppressed 2")
 
@@ -65,13 +65,13 @@ class TestQuietLogger:
 
     def test_filter_is_removed_after_context(self, caplog):
         """Test that filter is properly removed when exiting context."""
-        logger = logging.getLogger('TEST_LOGGER')
+        logger = logging.getLogger("TEST_LOGGER")
 
         # Test that suppression works and then stops working
         with caplog.at_level(logging.INFO):
             logger.info("Before context")
 
-            with quiet_logger('TEST_LOGGER'):
+            with quiet_logger("TEST_LOGGER"):
                 logger.info("Inside context - suppressed")
 
             logger.info("After context")
@@ -82,14 +82,14 @@ class TestQuietLogger:
 
     def test_filter_removed_even_on_exception(self, caplog):
         """Test that filter is removed even if exception occurs."""
-        logger = logging.getLogger('TEST_LOGGER')
+        logger = logging.getLogger("TEST_LOGGER")
 
         # Test that filter cleanup happens even on exception
         with caplog.at_level(logging.INFO):
             logger.info("Before exception")
 
             try:
-                with quiet_logger('TEST_LOGGER'):
+                with quiet_logger("TEST_LOGGER"):
                     logger.info("During context - suppressed")
                     raise ValueError("Test exception")
             except ValueError:
@@ -107,10 +107,10 @@ class TestLoggerFilter:
 
     def test_filters_specific_logger_only(self, caplog):
         """Test that filter only affects specified logger."""
-        target_logger = logging.getLogger('TARGET')
-        other_logger = logging.getLogger('OTHER')
+        target_logger = logging.getLogger("TARGET")
+        other_logger = logging.getLogger("OTHER")
 
-        log_filter = LoggerFilter(logger_names=['TARGET'])
+        log_filter = LoggerFilter(logger_names=["TARGET"])
         target_logger.addFilter(log_filter)
 
         with caplog.at_level(logging.INFO):
@@ -125,11 +125,11 @@ class TestLoggerFilter:
 
     def test_message_pattern_filtering(self, caplog):
         """Test filtering by message pattern."""
-        logger = logging.getLogger('PATTERN_TEST')
+        logger = logging.getLogger("PATTERN_TEST")
 
         log_filter = LoggerFilter(
-            logger_names=['PATTERN_TEST'],
-            message_patterns=[r'Configured.*registry', r'Added.*path']
+            logger_names=["PATTERN_TEST"],
+            message_patterns=[r"Configured.*registry", r"Added.*path"],
         )
         logger.addFilter(log_filter)
 
@@ -143,4 +143,3 @@ class TestLoggerFilter:
         assert "Normal message" in messages[0]
 
         logger.removeFilter(log_filter)
-

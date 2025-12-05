@@ -51,7 +51,7 @@ def set_api_call_context(
     module: str,
     class_name: str | None = None,
     line: int = 0,
-    extra: dict[str, Any] | None = None
+    extra: dict[str, Any] | None = None,
 ):
     """Set caller context for API call logging across async/thread boundaries.
 
@@ -101,7 +101,7 @@ def set_api_call_context(
         "module": module,
         "class": class_name,
         "line_number": line,
-        "source": "context_var"
+        "source": "context_var",
     }
 
     # Add extra metadata if provided
@@ -348,7 +348,8 @@ def _format_metadata_header(
     if output_model is not None:
         output_model_info = getattr(output_model, "__name__", str(output_model))
 
-    header = textwrap.dedent(f"""
+    header = textwrap.dedent(
+        f"""
         # ==========================================
         # LLM API CALL LOG
         # ==========================================
@@ -372,7 +373,8 @@ def _format_metadata_header(
         # Output Model: {output_model_info}
         #
         # ==========================================
-    """).strip()
+    """
+    ).strip()
 
     # Add stack trace if requested
     if include_stack_trace:
@@ -399,7 +401,7 @@ def _sanitize_result_for_logging(result: Any) -> str:
         return result
     elif hasattr(result, "model_dump"):
         # Pydantic BaseModel - use mode='json' to serialize datetime and other complex types
-        return json.dumps(result.model_dump(mode='json'), indent=2)
+        return json.dumps(result.model_dump(mode="json"), indent=2)
     elif isinstance(result, (dict, list)):
         # For plain dicts/lists, use default JSON encoder with fallback for non-serializable types
         return json.dumps(result, indent=2, default=str)

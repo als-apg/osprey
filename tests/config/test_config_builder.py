@@ -4,11 +4,12 @@ Tests the ConfigBuilder class and configuration loading mechanism,
 including YAML loading, environment variable resolution, and nested access.
 """
 
-import pytest
 import os
 import tempfile
-import yaml
 from pathlib import Path
+
+import pytest
+import yaml
 
 from osprey.utils.config import ConfigBuilder, get_config_value
 
@@ -19,49 +20,56 @@ class TestConfigBuilder:
     def test_config_builder_loads_yaml(self, tmp_path):
         """Test that ConfigBuilder loads valid YAML configuration."""
         config_file = tmp_path / "config.yml"
-        config_file.write_text("""
+        config_file.write_text(
+            """
 project_root: /test/project
 registry_path: ./my_app/registry.py
 models:
   orchestrator:
     provider: openai
     model_id: gpt-4
-""")
+"""
+        )
 
         builder = ConfigBuilder(str(config_file))
 
         assert builder.raw_config is not None
-        assert builder.raw_config['project_root'] == '/test/project'
-        assert builder.raw_config['registry_path'] == './my_app/registry.py'
-        assert builder.raw_config['models']['orchestrator']['provider'] == 'openai'
+        assert builder.raw_config["project_root"] == "/test/project"
+        assert builder.raw_config["registry_path"] == "./my_app/registry.py"
+        assert builder.raw_config["models"]["orchestrator"]["provider"] == "openai"
 
     def test_environment_variable_resolution(self, tmp_path, monkeypatch):
         """Test that environment variables are resolved in config."""
         # Set environment variables
-        monkeypatch.setenv('TEST_API_KEY', 'secret-key-123')
-        monkeypatch.setenv('TEST_PROJECT_ROOT', '/home/user/project')
+        monkeypatch.setenv("TEST_API_KEY", "secret-key-123")
+        monkeypatch.setenv("TEST_PROJECT_ROOT", "/home/user/project")
 
         config_file = tmp_path / "config.yml"
-        config_file.write_text("""
+        config_file.write_text(
+            """
 project_root: ${TEST_PROJECT_ROOT}
 api:
   providers:
     openai:
       api_key: ${TEST_API_KEY}
       base_url: https://api.openai.com
-""")
+"""
+        )
 
         builder = ConfigBuilder(str(config_file))
 
-        assert builder.raw_config['project_root'] == '/home/user/project'
-        assert builder.raw_config['api']['providers']['openai']['api_key'] == 'secret-key-123'
+        assert builder.raw_config["project_root"] == "/home/user/project"
+        assert builder.raw_config["api"]["providers"]["openai"]["api_key"] == "secret-key-123"
         # Non-env-var values should remain unchanged
-        assert builder.raw_config['api']['providers']['openai']['base_url'] == 'https://api.openai.com'
+        assert (
+            builder.raw_config["api"]["providers"]["openai"]["base_url"] == "https://api.openai.com"
+        )
 
     def test_nested_path_access_with_get(self, tmp_path):
         """Test accessing nested configuration via dot notation."""
         config_file = tmp_path / "config.yml"
-        config_file.write_text("""
+        config_file.write_text(
+            """
 execution_control:
   limits:
     max_retries: 3
@@ -69,18 +77,19 @@ execution_control:
 models:
   orchestrator:
     provider: openai
-""")
+"""
+        )
 
         builder = ConfigBuilder(str(config_file))
 
         # Test nested path access
-        assert builder.get('execution_control.limits.max_retries') == 3
-        assert builder.get('execution_control.limits.graph_recursion_limit') == 100
-        assert builder.get('models.orchestrator.provider') == 'openai'
+        assert builder.get("execution_control.limits.max_retries") == 3
+        assert builder.get("execution_control.limits.graph_recursion_limit") == 100
+        assert builder.get("models.orchestrator.provider") == "openai"
 
         # Test missing paths return default
-        assert builder.get('nonexistent.path', 'default') == 'default'
-        assert builder.get('models.nonexistent', None) is None
+        assert builder.get("nonexistent.path", "default") == "default"
+        assert builder.get("models.nonexistent", None) is None
 
     def test_missing_config_file_raises_error(self, tmp_path, monkeypatch):
         """Test that missing config file raises clear error."""
@@ -103,11 +112,13 @@ models:
     def test_invalid_yaml_raises_error(self, tmp_path):
         """Test that invalid YAML raises clear error."""
         config_file = tmp_path / "config.yml"
-        config_file.write_text("""
+        config_file.write_text(
+            """
 invalid: yaml: syntax:
   - this is broken
     - nested incorrectly
-""")
+"""
+        )
 
         with pytest.raises(yaml.YAMLError):
             ConfigBuilder(str(config_file))
@@ -115,7 +126,8 @@ invalid: yaml: syntax:
     def test_configurable_dict_building(self, tmp_path):
         """Test that configurable dict is built correctly."""
         config_file = tmp_path / "config.yml"
-        config_file.write_text("""
+        config_file.write_text(
+            """
 project_root: /test/project
 registry_path: ./app/registry.py
 models:
@@ -124,20 +136,22 @@ models:
 execution_control:
   limits:
     graph_recursion_limit: 100
-""")
+"""
+        )
 
         builder = ConfigBuilder(str(config_file))
 
         assert builder.configurable is not None
         assert isinstance(builder.configurable, dict)
-        assert 'model_configs' in builder.configurable
-        assert 'execution_limits' in builder.configurable
-        assert 'project_root' in builder.configurable
+        assert "model_configs" in builder.configurable
+        assert "execution_limits" in builder.configurable
+        assert "project_root" in builder.configurable
 
     def test_execution_limits_loaded(self, tmp_path):
         """Test that execution limits are loaded and accessible."""
         config_file = tmp_path / "config.yml"
-        config_file.write_text("""
+        config_file.write_text(
+            """
 execution_control:
   limits:
     graph_recursion_limit: 150
@@ -145,21 +159,23 @@ execution_control:
     max_planning_attempts: 3
     max_step_retries: 5
     max_execution_time_seconds: 600
-""")
+"""
+        )
 
         builder = ConfigBuilder(str(config_file))
 
-        limits = builder.configurable['execution_limits']
-        assert limits['graph_recursion_limit'] == 150
-        assert limits['max_reclassifications'] == 2
-        assert limits['max_planning_attempts'] == 3
-        assert limits['max_step_retries'] == 5
-        assert limits['max_execution_time_seconds'] == 600
+        limits = builder.configurable["execution_limits"]
+        assert limits["graph_recursion_limit"] == 150
+        assert limits["max_reclassifications"] == 2
+        assert limits["max_planning_attempts"] == 3
+        assert limits["max_step_retries"] == 5
+        assert limits["max_execution_time_seconds"] == 600
 
     def test_model_configs_loaded(self, tmp_path):
         """Test that model configurations are loaded correctly."""
         config_file = tmp_path / "config.yml"
-        config_file.write_text("""
+        config_file.write_text(
+            """
 models:
   orchestrator:
     provider: cborg
@@ -168,33 +184,36 @@ models:
     provider: openai
     model_id: gpt-4
     max_tokens: 4096
-""")
+"""
+        )
 
         builder = ConfigBuilder(str(config_file))
 
-        model_configs = builder.configurable['model_configs']
-        assert 'orchestrator' in model_configs
-        assert model_configs['orchestrator']['provider'] == 'cborg'
-        assert model_configs['orchestrator']['model_id'] == 'anthropic/claude-sonnet'
+        model_configs = builder.configurable["model_configs"]
+        assert "orchestrator" in model_configs
+        assert model_configs["orchestrator"]["provider"] == "cborg"
+        assert model_configs["orchestrator"]["model_id"] == "anthropic/claude-sonnet"
 
-        assert 'response' in model_configs
-        assert model_configs['response']['provider'] == 'openai'
-        assert model_configs['response']['max_tokens'] == 4096
+        assert "response" in model_configs
+        assert model_configs["response"]["provider"] == "openai"
+        assert model_configs["response"]["max_tokens"] == 4096
 
     def test_registry_path_from_config(self, tmp_path):
         """Test that registry_path is accessible from config."""
         config_file = tmp_path / "config.yml"
-        config_file.write_text("""
+        config_file.write_text(
+            """
 registry_path: ./src/my_app/registry.py
 application:
   registry_path: ./src/other_app/registry.py
-""")
+"""
+        )
 
         builder = ConfigBuilder(str(config_file))
 
         # Should support both formats
-        assert builder.get('registry_path') == './src/my_app/registry.py'
-        assert builder.get('application.registry_path') == './src/other_app/registry.py'
+        assert builder.get("registry_path") == "./src/my_app/registry.py"
+        assert builder.get("application.registry_path") == "./src/other_app/registry.py"
 
 
 class TestConfigGlobalAccess:
@@ -203,26 +222,28 @@ class TestConfigGlobalAccess:
     def test_get_config_value_with_path(self, tmp_path, monkeypatch):
         """Test get_config_value function with dot-separated path."""
         config_file = tmp_path / "config.yml"
-        config_file.write_text("""
+        config_file.write_text(
+            """
 project_root: /test/project
 execution_control:
   limits:
     max_retries: 3
-""")
+"""
+        )
 
         # Set up global config
-        monkeypatch.setenv('CONFIG_FILE', str(config_file))
+        monkeypatch.setenv("CONFIG_FILE", str(config_file))
 
         # Reset global config
         import osprey.utils.config as config_module
+
         config_module._default_config = None
         config_module._default_configurable = None
 
         # Test access
-        value = get_config_value('execution_control.limits.max_retries', 0)
+        value = get_config_value("execution_control.limits.max_retries", 0)
         assert value == 3  # Should retrieve the value from config
 
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-

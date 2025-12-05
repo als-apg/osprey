@@ -392,7 +392,7 @@ class CapabilityClassifier:
                 module="classification_node",
                 class_name="CapabilityClassifier",
                 line=387,
-                extra={"capability": capability.name}
+                extra={"capability": capability.name},
             )
 
             response_data = await asyncio.to_thread(

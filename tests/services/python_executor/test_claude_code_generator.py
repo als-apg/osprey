@@ -24,10 +24,7 @@ except ImportError:
 
 
 # Skip all tests if Claude SDK is not available
-pytestmark = pytest.mark.skipif(
-    not CLAUDE_SDK_AVAILABLE,
-    reason="Claude Agent SDK not installed"
-)
+pytestmark = pytest.mark.skipif(not CLAUDE_SDK_AVAILABLE, reason="Claude Agent SDK not installed")
 
 
 class TestClaudeCodeGeneratorBasics:
@@ -43,39 +40,39 @@ class TestClaudeCodeGeneratorBasics:
         generator = ClaudeCodeGenerator()
 
         assert generator.config is not None
-        assert generator.config.get('profile') in ['fast', 'robust']
-        assert generator.config.get('profile_phases') is not None
-        assert isinstance(generator.config.get('profile_phases'), list)
+        assert generator.config.get("profile") in ["fast", "robust"]
+        assert generator.config.get("profile_phases") is not None
+        assert isinstance(generator.config.get("profile_phases"), list)
 
     def test_initialization_with_inline_config(self):
         """Test generator initialization with inline configuration."""
         config = {
-            'profile': 'fast',
-            'phases': ['generate'],
-            'model': 'claude-haiku-4-5-20251001',
-            'max_turns': 2,
-            'max_budget_usd': 0.05
+            "profile": "fast",
+            "phases": ["generate"],
+            "model": "claude-haiku-4-5-20251001",
+            "max_turns": 2,
+            "max_budget_usd": 0.05,
         }
 
         generator = ClaudeCodeGenerator(model_config=config)
 
-        assert generator.config['profile'] == 'fast'
-        assert generator.config['profile_phases'] == ['generate']
-        assert generator.config['model'] == 'claude-haiku-4-5-20251001'
-        assert generator.config['max_turns'] == 2
-        assert generator.config['max_budget_usd'] == 0.05
+        assert generator.config["profile"] == "fast"
+        assert generator.config["profile_phases"] == ["generate"]
+        assert generator.config["model"] == "claude-haiku-4-5-20251001"
+        assert generator.config["max_turns"] == 2
+        assert generator.config["max_budget_usd"] == 0.05
 
     @pytest.mark.skip(reason="Model name mapping has been refactored - method no longer exists")
     def test_model_name_mapping(self):
         """Test model name mapping from short names to SDK names."""
         generator = ClaudeCodeGenerator()
 
-        assert generator._map_model_name('sonnet') == 'claude-sonnet-4-5'
-        assert generator._map_model_name('opus') == 'claude-opus-4-1-20250805'
-        assert generator._map_model_name('haiku') == 'claude-haiku-4-5'
+        assert generator._map_model_name("sonnet") == "claude-sonnet-4-5"
+        assert generator._map_model_name("opus") == "claude-opus-4-1-20250805"
+        assert generator._map_model_name("haiku") == "claude-haiku-4-5"
 
         # Test passthrough for unknown names
-        assert generator._map_model_name('custom-model') == 'custom-model'
+        assert generator._map_model_name("custom-model") == "custom-model"
 
     def test_code_extraction(self):
         """Test code extraction from text."""
@@ -94,8 +91,8 @@ That should work!
 """
         code = generator._extract_code_from_text(text_with_python)
         assert code is not None
-        assert 'import numpy as np' in code
-        assert 'results' in code
+        assert "import numpy as np" in code
+        assert "results" in code
 
         # Test generic code block extraction
         text_with_generic = """
@@ -106,7 +103,7 @@ data = pd.DataFrame()
 """
         code = generator._extract_code_from_text(text_with_generic)
         assert code is not None
-        assert 'import pandas' in code
+        assert "import pandas" in code
 
         # Test no code found
         text_without_code = "This is just plain text without any code."
@@ -123,9 +120,9 @@ import numpy as np
 results = {}
 ```"""
         cleaned = generator._clean_generated_code(raw_code)
-        assert not cleaned.startswith('```')
-        assert not cleaned.endswith('```')
-        assert 'import numpy' in cleaned
+        assert not cleaned.startswith("```")
+        assert not cleaned.endswith("```")
+        assert "import numpy" in cleaned
 
         # Code without markdown
         raw_code_clean = "import pandas as pd\nresults = {}"
@@ -143,30 +140,36 @@ class TestClaudeCodeGeneratorPrompts:
         request = PythonExecutionRequest(
             user_query="Calculate statistics",
             task_objective="Statistical analysis",
-            execution_folder_name="test"
+            execution_folder_name="test",
         )
 
         prompt = generator._build_system_prompt(request)
 
-        assert 'Python code generator' in prompt
+        assert "Python code generator" in prompt
         # Check for key terms (case-insensitive)
         prompt_lower = prompt.lower()
-        assert 'executable' in prompt_lower and 'python' in prompt_lower and 'code' in prompt_lower
-        assert 'results' in prompt_lower
+        assert "executable" in prompt_lower and "python" in prompt_lower and "code" in prompt_lower
+        assert "results" in prompt_lower
 
-    @pytest.mark.skip(reason="Testing private method _build_phase_prompt requires complex phase_def structure")
+    @pytest.mark.skip(
+        reason="Testing private method _build_phase_prompt requires complex phase_def structure"
+    )
     def test_phase_prompt_building(self):
         """Test phase prompt construction."""
         # This is an implementation detail - behavior is tested via e2e tests
         pass
 
-    @pytest.mark.skip(reason="Testing private method _build_phase_prompt requires complex phase_def structure")
+    @pytest.mark.skip(
+        reason="Testing private method _build_phase_prompt requires complex phase_def structure"
+    )
     def test_phase_prompt_with_errors(self):
         """Test phase prompt includes error feedback."""
         # This is an implementation detail - behavior is tested via e2e tests
         pass
 
-    @pytest.mark.skip(reason="Testing private method _build_phase_prompt requires complex phase_def structure")
+    @pytest.mark.skip(
+        reason="Testing private method _build_phase_prompt requires complex phase_def structure"
+    )
     def test_phase_prompt_with_context(self):
         """Test phase prompt with capability context."""
         # This is an implementation detail - behavior is tested via e2e tests
@@ -222,7 +225,7 @@ class TestClaudeCodeGeneratorSafety:
                 "tool_input": {},
                 "session_id": "test",
                 "transcript_path": "/test",
-                "cwd": "/test"
+                "cwd": "/test",
             }
 
             result = await generator._safety_hook(hook_input, None, {"signal": None})
@@ -244,7 +247,7 @@ class TestClaudeCodeGeneratorSafety:
                 "tool_input": {},
                 "session_id": "test",
                 "transcript_path": "/test",
-                "cwd": "/test"
+                "cwd": "/test",
             }
 
             result = await generator._safety_hook(hook_input, None, {"signal": None})
@@ -258,31 +261,27 @@ class TestClaudeCodeGeneratorConfiguration:
 
     def test_inline_configuration(self):
         """Test generator with inline configuration."""
-        config = {
-            'profile': 'robust',
-            'max_budget_usd': 1.0,
-            'max_turns': 10
-        }
+        config = {"profile": "robust", "max_budget_usd": 1.0, "max_turns": 10}
 
         generator = ClaudeCodeGenerator(model_config=config)
 
-        assert generator.config['profile'] == 'robust'
-        assert generator.config['max_budget_usd'] == 1.0
-        assert generator.config['max_turns'] == 10
+        assert generator.config["profile"] == "robust"
+        assert generator.config["max_budget_usd"] == 1.0
+        assert generator.config["max_turns"] == 10
 
     def test_missing_profile_defaults_to_fast(self):
         """Test that missing profile defaults to fast."""
         generator = ClaudeCodeGenerator({})
 
         # Should default to fast
-        assert generator.config.get('profile') in ['fast', 'robust']
+        assert generator.config.get("profile") in ["fast", "robust"]
 
     def test_codebase_dirs_empty_without_config(self):
         """Test that codebase_dirs is empty without configuration file."""
         generator = ClaudeCodeGenerator()
 
         # Without a config file, should have empty codebase_dirs
-        assert isinstance(generator.config.get('codebase_dirs', []), list)
+        assert isinstance(generator.config.get("codebase_dirs", []), list)
 
 
 class TestClaudeCodeGeneratorFactoryIntegration:
@@ -295,18 +294,14 @@ class TestClaudeCodeGeneratorFactoryIntegration:
         config = {
             "execution": {
                 "code_generator": "claude_code",
-                "generators": {
-                    "claude_code": {
-                        "profile": "fast"
-                    }
-                }
+                "generators": {"claude_code": {"profile": "fast"}},
             }
         }
 
         generator = create_code_generator(config)
 
         assert isinstance(generator, ClaudeCodeGenerator)
-        assert generator.config['profile'] == 'fast'
+        assert generator.config["profile"] == "fast"
 
     def test_factory_falls_back_on_missing_sdk(self):
         """Test that factory falls back to legacy if SDK missing.
@@ -324,25 +319,19 @@ class TestClaudeCodeGeneratorWorkflows:
 
     def test_single_phase_configuration(self):
         """Test configuration of single-phase workflow (fast profile)."""
-        config = {
-            'profile': 'fast',
-            'phases': ['generate']
-        }
+        config = {"profile": "fast", "phases": ["generate"]}
 
         generator = ClaudeCodeGenerator(model_config=config)
 
-        assert generator.config['profile_phases'] == ['generate']
+        assert generator.config["profile_phases"] == ["generate"]
 
     def test_multi_phase_configuration(self):
         """Test configuration of multi-phase workflow (robust profile)."""
-        config = {
-            'profile': 'robust',
-            'phases': ['scan', 'plan', 'implement']
-        }
+        config = {"profile": "robust", "phases": ["scan", "plan", "implement"]}
 
         generator = ClaudeCodeGenerator(model_config=config)
 
-        assert generator.config['profile_phases'] == ['scan', 'plan', 'implement']
+        assert generator.config["profile_phases"] == ["scan", "plan", "implement"]
 
 
 @pytest.fixture
@@ -353,7 +342,7 @@ def sample_request():
         task_objective="Compute mean, median, and std dev",
         execution_folder_name="test_stats",
         expected_results={"mean": "float", "median": "float", "std": "float"},
-        capability_prompts=["Use numpy for calculations"]
+        capability_prompts=["Use numpy for calculations"],
     )
 
 
@@ -366,21 +355,22 @@ def sample_error_chain():
             error_message="NameError: name 'np' is not defined",
             failed_code="result = np.mean(data)",
             attempt_number=1,
-            stage="execution"
+            stage="execution",
         ),
         ExecutionError(
             error_type="execution",
             error_message="Import numpy first",
             failed_code="result = np.mean(data)",
             attempt_number=2,
-            stage="execution"
-        )
+            stage="execution",
+        ),
     ]
 
 
 # =============================================================================
 # BEHAVIORAL TESTS (NO LLM CALLS)
 # =============================================================================
+
 
 class TestClaudeCodeGeneratorBehavior:
     """Test generator behavior without making LLM calls."""
@@ -390,20 +380,17 @@ class TestClaudeCodeGeneratorBehavior:
         generator = ClaudeCodeGenerator()
 
         assert generator.config is not None
-        assert 'profile' in generator.config
-        assert generator.config['profile'] in ['fast', 'robust']
+        assert "profile" in generator.config
+        assert generator.config["profile"] in ["fast", "robust"]
 
     def test_configuration_with_inline_config(self):
         """Test generator respects inline configuration."""
-        config = {
-            'profile': 'robust',
-            'max_budget_usd': 0.5
-        }
+        config = {"profile": "robust", "max_budget_usd": 0.5}
 
         generator = ClaudeCodeGenerator(model_config=config)
 
-        assert generator.config['profile'] == 'robust'
-        assert generator.config.get('max_budget_usd') == 0.5
+        assert generator.config["profile"] == "robust"
+        assert generator.config.get("max_budget_usd") == 0.5
 
     def test_metadata_structure(self):
         """Test metadata structure is correct."""
@@ -413,9 +400,9 @@ class TestClaudeCodeGeneratorBehavior:
 
         # Metadata should be a dict with expected keys
         assert isinstance(metadata, dict)
-        assert 'thinking_blocks' in metadata
-        assert 'tool_uses' in metadata
-        assert 'total_thinking_tokens' in metadata
+        assert "thinking_blocks" in metadata
+        assert "tool_uses" in metadata
+        assert "total_thinking_tokens" in metadata
 
     def test_code_extraction_from_markdown(self):
         """Test code extraction from markdown blocks."""
@@ -433,9 +420,9 @@ That should work!"""
 
         code = generator._extract_code_from_text(markdown)
         assert code is not None
-        assert 'import numpy' in code
-        assert 'results' in code
-        assert '```' not in code
+        assert "import numpy" in code
+        assert "results" in code
+        assert "```" not in code
 
     def test_code_extraction_looks_for_python_keywords(self):
         """Test extraction prefers blocks with Python keywords."""
@@ -449,7 +436,7 @@ results = {}
 
         code = generator._extract_code_from_text(markdown)
         assert code is not None
-        assert 'import sys' in code
+        assert "import sys" in code
 
     def test_code_extraction_none_when_no_code(self):
         """Test extraction returns None when no code found."""
@@ -467,10 +454,10 @@ results = {}
         dirty = "```python\nimport sys\nresults = {}\n```"
         clean = generator._clean_generated_code(dirty)
 
-        assert not clean.startswith('```')
-        assert not clean.endswith('```')
-        assert 'import sys' in clean
-        assert 'python' not in clean
+        assert not clean.startswith("```")
+        assert not clean.endswith("```")
+        assert "import sys" in clean
+        assert "python" not in clean
 
     def test_code_cleaning_strips_whitespace(self):
         """Test code cleaning strips extra whitespace."""
@@ -479,9 +466,9 @@ results = {}
         dirty = "\n\n  \nimport sys\nresults = {}\n  \n\n"
         clean = generator._clean_generated_code(dirty)
 
-        assert not clean.startswith('\n')
-        assert not clean.endswith('\n\n')
-        assert 'import sys' in clean
+        assert not clean.startswith("\n")
+        assert not clean.endswith("\n\n")
+        assert "import sys" in clean
 
     def test_code_cleaning_preserves_clean_code(self):
         """Test cleaning doesn't alter already clean code."""
@@ -506,7 +493,7 @@ class TestClaudeCodeGeneratorSafetyBehavior:
             "tool_input": {"path": "file.py", "content": "code"},
             "session_id": "test",
             "transcript_path": "/tmp/test",
-            "cwd": "/tmp"
+            "cwd": "/tmp",
         }
 
         result = await generator._safety_hook(hook_input, None, {"signal": None})
@@ -524,7 +511,7 @@ class TestClaudeCodeGeneratorSafetyBehavior:
             "tool_input": {"command": "rm -rf /"},
             "session_id": "test",
             "transcript_path": "/tmp/test",
-            "cwd": "/tmp"
+            "cwd": "/tmp",
         }
 
         result = await generator._safety_hook(hook_input, None, {"signal": None})
@@ -542,13 +529,16 @@ class TestClaudeCodeGeneratorSafetyBehavior:
                 "tool_input": {},
                 "session_id": "test",
                 "transcript_path": "/tmp/test",
-                "cwd": "/tmp"
+                "cwd": "/tmp",
             }
 
             result = await generator._safety_hook(hook_input, None, {"signal": None})
 
             # Should allow (empty result means allow)
-            assert result == {} or result.get("hookSpecificOutput", {}).get("permissionDecision") != "deny"
+            assert (
+                result == {}
+                or result.get("hookSpecificOutput", {}).get("permissionDecision") != "deny"
+            )
 
 
 class TestClaudeCodeGeneratorConfigurationBehavior:
@@ -562,7 +552,7 @@ class TestClaudeCodeGeneratorConfigurationBehavior:
             "codebase_guidance": {
                 "plotting": {
                     "directories": ["_agent_data/examples/plots/"],
-                    "guidance": "Use for plotting"
+                    "guidance": "Use for plotting",
                 }
             }
         }
@@ -593,7 +583,7 @@ class TestClaudeCodeGeneratorConfigurationBehavior:
         assert isinstance(model, str)
         assert len(model) > 0
         # Should be a valid model identifier
-        assert 'claude' in model.lower() or 'haiku' in model.lower() or 'sonnet' in model.lower()
+        assert "claude" in model.lower() or "haiku" in model.lower() or "sonnet" in model.lower()
 
 
 class TestClaudeCodeGeneratorWithFixtures:
@@ -606,9 +596,9 @@ class TestClaudeCodeGeneratorWithFixtures:
         prompt = generator._build_system_prompt(sample_request)
 
         # System prompt should be generic (task details go in user prompt)
-        assert 'Python' in prompt
-        assert 'results' in prompt.lower()
-        assert 'executable' in prompt.lower()
+        assert "Python" in prompt
+        assert "results" in prompt.lower()
+        assert "executable" in prompt.lower()
 
     def test_config_with_sample_request(self, sample_request):
         """Test generator configuration with sample request."""
@@ -616,7 +606,7 @@ class TestClaudeCodeGeneratorWithFixtures:
 
         # Verify configuration is loaded
         assert generator.config is not None
-        assert 'profile' in generator.config
+        assert "profile" in generator.config
 
 
 class TestClaudeCodeGeneratorStructuredErrors:
@@ -630,11 +620,11 @@ class TestClaudeCodeGeneratorStructuredErrors:
             failed_code="result = undefined_var + 10",
             traceback="Traceback (most recent call last):\n  File \"<string>\", line 1\nNameError: name 'undefined_var' is not defined",
             attempt_number=1,
-            stage="execution"
+            stage="execution",
         )
 
         # Should have the method
-        assert hasattr(error, 'to_prompt_text')
+        assert hasattr(error, "to_prompt_text")
         assert callable(error.to_prompt_text)
 
         # Should format nicely
@@ -650,15 +640,15 @@ class TestClaudeCodeGeneratorStructuredErrors:
                 error_message="SyntaxError: invalid syntax",
                 failed_code="def broken(\n    pass",
                 attempt_number=1,
-                stage="analysis"
+                stage="analysis",
             ),
             ExecutionError(
                 error_type="execution",
                 error_message="ZeroDivisionError: division by zero",
                 failed_code="result = 10 / 0",
                 attempt_number=2,
-                stage="execution"
-            )
+                stage="execution",
+            ),
         ]
 
         # Each error should format
@@ -675,10 +665,10 @@ class TestClaudeCodeGeneratorStructuredErrors:
             failed_code="import os\nos.system('rm -rf /')",
             analysis_issues=[
                 "Security risk: System command execution",
-                "Prohibited import detected: os.system"
+                "Prohibited import detected: os.system",
             ],
             attempt_number=1,
-            stage="analysis"
+            stage="analysis",
         )
 
         text = error.to_prompt_text()
@@ -687,9 +677,10 @@ class TestClaudeCodeGeneratorStructuredErrors:
         assert "Security risk" in text
         assert "Prohibited import" in text
 
-    @pytest.mark.skip(reason="Testing private method _build_phase_prompt - use e2e tests for full behavior")
+    @pytest.mark.skip(
+        reason="Testing private method _build_phase_prompt - use e2e tests for full behavior"
+    )
     def test_phased_workflow_prompt_structure(self):
         """Verify phased workflow prompt includes phase information."""
         # This is tested in e2e/test_code_generator_workflows.py
         pass
-

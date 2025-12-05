@@ -5,8 +5,8 @@ Manages the channel database with efficient lookup and formatting capabilities.
 """
 
 import json
-from typing import List, Dict, Optional
-from pathlib import Path
+from typing import Dict, List, Optional
+
 from ..core.base_database import BaseDatabase
 
 
@@ -30,20 +30,15 @@ class ChannelDatabase(BaseDatabase):
 
     def load_database(self):
         """Load channel database from JSON file."""
-        with open(self.db_path, 'r') as f:
+        with open(self.db_path, "r") as f:
             self.channels = json.load(f)
 
         # Create lookup map for O(1) access
-        self.channel_map = {
-            ch['channel']: ch for ch in self.channels
-        }
+        self.channel_map = {ch["channel"]: ch for ch in self.channels}
 
     def get_statistics(self) -> Dict:
         """Get database statistics."""
-        return {
-            'total_channels': len(self.channels),
-            'format': 'legacy'
-        }
+        return {"total_channels": len(self.channels), "format": "legacy"}
 
     def get_all_channels(self) -> List[Dict]:
         """Return all channels."""
@@ -68,19 +63,16 @@ class ChannelDatabase(BaseDatabase):
         """
         validation_results = []
         for name in channel_names:
-            validation_results.append({
-                'channel': name,
-                'valid': self.validate_channel(name)
-            })
+            validation_results.append({"channel": name, "valid": self.validate_channel(name)})
         return validation_results
 
     def get_valid_channels(self, validation_results: List[Dict]) -> List[str]:
         """Extract only valid channel names from validation results."""
-        return [entry['channel'] for entry in validation_results if entry['valid']]
+        return [entry["channel"] for entry in validation_results if entry["valid"]]
 
     def get_invalid_channels(self, validation_results: List[Dict]) -> List[str]:
         """Extract only invalid channel names from validation results."""
-        return [entry['channel'] for entry in validation_results if not entry['valid']]
+        return [entry["channel"] for entry in validation_results if not entry["valid"]]
 
     def format_for_prompt(self, include_addresses: bool = False) -> str:
         """Format channel database for inclusion in LLM prompts.
@@ -98,7 +90,7 @@ class ChannelDatabase(BaseDatabase):
             else:
                 entry = f"- {ch['channel']}"
 
-            if ch.get('description'):
+            if ch.get("description"):
                 entry += f": {ch['description']}"
 
             formatted.append(entry)
@@ -116,15 +108,11 @@ class ChannelDatabase(BaseDatabase):
         """
         chunks = []
         for i in range(0, len(self.channels), chunk_size):
-            chunk = self.channels[i:i + chunk_size]
+            chunk = self.channels[i : i + chunk_size]
             chunks.append(chunk)
         return chunks
 
-    def format_chunk_for_prompt(
-        self,
-        chunk: List[Dict],
-        include_addresses: bool = False
-    ) -> str:
+    def format_chunk_for_prompt(self, chunk: List[Dict], include_addresses: bool = False) -> str:
         """Format a specific chunk for LLM prompts.
 
         Args:
@@ -141,10 +129,9 @@ class ChannelDatabase(BaseDatabase):
             else:
                 entry = f"- {ch['channel']}"
 
-            if ch.get('description'):
+            if ch.get("description"):
                 entry += f": {ch['description']}"
 
             formatted.append(entry)
 
         return "\n".join(formatted)
-

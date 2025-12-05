@@ -24,7 +24,6 @@ from osprey.data_management import (
 from osprey.models import get_chat_completion
 from osprey.prompts.defaults.task_extraction import ExtractedTask
 from osprey.prompts.loader import get_framework_prompts
-from osprey.registry import get_registry
 
 # Updated imports for LangGraph compatibility with TypedDict state
 from osprey.utils.config import get_model_config
@@ -255,9 +254,7 @@ class TaskExtractionNode(BaseInfrastructureNode):
 
         if bypass_enabled:
             logger.info("Task extraction bypass enabled - using full context with data sources")
-            logger.status(
-                "Bypassing task extraction - retrieving data and formatting full context"
-            )
+            logger.status("Bypassing task extraction - retrieving data and formatting full context")
         else:
             logger.status("Extracting actionable task from conversation")
         try:

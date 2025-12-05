@@ -39,10 +39,11 @@ class CommandCategory(Enum):
        Categories are used for command discovery, autocompletion filtering,
        and interface-specific command availability validation.
     """
-    CLI = "cli"                    # Interface/UI commands (help, clear, exit)
-    AGENT_CONTROL = "agent"        # Agent behavior control (planning, approval, debug)
-    SERVICE = "service"            # Service-specific commands (logs, metrics)
-    CUSTOM = "custom"              # User-defined custom commands
+
+    CLI = "cli"  # Interface/UI commands (help, clear, exit)
+    AGENT_CONTROL = "agent"  # Agent behavior control (planning, approval, debug)
+    SERVICE = "service"  # Service-specific commands (logs, metrics)
+    CUSTOM = "custom"  # User-defined custom commands
 
 
 class CommandResult(Enum):
@@ -62,9 +63,10 @@ class CommandResult(Enum):
        Interfaces should handle each result type appropriately based on their
        execution model and user experience requirements.
     """
-    CONTINUE = "continue"          # Continue normal processing
-    HANDLED = "handled"           # Command was handled, stop processing
-    EXIT = "exit"                 # Exit the current interface
+
+    CONTINUE = "continue"  # Continue normal processing
+    HANDLED = "handled"  # Command was handled, stop processing
+    EXIT = "exit"  # Exit the current interface
     AGENT_STATE_CHANGED = "agent_state_changed"  # Agent control state was modified
 
 
@@ -127,6 +129,7 @@ class CommandContext:
                 config=framework_config
             )
     """
+
     # Interface context
     interface_type: str = "unknown"  # "cli", "openwebui", "api", etc.
     user_id: str | None = None
@@ -167,11 +170,7 @@ class CommandHandler(Protocol):
        state changes instead of CommandResult values.
     """
 
-    async def __call__(
-        self,
-        args: str,
-        context: CommandContext
-    ) -> CommandResult | dict[str, Any]:
+    async def __call__(self, args: str, context: CommandContext) -> CommandResult | dict[str, Any]:
         """Execute the command.
 
         Args:
@@ -266,6 +265,7 @@ class Command:
                 requires_args=True
             )
     """
+
     name: str
     category: CommandCategory
     description: str
@@ -298,7 +298,9 @@ class Command:
         if self.syntax is None:
             if self.valid_options:
                 options = "|".join(self.valid_options)
-                self.syntax = f"/{self.name}:{options}" if self.requires_args else f"/{self.name}[:{options}]"
+                self.syntax = (
+                    f"/{self.name}:{options}" if self.requires_args else f"/{self.name}[:{options}]"
+                )
             else:
                 self.syntax = f"/{self.name}:<value>" if self.requires_args else f"/{self.name}"
 
@@ -360,6 +362,7 @@ class Command:
 @dataclass
 class ParsedCommand:
     """Result of parsing a command line."""
+
     command_name: str
     option: str | None = None
     remaining_text: str = ""

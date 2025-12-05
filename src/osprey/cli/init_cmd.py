@@ -16,39 +16,48 @@ from .templates import TemplateManager
 @click.command()
 @click.argument("project_name")
 @click.option(
-    "--template", "-t",
+    "--template",
+    "-t",
     default="minimal",
-    help="Application template to use (minimal, hello_world_weather, control_assistant)"
+    help="Application template to use (minimal, hello_world_weather, control_assistant)",
 )
 @click.option(
-    "--registry-style", "-r",
+    "--registry-style",
+    "-r",
     type=click.Choice(["extend", "standalone"], case_sensitive=False),
     default="extend",
-    help="Registry style: extend (recommended - extends framework defaults) or standalone (advanced - explicit control)"
+    help="Registry style: extend (recommended - extends framework defaults) or standalone (advanced - explicit control)",
 )
 @click.option(
-    "--output-dir", "-o",
+    "--output-dir",
+    "-o",
     type=click.Path(),
     default=".",
-    help="Output directory for project (default: current directory)"
+    help="Output directory for project (default: current directory)",
 )
 @click.option(
-    "--force", "-f",
-    is_flag=True,
-    help="Force overwrite if project directory already exists"
+    "--force", "-f", is_flag=True, help="Force overwrite if project directory already exists"
 )
 @click.option(
     "--provider",
     type=click.Choice(["anthropic", "openai", "google", "cborg", "ollama"], case_sensitive=False),
     default=None,
-    help="AI provider to configure (anthropic, openai, google, cborg, ollama)"
+    help="AI provider to configure (anthropic, openai, google, cborg, ollama)",
 )
 @click.option(
     "--model",
     default=None,
-    help="Model identifier (e.g., claude-3-sonnet, gpt-4, anthropic/claude-haiku)"
+    help="Model identifier (e.g., claude-3-sonnet, gpt-4, anthropic/claude-haiku)",
 )
-def init(project_name: str, template: str, registry_style: str, output_dir: str, force: bool, provider: str, model: str):
+def init(
+    project_name: str,
+    template: str,
+    registry_style: str,
+    output_dir: str,
+    force: bool,
+    provider: str,
+    model: str,
+):
     """Create a new Osprey project.
 
     Creates a complete self-contained project with application code,
@@ -119,7 +128,7 @@ def init(project_name: str, template: str, registry_style: str, output_dir: str,
             console.print(
                 f"❌ Template '{template}' not found.\n"
                 f"Available templates: {', '.join(available_templates)}",
-                style=Styles.ERROR
+                style=Styles.ERROR,
             )
             raise click.Abort()
 
@@ -139,32 +148,33 @@ def init(project_name: str, template: str, registry_style: str, output_dir: str,
 
         if project_path.exists():
             if force:
-                msg = Messages.warning(f'Removing existing directory: {project_path}')
+                msg = Messages.warning(f"Removing existing directory: {project_path}")
                 console.print(f"  ⚠️  {msg}")
                 import shutil
+
                 shutil.rmtree(project_path)
                 console.print(f"  {Messages.success('Removed existing directory')}")
             else:
                 console.print(
                     f"❌ Directory '{project_path}' already exists.\n"
                     f"   Use --force to overwrite, or choose a different name.",
-                    style=Styles.ERROR
+                    style=Styles.ERROR,
                 )
                 raise click.Abort()
 
         # Create project with provider/model context
         context = {}
         if provider:
-            context['default_provider'] = provider
+            context["default_provider"] = provider
         if model:
-            context['default_model'] = model
+            context["default_model"] = model
 
         project_path = manager.create_project(
             project_name=project_name,
             output_dir=output_path,
             template_name=template,
             registry_style=registry_style,
-            context=context if context else None
+            context=context if context else None,
         )
 
         console.print("  ✓ Creating application code...", style=Styles.SUCCESS)
@@ -172,22 +182,24 @@ def init(project_name: str, template: str, registry_style: str, output_dir: str,
         console.print("  ✓ Creating project configuration...", style=Styles.SUCCESS)
 
         # Check if API keys were detected and .env was created
-        api_keys = ['CBORG_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GOOGLE_API_KEY']
+        api_keys = ["CBORG_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY"]
         has_api_keys = any(key in detected_env for key in api_keys)
 
         if has_api_keys:
             console.print("  ✓ Created .env with detected API keys", style=Styles.SUCCESS)
 
-        console.print(
-            f"\n✅ Project created successfully at: [bold]{project_path}[/bold]"
-        )
+        console.print(f"\n✅ Project created successfully at: [bold]{project_path}[/bold]")
 
         # Show provider/model configuration status
         if provider or model:
             if provider:
-                console.print(f"  ✓ Configured AI provider: [accent]{provider}[/accent]", style=Styles.SUCCESS)
+                console.print(
+                    f"  ✓ Configured AI provider: [accent]{provider}[/accent]", style=Styles.SUCCESS
+                )
             if model:
-                console.print(f"  ✓ Configured model: [accent]{model}[/accent]", style=Styles.SUCCESS)
+                console.print(
+                    f"  ✓ Configured model: [accent]{model}[/accent]", style=Styles.SUCCESS
+                )
 
         # Show next steps
         console.print("\n📋 [bold]Next steps:[/bold]")
@@ -209,10 +221,10 @@ def init(project_name: str, template: str, registry_style: str, output_dir: str,
     except Exception as e:
         console.print(f"❌ Unexpected error: {e}", style=Styles.ERROR)
         import traceback
+
         console.print(traceback.format_exc(), style=Styles.DIM)
         raise click.Abort() from e
 
 
 if __name__ == "__main__":
     init()
-

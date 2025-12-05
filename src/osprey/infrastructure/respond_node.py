@@ -121,11 +121,12 @@ class RespondCapability(BaseCapability):
 
             # Set caller context for API call logging (propagates through asyncio.to_thread)
             from osprey.models import set_api_call_context
+
             set_api_call_context(
                 function="execute",
                 module="respond_node",
                 class_name="RespondCapability",
-                extra={"capability": "respond"}
+                extra={"capability": "respond"},
             )
 
             # Single LLM call - run in thread pool to avoid blocking event loop for streaming

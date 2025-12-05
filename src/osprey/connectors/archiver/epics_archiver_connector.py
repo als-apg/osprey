@@ -59,6 +59,7 @@ class EPICSArchiverConnector(ArchiverConnector):
         """
         try:
             from archivertools import ArchiverClient
+
             self._ArchiverClient = ArchiverClient
         except ImportError as e:
             raise ImportError(
@@ -66,7 +67,7 @@ class EPICSArchiverConnector(ArchiverConnector):
                 "Install with: pip install archivertools"
             ) from e
 
-        archiver_url = config.get('url')
+        archiver_url = config.get("url")
         if not archiver_url:
             raise ValueError("archiver URL is required for EPICS archiver")
 
@@ -75,7 +76,7 @@ class EPICSArchiverConnector(ArchiverConnector):
         except Exception as e:
             raise ConnectionError(f"ArchiverClient initialization failed: {e}") from e
 
-        self._timeout = config.get('timeout', 60)
+        self._timeout = config.get("timeout", 60)
         self._connected = True
 
         logger.debug(f"EPICS Archiver connector initialized: {archiver_url}")
@@ -92,7 +93,7 @@ class EPICSArchiverConnector(ArchiverConnector):
         start_date: datetime,
         end_date: datetime,
         precision_ms: int = 1000,
-        timeout: int | None = None
+        timeout: int | None = None,
     ) -> pd.DataFrame:
         """
         Retrieve historical data from EPICS archiver.
@@ -127,27 +128,19 @@ class EPICSArchiverConnector(ArchiverConnector):
         def fetch_data():
             """Synchronous data fetch function."""
             return self._archiver_client.match_data(
-                pv_list=pv_list,
-                precision=precision_ms,
-                start=start_date,
-                end=end_date,
-                verbose=0
+                pv_list=pv_list, precision=precision_ms, start=start_date, end=end_date, verbose=0
             )
 
         try:
             # Use asyncio.wait_for for timeout, asyncio.to_thread for async execution
-            data = await asyncio.wait_for(
-                asyncio.to_thread(fetch_data),
-                timeout=timeout
-            )
+            data = await asyncio.wait_for(asyncio.to_thread(fetch_data), timeout=timeout)
 
             # Ensure datetime index
-            if isinstance(data, pd.DataFrame) and hasattr(data, 'index'):
+            if isinstance(data, pd.DataFrame) and hasattr(data, "index"):
                 data.index = pd.to_datetime(data.index)
 
                 logger.debug(
-                    f"Retrieved archiver data: {len(data)} points "
-                    f"for {len(pv_list)} PVs"
+                    f"Retrieved archiver data: {len(data)} points " f"for {len(pv_list)} PVs"
                 )
                 return data
             else:
@@ -163,9 +156,7 @@ class EPICSArchiverConnector(ArchiverConnector):
         except Exception as e:
             error_msg = str(e).lower()
             if "connection" in error_msg:
-                raise ConnectionError(
-                    f"Network connectivity issue with archiver: {e}"
-                ) from e
+                raise ConnectionError(f"Network connectivity issue with archiver: {e}") from e
             raise
 
     async def get_metadata(self, pv_name: str) -> ArchiverMetadata:
@@ -185,7 +176,7 @@ class EPICSArchiverConnector(ArchiverConnector):
         return ArchiverMetadata(
             pv_name=pv_name,
             is_archived=True,  # Assume true if no error
-            description=f"EPICS Archived PV: {pv_name}"
+            description=f"EPICS Archived PV: {pv_name}",
         )
 
     async def check_availability(self, pv_names: list[str]) -> dict[str, bool]:
@@ -203,4 +194,3 @@ class EPICSArchiverConnector(ArchiverConnector):
         """
         # Basic implementation - could be enhanced with archiver API calls
         return dict.fromkeys(pv_names, True)
-

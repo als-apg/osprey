@@ -159,7 +159,7 @@ class CommandRegistry:
 
     def get_command(self, name: str) -> Command | None:
         """Get a command by name or alias."""
-        name = name.lstrip('/')
+        name = name.lstrip("/")
 
         # Check direct command name
         if name in self.commands:
@@ -184,19 +184,25 @@ class CommandRegistry:
 
     def get_completions(self, prefix: str, context: CommandContext | None = None) -> list[str]:
         """Get command completions for a given prefix."""
-        prefix = prefix.lstrip('/')
+        prefix = prefix.lstrip("/")
 
         if not prefix:
             # Return all commands available for this interface
             commands = self.get_all_commands()
             if context and context.interface_type:
-                commands = [cmd for cmd in commands if cmd.is_valid_for_interface(context.interface_type)]
+                commands = [
+                    cmd for cmd in commands if cmd.is_valid_for_interface(context.interface_type)
+                ]
             return [f"/{cmd.name}" for cmd in commands]
 
         matches = []
         for cmd_name, cmd in self.commands.items():
             # Check if command is valid for this interface
-            if context and context.interface_type and not cmd.is_valid_for_interface(context.interface_type):
+            if (
+                context
+                and context.interface_type
+                and not cmd.is_valid_for_interface(context.interface_type)
+            ):
                 continue
 
             if cmd_name.startswith(prefix) and not cmd.hidden:
@@ -205,7 +211,11 @@ class CommandRegistry:
         # Check aliases too
         for alias, cmd_name in self.aliases.items():
             cmd = self.commands[cmd_name]
-            if context and context.interface_type and not cmd.is_valid_for_interface(context.interface_type):
+            if (
+                context
+                and context.interface_type
+                and not cmd.is_valid_for_interface(context.interface_type)
+            ):
                 continue
 
             if alias.startswith(prefix) and not cmd.hidden:
@@ -213,7 +223,9 @@ class CommandRegistry:
 
         return sorted(list(set(matches)))
 
-    async def execute(self, command_line: str, context: CommandContext) -> CommandResult | dict[str, Any]:
+    async def execute(
+        self, command_line: str, context: CommandContext
+    ) -> CommandResult | dict[str, Any]:
         """Execute a command from a command line."""
         parsed = parse_command_line(command_line)
 
@@ -229,16 +241,24 @@ class CommandRegistry:
 
         # Validate interface restrictions
         if not command.is_valid_for_interface(context.interface_type):
-            self.console.print(f"❌ Command /{command.name} not available in {context.interface_type}", style=Styles.ERROR)
+            self.console.print(
+                f"❌ Command /{command.name} not available in {context.interface_type}",
+                style=Styles.ERROR,
+            )
             return CommandResult.HANDLED
 
         # Validate options
         if not command.validate_option(parsed.option):
             if command.requires_args:
-                self.console.print(f"❌ Command /{command.name} requires an argument", style=Styles.ERROR)
+                self.console.print(
+                    f"❌ Command /{command.name} requires an argument", style=Styles.ERROR
+                )
             elif command.valid_options:
                 valid_opts = ", ".join(command.valid_options)
-                self.console.print(f"❌ Invalid option '{parsed.option}' for /{command.name}. Valid options: {valid_opts}", style=Styles.ERROR)
+                self.console.print(
+                    f"❌ Invalid option '{parsed.option}' for /{command.name}. Valid options: {valid_opts}",
+                    style=Styles.ERROR,
+                )
             else:
                 self.console.print(f"❌ Invalid option for /{command.name}", style=Styles.ERROR)
             return CommandResult.HANDLED
@@ -275,6 +295,7 @@ class CommandRegistry:
             register_cli_commands,
             register_service_commands,
         )
+
         register_cli_commands(self)
         register_agent_control_commands(self)
         register_service_commands(self)
@@ -287,7 +308,7 @@ def parse_command_line(command_line: str) -> ParsedCommand:
     - /command
     - /command:option
     """
-    if not command_line.startswith('/'):
+    if not command_line.startswith("/"):
         return ParsedCommand("", is_valid=False, error_message="Commands must start with /")
 
     # Remove leading slash
@@ -298,33 +319,32 @@ def parse_command_line(command_line: str) -> ParsedCommand:
         return ParsedCommand("", is_valid=False, error_message="Empty command")
 
     # Split into parts to separate command from any remaining text
-    parts = line.split(' ', 1)
+    parts = line.split(" ", 1)
     first_part = parts[0]
     remaining_text = parts[1] if len(parts) > 1 else ""
 
     # Check for colon syntax: /command:option
-    if ':' in first_part:
-        match = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*):(.+)$', first_part)
+    if ":" in first_part:
+        match = re.match(r"^([a-zA-Z_][a-zA-Z0-9_]*):(.+)$", first_part)
         if match:
             command_name, option = match.groups()
             return ParsedCommand(
                 command_name=command_name,
                 option=option,
                 remaining_text=remaining_text,
-                is_valid=True
+                is_valid=True,
             )
         else:
-            return ParsedCommand("", is_valid=False, error_message=f"Invalid command format: /{first_part}")
+            return ParsedCommand(
+                "", is_valid=False, error_message=f"Invalid command format: /{first_part}"
+            )
 
     # Simple command format: /command (no space-separated options allowed)
-    match = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*)$', first_part)
+    match = re.match(r"^([a-zA-Z_][a-zA-Z0-9_]*)$", first_part)
     if match:
         command_name = match.group(1)
         return ParsedCommand(
-            command_name=command_name,
-            option=None,
-            remaining_text=remaining_text,
-            is_valid=True
+            command_name=command_name, option=None, remaining_text=remaining_text, is_valid=True
         )
 
     return ParsedCommand("", is_valid=False, error_message=f"Invalid command format: /{first_part}")
@@ -344,6 +364,8 @@ def register_command(command: Command) -> None:
     _registry.register(command)
 
 
-async def execute_command(command_line: str, context: CommandContext) -> CommandResult | dict[str, Any]:
+async def execute_command(
+    command_line: str, context: CommandContext
+) -> CommandResult | dict[str, Any]:
     """Execute a command globally."""
     return await _registry.execute(command_line, context)

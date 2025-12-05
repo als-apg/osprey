@@ -14,29 +14,30 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 from langgraph.checkpoint.memory import MemorySaver
+from tests.e2e.judge import LLMJudge, WorkflowResult
 
 from osprey.cli.init_cmd import init
 from osprey.graph import create_graph
 from osprey.infrastructure.gateway import Gateway
 from osprey.registry import get_registry, initialize_registry, reset_registry
 from osprey.utils.config import get_full_configuration
-from tests.e2e.judge import LLMJudge, WorkflowResult
 
 
 # Warn if tests are being run the wrong way
 def pytest_configure(config):
     """Warn users if e2e tests are being run incorrectly."""
     # Check if we're running with -m e2e marker from outside tests/e2e/
-    if config.option.markexpr and 'e2e' in config.option.markexpr:
+    if config.option.markexpr and "e2e" in config.option.markexpr:
         # Get the invocation directory
         invocation_dir = config.invocation_params.dir
         e2e_dir = Path(__file__).parent
 
         # If not invoked from tests/e2e/ directory, warn
-        if not str(invocation_dir).endswith('tests/e2e'):
+        if not str(invocation_dir).endswith("tests/e2e"):
             import warnings
+
             warnings.warn(
-                "\n" + "="*80 + "\n"
+                "\n" + "=" * 80 + "\n"
                 "⚠️  WARNING: You are running e2e tests with '-m e2e' marker!\n"
                 "\n"
                 "This can cause test collection order issues and registry failures.\n"
@@ -47,10 +48,9 @@ def pytest_configure(config):
                 "❌ AVOID using:\n"
                 "   pytest -m e2e\n"
                 "\n"
-                "See tests/e2e/README.md for details.\n"
-                + "="*80,
+                "See tests/e2e/README.md for details.\n" + "=" * 80,
                 UserWarning,
-                stacklevel=2
+                stacklevel=2,
             )
 
 
@@ -139,6 +139,7 @@ class E2EProject:
 
             # Clear config caches to force reload from this project's config
             from osprey.utils import config as config_module
+
             config_module._default_config = None
             config_module._default_configurable = None
             config_module._config_cache.clear()

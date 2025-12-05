@@ -153,10 +153,7 @@ class BaseInfrastructureNode(ABC):
 
     @staticmethod
     @abstractmethod
-    async def execute(
-        state: 'AgentState',
-        **kwargs
-    ) -> dict[str, Any]:
+    async def execute(state: "AgentState", **kwargs) -> dict[str, Any]:
         """Execute the infrastructure operation with comprehensive system coordination.
 
         This is the core method that all infrastructure nodes must implement.
@@ -227,10 +224,11 @@ class BaseInfrastructureNode(ABC):
             ComponentLogger instance with streaming capability
         """
         from osprey.utils.logger import get_logger
+
         return get_logger(self.name, state=self._state)
 
     @staticmethod
-    def classify_error(exc: Exception, context: dict) -> 'ErrorClassification':
+    def classify_error(exc: Exception, context: dict) -> "ErrorClassification":
         """Classify errors for infrastructure-specific error handling and recovery.
 
         This method provides default error classification for all infrastructure
@@ -280,11 +278,11 @@ class BaseInfrastructureNode(ABC):
            implementation treats most errors as critical. Override this method
            for infrastructure that can benefit from retries (e.g., LLM-based nodes).
         """
-        node_name = context.get('infrastructure_node', 'unknown_infrastructure_node')
+        node_name = context.get("infrastructure_node", "unknown_infrastructure_node")
         return ErrorClassification(
             severity=ErrorSeverity.CRITICAL,
             user_message=f"Infrastructure error in {node_name}: {exc}",
-            metadata={"technical_details": str(exc)}
+            metadata={"technical_details": str(exc)},
         )
 
     @staticmethod
@@ -326,7 +324,7 @@ class BaseInfrastructureNode(ABC):
         return {
             "max_attempts": 2,  # Conservative for infrastructure
             "delay_seconds": 0.2,  # Fast retry for infrastructure
-            "backoff_factor": 1.2  # Minimal backoff
+            "backoff_factor": 1.2,  # Minimal backoff
         }
 
     # ===== STATE HELPER METHODS =====
@@ -348,6 +346,7 @@ class BaseInfrastructureNode(ABC):
             ```
         """
         from osprey.state import StateManager
+
         return StateManager.get_current_task(self._state)
 
     def get_user_query(self) -> str | None:
@@ -363,6 +362,7 @@ class BaseInfrastructureNode(ABC):
             ```
         """
         from osprey.state import StateManager
+
         return StateManager.get_user_query(self._state)
 
     def get_execution_plan(self):
@@ -380,6 +380,7 @@ class BaseInfrastructureNode(ABC):
             ```
         """
         from osprey.state import StateManager
+
         return StateManager.get_execution_plan(self._state)
 
     def get_current_step_index(self) -> int:
@@ -395,6 +396,7 @@ class BaseInfrastructureNode(ABC):
             ```
         """
         from osprey.state import StateManager
+
         return StateManager.get_current_step_index(self._state)
 
     def get_current_step(self):
@@ -414,6 +416,7 @@ class BaseInfrastructureNode(ABC):
             ```
         """
         from osprey.state import StateManager
+
         return StateManager.get_current_step(self._state)
 
     def __repr__(self) -> str:

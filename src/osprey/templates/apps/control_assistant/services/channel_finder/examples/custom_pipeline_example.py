@@ -28,7 +28,7 @@ class KeywordSearchPipeline(BasePipeline):
         model_config: dict,
         case_sensitive: bool = False,
         min_score: float = 0.5,
-        **kwargs
+        **kwargs,
     ):
         """
         Initialize keyword search pipeline.
@@ -62,10 +62,7 @@ class KeywordSearchPipeline(BasePipeline):
         """
         if not query or not query.strip():
             return ChannelFinderResult(
-                query=query,
-                channels=[],
-                total_channels=0,
-                processing_notes="Empty query provided"
+                query=query, channels=[], total_channels=0, processing_notes="Empty query provided"
             )
 
         logger.info(f"Keyword search query: {query}")
@@ -90,11 +87,11 @@ class KeywordSearchPipeline(BasePipeline):
         # Build result
         channel_infos = []
         for score, ch in scored_channels:
-            channel_infos.append(ChannelInfo(
-                channel=ch['channel'],
-                address=ch['address'],
-                description=ch.get('description')
-            ))
+            channel_infos.append(
+                ChannelInfo(
+                    channel=ch["channel"], address=ch["address"], description=ch.get("description")
+                )
+            )
 
         notes = (
             f"Keyword search found {len(channel_infos)} channels "
@@ -107,7 +104,7 @@ class KeywordSearchPipeline(BasePipeline):
             query=query,
             channels=channel_infos,
             total_channels=len(channel_infos),
-            processing_notes=notes
+            processing_notes=notes,
         )
 
     def _extract_keywords(self, query: str) -> list[str]:
@@ -127,8 +124,8 @@ class KeywordSearchPipeline(BasePipeline):
         - Keyword in description: +0.3
         - Normalized by number of keywords
         """
-        name = channel['channel']
-        description = channel.get('description', '')
+        name = channel["channel"]
+        description = channel.get("description", "")
 
         if not self.case_sensitive:
             name = name.lower()
@@ -158,10 +155,10 @@ class KeywordSearchPipeline(BasePipeline):
         """Return pipeline statistics."""
         db_stats = self.database.get_statistics()
         return {
-            'total_channels': db_stats.get('total_channels', 0),
-            'case_sensitive': self.case_sensitive,
-            'min_score': self.min_score,
-            'uses_llm': False
+            "total_channels": db_stats.get("total_channels", 0),
+            "case_sensitive": self.case_sensitive,
+            "min_score": self.min_score,
+            "uses_llm": False,
         }
 
 
@@ -179,7 +176,7 @@ if __name__ == "__main__":
     from services.channel_finder import ChannelFinderService
 
     # Register the custom pipeline
-    ChannelFinderService.register_pipeline('keyword', KeywordSearchPipeline)
+    ChannelFinderService.register_pipeline("keyword", KeywordSearchPipeline)
 
     print("✓ Registered 'keyword' pipeline")
     print("\nAvailable pipelines:")
@@ -187,7 +184,8 @@ if __name__ == "__main__":
         print(f"  - {name}: {desc}")
 
     print("\nNow you can use it in config.yml:")
-    print("""
+    print(
+        """
     channel_finder:
       pipeline_mode: "keyword"
       pipelines:
@@ -198,5 +196,5 @@ if __name__ == "__main__":
           processing:
             case_sensitive: false
             min_score: 0.5
-    """)
-
+    """
+    )

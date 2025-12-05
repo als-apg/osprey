@@ -140,31 +140,27 @@ class AgentControlState(TypedDict, total=False):
     """
 
     # Planning control
-    planning_mode_enabled: bool                  # Whether planning mode is enabled for the agent
+    planning_mode_enabled: bool  # Whether planning mode is enabled for the agent
 
     # EPICS execution control
-    epics_writes_enabled: bool                   # Whether EPICS write operations are allowed
+    epics_writes_enabled: bool  # Whether EPICS write operations are allowed
 
     # Approval control
-    approval_global_mode: str                    # Global approval mode setting (disabled/selective/all_capabilities)
-    python_execution_approval_enabled: bool      # Whether Python execution requires approval
-    python_execution_approval_mode: str          # Python approval mode (disabled/epics_writes/all_code)
-    memory_approval_enabled: bool                # Whether memory operations require approval
+    approval_global_mode: str  # Global approval mode setting (disabled/selective/all_capabilities)
+    python_execution_approval_enabled: bool  # Whether Python execution requires approval
+    python_execution_approval_mode: str  # Python approval mode (disabled/epics_writes/all_code)
+    memory_approval_enabled: bool  # Whether memory operations require approval
 
     # Execution flow control
-    max_reclassifications: int                   # Maximum number of task reclassifications allowed
-    max_planning_attempts: int                   # Maximum number of planning attempts before giving up
-    max_step_retries: int                        # Maximum number of retries per execution step
-    max_execution_time_seconds: int              # Maximum execution time in seconds
-    max_concurrent_classifications: int          # Maximum concurrent LLM classification requests
-
-
-
+    max_reclassifications: int  # Maximum number of task reclassifications allowed
+    max_planning_attempts: int  # Maximum number of planning attempts before giving up
+    max_step_retries: int  # Maximum number of retries per execution step
+    max_execution_time_seconds: int  # Maximum execution time in seconds
+    max_concurrent_classifications: int  # Maximum concurrent LLM classification requests
 
 
 def apply_slash_commands_to_agent_control_state(
-    agent_control_state: AgentControlState,
-    command_changes: dict[str, Any]
+    agent_control_state: AgentControlState, command_changes: dict[str, Any]
 ) -> AgentControlState:
     """Apply processed command changes to agent control configuration.
 
@@ -240,17 +236,32 @@ def apply_slash_commands_to_agent_control_state(
 
     # Create a copy with all existing values preserved
     new_instance = AgentControlState(
-        planning_mode_enabled=agent_control_state.get('planning_mode_enabled', False),
-        epics_writes_enabled=agent_control_state.get('epics_writes_enabled', False),
-        approval_global_mode=agent_control_state.get('approval_global_mode', 'selective'),
-        python_execution_approval_enabled=agent_control_state.get('python_execution_approval_enabled', True),
-        python_execution_approval_mode=agent_control_state.get('python_execution_approval_mode', 'all_code'),
-        memory_approval_enabled=agent_control_state.get('memory_approval_enabled', True),
-        max_reclassifications=agent_control_state.get('max_reclassifications', execution_limits.get('max_reclassifications', 1)),
-        max_planning_attempts=agent_control_state.get('max_planning_attempts', execution_limits.get('max_planning_attempts', 2)),
-        max_step_retries=agent_control_state.get('max_step_retries', execution_limits.get('max_step_retries', 0)),
-        max_execution_time_seconds=agent_control_state.get('max_execution_time_seconds', execution_limits.get('max_execution_time_seconds', 300)),
-        max_concurrent_classifications=agent_control_state.get('max_concurrent_classifications', execution_limits.get('max_concurrent_classifications', 5)),
+        planning_mode_enabled=agent_control_state.get("planning_mode_enabled", False),
+        epics_writes_enabled=agent_control_state.get("epics_writes_enabled", False),
+        approval_global_mode=agent_control_state.get("approval_global_mode", "selective"),
+        python_execution_approval_enabled=agent_control_state.get(
+            "python_execution_approval_enabled", True
+        ),
+        python_execution_approval_mode=agent_control_state.get(
+            "python_execution_approval_mode", "all_code"
+        ),
+        memory_approval_enabled=agent_control_state.get("memory_approval_enabled", True),
+        max_reclassifications=agent_control_state.get(
+            "max_reclassifications", execution_limits.get("max_reclassifications", 1)
+        ),
+        max_planning_attempts=agent_control_state.get(
+            "max_planning_attempts", execution_limits.get("max_planning_attempts", 2)
+        ),
+        max_step_retries=agent_control_state.get(
+            "max_step_retries", execution_limits.get("max_step_retries", 0)
+        ),
+        max_execution_time_seconds=agent_control_state.get(
+            "max_execution_time_seconds", execution_limits.get("max_execution_time_seconds", 300)
+        ),
+        max_concurrent_classifications=agent_control_state.get(
+            "max_concurrent_classifications",
+            execution_limits.get("max_concurrent_classifications", 5),
+        ),
     )
 
     # Apply the specific changes from command handlers

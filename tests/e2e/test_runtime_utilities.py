@@ -110,10 +110,10 @@ async def test_runtime_utilities_basic_write(e2e_project_factory):
     config_data["control_system"]["limits_checking"]["enabled"] = False
 
     # Disable approval for e2e testing - we want to test code execution, not approval flow
-    if 'approval' not in config_data:
-        config_data['approval'] = {}
+    if "approval" not in config_data:
+        config_data["approval"] = {}
     # Set global mode to disabled to skip all approval workflows
-    config_data['approval']['global_mode'] = 'disabled'
+    config_data["approval"]["global_mode"] = "disabled"
 
     config_path.write_text(yaml.dump(config_data))
 

@@ -14,11 +14,11 @@ from .container_manager import (
 )
 
 __all__ = [
-    'deploy_up',
-    'deploy_down',
-    'deploy_restart',
-    'show_status',
-    'rebuild_deployment',
-    'clean_deployment',
-    'prepare_compose_files'
+    "deploy_up",
+    "deploy_down",
+    "deploy_restart",
+    "show_status",
+    "rebuild_deployment",
+    "clean_deployment",
+    "prepare_compose_files",
 ]

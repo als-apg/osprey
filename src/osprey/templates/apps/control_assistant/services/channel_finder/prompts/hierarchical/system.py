@@ -2,8 +2,8 @@
 
 import textwrap
 
-
-facility_description = textwrap.dedent("""
+facility_description = textwrap.dedent(
+    """
     This is an accelerator facility control system using hierarchical channel naming.
 
     The control system uses EPICS (Experimental Physics and Industrial Control System) with
@@ -91,5 +91,5 @@ facility_description = textwrap.dedent("""
 
     Note: Detailed descriptions of each system, family, field, and subfield are provided
     in the hierarchical navigation context during query processing.
-    """).strip()
-
+    """
+).strip()

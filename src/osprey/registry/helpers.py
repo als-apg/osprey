@@ -8,7 +8,6 @@ The helper functions eliminate boilerplate code and provide a clean,
 intuitive API for application developers to define their registries.
 """
 
-
 from .base import (
     CapabilityRegistration,
     ConnectorRegistration,
@@ -203,7 +202,7 @@ def extend_framework_registry(
         framework_prompt_providers=list(framework_prompt_providers or []),
         providers=all_providers,
         connectors=all_connectors,
-        framework_exclusions=framework_exclusions if framework_exclusions else None
+        framework_exclusions=framework_exclusions if framework_exclusions else None,
     )
 
 
@@ -248,6 +247,7 @@ def get_framework_defaults() -> RegistryConfig:
        :class:`FrameworkRegistryProvider` : The provider that generates this config
     """
     from .registry import FrameworkRegistryProvider
+
     provider = FrameworkRegistryProvider()
     return provider.get_registry_config()
 
@@ -317,51 +317,59 @@ def generate_explicit_registry_code(
 
     # Helper function to format a registration as code
     def format_node_registration(reg: NodeRegistration, indent: str = "                ") -> str:
-        return f'''{indent}NodeRegistration(
+        return f"""{indent}NodeRegistration(
 {indent}    name="{reg.name}",
 {indent}    module_path="{reg.module_path}",
 {indent}    function_name="{reg.function_name}",
 {indent}    description="{reg.description}"
-{indent})'''
+{indent})"""
 
-    def format_capability_registration(reg: CapabilityRegistration, indent: str = "                ") -> str:
+    def format_capability_registration(
+        reg: CapabilityRegistration, indent: str = "                "
+    ) -> str:
         lines = [
-            f'{indent}CapabilityRegistration(',
+            f"{indent}CapabilityRegistration(",
             f'{indent}    name="{reg.name}",',
             f'{indent}    module_path="{reg.module_path}",',
             f'{indent}    class_name="{reg.class_name}",',
             f'{indent}    description="{reg.description}",',
-            f'{indent}    provides={reg.provides},',
-            f'{indent}    requires={reg.requires},',
+            f"{indent}    provides={reg.provides},",
+            f"{indent}    requires={reg.requires},",
         ]
-        if hasattr(reg, 'always_active') and reg.always_active:
-            lines.append(f'{indent}    always_active=True,')
-        if hasattr(reg, 'functional_node') and reg.functional_node:
+        if hasattr(reg, "always_active") and reg.always_active:
+            lines.append(f"{indent}    always_active=True,")
+        if hasattr(reg, "functional_node") and reg.functional_node:
             lines.append(f'{indent}    functional_node="{reg.functional_node}",')
         # Remove trailing comma from last line before closing paren
-        if lines[-1].endswith(','):
+        if lines[-1].endswith(","):
             lines[-1] = lines[-1][:-1]
-        lines.append(f'{indent})')
-        return '\n'.join(lines)
+        lines.append(f"{indent})")
+        return "\n".join(lines)
 
-    def format_context_class_registration(reg: ContextClassRegistration, indent: str = "                ") -> str:
-        return f'''{indent}ContextClassRegistration(
+    def format_context_class_registration(
+        reg: ContextClassRegistration, indent: str = "                "
+    ) -> str:
+        return f"""{indent}ContextClassRegistration(
 {indent}    context_type="{reg.context_type}",
 {indent}    module_path="{reg.module_path}",
 {indent}    class_name="{reg.class_name}"
-{indent})'''
+{indent})"""
 
-    def format_data_source_registration(reg: DataSourceRegistration, indent: str = "                ") -> str:
-        return f'''{indent}DataSourceRegistration(
+    def format_data_source_registration(
+        reg: DataSourceRegistration, indent: str = "                "
+    ) -> str:
+        return f"""{indent}DataSourceRegistration(
 {indent}    name="{reg.name}",
 {indent}    module_path="{reg.module_path}",
 {indent}    class_name="{reg.class_name}",
 {indent}    description="{reg.description}",
 {indent}    health_check_required={reg.health_check_required}
-{indent})'''
+{indent})"""
 
-    def format_service_registration(reg: ServiceRegistration, indent: str = "                ") -> str:
-        return f'''{indent}ServiceRegistration(
+    def format_service_registration(
+        reg: ServiceRegistration, indent: str = "                "
+    ) -> str:
+        return f"""{indent}ServiceRegistration(
 {indent}    name="{reg.name}",
 {indent}    module_path="{reg.module_path}",
 {indent}    class_name="{reg.class_name}",
@@ -369,207 +377,222 @@ def generate_explicit_registry_code(
 {indent}    provides={reg.provides},
 {indent}    requires={reg.requires},
 {indent}    internal_nodes={reg.internal_nodes}
-{indent})'''
+{indent})"""
 
     # Build the code sections
     code_lines = [
         '"""',
-        f'Component registry for {app_display_name}.',
-        '',
-        'This registry uses the EXPLICIT style, listing all framework components',
-        'alongside application-specific components for full visibility and control.',
+        f"Component registry for {app_display_name}.",
+        "",
+        "This registry uses the EXPLICIT style, listing all framework components",
+        "alongside application-specific components for full visibility and control.",
         '"""',
-        '',
-        'from osprey.registry import (',
-        '    RegistryConfigProvider,',
-        '    RegistryConfig,',
-        '    NodeRegistration,',
-        '    CapabilityRegistration,',
-        '    ContextClassRegistration,',
-        '    DataSourceRegistration,',
-        '    ServiceRegistration,',
-        '    FrameworkPromptProviderRegistration,',
-        '    ProviderRegistration',
-        ')',
-        '',
-        '',
-        f'class {app_class_name}(RegistryConfigProvider):',
+        "",
+        "from osprey.registry import (",
+        "    RegistryConfigProvider,",
+        "    RegistryConfig,",
+        "    NodeRegistration,",
+        "    CapabilityRegistration,",
+        "    ContextClassRegistration,",
+        "    DataSourceRegistration,",
+        "    ServiceRegistration,",
+        "    FrameworkPromptProviderRegistration,",
+        "    ProviderRegistration",
+        ")",
+        "",
+        "",
+        f"class {app_class_name}(RegistryConfigProvider):",
         f'    """Registry provider for {app_display_name}."""',
-        '    ',
-        '    def get_registry_config(self):',
+        "    ",
+        "    def get_registry_config(self):",
         f'        """Return registry configuration for {app_display_name}."""',
-        '        # EXPLICIT REGISTRY: All framework + application components listed',
-        '        return RegistryConfig(',
-        '            # ================================================================',
-        '            # FRAMEWORK CORE NODES',
-        '            # ================================================================',
-        '            core_nodes=[',
+        "        # EXPLICIT REGISTRY: All framework + application components listed",
+        "        return RegistryConfig(",
+        "            # ================================================================",
+        "            # FRAMEWORK CORE NODES",
+        "            # ================================================================",
+        "            core_nodes=[",
     ]
 
     # Add framework nodes
     for i, node in enumerate(framework.core_nodes):
         code_lines.append(format_node_registration(node))
         if i < len(framework.core_nodes) - 1:
-            code_lines[-1] += ','
+            code_lines[-1] += ","
 
-    code_lines.extend([
-        '            ],',
-        '',
-        '            # ================================================================',
-        '            # ALL CAPABILITIES (Framework + Application)',
-        '            # ================================================================',
-        '            capabilities=[',
-        '                # ---- Framework Capabilities ----',
-    ])
+    code_lines.extend(
+        [
+            "            ],",
+            "",
+            "            # ================================================================",
+            "            # ALL CAPABILITIES (Framework + Application)",
+            "            # ================================================================",
+            "            capabilities=[",
+            "                # ---- Framework Capabilities ----",
+        ]
+    )
 
     # Add framework capabilities
     for i, cap in enumerate(framework.capabilities):
         code_lines.append(format_capability_registration(cap))
-        code_lines[-1] += ','
+        code_lines[-1] += ","
 
     # Add application capabilities
     if capabilities:
-        code_lines.extend([
-            '',
-            '                # ---- Application Capabilities ----',
-        ])
+        code_lines.extend(
+            [
+                "",
+                "                # ---- Application Capabilities ----",
+            ]
+        )
         for i, cap in enumerate(capabilities):
             code_lines.append(format_capability_registration(cap))
             if i < len(capabilities) - 1:
-                code_lines[-1] += ','
+                code_lines[-1] += ","
 
-    code_lines.extend([
-        '            ],',
-        '',
-        '            # ================================================================',
-        '            # ALL CONTEXT CLASSES (Framework + Application)',
-        '            # ================================================================',
-        '            context_classes=[',
-        '                # ---- Framework Context Classes ----',
-    ])
+    code_lines.extend(
+        [
+            "            ],",
+            "",
+            "            # ================================================================",
+            "            # ALL CONTEXT CLASSES (Framework + Application)",
+            "            # ================================================================",
+            "            context_classes=[",
+            "                # ---- Framework Context Classes ----",
+        ]
+    )
 
     # Add framework context classes
     for i, ctx in enumerate(framework.context_classes):
         code_lines.append(format_context_class_registration(ctx))
-        code_lines[-1] += ','
+        code_lines[-1] += ","
 
     # Add application context classes
     if context_classes:
-        code_lines.extend([
-            '',
-            '                # ---- Application Context Classes ----',
-        ])
+        code_lines.extend(
+            [
+                "",
+                "                # ---- Application Context Classes ----",
+            ]
+        )
         for i, ctx in enumerate(context_classes):
             code_lines.append(format_context_class_registration(ctx))
             if i < len(context_classes) - 1:
-                code_lines[-1] += ','
+                code_lines[-1] += ","
 
-    code_lines.extend([
-        '            ],',
-        '',
-        '            # ================================================================',
-        '            # DATA SOURCES (Framework + Application)',
-        '            # ================================================================',
-        '            data_sources=[',
-        '                # ---- Framework Data Sources ----',
-    ])
+    code_lines.extend(
+        [
+            "            ],",
+            "",
+            "            # ================================================================",
+            "            # DATA SOURCES (Framework + Application)",
+            "            # ================================================================",
+            "            data_sources=[",
+            "                # ---- Framework Data Sources ----",
+        ]
+    )
 
     # Add framework data sources
     for i, ds in enumerate(framework.data_sources):
         code_lines.append(format_data_source_registration(ds))
         if data_sources or i < len(framework.data_sources) - 1:
-            code_lines[-1] += ','
+            code_lines[-1] += ","
 
     # Add application data sources
     if data_sources:
-        code_lines.extend([
-            '',
-            '                # ---- Application Data Sources ----',
-        ])
+        code_lines.extend(
+            [
+                "",
+                "                # ---- Application Data Sources ----",
+            ]
+        )
         for i, ds in enumerate(data_sources):
             code_lines.append(format_data_source_registration(ds))
             if i < len(data_sources) - 1:
-                code_lines[-1] += ','
+                code_lines[-1] += ","
 
-    code_lines.extend([
-        '            ],',
-        '',
-        '            # ================================================================',
-        '            # SERVICES (Framework + Application)',
-        '            # ================================================================',
-        '            services=[',
-        '                # ---- Framework Services ----',
-    ])
+    code_lines.extend(
+        [
+            "            ],",
+            "",
+            "            # ================================================================",
+            "            # SERVICES (Framework + Application)",
+            "            # ================================================================",
+            "            services=[",
+            "                # ---- Framework Services ----",
+        ]
+    )
 
     # Add framework services
     for i, svc in enumerate(framework.services):
         code_lines.append(format_service_registration(svc))
         if services or i < len(framework.services) - 1:
-            code_lines[-1] += ','
+            code_lines[-1] += ","
 
     # Add application services
     if services:
-        code_lines.extend([
-            '',
-            '                # ---- Application Services ----',
-        ])
+        code_lines.extend(
+            [
+                "",
+                "                # ---- Application Services ----",
+            ]
+        )
         for i, svc in enumerate(services):
             code_lines.append(format_service_registration(svc))
             if i < len(services) - 1:
-                code_lines[-1] += ','
+                code_lines[-1] += ","
 
-    code_lines.extend([
-        '            ],',
-        '',
-        '            # ================================================================',
-        '            # AI MODEL PROVIDERS',
-        '            # ================================================================',
-        '            providers=[',
-    ])
+    code_lines.extend(
+        [
+            "            ],",
+            "",
+            "            # ================================================================",
+            "            # AI MODEL PROVIDERS",
+            "            # ================================================================",
+            "            providers=[",
+        ]
+    )
 
     # Add framework AI model providers
     for prov in framework.providers:
-        code_lines.append('                ProviderRegistration(')
+        code_lines.append("                ProviderRegistration(")
         code_lines.append(f'                    module_path="{prov.module_path}",')
         code_lines.append(f'                    class_name="{prov.class_name}"')
-        code_lines.append('                ),')
+        code_lines.append("                ),")
 
-    code_lines.extend([
-        '            ],',
-        '',
-        '            # ================================================================',
-        '            # FRAMEWORK PROMPT PROVIDERS',
-        '            # ================================================================',
-        '            framework_prompt_providers=[',
-    ])
+    code_lines.extend(
+        [
+            "            ],",
+            "",
+            "            # ================================================================",
+            "            # FRAMEWORK PROMPT PROVIDERS",
+            "            # ================================================================",
+            "            framework_prompt_providers=[",
+        ]
+    )
 
     # Add framework prompt providers
     for prov in framework.framework_prompt_providers:
-        code_lines.append('                FrameworkPromptProviderRegistration(')
+        code_lines.append("                FrameworkPromptProviderRegistration(")
         code_lines.append(f'                    module_path="{prov.module_path}",')
-        code_lines.append('                    prompt_builders={')
+        code_lines.append("                    prompt_builders={")
         for key, value in prov.prompt_builders.items():
             code_lines.append(f'                        "{key}": "{value}",')
-        code_lines.append('                    }')
-        code_lines.append('                ),')
+        code_lines.append("                    }")
+        code_lines.append("                ),")
 
     # Add application prompt providers if any
     if framework_prompt_providers:
-        code_lines.append('')
+        code_lines.append("")
         for prov in framework_prompt_providers:
-            code_lines.append('                FrameworkPromptProviderRegistration(')
+            code_lines.append("                FrameworkPromptProviderRegistration(")
             code_lines.append(f'                    module_path="{prov.module_path}",')
-            code_lines.append('                    prompt_builders={')
+            code_lines.append("                    prompt_builders={")
             for key, value in prov.prompt_builders.items():
                 code_lines.append(f'                        "{key}": "{value}",')
-            code_lines.append('                    }')
-            code_lines.append('                ),')
+            code_lines.append("                    }")
+            code_lines.append("                ),")
 
-    code_lines.extend([
-        '            ],',
-        '        )',
-        ''
-    ])
+    code_lines.extend(["            ],", "        )", ""])
 
-    return '\n'.join(code_lines)
-
+    return "\n".join(code_lines)

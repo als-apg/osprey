@@ -25,7 +25,8 @@ class DefaultClarificationPromptBuilder(FrameworkPromptBuilder):
 
     def get_instructions(self) -> str:
         """Get the generic clarification instructions."""
-        return textwrap.dedent("""
+        return textwrap.dedent(
+            """
             GUIDELINES:
             1. Ask about missing technical details (which system, time range, specific parameters)
             2. Clarify vague terms (what type of "data", "status", "analysis" etc.)
@@ -35,7 +36,8 @@ class DefaultClarificationPromptBuilder(FrameworkPromptBuilder):
             6. Make questions easy to answer
 
             Generate targeted questions that will help get the specific information needed to provide accurate assistance.
-            """).strip()
+            """
+        ).strip()
 
     def get_orchestrator_guide(self) -> OrchestratorGuide | None:
         """Create generic orchestrator guide for clarification capability."""
@@ -47,7 +49,7 @@ class DefaultClarificationPromptBuilder(FrameworkPromptBuilder):
                 task_objective="Ask user for clarification when request 'show me some data' is too vague",
                 expected_output=None,  # No context output - questions sent directly to user
                 success_criteria="Specific questions about data type, system, and time range",
-                inputs=[]
+                inputs=[],
             ),
             scenario_description="Vague data request needing system and parameter clarification",
         )
@@ -59,14 +61,14 @@ class DefaultClarificationPromptBuilder(FrameworkPromptBuilder):
                 Replaces technical execution steps until user provides clarification.
                 """,
             examples=[ambiguous_system_example],
-            priority=99  # Should come near the end, but before respond
+            priority=99,  # Should come near the end, but before respond
         )
 
     def get_classifier_guide(self) -> TaskClassifierGuide | None:
         """Clarify has no classifier guide - it's orchestrator-driven."""
         return None  # Always available, not detected from user intent
 
-    def get_system_instructions(self, state: 'AgentState', task_objective: str) -> str:
+    def get_system_instructions(self, state: "AgentState", task_objective: str) -> str:
         """Compose complete clarification prompt with runtime context.
 
         This override provides clarification-specific prompt composition where
@@ -109,9 +111,7 @@ class DefaultClarificationPromptBuilder(FrameworkPromptBuilder):
 
         # Build the specific clarification query with all runtime context
         clarification_query = self.build_clarification_query(
-            chat_history_str,
-            user_query,
-            task_objective
+            chat_history_str, user_query, task_objective
         )
 
         # Include available context if present
@@ -119,7 +119,7 @@ class DefaultClarificationPromptBuilder(FrameworkPromptBuilder):
         if relevant_context:
             context_items = []
             for context_summary in relevant_context:
-                context_type = context_summary.get('type', 'Context')
+                context_type = context_summary.get("type", "Context")
                 context_items.append(f"- {context_type}: {context_summary}")
             context_info = "\n\nAvailable context data:\n" + "\n".join(context_items)
 
@@ -137,9 +137,9 @@ class DefaultClarificationPromptBuilder(FrameworkPromptBuilder):
 
         return final_prompt
 
-
-
-    def build_clarification_query(self, chat_history: str, user_query: str, task_objective: str) -> str:
+    def build_clarification_query(
+        self, chat_history: str, user_query: str, task_objective: str
+    ) -> str:
         """Build clarification query for generating questions based on conversation context.
 
         Used by the clarification infrastructure to generate specific questions
@@ -154,7 +154,8 @@ class DefaultClarificationPromptBuilder(FrameworkPromptBuilder):
         Returns:
             Complete query for question generation with automatic debug printing
         """
-        prompt = textwrap.dedent(f"""
+        prompt = textwrap.dedent(
+            f"""
             CONVERSATION HISTORY:
             {chat_history}
 
@@ -184,7 +185,8 @@ class DefaultClarificationPromptBuilder(FrameworkPromptBuilder):
             - What has already been discussed in the conversation history
             - Avoid asking for information already provided earlier
             - Focus on the specific missing information from the orchestrator's instruction
-            """).strip()
+            """
+        ).strip()
 
         # Automatic debug printing for framework helper prompts
         self.debug_print_prompt(prompt, "clarification_query")

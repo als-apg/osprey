@@ -1,8 +1,9 @@
 """
 Abstract base class for all database implementations.
 """
+
 from abc import ABC, abstractmethod
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
 
 
 class BaseDatabase(ABC):
@@ -68,4 +69,3 @@ class BaseDatabase(ABC):
             Dict with statistics (total_channels, etc.)
         """
         pass
-

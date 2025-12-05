@@ -14,6 +14,7 @@ from .models import ClassifierAnalysis, OrchestratorAnalysis
 try:
     from mcp import ClientSession
     from mcp.client.sse import sse_client
+
     MCP_AVAILABLE = True
 except ImportError:
     MCP_AVAILABLE = False
@@ -33,17 +34,17 @@ SIMULATED_TOOLS = [
                 "location": {
                     "type": "string",
                     "default": "San Francisco",
-                    "description": "City name or coordinates (defaults to San Francisco if not provided)"
+                    "description": "City name or coordinates (defaults to San Francisco if not provided)",
                 },
                 "units": {
                     "type": "string",
                     "enum": ["celsius", "fahrenheit"],
                     "default": "celsius",
-                    "description": "Temperature units"
-                }
+                    "description": "Temperature units",
+                },
             },
-            "required": []
-        }
+            "required": [],
+        },
     },
     {
         "name": "get_forecast",
@@ -54,24 +55,24 @@ SIMULATED_TOOLS = [
                 "location": {
                     "type": "string",
                     "default": "San Francisco",
-                    "description": "City name or coordinates (defaults to San Francisco if not provided)"
+                    "description": "City name or coordinates (defaults to San Francisco if not provided)",
                 },
                 "days": {
                     "type": "integer",
                     "default": 5,
                     "minimum": 1,
                     "maximum": 7,
-                    "description": "Number of forecast days (1-7)"
+                    "description": "Number of forecast days (1-7)",
                 },
                 "units": {
                     "type": "string",
                     "enum": ["celsius", "fahrenheit"],
                     "default": "celsius",
-                    "description": "Temperature units"
-                }
+                    "description": "Temperature units",
+                },
             },
-            "required": []
-        }
+            "required": [],
+        },
     },
     {
         "name": "get_weather_alerts",
@@ -82,17 +83,17 @@ SIMULATED_TOOLS = [
                 "location": {
                     "type": "string",
                     "default": "San Francisco",
-                    "description": "City name or coordinates (defaults to San Francisco if not provided)"
+                    "description": "City name or coordinates (defaults to San Francisco if not provided)",
                 },
                 "severity": {
                     "type": "string",
                     "enum": ["all", "severe", "moderate", "minor"],
                     "default": "all",
-                    "description": "Filter by alert severity level"
-                }
+                    "description": "Filter by alert severity level",
+                },
             },
-            "required": []
-        }
+            "required": [],
+        },
     },
 ]
 
@@ -100,6 +101,7 @@ SIMULATED_TOOLS = [
 # =============================================================================
 # MCP Capability Generator
 # =============================================================================
+
 
 class MCPCapabilityGenerator(BaseCapabilityGenerator):
     """Generate complete MCP capability from MCP server tools."""
@@ -110,7 +112,7 @@ class MCPCapabilityGenerator(BaseCapabilityGenerator):
         server_name: str,
         verbose: bool = False,
         provider: str | None = None,
-        model_id: str | None = None
+        model_id: str | None = None,
     ):
         """Initialize generator.
 
@@ -126,7 +128,9 @@ class MCPCapabilityGenerator(BaseCapabilityGenerator):
         self.tools: list[dict[str, Any]] = []
         self.mcp_url: str | None = None
 
-    async def discover_tools(self, mcp_url: str | None = None, simulated: bool = False) -> list[dict[str, Any]]:
+    async def discover_tools(
+        self, mcp_url: str | None = None, simulated: bool = False
+    ) -> list[dict[str, Any]]:
         """Discover tools from MCP server or use simulated tools.
 
         Args:
@@ -147,8 +151,7 @@ class MCPCapabilityGenerator(BaseCapabilityGenerator):
         else:
             if not MCP_AVAILABLE:
                 raise RuntimeError(
-                    "MCP client not installed. Use simulated mode or install: "
-                    "pip install mcp"
+                    "MCP client not installed. Use simulated mode or install: " "pip install mcp"
                 )
 
             if self.verbose:
@@ -157,11 +160,12 @@ class MCPCapabilityGenerator(BaseCapabilityGenerator):
             self.mcp_url = mcp_url
 
             # FastMCP SSE endpoint is at /sse
-            sse_url = mcp_url if mcp_url.endswith('/sse') else f"{mcp_url}/sse"
+            sse_url = mcp_url if mcp_url.endswith("/sse") else f"{mcp_url}/sse"
 
             # Pre-flight check: Try to connect to the server first
             try:
                 import httpx
+
                 # Quick check to see if server is reachable
                 async with httpx.AsyncClient(timeout=2.0) as client:
                     try:
@@ -201,7 +205,9 @@ class MCPCapabilityGenerator(BaseCapabilityGenerator):
                             tool_dict = {
                                 "name": tool.name,
                                 "description": tool.description or "",
-                                "inputSchema": tool.inputSchema if hasattr(tool, 'inputSchema') else {}
+                                "inputSchema": (
+                                    tool.inputSchema if hasattr(tool, "inputSchema") else {}
+                                ),
                             }
                             self.tools.append(tool_dict)
 
@@ -224,7 +230,19 @@ class MCPCapabilityGenerator(BaseCapabilityGenerator):
             except Exception as e:
                 # Check if this looks like a connection/TaskGroup error (common when server is down)
                 error_str = str(e).lower()
-                if any(term in error_str for term in ["taskgroup", "connection", "refused", "timeout", "unreachable", "connecterror", "incomplete chunked read", "peer closed"]):
+                if any(
+                    term in error_str
+                    for term in [
+                        "taskgroup",
+                        "connection",
+                        "refused",
+                        "timeout",
+                        "unreachable",
+                        "connecterror",
+                        "incomplete chunked read",
+                        "peer closed",
+                    ]
+                ):
                     error_msg = (
                         f"\n❌ Cannot connect to MCP server at {sse_url}\n\n"
                         f"The MCP server appears to be down, crashed during handshake, or is incompatible.\n\n"
@@ -329,9 +347,7 @@ Output as JSON matching the OrchestratorAnalysis schema.
         return classifier_analysis, orchestrator_analysis
 
     def generate_capability_code(
-        self,
-        classifier_analysis: ClassifierAnalysis,
-        orchestrator_analysis: OrchestratorAnalysis
+        self, classifier_analysis: ClassifierAnalysis, orchestrator_analysis: OrchestratorAnalysis
     ) -> str:
         """Generate complete capability Python code.
 
@@ -344,21 +360,22 @@ Output as JSON matching the OrchestratorAnalysis schema.
         """
         timestamp = self._get_timestamp()
         class_name = self._to_class_name(self.capability_name)
-        context_class_name = self._to_class_name(self.capability_name, suffix='ResultsContext')
+        context_class_name = self._to_class_name(self.capability_name, suffix="ResultsContext")
         context_type = f"{self.server_name.upper()}_RESULTS"
 
         # Build examples using base class methods
         classifier_examples_code = self._build_classifier_examples_code(classifier_analysis)
         orchestrator_examples_code = self._build_orchestrator_examples_code(
-            orchestrator_analysis,
-            context_type
+            orchestrator_analysis, context_type
         )
 
         # Build tools list for documentation
-        tools_list = "\n".join([f"        - {t['name']}: {t.get('description', 'N/A')}" for t in self.tools])
+        tools_list = "\n".join(
+            [f"        - {t['name']}: {t.get('description', 'N/A')}" for t in self.tools]
+        )
 
         # Ensure SSE endpoint path is included
-        sse_url = self.mcp_url if self.mcp_url.endswith('/sse') else f"{self.mcp_url}/sse"
+        sse_url = self.mcp_url if self.mcp_url.endswith("/sse") else f"{self.mcp_url}/sse"
 
         code = f'''"""
 {self.server_name} MCP Capability
@@ -792,4 +809,3 @@ class MyAppRegistryProvider(RegistryConfigProvider):
 '''
 
         return code
-

@@ -67,9 +67,8 @@ import yaml
 
 all = ["Params", "load_params"]
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(levelname)s [Params] - %(asctime)s - %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(levelname)s [Params] - %(asctime)s - %(message)s")
+
 
 def _deep_update_dict(source_dict, update_dict):
     """Recursively merge dictionary updates while preserving nested structure.
@@ -125,6 +124,7 @@ def _deep_update_dict(source_dict, update_dict):
         else:
             # Otherwise, set the key to the value (updating or adding)
             source_dict[key] = value
+
 
 def _load_yaml(file_path, visited=[]):
     """Load YAML configuration with recursive import processing and cycle detection.
@@ -199,14 +199,13 @@ def _load_yaml(file_path, visited=[]):
             import_file = values["import"]
             if type(import_file) is not str:
                 raise ValueError("'import' must be a string")
-            del values["import"] # Remove the import key
+            del values["import"]  # Remove the import key
 
             # Set the same directory as the file that imports the other.
             dir = os.path.dirname(file_path)
             import_file = os.path.join(dir, import_file)
             if not os.path.isfile(import_file):
-                raise FileNotFoundError(
-                    f"Import file '{import_file}' not found")
+                raise FileNotFoundError(f"Import file '{import_file}' not found")
 
             # Load the import file and update its contents with the values.
             result = _load_yaml(import_file, newVisited)
@@ -214,6 +213,7 @@ def _load_yaml(file_path, visited=[]):
             return result
 
         return values
+
 
 def load_params(file_path):
     """Load configuration parameters from YAML file into a Params object.
@@ -270,6 +270,7 @@ def load_params(file_path):
        :mod:`deployment.container_manager` : Primary consumer of this functionality
     """
     return Params(_load_yaml(file_path), "root")
+
 
 class AbstractParam:
     def __init__(self, name, parent=None):
@@ -336,6 +337,7 @@ class InvalidParam(AbstractParam):
        :class:`Params` : Valid parameter container that returns InvalidParam for missing keys
        :meth:`AbstractParam.get_path` : Path construction used in error messages
     """
+
     def __init__(self, name, parent=None):
         super().__init__(name, parent)
         self._name = name
@@ -473,6 +475,7 @@ class Params(AbstractParam):
        :class:`AbstractParam` : Base class defining the parameter interface
        :func:`load_params` : Main entry point for creating Params from YAML files
     """
+
     def __init__(self, data, name, parent=None):
         super().__init__(name, parent=parent)
         self._is_dict = isinstance(data, dict)
@@ -505,7 +508,7 @@ class Params(AbstractParam):
             else:
                 logging.warning(f"'{self.get_path()}' has no child '{key}'")
                 return InvalidParam(key, self)
-                #raise InvalidParam(f"'{self.get_path()}' has no child '{key}'")
+                # raise InvalidParam(f"'{self.get_path()}' has no child '{key}'")
         else:
             raise TypeError(f"{self.get_path()} is not a dict")
 
@@ -515,7 +518,7 @@ class Params(AbstractParam):
         else:
             logging.warning(f"{self.get_path()} is not a list nor a dict")
             return InvalidParam(key, self)
-            #raise InvalidParam(f"{self.get_path()} is not a list nor a dict")
+            # raise InvalidParam(f"{self.get_path()} is not a list nor a dict")
 
     def __len__(self):
         return len(self._data)
@@ -626,6 +629,3 @@ if __name__ == "__main__":
             print("\n\n\n\n")
             value = params.A.X.Y
             print("---> ", value)
-
-
-

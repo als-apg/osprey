@@ -37,6 +37,7 @@ except ImportError:
 # THEME CONFIGURATION
 # ============================================================================
 
+
 @dataclass
 class ColorTheme:
     """Defines a complete color theme for the CLI.
@@ -51,17 +52,17 @@ class ColorTheme:
 
     # === FIXED STANDARD COLORS (UI Conventions) ===
     # These remain consistent across themes for familiarity
-    error: str = "#ff0000"        # Red - universal error indicator
-    warning: str = "#ffaa00"      # Orange - universal warning indicator
+    error: str = "#ff0000"  # Red - universal error indicator
+    warning: str = "#ffaa00"  # Orange - universal warning indicator
 
     # === CONFIGURABLE THEME COLORS ===
     # These define your visual identity and can be customized
-    primary: str = "#C75F71"      # Main brand color (medium purple)
-    success: str = "#9988A1"      # Success indicator
-    accent: str = "#F0B8B8"       # Interactive elements & highlights (teal)
-    command: str = "#9988A1"      # Shell commands & actions (orange)
-    path: str = "#A2AE9D"         # File paths & locations (gray)
-    info: str = "#9988A1"         # Informational messages (cyan)
+    primary: str = "#C75F71"  # Main brand color (medium purple)
+    success: str = "#9988A1"  # Success indicator
+    accent: str = "#F0B8B8"  # Interactive elements & highlights (teal)
+    command: str = "#9988A1"  # Shell commands & actions (orange)
+    path: str = "#A2AE9D"  # File paths & locations (gray)
+    info: str = "#9988A1"  # Informational messages (cyan)
 
     # === NEUTRAL COLORS (Dark Theme Infrastructure) ===
     # These provide contrast and structure - less important to customize
@@ -104,7 +105,7 @@ class ColorTheme:
         Returns:
             Adjusted hex color string
         """
-        hex_color = hex_color.lstrip('#')
+        hex_color = hex_color.lstrip("#")
         r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
         r = max(0, min(255, int(r * factor)))
         g = max(0, min(255, int(g * factor)))
@@ -185,7 +186,7 @@ def load_theme_from_config(config_path: str | None = None) -> ColorTheme:
             try:
                 # Validate hex colors before creating theme
                 for key, value in custom_colors.items():
-                    if not isinstance(value, str) or not value.startswith('#'):
+                    if not isinstance(value, str) or not value.startswith("#"):
                         logger.warning(f"Invalid color format for {key}: {value}, using default")
                         return VULCAN_THEME
 
@@ -234,42 +235,40 @@ def _build_rich_theme(theme: ColorTheme) -> Theme:
     Returns:
         Rich Theme object
     """
-    return Theme({
-        # Status styles
-        "success": f"bold {theme.success}",
-        "error": f"bold {theme.error}",
-        "warning": f"bold {theme.warning}",
-        "info": f"bold {theme.info}",
-
-        # Text styles
-        "primary": f"bold {theme.primary}",
-        "secondary": theme.text_secondary,
-        "dim": theme.text_dim,
-        "disabled": theme.text_disabled,
-
-        # Emphasis styles
-        "bold": "bold",
-        "italic": "italic",
-        "bold_primary": f"bold {theme.primary}",
-        "bold_success": f"bold {theme.success}",
-        "bold_error": f"bold {theme.error}",
-
-        # Component-specific styles
-        "banner": theme.primary,
-        "banner_alt": "bold cyan",
-        "header": f"bold {theme.header}",
-        "subheader": f"bold {theme.subheader}",
-        "label": "bold",
-        "value": theme.success,
-        "path": theme.path,
-        "command": theme.command,
-        "accent": theme.accent,
-
-        # Borders and UI elements
-        "border": theme.border_default,
-        "border_accent": theme.border_accent,
-        "border_dim": theme.border_dim,
-    })
+    return Theme(
+        {
+            # Status styles
+            "success": f"bold {theme.success}",
+            "error": f"bold {theme.error}",
+            "warning": f"bold {theme.warning}",
+            "info": f"bold {theme.info}",
+            # Text styles
+            "primary": f"bold {theme.primary}",
+            "secondary": theme.text_secondary,
+            "dim": theme.text_dim,
+            "disabled": theme.text_disabled,
+            # Emphasis styles
+            "bold": "bold",
+            "italic": "italic",
+            "bold_primary": f"bold {theme.primary}",
+            "bold_success": f"bold {theme.success}",
+            "bold_error": f"bold {theme.error}",
+            # Component-specific styles
+            "banner": theme.primary,
+            "banner_alt": "bold cyan",
+            "header": f"bold {theme.header}",
+            "subheader": f"bold {theme.subheader}",
+            "label": "bold",
+            "value": theme.success,
+            "path": theme.path,
+            "command": theme.command,
+            "accent": theme.accent,
+            # Borders and UI elements
+            "border": theme.border_default,
+            "border_accent": theme.border_accent,
+            "border_dim": theme.border_dim,
+        }
+    )
 
 
 def _build_questionary_style(theme: ColorTheme) -> QuestionaryStyle | None:
@@ -284,24 +283,27 @@ def _build_questionary_style(theme: ColorTheme) -> QuestionaryStyle | None:
     if QuestionaryStyle is None:
         return None
 
-    return QuestionaryStyle([
-        ('qmark', f'fg:{theme.accent} bold'),              # Question mark (accent)
-        ('question', 'bold'),                               # Question text
-        ('answer', f'fg:{theme.primary} bold'),            # User's answer (primary)
-        ('pointer', f'fg:{theme.primary} bold'),           # Selection pointer (primary)
-        ('highlighted', f'fg:{theme.primary} bold'),       # Highlighted item (primary)
-        ('selected', f'fg:{theme.accent}'),                # Selected item (accent)
-        ('separator', f'fg:{theme.text_dim}'),             # Separators
-        ('instruction', f'fg:{theme.text_dim} italic'),    # Instructions
-        ('text', f'fg:{theme.text_secondary}'),            # Regular text
-        ('disabled', f'fg:{theme.text_dim}'),              # Disabled items
-        ('default', f'fg:{theme.text_primary}'),           # Default items
-    ])
+    return QuestionaryStyle(
+        [
+            ("qmark", f"fg:{theme.accent} bold"),  # Question mark (accent)
+            ("question", "bold"),  # Question text
+            ("answer", f"fg:{theme.primary} bold"),  # User's answer (primary)
+            ("pointer", f"fg:{theme.primary} bold"),  # Selection pointer (primary)
+            ("highlighted", f"fg:{theme.primary} bold"),  # Highlighted item (primary)
+            ("selected", f"fg:{theme.accent}"),  # Selected item (accent)
+            ("separator", f"fg:{theme.text_dim}"),  # Separators
+            ("instruction", f"fg:{theme.text_dim} italic"),  # Instructions
+            ("text", f"fg:{theme.text_secondary}"),  # Regular text
+            ("disabled", f"fg:{theme.text_dim}"),  # Disabled items
+            ("default", f"fg:{theme.text_primary}"),  # Default items
+        ]
+    )
 
 
 # ============================================================================
 # BACKWARDS COMPATIBILITY - OspreyColors
 # ============================================================================
+
 
 class _OspreyColorsProxy:
     """Legacy color access - now proxies to active theme.
@@ -436,6 +438,7 @@ console = Console(theme=osprey_theme)
 # QUESTIONARY KEY BINDINGS
 # ============================================================================
 
+
 def get_key_bindings() -> KeyBindings | None:
     """Get custom key bindings for questionary prompts.
 
@@ -471,6 +474,7 @@ def get_questionary_style() -> QuestionaryStyle | None:
 # ============================================================================
 # STYLE HELPERS
 # ============================================================================
+
 
 class Styles:
     """Collection of reusable style strings for Rich markup.
@@ -564,6 +568,7 @@ class Messages:
 # THEME CONFIGURATION UTILITIES
 # ============================================================================
 
+
 class ThemeConfig:
     """Configuration utilities for theme customization.
 
@@ -600,27 +605,24 @@ class ThemeConfig:
 
 __all__ = [
     # Theme management
-    'ColorTheme',
-    'OSPREY_THEME',
-    'VULCAN_THEME',
-    'THEME_REGISTRY',
-    'get_active_theme',
-    'set_theme',
-    'load_theme_from_config',
-    'initialize_theme_from_config',
-
+    "ColorTheme",
+    "OSPREY_THEME",
+    "VULCAN_THEME",
+    "THEME_REGISTRY",
+    "get_active_theme",
+    "set_theme",
+    "load_theme_from_config",
+    "initialize_theme_from_config",
     # Backwards compatibility
-    'OspreyColors',
-    'osprey_theme',
-
+    "OspreyColors",
+    "osprey_theme",
     # Console and styles
-    'console',
-    'get_questionary_style',
-    'get_key_bindings',
-    'custom_style',
-
+    "console",
+    "get_questionary_style",
+    "get_key_bindings",
+    "custom_style",
     # Style helpers
-    'Styles',
-    'Messages',
-    'ThemeConfig',
+    "Styles",
+    "Messages",
+    "ThemeConfig",
 ]

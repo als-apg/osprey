@@ -9,7 +9,8 @@ def get_prompt(facility_name: str = "Example Hierarchical") -> str:
     Returns:
         Formatted prompt string for query splitting
     """
-    return textwrap.dedent("""
+    return textwrap.dedent(
+        """
         You are a query analyzer for the Example Hierarchical Accelerator control system.
 
         Your task is to split user queries into atomic sub-queries. Each atomic query
@@ -43,5 +44,5 @@ def get_prompt(facility_name: str = "Example Hierarchical") -> str:
         - "Check magnet status and beam current" → ["Check magnet status", "Check beam current"]
 
         Return ONLY JSON with "queries" field containing a list of strings.
-        """).strip()
-
+        """
+    ).strip()

@@ -7,28 +7,21 @@ their deployment state.
 
 import pytest
 
-
 # Test data structures mimicking podman ps JSON output
 SAMPLE_CONTAINER_PROJECT_A = {
     "Names": ["projecta-jupyter"],
     "State": "running",
-    "Labels": {
-        "osprey.project.name": "projecta"
-    },
-    "Ports": [
-        {"host_port": 8888, "container_port": 8888}
-    ],
-    "Image": "localhost/projecta-jupyter:latest"
+    "Labels": {"osprey.project.name": "projecta"},
+    "Ports": [{"host_port": 8888, "container_port": 8888}],
+    "Image": "localhost/projecta-jupyter:latest",
 }
 
 SAMPLE_CONTAINER_PROJECT_B = {
     "Names": ["projectb_pipelines"],  # Note: underscore
     "State": "exited",
-    "Labels": {
-        "osprey.project.name": "projectb"
-    },
+    "Labels": {"osprey.project.name": "projectb"},
     "Ports": [],
-    "Image": "localhost/projectb-pipelines:latest"
+    "Image": "localhost/projectb-pipelines:latest",
 }
 
 SAMPLE_CONTAINER_LABELS_AS_STRING = {
@@ -36,7 +29,7 @@ SAMPLE_CONTAINER_LABELS_AS_STRING = {
     "State": "running",
     "Labels": "osprey.project.name=test-project,other.label=value",
     "Ports": [],
-    "Image": "test:latest"
+    "Image": "test:latest",
 }
 
 SAMPLE_CONTAINER_NO_LABELS = {
@@ -44,7 +37,7 @@ SAMPLE_CONTAINER_NO_LABELS = {
     "State": "running",
     "Labels": {},
     "Ports": [],
-    "Image": "random:latest"
+    "Image": "random:latest",
 }
 
 
@@ -71,9 +64,9 @@ class TestContainerProjectMatching:
         container_project = "unknown"
 
         if isinstance(labels_str, str):
-            for label in labels_str.split(','):
-                if '=' in label:
-                    key, value = label.split('=', 1)
+            for label in labels_str.split(","):
+                if "=" in label:
+                    key, value = label.split("=", 1)
                     if key.strip() == "osprey.project.name":
                         container_project = value.strip()
                         break
@@ -102,7 +95,7 @@ class TestServiceNameMatching:
         deployed_services = ["osprey.jupyter"]
 
         # Extract service short name (handle dotted paths)
-        service_short = deployed_services[0].split('.')[-1].lower()
+        service_short = deployed_services[0].split(".")[-1].lower()
 
         # Build names string
         names_str = " ".join(str(n) for n in container_names).lower()
@@ -121,25 +114,21 @@ class TestServiceNameMatching:
 
         # Should match with both formats
         matches = (
-            service_name in names_str or
-            service_name.replace('_', '-') in names_str or
-            service_name.replace('-', '_') in names_str
+            service_name in names_str
+            or service_name.replace("_", "-") in names_str
+            or service_name.replace("-", "_") in names_str
         )
 
         assert matches
 
     def test_dotted_service_path_extraction(self):
         """Test extracting short name from dotted service paths."""
-        service_paths = [
-            "osprey.jupyter",
-            "custom.services.pipelines",
-            "jupyter"
-        ]
+        service_paths = ["osprey.jupyter", "custom.services.pipelines", "jupyter"]
 
         expected_shorts = ["jupyter", "pipelines", "jupyter"]
 
         for service_path, expected in zip(service_paths, expected_shorts):
-            short_name = service_path.split('.')[-1].lower()
+            short_name = service_path.split(".")[-1].lower()
             assert short_name == expected
 
 
@@ -174,7 +163,7 @@ class TestPortFormatting:
         """Test extracting published port mappings."""
         ports = [
             {"host_port": 8888, "container_port": 8888},
-            {"host_port": 8080, "container_port": 80}
+            {"host_port": 8080, "container_port": 80},
         ]
 
         port_list = []
@@ -211,16 +200,8 @@ class TestPortFormatting:
         format2 = {"PublishedPort": 8080, "TargetPort": 80}
 
         def extract_ports(port_dict):
-            published = (
-                port_dict.get("host_port") or
-                port_dict.get("PublishedPort") or
-                ""
-            )
-            target = (
-                port_dict.get("container_port") or
-                port_dict.get("TargetPort") or
-                ""
-            )
+            published = port_dict.get("host_port") or port_dict.get("PublishedPort") or ""
+            target = port_dict.get("container_port") or port_dict.get("TargetPort") or ""
             return published, target
 
         pub1, tgt1 = extract_ports(format1)
@@ -266,7 +247,7 @@ class TestContainerMatchingIntegration:
         all_containers = [
             SAMPLE_CONTAINER_PROJECT_A,
             SAMPLE_CONTAINER_PROJECT_B,
-            SAMPLE_CONTAINER_NO_LABELS
+            SAMPLE_CONTAINER_NO_LABELS,
         ]
 
         current_project = "projecta"
@@ -283,9 +264,9 @@ class TestContainerMatchingIntegration:
             if isinstance(labels, dict):
                 container_project = labels.get("osprey.project.name", "unknown")
             elif isinstance(labels, str):
-                for label in labels.split(','):
-                    if '=' in label:
-                        key, value = label.split('=', 1)
+                for label in labels.split(","):
+                    if "=" in label:
+                        key, value = label.split("=", 1)
                         if key.strip() == "osprey.project.name":
                             container_project = value.strip()
                             break
@@ -298,8 +279,7 @@ class TestContainerMatchingIntegration:
             names_str = " ".join(str(n) for n in names).lower()
 
             matches_service = any(
-                service.split('.')[-1].lower() in names_str
-                for service in deployed_service_names
+                service.split(".")[-1].lower() in names_str for service in deployed_service_names
             )
 
             if belongs_to_project or matches_service:
@@ -317,4 +297,3 @@ class TestContainerMatchingIntegration:
         project_names = [c["Names"][0] for c in project_containers]
         assert "projecta-jupyter" in project_names
         assert "projectb_pipelines" in project_names
-

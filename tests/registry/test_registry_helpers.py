@@ -37,7 +37,7 @@ class TestExtendFrameworkRegistry:
                     class_name="MyCapability",
                     description="Test capability",
                     provides=[],
-                    requires=[]
+                    requires=[],
                 )
             ]
         )
@@ -64,9 +64,9 @@ class TestExtendFrameworkRegistry:
                 ContextClassRegistration(
                     context_type="MY_CONTEXT",
                     module_path="my_app.context_classes",
-                    class_name="MyContext"
+                    class_name="MyContext",
                 )
-            ]
+            ],
         )
 
         # Returns application components
@@ -84,9 +84,9 @@ class TestExtendFrameworkRegistry:
                     module_path="my_app.data_sources.db",
                     class_name="MyDatabaseProvider",
                     description="Custom database",
-                    health_check_required=True
+                    health_check_required=True,
                 )
-            ]
+            ],
         )
 
         assert len(config.data_sources) == 1
@@ -105,9 +105,9 @@ class TestExtendFrameworkRegistry:
                     description="Data processor",
                     provides=["PROCESSED_DATA"],
                     requires=["RAW_DATA"],
-                    internal_nodes=["validate", "transform"]
+                    internal_nodes=["validate", "transform"],
                 )
-            ]
+            ],
         )
 
         assert len(config.services) == 1
@@ -124,10 +124,10 @@ class TestExtendFrameworkRegistry:
                     class_name="CustomPythonCapability",
                     description="Custom Python capability",
                     provides=["PYTHON_RESULTS"],
-                    requires=[]
+                    requires=[],
                 )
             ],
-            exclude_capabilities=["python"]
+            exclude_capabilities=["python"],
         )
 
         # Returns application components only
@@ -150,7 +150,7 @@ class TestExtendFrameworkRegistry:
             context_classes=[],
             exclude_capabilities=["python", "memory"],
             exclude_nodes=["error"],
-            exclude_context_classes=["PYTHON_RESULTS"]
+            exclude_context_classes=["PYTHON_RESULTS"],
         )
 
         # All exclusions stored
@@ -172,12 +172,10 @@ class TestExtendFrameworkRegistry:
             class_name="CustomMemoryCapability",
             description="Custom memory implementation",
             provides=["MEMORY_CONTEXT"],
-            requires=[]
+            requires=[],
         )
 
-        config = extend_framework_registry(
-            override_capabilities=[custom_memory]
-        )
+        config = extend_framework_registry(override_capabilities=[custom_memory])
 
         # Returns application config with override capability
         cap_names = [c.name for c in config.capabilities]
@@ -199,7 +197,7 @@ class TestExtendFrameworkRegistry:
             class_name="NewCapability",
             description="New functionality",
             provides=["NEW_DATA"],
-            requires=[]
+            requires=[],
         )
 
         override_cap = CapabilityRegistration(
@@ -208,12 +206,11 @@ class TestExtendFrameworkRegistry:
             class_name="CustomPythonCapability",
             description="Custom Python",
             provides=["PYTHON_RESULTS"],
-            requires=[]
+            requires=[],
         )
 
         config = extend_framework_registry(
-            capabilities=[new_cap],
-            override_capabilities=[override_cap]
+            capabilities=[new_cap], override_capabilities=[override_cap]
         )
 
         # Both should be included
@@ -236,14 +233,12 @@ class TestExtendFrameworkRegistry:
                     class_name="Cap",
                     description="New",
                     provides=[],
-                    requires=[]
+                    requires=[],
                 )
             ],
             context_classes=[
                 ContextClassRegistration(
-                    context_type="NEW_CONTEXT",
-                    module_path="app.context",
-                    class_name="NewContext"
+                    context_type="NEW_CONTEXT", module_path="app.context", class_name="NewContext"
                 )
             ],
             data_sources=[
@@ -251,11 +246,11 @@ class TestExtendFrameworkRegistry:
                     name="app_db",
                     module_path="app.db",
                     class_name="AppDB",
-                    description="App database"
+                    description="App database",
                 )
             ],
             exclude_capabilities=["python"],
-            exclude_nodes=["error"]
+            exclude_nodes=["error"],
         )
 
         # Contains application components
@@ -340,11 +335,13 @@ class TestGetFrameworkDefaults:
             "capabilities",
             "core_nodes",
             "services",
-            "framework_prompt_providers"
+            "framework_prompt_providers",
         }
 
         actual_types = set(framework.initialization_order)
-        assert expected_types.issubset(actual_types), f"Missing types: {expected_types - actual_types}"
+        assert expected_types.issubset(
+            actual_types
+        ), f"Missing types: {expected_types - actual_types}"
 
         # Verify context_classes comes before capabilities (dependency)
         ctx_idx = framework.initialization_order.index("context_classes")
@@ -368,16 +365,16 @@ class TestGenerateExplicitRegistryCode:
                     class_name="TestCapability",
                     description="Test capability",
                     provides=["TEST_DATA"],
-                    requires=[]
+                    requires=[],
                 )
             ],
             context_classes=[
                 ContextClassRegistration(
                     context_type="TEST_DATA",
                     module_path="test_app.context_classes",
-                    class_name="TestDataContext"
+                    class_name="TestDataContext",
                 )
-            ]
+            ],
         )
 
         # Should be valid Python code (can be compiled)
@@ -395,7 +392,7 @@ class TestGenerateExplicitRegistryCode:
             app_display_name="Test",
             package_name="test",
             capabilities=[],
-            context_classes=[]
+            context_classes=[],
         )
 
         # Should include framework capabilities
@@ -420,16 +417,16 @@ class TestGenerateExplicitRegistryCode:
                     class_name="CurrentWeatherCapability",
                     description="Get current weather",
                     provides=["WEATHER_DATA"],
-                    requires=[]
+                    requires=[],
                 )
             ],
             context_classes=[
                 ContextClassRegistration(
                     context_type="WEATHER_DATA",
                     module_path="weather_agent.context_classes",
-                    class_name="WeatherDataContext"
+                    class_name="WeatherDataContext",
                 )
-            ]
+            ],
         )
 
         # Should include application capability
@@ -454,9 +451,9 @@ class TestGenerateExplicitRegistryCode:
                     name="test_db",
                     module_path="test.data_sources.db",
                     class_name="TestDatabase",
-                    description="Test database"
+                    description="Test database",
                 )
-            ]
+            ],
         )
 
         assert "test_db" in code
@@ -479,9 +476,9 @@ class TestGenerateExplicitRegistryCode:
                     description="Data processor",
                     provides=["PROCESSED"],
                     requires=["RAW"],
-                    internal_nodes=["validate", "transform"]
+                    internal_nodes=["validate", "transform"],
                 )
-            ]
+            ],
         )
 
         assert "processor" in code
@@ -497,7 +494,7 @@ class TestGenerateExplicitRegistryCode:
             app_display_name="Test",
             package_name="test",
             capabilities=[],
-            context_classes=[]
+            context_classes=[],
         )
 
         # Should have section headers
@@ -516,4 +513,3 @@ class TestGenerateExplicitRegistryCode:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-

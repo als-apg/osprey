@@ -36,39 +36,39 @@ from osprey.cli.styles import (  # isort: skip
 
 THEMES = {
     "osprey": ColorTheme(
-        primary="#9370DB",      # Purple
-        accent="#00cccc",       # Teal
-        command="#ff9500",      # Orange
-        path="#999999",         # Gray
-        info="#00aaff",         # Cyan
+        primary="#9370DB",  # Purple
+        accent="#00cccc",  # Teal
+        command="#ff9500",  # Orange
+        path="#999999",  # Gray
+        info="#00aaff",  # Cyan
     ),
     "ocean": ColorTheme(
-        primary="#0077be",      # Ocean blue
-        accent="#00ccaa",       # Sea green
-        command="#ff8800",      # Warm orange
-        path="#888888",         # Gray
-        info="#66ccff",         # Light blue
+        primary="#0077be",  # Ocean blue
+        accent="#00ccaa",  # Sea green
+        command="#ff8800",  # Warm orange
+        path="#888888",  # Gray
+        info="#66ccff",  # Light blue
     ),
     "sunset": ColorTheme(
-        primary="#ff6b6b",      # Coral red
-        accent="#feca57",       # Golden yellow
-        command="#ff9500",      # Orange
-        path="#999999",         # Gray
-        info="#48dbfb",         # Sky blue
+        primary="#ff6b6b",  # Coral red
+        accent="#feca57",  # Golden yellow
+        command="#ff9500",  # Orange
+        path="#999999",  # Gray
+        info="#48dbfb",  # Sky blue
     ),
     "forest": ColorTheme(
-        primary="#26de81",      # Forest green
-        accent="#20bf6b",       # Dark green
-        command="#ff9500",      # Orange
-        path="#999999",         # Gray
-        info="#4bcffa",         # Cyan
+        primary="#26de81",  # Forest green
+        accent="#20bf6b",  # Dark green
+        command="#ff9500",  # Orange
+        path="#999999",  # Gray
+        info="#4bcffa",  # Cyan
     ),
     "monochrome": ColorTheme(
-        primary="#ffffff",      # White
-        accent="#bbbbbb",       # Light gray
-        command="#888888",      # Gray
-        path="#666666",         # Dark gray
-        info="#aaaaaa",         # Medium gray
+        primary="#ffffff",  # White
+        accent="#bbbbbb",  # Light gray
+        command="#888888",  # Gray
+        path="#666666",  # Dark gray
+        info="#aaaaaa",  # Medium gray
     ),
 }
 
@@ -76,6 +76,7 @@ THEMES = {
 # ============================================================================
 # PREVIEW SECTIONS
 # ============================================================================
+
 
 def show_theme_header(theme_name: str, theme: ColorTheme):
     """Show theme name and core colors."""
@@ -88,11 +89,13 @@ def show_theme_header(theme_name: str, theme: ColorTheme):
 
 def show_color_swatches(theme: ColorTheme):
     """Show visual swatches of all theme colors."""
-    console.print(Panel.fit(
-        "[bold]COLOR PALETTE[/bold]\n\n"
-        "[dim]The 5 core configurable colors that define your theme:[/dim]",
-        border_style=Styles.BORDER
-    ))
+    console.print(
+        Panel.fit(
+            "[bold]COLOR PALETTE[/bold]\n\n"
+            "[dim]The 5 core configurable colors that define your theme:[/dim]",
+            border_style=Styles.BORDER,
+        )
+    )
     console.print()
 
     # Core configurable colors
@@ -161,11 +164,13 @@ def show_color_swatches(theme: ColorTheme):
 
 def show_status_messages():
     """Show status message examples."""
-    console.print(Panel.fit(
-        "[bold]STATUS MESSAGES[/bold]\n\n"
-        "[dim]Standard indicators for success, errors, warnings, and info:[/dim]",
-        border_style=Styles.BORDER
-    ))
+    console.print(
+        Panel.fit(
+            "[bold]STATUS MESSAGES[/bold]\n\n"
+            "[dim]Standard indicators for success, errors, warnings, and info:[/dim]",
+            border_style=Styles.BORDER,
+        )
+    )
     console.print()
 
     console.print(Messages.success("Project created successfully"))
@@ -177,11 +182,13 @@ def show_status_messages():
 
 def show_inline_styles():
     """Show inline text styling."""
-    console.print(Panel.fit(
-        "[bold]INLINE TEXT STYLES[/bold]\n\n"
-        "[dim]How colors appear in regular text flow:[/dim]",
-        border_style=Styles.BORDER
-    ))
+    console.print(
+        Panel.fit(
+            "[bold]INLINE TEXT STYLES[/bold]\n\n"
+            "[dim]How colors appear in regular text flow:[/dim]",
+            border_style=Styles.BORDER,
+        )
+    )
     console.print()
 
     console.print(f"[{Styles.PRIMARY}]Primary brand text for emphasis[/{Styles.PRIMARY}]")
@@ -196,11 +203,13 @@ def show_inline_styles():
 
 def show_real_world_example():
     """Show a realistic CLI interaction."""
-    console.print(Panel.fit(
-        "[bold]REAL-WORLD EXAMPLE[/bold]\n\n"
-        "[dim]How the theme looks in actual CLI usage:[/dim]",
-        border_style=Styles.BORDER
-    ))
+    console.print(
+        Panel.fit(
+            "[bold]REAL-WORLD EXAMPLE[/bold]\n\n"
+            "[dim]How the theme looks in actual CLI usage:[/dim]",
+            border_style=Styles.BORDER,
+        )
+    )
     console.print()
 
     # Project creation flow
@@ -230,32 +239,36 @@ def show_real_world_example():
 
 def show_panel_examples():
     """Show panels with different border styles."""
-    console.print(Panel.fit(
-        "[bold]PANELS & BORDERS[/bold]\n\n"
-        "[dim]How panels and borders appear:[/dim]",
-        border_style=Styles.BORDER
-    ))
+    console.print(
+        Panel.fit(
+            "[bold]PANELS & BORDERS[/bold]\n\n" "[dim]How panels and borders appear:[/dim]",
+            border_style=Styles.BORDER,
+        )
+    )
     console.print()
 
     # Status panel
-    console.print(Panel(
-        f"[{Styles.SUCCESS}]✓[/{Styles.SUCCESS}] All services running\n"
-        f"[{Styles.WARNING}]⚠[/{Styles.WARNING}] High memory usage detected\n"
-        f"[{Styles.INFO}]ℹ[/{Styles.INFO}] Database: postgres:5432\n"
-        f"[{Styles.ERROR}]✗[/{Styles.ERROR}] Cache connection failed",
-        title=f"[{Styles.HEADER}]Service Status[/{Styles.HEADER}]",
-        border_style=Styles.BORDER,
-    ))
+    console.print(
+        Panel(
+            f"[{Styles.SUCCESS}]✓[/{Styles.SUCCESS}] All services running\n"
+            f"[{Styles.WARNING}]⚠[/{Styles.WARNING}] High memory usage detected\n"
+            f"[{Styles.INFO}]ℹ[/{Styles.INFO}] Database: postgres:5432\n"
+            f"[{Styles.ERROR}]✗[/{Styles.ERROR}] Cache connection failed",
+            title=f"[{Styles.HEADER}]Service Status[/{Styles.HEADER}]",
+            border_style=Styles.BORDER,
+        )
+    )
     console.print()
 
 
 def show_table_example():
     """Show a table with styled content."""
-    console.print(Panel.fit(
-        "[bold]TABLES[/bold]\n\n"
-        "[dim]Configuration and data display:[/dim]",
-        border_style=Styles.BORDER
-    ))
+    console.print(
+        Panel.fit(
+            "[bold]TABLES[/bold]\n\n" "[dim]Configuration and data display:[/dim]",
+            border_style=Styles.BORDER,
+        )
+    )
     console.print()
 
     table = Table(
@@ -302,6 +315,7 @@ def show_banner():
 # ============================================================================
 # MAIN PREVIEW FUNCTIONS
 # ============================================================================
+
 
 def preview_theme(theme_name: str, theme: ColorTheme, show_banner_art: bool = True):
     """Preview a complete theme with all UI elements.
@@ -366,7 +380,9 @@ def compare_themes():
     set_theme(OSPREY_THEME)
 
     console.print(f"\n[{Styles.INFO}]ℹ[/{Styles.INFO}] To preview a specific theme:")
-    console.print(f"  [{Styles.COMMAND}]python src/osprey/cli/preview_styles.py --theme <name>[/{Styles.COMMAND}]\n")
+    console.print(
+        f"  [{Styles.COMMAND}]python src/osprey/cli/preview_styles.py --theme <name>[/{Styles.COMMAND}]\n"
+    )
 
 
 def create_custom_theme():
@@ -377,7 +393,9 @@ def create_custom_theme():
         from osprey.cli.styles import get_questionary_style
     except ImportError:
         console.print(f"[{Styles.ERROR}]✗[/{Styles.ERROR}] questionary not installed")
-        console.print(f"Install with: [{Styles.COMMAND}]pip install questionary[/{Styles.COMMAND}]\n")
+        console.print(
+            f"Install with: [{Styles.COMMAND}]pip install questionary[/{Styles.COMMAND}]\n"
+        )
         return
 
     console.clear()
@@ -393,35 +411,17 @@ def create_custom_theme():
     console.print("[dim]Format: #RRGGBB (e.g., #9370DB)[/dim]\n")
 
     try:
-        primary = questionary.text(
-            "Primary (brand color):",
-            default="#9370DB",
-            style=style
-        ).ask()
+        primary = questionary.text("Primary (brand color):", default="#9370DB", style=style).ask()
 
-        accent = questionary.text(
-            "Accent (highlights):",
-            default="#00cccc",
-            style=style
-        ).ask()
+        accent = questionary.text("Accent (highlights):", default="#00cccc", style=style).ask()
 
         command = questionary.text(
-            "Command (shell commands):",
-            default="#ff9500",
-            style=style
+            "Command (shell commands):", default="#ff9500", style=style
         ).ask()
 
-        path = questionary.text(
-            "Path (file paths):",
-            default="#999999",
-            style=style
-        ).ask()
+        path = questionary.text("Path (file paths):", default="#999999", style=style).ask()
 
-        info = questionary.text(
-            "Info (informational):",
-            default="#00aaff",
-            style=style
-        ).ask()
+        info = questionary.text("Info (informational):", default="#00aaff", style=style).ask()
 
         if not all([primary, accent, command, path, info]):
             console.print(f"\n[{Styles.WARNING}]⚠[/{Styles.WARNING}] Theme creation cancelled\n")
@@ -446,6 +446,7 @@ def create_custom_theme():
 # CLI ENTRY POINT
 # ============================================================================
 
+
 def main():
     """Main entry point."""
     import argparse
@@ -459,30 +460,21 @@ Examples:
   python src/osprey/cli/preview_styles.py --theme ocean    # Preview ocean theme
   python src/osprey/cli/preview_styles.py --compare        # Compare all themes
   python src/osprey/cli/preview_styles.py --custom         # Create custom theme
-        """
+        """,
     )
 
     parser.add_argument(
-        '--theme', '-t',
+        "--theme",
+        "-t",
         choices=list(THEMES.keys()),
-        default='osprey',
-        help='Theme to preview (default: osprey)'
+        default="osprey",
+        help="Theme to preview (default: osprey)",
     )
+    parser.add_argument("--compare", "-c", action="store_true", help="Compare all available themes")
     parser.add_argument(
-        '--compare', '-c',
-        action='store_true',
-        help='Compare all available themes'
+        "--custom", action="store_true", help="Create and preview a custom theme interactively"
     )
-    parser.add_argument(
-        '--custom',
-        action='store_true',
-        help='Create and preview a custom theme interactively'
-    )
-    parser.add_argument(
-        '--no-banner',
-        action='store_true',
-        help='Skip the ASCII banner in preview'
-    )
+    parser.add_argument("--no-banner", action="store_true", help="Skip the ASCII banner in preview")
 
     args = parser.parse_args()
 

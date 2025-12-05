@@ -258,34 +258,33 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     name="router",
                     module_path="osprey.infrastructure.router_node",
                     function_name="RouterNode",
-                    description="Central routing decision authority"
+                    description="Central routing decision authority",
                 ),
                 NodeRegistration(
                     name="task_extraction",
                     module_path="osprey.infrastructure.task_extraction_node",
                     function_name="TaskExtractionNode",
-                    description="Extracts structured tasks from user queries"
+                    description="Extracts structured tasks from user queries",
                 ),
                 NodeRegistration(
                     name="classifier",
                     module_path="osprey.infrastructure.classification_node",
                     function_name="ClassificationNode",
-                    description="Classifies user queries for capability selection"
+                    description="Classifies user queries for capability selection",
                 ),
                 NodeRegistration(
                     name="orchestrator",
                     module_path="osprey.infrastructure.orchestration_node",
                     function_name="OrchestrationNode",
-                    description="Execution planning and orchestration"
+                    description="Execution planning and orchestration",
                 ),
                 NodeRegistration(
                     name="error",
                     module_path="osprey.infrastructure.error_node",
                     function_name="ErrorNode",
-                    description="Error handling and recovery"
+                    description="Error handling and recovery",
                 ),
             ],
-
             # Framework-level capabilities (not application-specific)
             capabilities=[
                 # Memory operations capability (framework-level)
@@ -295,9 +294,8 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     class_name="MemoryOperationsCapability",
                     description="Save content to and retrieve content from user memory files",
                     provides=["MEMORY_CONTEXT"],
-                    requires=[]
+                    requires=[],
                 ),
-
                 # Time range parsing capability (framework-level)
                 CapabilityRegistration(
                     name="time_range_parsing",
@@ -306,9 +304,8 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     description="Extract and parse time ranges from user queries into absolute datetime objects",
                     provides=["TIME_RANGE"],
                     requires=[],
-                    functional_node="time_range_parsing_node"
+                    functional_node="time_range_parsing_node",
                 ),
-
                 # Python capability (framework-level)
                 CapabilityRegistration(
                     name="python",
@@ -317,9 +314,8 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     description="Generate and execute simple Python code for computational tasks",
                     provides=["PYTHON_RESULTS"],
                     requires=[],
-                    functional_node="python_node"
+                    functional_node="python_node",
                 ),
-
                 # Communication capabilities (framework-level) - always active
                 CapabilityRegistration(
                     name="respond",
@@ -329,7 +325,7 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     provides=["FINAL_RESPONSE"],
                     requires=[],
                     always_active=True,
-                    functional_node="respond"
+                    functional_node="respond",
                 ),
                 CapabilityRegistration(
                     name="clarify",
@@ -339,32 +335,30 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     provides=["CLARIFICATION_REQUEST"],
                     requires=[],
                     always_active=True,
-                    functional_node="clarify"
-                )
+                    functional_node="clarify",
+                ),
             ],
-
             # Framework-level context classes
             context_classes=[
                 # Memory context (framework-level)
                 ContextClassRegistration(
                     context_type="MEMORY_CONTEXT",
                     module_path="osprey.capabilities.memory",
-                    class_name="MemoryContext"
+                    class_name="MemoryContext",
                 ),
                 # Time range context (framework-level)
                 ContextClassRegistration(
                     context_type="TIME_RANGE",
                     module_path="osprey.capabilities.time_range_parsing",
-                    class_name="TimeRangeContext"
+                    class_name="TimeRangeContext",
                 ),
                 # Python results context (framework-level)
                 ContextClassRegistration(
                     context_type="PYTHON_RESULTS",
                     module_path="osprey.capabilities.python",
-                    class_name="PythonResultsContext"
-                )
+                    class_name="PythonResultsContext",
+                ),
             ],
-
             # Framework-level data sources
             data_sources=[
                 # Core user memory (framework-level)
@@ -373,10 +367,9 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     module_path="osprey.services.memory_storage.memory_provider",
                     class_name="UserMemoryProvider",
                     description="Provides user memory and preferences",
-                    health_check_required=True
+                    health_check_required=True,
                 ),
             ],
-
             # Framework-level services - internal LangGraph service agents
             services=[
                 # Python executor service (framework-level)
@@ -387,11 +380,14 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     description="Python code generation, analysis, and execution service",
                     provides=["PYTHON_RESULTS"],
                     requires=[],
-                    internal_nodes=["python_code_generator", "python_code_analyzer", "python_code_executor", "python_approval_node"],
-
+                    internal_nodes=[
+                        "python_code_generator",
+                        "python_code_analyzer",
+                        "python_code_executor",
+                        "python_approval_node",
+                    ],
                 ),
             ],
-
             # Framework prompt providers (defaults - typically overridden by applications)
             framework_prompt_providers=[
                 FrameworkPromptProviderRegistration(
@@ -405,43 +401,36 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                         "clarification": "DefaultClarificationPromptBuilder",
                         "memory_extraction": "DefaultMemoryExtractionPromptBuilder",
                         "time_range_parsing": "DefaultTimeRangeParsingPromptBuilder",
-                        "python": "DefaultPythonPromptBuilder"
-                    }
+                        "python": "DefaultPythonPromptBuilder",
+                    },
                 )
             ],
-
             # Framework AI model providers (SIMPLIFIED - metadata introspected from class)
             providers=[
                 ProviderRegistration(
                     module_path="osprey.models.providers.anthropic",
-                    class_name="AnthropicProviderAdapter"
+                    class_name="AnthropicProviderAdapter",
                 ),
                 ProviderRegistration(
-                    module_path="osprey.models.providers.openai",
-                    class_name="OpenAIProviderAdapter"
+                    module_path="osprey.models.providers.openai", class_name="OpenAIProviderAdapter"
                 ),
                 ProviderRegistration(
-                    module_path="osprey.models.providers.google",
-                    class_name="GoogleProviderAdapter"
+                    module_path="osprey.models.providers.google", class_name="GoogleProviderAdapter"
                 ),
                 ProviderRegistration(
-                    module_path="osprey.models.providers.ollama",
-                    class_name="OllamaProviderAdapter"
+                    module_path="osprey.models.providers.ollama", class_name="OllamaProviderAdapter"
                 ),
                 ProviderRegistration(
-                    module_path="osprey.models.providers.cborg",
-                    class_name="CBorgProviderAdapter"
+                    module_path="osprey.models.providers.cborg", class_name="CBorgProviderAdapter"
                 ),
                 ProviderRegistration(
                     module_path="osprey.models.providers.stanford",
-                    class_name="StanfordProviderAdapter"
+                    class_name="StanfordProviderAdapter",
                 ),
                 ProviderRegistration(
-                    module_path="osprey.models.providers.argo",
-                    class_name="ArgoProviderAdapter"
+                    module_path="osprey.models.providers.argo", class_name="ArgoProviderAdapter"
                 ),
             ],
-
             # Framework connectors for control systems and archivers
             connectors=[
                 # Control system connectors
@@ -450,14 +439,14 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     connector_type="control_system",
                     module_path="osprey.connectors.control_system.mock_connector",
                     class_name="MockConnector",
-                    description="Mock control system connector for development and testing"
+                    description="Mock control system connector for development and testing",
                 ),
                 ConnectorRegistration(
                     name="epics",
                     connector_type="control_system",
                     module_path="osprey.connectors.control_system.epics_connector",
                     class_name="EPICSConnector",
-                    description="EPICS Channel Access control system connector"
+                    description="EPICS Channel Access control system connector",
                 ),
                 # Archiver connectors
                 ConnectorRegistration(
@@ -465,17 +454,16 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     connector_type="archiver",
                     module_path="osprey.connectors.archiver.mock_archiver_connector",
                     class_name="MockArchiverConnector",
-                    description="Mock archiver connector for development and testing"
+                    description="Mock archiver connector for development and testing",
                 ),
                 ConnectorRegistration(
                     name="epics_archiver",
                     connector_type="archiver",
                     module_path="osprey.connectors.archiver.epics_archiver_connector",
                     class_name="EPICSArchiverConnector",
-                    description="EPICS Archiver Appliance connector"
+                    description="EPICS Archiver Appliance connector",
                 ),
             ],
-
             # Framework code generators for Python executor
             code_generators=[
                 # Basic LLM-based generator (always available)
@@ -483,7 +471,7 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     name="basic",
                     module_path="osprey.services.python_executor.generation.basic_generator",
                     class_name="BasicLLMCodeGenerator",
-                    description="Simple single-pass LLM code generator"
+                    description="Simple single-pass LLM code generator",
                 ),
                 # Claude Code SDK generator (optional dependency)
                 CodeGeneratorRegistration(
@@ -491,20 +479,19 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     module_path="osprey.services.python_executor.generation.claude_code_generator",
                     class_name="ClaudeCodeGenerator",
                     description="Claude Code SDK-based generator with multi-turn reasoning and codebase awareness",
-                    optional_dependencies=["claude-agent-sdk"]
+                    optional_dependencies=["claude-agent-sdk"],
                 ),
             ],
-
             # Simplified initialization order - decorators and subgraphs are imported directly when needed
             initialization_order=[
-                "context_classes",    # First - needed by capabilities
-                "data_sources",       # Second - needed by capabilities
-                "providers",          # Third - AI model providers early for use by capabilities
-                "connectors",         # Fourth - control system/archiver connectors
-                "code_generators",    # Fifth - code generators for Python executor
-                "core_nodes",         # Sixth - infrastructure nodes
-                "services",           # Seventh - internal service graphs
-                "capabilities",       # Eighth - depends on everything else including services
-                "framework_prompt_providers"  # Last - imports applications that may need capabilities/context
-            ]
+                "context_classes",  # First - needed by capabilities
+                "data_sources",  # Second - needed by capabilities
+                "providers",  # Third - AI model providers early for use by capabilities
+                "connectors",  # Fourth - control system/archiver connectors
+                "code_generators",  # Fifth - code generators for Python executor
+                "core_nodes",  # Sixth - infrastructure nodes
+                "services",  # Seventh - internal service graphs
+                "capabilities",  # Eighth - depends on everything else including services
+                "framework_prompt_providers",  # Last - imports applications that may need capabilities/context
+            ],
         )

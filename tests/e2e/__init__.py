@@ -11,4 +11,3 @@ Tests in this module:
 
 Run with: pytest tests/e2e/ -v -s
 """
-

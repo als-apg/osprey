@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
 @dataclass
 class DataSourceContext:
     """
@@ -24,11 +25,14 @@ class DataSourceContext:
     This standardized format allows different data sources to return results
     in a consistent way while preserving source-specific metadata.
     """
-    source_name: str                    # Unique identifier for the data source
-    context_type: str                   # Type of context data (for validation)
-    data: Any                          # The actual retrieved data
+
+    source_name: str  # Unique identifier for the data source
+    context_type: str  # Type of context data (for validation)
+    data: Any  # The actual retrieved data
     metadata: dict[str, Any] = field(default_factory=dict)  # Additional source metadata
-    provider: Optional['DataSourceProvider'] = None  # Reference to the provider that created this context
+    provider: Optional["DataSourceProvider"] = (
+        None  # Reference to the provider that created this context
+    )
 
     def format_for_prompt(self) -> str:
         """
@@ -41,9 +45,9 @@ class DataSourceContext:
             return self.provider.format_for_prompt(self)
 
         # Fallback formatting if no provider reference
-        if hasattr(self.data, 'format_for_prompt'):
+        if hasattr(self.data, "format_for_prompt"):
             return self.data.format_for_prompt()
-        elif hasattr(self.data, 'format_for_llm'):
+        elif hasattr(self.data, "format_for_llm"):
             return self.data.format_for_llm()
         else:
             return str(self.data)
@@ -51,12 +55,13 @@ class DataSourceContext:
     def get_summary(self) -> dict[str, Any]:
         """Get a summary of this data source context for logging/debugging."""
         return {
-            'source_name': self.source_name,
-            'context_type': self.context_type,
-            'data_type': type(self.data).__name__,
-            'metadata': self.metadata,
-            'has_data': self.data is not None
+            "source_name": self.source_name,
+            "context_type": self.context_type,
+            "data_type": type(self.data).__name__,
+            "metadata": self.metadata,
+            "has_data": self.data is not None,
         }
+
 
 class DataSourceProvider(ABC):
     """
@@ -86,7 +91,7 @@ class DataSourceProvider(ABC):
         pass
 
     @abstractmethod
-    async def retrieve_data(self, request: 'DataSourceRequest') -> DataSourceContext | None:
+    async def retrieve_data(self, request: "DataSourceRequest") -> DataSourceContext | None:
         """
         Retrieve data from this source given the current request.
 
@@ -103,7 +108,7 @@ class DataSourceProvider(ABC):
         pass
 
     @abstractmethod
-    def should_respond(self, request: 'DataSourceRequest') -> bool:
+    def should_respond(self, request: "DataSourceRequest") -> bool:
         """
         Determine if this data source should respond to the given request.
 
@@ -117,8 +122,6 @@ class DataSourceProvider(ABC):
             True if this data source should provide data for this request
         """
         pass
-
-
 
     @property
     def description(self) -> str:
@@ -166,13 +169,13 @@ class DataSourceProvider(ABC):
             return ""
 
         # Default formatting with source name header
-        source_title = context.source_name.replace('_', ' ').title()
+        source_title = context.source_name.replace("_", " ").title()
 
         try:
             # Try the data object's formatting methods first
-            if hasattr(context.data, 'format_for_prompt'):
+            if hasattr(context.data, "format_for_prompt"):
                 formatted_data = context.data.format_for_prompt()
-            elif hasattr(context.data, 'format_for_llm'):
+            elif hasattr(context.data, "format_for_llm"):
                 formatted_data = context.data.format_for_llm()
             else:
                 formatted_data = str(context.data)

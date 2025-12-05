@@ -89,7 +89,9 @@ class CodeGenerator(Protocol):
        :class:`osprey.services.python_executor.exceptions.CodeGenerationError`
     """
 
-    async def generate_code(self, request: PythonExecutionRequest, error_chain: list[ExecutionError]) -> str:
+    async def generate_code(
+        self, request: PythonExecutionRequest, error_chain: list[ExecutionError]
+    ) -> str:
         """Generate Python code based on request and structured error feedback.
 
         This method is called by the executor service to generate Python code

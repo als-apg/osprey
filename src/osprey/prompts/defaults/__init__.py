@@ -40,36 +40,37 @@ class DefaultPromptProvider(FrameworkPromptProvider):
     # Infrastructure prompts
     # =================================================================
 
-    def get_orchestrator_prompt_builder(self) -> 'FrameworkPromptBuilder':
+    def get_orchestrator_prompt_builder(self) -> "FrameworkPromptBuilder":
         return self._orchestrator_builder
 
-    def get_task_extraction_prompt_builder(self) -> 'FrameworkPromptBuilder':
+    def get_task_extraction_prompt_builder(self) -> "FrameworkPromptBuilder":
         return self._task_extraction_builder
 
-    def get_response_generation_prompt_builder(self) -> 'FrameworkPromptBuilder':
+    def get_response_generation_prompt_builder(self) -> "FrameworkPromptBuilder":
         return self._response_generation_builder
 
-    def get_classification_prompt_builder(self) -> 'FrameworkPromptBuilder':
+    def get_classification_prompt_builder(self) -> "FrameworkPromptBuilder":
         return self._classification_builder
 
-    def get_error_analysis_prompt_builder(self) -> 'FrameworkPromptBuilder':
+    def get_error_analysis_prompt_builder(self) -> "FrameworkPromptBuilder":
         return self._error_analysis_builder
 
-    def get_clarification_prompt_builder(self) -> 'FrameworkPromptBuilder':
+    def get_clarification_prompt_builder(self) -> "FrameworkPromptBuilder":
         return self._clarification_builder
 
     # =================================================================
     # Framework capability prompts
     # =================================================================
 
-    def get_memory_extraction_prompt_builder(self) -> 'FrameworkPromptBuilder':
+    def get_memory_extraction_prompt_builder(self) -> "FrameworkPromptBuilder":
         return self._memory_extraction_builder
 
-    def get_time_range_parsing_prompt_builder(self) -> 'FrameworkPromptBuilder':
+    def get_time_range_parsing_prompt_builder(self) -> "FrameworkPromptBuilder":
         return self._time_range_parsing_builder
 
-    def get_python_prompt_builder(self) -> 'FrameworkPromptBuilder':
+    def get_python_prompt_builder(self) -> "FrameworkPromptBuilder":
         return self._python_builder
+
 
 __all__ = [
     "DefaultClassificationPromptBuilder",
@@ -83,5 +84,5 @@ __all__ = [
     "DefaultOrchestratorPromptBuilder",
     "DefaultPromptProvider",
     "TaskExtractionExample",
-    "ExtractedTask"
+    "ExtractedTask",
 ]

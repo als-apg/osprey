@@ -39,9 +39,7 @@ class ConnectorFactory:
 
     @classmethod
     def register_control_system(
-        cls,
-        name: str,
-        connector_class: type[ControlSystemConnector]
+        cls, name: str, connector_class: type[ControlSystemConnector]
     ) -> None:
         """
         Register a control system connector.
@@ -54,11 +52,7 @@ class ConnectorFactory:
         logger.debug(f"Registered control system connector: {name}")
 
     @classmethod
-    def register_archiver(
-        cls,
-        name: str,
-        connector_class: type[ArchiverConnector]
-    ) -> None:
+    def register_archiver(cls, name: str, connector_class: type[ArchiverConnector]) -> None:
         """
         Register an archiver connector.
 
@@ -71,8 +65,7 @@ class ConnectorFactory:
 
     @classmethod
     async def create_control_system_connector(
-        cls,
-        config: dict[str, Any] = None
+        cls, config: dict[str, Any] = None
     ) -> ControlSystemConnector:
         """
         Create and configure a control system connector.
@@ -106,26 +99,26 @@ class ConnectorFactory:
         if config is None:
             try:
                 from osprey.utils.config import get_config_value
-                config = get_config_value('control_system', {})
+
+                config = get_config_value("control_system", {})
             except Exception as e:
                 logger.warning(f"Could not load config: {e}, using defaults")
                 config = {}
 
-        connector_type = config.get('type', 'epics')
+        connector_type = config.get("type", "epics")
         connector_class = cls._control_system_connectors.get(connector_type)
 
         if not connector_class:
             available = list(cls._control_system_connectors.keys())
             raise ValueError(
-                f"Unknown control system type: '{connector_type}'. "
-                f"Available types: {available}"
+                f"Unknown control system type: '{connector_type}'. " f"Available types: {available}"
             )
 
         # Create connector instance
         connector = connector_class()
 
         # Get type-specific configuration
-        connector_configs = config.get('connector', {})
+        connector_configs = config.get("connector", {})
         type_config = connector_configs.get(connector_type, {})
 
         # Connect with configuration
@@ -135,10 +128,7 @@ class ConnectorFactory:
         return connector
 
     @classmethod
-    async def create_archiver_connector(
-        cls,
-        config: dict[str, Any] = None
-    ) -> ArchiverConnector:
+    async def create_archiver_connector(cls, config: dict[str, Any] = None) -> ArchiverConnector:
         """
         Create and configure an archiver connector.
 
@@ -169,19 +159,19 @@ class ConnectorFactory:
         if config is None:
             try:
                 from osprey.utils.config import get_config_value
-                config = get_config_value('archiver', {})
+
+                config = get_config_value("archiver", {})
             except Exception as e:
                 logger.warning(f"Could not load config: {e}, using defaults")
                 config = {}
 
-        connector_type = config.get('type', 'epics_archiver')
+        connector_type = config.get("type", "epics_archiver")
         connector_class = cls._archiver_connectors.get(connector_type)
 
         if not connector_class:
             available = list(cls._archiver_connectors.keys())
             raise ValueError(
-                f"Unknown archiver type: '{connector_type}'. "
-                f"Available types: {available}"
+                f"Unknown archiver type: '{connector_type}'. " f"Available types: {available}"
             )
 
         # Create connector instance
@@ -205,4 +195,3 @@ class ConnectorFactory:
     def list_archivers(cls) -> list:
         """List available archiver connector types."""
         return list(cls._archiver_connectors.keys())
-

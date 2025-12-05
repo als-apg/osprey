@@ -34,9 +34,7 @@ async def test_in_context_pipeline_benchmark(e2e_project_factory):
     """
     # Create control-assistant project with in_context pipeline
     project = await e2e_project_factory(
-        name="benchmark-in-context",
-        template="control_assistant",
-        registry_style="extend"
+        name="benchmark-in-context", template="control_assistant", registry_style="extend"
     )
 
     # Modify config to ensure in_context pipeline is active
@@ -44,20 +42,20 @@ async def test_in_context_pipeline_benchmark(e2e_project_factory):
     with open(config_path) as f:
         config = yaml.safe_load(f)
 
-    config['channel_finder']['pipeline_mode'] = 'in_context'
+    config["channel_finder"]["pipeline_mode"] = "in_context"
 
-    with open(config_path, 'w') as f:
+    with open(config_path, "w") as f:
         yaml.dump(config, f)
 
     # Run the benchmark programmatically
-    benchmark_results = await _run_benchmark(project, 'in_context')
+    benchmark_results = await _run_benchmark(project, "in_context")
 
     # Validate benchmark results
-    total_queries = benchmark_results['total_queries']
-    perfect_matches = benchmark_results['perfect_matches']
-    partial_matches = benchmark_results['partial_matches']
-    no_matches = benchmark_results['no_matches']
-    overall_f1 = benchmark_results['overall_f1_score']
+    total_queries = benchmark_results["total_queries"]
+    perfect_matches = benchmark_results["perfect_matches"]
+    partial_matches = benchmark_results["partial_matches"]
+    no_matches = benchmark_results["no_matches"]
+    overall_f1 = benchmark_results["overall_f1_score"]
 
     # Calculate success rate
     success_rate = (perfect_matches / total_queries) * 100 if total_queries > 0 else 0
@@ -70,12 +68,10 @@ async def test_in_context_pipeline_benchmark(e2e_project_factory):
     )
 
     # Assert high overall F1 score
-    assert overall_f1 >= 0.80, (
-        f"Overall F1 score too low: {overall_f1:.3f}. Expected ≥0.80"
-    )
+    assert overall_f1 >= 0.80, f"Overall F1 score too low: {overall_f1:.3f}. Expected ≥0.80"
 
     # Assert completion rate (should run all queries without crashes)
-    queries_evaluated = benchmark_results['queries_evaluated']
+    queries_evaluated = benchmark_results["queries_evaluated"]
     completion_rate = (queries_evaluated / total_queries) * 100 if total_queries > 0 else 0
     assert completion_rate >= 95.0, (
         f"Low completion rate: {completion_rate:.1f}% "
@@ -103,9 +99,7 @@ async def test_hierarchical_pipeline_benchmark(e2e_project_factory):
     """
     # Create control-assistant project
     project = await e2e_project_factory(
-        name="benchmark-hierarchical",
-        template="control_assistant",
-        registry_style="extend"
+        name="benchmark-hierarchical", template="control_assistant", registry_style="extend"
     )
 
     # Modify config to set hierarchical pipeline
@@ -113,20 +107,20 @@ async def test_hierarchical_pipeline_benchmark(e2e_project_factory):
     with open(config_path) as f:
         config = yaml.safe_load(f)
 
-    config['channel_finder']['pipeline_mode'] = 'hierarchical'
+    config["channel_finder"]["pipeline_mode"] = "hierarchical"
 
-    with open(config_path, 'w') as f:
+    with open(config_path, "w") as f:
         yaml.dump(config, f)
 
     # Run the benchmark programmatically
-    benchmark_results = await _run_benchmark(project, 'hierarchical')
+    benchmark_results = await _run_benchmark(project, "hierarchical")
 
     # Validate benchmark results
-    total_queries = benchmark_results['total_queries']
-    perfect_matches = benchmark_results['perfect_matches']
-    partial_matches = benchmark_results['partial_matches']
-    no_matches = benchmark_results['no_matches']
-    overall_f1 = benchmark_results['overall_f1_score']
+    total_queries = benchmark_results["total_queries"]
+    perfect_matches = benchmark_results["perfect_matches"]
+    partial_matches = benchmark_results["partial_matches"]
+    no_matches = benchmark_results["no_matches"]
+    overall_f1 = benchmark_results["overall_f1_score"]
 
     # Calculate success rate
     success_rate = (perfect_matches / total_queries) * 100 if total_queries > 0 else 0
@@ -139,12 +133,10 @@ async def test_hierarchical_pipeline_benchmark(e2e_project_factory):
     )
 
     # Assert high overall F1 score
-    assert overall_f1 >= 0.80, (
-        f"Overall F1 score too low: {overall_f1:.3f}. Expected ≥0.80"
-    )
+    assert overall_f1 >= 0.80, f"Overall F1 score too low: {overall_f1:.3f}. Expected ≥0.80"
 
     # Assert completion rate (should run all queries without crashes)
-    queries_evaluated = benchmark_results['queries_evaluated']
+    queries_evaluated = benchmark_results["queries_evaluated"]
     completion_rate = (queries_evaluated / total_queries) * 100 if total_queries > 0 else 0
     assert completion_rate >= 95.0, (
         f"Low completion rate: {completion_rate:.1f}% "
@@ -153,6 +145,7 @@ async def test_hierarchical_pipeline_benchmark(e2e_project_factory):
 
 
 # Helper functions
+
 
 async def _run_benchmark(project, pipeline_mode: str):
     """Run benchmark for a specific pipeline and return results.
@@ -169,8 +162,8 @@ async def _run_benchmark(project, pipeline_mode: str):
     os.chdir(project.project_dir)
 
     # Set config file environment variable
-    original_config_file = os.environ.get('CONFIG_FILE')
-    os.environ['CONFIG_FILE'] = str(project.config_path)
+    original_config_file = os.environ.get("CONFIG_FILE")
+    os.environ["CONFIG_FILE"] = str(project.config_path)
 
     # Add project to Python path
     src_dir = str(project.project_dir / "src")
@@ -180,16 +173,16 @@ async def _run_benchmark(project, pipeline_mode: str):
     try:
         # Import benchmark runner from the project
         # Need to get package name from project directory
-        package_name = project.project_dir.name.replace('-', '_')
+        package_name = project.project_dir.name.replace("-", "_")
 
         # Suppress channel finder logs during benchmarking
-        logging.getLogger(f'{package_name}').setLevel(logging.WARNING)
-        logging.getLogger('channel_finder').setLevel(logging.WARNING)
+        logging.getLogger(f"{package_name}").setLevel(logging.WARNING)
+        logging.getLogger("channel_finder").setLevel(logging.WARNING)
 
         # Import the benchmark runner
         runner_module = __import__(
-            f'{package_name}.services.channel_finder.benchmarks.runner',
-            fromlist=['BenchmarkRunner']
+            f"{package_name}.services.channel_finder.benchmarks.runner",
+            fromlist=["BenchmarkRunner"],
         )
         BenchmarkRunner = runner_module.BenchmarkRunner
 
@@ -204,7 +197,7 @@ async def _run_benchmark(project, pipeline_mode: str):
 
         # Find most recent results JSON file
         result_files = list(results_dir.glob(f"benchmark_{pipeline_mode}_benchmark_*.json"))
-        result_files = [f for f in result_files if '_in_progress' not in f.name]
+        result_files = [f for f in result_files if "_in_progress" not in f.name]
 
         if not result_files:
             raise RuntimeError(f"No benchmark results found for {pipeline_mode}")
@@ -223,9 +216,9 @@ async def _run_benchmark(project, pipeline_mode: str):
 
         # Restore original CONFIG_FILE environment variable
         if original_config_file is not None:
-            os.environ['CONFIG_FILE'] = original_config_file
-        elif 'CONFIG_FILE' in os.environ:
-            del os.environ['CONFIG_FILE']
+            os.environ["CONFIG_FILE"] = original_config_file
+        elif "CONFIG_FILE" in os.environ:
+            del os.environ["CONFIG_FILE"]
 
         # Clean up sys.path
         if src_dir in sys.path:
@@ -234,14 +227,6 @@ async def _run_benchmark(project, pipeline_mode: str):
         # CRITICAL: Clean up imported modules to prevent state pollution
         # The benchmark runner imports application modules that can leave
         # stale registry references that interfere with subsequent tests
-        modules_to_remove = [
-            key for key in sys.modules.keys()
-            if package_name in key
-        ]
+        modules_to_remove = [key for key in sys.modules.keys() if package_name in key]
         for module in modules_to_remove:
             del sys.modules[module]
-
-
-
-
-

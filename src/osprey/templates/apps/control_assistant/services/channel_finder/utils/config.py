@@ -8,7 +8,7 @@ For backward compatibility, we provide minimal stubs that redirect to Osprey's c
 """
 
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict
 
 # Use Osprey's config system
 from osprey.utils.config import _get_config as get_osprey_config
@@ -45,7 +45,7 @@ def resolve_path(path_str: str) -> Path:
         Resolved absolute Path object
     """
     config_builder = get_osprey_config()
-    project_root = Path(config_builder.get('project_root'))
+    project_root = Path(config_builder.get("project_root"))
     path = Path(path_str)
 
     if path.is_absolute():

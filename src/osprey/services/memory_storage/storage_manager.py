@@ -75,7 +75,7 @@ class MemoryStorageManager:
         try:
             memory_file = self._get_memory_file_path(user_id)
             if memory_file.exists():
-                with open(memory_file, encoding='utf-8') as f:
+                with open(memory_file, encoding="utf-8") as f:
                     data = json.load(f)
                 return data.get("entries", [])
             return []
@@ -101,10 +101,10 @@ class MemoryStorageManager:
             data = {
                 "user_id": user_id,
                 "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                "entries": entries
+                "entries": entries,
             }
 
-            with open(memory_file, 'w', encoding='utf-8') as f:
+            with open(memory_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
 
             return True
@@ -171,17 +171,15 @@ class MemoryStorageManager:
                     try:
                         # Parse timestamp string back to datetime
                         timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M")
-                        memory_content = MemoryContent(
-                            timestamp=timestamp,
-                            content=content.strip()
-                        )
+                        memory_content = MemoryContent(timestamp=timestamp, content=content.strip())
                         memory_contents.append(memory_content)
                     except ValueError as e:
-                        logger.warning(f"Failed to parse timestamp '{timestamp_str}' for user {user_id}: {e}")
+                        logger.warning(
+                            f"Failed to parse timestamp '{timestamp_str}' for user {user_id}: {e}"
+                        )
                         # Use current time as fallback
                         memory_content = MemoryContent(
-                            timestamp=datetime.now(),
-                            content=content.strip()
+                            timestamp=datetime.now(), content=content.strip()
                         )
                         memory_contents.append(memory_content)
 
@@ -220,14 +218,16 @@ class MemoryStorageManager:
             # Add new entry
             new_entry = {
                 "timestamp": memory_content.timestamp.strftime("%Y-%m-%d %H:%M"),
-                "content": memory_content.content.strip()
+                "content": memory_content.content.strip(),
             }
 
             entries.append(new_entry)
 
             success = self._save_memory_data(user_id, entries)
             if success:
-                logger.info(f"Added memory entry for user {user_id}: {memory_content.content[:50]}...")
+                logger.info(
+                    f"Added memory entry for user {user_id}: {memory_content.content[:50]}..."
+                )
             return success
         except Exception as e:
             logger.error(f"Error adding memory entry for user {user_id}: {e}")
@@ -271,6 +271,7 @@ class MemoryStorageManager:
 # Global memory storage manager instance
 _memory_storage_manager: MemoryStorageManager | None = None
 
+
 def get_memory_storage_manager() -> MemoryStorageManager:
     """Get the global memory storage manager instance.
 
@@ -287,7 +288,7 @@ def get_memory_storage_manager() -> MemoryStorageManager:
     if _memory_storage_manager is None:
         # Memory storage config now accessed via config
         # Use get_agent_dir to properly construct the path
-        memory_dir = get_agent_dir('user_memory_dir')
+        memory_dir = get_agent_dir("user_memory_dir")
 
         _memory_storage_manager = MemoryStorageManager(memory_dir)
     return _memory_storage_manager

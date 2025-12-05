@@ -549,7 +549,10 @@ def create_executor_node():
             execution_folder = execution_context
 
         # Save context using ContextManager (if not already created during pre-approval)
-        if not execution_folder.context_file_path or not execution_folder.context_file_path.exists():
+        if (
+            not execution_folder.context_file_path
+            or not execution_folder.context_file_path.exists()
+        ):
             try:
                 from osprey.utils.config import get_config_value
 
@@ -571,7 +574,9 @@ def create_executor_node():
                 # Add execution config to context
                 context_manager.add_execution_config(execution_config)
 
-                context_file_path = context_manager.save_context_to_file(execution_folder.folder_path)
+                context_file_path = context_manager.save_context_to_file(
+                    execution_folder.folder_path
+                )
                 # Update execution context with the saved context file path
                 execution_folder.context_file_path = context_file_path
                 logger.debug(f"Saved context.json in executor: {context_file_path}")
@@ -579,7 +584,9 @@ def create_executor_node():
                 logger.warning(f"Failed to save context: {e}")
                 # Don't fail the entire execution for context saving issues
         else:
-            logger.debug(f"Context.json already exists, reusing: {execution_folder.context_file_path}")
+            logger.debug(
+                f"Context.json already exists, reusing: {execution_folder.context_file_path}"
+            )
 
         # Execute code using appropriate executor based on configuration
         execution_method = _get_execution_method(configurable)

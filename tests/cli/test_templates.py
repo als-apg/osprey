@@ -5,12 +5,13 @@ including validation that generated projects use the new
 registry helper pattern correctly.
 """
 
-import pytest
 from pathlib import Path
+
+import pytest
 from click.testing import CliRunner
 
-from osprey.cli.templates import TemplateManager
 from osprey.cli.init_cmd import init
+from osprey.cli.templates import TemplateManager
 
 
 class TestTemplateManager:
@@ -43,7 +44,7 @@ class TestTemplateManager:
             project_name="test-project",
             output_dir=tmp_path,
             template_name="minimal",
-            registry_style="compact"
+            registry_style="compact",
         )
 
         # Verify structure
@@ -66,13 +67,13 @@ class TestTemplateManager:
         manager = TemplateManager()
 
         project_dir = manager.create_project(
-            project_name="weather-app",
-            output_dir=tmp_path,
-            template_name="hello_world_weather"
+            project_name="weather-app", output_dir=tmp_path, template_name="hello_world_weather"
         )
 
         # Verify weather-specific structure
-        assert (project_dir / "src" / "weather_app" / "capabilities" / "current_weather.py").exists()
+        assert (
+            project_dir / "src" / "weather_app" / "capabilities" / "current_weather.py"
+        ).exists()
         assert (project_dir / "src" / "weather_app" / "context_classes.py").exists()
         assert (project_dir / "src" / "weather_app" / "mock_weather_api.py").exists()
 
@@ -134,7 +135,6 @@ class TestGeneratedRegistries:
         assert "CurrentWeatherCapability" in content
 
 
-
 class TestCLIIntegration:
     """Test CLI command integration with templates."""
 
@@ -142,10 +142,7 @@ class TestCLIIntegration:
         """Test basic init command."""
         runner = CliRunner()
 
-        result = runner.invoke(init, [
-            "test-project",
-            "--output-dir", str(tmp_path)
-        ])
+        result = runner.invoke(init, ["test-project", "--output-dir", str(tmp_path)])
 
         assert result.exit_code == 0
         assert "Project created successfully" in result.output
@@ -157,11 +154,10 @@ class TestCLIIntegration:
         """Test init command with specific template."""
         runner = CliRunner()
 
-        result = runner.invoke(init, [
-            "weather-app",
-            "--template", "hello_world_weather",
-            "--output-dir", str(tmp_path)
-        ])
+        result = runner.invoke(
+            init,
+            ["weather-app", "--template", "hello_world_weather", "--output-dir", str(tmp_path)],
+        )
 
         assert result.exit_code == 0
         # Match template name (may have ANSI color codes)
@@ -173,11 +169,9 @@ class TestCLIIntegration:
         runner = CliRunner()
 
         # Test extend style
-        result = runner.invoke(init, [
-            "extend-app",
-            "--registry-style", "extend",
-            "--output-dir", str(tmp_path)
-        ])
+        result = runner.invoke(
+            init, ["extend-app", "--registry-style", "extend", "--output-dir", str(tmp_path)]
+        )
 
         assert result.exit_code == 0
         # Match registry style (may have ANSI color codes)
@@ -185,11 +179,10 @@ class TestCLIIntegration:
         assert "extend" in result.output
 
         # Test standalone style
-        result = runner.invoke(init, [
-            "standalone-app",
-            "--registry-style", "standalone",
-            "--output-dir", str(tmp_path)
-        ])
+        result = runner.invoke(
+            init,
+            ["standalone-app", "--registry-style", "standalone", "--output-dir", str(tmp_path)],
+        )
 
         assert result.exit_code == 0
         assert "Registry style:" in result.output
@@ -199,10 +192,7 @@ class TestCLIIntegration:
         """Test that init command shows helpful next steps."""
         runner = CliRunner()
 
-        result = runner.invoke(init, [
-            "test-project",
-            "--output-dir", str(tmp_path)
-        ])
+        result = runner.invoke(init, ["test-project", "--output-dir", str(tmp_path)])
 
         assert result.exit_code == 0
         # Should show next steps
@@ -214,4 +204,3 @@ class TestCLIIntegration:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-

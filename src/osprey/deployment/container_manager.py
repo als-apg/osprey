@@ -90,6 +90,7 @@ OUT_SRC_DIR = "repo_src"
 TEMPLATE_FILENAME = "docker-compose.yml.j2"
 COMPOSE_FILE_NAME = "docker-compose.yml"
 
+
 def find_service_config(config, service_name):
     """Locate service configuration and template path for deployment.
 
@@ -145,34 +146,35 @@ def find_service_config(config, service_name):
        :func:`setup_build_dir` : Processes discovered services for deployment
     """
     # Handle full path notation (osprey.jupyter, applications.als_assistant.mongo)
-    if '.' in service_name:
-        parts = service_name.split('.')
+    if "." in service_name:
+        parts = service_name.split(".")
 
-        if parts[0] == 'osprey' and len(parts) == 2:
+        if parts[0] == "osprey" and len(parts) == 2:
             # osprey.service_name
-            framework_services = config.get('osprey', {}).get('services', {})
+            framework_services = config.get("osprey", {}).get("services", {})
             service_config = framework_services.get(parts[1])
             if service_config:
-                return service_config, os.path.join(service_config['path'], TEMPLATE_FILENAME)
+                return service_config, os.path.join(service_config["path"], TEMPLATE_FILENAME)
 
-        elif parts[0] == 'applications' and len(parts) == 3:
+        elif parts[0] == "applications" and len(parts) == 3:
             # applications.app_name.service_name
             app_name, service_name_short = parts[1], parts[2]
-            applications = config.get('applications', {})
+            applications = config.get("applications", {})
             app_config = applications.get(app_name, {})
-            app_services = app_config.get('services', {})
+            app_services = app_config.get("services", {})
             service_config = app_services.get(service_name_short)
             if service_config:
-                return service_config, os.path.join(service_config['path'], TEMPLATE_FILENAME)
+                return service_config, os.path.join(service_config["path"], TEMPLATE_FILENAME)
 
     # Handle short names - check legacy services first for backward compatibility
     # TODO: remove this once we have migrated all services to the new config structure
-    legacy_services = config.get('services', {})
+    legacy_services = config.get("services", {})
     service_config = legacy_services.get(service_name)
     if service_config:
-        return service_config, os.path.join(service_config['path'], TEMPLATE_FILENAME)
+        return service_config, os.path.join(service_config["path"], TEMPLATE_FILENAME)
 
     return None, None
+
 
 def get_templates(config):
     """Collect template paths for all deployed services in the configuration.
@@ -221,7 +223,7 @@ def get_templates(config):
     templates.append(os.path.join(SERVICES_DIR, TEMPLATE_FILENAME))
 
     # Get deployed services list
-    deployed_services = config.get('deployed_services', [])
+    deployed_services = config.get("deployed_services", [])
     if deployed_services:
         deployed_service_names = [str(service) for service in deployed_services]
     else:
@@ -237,6 +239,7 @@ def get_templates(config):
             logger.warning(f"Service '{service_name}' not found in configuration")
 
     return templates
+
 
 def _inject_project_metadata(config):
     """Add project tracking metadata for container labels.
@@ -258,24 +261,24 @@ def _inject_project_metadata(config):
     import datetime
 
     # Extract project name with priority order
-    project_name = config.get('project_name')
+    project_name = config.get("project_name")
 
     if not project_name:
         # Fallback: Extract from project_root path
-        project_root = config.get('project_root', '')
+        project_root = config.get("project_root", "")
         if project_root:
-            project_name = os.path.basename(project_root.rstrip('/'))
+            project_name = os.path.basename(project_root.rstrip("/"))
 
     if not project_name:
         # Final fallback: Default
-        project_name = 'unnamed-project'
+        project_name = "unnamed-project"
 
     # Create enhanced config with label metadata
     config_with_labels = config.copy()
-    config_with_labels['osprey_labels'] = {
-        'project_name': project_name,
-        'project_root': config.get('project_root', os.getcwd()),
-        'deployed_at': datetime.datetime.now().isoformat(),
+    config_with_labels["osprey_labels"] = {
+        "project_name": project_name,
+        "project_root": config.get("project_root", os.getcwd()),
+        "deployed_at": datetime.datetime.now().isoformat(),
     }
 
     return config_with_labels
@@ -343,10 +346,10 @@ def render_template(template_path, config, out_dir):
     rendered_content = template.render(config_dict)
 
     # Determine output filename based on template type
-    if template_path.endswith('docker-compose.yml.j2'):
+    if template_path.endswith("docker-compose.yml.j2"):
         output_filename = COMPOSE_FILE_NAME
-    elif template_path.endswith('kernel.json.j2'):
-        output_filename = 'kernel.json'
+    elif template_path.endswith("kernel.json.j2"):
+        output_filename = "kernel.json"
     else:
         # Generic fallback: remove .j2 extension
         output_filename = os.path.basename(template_path)[:-3]
@@ -356,6 +359,7 @@ def render_template(template_path, config, out_dir):
     with open(output_filepath, "w") as f:
         f.write(rendered_content)
     return output_filepath
+
 
 def _copy_local_framework_for_override(out_dir):
     """Build and copy local osprey wheel to container build directory for development mode.
@@ -392,7 +396,7 @@ def _copy_local_framework_for_override(out_dir):
                 ["python3", "-m", "build", "--wheel", "--outdir", tmpdir],
                 cwd=osprey_source_root,
                 capture_output=True,
-                text=True
+                text=True,
             )
 
             if result.returncode != 0:
@@ -420,8 +424,6 @@ def _copy_local_framework_for_override(out_dir):
     except Exception as e:
         logger.warning(f"Failed to build osprey wheel for dev override: {e}")
         return False
-
-
 
 
 def render_kernel_templates(source_dir, config, out_dir):
@@ -476,7 +478,7 @@ def render_kernel_templates(source_dir, config, out_dir):
     # Look for kernel.json.j2 files in subdirectories
     for root, dirs, files in os.walk(source_dir):
         for file in files:
-            if file == 'kernel.json.j2':
+            if file == "kernel.json.j2":
                 template_path = os.path.relpath(os.path.join(root, file), os.getcwd())
                 kernel_templates.append(template_path)
 
@@ -484,10 +486,13 @@ def render_kernel_templates(source_dir, config, out_dir):
     for template_path in kernel_templates:
         # Calculate relative output directory
         rel_template_dir = os.path.dirname(os.path.relpath(template_path, source_dir))
-        kernel_out_dir = os.path.join(out_dir, rel_template_dir) if rel_template_dir != '.' else out_dir
+        kernel_out_dir = (
+            os.path.join(out_dir, rel_template_dir) if rel_template_dir != "." else out_dir
+        )
 
         render_template(template_path, config, kernel_out_dir)
         logger.info(f"Rendered kernel template: {template_path} -> {kernel_out_dir}/kernel.json")
+
 
 def _ensure_agent_data_structure(config):
     """Ensure _agent_data directory and subdirectories exist before container deployment.
@@ -500,9 +505,9 @@ def _ensure_agent_data_structure(config):
     :type config: dict
     """
     # Get file paths configuration
-    file_paths = config.get('file_paths', {})
-    project_root = config.get('project_root', '.')
-    agent_data_dir = file_paths.get('agent_data_dir', '_agent_data')
+    file_paths = config.get("file_paths", {})
+    project_root = config.get("project_root", ".")
+    agent_data_dir = file_paths.get("agent_data_dir", "_agent_data")
 
     # Create main agent data directory
     agent_data_path = Path(project_root) / agent_data_dir
@@ -510,12 +515,12 @@ def _ensure_agent_data_structure(config):
 
     # Create all configured subdirectories
     subdirs = [
-        'executed_python_scripts_dir',
-        'execution_plans_dir',
-        'user_memory_dir',
-        'registry_exports_dir',
-        'prompts_dir',
-        'checkpoints'
+        "executed_python_scripts_dir",
+        "execution_plans_dir",
+        "user_memory_dir",
+        "registry_exports_dir",
+        "prompts_dir",
+        "checkpoints",
     ]
 
     for subdir_key in subdirs:
@@ -609,22 +614,27 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
     service_name = os.path.basename(source_dir)
 
     # Clear the directory if it exists
-    build_dir = config.get('build_dir', './build')
+    build_dir = config.get("build_dir", "./build")
     out_dir = os.path.join(build_dir, source_dir)
     if os.path.exists(out_dir):
         try:
             shutil.rmtree(out_dir)
         except OSError as e:
-            if "Device or resource busy" in str(e) or "nfs" in str(e).lower() or e.errno == 39:  # Directory not empty
+            if (
+                "Device or resource busy" in str(e) or "nfs" in str(e).lower() or e.errno == 39
+            ):  # Directory not empty
                 logger.warning(f"Directory in use, attempting incremental update for {out_dir}")
                 import time
+
                 time.sleep(1)
                 try:
                     shutil.rmtree(out_dir)
                 except OSError:
                     logger.warning(f"Could not remove {out_dir}, using incremental update approach")
                     # Use incremental update instead of full rebuild
-                    return _incremental_setup_build_dir(template_path, config, container_cfg, out_dir, dev_mode)
+                    return _incremental_setup_build_dir(
+                        template_path, config, container_cfg, out_dir, dev_mode
+                    )
             else:
                 raise
     os.makedirs(out_dir, exist_ok=True)
@@ -633,20 +643,20 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
     compose_filepath = render_template(template_path, config, out_dir)
 
     # Copy the contents of the services directory, except the template
-    if source_dir != SERVICES_DIR: # ignore the top level dir
+    if source_dir != SERVICES_DIR:  # ignore the top level dir
         # Deep copy everything in source directory except templates
         for file in os.listdir(source_dir):
             src_path = os.path.join(source_dir, file)
             dst_path = os.path.join(out_dir, file)
             # Skip template files (both docker-compose and kernel templates)
-            if file != TEMPLATE_FILENAME and not file.endswith('.j2'):
+            if file != TEMPLATE_FILENAME and not file.endswith(".j2"):
                 if os.path.isdir(src_path):
                     shutil.copytree(src_path, dst_path)
                 else:
                     shutil.copy2(src_path, dst_path)
 
         # Copy the source directory
-        if container_cfg.get('copy_src', False):
+        if container_cfg.get("copy_src", False):
             shutil.copytree(SRC_DIR, os.path.join(out_dir, OUT_SRC_DIR))
 
             # Copy global requirements.txt to repo_src if it exists
@@ -672,37 +682,39 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
                 if osprey_copied:
                     logger.key_info("Development mode: Osprey override prepared")
                 else:
-                    logger.warning("Development mode requested but osprey override failed, using PyPI")
+                    logger.warning(
+                        "Development mode requested but osprey override failed, using PyPI"
+                    )
             else:
                 logger.info("Production mode: Containers will install osprey from PyPI")
         # Copy additional directories if specified in service configuration
-        additional_dirs = container_cfg.get('additional_dirs', [])
+        additional_dirs = container_cfg.get("additional_dirs", [])
         if additional_dirs:
             for dir_spec in additional_dirs:
-                    if isinstance(dir_spec, str):
-                        # Simple string: copy directory with same name
-                        src_dir = dir_spec
-                        dst_dir = os.path.join(out_dir, dir_spec)
-                    elif isinstance(dir_spec, dict):
-                        # Dictionary: allows custom source -> destination mapping
-                        src_dir = dir_spec.get("src")
-                        dst_dir = os.path.join(out_dir, dir_spec.get("dst", src_dir))
-                    else:
-                        continue
+                if isinstance(dir_spec, str):
+                    # Simple string: copy directory with same name
+                    src_dir = dir_spec
+                    dst_dir = os.path.join(out_dir, dir_spec)
+                elif isinstance(dir_spec, dict):
+                    # Dictionary: allows custom source -> destination mapping
+                    src_dir = dir_spec.get("src")
+                    dst_dir = os.path.join(out_dir, dir_spec.get("dst", src_dir))
+                else:
+                    continue
 
-                    if src_dir and os.path.exists(src_dir):
-                        # Handle both files and directories
-                        if os.path.isfile(src_dir):
-                            # For files, create parent directory and copy file
-                            os.makedirs(os.path.dirname(dst_dir), exist_ok=True)
-                            shutil.copy2(src_dir, dst_dir)
-                            logger.debug(f"Copied file {src_dir} to {dst_dir}")
-                        elif os.path.isdir(src_dir):
-                            # For directories, use copytree
-                            shutil.copytree(src_dir, dst_dir)
-                            logger.debug(f"Copied directory {src_dir} to {dst_dir}")
-                    elif src_dir:
-                        logger.warning(f"Path {src_dir} does not exist, skipping")
+                if src_dir and os.path.exists(src_dir):
+                    # Handle both files and directories
+                    if os.path.isfile(src_dir):
+                        # For files, create parent directory and copy file
+                        os.makedirs(os.path.dirname(dst_dir), exist_ok=True)
+                        shutil.copy2(src_dir, dst_dir)
+                        logger.debug(f"Copied file {src_dir} to {dst_dir}")
+                    elif os.path.isdir(src_dir):
+                        # For directories, use copytree
+                        shutil.copytree(src_dir, dst_dir)
+                        logger.debug(f"Copied directory {src_dir} to {dst_dir}")
+                elif src_dir:
+                    logger.warning(f"Path {src_dir} does not exist, skipping")
 
         # Ensure _agent_data directory structure exists before container deployment
         # This prevents mount failures when containers try to mount non-existent directories
@@ -711,9 +723,11 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
         # Create flattened configuration file for container
         # This merges all imports and creates a complete config without import directives
         try:
-            with quiet_logger(['REGISTRY', 'CONFIG']):
+            with quiet_logger(["REGISTRY", "CONFIG"]):
                 global_config = ConfigBuilder()
-                flattened_config = global_config.raw_config  # This contains the already-merged configuration
+                flattened_config = (
+                    global_config.raw_config
+                )  # This contains the already-merged configuration
 
             # Adjust paths for container environment
             # In containers, src/ is copied to repo_src/, so config paths must be updated
@@ -737,22 +751,34 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
                         if isinstance(value, str):
                             # Only adjust paths that clearly start with src/ directory reference
                             # This is safe because 'src/' at start is always a path to source files
-                            if value.startswith('src/'):
+                            if value.startswith("src/"):
                                 if is_pipelines:
                                     # Pipelines: absolute path since working dir (/app) != mount point (/pipelines)
-                                    obj[key] = f'/pipelines/repo_src/{value[4:]}'  # Remove 'src/' prefix
-                                    logger.debug(f"Container path adjustment: {value} -> {obj[key]}")
+                                    obj[key] = (
+                                        f"/pipelines/repo_src/{value[4:]}"  # Remove 'src/' prefix
+                                    )
+                                    logger.debug(
+                                        f"Container path adjustment: {value} -> {obj[key]}"
+                                    )
                                 else:
                                     # Other services: relative path since working dir == mount point
-                                    obj[key] = f'repo_src/{value[4:]}'
-                                    logger.debug(f"Container path adjustment: {value} -> {obj[key]}")
-                            elif value.startswith('./src/'):
+                                    obj[key] = f"repo_src/{value[4:]}"
+                                    logger.debug(
+                                        f"Container path adjustment: {value} -> {obj[key]}"
+                                    )
+                            elif value.startswith("./src/"):
                                 if is_pipelines:
-                                    obj[key] = f'/pipelines/repo_src/{value[6:]}'  # Remove './src/' prefix
-                                    logger.debug(f"Container path adjustment: {value} -> {obj[key]}")
+                                    obj[key] = (
+                                        f"/pipelines/repo_src/{value[6:]}"  # Remove './src/' prefix
+                                    )
+                                    logger.debug(
+                                        f"Container path adjustment: {value} -> {obj[key]}"
+                                    )
                                 else:
-                                    obj[key] = f'./repo_src/{value[6:]}'
-                                    logger.debug(f"Container path adjustment: {value} -> {obj[key]}")
+                                    obj[key] = f"./repo_src/{value[6:]}"
+                                    logger.debug(
+                                        f"Container path adjustment: {value} -> {obj[key]}"
+                                    )
                         elif isinstance(value, (dict, list)):
                             adjust_src_paths_recursive(value, is_pipelines)
                 elif isinstance(obj, list):
@@ -761,13 +787,13 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
                             adjust_src_paths_recursive(item, is_pipelines)
 
             # Determine if this is a pipelines service
-            is_pipelines_service = 'pipelines' in source_dir
+            is_pipelines_service = "pipelines" in source_dir
 
             # Recursively adjust all src/ paths in the config
             adjust_src_paths_recursive(flattened_config, is_pipelines_service)
 
             config_yml_dst = os.path.join(out_dir, "config.yml")
-            with open(config_yml_dst, 'w') as f:
+            with open(config_yml_dst, "w") as f:
                 yaml.dump(flattened_config, f, default_flow_style=False, sort_keys=False)
             logger.debug(f"Created flattened config.yml at {config_yml_dst}")
         except Exception as e:
@@ -780,11 +806,12 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
                 logger.debug(f"Copied original config.yml to {config_yml_dst}")
 
         # Render kernel templates if specified in service configuration
-        if container_cfg.get('render_kernel_templates', False):
+        if container_cfg.get("render_kernel_templates", False):
             logger.info(f"Processing kernel templates for {source_dir}")
             render_kernel_templates(source_dir, config, out_dir)
 
     return compose_filepath
+
 
 def parse_args():
     """Parse command-line arguments for container management operations.
@@ -863,18 +890,23 @@ def parse_args():
 
     # Optional command
     parser.add_argument(
-        "command", nargs='?', choices=["up", "down", "clean", "rebuild"],
-        help="Command to run: 'up' (start), 'down' (stop), 'clean' (remove images/volumes), 'rebuild' (clean + up). If not provided, just generate compose files")
+        "command",
+        nargs="?",
+        choices=["up", "down", "clean", "rebuild"],
+        help="Command to run: 'up' (start), 'down' (stop), 'clean' (remove images/volumes), 'rebuild' (clean + up). If not provided, just generate compose files",
+    )
 
     # Optional -d / --detached flag
     parser.add_argument(
-        "-d", "--detached", action="store_true",
-        help="Run in detached mode. Only valid with 'up'.")
+        "-d", "--detached", action="store_true", help="Run in detached mode. Only valid with 'up'."
+    )
 
     # Optional --dev flag for local osprey development
     parser.add_argument(
-        "--dev", action="store_true",
-        help="Development mode: copy local osprey package to containers instead of using PyPI version. Use this when testing local osprey changes.")
+        "--dev",
+        action="store_true",
+        help="Development mode: copy local osprey package to containers instead of using PyPI version. Use this when testing local osprey changes.",
+    )
 
     args = parser.parse_args()
 
@@ -883,6 +915,7 @@ def parse_args():
         parser.error("The -d/--detached flag is only allowed with 'up' or 'rebuild'.")
 
     return args
+
 
 def _incremental_setup_build_dir(template_path, config, service_config, out_dir, dev_mode=False):
     """Setup build directory using incremental updates when full cleanup fails.
@@ -915,11 +948,14 @@ def _incremental_setup_build_dir(template_path, config, service_config, out_dir,
             dst_path = os.path.join(out_dir, file)
 
             # Skip template files
-            if file != TEMPLATE_FILENAME and not file.endswith('.j2'):
+            if file != TEMPLATE_FILENAME and not file.endswith(".j2"):
                 try:
                     if os.path.isdir(src_path):
                         # For directories, use copytree with dirs_exist_ok (Python 3.8+)
-                        if hasattr(shutil, 'copytree') and 'dirs_exist_ok' in shutil.copytree.__code__.co_varnames:
+                        if (
+                            hasattr(shutil, "copytree")
+                            and "dirs_exist_ok" in shutil.copytree.__code__.co_varnames
+                        ):
                             shutil.copytree(src_path, dst_path, dirs_exist_ok=True)
                         else:
                             # Fallback for older Python versions
@@ -931,10 +967,13 @@ def _incremental_setup_build_dir(template_path, config, service_config, out_dir,
                     logger.warning(f"Could not update {dst_path}: {e}")
 
     # Handle source directory copying if needed
-    if service_config.get('copy_src', False):
+    if service_config.get("copy_src", False):
         src_dst_path = os.path.join(out_dir, OUT_SRC_DIR)
         try:
-            if hasattr(shutil, 'copytree') and 'dirs_exist_ok' in shutil.copytree.__code__.co_varnames:
+            if (
+                hasattr(shutil, "copytree")
+                and "dirs_exist_ok" in shutil.copytree.__code__.co_varnames
+            ):
                 shutil.copytree(SRC_DIR, src_dst_path, dirs_exist_ok=True)
             else:
                 if not os.path.exists(src_dst_path):
@@ -943,6 +982,7 @@ def _incremental_setup_build_dir(template_path, config, service_config, out_dir,
             logger.warning(f"Could not update source directory {src_dst_path}: {e}")
 
     return compose_filepath
+
 
 def find_existing_compose_files(config, deployed_services, quiet=False):
     """Find existing compose files without rebuilding directories.
@@ -964,10 +1004,10 @@ def find_existing_compose_files(config, deployed_services, quiet=False):
         #          './build/services/osprey/jupyter/docker-compose.yml']
     """
     compose_files = []
-    build_dir = config.get('build_dir', './build')
+    build_dir = config.get("build_dir", "./build")
 
     # Add top-level compose file if it exists
-    top_compose = os.path.join(build_dir, SERVICES_DIR, 'docker-compose.yml')
+    top_compose = os.path.join(build_dir, SERVICES_DIR, "docker-compose.yml")
     if os.path.exists(top_compose):
         compose_files.append(top_compose)
 
@@ -977,13 +1017,16 @@ def find_existing_compose_files(config, deployed_services, quiet=False):
         if template_path:
             # Construct expected compose file path
             source_dir = os.path.relpath(os.path.dirname(template_path), os.getcwd())
-            compose_path = os.path.join(build_dir, source_dir, 'docker-compose.yml')
+            compose_path = os.path.join(build_dir, source_dir, "docker-compose.yml")
             if os.path.exists(compose_path):
                 compose_files.append(compose_path)
             elif not quiet:
-                logger.warning(f"Compose file not found for service '{service_name}' at {compose_path}")
+                logger.warning(
+                    f"Compose file not found for service '{service_name}' at {compose_path}"
+                )
 
     return compose_files
+
 
 def clean_deployment(compose_files, config=None):
     """Clean up containers, images, volumes, and networks for a fresh deployment.
@@ -1035,14 +1078,14 @@ def prepare_compose_files(config_path, dev_mode=False):
     :raises RuntimeError: If configuration loading fails
     """
     try:
-        with quiet_logger(['REGISTRY', 'CONFIG']):
+        with quiet_logger(["REGISTRY", "CONFIG"]):
             config = ConfigBuilder(config_path)
             config = config.raw_config
     except Exception as e:
         raise RuntimeError(f"Could not load config file {config_path}: {e}")
 
     # Get deployed services list
-    deployed_services = config.get('deployed_services', [])
+    deployed_services = config.get("deployed_services", [])
     if deployed_services:
         deployed_service_names = [str(service) for service in deployed_services]
         logger.info(f"Deployed services: {', '.join(deployed_service_names)}")
@@ -1054,7 +1097,7 @@ def prepare_compose_files(config_path, dev_mode=False):
 
     # Create the top level compose file
     top_template = os.path.join(SERVICES_DIR, TEMPLATE_FILENAME)
-    build_dir = config.get('build_dir', './build')
+    build_dir = config.get("build_dir", "./build")
     out_dir = os.path.join(build_dir, SERVICES_DIR)
     top_template = render_template(top_template, config, out_dir)
     compose_files.append(top_template)
@@ -1064,7 +1107,9 @@ def prepare_compose_files(config_path, dev_mode=False):
         service_config, template_path = find_service_config(config, service_name)
         if service_config and template_path:
             if not os.path.isfile(template_path):
-                raise RuntimeError(f"Template file {template_path} not found for service '{service_name}'")
+                raise RuntimeError(
+                    f"Template file {template_path} not found for service '{service_name}'"
+                )
 
             out = setup_build_dir(template_path, config, service_config, dev_mode)
             compose_files.append(out)
@@ -1094,7 +1139,7 @@ def deploy_up(config_path, detached=False, dev_mode=False):
     # Set up environment for containers
     env = os.environ.copy()
     if dev_mode:
-        env['DEV_MODE'] = 'true'
+        env["DEV_MODE"] = "true"
         logger.key_info("Development mode: DEV_MODE environment variable set for containers")
 
     cmd = get_runtime_command(config)
@@ -1103,11 +1148,14 @@ def deploy_up(config_path, detached=False, dev_mode=False):
 
     # Only add --env-file if .env exists, otherwise let docker-compose use defaults
     from pathlib import Path
+
     env_file = Path(".env")
     if env_file.exists():
         cmd.extend(["--env-file", ".env"])
     else:
-        logger.warning("No .env file found - services will start with default/empty environment variables")
+        logger.warning(
+            "No .env file found - services will start with default/empty environment variables"
+        )
         logger.info("To configure API keys: cp .env.example .env && edit .env")
 
     cmd.append("up")
@@ -1125,14 +1173,16 @@ def deploy_down(config_path, dev_mode=False):
     :type config_path: str
     """
     try:
-        with quiet_logger(['REGISTRY', 'CONFIG']):
+        with quiet_logger(["REGISTRY", "CONFIG"]):
             config = ConfigBuilder(config_path)
             config = config.raw_config
     except Exception as e:
         raise RuntimeError(f"Could not load config file {config_path}: {e}")
 
-    deployed_services = config.get('deployed_services', [])
-    deployed_service_names = [str(service) for service in deployed_services] if deployed_services else []
+    deployed_services = config.get("deployed_services", [])
+    deployed_service_names = (
+        [str(service) for service in deployed_services] if deployed_services else []
+    )
 
     # Try to use existing compose files (suppress warnings for status check)
     compose_files = find_existing_compose_files(config, deployed_service_names, quiet=True)
@@ -1152,6 +1202,7 @@ def deploy_down(config_path, dev_mode=False):
 
     # Only add --env-file if .env exists
     from pathlib import Path
+
     env_file = Path(".env")
     if env_file.exists():
         cmd.extend(["--env-file", ".env"])
@@ -1206,32 +1257,31 @@ def show_status(config_path):
 
         from osprey.cli.styles import Styles, console
 
-        with quiet_logger(['REGISTRY', 'CONFIG']):
+        with quiet_logger(["REGISTRY", "CONFIG"]):
             config = ConfigBuilder(config_path)
             config = config.raw_config
     except Exception as e:
         raise RuntimeError(f"Could not load config file {config_path}: {e}")
 
     # Get deployed services and current project name
-    deployed_services = config.get('deployed_services', [])
-    deployed_service_names = [str(service) for service in deployed_services] if deployed_services else []
+    deployed_services = config.get("deployed_services", [])
+    deployed_service_names = (
+        [str(service) for service in deployed_services] if deployed_services else []
+    )
 
     # Determine current project name (same logic as _inject_project_metadata)
-    current_project = config.get('project_name')
+    current_project = config.get("project_name")
     if not current_project:
-        project_root = config.get('project_root', '')
+        project_root = config.get("project_root", "")
         if project_root:
-            current_project = os.path.basename(project_root.rstrip('/'))
+            current_project = os.path.basename(project_root.rstrip("/"))
     if not current_project:
-        current_project = 'unnamed-project'
+        current_project = "unnamed-project"
 
     # Get all containers using direct runtime ps (not compose-dependent)
     try:
         result = subprocess.run(
-            get_ps_command(config, all_containers=True),
-            capture_output=True,
-            text=True,
-            timeout=10
+            get_ps_command(config, all_containers=True), capture_output=True, text=True, timeout=10
         )
 
         if result.returncode != 0:
@@ -1247,7 +1297,7 @@ def show_status(config_path):
                 all_containers = json.loads(result.stdout)
             except json.JSONDecodeError:
                 # Fall back to newline-separated JSON objects (Docker format)
-                for line in result.stdout.strip().split('\n'):
+                for line in result.stdout.strip().split("\n"):
                     if line.strip():
                         all_containers.append(json.loads(line))
 
@@ -1274,9 +1324,9 @@ def show_status(config_path):
         if isinstance(labels, dict):
             container_project = labels.get("osprey.project.name", "unknown")
         elif isinstance(labels, str):
-            for label in labels.split(','):
-                if '=' in label:
-                    key, value = label.split('=', 1)
+            for label in labels.split(","):
+                if "=" in label:
+                    key, value = label.split("=", 1)
                     if key.strip() == "osprey.project.name":
                         container_project = value.strip()
                         break
@@ -1292,8 +1342,7 @@ def show_status(config_path):
             names_str = str(names).lower()
 
         matches_service = any(
-            service.split('.')[-1].lower() in names_str
-            for service in deployed_service_names
+            service.split(".")[-1].lower() in names_str for service in deployed_service_names
         )
 
         if belongs_to_project or matches_service:
@@ -1329,9 +1378,9 @@ def show_status(config_path):
         if isinstance(labels, dict):
             project_name = labels.get("osprey.project.name", "unknown")
         elif isinstance(labels, str):
-            for label in labels.split(','):
-                if '=' in label:
-                    key, value = label.split('=', 1)
+            for label in labels.split(","):
+                if "=" in label:
+                    key, value = label.split("=", 1)
                     if key.strip() == "osprey.project.name":
                         project_name = value.strip()
                         break
@@ -1360,12 +1409,16 @@ def show_status(config_path):
                     # Handle different port format variations
                     # podman ps format: host_port, container_port
                     # compose ps format: PublishedPort, TargetPort
-                    published = (port.get("host_port") or
-                                port.get("PublishedPort") or
-                                port.get("published", ""))
-                    target = (port.get("container_port") or
-                             port.get("TargetPort") or
-                             port.get("target", ""))
+                    published = (
+                        port.get("host_port")
+                        or port.get("PublishedPort")
+                        or port.get("published", "")
+                    )
+                    target = (
+                        port.get("container_port")
+                        or port.get("TargetPort")
+                        or port.get("target", "")
+                    )
                     if published and target:
                         port_list.append(f"{published}→{target}")
         ports = ", ".join(port_list) if port_list else "-"
@@ -1386,7 +1439,9 @@ def show_status(config_path):
             _add_container_to_table(table, container)
         console.print(table)
     else:
-        console.print(f"\n[warning]ℹ️  No services running for project '{current_project}'[/warning]")
+        console.print(
+            f"\n[warning]ℹ️  No services running for project '{current_project}'[/warning]"
+        )
         if deployed_service_names:
             console.print(f"[dim]Configured services: {', '.join(deployed_service_names)}[/dim]")
         console.print("\n[info]Start services with:[/info]")
@@ -1426,7 +1481,7 @@ def rebuild_deployment(config_path, detached=False, dev_mode=False):
     # Set up environment for containers
     env = os.environ.copy()
     if dev_mode:
-        env['DEV_MODE'] = 'true'
+        env["DEV_MODE"] = "true"
         logger.key_info("Development mode: DEV_MODE environment variable set for containers")
 
     # Then start up
@@ -1436,11 +1491,14 @@ def rebuild_deployment(config_path, detached=False, dev_mode=False):
 
     # Only add --env-file if .env exists
     from pathlib import Path
+
     env_file = Path(".env")
     if env_file.exists():
         cmd.extend(["--env-file", ".env"])
     else:
-        logger.warning("No .env file found - services will start with default/empty environment variables")
+        logger.warning(
+            "No .env file found - services will start with default/empty environment variables"
+        )
         logger.info("To configure API keys: cp .env.example .env && edit .env")
 
     cmd.append("up")
@@ -1449,6 +1507,7 @@ def rebuild_deployment(config_path, detached=False, dev_mode=False):
 
     logger.info(f"Running command:\n    {' '.join(cmd)}")
     os.execvpe(cmd[0], cmd, env)
+
 
 if __name__ == "__main__":
     """Main execution block for container management operations.

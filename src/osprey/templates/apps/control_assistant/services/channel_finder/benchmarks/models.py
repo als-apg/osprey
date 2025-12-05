@@ -5,12 +5,13 @@ Defines all dataclasses used for benchmark entries, results, and evaluation metr
 """
 
 from dataclasses import dataclass
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
 class QueryBenchmarkEntry:
     """Single benchmark entry from dataset."""
+
     user_query: str
     targeted_pv: List[str]
     details: Optional[str] = None
@@ -19,6 +20,7 @@ class QueryBenchmarkEntry:
 @dataclass
 class QueryRunResult:
     """Result from a single run of a query."""
+
     run_number: int
     found_pvs: List[str]
     success: bool
@@ -29,6 +31,7 @@ class QueryRunResult:
 @dataclass
 class QueryEvaluation:
     """Evaluation metrics for a single query across all runs."""
+
     query_index: int
     user_query: str
     expected_pvs: List[str]
@@ -65,6 +68,7 @@ class QueryEvaluation:
 @dataclass
 class BenchmarkResults:
     """Complete benchmark results."""
+
     benchmark_name: str
     timestamp: str
     config_snapshot: Dict[str, Any]
@@ -89,4 +93,3 @@ class BenchmarkResults:
     # Summary statistics
     avg_consistency_score: float
     avg_execution_time: float
-

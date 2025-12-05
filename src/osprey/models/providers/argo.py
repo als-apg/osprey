@@ -1,11 +1,11 @@
 """ARGO Provider Adapter Implementation."""
 
+import logging
 import os
-from typing import Optional, Any, Union, List
+from typing import Any, List, Optional, Union
+
 import httpx
 import openai
-import logging
-import re
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider as PydanticOpenAIProvider
 
@@ -45,7 +45,7 @@ class ArgoProviderAdapter(BaseProvider):
         "gemini25flash",
         "gemini25pro",
         "gpt5",
-        "gpt5mini"
+        "gpt5mini",
     ]
     _models_cache: Optional[List[str]] = None
 
@@ -61,7 +61,7 @@ class ArgoProviderAdapter(BaseProvider):
         cls,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
-        force_refresh: bool = False
+        force_refresh: bool = False,
     ) -> List[str]:
         """
         Dynamically fetch available models from the Argo /models endpoint.
@@ -108,30 +108,21 @@ class ArgoProviderAdapter(BaseProvider):
         cls._models_cache = cls.available_models
         return cls.available_models
 
-
     def create_model(
         self,
         model_id: str,
         api_key: Optional[str],
         base_url: Optional[str],
         timeout: Optional[float],
-        http_client: Optional[httpx.AsyncClient]
+        http_client: Optional[httpx.AsyncClient],
     ) -> OpenAIModel:
         """Create ARGO model instance for PydanticAI."""
         if http_client:
-            client_args = {
-                "api_key": api_key,
-                "http_client": http_client,
-                "base_url": base_url
-            }
+            client_args = {"api_key": api_key, "http_client": http_client, "base_url": base_url}
             openai_client = openai.AsyncOpenAI(**client_args)
         else:
             effective_timeout = timeout if timeout is not None else 60.0
-            client_args = {
-                "api_key": api_key,
-                "timeout": effective_timeout,
-                "base_url": base_url
-            }
+            client_args = {"api_key": api_key, "timeout": effective_timeout, "base_url": base_url}
             openai_client = openai.AsyncOpenAI(**client_args)
 
         model = OpenAIModel(
@@ -152,10 +143,12 @@ class ArgoProviderAdapter(BaseProvider):
         thinking: Optional[dict] = None,
         system_prompt: Optional[str] = None,
         output_format: Optional[Any] = None,
-        **kwargs
+        **kwargs,
     ) -> Union[str, Any]:
         """Execute ARGO chat completion."""
-        logger.debug(f"ARGO execute_completion called with output_format={output_format is not None}")
+        logger.debug(
+            f"ARGO execute_completion called with output_format={output_format is not None}"
+        )
         # Ensure models list is populated for any UI callers that rely on metadata
         try:
             self.get_available_models(api_key=api_key, base_url=base_url)
@@ -190,27 +183,28 @@ class ArgoProviderAdapter(BaseProvider):
             # ARGO has issues with structured output mode (returns Python booleans, etc.)
             # Use JSON mode with manual parsing directly - more reliable for ARGO
             logger.debug("ARGO: Using JSON mode with manual parsing (bypassing structured output)")
-            
+
             # Build JSON instruction for the prompt
             import json
+
             schema = output_format.model_json_schema()
-                
+
             # Create a simpler, example-based instruction
             # Extract field names and types
             fields = []
-            if 'properties' in schema:
-                for field_name, field_info in schema['properties'].items():
-                    field_type = field_info.get('type', 'string')
-                    field_desc = field_info.get('description', '')
+            if "properties" in schema:
+                for field_name, field_info in schema["properties"].items():
+                    field_type = field_info.get("type", "string")
+                    field_desc = field_info.get("description", "")
                     fields.append(f'  "{field_name}": <{field_type}> // {field_desc}')
-            
-            fields_str = ',\n'.join(fields)
+
+            fields_str = ",\n".join(fields)
             json_instruction = f"\n\nIMPORTANT: Respond with ONLY a valid JSON object containing the actual data (NOT the schema definition). Do not include markdown, code blocks, or explanations.\n\nYour response must be a JSON object with these fields:\n{{\n{fields_str}\n}}\n\nProvide the ACTUAL VALUES for each field based on the user's request. Start your response with {{ and end with }}"
-            
+
             # Create new messages with JSON instruction
             json_messages = messages.copy()
             json_messages[-1] = {"role": "user", "content": message + json_instruction}
-            
+
             # Use regular completion with JSON mode
             try:
                 response = client.chat.completions.create(
@@ -218,10 +212,12 @@ class ArgoProviderAdapter(BaseProvider):
                     messages=json_messages,
                     max_tokens=max_tokens,
                     temperature=temperature,
-                    response_format={"type": "json_object"}
+                    response_format={"type": "json_object"},
                 )
             except Exception as json_mode_error:
-                logger.warning(f"JSON mode request failed: {json_mode_error}, trying without JSON mode")
+                logger.warning(
+                    f"JSON mode request failed: {json_mode_error}, trying without JSON mode"
+                )
                 # Try without JSON mode as last resort
                 response = client.chat.completions.create(
                     model=model_id,
@@ -229,66 +225,75 @@ class ArgoProviderAdapter(BaseProvider):
                     max_tokens=max_tokens,
                     temperature=temperature,
                 )
-            
+
             if not response.choices:
                 raise ValueError("ARGO API returned empty choices list in JSON mode")
-            
+
             raw_json = response.choices[0].message.content
             if not raw_json:
                 logger.error("ARGO returned completely empty response")
                 raise ValueError("ARGO returned empty response in JSON mode")
-            
+
             logger.debug("ARGO: Processing JSON response")
-            
+
             # Strip markdown code blocks FIRST (most common issue)
             cleaned_json = raw_json.strip()
-            
+
             # Handle markdown code blocks with language identifier
             if cleaned_json.startswith("```json"):
                 cleaned_json = cleaned_json[7:].strip()  # Remove ```json
             elif cleaned_json.startswith("```"):
                 cleaned_json = cleaned_json[3:].strip()  # Remove generic ```
-            
+
             # Remove trailing markdown
             if cleaned_json.endswith("```"):
                 cleaned_json = cleaned_json[:-3].strip()
-            
+
             # NOW check if response starts with text before JSON (after markdown removal)
-            if not cleaned_json.startswith('{') and not cleaned_json.startswith('['):
-                logger.debug(f"Response doesn't start with JSON. First 200 chars: {cleaned_json[:200]}")
+            if not cleaned_json.startswith("{") and not cleaned_json.startswith("["):
+                logger.debug(
+                    f"Response doesn't start with JSON. First 200 chars: {cleaned_json[:200]}"
+                )
                 # Try to find where JSON actually starts
-                json_start = cleaned_json.find('{')
+                json_start = cleaned_json.find("{")
                 if json_start > 0:
-                    logger.debug(f"Found JSON starting at position {json_start}, stripping prefix text")
+                    logger.debug(
+                        f"Found JSON starting at position {json_start}, stripping prefix text"
+                    )
                     cleaned_json = cleaned_json[json_start:].strip()
                 else:
                     # No JSON found at all
                     logger.error(f"No JSON object found in response: {cleaned_json[:500]}")
                     raise ValueError("No JSON object found in model response")
-            
+
             # Fix Python-style booleans to JSON-style booleans BEFORE parsing
             # This is a common issue where LLMs output Python syntax instead of JSON
-            cleaned_json = cleaned_json.replace(': False', ': false')
-            cleaned_json = cleaned_json.replace(': True', ': true')
-            cleaned_json = cleaned_json.replace(': None', ': null')
-            cleaned_json = cleaned_json.replace(',False', ',false')
-            cleaned_json = cleaned_json.replace(',True', ',true')
-            cleaned_json = cleaned_json.replace(',None', ',null')
-            
+            cleaned_json = cleaned_json.replace(": False", ": false")
+            cleaned_json = cleaned_json.replace(": True", ": true")
+            cleaned_json = cleaned_json.replace(": None", ": null")
+            cleaned_json = cleaned_json.replace(",False", ",false")
+            cleaned_json = cleaned_json.replace(",True", ",true")
+            cleaned_json = cleaned_json.replace(",None", ",null")
+
             # Parse and validate with Pydantic
             try:
                 result = output_format.model_validate_json(cleaned_json)
-                if is_typed_dict_output and hasattr(result, 'model_dump'):
+                if is_typed_dict_output and hasattr(result, "model_dump"):
                     return result.model_dump()
                 return result
             except Exception as parse_error:
-                logger.error(f"Failed to parse JSON response. Cleaned JSON (first 500 chars): {cleaned_json[:500]}")
+                logger.error(
+                    f"Failed to parse JSON response. Cleaned JSON (first 500 chars): {cleaned_json[:500]}"
+                )
                 logger.error(f"Parse error: {parse_error}")
                 # Try to parse as regular JSON to see what we got
                 try:
                     import json
+
                     parsed = json.loads(cleaned_json)
-                    logger.error(f"JSON is valid but doesn't match schema. Keys: {list(parsed.keys()) if isinstance(parsed, dict) else 'not a dict'}")
+                    logger.error(
+                        f"JSON is valid but doesn't match schema. Keys: {list(parsed.keys()) if isinstance(parsed, dict) else 'not a dict'}"
+                    )
                 except:
                     logger.error("JSON is completely invalid")
                 raise ValueError(f"Invalid JSON from model: {parse_error}")
@@ -313,7 +318,7 @@ class ArgoProviderAdapter(BaseProvider):
         api_key: Optional[str],
         base_url: Optional[str],
         timeout: float = 5.0,
-        model_id: Optional[str] = None
+        model_id: Optional[str] = None,
     ) -> tuple[bool, str]:
         """Check ARGO API health.
 
@@ -342,7 +347,7 @@ class ArgoProviderAdapter(BaseProvider):
                     model=test_model,
                     messages=[{"role": "user", "content": "Hi"}],
                     max_tokens=50,
-                    timeout=timeout
+                    timeout=timeout,
                 )
 
                 if response.choices:
@@ -371,7 +376,7 @@ class ArgoProviderAdapter(BaseProvider):
         try:
             import requests
 
-            test_url = base_url.rstrip('/') + '/models'
+            test_url = base_url.rstrip("/") + "/models"
             headers = {"Authorization": f"Bearer {api_key}"}
 
             response = requests.get(test_url, headers=headers, timeout=timeout)

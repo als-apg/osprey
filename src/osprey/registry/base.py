@@ -92,6 +92,7 @@ from dataclasses import dataclass, field
 # SHARED DATACLASS DEFINITIONS - Used by both framework and applications
 # =============================================================================
 
+
 @dataclass
 class NodeRegistration:
     """Registration metadata for infrastructure node functions.
@@ -107,10 +108,12 @@ class NodeRegistration:
     :param description: Human-readable description of node functionality
     :type description: str
     """
+
     name: str
     module_path: str
     function_name: str
     description: str
+
 
 @dataclass
 class CapabilityRegistration:
@@ -140,6 +143,7 @@ class CapabilityRegistration:
     :type example_usage: str
 
     """
+
     name: str  # Unique name like "pv_address_finding"
     module_path: str  # Like "applications.als_assistant.capabilities.pv_address_finding"
     class_name: str  # Like "PVAddressFindingCapability"
@@ -149,6 +153,7 @@ class CapabilityRegistration:
     always_active: bool = False  # Whether capability is always active (no classification needed)
     functional_node: str = None  # Name of functional node (from capability.node attribute)
     example_usage: str = ""  # Example of how this capability is used
+
 
 @dataclass
 class ContextClassRegistration:
@@ -164,9 +169,11 @@ class ContextClassRegistration:
     :param class_name: Class name within the module
     :type class_name: str
     """
+
     context_type: str  # String constant like "PV_ADDRESSES"
     module_path: str  # Like "applications.als_assistant.context_classes"
     class_name: str  # Like "PVAddresses"
+
 
 @dataclass
 class DataSourceRegistration:
@@ -186,11 +193,13 @@ class DataSourceRegistration:
     :param health_check_required: Whether provider requires health checking
     :type health_check_required: bool
     """
+
     name: str
     module_path: str  # Module path for lazy loading
-    class_name: str   # Class name for lazy loading
+    class_name: str  # Class name for lazy loading
     description: str
     health_check_required: bool = True
+
 
 @dataclass
 class ExecutionPolicyAnalyzerRegistration:
@@ -210,11 +219,13 @@ class ExecutionPolicyAnalyzerRegistration:
     :param priority: Analysis priority (lower numbers = higher priority)
     :type priority: int
     """
+
     name: str
     module_path: str  # Module path for lazy loading
-    class_name: str   # Class name for lazy loading
+    class_name: str  # Class name for lazy loading
     description: str
     priority: int = 50  # Default priority
+
 
 @dataclass
 class DomainAnalyzerRegistration:
@@ -234,11 +245,13 @@ class DomainAnalyzerRegistration:
     :param priority: Analysis priority (lower numbers = higher priority)
     :type priority: int
     """
+
     name: str
     module_path: str  # Module path for lazy loading
-    class_name: str   # Class name for lazy loading
+    class_name: str  # Class name for lazy loading
     description: str
     priority: int = 50  # Default priority
+
 
 @dataclass
 class FrameworkPromptProviderRegistration:
@@ -278,7 +291,8 @@ class FrameworkPromptProviderRegistration:
                 }
             )
     """
-    module_path: str      # Module path containing custom builders
+
+    module_path: str  # Module path containing custom builders
     prompt_builders: dict[str, str] = field(default_factory=dict)  # prompt_type -> class_name
 
     # Deprecated fields (kept for backward compatibility)
@@ -295,7 +309,7 @@ class FrameworkPromptProviderRegistration:
                 "and will be removed in v0.10. It is no longer used by the framework. "
                 "Please remove it from your registry configuration.",
                 DeprecationWarning,
-                stacklevel=2
+                stacklevel=2,
             )
 
         if self.description is not None:
@@ -304,8 +318,9 @@ class FrameworkPromptProviderRegistration:
                 "and will be removed in v0.10. It is no longer used by the framework. "
                 "Please remove it from your registry configuration.",
                 DeprecationWarning,
-                stacklevel=2
+                stacklevel=2,
             )
+
 
 @dataclass
 class ServiceRegistration:
@@ -330,6 +345,7 @@ class ServiceRegistration:
     :param internal_nodes: List of node names internal to this service
     :type internal_nodes: list[str]
     """
+
     name: str
     module_path: str
     class_name: str
@@ -337,6 +353,7 @@ class ServiceRegistration:
     provides: list[str] = field(default_factory=list)
     requires: list[str] = field(default_factory=list)
     internal_nodes: list[str] = field(default_factory=list)
+
 
 @dataclass
 class ProviderRegistration:
@@ -367,8 +384,10 @@ class ProviderRegistration:
         - AnthropicProviderAdapter.supports_proxy
         etc.
     """
+
     module_path: str
     class_name: str
+
 
 @dataclass
 class ConnectorRegistration:
@@ -420,6 +439,7 @@ class ConnectorRegistration:
        :class:`osprey.connectors.control_system.base.ControlSystemConnector` : Base class for control system connectors
        :class:`osprey.connectors.archiver.base.ArchiverConnector` : Base class for archiver connectors
     """
+
     name: str
     connector_type: str  # 'control_system' or 'archiver'
     module_path: str
@@ -482,6 +502,7 @@ class CodeGeneratorRegistration:
        :class:`osprey.services.python_executor.basic_generator.BasicLLMCodeGenerator` : Built-in basic generator
        :class:`osprey.services.python_executor.claude_code_generator.ClaudeCodeGenerator` : Built-in Claude Code generator
     """
+
     name: str
     module_path: str
     class_name: str
@@ -539,6 +560,7 @@ class RegistryConfig:
     :param initialization_order: Component type initialization sequence (optional)
     :type initialization_order: list[str]
     """
+
     # Required fields (what applications typically define)
     capabilities: list[CapabilityRegistration]
     context_classes: list[ContextClassRegistration]
@@ -548,25 +570,31 @@ class RegistryConfig:
     data_sources: list[DataSourceRegistration] = field(default_factory=list)
     services: list[ServiceRegistration] = field(default_factory=list)
     domain_analyzers: list[DomainAnalyzerRegistration] = field(default_factory=list)
-    execution_policy_analyzers: list[ExecutionPolicyAnalyzerRegistration] = field(default_factory=list)
-    framework_prompt_providers: list[FrameworkPromptProviderRegistration] = field(default_factory=list)
+    execution_policy_analyzers: list[ExecutionPolicyAnalyzerRegistration] = field(
+        default_factory=list
+    )
+    framework_prompt_providers: list[FrameworkPromptProviderRegistration] = field(
+        default_factory=list
+    )
     providers: list[ProviderRegistration] = field(default_factory=list)
     connectors: list[ConnectorRegistration] = field(default_factory=list)
     code_generators: list[CodeGeneratorRegistration] = field(default_factory=list)
     framework_exclusions: dict[str, list[str]] = field(default_factory=dict)
-    initialization_order: list[str] = field(default_factory=lambda: [
-        "context_classes",
-        "data_sources",
-        "domain_analyzers",
-        "execution_policy_analyzers",
-        "providers",
-        "connectors",
-        "code_generators",
-        "capabilities",
-        "framework_prompt_providers",
-        "core_nodes",
-        "services"
-    ])
+    initialization_order: list[str] = field(
+        default_factory=lambda: [
+            "context_classes",
+            "data_sources",
+            "domain_analyzers",
+            "execution_policy_analyzers",
+            "providers",
+            "connectors",
+            "code_generators",
+            "capabilities",
+            "framework_prompt_providers",
+            "core_nodes",
+            "services",
+        ]
+    )
 
 
 @dataclass
@@ -607,11 +635,14 @@ class ExtendedRegistryConfig(RegistryConfig):
        :func:`extend_framework_registry` : Helper that returns this type
        :class:`RegistryConfig` : Base configuration class
     """
+
     pass  # Marker class - inherits all fields and behavior from RegistryConfig
+
 
 # =============================================================================
 # REGISTRY CONFIGURATION INTERFACE
 # =============================================================================
+
 
 class RegistryConfigProvider(ABC):
     """Abstract interface for application registry configuration.

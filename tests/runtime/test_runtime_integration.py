@@ -3,7 +3,6 @@
 Tests runtime utilities with actual Mock connector (and EPICS if available).
 """
 
-
 import pytest
 
 from osprey.runtime import (

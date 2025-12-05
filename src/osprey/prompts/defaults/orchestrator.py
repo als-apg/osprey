@@ -22,7 +22,8 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
 
     def get_instructions(self) -> str:
         """Get the generic planning instructions."""
-        return textwrap.dedent("""
+        return textwrap.dedent(
+            """
             Each step must follow the PlannedStep structure:
             - context_key: Unique identifier for this step's output (e.g., "data_sources", "historical_data")
             - capability: Type of execution node (determined based on available capabilities)
@@ -50,9 +51,12 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
             Focus on being practical and efficient while ensuring robust execution.
             Be factual and realistic about what can be accomplished.
             Never plan for simulated or fictional data - only real system operations.
-            """).strip()
+            """
+        ).strip()
 
-    def _get_dynamic_context(self, context_manager: ContextManager | None = None, **kwargs) -> str | None:
+    def _get_dynamic_context(
+        self, context_manager: ContextManager | None = None, **kwargs
+    ) -> str | None:
         """Get dynamic context showing available context data."""
         if context_manager and context_manager.get_raw_data():
             return self._build_context_section(context_manager)
@@ -65,7 +69,7 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
         task_depends_on_chat_history: bool = False,
         task_depends_on_user_memory: bool = False,
         error_context: str | None = None,
-        **kwargs
+        **kwargs,
     ) -> str:
         """
         Get system instructions for orchestrator agent configuration.
@@ -91,22 +95,22 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
         base_prompt_parts = [
             self.get_role_definition(),
             self.get_task_definition(),
-            self.get_instructions()
+            self.get_instructions(),
         ]
         base_prompt = "\n\n".join(base_prompt_parts)
         prompt_sections.append(base_prompt)
 
         # 2. Add context reuse guidance if task builds on previous context
         context_guidance = self._build_context_reuse_guidance(
-            task_depends_on_chat_history,
-            task_depends_on_user_memory
+            task_depends_on_chat_history, task_depends_on_user_memory
         )
         if context_guidance:
             prompt_sections.append(context_guidance)
 
         # 3. Add error context for replanning if available
         if error_context:
-            error_section = textwrap.dedent(f"""
+            error_section = textwrap.dedent(
+                f"""
                 **REPLANNING CONTEXT:**
 
                 The previous execution failed and needs replanning. Consider this error information when creating the new plan:
@@ -118,7 +122,8 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
                 - Consider alternative capabilities or different sequencing to avoid the same issue
                 - If required context is missing, include clarification steps to gather needed information
                 - Learn from the technical details and suggestions provided in the error context
-                - Adapt the execution strategy based on the specific failure mode identified""").strip()
+                - Adapt the execution strategy based on the specific failure mode identified"""
+            ).strip()
 
             prompt_sections.append(error_section)
 
@@ -141,9 +146,7 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
         return final_prompt
 
     def _build_context_reuse_guidance(
-        self,
-        task_depends_on_chat_history: bool,
-        task_depends_on_user_memory: bool
+        self, task_depends_on_chat_history: bool, task_depends_on_user_memory: bool
     ) -> str | None:
         """Build context reuse guidance section when task builds on previous context."""
         if not task_depends_on_chat_history and not task_depends_on_user_memory:
@@ -170,10 +173,12 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
 
         guidance_text = "\n".join(guidance_parts)
 
-        return textwrap.dedent(f"""
+        return textwrap.dedent(
+            f"""
             **CONTEXT REUSE GUIDANCE:**
             {guidance_text}
-            """).strip()
+            """
+        ).strip()
 
     def _build_context_section(self, context_manager: ContextManager) -> str | None:
         """Build the context section of the prompt."""
@@ -197,17 +202,19 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
 
         # Remove trailing comma from last line and close brace
         if len(formatted_lines) > 1:
-            formatted_lines[-1] = formatted_lines[-1].rstrip(',')
+            formatted_lines[-1] = formatted_lines[-1].rstrip(",")
         formatted_lines.append("]")
 
-        formatted_context = '\n'.join(formatted_lines)
+        formatted_context = "\n".join(formatted_lines)
 
-        return textwrap.dedent(f"""
+        return textwrap.dedent(
+            f"""
             **AVAILABLE CONTEXT:**
             The following context data is already available for use in your execution plan:
 
             {formatted_context}
-            """).strip()
+            """
+        ).strip()
 
     def _build_capability_sections(self, active_capabilities: list[BaseCapability]) -> list[str]:
         """Build capability-specific sections with examples."""
@@ -230,12 +237,14 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
         for i, (capability, orchestrator_guide) in enumerate(sorted_prompts):
             if orchestrator_guide.instructions:  # Only include non-empty prompts
                 # Add capability name header
-                capability_name = capability.__class__.__name__.replace('Capability', '')
+                capability_name = capability.__class__.__name__.replace("Capability", "")
                 section_text = f"## {capability_name}\n{orchestrator_guide.instructions}"
 
                 # Add formatted examples if they exist
                 if orchestrator_guide.examples:
-                    examples_text = OrchestratorExample.join(orchestrator_guide.examples, add_numbering=True)
+                    examples_text = OrchestratorExample.join(
+                        orchestrator_guide.examples, add_numbering=True
+                    )
                     section_text += examples_text
 
                 sections.append(section_text)

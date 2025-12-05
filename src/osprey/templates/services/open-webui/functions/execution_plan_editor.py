@@ -52,6 +52,7 @@ except ImportError as e:
         # Use hardcoded path that matches standard framework configuration
         return Path("/app/_agent_data/execution_plans")
 
+
 # Registry data loading functionality - uses real registry data instead of dummy data
 def load_registry_data(agent_data_dir: str = None) -> dict:
     """
@@ -82,19 +83,21 @@ def load_registry_data(agent_data_dir: str = None) -> dict:
         registry_export_file = registry_exports_dir / "registry_export.json"
 
         if registry_export_file.exists():
-            with open(registry_export_file, encoding='utf-8') as f:
+            with open(registry_export_file, encoding="utf-8") as f:
                 registry_data = json.load(f)
 
             logger.info(f"Loaded registry data from: {registry_export_file}")
-            logger.info(f"Registry data contains: {len(registry_data.get('capabilities', []))} capabilities, "
-                       f"{len(registry_data.get('context_types', []))} context types, "
-                       f"{len(registry_data.get('templates', []))} templates")
+            logger.info(
+                f"Registry data contains: {len(registry_data.get('capabilities', []))} capabilities, "
+                f"{len(registry_data.get('context_types', []))} context types, "
+                f"{len(registry_data.get('templates', []))} templates"
+            )
 
             return {
                 "success": True,
-                "capabilities": registry_data.get('capabilities', []),
-                "context_types": registry_data.get('context_types', []),
-                "templates": registry_data.get('templates', [])
+                "capabilities": registry_data.get("capabilities", []),
+                "context_types": registry_data.get("context_types", []),
+                "templates": registry_data.get("templates", []),
             }
         else:
             error_msg = f"Registry export file not found: {registry_export_file}"
@@ -104,7 +107,7 @@ def load_registry_data(agent_data_dir: str = None) -> dict:
                 "error": error_msg,
                 "capabilities": [],
                 "context_types": [],
-                "templates": []
+                "templates": [],
             }
 
     except Exception as e:
@@ -115,7 +118,7 @@ def load_registry_data(agent_data_dir: str = None) -> dict:
             "error": error_msg,
             "capabilities": [],
             "context_types": [],
-            "templates": []
+            "templates": [],
         }
 
 
@@ -123,29 +126,24 @@ class Action:
     class Valves(BaseModel):
         plans_data_path: str = Field(
             default=os.getenv("PLAN_EDITOR_DATA", "/app/data/plan_editor"),
-            description="Directory for execution plan storage (must be mounted to host)"
+            description="Directory for execution plan storage (must be mounted to host)",
         )
         max_plans_per_user: int = Field(
-            default=100,
-            description="Maximum number of saved plans per user"
+            default=100, description="Maximum number of saved plans per user"
         )
 
     class UserValves(BaseModel):
         show_validation_warnings: bool = Field(
-            default=True,
-            description="Show validation warnings in addition to errors"
+            default=True, description="Show validation warnings in addition to errors"
         )
         auto_validate: bool = Field(
-            default=True,
-            description="Automatically validate plans as they are edited"
+            default=True, description="Automatically validate plans as they are edited"
         )
         enable_templates: bool = Field(
-            default=True,
-            description="Enable template loading and saving"
+            default=True, description="Enable template loading and saving"
         )
         enable_advanced_features: bool = Field(
-            default=True,
-            description="Enable advanced features like dependency visualization"
+            default=True, description="Enable advanced features like dependency visualization"
         )
 
     def __init__(self):
@@ -160,7 +158,9 @@ class Action:
             # Look through messages in reverse order (most recent first)
             for i, message in enumerate(reversed(messages)):
                 try:
-                    logger.debug(f"Checking message {i}: role={message.get('role')}, has_info={message.get('info') is not None}")
+                    logger.debug(
+                        f"Checking message {i}: role={message.get('role')}, has_info={message.get('info') is not None}"
+                    )
 
                     if message.get("role") == "assistant" and message.get("info"):
                         info_keys = list(message["info"].keys())
@@ -169,11 +169,15 @@ class Action:
                         # Check for context summary (check both old and new key names for compatibility)
                         if "als_assistant_agent_context" in message["info"]:
                             context_data = message["info"]["als_assistant_agent_context"]
-                            logger.info(f"Found agent context with {context_data.get('total_context_items', 0)} items")
+                            logger.info(
+                                f"Found agent context with {context_data.get('total_context_items', 0)} items"
+                            )
                             return context_data
                         elif "als_assistant_context_summary" in message["info"]:
                             context_data = message["info"]["als_assistant_context_summary"]
-                            logger.info(f"Found agent context with {len(context_data.get('context_details', {}))} categories")
+                            logger.info(
+                                f"Found agent context with {len(context_data.get('context_details', {}))} categories"
+                            )
                             return context_data
 
                 except Exception as e:
@@ -186,16 +190,21 @@ class Action:
         except Exception as e:
             logger.error(f"Error extracting context from messages: {e}")
             import traceback
+
             logger.error(f"Full traceback: {traceback.format_exc()}")
             return None
 
-    def extract_available_context_keys(self, context_summary: dict[str, Any]) -> list[dict[str, Any]]:
+    def extract_available_context_keys(
+        self, context_summary: dict[str, Any]
+    ) -> list[dict[str, Any]]:
         """Extract available context keys from agent context summary."""
         available_contexts = []
 
         try:
             # Handle both new and old data formats
-            context_data = context_summary.get("context_data") or context_summary.get("context_details", {})
+            context_data = context_summary.get("context_data") or context_summary.get(
+                "context_details", {}
+            )
 
             if not context_data:
                 return available_contexts
@@ -209,13 +218,15 @@ class Action:
                     # Map context types to standard names
                     standard_type = self._map_context_type(context_type_name)
 
-                    available_contexts.append({
-                        "contextKey": context_key,
-                        "contextType": standard_type,
-                        "source": "agent_context",
-                        "description": context_info.get("description", ""),
-                        "category": context_type
-                    })
+                    available_contexts.append(
+                        {
+                            "contextKey": context_key,
+                            "contextType": standard_type,
+                            "source": "agent_context",
+                            "description": context_info.get("description", ""),
+                            "category": context_type,
+                        }
+                    )
 
             logger.info(f"Extracted {len(available_contexts)} context keys from agent context")
             return available_contexts
@@ -235,7 +246,7 @@ class Action:
             "Visualization Results": "VISUALIZATION_RESULTS",
             "Operation Results": "OPERATION_RESULTS",
             "Memory Context": "MEMORY_CONTEXT",
-            "Conversation Results": "CONVERSATION_RESULTS"
+            "Conversation Results": "CONVERSATION_RESULTS",
         }
 
         return type_mapping.get(context_type_name, context_type_name.upper().replace(" ", "_"))
@@ -263,30 +274,24 @@ class Action:
         safe_user_id = "".join(c for c in user_id if c.isalnum() or c in "-_")
         return Path(self.valves.plans_data_path) / safe_user_id
 
-    def _validate_plan(self, plan_steps: list[dict], available_context_keys: list[dict] = None) -> dict[str, Any]:
+    def _validate_plan(
+        self, plan_steps: list[dict], available_context_keys: list[dict] = None
+    ) -> dict[str, Any]:
         """Enhanced validation of execution plan using registry data and agent context."""
         errors = []
         warnings = []
 
         if not plan_steps:
-            return {
-                "is_valid": False,
-                "errors": ["Plan cannot be empty"],
-                "warnings": []
-            }
+            return {"is_valid": False, "errors": ["Plan cannot be empty"], "warnings": []}
 
         # Load registry data for validation
         registry_data = load_registry_data()
         if not registry_data["success"]:
             errors.append(f"Cannot validate plan: {registry_data['error']}")
-            return {
-                "is_valid": False,
-                "errors": errors,
-                "warnings": warnings
-            }
+            return {"is_valid": False, "errors": errors, "warnings": warnings}
 
-        valid_capabilities = {cap["name"] for cap in registry_data.get('capabilities', [])}
-        valid_context_types = {ctx["type_name"] for ctx in registry_data.get('context_types', [])}
+        valid_capabilities = {cap["name"] for cap in registry_data.get("capabilities", [])}
+        valid_context_types = {ctx["type_name"] for ctx in registry_data.get("context_types", [])}
 
         # Track context keys and their types (including from agent context)
         context_key_types = {}
@@ -320,25 +325,27 @@ class Action:
                 for input_item in step["inputs"]:
                     for context_type, context_key in input_item.items():
                         if context_key not in context_key_types:
-                            errors.append(f"{step_id}: Input references unknown context key '{context_key}'")
+                            errors.append(
+                                f"{step_id}: Input references unknown context key '{context_key}'"
+                            )
 
             # Track context key from this step
             context_key = step.get("context_key")
             if context_key:
                 if context_key in context_key_types:
                     # Check if it's from agent context or duplicate in plan
-                    if any(ctx["contextKey"] == context_key for ctx in (available_context_keys or [])):
-                        warnings.append(f"{step_id}: Context key '{context_key}' already exists in agent context")
+                    if any(
+                        ctx["contextKey"] == context_key for ctx in (available_context_keys or [])
+                    ):
+                        warnings.append(
+                            f"{step_id}: Context key '{context_key}' already exists in agent context"
+                        )
                     else:
                         errors.append(f"{step_id}: Duplicate context key '{context_key}'")
                 else:
                     context_key_types[context_key] = expected_output
 
-        return {
-            "is_valid": len(errors) == 0,
-            "errors": errors,
-            "warnings": warnings
-        }
+        return {"is_valid": len(errors) == 0, "errors": errors, "warnings": warnings}
 
     def _save_plan(self, plan_steps: list[dict], user_id: str) -> dict[str, Any]:
         """Save execution plan to file."""
@@ -355,25 +362,18 @@ class Action:
                     "version": "1.0",
                     "user_id": user_id,
                     "created_at": datetime.now().isoformat(),
-                    "serialization_type": "execution_plan"
+                    "serialization_type": "execution_plan",
                 },
-                "steps": plan_steps
+                "steps": plan_steps,
             }
 
-            with open(file_path, 'w', encoding='utf-8') as f:
+            with open(file_path, "w", encoding="utf-8") as f:
                 json.dump(plan_data, f, indent=2, ensure_ascii=False)
 
-            return {
-                "success": True,
-                "filename": filename,
-                "path": str(file_path)
-            }
+            return {"success": True, "filename": filename, "path": str(file_path)}
         except Exception as e:
             logger.error(f"Error saving execution plan: {e}")
-            return {
-                "success": False,
-                "error": str(e)
-            }
+            return {"success": False, "error": str(e)}
 
     async def check_pending_plan(self, __event_emitter__=None, __event_call__=None) -> dict:
         """Check if there's a pending execution plan awaiting approval."""
@@ -389,12 +389,12 @@ class Action:
             plan_file = pending_plans_dir / "pending_execution_plan.json"
 
             if plan_file.exists():
-                with open(plan_file, encoding='utf-8') as f:
+                with open(plan_file, encoding="utf-8") as f:
                     plan_data = json.load(f)
                 return {
                     "has_pending": True,
                     "plan_data": plan_data,
-                    "message": "Found pending execution plan for review"
+                    "message": "Found pending execution plan for review",
                 }
             else:
                 return {"has_pending": False}
@@ -403,7 +403,9 @@ class Action:
             logger.error(f"Error checking for pending plan: {e}")
             return {"has_pending": False, "error": str(e)}
 
-    async def save_modified_plan(self, plan_data: dict, __event_emitter__=None, __event_call__=None) -> dict:
+    async def save_modified_plan(
+        self, plan_data: dict, __event_emitter__=None, __event_call__=None
+    ) -> dict:
         """Save modified execution plan for approval processing."""
         try:
             # Use framework configuration for consistent paths
@@ -414,43 +416,42 @@ class Action:
             modified_plan_file = pending_plans_dir / "modified_execution_plan.json"
 
             # Ensure plan_data has the correct format
-            if 'steps' not in plan_data or '__metadata__' not in plan_data:
+            if "steps" not in plan_data or "__metadata__" not in plan_data:
                 # If it's just a steps array, wrap it properly
                 if isinstance(plan_data, list):
                     plan_data = {
                         "__metadata__": {
                             "version": "1.0",
                             "modified_at": datetime.now().isoformat(),
-                            "serialization_type": "modified_execution_plan"
+                            "serialization_type": "modified_execution_plan",
                         },
-                        "steps": plan_data
+                        "steps": plan_data,
                     }
                 else:
                     # Add metadata if missing
                     plan_data["__metadata__"] = {
                         "version": "1.0",
                         "modified_at": datetime.now().isoformat(),
-                        "serialization_type": "modified_execution_plan"
+                        "serialization_type": "modified_execution_plan",
                     }
             else:
                 # Update existing metadata
                 plan_data["__metadata__"]["modified_at"] = datetime.now().isoformat()
 
-            with open(modified_plan_file, 'w', encoding='utf-8') as f:
+            with open(modified_plan_file, "w", encoding="utf-8") as f:
                 json.dump(plan_data, f, indent=2, ensure_ascii=False)
 
-            return {"success": True, "message": f"Modified plan saved with {len(plan_data.get('steps', []))} steps"}
+            return {
+                "success": True,
+                "message": f"Modified plan saved with {len(plan_data.get('steps', []))} steps",
+            }
 
         except Exception as e:
             logger.error(f"Error saving modified plan: {e}")
             return {"success": False, "error": str(e)}
 
     async def create_plan_editor_interface(
-        self,
-        __event_emitter__=None,
-        __event_call__=None,
-        user_id: str = None,
-        body: dict = None
+        self, __event_emitter__=None, __event_call__=None, user_id: str = None, body: dict = None
     ) -> dict | None:
         """Create interactive execution plan editor using JavaScript."""
 
@@ -468,15 +469,17 @@ class Action:
         available_context_keys = []
 
         if body and body.get("messages"):
-            agent_context_summary = self.extract_context_summary_from_messages(body.get("messages", []))
+            agent_context_summary = self.extract_context_summary_from_messages(
+                body.get("messages", [])
+            )
             if agent_context_summary:
                 available_context_keys = self.extract_available_context_keys(agent_context_summary)
                 logger.info(f"Found {len(available_context_keys)} context keys from agent context")
 
         # Prepare JSON data for the editor (empty arrays if no data)
-        capabilities_json = json.dumps(registry_data.get('capabilities', [])).replace('"', '\\"')
-        context_types_json = json.dumps(registry_data.get('context_types', [])).replace('"', '\\"')
-        templates_json = json.dumps(registry_data.get('templates', [])).replace('"', '\\"')
+        capabilities_json = json.dumps(registry_data.get("capabilities", [])).replace('"', '\\"')
+        context_types_json = json.dumps(registry_data.get("context_types", [])).replace('"', '\\"')
+        templates_json = json.dumps(registry_data.get("templates", [])).replace('"', '\\"')
         available_context_keys_json = json.dumps(available_context_keys).replace('"', '\\"')
 
         # Prepare pending plan data
@@ -490,7 +493,7 @@ class Action:
         error_message = ""
         if not has_registry_data:
             escaped_error = registry_data["error"].replace("'", "\\'")
-            error_message = f'''
+            error_message = f"""
             // Show error alert immediately when editor loads
             setTimeout(function() {{
                 alert(`⚠️ Registry Data Not Available
@@ -519,7 +522,7 @@ Error: {escaped_error}
 
 Please reload the page after fixing the registry data.`);
             }}, 500);
-            '''
+            """
 
         try:
 
@@ -1994,9 +1997,13 @@ Note: Your modifications are preserved in this session until you reload the page
                     available_context_keys = []
 
                     if body and body.get("messages"):
-                        agent_context_summary = self.extract_context_summary_from_messages(body.get("messages", []))
+                        agent_context_summary = self.extract_context_summary_from_messages(
+                            body.get("messages", [])
+                        )
                         if agent_context_summary:
-                            available_context_keys = self.extract_available_context_keys(agent_context_summary)
+                            available_context_keys = self.extract_available_context_keys(
+                                agent_context_summary
+                            )
 
                     # Validate the plan with agent context
                     validation_result = self._validate_plan(plan_data, available_context_keys)
@@ -2009,21 +2016,35 @@ Note: Your modifications are preserved in this session until you reload the page
                             await __event_emitter__(
                                 {
                                     "type": "message",
-                                    "data": {"content": f"# ✅ Execution Plan Saved Successfully\\n\\n**Plan Details:**\\n- Steps: {len(plan_data)}\\n- Saved to: `{save_result['filename']}`\\n- Validation: Passed\\n\\n**Plan Summary:**\\n" + "\\n".join([f"{i+1}. {step.get('context_key', 'unknown')}: {step.get('capability', 'unknown')}" for i, step in enumerate(plan_data)])},
+                                    "data": {
+                                        "content": f"# ✅ Execution Plan Saved Successfully\\n\\n**Plan Details:**\\n- Steps: {len(plan_data)}\\n- Saved to: `{save_result['filename']}`\\n- Validation: Passed\\n\\n**Plan Summary:**\\n"
+                                        + "\\n".join(
+                                            [
+                                                f"{i+1}. {step.get('context_key', 'unknown')}: {step.get('capability', 'unknown')}"
+                                                for i, step in enumerate(plan_data)
+                                            ]
+                                        )
+                                    },
                                 }
                             )
                         else:
                             await __event_emitter__(
                                 {
                                     "type": "message",
-                                    "data": {"content": f"# ❌ Error Saving Plan\\n\\n{save_result.get('error', 'Unknown error')}"},
+                                    "data": {
+                                        "content": f"# ❌ Error Saving Plan\\n\\n{save_result.get('error', 'Unknown error')}"
+                                    },
                                 }
                             )
                     else:
                         # Show validation errors
-                        error_msg = "# ⚠️ Plan Validation Failed\\n\\n**Errors:**\\n" + "\\n".join([f"- {error}" for error in validation_result["errors"]])
+                        error_msg = "# ⚠️ Plan Validation Failed\\n\\n**Errors:**\\n" + "\\n".join(
+                            [f"- {error}" for error in validation_result["errors"]]
+                        )
                         if validation_result["warnings"]:
-                            error_msg += "\\n\\n**Warnings:**\\n" + "\\n".join([f"- {warning}" for warning in validation_result["warnings"]])
+                            error_msg += "\\n\\n**Warnings:**\\n" + "\\n".join(
+                                [f"- {warning}" for warning in validation_result["warnings"]]
+                            )
 
                         await __event_emitter__(
                             {
@@ -2035,7 +2056,9 @@ Note: Your modifications are preserved in this session until you reload the page
                     await __event_emitter__(
                         {
                             "type": "message",
-                            "data": {"content": "# 📝 Empty Plan\\n\\nNo steps were defined in the execution plan."},
+                            "data": {
+                                "content": "# 📝 Empty Plan\\n\\nNo steps were defined in the execution plan."
+                            },
                         }
                     )
 
@@ -2044,27 +2067,35 @@ Note: Your modifications are preserved in this session until you reload the page
                 plan_data = editor_result.get("plan_data", {})
 
                 if plan_data:
-                    save_result = await self.save_modified_plan(plan_data, __event_emitter__, __event_call__)
+                    save_result = await self.save_modified_plan(
+                        plan_data, __event_emitter__, __event_call__
+                    )
 
                     if save_result["success"]:
                         await __event_emitter__(
                             {
                                 "type": "message",
-                                "data": {"content": f"# ✅ Modified Plan Saved Successfully\\n\\n{save_result['message']}\\n\\n**Next Steps:**\\nReturn to chat and respond with **'yes'** to approve the modified execution plan."},
+                                "data": {
+                                    "content": f"# ✅ Modified Plan Saved Successfully\\n\\n{save_result['message']}\\n\\n**Next Steps:**\\nReturn to chat and respond with **'yes'** to approve the modified execution plan."
+                                },
                             }
                         )
                     else:
                         await __event_emitter__(
                             {
                                 "type": "message",
-                                "data": {"content": f"# ❌ Error Saving Modified Plan\\n\\n{save_result.get('error', 'Unknown error')}"},
+                                "data": {
+                                    "content": f"# ❌ Error Saving Modified Plan\\n\\n{save_result.get('error', 'Unknown error')}"
+                                },
                             }
                         )
                 else:
                     await __event_emitter__(
                         {
                             "type": "message",
-                            "data": {"content": "# ❌ Error Saving Modified Plan\\n\\nNo plan data received."},
+                            "data": {
+                                "content": "# ❌ Error Saving Modified Plan\\n\\nNo plan data received."
+                            },
                         }
                     )
 
@@ -2073,7 +2104,9 @@ Note: Your modifications are preserved in this session until you reload the page
                 await __event_emitter__(
                     {
                         "type": "message",
-                        "data": {"content": "# ✅ Original Plan Ready for Approval\\n\\n**Next Steps:**\\nReturn to chat and respond with **'yes'** to approve the original execution plan."},
+                        "data": {
+                            "content": "# ✅ Original Plan Ready for Approval\\n\\n**Next Steps:**\\nReturn to chat and respond with **'yes'** to approve the original execution plan."
+                        },
                     }
                 )
 
@@ -2084,14 +2117,18 @@ Note: Your modifications are preserved in this session until you reload the page
                     await __event_emitter__(
                         {
                             "type": "message",
-                            "data": {"content": "# 📋 Execution Plan Review Mode\\n\\n**Review the pending execution plan above.**\\n\\n- **Use Plan As-Is**: Accept the original plan without changes\\n- **Save Modifications**: Edit the plan and save your changes\\n\\nAfter making your choice, return to chat and respond with **'yes'** to proceed with approval."},
+                            "data": {
+                                "content": "# 📋 Execution Plan Review Mode\\n\\n**Review the pending execution plan above.**\\n\\n- **Use Plan As-Is**: Accept the original plan without changes\\n- **Save Modifications**: Edit the plan and save your changes\\n\\nAfter making your choice, return to chat and respond with **'yes'** to proceed with approval."
+                            },
                         }
                     )
                 else:
                     await __event_emitter__(
                         {
                             "type": "message",
-                            "data": {"content": "# 📋 Execution Plan Editor\\n\\n**Create and configure your multi-step execution plan above.**\\n\\n- Add steps by clicking capabilities or using the **Add Step** button\\n- Configure inputs and outputs for each step\\n- Use **Save Plan** to save your configuration\\n\\nThe editor will validate your plan and show any issues before saving."},
+                            "data": {
+                                "content": "# 📋 Execution Plan Editor\\n\\n**Create and configure your multi-step execution plan above.**\\n\\n- Add steps by clicking capabilities or using the **Add Step** button\\n- Configure inputs and outputs for each step\\n- Use **Save Plan** to save your configuration\\n\\nThe editor will validate your plan and show any issues before saving."
+                            },
                         }
                     )
 
@@ -2099,7 +2136,9 @@ Note: Your modifications are preserved in this session until you reload the page
                 await __event_emitter__(
                     {
                         "type": "message",
-                        "data": {"content": f"# ❌ Editor Error\\n\\n{editor_result.get('message', 'Unknown error occurred')}"},
+                        "data": {
+                            "content": f"# ❌ Editor Error\\n\\n{editor_result.get('message', 'Unknown error occurred')}"
+                        },
                     }
                 )
 
@@ -2108,7 +2147,9 @@ Note: Your modifications are preserved in this session until you reload the page
                 await __event_emitter__(
                     {
                         "type": "message",
-                        "data": {"content": "# 📋 Execution Plan Editor\\n\\nEditor opened successfully. Use the interface above to create or review execution plans."},
+                        "data": {
+                            "content": "# 📋 Execution Plan Editor\\n\\nEditor opened successfully. Use the interface above to create or review execution plans."
+                        },
                     }
                 )
 

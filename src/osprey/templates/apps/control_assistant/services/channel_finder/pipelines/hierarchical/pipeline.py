@@ -35,38 +35,37 @@ def _save_prompt_to_file(prompt: str, stage: str, level: str = "", query: str = 
         query: Optional query identifier
     """
     config_builder = _get_config()
-    if not config_builder.get('debug.save_prompts', False):
+    if not config_builder.get("debug.save_prompts", False):
         return
 
     # Get temp directory from config or use default
-    prompts_dir = config_builder.get('debug.prompts_dir', 'temp_prompts')
-    project_root = Path(config_builder.get('project_root'))
+    prompts_dir = config_builder.get("debug.prompts_dir", "temp_prompts")
+    project_root = Path(config_builder.get("project_root"))
     temp_dir = project_root / prompts_dir
     temp_dir.mkdir(exist_ok=True, parents=True)
 
     # Map stage names to descriptive filenames
-    if stage == 'query_split':
-        filename = 'prompt_stage1_query_split.txt'
-    elif stage == 'level_selection' and level:
+    if stage == "query_split":
+        filename = "prompt_stage1_query_split.txt"
+    elif stage == "level_selection" and level:
         # Dynamic level mapping based on hierarchy definition
         config_builder = _get_config()
         hierarchy_levels = config_builder.get(
-            'channel_finder.pipelines.hierarchical.database.hierarchy_levels',
-            []
+            "channel_finder.pipelines.hierarchical.database.hierarchy_levels", []
         )
 
         try:
             level_idx = hierarchy_levels.index(level) + 1
-            filename = f'prompt_stage2_level{level_idx}_{level}.txt'
+            filename = f"prompt_stage2_level{level_idx}_{level}.txt"
         except (ValueError, AttributeError):
-            filename = f'prompt_stage2_level_{level}.txt'
+            filename = f"prompt_stage2_level_{level}.txt"
     else:
-        filename = f'prompt_{stage}.txt'
+        filename = f"prompt_{stage}.txt"
 
     filepath = temp_dir / filename
 
     # Save prompt
-    with open(filepath, 'w', encoding='utf-8') as f:
+    with open(filepath, "w", encoding="utf-8") as f:
         f.write(f"=== STAGE: {stage.upper()} ===\n")
         if level:
             f.write(f"=== LEVEL: {level.upper()} ===\n")
@@ -93,7 +92,7 @@ class HierarchicalPipeline(BasePipeline):
         model_config: dict,
         facility_name: str = "control system",
         facility_description: str = "",
-        **kwargs
+        **kwargs,
     ):
         """
         Initialize hierarchical pipeline.
@@ -115,8 +114,10 @@ class HierarchicalPipeline(BasePipeline):
         self.query_splitter = prompts_module.query_splitter
 
         # Load hierarchical navigation context from prompts (not database - separation of data vs instructions)
-        if hasattr(prompts_module, 'hierarchical_context'):
-            self.hierarchical_context = prompts_module.hierarchical_context.get_hierarchical_context()
+        if hasattr(prompts_module, "hierarchical_context"):
+            self.hierarchical_context = (
+                prompts_module.hierarchical_context.get_hierarchical_context()
+            )
         else:
             # Fallback for facilities without hierarchical context
             self.hierarchical_context = {}
@@ -139,15 +140,14 @@ class HierarchicalPipeline(BasePipeline):
         # Handle empty query
         if not query or not query.strip():
             return ChannelFinderResult(
-                query=query,
-                channels=[],
-                total_channels=0,
-                processing_notes="Empty query provided"
+                query=query, channels=[], total_channels=0, processing_notes="Empty query provided"
             )
 
         # Stage 1: Split query into atomic queries
         atomic_queries = await self._split_query(query)
-        logger.info(f"[bold cyan]Stage 1:[/bold cyan] Split into {len(atomic_queries)} atomic quer{'y' if len(atomic_queries) == 1 else 'ies'}")
+        logger.info(
+            f"[bold cyan]Stage 1:[/bold cyan] Split into {len(atomic_queries)} atomic quer{'y' if len(atomic_queries) == 1 else 'ies'}"
+        )
 
         # Only show individual queries if there are multiple (avoid redundancy for single query)
         if len(atomic_queries) > 1:
@@ -161,7 +161,9 @@ class HierarchicalPipeline(BasePipeline):
             if len(atomic_queries) == 1:
                 logger.info(f"[bold cyan]Stage 2:[/bold cyan] Navigating hierarchy...")
             else:
-                logger.info(f"[bold cyan]Stage 2 - Query {i}/{len(atomic_queries)}:[/bold cyan] {atomic_query}")
+                logger.info(
+                    f"[bold cyan]Stage 2 - Query {i}/{len(atomic_queries)}:[/bold cyan] {atomic_query}"
+                )
             try:
                 channels = await self._navigate_hierarchy(atomic_query)
                 all_channels.extend(channels)
@@ -185,26 +187,26 @@ class HierarchicalPipeline(BasePipeline):
         message = f"{prompt}\n\nQuery to process: {query}"
 
         # Save prompt for debugging
-        _save_prompt_to_file(message, stage='query_split', query=query)
+        _save_prompt_to_file(message, stage="query_split", query=query)
 
         # Set caller context for API call logging (propagates through asyncio.to_thread)
         from osprey.models import set_api_call_context
+
         set_api_call_context(
             function="_split_query",
             module="hierarchical.pipeline",
             class_name="HierarchicalPipeline",
-            extra={"stage": "query_split"}
+            extra={"stage": "query_split"},
         )
 
         response = await asyncio.to_thread(
             get_chat_completion,
             message=message,
             model_config=self.model_config,
-            output_model=QuerySplitterOutput
+            output_model=QuerySplitterOutput,
         )
 
         return response.queries
-
 
     async def _navigate_hierarchy(self, query: str) -> list[str]:
         """
@@ -224,7 +226,7 @@ class HierarchicalPipeline(BasePipeline):
             selections={},
             branch_path=[],
             branch_num=1,
-            total_branches=1
+            total_branches=1,
         )
 
         # Validate all channels exist
@@ -244,7 +246,7 @@ class HierarchicalPipeline(BasePipeline):
         selections: dict,
         branch_path: list[str],
         branch_num: int,
-        total_branches: int
+        total_branches: int,
     ) -> list[str]:
         """
         Recursively navigate hierarchy with automatic branching.
@@ -293,22 +295,23 @@ class HierarchicalPipeline(BasePipeline):
             logger.warning(f"{indent}  [yellow]No selection made at level {level}[/yellow]")
             return []
 
-        logger.info(f"{indent}  → Selected: {selected[:3] if len(selected) > 3 else selected}{'...' if len(selected) > 3 else ''}")
+        logger.info(
+            f"{indent}  → Selected: {selected[:3] if len(selected) > 3 else selected}{'...' if len(selected) > 3 else ''}"
+        )
 
         # Determine if we should branch based on level type
         level_config = self.database.hierarchy_config["levels"][level]
         # Tree levels allow branching, instance levels don't
-        allow_branching = (level_config["type"] == "tree")
+        allow_branching = level_config["type"] == "tree"
 
-        should_branch = (
-            len(selected) > 1 and
-            allow_branching
-        )
+        should_branch = len(selected) > 1 and allow_branching
 
         if should_branch:
             # BRANCHING: Multiple selections at a branch-point level
             num_branches = len(selected)
-            logger.info(f"{indent}  [cyan]⚡ Branching:[/cyan] {num_branches} {level}(s) selected - exploring each separately")
+            logger.info(
+                f"{indent}  [cyan]⚡ Branching:[/cyan] {num_branches} {level}(s) selected - exploring each separately"
+            )
 
             all_results = []
             for i, single_selection in enumerate(selected, 1):
@@ -317,7 +320,9 @@ class HierarchicalPipeline(BasePipeline):
                 branch_path_str = " → ".join(new_branch_path)
 
                 # Log branch start
-                logger.info(f"{indent}  [bold cyan]Branch {i}/{num_branches}:[/bold cyan] {branch_path_str}")
+                logger.info(
+                    f"{indent}  [bold cyan]Branch {i}/{num_branches}:[/bold cyan] {branch_path_str}"
+                )
 
                 # Create new selections dict with single value
                 branch_selections = selections.copy()
@@ -330,11 +335,13 @@ class HierarchicalPipeline(BasePipeline):
                     selections=branch_selections,
                     branch_path=new_branch_path,
                     branch_num=i,
-                    total_branches=num_branches
+                    total_branches=num_branches,
                 )
 
                 # Log branch completion
-                logger.info(f"{indent}    [green]✓[/green] Branch {i}/{num_branches}: Found {len(branch_results)} channel(s)")
+                logger.info(
+                    f"{indent}    [green]✓[/green] Branch {i}/{num_branches}: Found {len(branch_results)} channel(s)"
+                )
 
                 all_results.extend(branch_results)
 
@@ -352,15 +359,11 @@ class HierarchicalPipeline(BasePipeline):
                 selections=new_selections,
                 branch_path=branch_path,
                 branch_num=branch_num,
-                total_branches=total_branches
+                total_branches=total_branches,
             )
 
     async def _select_at_level(
-        self,
-        query: str,
-        level: str,
-        options: list[dict],
-        previous_selections: dict
+        self, query: str, level: str, options: list[dict], previous_selections: dict
     ) -> list[str]:
         """
         Use LLM to select option(s) at current hierarchy level.
@@ -376,7 +379,7 @@ class HierarchicalPipeline(BasePipeline):
             Empty list if NOTHING_FOUND is selected.
         """
         # Get option names for dynamic model
-        option_names = [opt['name'] for opt in options]
+        option_names = [opt["name"] for opt in options]
 
         # Create dynamic model for this specific level
         SelectionModel = create_selection_model(level, option_names, allow_multiple=True)
@@ -385,15 +388,16 @@ class HierarchicalPipeline(BasePipeline):
         prompt = self._build_level_prompt(query, level, options, previous_selections)
 
         # Save prompt for debugging
-        _save_prompt_to_file(prompt, stage='level_selection', level=level, query=query)
+        _save_prompt_to_file(prompt, stage="level_selection", level=level, query=query)
 
         # Set caller context for API call logging (propagates through asyncio.to_thread)
         from osprey.models import set_api_call_context
+
         set_api_call_context(
             function="_select_at_level",
             module="hierarchical.pipeline",
             class_name="HierarchicalPipeline",
-            extra={"stage": "level_selection", "level": level}
+            extra={"stage": "level_selection", "level": level},
         )
 
         # Get LLM response with dynamic model
@@ -401,7 +405,7 @@ class HierarchicalPipeline(BasePipeline):
             get_chat_completion,
             message=prompt,
             model_config=self.model_config,
-            output_model=SelectionModel
+            output_model=SelectionModel,
         )
 
         # Extract string values from Enum objects
@@ -416,11 +420,7 @@ class HierarchicalPipeline(BasePipeline):
         return selection_values
 
     def _build_level_prompt(
-        self,
-        query: str,
-        level: str,
-        options: list[dict],
-        previous_selections: dict
+        self, query: str, level: str, options: list[dict], previous_selections: dict
     ) -> str:
         """Build prompt for hierarchical level selection with path-aware domain context."""
         # Format options (limit to reasonable number for prompt)
@@ -431,8 +431,8 @@ class HierarchicalPipeline(BasePipeline):
         # Build options list with descriptions
         options_list = []
         for opt in display_options:
-            opt_name = opt['name']
-            opt_desc = opt.get('description', 'N/A')
+            opt_name = opt["name"]
+            opt_desc = opt.get("description", "N/A")
 
             # Description is now complete (merged from _description and _detailed)
             options_list.append(f"- {opt_name}: {opt_desc}")
@@ -540,11 +540,13 @@ If no options are relevant, use '{NOTHING_FOUND_MARKER}'."""
             channel_data = self.database.get_channel(channel_name)
             if channel_data:
                 # Hierarchical database might not have description
-                channel_infos.append(ChannelInfo(
-                    channel=channel_name,
-                    address=channel_data.get('address', channel_name),
-                    description=channel_data.get('description')
-                ))
+                channel_infos.append(
+                    ChannelInfo(
+                        channel=channel_name,
+                        address=channel_data.get("address", channel_name),
+                        description=channel_data.get("description"),
+                    )
+                )
 
         notes = (
             f"Processed query using hierarchical navigation. "
@@ -555,14 +557,13 @@ If no options are relevant, use '{NOTHING_FOUND_MARKER}'."""
             query=query,
             channels=channel_infos,
             total_channels=len(channel_infos),
-            processing_notes=notes
+            processing_notes=notes,
         )
 
     def get_statistics(self) -> dict[str, Any]:
         """Return pipeline statistics."""
         db_stats = self.database.get_statistics()
         return {
-            'total_channels': db_stats.get('total_channels', 0),
-            'hierarchy_levels': db_stats.get('hierarchy_levels', [])
+            "total_channels": db_stats.get("total_channels", 0),
+            "hierarchy_levels": db_stats.get("hierarchy_levels", []),
         }
-

@@ -23,7 +23,7 @@ class BaseCapabilityGenerator:
         capability_name: str,
         verbose: bool = False,
         provider: str | None = None,
-        model_id: str | None = None
+        model_id: str | None = None,
     ):
         """Initialize base generator.
 
@@ -53,7 +53,7 @@ class BaseCapabilityGenerator:
             return {
                 "provider": self.provider,
                 "model_id": self.model_id,
-                "max_tokens": model_config.get("max_tokens", 4096)
+                "max_tokens": model_config.get("max_tokens", 4096),
             }
         else:
             # Use orchestrator config from registry
@@ -64,10 +64,7 @@ class BaseCapabilityGenerator:
             return {"model_config": model_config}
 
     async def _call_llm(
-        self,
-        prompt: str,
-        output_model: type[BaseModel],
-        max_attempts: int = 2
+        self, prompt: str, output_model: type[BaseModel], max_attempts: int = 2
     ) -> BaseModel:
         """Call LLM with retry logic.
 
@@ -92,18 +89,16 @@ class BaseCapabilityGenerator:
 
                 # Set caller context for API call logging (propagates through asyncio.to_thread)
                 from osprey.models import set_api_call_context
+
                 set_api_call_context(
                     function="_call_llm",
                     module="base_generator",
                     class_name=self.__class__.__name__,
-                    extra={"attempt": attempt, "max_attempts": max_attempts}
+                    extra={"attempt": attempt, "max_attempts": max_attempts},
                 )
 
                 response = await asyncio.to_thread(
-                    get_chat_completion,
-                    message=prompt,
-                    **model_kwargs,
-                    output_model=output_model
+                    get_chat_completion, message=prompt, **model_kwargs, output_model=output_model
                 )
 
                 return response
@@ -138,7 +133,7 @@ class BaseCapabilityGenerator:
         Returns:
             CamelCase class name (e.g., 'WeatherMcpCapability')
         """
-        return ''.join(word.title() for word in name.split('_')) + suffix
+        return "".join(word.title() for word in name.split("_")) + suffix
 
     @staticmethod
     def _get_timestamp() -> str:
@@ -150,9 +145,7 @@ class BaseCapabilityGenerator:
         return datetime.now().isoformat()
 
     def _build_classifier_examples_code(
-        self,
-        classifier_analysis: ClassifierAnalysis,
-        indent: str = "            "
+        self, classifier_analysis: ClassifierAnalysis, indent: str = "            "
     ) -> str:
         """Build classifier examples code block.
 
@@ -168,18 +161,18 @@ class BaseCapabilityGenerator:
         for ex in classifier_analysis.positive_examples:
             examples.append(
                 f"{indent}ClassifierExample(\n"
-                f"{indent}    query=\"{ex.query}\",\n"
+                f'{indent}    query="{ex.query}",\n'
                 f"{indent}    result=True,\n"
-                f"{indent}    reason=\"{ex.reason}\"\n"
+                f'{indent}    reason="{ex.reason}"\n'
                 f"{indent})"
             )
 
         for ex in classifier_analysis.negative_examples:
             examples.append(
                 f"{indent}ClassifierExample(\n"
-                f"{indent}    query=\"{ex.query}\",\n"
+                f'{indent}    query="{ex.query}",\n'
                 f"{indent}    result=False,\n"
-                f"{indent}    reason=\"{ex.reason}\"\n"
+                f'{indent}    reason="{ex.reason}"\n'
                 f"{indent})"
             )
 
@@ -189,7 +182,7 @@ class BaseCapabilityGenerator:
         self,
         orchestrator_analysis: OrchestratorAnalysis,
         context_type: str,
-        indent: str = "            "
+        indent: str = "            ",
     ) -> str:
         """Build orchestrator examples code block.
 
@@ -205,21 +198,22 @@ class BaseCapabilityGenerator:
 
         for i, ex in enumerate(orchestrator_analysis.example_steps):
             # Use LLM-generated context_key (descriptive), fallback to generic if missing
-            context_key = ex.context_key if ex.context_key else f"{self.capability_name}_result_{i+1}"
+            context_key = (
+                ex.context_key if ex.context_key else f"{self.capability_name}_result_{i+1}"
+            )
             examples.append(
                 f"{indent}OrchestratorExample(\n"
                 f"{indent}    step=PlannedStep(\n"
-                f"{indent}        context_key=\"{context_key}\",\n"
-                f"{indent}        capability=\"{self.capability_name}\",\n"
-                f"{indent}        task_objective=\"{ex.task_objective}\",\n"
-                f"{indent}        expected_output=\"{context_type}\",\n"
-                f"{indent}        success_criteria=\"Successfully completed task\",\n"
+                f'{indent}        context_key="{context_key}",\n'
+                f'{indent}        capability="{self.capability_name}",\n'
+                f'{indent}        task_objective="{ex.task_objective}",\n'
+                f'{indent}        expected_output="{context_type}",\n'
+                f'{indent}        success_criteria="Successfully completed task",\n'
                 f"{indent}        inputs=[]\n"
                 f"{indent}    ),\n"
-                f"{indent}    scenario_description=\"{ex.scenario}\",\n"
+                f'{indent}    scenario_description="{ex.scenario}",\n'
                 f"{indent}    notes=\"{ex.tool_name if ex.tool_name else 'Implementation-specific notes'}\"\n"
                 f"{indent})"
             )
 
         return ",\n".join(examples)
-

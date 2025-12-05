@@ -106,10 +106,10 @@ def test_get_capability_info(temp_registry):
     info = get_capability_info(temp_registry, "weather_demo")
 
     assert info is not None
-    assert info['class_name'] == "WeatherDemoCapability"
-    assert info['context_type'] == "WEATHERDEMO_RESULTS"
-    assert info['context_class_name'] == "WeatherDemoResultsContext"
-    assert info['module_path'] == "my_project.capabilities.weather_demo"
+    assert info["class_name"] == "WeatherDemoCapability"
+    assert info["context_type"] == "WEATHERDEMO_RESULTS"
+    assert info["context_class_name"] == "WeatherDemoResultsContext"
+    assert info["module_path"] == "my_project.capabilities.weather_demo"
 
 
 def test_get_capability_info_nonexistent(temp_registry):
@@ -127,7 +127,7 @@ def test_add_then_remove_capability(temp_registry):
         class_name="SlackMcpCapability",
         context_type="SLACK_RESULTS",
         context_class_name="SlackMcpResultsContext",
-        description="Slack operations via MCP server"
+        description="Slack operations via MCP server",
     )
 
     # Write the new content
@@ -172,4 +172,3 @@ def test_remove_preserves_formatting(temp_registry):
     # Check that the other capability is intact
     assert "test_capability" in new_content
     assert "TestCapability" in new_content
-

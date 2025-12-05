@@ -4,13 +4,14 @@ Tests for hierarchical channel finder with optional/unused levels support.
 Tests Phase 1 feature: Allow hierarchy levels that don't appear in naming pattern.
 """
 
-import pytest
 import json
-from pathlib import Path
 import tempfile
+from pathlib import Path
+
+import pytest
 
 from src.osprey.templates.apps.control_assistant.services.channel_finder.databases.hierarchical import (
-    HierarchicalChannelDatabase
+    HierarchicalChannelDatabase,
 )
 
 
@@ -29,9 +30,9 @@ def jlab_style_db_content():
                 {"name": "family", "type": "tree"},
                 {"name": "sector", "type": "tree"},
                 {"name": "device", "type": "tree"},
-                {"name": "pv", "type": "tree"}
+                {"name": "pv", "type": "tree"},
             ],
-            "naming_pattern": "{pv}"
+            "naming_pattern": "{pv}",
         },
         "tree": {
             "Magnets": {
@@ -43,10 +44,10 @@ def jlab_style_db_content():
                         "MQ1L01": {
                             "_description": "Quad device 1",
                             "MQ1L01.S": {"_description": "Setpoint"},
-                            "MQ1L01M": {"_description": "Readback"}
-                        }
-                    }
-                }
+                            "MQ1L01M": {"_description": "Readback"},
+                        },
+                    },
+                },
             },
             "Diagnostics": {
                 "_description": "Diagnostic system",
@@ -57,12 +58,12 @@ def jlab_style_db_content():
                         "IPM1L01": {
                             "_description": "BPM device 1",
                             "IPM1L01X": {"_description": "X position"},
-                            "IPM1L01Y": {"_description": "Y position"}
-                        }
-                    }
-                }
-            }
-        }
+                            "IPM1L01Y": {"_description": "Y position"},
+                        },
+                    },
+                },
+            },
+        },
     }
 
 
@@ -80,9 +81,9 @@ def partial_pattern_db_content():
                 {"name": "subsystem", "type": "tree"},
                 {"name": "location", "type": "tree"},
                 {"name": "device", "type": "instances"},
-                {"name": "signal", "type": "tree"}
+                {"name": "signal", "type": "tree"},
             ],
-            "naming_pattern": "{system}-{subsystem}:{device}:{signal}"
+            "naming_pattern": "{system}-{subsystem}:{device}:{signal}",
         },
         "tree": {
             "RF": {
@@ -95,22 +96,22 @@ def partial_pattern_db_content():
                             "_expansion": {
                                 "_type": "range",
                                 "_pattern": "CAV{:02d}",
-                                "_range": [1, 2]
+                                "_range": [1, 2],
                             },
                             "Voltage": {"_description": "Cavity voltage"},
-                            "Phase": {"_description": "Cavity phase"}
-                        }
-                    }
-                }
+                            "Phase": {"_description": "Cavity phase"},
+                        },
+                    },
+                },
             }
-        }
+        },
     }
 
 
 @pytest.fixture
 def jlab_db(jlab_style_db_content):
     """Create temporary JLab-style database."""
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         json.dump(jlab_style_db_content, f)
         db_path = f.name
 
@@ -124,7 +125,7 @@ def jlab_db(jlab_style_db_content):
 @pytest.fixture
 def partial_pattern_db(partial_pattern_db_content):
     """Create temporary partial-pattern database."""
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         json.dump(partial_pattern_db_content, f)
         db_path = f.name
 
@@ -154,21 +155,13 @@ class TestOptionalLevelsValidation:
         """Pattern referencing undefined level should raise error."""
         invalid_content = {
             "hierarchy": {
-                "levels": [
-                    {"name": "system", "type": "tree"},
-                    {"name": "device", "type": "tree"}
-                ],
-                "naming_pattern": "{system}:{undefined_level}"
+                "levels": [{"name": "system", "type": "tree"}, {"name": "device", "type": "tree"}],
+                "naming_pattern": "{system}:{undefined_level}",
             },
-            "tree": {
-                "SYS": {
-                    "_description": "System",
-                    "DEV": {"_description": "Device"}
-                }
-            }
+            "tree": {"SYS": {"_description": "System", "DEV": {"_description": "Device"}}},
         }
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(invalid_content, f)
             db_path = f.name
 
@@ -214,7 +207,7 @@ class TestChannelBuilding:
             "family": "Quads",
             "sector": "1L",
             "device": "MQ1L01",
-            "pv": ["MQ1L01.S", "MQ1L01M"]
+            "pv": ["MQ1L01.S", "MQ1L01M"],
         }
 
         channels = jlab_db.build_channels_from_selections(selections)
@@ -227,7 +220,7 @@ class TestChannelBuilding:
             "subsystem": "Cavities",
             "location": "Hall-A",  # Not in pattern - should be ignored
             "device": ["CAV01", "CAV02"],
-            "signal": "Voltage"
+            "signal": "Voltage",
         }
 
         channels = partial_pattern_db.build_channels_from_selections(selections)
@@ -314,39 +307,30 @@ class TestNavigationWithOptionalLevels:
         assert options[0]["name"] == "Quads"
 
         # Sector level
-        options = jlab_db.get_options_at_level("sector", {
-            "system": "Magnets",
-            "family": "Quads"
-        })
+        options = jlab_db.get_options_at_level("sector", {"system": "Magnets", "family": "Quads"})
         assert len(options) == 1
         assert options[0]["name"] == "1L"
 
         # Device level
-        options = jlab_db.get_options_at_level("device", {
-            "system": "Magnets",
-            "family": "Quads",
-            "sector": "1L"
-        })
+        options = jlab_db.get_options_at_level(
+            "device", {"system": "Magnets", "family": "Quads", "sector": "1L"}
+        )
         assert len(options) == 1
         assert options[0]["name"] == "MQ1L01"
 
         # PV level (leaf)
-        options = jlab_db.get_options_at_level("pv", {
-            "system": "Magnets",
-            "family": "Quads",
-            "sector": "1L",
-            "device": "MQ1L01"
-        })
+        options = jlab_db.get_options_at_level(
+            "pv", {"system": "Magnets", "family": "Quads", "sector": "1L", "device": "MQ1L01"}
+        )
         assert len(options) == 2
         assert any(opt["name"] == "MQ1L01.S" for opt in options)
         assert any(opt["name"] == "MQ1L01M" for opt in options)
 
     def test_get_options_partial_pattern(self, partial_pattern_db):
         """Navigation should include location level even though not in pattern."""
-        options = partial_pattern_db.get_options_at_level("location", {
-            "system": "RF",
-            "subsystem": "Cavities"
-        })
+        options = partial_pattern_db.get_options_at_level(
+            "location", {"system": "RF", "subsystem": "Cavities"}
+        )
         assert len(options) == 1
         assert options[0]["name"] == "Hall-A"
 
@@ -374,29 +358,20 @@ class TestChannelPartFeature:
         """Tree key can be different from channel name component."""
         content = {
             "hierarchy": {
-                "levels": [
-                    {"name": "system", "type": "tree"},
-                    {"name": "signal", "type": "tree"}
-                ],
-                "naming_pattern": "{system}:{signal}"
+                "levels": [{"name": "system", "type": "tree"}, {"name": "signal", "type": "tree"}],
+                "naming_pattern": "{system}:{signal}",
             },
             "tree": {
                 "Magnets": {
                     "_channel_part": "MAG",
                     "_description": "Magnet system",
-                    "Current": {
-                        "_channel_part": "I",
-                        "_description": "Current signal"
-                    },
-                    "Voltage": {
-                        "_channel_part": "V",
-                        "_description": "Voltage signal"
-                    }
+                    "Current": {"_channel_part": "I", "_description": "Current signal"},
+                    "Voltage": {"_channel_part": "V", "_description": "Voltage signal"},
                 }
-            }
+            },
         }
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(content, f)
             db_path = f.name
 
@@ -418,9 +393,9 @@ class TestChannelPartFeature:
                 "levels": [
                     {"name": "system", "type": "tree"},
                     {"name": "device", "type": "tree"},
-                    {"name": "signal", "type": "tree"}
+                    {"name": "signal", "type": "tree"},
                 ],
-                "naming_pattern": "{system}:{device}:{signal}"
+                "naming_pattern": "{system}:{device}:{signal}",
             },
             "tree": {
                 "MAG": {
@@ -428,15 +403,13 @@ class TestChannelPartFeature:
                     "Dipole": {
                         "_channel_part": "DIP",  # Override
                         "_description": "Uses _channel_part DIP",
-                        "Current": {
-                            "_description": "Uses tree key Current"
-                        }
-                    }
+                        "Current": {"_description": "Uses tree key Current"},
+                    },
                 }
-            }
+            },
         }
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(content, f)
             db_path = f.name
 
@@ -455,9 +428,9 @@ class TestChannelPartFeature:
                 "levels": [
                     {"name": "category", "type": "tree"},
                     {"name": "system", "type": "tree"},
-                    {"name": "signal", "type": "tree"}
+                    {"name": "signal", "type": "tree"},
                 ],
-                "naming_pattern": "{system}:{signal}"  # category not in pattern
+                "naming_pattern": "{system}:{signal}",  # category not in pattern
             },
             "tree": {
                 "PowerSupplies": {
@@ -465,13 +438,13 @@ class TestChannelPartFeature:
                     "_description": "Power supply category",
                     "MAG": {
                         "_description": "Magnet power supplies",
-                        "Current": {"_description": "Current"}
-                    }
+                        "Current": {"_description": "Current"},
+                    },
                 }
-            }
+            },
         }
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(content, f)
             db_path = f.name
 
@@ -483,9 +456,9 @@ class TestChannelPartFeature:
 
             # Path includes all levels
             channel_data = db.channel_map["MAG:Current"]
-            assert channel_data['path']['category'] == ""
-            assert channel_data['path']['system'] == "MAG"
-            assert channel_data['path']['signal'] == "Current"
+            assert channel_data["path"]["category"] == ""
+            assert channel_data["path"]["system"] == "MAG"
+            assert channel_data["path"]["signal"] == "Current"
         finally:
             Path(db_path).unlink()
 
@@ -496,22 +469,22 @@ class TestChannelPartFeature:
                 "levels": [
                     {"name": "system", "type": "tree"},
                     {"name": "device", "type": "instances"},
-                    {"name": "signal", "type": "tree"}
+                    {"name": "signal", "type": "tree"},
                 ],
-                "naming_pattern": "{system}:{device}:{signal}"
+                "naming_pattern": "{system}:{device}:{signal}",
             },
             "tree": {
                 "Magnets": {
                     "_channel_part": "MAG",
                     "DEVICE": {
                         "_expansion": {"_type": "range", "_pattern": "D{:02d}", "_range": [1, 2]},
-                        "Current": {"_description": "Current"}
-                    }
+                        "Current": {"_description": "Current"},
+                    },
                 }
-            }
+            },
         }
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(content, f)
             db_path = f.name
 
@@ -531,9 +504,9 @@ class TestChannelPartFeature:
                     {"name": "system", "type": "tree"},
                     {"name": "family", "type": "tree"},
                     {"name": "location", "type": "tree"},
-                    {"name": "pv", "type": "tree"}
+                    {"name": "pv", "type": "tree"},
                 ],
-                "naming_pattern": "{pv}"
+                "naming_pattern": "{pv}",
             },
             "tree": {
                 "Magnets": {
@@ -542,19 +515,15 @@ class TestChannelPartFeature:
                         "_channel_part": "",  # Navigation only
                         "North Linac": {
                             "_channel_part": "",  # Navigation only
-                            "MQS1L02.S": {
-                                "_channel_part": "MQS1L02.S"  # Actual PV name
-                            },
-                            "MQS1L02M": {
-                                "_channel_part": "MQS1L02M"
-                            }
-                        }
-                    }
+                            "MQS1L02.S": {"_channel_part": "MQS1L02.S"},  # Actual PV name
+                            "MQS1L02M": {"_channel_part": "MQS1L02M"},
+                        },
+                    },
                 }
-            }
+            },
         }
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(content, f)
             db_path = f.name
 
@@ -577,21 +546,13 @@ class TestChannelPartFeature:
         """Databases without _channel_part use tree keys (backward compatible)."""
         content = {
             "hierarchy": {
-                "levels": [
-                    {"name": "system", "type": "tree"},
-                    {"name": "signal", "type": "tree"}
-                ],
-                "naming_pattern": "{system}:{signal}"
+                "levels": [{"name": "system", "type": "tree"}, {"name": "signal", "type": "tree"}],
+                "naming_pattern": "{system}:{signal}",
             },
-            "tree": {
-                "MAG": {
-                    "Current": {},
-                    "Voltage": {}
-                }
-            }
+            "tree": {"MAG": {"Current": {}, "Voltage": {}}},
         }
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(content, f)
             db_path = f.name
 
@@ -615,27 +576,23 @@ class TestBackwardCompatibility:
                 "levels": [
                     {"name": "system", "type": "tree"},
                     {"name": "device", "type": "instances"},
-                    {"name": "field", "type": "tree"}
+                    {"name": "field", "type": "tree"},
                 ],
-                "naming_pattern": "{system}:{device}:{field}"
+                "naming_pattern": "{system}:{device}:{field}",
             },
             "tree": {
                 "MAG": {
                     "_description": "Magnets",
                     "DEVICE": {
-                        "_expansion": {
-                            "_type": "range",
-                            "_pattern": "D{:02d}",
-                            "_range": [1, 2]
-                        },
+                        "_expansion": {"_type": "range", "_pattern": "D{:02d}", "_range": [1, 2]},
                         "Current": {"_description": "Current"},
-                        "Voltage": {"_description": "Voltage"}
-                    }
+                        "Voltage": {"_description": "Voltage"},
+                    },
                 }
-            }
+            },
         }
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(content, f)
             db_path = f.name
 
@@ -658,27 +615,23 @@ class TestAutomaticLeafDetection:
                 "levels": [
                     {"name": "system", "type": "tree"},
                     {"name": "signal", "type": "tree"},
-                    {"name": "suffix", "type": "tree", "optional": True}
+                    {"name": "suffix", "type": "tree", "optional": True},
                 ],
-                "naming_pattern": "{system}:{signal}_{suffix}"
+                "naming_pattern": "{system}:{signal}_{suffix}",
             },
             "tree": {
                 "MAG": {
                     "CURRENT": {
                         "_is_leaf": True,
                         "_description": "Base signal (has children, needs _is_leaf)",
-                        "RB": {
-                            "_description": "Readback (no children, automatic leaf)"
-                        },
-                        "SP": {
-                            "_description": "Setpoint (no children, automatic leaf)"
-                        }
+                        "RB": {"_description": "Readback (no children, automatic leaf)"},
+                        "SP": {"_description": "Setpoint (no children, automatic leaf)"},
                     }
                 }
-            }
+            },
         }
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(content, f)
             db_path = f.name
 
@@ -695,24 +648,21 @@ class TestAutomaticLeafDetection:
         """Nodes with only _metadata keys (starting with _) are automatic leaves."""
         content = {
             "hierarchy": {
-                "levels": [
-                    {"name": "system", "type": "tree"},
-                    {"name": "signal", "type": "tree"}
-                ],
-                "naming_pattern": "{system}:{signal}"
+                "levels": [{"name": "system", "type": "tree"}, {"name": "signal", "type": "tree"}],
+                "naming_pattern": "{system}:{signal}",
             },
             "tree": {
                 "MAG": {
                     "CURRENT": {
                         "_description": "Has only metadata - automatic leaf",
                         "_example": "MAG:CURRENT",
-                        "_units": "Amps"
+                        "_units": "Amps",
                     }
                 }
-            }
+            },
         }
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(content, f)
             db_path = f.name
 
@@ -735,21 +685,16 @@ class TestExplicitIsLeafMarker:
                 "levels": [
                     {"name": "system", "type": "tree"},
                     {"name": "device", "type": "tree"},
-                    {"name": "signal", "type": "tree", "optional": True}
+                    {"name": "signal", "type": "tree", "optional": True},
                 ],
-                "naming_pattern": "{system}:{device}:{signal}"
+                "naming_pattern": "{system}:{device}:{signal}",
             },
             "tree": {
-                "MAG": {
-                    "DEV01": {
-                        "_is_leaf": True,
-                        "_description": "Device is itself a channel"
-                    }
-                }
-            }
+                "MAG": {"DEV01": {"_is_leaf": True, "_description": "Device is itself a channel"}}
+            },
         }
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(content, f)
             db_path = f.name
 
@@ -768,27 +713,23 @@ class TestExplicitIsLeafMarker:
                 "levels": [
                     {"name": "system", "type": "tree"},
                     {"name": "signal", "type": "tree"},
-                    {"name": "suffix", "type": "tree", "optional": True}
+                    {"name": "suffix", "type": "tree", "optional": True},
                 ],
-                "naming_pattern": "{system}:{signal}_{suffix}"
+                "naming_pattern": "{system}:{signal}_{suffix}",
             },
             "tree": {
                 "MAG": {
                     "CURRENT": {
                         "_is_leaf": True,
                         "_description": "Base current signal (explicit _is_leaf needed - has children)",
-                        "RB": {
-                            "_description": "Readback (automatic leaf - no _is_leaf needed)"
-                        },
-                        "SP": {
-                            "_description": "Setpoint (automatic leaf - no _is_leaf needed)"
-                        }
+                        "RB": {"_description": "Readback (automatic leaf - no _is_leaf needed)"},
+                        "SP": {"_description": "Setpoint (automatic leaf - no _is_leaf needed)"},
                     }
                 }
-            }
+            },
         }
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(content, f)
             db_path = f.name
 
@@ -798,7 +739,9 @@ class TestExplicitIsLeafMarker:
             assert len(db.channel_map) == 3
 
             # Base signal (cleaned from "MAG:CURRENT_")
-            base_channels = [ch for ch in db.channel_map.keys() if ch.endswith("CURRENT") or ch == "MAG:CURRENT_"]
+            base_channels = [
+                ch for ch in db.channel_map.keys() if ch.endswith("CURRENT") or ch == "MAG:CURRENT_"
+            ]
             assert len(base_channels) >= 1
 
             # Suffixed signals
@@ -815,9 +758,9 @@ class TestExplicitIsLeafMarker:
                     {"name": "system", "type": "tree"},
                     {"name": "device", "type": "tree"},
                     {"name": "subdevice", "type": "tree", "optional": True},
-                    {"name": "signal", "type": "tree"}
+                    {"name": "signal", "type": "tree"},
                 ],
-                "naming_pattern": "{system}:{device}:{subdevice}:{signal}"
+                "naming_pattern": "{system}:{device}:{subdevice}:{signal}",
             },
             "tree": {
                 "SYS": {
@@ -829,14 +772,14 @@ class TestExplicitIsLeafMarker:
                             "_description": "Subdevice",
                             "SUB_SIGNAL": {
                                 "_description": "Signal from subdevice (automatic leaf)"
-                            }
-                        }
+                            },
+                        },
                     }
                 }
-            }
+            },
         }
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(content, f)
             db_path = f.name
 
@@ -866,20 +809,14 @@ class TestOptionalLevelsSeparatorCleanup:
                 "levels": [
                     {"name": "a", "type": "tree"},
                     {"name": "b", "type": "tree", "optional": True},
-                    {"name": "c", "type": "tree"}
+                    {"name": "c", "type": "tree"},
                 ],
-                "naming_pattern": "{a}:{b}:{c}"
+                "naming_pattern": "{a}:{b}:{c}",
             },
-            "tree": {
-                "A": {
-                    "C": {
-                        "_is_leaf": True
-                    }
-                }
-            }
+            "tree": {"A": {"C": {"_is_leaf": True}}},
         }
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(content, f)
             db_path = f.name
 
@@ -900,20 +837,14 @@ class TestOptionalLevelsSeparatorCleanup:
                 "levels": [
                     {"name": "a", "type": "tree"},
                     {"name": "b", "type": "tree"},
-                    {"name": "c", "type": "tree", "optional": True}
+                    {"name": "c", "type": "tree", "optional": True},
                 ],
-                "naming_pattern": "{a}:{b}_{c}"
+                "naming_pattern": "{a}:{b}_{c}",
             },
-            "tree": {
-                "A": {
-                    "B": {
-                        "_is_leaf": True
-                    }
-                }
-            }
+            "tree": {"A": {"B": {"_is_leaf": True}}},
         }
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(content, f)
             db_path = f.name
 
@@ -935,20 +866,14 @@ class TestOptionalLevelsSeparatorCleanup:
                     {"name": "sys", "type": "tree"},
                     {"name": "opt1", "type": "tree", "optional": True},
                     {"name": "opt2", "type": "tree", "optional": True},
-                    {"name": "sig", "type": "tree"}
+                    {"name": "sig", "type": "tree"},
                 ],
-                "naming_pattern": "{sys}:{opt1}:{opt2}:{sig}"
+                "naming_pattern": "{sys}:{opt1}:{opt2}:{sig}",
             },
-            "tree": {
-                "S": {
-                    "SIG": {
-                        "_is_leaf": True
-                    }
-                }
-            }
+            "tree": {"S": {"SIG": {"_is_leaf": True}}},
         }
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(content, f)
             db_path = f.name
 
@@ -975,36 +900,25 @@ class TestOptionalLevelsEdgeCases:
                     {"name": "system", "type": "tree"},
                     {"name": "device", "type": "instances"},
                     {"name": "signal", "type": "tree"},
-                    {"name": "suffix", "type": "instances", "optional": True}
+                    {"name": "suffix", "type": "instances", "optional": True},
                 ],
-                "naming_pattern": "{system}:{device}:{signal}_{suffix}"
+                "naming_pattern": "{system}:{device}:{signal}_{suffix}",
             },
             "tree": {
                 "SYS": {
                     "DEVICE": {
-                        "_expansion": {
-                            "_type": "range",
-                            "_pattern": "D{:02d}",
-                            "_range": [1, 2]
-                        },
-                        "SIG1": {
-                            "_description": "Signal without suffix (automatic leaf)"
-                        },
+                        "_expansion": {"_type": "range", "_pattern": "D{:02d}", "_range": [1, 2]},
+                        "SIG1": {"_description": "Signal without suffix (automatic leaf)"},
                         "SIG2": {
                             "_description": "Signal with suffixes (no base)",
-                            "SUFFIX": {
-                                "_expansion": {
-                                    "_type": "list",
-                                    "_instances": ["RB", "SP"]
-                                }
-                            }
-                        }
+                            "SUFFIX": {"_expansion": {"_type": "list", "_instances": ["RB", "SP"]}},
+                        },
                     }
                 }
-            }
+            },
         }
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(content, f)
             db_path = f.name
 
@@ -1034,18 +948,14 @@ class TestOptionalLevelsEdgeCases:
                 "levels": [
                     {"name": "system", "type": "tree"},
                     {"name": "optional_level", "type": "tree", "optional": True},
-                    {"name": "signal", "type": "tree"}
+                    {"name": "signal", "type": "tree"},
                 ],
-                "naming_pattern": "{system}:{signal}"  # Missing optional_level!
+                "naming_pattern": "{system}:{signal}",  # Missing optional_level!
             },
-            "tree": {
-                "SYS": {
-                    "SIG": {}
-                }
-            }
+            "tree": {"SYS": {"SIG": {}}},
         }
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(content, f)
             db_path = f.name
 
@@ -1065,32 +975,27 @@ class TestOptionalLevelsEdgeCases:
                     {"name": "device", "type": "instances"},
                     {"name": "subdevice", "type": "tree", "optional": True},
                     {"name": "signal", "type": "tree"},
-                    {"name": "suffix", "type": "tree", "optional": True}
+                    {"name": "suffix", "type": "tree", "optional": True},
                 ],
-                "naming_pattern": "{system}-{subsystem}:{device}:{subdevice}:{signal}_{suffix}"
+                "naming_pattern": "{system}-{subsystem}:{device}:{subdevice}:{signal}_{suffix}",
             },
             "tree": {
                 "SYS": {
                     "SUB": {
                         "DEVICE": {
-                            "_expansion": {
-                                "_type": "list",
-                                "_instances": ["D01"]
-                            },
+                            "_expansion": {"_type": "list", "_instances": ["D01"]},
                             "SIG": {
                                 "_is_leaf": True,
                                 "_description": "Base signal (explicit _is_leaf - has children)",
-                                "RB": {
-                                    "_description": "Readback (automatic leaf)"
-                                }
-                            }
+                                "RB": {"_description": "Readback (automatic leaf)"},
+                            },
                         }
                     }
                 }
-            }
+            },
         }
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(content, f)
             db_path = f.name
 
@@ -1106,4 +1011,3 @@ class TestOptionalLevelsEdgeCases:
                 assert not (ch.endswith("_") and not ch.endswith("_RB"))
         finally:
             Path(db_path).unlink()
-

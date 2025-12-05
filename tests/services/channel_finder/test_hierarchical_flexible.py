@@ -12,14 +12,14 @@ from pathlib import Path
 import pytest
 
 from osprey.templates.apps.control_assistant.services.channel_finder.databases.hierarchical import (
-    HierarchicalChannelDatabase
+    HierarchicalChannelDatabase,
 )
 
 
 # Test helper function to create temporary database files
 def create_temp_database(db_dict: dict) -> str:
     """Create a temporary JSON database file."""
-    temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+    temp_file = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
     json.dump(db_dict, temp_file)
     temp_file.flush()
     temp_file.close()
@@ -37,22 +37,18 @@ class TestBackwardCompatibility:
             "tree": {
                 "MAG": {
                     "DIPOLE": {
-                        "devices": {
-                            "_type": "range",
-                            "_pattern": "B{:02d}",
-                            "_range": [1, 3]
-                        },
+                        "devices": {"_type": "range", "_pattern": "B{:02d}", "_range": [1, 3]},
                         "fields": {
                             "CURRENT": {
                                 "subfields": {
                                     "SP": {"_description": "Setpoint"},
-                                    "RB": {"_description": "Readback"}
+                                    "RB": {"_description": "Readback"},
                                 }
                             }
-                        }
+                        },
                     }
                 }
-            }
+            },
         }
 
         db_path = create_temp_database(legacy_db)
@@ -61,8 +57,8 @@ class TestBackwardCompatibility:
             db = HierarchicalChannelDatabase(db_path)
 
             # Should auto-infer config
-            assert hasattr(db, 'hierarchy_config')
-            assert 'levels' in db.hierarchy_config
+            assert hasattr(db, "hierarchy_config")
+            assert "levels" in db.hierarchy_config
 
             # Should build channels correctly
             assert len(db.channel_map) == 6  # 3 devices × 2 subfields
@@ -83,21 +79,11 @@ class TestBackwardCompatibility:
             "tree": {
                 "MAG": {
                     "DIPOLE": {
-                        "devices": {
-                            "_type": "range",
-                            "_pattern": "B{:02d}",
-                            "_range": [1, 2]
-                        },
-                        "fields": {
-                            "CURRENT": {
-                                "subfields": {
-                                    "SP": {"_description": "Setpoint"}
-                                }
-                            }
-                        }
+                        "devices": {"_type": "range", "_pattern": "B{:02d}", "_range": [1, 2]},
+                        "fields": {"CURRENT": {"subfields": {"SP": {"_description": "Setpoint"}}}},
                     }
                 }
-            }
+            },
         }
 
         db_path = create_temp_database(legacy_db)
@@ -108,16 +94,16 @@ class TestBackwardCompatibility:
             # Test navigation at each level
             systems = db.get_options_at_level("system", {})
             assert len(systems) == 1
-            assert systems[0]['name'] == "MAG"
+            assert systems[0]["name"] == "MAG"
 
             families = db.get_options_at_level("family", {"system": "MAG"})
             assert len(families) == 1
-            assert families[0]['name'] == "DIPOLE"
+            assert families[0]["name"] == "DIPOLE"
 
             devices = db.get_options_at_level("device", {"system": "MAG", "family": "DIPOLE"})
             assert len(devices) == 2
-            assert devices[0]['name'] == "B01"
-            assert devices[1]['name'] == "B02"
+            assert devices[0]["name"] == "B01"
+            assert devices[1]["name"] == "B02"
 
         finally:
             Path(db_path).unlink()
@@ -135,7 +121,7 @@ class TestMixedInstanceTree:
                 "levels": {
                     "line": {"type": "instances"},
                     "station": {"type": "tree"},
-                    "parameter": {"type": "tree"}
+                    "parameter": {"type": "tree"},
                 }
             },
             "tree": {
@@ -143,14 +129,14 @@ class TestMixedInstanceTree:
                     "_expansion": {"_type": "range", "_pattern": "{}", "_range": [1, 3]},
                     "ASSEMBLY": {
                         "SPEED": {"_description": "Line speed"},
-                        "STATUS": {"_description": "Status"}
+                        "STATUS": {"_description": "Status"},
                     },
                     "INSPECTION": {
                         "PASS_COUNT": {"_description": "Passed"},
-                        "FAIL_COUNT": {"_description": "Failed"}
-                    }
+                        "FAIL_COUNT": {"_description": "Failed"},
+                    },
                 }
-            }
+            },
         }
 
         db_path = create_temp_database(production_db)
@@ -164,31 +150,33 @@ class TestMixedInstanceTree:
             # Test navigation - line level should generate instances
             lines = db.get_options_at_level("line", {})
             assert len(lines) == 3
-            assert lines[0]['name'] == "1"
-            assert lines[1]['name'] == "2"
-            assert lines[2]['name'] == "3"
+            assert lines[0]["name"] == "1"
+            assert lines[1]["name"] == "2"
+            assert lines[2]["name"] == "3"
 
             # Station level should show tree categories (same for all lines)
             stations = db.get_options_at_level("station", {"line": "1"})
             assert len(stations) == 2
-            assert stations[0]['name'] == "ASSEMBLY"
-            assert stations[1]['name'] == "INSPECTION"
+            assert stations[0]["name"] == "ASSEMBLY"
+            assert stations[1]["name"] == "INSPECTION"
 
             # Parameter level depends on station
-            params_assembly = db.get_options_at_level("parameter", {"line": "1", "station": "ASSEMBLY"})
+            params_assembly = db.get_options_at_level(
+                "parameter", {"line": "1", "station": "ASSEMBLY"}
+            )
             assert len(params_assembly) == 2
-            assert {p['name'] for p in params_assembly} == {"SPEED", "STATUS"}
+            assert {p["name"] for p in params_assembly} == {"SPEED", "STATUS"}
 
-            params_inspection = db.get_options_at_level("parameter", {"line": "1", "station": "INSPECTION"})
+            params_inspection = db.get_options_at_level(
+                "parameter", {"line": "1", "station": "INSPECTION"}
+            )
             assert len(params_inspection) == 2
-            assert {p['name'] for p in params_inspection} == {"PASS_COUNT", "FAIL_COUNT"}
+            assert {p["name"] for p in params_inspection} == {"PASS_COUNT", "FAIL_COUNT"}
 
             # Test channel generation
-            channels = db.build_channels_from_selections({
-                "line": ["1", "2"],
-                "station": "ASSEMBLY",
-                "parameter": "SPEED"
-            })
+            channels = db.build_channels_from_selections(
+                {"line": ["1", "2"], "station": "ASSEMBLY", "parameter": "SPEED"}
+            )
             assert len(channels) == 2
             assert "LINE1:ASSEMBLY:SPEED" in channels
             assert "LINE2:ASSEMBLY:SPEED" in channels
@@ -207,7 +195,7 @@ class TestMixedInstanceTree:
                     "building": {"type": "tree"},
                     "floor": {"type": "instances"},
                     "room": {"type": "instances"},
-                    "equipment": {"type": "tree"}
+                    "equipment": {"type": "tree"},
                 }
             },
             "tree": {
@@ -218,14 +206,18 @@ class TestMixedInstanceTree:
                         "FLOOR": {
                             "_expansion": {"_type": "range", "_pattern": "{}", "_range": [1, 2]},
                             "ROOM": {
-                                "_expansion": {"_type": "range", "_pattern": "{:03d}", "_range": [101, 102]},
+                                "_expansion": {
+                                    "_type": "range",
+                                    "_pattern": "{:03d}",
+                                    "_range": [101, 102],
+                                },
                                 "HVAC": {"_description": "Climate control"},
-                                "LIGHTING": {"_description": "Lighting"}
-                            }
-                        }
-                    }
+                                "LIGHTING": {"_description": "Lighting"},
+                            },
+                        },
+                    },
                 }
-            }
+            },
         }
 
         db_path = create_temp_database(building_db)
@@ -245,33 +237,29 @@ class TestMixedInstanceTree:
             buildings_s02 = db.get_options_at_level("building", {"sector": "02"})
             assert buildings_s01 == buildings_s02
             assert len(buildings_s01) == 1
-            assert buildings_s01[0]['name'] == "MAIN_BUILDING"
+            assert buildings_s01[0]["name"] == "MAIN_BUILDING"
 
             # Floor level - also same for any sector (because it's after building)
             floors = db.get_options_at_level("floor", {"sector": "01", "building": "MAIN_BUILDING"})
             assert len(floors) == 2
-            assert floors[0]['name'] == "1"
-            assert floors[1]['name'] == "2"
+            assert floors[0]["name"] == "1"
+            assert floors[1]["name"] == "2"
 
             # Room level - consecutive instance level
-            rooms = db.get_options_at_level("room", {
-                "sector": "01",
-                "building": "MAIN_BUILDING",
-                "floor": "1"
-            })
+            rooms = db.get_options_at_level(
+                "room", {"sector": "01", "building": "MAIN_BUILDING", "floor": "1"}
+            )
             assert len(rooms) == 2
-            assert rooms[0]['name'] == "101"
-            assert rooms[1]['name'] == "102"
+            assert rooms[0]["name"] == "101"
+            assert rooms[1]["name"] == "102"
 
             # Equipment level
-            equipment = db.get_options_at_level("equipment", {
-                "sector": "01",
-                "building": "MAIN_BUILDING",
-                "floor": "1",
-                "room": "101"
-            })
+            equipment = db.get_options_at_level(
+                "equipment",
+                {"sector": "01", "building": "MAIN_BUILDING", "floor": "1", "room": "101"},
+            )
             assert len(equipment) == 2
-            assert {e['name'] for e in equipment} == {"HVAC", "LIGHTING"}
+            assert {e["name"] for e in equipment} == {"HVAC", "LIGHTING"}
 
             # Verify specific channel exists
             assert db.validate_channel("S01:MAIN_BUILDING:F1:R101:HVAC")
@@ -291,15 +279,14 @@ class TestMultipleConsecutiveInstances:
             "hierarchy_definition": ["floor", "room"],
             "naming_pattern": "F{floor}:R{room}",
             "hierarchy_config": {
-                "levels": {
-                    "floor": {"type": "instances"},
-                    "room": {"type": "instances"}
-                }
+                "levels": {"floor": {"type": "instances"}, "room": {"type": "instances"}}
             },
             "tree": {
                 "FLOOR": {"_expansion": {"_type": "range", "_pattern": "{}", "_range": [1, 2]}},
-                "ROOM": {"_expansion": {"_type": "range", "_pattern": "{:03d}", "_range": [101, 102]}}
-            }
+                "ROOM": {
+                    "_expansion": {"_type": "range", "_pattern": "{:03d}", "_range": [101, 102]}
+                },
+            },
         }
 
         db_path = create_temp_database(bad_db)
@@ -319,19 +306,23 @@ class TestMultipleConsecutiveInstances:
                 "levels": {
                     "floor": {"type": "instances"},
                     "room": {"type": "instances"},
-                    "equipment": {"type": "tree"}
+                    "equipment": {"type": "tree"},
                 }
             },
             "tree": {
                 "FLOOR": {
                     "_expansion": {"_type": "range", "_pattern": "{}", "_range": [1, 2]},
                     "ROOM": {
-                        "_expansion": {"_type": "range", "_pattern": "{:03d}", "_range": [101, 102]},
+                        "_expansion": {
+                            "_type": "range",
+                            "_pattern": "{:03d}",
+                            "_range": [101, 102],
+                        },
                         "HVAC": {"_description": "Climate"},
-                        "LIGHTS": {"_description": "Lighting"}
-                    }
+                        "LIGHTS": {"_description": "Lighting"},
+                    },
                 }
-            }
+            },
         }
 
         db_path = create_temp_database(good_db)
@@ -359,18 +350,15 @@ class TestInstanceFirstLevel:
             "hierarchy_definition": ["line", "station"],
             "naming_pattern": "LINE{line}:{station}",
             "hierarchy_config": {
-                "levels": {
-                    "line": {"type": "instances"},
-                    "station": {"type": "tree"}
-                }
+                "levels": {"line": {"type": "instances"}, "station": {"type": "tree"}}
             },
             "tree": {
                 "LINE": {
                     "_expansion": {"_type": "list", "_instances": ["A", "B", "C"]},
                     "ASSEMBLY": {"_description": "Assembly station"},
-                    "PACKAGING": {"_description": "Packaging station"}
+                    "PACKAGING": {"_description": "Packaging station"},
                 }
-            }
+            },
         }
 
         db_path = create_temp_database(db_dict)
@@ -384,12 +372,12 @@ class TestInstanceFirstLevel:
             # Test navigation at first level
             lines = db.get_options_at_level("line", {})
             assert len(lines) == 3
-            assert {line['name'] for line in lines} == {"A", "B", "C"}
+            assert {line["name"] for line in lines} == {"A", "B", "C"}
 
             # Station level should be same for all lines
             stations = db.get_options_at_level("station", {"line": "A"})
             assert len(stations) == 2
-            assert {s['name'] for s in stations} == {"ASSEMBLY", "PACKAGING"}
+            assert {s["name"] for s in stations} == {"ASSEMBLY", "PACKAGING"}
 
         finally:
             Path(db_path).unlink()
@@ -404,23 +392,17 @@ class TestCartesianProduct:
             "hierarchy_definition": ["a", "b", "c"],
             "naming_pattern": "{a}:{b}:{c}",
             "hierarchy_config": {
-                "levels": {
-                    "a": {"type": "tree"},
-                    "b": {"type": "tree"},
-                    "c": {"type": "tree"}
-                }
+                "levels": {"a": {"type": "tree"}, "b": {"type": "tree"}, "c": {"type": "tree"}}
             },
             "tree": {
                 "A1": {
                     "B1": {
                         "C1": {"_description": "Option C1"},
-                        "C2": {"_description": "Option C2"}
+                        "C2": {"_description": "Option C2"},
                     },
-                    "B2": {
-                        "C3": {"_description": "Option C3"}
-                    }
+                    "B2": {"C3": {"_description": "Option C3"}},
                 }
-            }
+            },
         }
 
         db_path = create_temp_database(db_dict)
@@ -429,11 +411,9 @@ class TestCartesianProduct:
             db = HierarchicalChannelDatabase(db_path)
 
             # Test full cartesian product
-            channels = db.build_channels_from_selections({
-                "a": "A1",
-                "b": ["B1", "B2"],
-                "c": ["C1", "C2", "C3"]
-            })
+            channels = db.build_channels_from_selections(
+                {"a": "A1", "b": ["B1", "B2"], "c": ["C1", "C2", "C3"]}
+            )
 
             # Should get all combinations: A1:B1:C1, A1:B1:C2, A1:B2:C1, A1:B2:C2, A1:B2:C3
             # But only A1:B1:C1, A1:B1:C2, A1:B2:C3 are valid in the tree
@@ -441,11 +421,7 @@ class TestCartesianProduct:
             assert len(channels) == 6
 
             # Test with instances
-            channels2 = db.build_channels_from_selections({
-                "a": ["A1"],
-                "b": "B1",
-                "c": "C1"
-            })
+            channels2 = db.build_channels_from_selections({"a": ["A1"], "b": "B1", "c": "C1"})
             assert len(channels2) == 1
             assert channels2[0] == "A1:B1:C1"
 
@@ -465,7 +441,7 @@ class TestNavigationSkipsInstances:
                 "levels": {
                     "sector": {"type": "instances"},
                     "building": {"type": "tree"},
-                    "floor": {"type": "tree"}
+                    "floor": {"type": "tree"},
                 }
             },
             "tree": {
@@ -473,13 +449,11 @@ class TestNavigationSkipsInstances:
                     "_expansion": {"_type": "range", "_pattern": "{:02d}", "_range": [1, 2]},
                     "BUILDING_A": {
                         "FLOOR_1": {"_description": "First floor"},
-                        "FLOOR_2": {"_description": "Second floor"}
+                        "FLOOR_2": {"_description": "Second floor"},
                     },
-                    "BUILDING_B": {
-                        "FLOOR_G": {"_description": "Ground floor"}
-                    }
+                    "BUILDING_B": {"FLOOR_G": {"_description": "Ground floor"}},
                 }
-            }
+            },
         }
 
         db_path = create_temp_database(db_dict)
@@ -493,7 +467,7 @@ class TestNavigationSkipsInstances:
 
             assert buildings_s01 == buildings_s02
             assert len(buildings_s01) == 2
-            assert {b['name'] for b in buildings_s01} == {"BUILDING_A", "BUILDING_B"}
+            assert {b["name"] for b in buildings_s01} == {"BUILDING_A", "BUILDING_B"}
 
             # Floor options depend on building, not sector
             floors_a = db.get_options_at_level("floor", {"sector": "01", "building": "BUILDING_A"})
@@ -514,20 +488,12 @@ class TestExpansionTypes:
         db_dict = {
             "hierarchy_definition": ["device"],
             "naming_pattern": "{device}",
-            "hierarchy_config": {
-                "levels": {
-                    "device": {"type": "instances"}
-                }
-            },
+            "hierarchy_config": {"levels": {"device": {"type": "instances"}}},
             "tree": {
                 "DEVICE": {
-                    "_expansion": {
-                        "_type": "range",
-                        "_pattern": "DEV{:03d}",
-                        "_range": [5, 7]
-                    }
+                    "_expansion": {"_type": "range", "_pattern": "DEV{:03d}", "_range": [5, 7]}
                 }
-            }
+            },
         }
 
         db_path = create_temp_database(db_dict)
@@ -537,9 +503,9 @@ class TestExpansionTypes:
 
             devices = db.get_options_at_level("device", {})
             assert len(devices) == 3
-            assert devices[0]['name'] == "DEV005"
-            assert devices[1]['name'] == "DEV006"
-            assert devices[2]['name'] == "DEV007"
+            assert devices[0]["name"] == "DEV005"
+            assert devices[1]["name"] == "DEV006"
+            assert devices[2]["name"] == "DEV007"
 
         finally:
             Path(db_path).unlink()
@@ -549,19 +515,12 @@ class TestExpansionTypes:
         db_dict = {
             "hierarchy_definition": ["server"],
             "naming_pattern": "{server}",
-            "hierarchy_config": {
-                "levels": {
-                    "server": {"type": "instances"}
-                }
-            },
+            "hierarchy_config": {"levels": {"server": {"type": "instances"}}},
             "tree": {
                 "SERVER": {
-                    "_expansion": {
-                        "_type": "list",
-                        "_instances": ["MAIN", "BACKUP", "TEST"]
-                    }
+                    "_expansion": {"_type": "list", "_instances": ["MAIN", "BACKUP", "TEST"]}
                 }
-            }
+            },
         }
 
         db_path = create_temp_database(db_dict)
@@ -571,7 +530,7 @@ class TestExpansionTypes:
 
             servers = db.get_options_at_level("server", {})
             assert len(servers) == 3
-            assert {s['name'] for s in servers} == {"MAIN", "BACKUP", "TEST"}
+            assert {s["name"] for s in servers} == {"MAIN", "BACKUP", "TEST"}
 
         finally:
             Path(db_path).unlink()
@@ -586,7 +545,7 @@ class TestValidation:
             "hierarchy_definition": ["level1"],
             "naming_pattern": "{level1}",
             "hierarchy_config": {},  # Missing 'levels'
-            "tree": {}
+            "tree": {},
         }
 
         db_path = create_temp_database(bad_db)
@@ -608,7 +567,7 @@ class TestValidation:
                     # Missing level2!
                 }
             },
-            "tree": {}
+            "tree": {},
         }
 
         db_path = create_temp_database(bad_db)
@@ -624,12 +583,8 @@ class TestValidation:
         bad_db = {
             "hierarchy_definition": ["level1"],
             "naming_pattern": "{level1}",
-            "hierarchy_config": {
-                "levels": {
-                    "level1": {}  # Missing type!
-                }
-            },
-            "tree": {}
+            "hierarchy_config": {"levels": {"level1": {}}},  # Missing type!
+            "tree": {},
         }
 
         db_path = create_temp_database(bad_db)
@@ -645,12 +600,8 @@ class TestValidation:
         bad_db = {
             "hierarchy_definition": ["level1"],
             "naming_pattern": "{level1}",
-            "hierarchy_config": {
-                "levels": {
-                    "level1": {"type": "invalid"}
-                }
-            },
-            "tree": {}
+            "hierarchy_config": {"levels": {"level1": {"type": "invalid"}}},
+            "tree": {},
         }
 
         db_path = create_temp_database(bad_db)
@@ -666,14 +617,8 @@ class TestValidation:
         bad_db = {
             "hierarchy_definition": ["device"],
             "naming_pattern": "{device}",
-            "hierarchy_config": {
-                "levels": {
-                    "device": {"type": "instances"}
-                }
-            },
-            "tree": {
-                "DEVICE": {"CHILD": {}}  # Has child but missing _expansion!
-            }
+            "hierarchy_config": {"levels": {"device": {"type": "instances"}}},
+            "tree": {"DEVICE": {"CHILD": {}}},  # Has child but missing _expansion!
         }
 
         db_path = create_temp_database(bad_db)
@@ -689,16 +634,8 @@ class TestValidation:
         bad_db = {
             "hierarchy_definition": ["device"],
             "naming_pattern": "{device}",
-            "hierarchy_config": {
-                "levels": {
-                    "device": {"type": "instances"}
-                }
-            },
-            "tree": {
-                "DEVICE": {
-                    "_expansion": {"_type": "invalid"}
-                }
-            }
+            "hierarchy_config": {"levels": {"device": {"type": "instances"}}},
+            "tree": {"DEVICE": {"_expansion": {"_type": "invalid"}}},
         }
 
         db_path = create_temp_database(bad_db)
@@ -715,14 +652,8 @@ class TestValidation:
         bad_db1 = {
             "hierarchy_definition": ["device"],
             "naming_pattern": "{device}",
-            "hierarchy_config": {
-                "levels": {"device": {"type": "instances"}}
-            },
-            "tree": {
-                "DEVICE": {
-                    "_expansion": {"_type": "range", "_range": [1, 10]}
-                }
-            }
+            "hierarchy_config": {"levels": {"device": {"type": "instances"}}},
+            "tree": {"DEVICE": {"_expansion": {"_type": "range", "_range": [1, 10]}}},
         }
 
         db_path1 = create_temp_database(bad_db1)
@@ -737,14 +668,8 @@ class TestValidation:
         bad_db2 = {
             "hierarchy_definition": ["device"],
             "naming_pattern": "{device}",
-            "hierarchy_config": {
-                "levels": {"device": {"type": "instances"}}
-            },
-            "tree": {
-                "DEVICE": {
-                    "_expansion": {"_type": "range", "_pattern": "{}"}
-                }
-            }
+            "hierarchy_config": {"levels": {"device": {"type": "instances"}}},
+            "tree": {"DEVICE": {"_expansion": {"_type": "range", "_pattern": "{}"}}},
         }
 
         db_path2 = create_temp_database(bad_db2)
@@ -760,14 +685,8 @@ class TestValidation:
         bad_db = {
             "hierarchy_definition": ["device"],
             "naming_pattern": "{device}",
-            "hierarchy_config": {
-                "levels": {"device": {"type": "instances"}}
-            },
-            "tree": {
-                "DEVICE": {
-                    "_expansion": {"_type": "list"}
-                }
-            }
+            "hierarchy_config": {"levels": {"device": {"type": "instances"}}},
+            "tree": {"DEVICE": {"_expansion": {"_type": "list"}}},
         }
 
         db_path = create_temp_database(bad_db)
@@ -791,7 +710,7 @@ class TestEdgeCases:
                 "levels": {
                     "rack": {"type": "instances"},
                     "shelf": {"type": "instances"},
-                    "slot": {"type": "instances"}
+                    "slot": {"type": "instances"},
                 }
             },
             "tree": {
@@ -801,10 +720,10 @@ class TestEdgeCases:
                         "_expansion": {"_type": "range", "_pattern": "{}", "_range": [1, 2]},
                         "SLOT": {
                             "_expansion": {"_type": "range", "_pattern": "{:02d}", "_range": [1, 3]}
-                        }
-                    }
+                        },
+                    },
                 }
-            }
+            },
         }
 
         db_path = create_temp_database(db_dict)
@@ -831,20 +750,18 @@ class TestEdgeCases:
                 "levels": {
                     "building": {"type": "tree"},
                     "wing": {"type": "tree"},
-                    "type": {"type": "tree"}
+                    "type": {"type": "tree"},
                 }
             },
             "tree": {
                 "MAIN": {
                     "NORTH": {
                         "OFFICE": {"_description": "Office space"},
-                        "LAB": {"_description": "Laboratory"}
+                        "LAB": {"_description": "Laboratory"},
                     },
-                    "SOUTH": {
-                        "STORAGE": {"_description": "Storage area"}
-                    }
+                    "SOUTH": {"STORAGE": {"_description": "Storage area"}},
                 }
-            }
+            },
         }
 
         db_path = create_temp_database(db_dict)
@@ -867,16 +784,10 @@ class TestEdgeCases:
         db_dict = {
             "hierarchy_definition": ["device"],
             "naming_pattern": "DEV_{device}",
-            "hierarchy_config": {
-                "levels": {
-                    "device": {"type": "instances"}
-                }
-            },
+            "hierarchy_config": {"levels": {"device": {"type": "instances"}}},
             "tree": {
-                "DEVICE": {
-                    "_expansion": {"_type": "range", "_pattern": "{:02d}", "_range": [1, 3]}
-                }
-            }
+                "DEVICE": {"_expansion": {"_type": "range", "_pattern": "{:02d}", "_range": [1, 3]}}
+            },
         }
 
         db_path = create_temp_database(db_dict)
@@ -897,15 +808,11 @@ class TestEdgeCases:
         db_dict = {
             "hierarchy_definition": ["system"],
             "naming_pattern": "{system}",
-            "hierarchy_config": {
-                "levels": {
-                    "system": {"type": "tree"}
-                }
-            },
+            "hierarchy_config": {"levels": {"system": {"type": "tree"}}},
             "tree": {
                 "SYSTEM_A": {"_description": "System A"},
-                "SYSTEM_B": {"_description": "System B"}
-            }
+                "SYSTEM_B": {"_description": "System B"},
+            },
         }
 
         db_path = create_temp_database(db_dict)
@@ -929,18 +836,16 @@ class TestRangeValidation:
         bad_db = {
             "hierarchy_definition": ["device"],
             "naming_pattern": "{device}",
-            "hierarchy_config": {
-                "levels": {"device": {"type": "instances"}}
-            },
+            "hierarchy_config": {"levels": {"device": {"type": "instances"}}},
             "tree": {
                 "DEVICE": {
                     "_expansion": {
                         "_type": "range",
                         "_pattern": "{}",
-                        "_range": [1, 2, 3]  # Too many elements!
+                        "_range": [1, 2, 3],  # Too many elements!
                     }
                 }
-            }
+            },
         }
 
         db_path = create_temp_database(bad_db)
@@ -956,18 +861,16 @@ class TestRangeValidation:
         bad_db = {
             "hierarchy_definition": ["device"],
             "naming_pattern": "{device}",
-            "hierarchy_config": {
-                "levels": {"device": {"type": "instances"}}
-            },
+            "hierarchy_config": {"levels": {"device": {"type": "instances"}}},
             "tree": {
                 "DEVICE": {
                     "_expansion": {
                         "_type": "range",
                         "_pattern": "{}",
-                        "_range": ["1", "10"]  # Strings instead of ints!
+                        "_range": ["1", "10"],  # Strings instead of ints!
                     }
                 }
-            }
+            },
         }
 
         db_path = create_temp_database(bad_db)
@@ -983,18 +886,16 @@ class TestRangeValidation:
         bad_db = {
             "hierarchy_definition": ["device"],
             "naming_pattern": "{device}",
-            "hierarchy_config": {
-                "levels": {"device": {"type": "instances"}}
-            },
+            "hierarchy_config": {"levels": {"device": {"type": "instances"}}},
             "tree": {
                 "DEVICE": {
                     "_expansion": {
                         "_type": "range",
                         "_pattern": "{}",
-                        "_range": [10, 1]  # End < start!
+                        "_range": [10, 1],  # End < start!
                     }
                 }
-            }
+            },
         }
 
         db_path = create_temp_database(bad_db)
@@ -1012,7 +913,16 @@ class TestComplexHierarchies:
     def test_deep_hierarchy(self):
         """Test deep hierarchy (8 levels)."""
         deep_db = {
-            "hierarchy_definition": ["region", "site", "building", "floor", "room", "rack", "device", "channel"],
+            "hierarchy_definition": [
+                "region",
+                "site",
+                "building",
+                "floor",
+                "room",
+                "rack",
+                "device",
+                "channel",
+            ],
             "naming_pattern": "{region}:{site}:{building}:F{floor}:R{room}:RACK{rack}:{device}:{channel}",
             "hierarchy_config": {
                 "levels": {
@@ -1023,7 +933,7 @@ class TestComplexHierarchies:
                     "room": {"type": "instances"},
                     "rack": {"type": "instances"},
                     "device": {"type": "tree"},
-                    "channel": {"type": "tree"}
+                    "channel": {"type": "tree"},
                 }
             },
             "tree": {
@@ -1031,22 +941,34 @@ class TestComplexHierarchies:
                     "SITE_A": {
                         "BLDG_1": {
                             "FLOOR": {
-                                "_expansion": {"_type": "range", "_pattern": "{}", "_range": [1, 2]},
+                                "_expansion": {
+                                    "_type": "range",
+                                    "_pattern": "{}",
+                                    "_range": [1, 2],
+                                },
                                 "ROOM": {
-                                    "_expansion": {"_type": "range", "_pattern": "{:03d}", "_range": [101, 102]},
+                                    "_expansion": {
+                                        "_type": "range",
+                                        "_pattern": "{:03d}",
+                                        "_range": [101, 102],
+                                    },
                                     "RACK": {
-                                        "_expansion": {"_type": "range", "_pattern": "{}", "_range": [1, 2]},
+                                        "_expansion": {
+                                            "_type": "range",
+                                            "_pattern": "{}",
+                                            "_range": [1, 2],
+                                        },
                                         "SERVER": {
                                             "TEMP": {"_description": "Temperature"},
-                                            "POWER": {"_description": "Power"}
-                                        }
-                                    }
-                                }
+                                            "POWER": {"_description": "Power"},
+                                        },
+                                    },
+                                },
                             }
                         }
                     }
                 }
-            }
+            },
         }
 
         db_path = create_temp_database(deep_db)
@@ -1074,18 +996,18 @@ class TestNamingPatternValidation:
                 "levels": [
                     {"name": "system", "type": "tree"},
                     {"name": "device", "type": "instances"},
-                    {"name": "field", "type": "tree"}
+                    {"name": "field", "type": "tree"},
                 ],
-                "naming_pattern": "{system}:{device}:{field}"
+                "naming_pattern": "{system}:{device}:{field}",
             },
             "tree": {
                 "SYS1": {
                     "DEVICE": {
                         "_expansion": {"_type": "range", "_pattern": "D{:02d}", "_range": [1, 2]},
-                        "FIELD1": {"_description": "Field 1"}
+                        "FIELD1": {"_description": "Field 1"},
                     }
                 }
-            }
+            },
         }
 
         db_path = create_temp_database(good_db)
@@ -1103,18 +1025,18 @@ class TestNamingPatternValidation:
                 "levels": [
                     {"name": "system", "type": "tree"},
                     {"name": "device", "type": "instances"},
-                    {"name": "field", "type": "tree"}
+                    {"name": "field", "type": "tree"},
                 ],
-                "naming_pattern": "{system}:{field}"  # Device level not in pattern (navigation-only)
+                "naming_pattern": "{system}:{field}",  # Device level not in pattern (navigation-only)
             },
             "tree": {
                 "SYS1": {
                     "DEVICE": {
                         "_expansion": {"_type": "range", "_pattern": "{:02d}", "_range": [1, 1]},
-                        "FIELD1": {"_description": "Field 1"}
+                        "FIELD1": {"_description": "Field 1"},
                     }
                 }
-            }
+            },
         }
 
         db_path = create_temp_database(good_db)
@@ -1132,13 +1054,10 @@ class TestNamingPatternValidation:
         """Naming pattern with extra undefined level should raise error."""
         bad_db = {
             "hierarchy": {
-                "levels": [
-                    {"name": "system", "type": "tree"},
-                    {"name": "field", "type": "tree"}
-                ],
-                "naming_pattern": "{system}:{device}:{field}"  # Extra {device}!
+                "levels": [{"name": "system", "type": "tree"}, {"name": "field", "type": "tree"}],
+                "naming_pattern": "{system}:{device}:{field}",  # Extra {device}!
             },
-            "tree": {}
+            "tree": {},
         }
 
         db_path = create_temp_database(bad_db)
@@ -1156,11 +1075,11 @@ class TestNamingPatternValidation:
                 "levels": [
                     {"name": "system", "type": "tree"},
                     {"name": "device", "type": "instances"},
-                    {"name": "field", "type": "tree"}
+                    {"name": "field", "type": "tree"},
                 ],
-                "naming_pattern": "{system}:{devices}:{field}"  # Typo: devices vs device
+                "naming_pattern": "{system}:{devices}:{field}",  # Typo: devices vs device
             },
-            "tree": {}
+            "tree": {},
         }
 
         db_path = create_temp_database(bad_db)
@@ -1178,18 +1097,18 @@ class TestNamingPatternValidation:
                 "levels": [
                     {"name": "system", "type": "tree"},
                     {"name": "device", "type": "instances"},
-                    {"name": "field", "type": "tree"}
+                    {"name": "field", "type": "tree"},
                 ],
-                "naming_pattern": "{field}-{system}-{device}"  # Different order, but all present
+                "naming_pattern": "{field}-{system}-{device}",  # Different order, but all present
             },
             "tree": {
                 "SYS1": {
                     "DEVICE": {
                         "_expansion": {"_type": "range", "_pattern": "{:02d}", "_range": [1, 2]},
-                        "FIELD1": {"_description": "Field 1"}
+                        "FIELD1": {"_description": "Field 1"},
                     }
                 }
-            }
+            },
         }
 
         db_path = create_temp_database(good_db)
@@ -1212,17 +1131,17 @@ class TestNamingPatternValidation:
                 "levels": {
                     "system": {"type": "tree"},
                     "device": {"type": "instances"},
-                    "field": {"type": "tree"}
+                    "field": {"type": "tree"},
                 }
             },
             "tree": {
                 "SYS1": {
                     "DEVICE": {
                         "_expansion": {"_type": "range", "_pattern": "{:02d}", "_range": [1, 1]},
-                        "FIELD1": {"_description": "Field 1"}
+                        "FIELD1": {"_description": "Field 1"},
                     }
                 }
-            }
+            },
         }
 
         db_path = create_temp_database(legacy_db)
@@ -1233,4 +1152,3 @@ class TestNamingPatternValidation:
                 HierarchicalChannelDatabase(db_path)
         finally:
             Path(db_path).unlink()
-

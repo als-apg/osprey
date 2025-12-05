@@ -5,40 +5,39 @@ This module provides the base interfaces and data structures used across
 all pipeline implementations.
 """
 
+from .base_database import BaseDatabase
+from .base_pipeline import BasePipeline
 from .exceptions import (
     ChannelFinderError,
-    PipelineModeError,
-    DatabaseLoadError,
     ConfigurationError,
+    DatabaseLoadError,
     HierarchicalNavigationError,
-    QueryProcessingError
+    PipelineModeError,
+    QueryProcessingError,
 )
-from .base_pipeline import BasePipeline
-from .base_database import BaseDatabase
 from .models import (
-    QuerySplitterOutput,
-    ChannelMatchOutput,
     ChannelCorrectionOutput,
+    ChannelFinderResult,
     ChannelInfo,
-    ChannelFinderResult
+    ChannelMatchOutput,
+    QuerySplitterOutput,
 )
 
 __all__ = [
     # Exceptions
-    'ChannelFinderError',
-    'PipelineModeError',
-    'DatabaseLoadError',
-    'ConfigurationError',
-    'HierarchicalNavigationError',
-    'QueryProcessingError',
+    "ChannelFinderError",
+    "PipelineModeError",
+    "DatabaseLoadError",
+    "ConfigurationError",
+    "HierarchicalNavigationError",
+    "QueryProcessingError",
     # Base classes
-    'BasePipeline',
-    'BaseDatabase',
+    "BasePipeline",
+    "BaseDatabase",
     # Models
-    'QuerySplitterOutput',
-    'ChannelMatchOutput',
-    'ChannelCorrectionOutput',
-    'ChannelInfo',
-    'ChannelFinderResult',
+    "QuerySplitterOutput",
+    "ChannelMatchOutput",
+    "ChannelCorrectionOutput",
+    "ChannelInfo",
+    "ChannelFinderResult",
 ]
-

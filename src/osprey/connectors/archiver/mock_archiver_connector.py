@@ -58,8 +58,8 @@ class MockArchiverConnector(ArchiverConnector):
                 - sample_rate_hz: Sampling rate (default: 1.0)
                 - noise_level: Relative noise level (default: 0.1)
         """
-        self._sample_rate_hz = config.get('sample_rate_hz', 1.0)
-        self._noise_level = config.get('noise_level', 0.1)
+        self._sample_rate_hz = config.get("sample_rate_hz", 1.0)
+        self._noise_level = config.get("noise_level", 0.1)
         self._connected = True
         logger.debug("Mock archiver connector initialized")
 
@@ -74,7 +74,7 @@ class MockArchiverConnector(ArchiverConnector):
         start_date: datetime,
         end_date: datetime,
         precision_ms: int = 1000,
-        timeout: int | None = None
+        timeout: int | None = None,
     ) -> pd.DataFrame:
         """
         Generate synthetic historical data.
@@ -98,10 +98,7 @@ class MockArchiverConnector(ArchiverConnector):
 
         # Generate timestamps
         time_step = duration / (num_points - 1) if num_points > 1 else 0
-        timestamps = [
-            start_date + timedelta(seconds=i * time_step)
-            for i in range(num_points)
-        ]
+        timestamps = [start_date + timedelta(seconds=i * time_step) for i in range(num_points)]
 
         # Generate data for each PV
         data = {}
@@ -126,7 +123,7 @@ class MockArchiverConnector(ArchiverConnector):
             archival_start=datetime(2000, 1, 1),  # Arbitrary old date
             archival_end=datetime.now(),
             sampling_period=1.0 / self._sample_rate_hz,
-            description=f"Mock archived PV: {pv_name}"
+            description=f"Mock archived PV: {pv_name}",
         )
 
     async def check_availability(self, pv_names: list[str]) -> dict[str, bool]:
@@ -148,7 +145,7 @@ class MockArchiverConnector(ArchiverConnector):
         pv_lower = pv_name.lower()
 
         # Check if this is a BPM - use new approach
-        if 'position' in pv_lower or 'pos' in pv_lower or 'bpm' in pv_lower:
+        if "position" in pv_lower or "pos" in pv_lower or "bpm" in pv_lower:
             # Use PV name as seed for reproducibility
             rng = np.random.default_rng(seed=hash(pv_name) % (2**32))
 
@@ -177,7 +174,7 @@ class MockArchiverConnector(ArchiverConnector):
             return trend + offset + wave + noise
 
         # Original behavior for all other PV types
-        if ('beam' in pv_lower and 'current' in pv_lower) or 'dcct' in pv_lower:
+        if ("beam" in pv_lower and "current" in pv_lower) or "dcct" in pv_lower:
             # Beam current: slow decay with refills
             base = 500.0
             # Simulate refills 10 times over the time range
@@ -187,27 +184,27 @@ class MockArchiverConnector(ArchiverConnector):
                 decay_phase = i % (num_points // 10)
                 trend[i] = base * (1 - 0.05 * (decay_phase / (num_points // 10)))
             wave = 5 * np.sin(2 * np.pi * t * 5)
-        elif 'current' in pv_lower:
+        elif "current" in pv_lower:
             base = 150.0
             trend = base + 10 * t
             wave = 10 * np.sin(2 * np.pi * t * 3)
-        elif 'voltage' in pv_lower:
+        elif "voltage" in pv_lower:
             base = 5000.0
             trend = np.ones(num_points) * base
             wave = 50 * np.sin(2 * np.pi * t * 2)
-        elif 'power' in pv_lower:
+        elif "power" in pv_lower:
             base = 50.0
             trend = base + 5 * t
             wave = 5 * np.sin(2 * np.pi * t * 4)
-        elif 'pressure' in pv_lower:
+        elif "pressure" in pv_lower:
             base = 1e-9
             trend = base * (1 + 0.1 * t)
             wave = base * 0.05 * np.sin(2 * np.pi * t * 10)
-        elif 'temp' in pv_lower:
+        elif "temp" in pv_lower:
             base = 25.0
             trend = base + 2 * t
             wave = 0.5 * np.sin(2 * np.pi * t * 8)
-        elif 'lifetime' in pv_lower:
+        elif "lifetime" in pv_lower:
             base = 10.0
             trend = base - 2 * t  # Lifetime decreases with current
             wave = 1 * np.sin(2 * np.pi * t * 3)
@@ -221,4 +218,3 @@ class MockArchiverConnector(ArchiverConnector):
         noise = np.random.normal(0, noise_amplitude, num_points)
 
         return trend + wave + noise
-

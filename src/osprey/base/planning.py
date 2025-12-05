@@ -126,13 +126,20 @@ class PlannedStep(TypedDict, total=False):
        :class:`ExecutionPlan` : Complete execution plan containing multiple steps
        :class:`ExecutionRecord` : Historical record of completed step executions
     """
-    context_key: str                                    # Unique identifier for storing step results in execution context
-    capability: str                                     # Name of the capability to execute for this step
-    task_objective: str                                 # Complete, self-sufficient description of what this step must accomplish
-    success_criteria: str                               # Criteria for determining successful step completion
-    expected_output: str | None                      # Context type key where results will be stored (e.g., "PV_ADDRESSES")
-    parameters: dict[str, str | int | float] | None  # Optional capability-specific configuration parameters
-    inputs: list[dict[str, str]] | None             # Step inputs as list of {context_type: context_key} mappings
+
+    context_key: str  # Unique identifier for storing step results in execution context
+    capability: str  # Name of the capability to execute for this step
+    task_objective: str  # Complete, self-sufficient description of what this step must accomplish
+    success_criteria: str  # Criteria for determining successful step completion
+    expected_output: (
+        str | None
+    )  # Context type key where results will be stored (e.g., "PV_ADDRESSES")
+    parameters: (
+        dict[str, str | int | float] | None
+    )  # Optional capability-specific configuration parameters
+    inputs: (
+        list[dict[str, str]] | None
+    )  # Step inputs as list of {context_type: context_key} mappings
 
 
 class ExecutionPlan(TypedDict, total=False):
@@ -229,10 +236,12 @@ class ExecutionPlan(TypedDict, total=False):
        :func:`save_execution_plan_to_file` : Plan persistence utilities
        :func:`load_execution_plan_from_file` : Plan loading utilities
     """
-    steps: list[PlannedStep]                           # Ordered list of execution steps comprising the plan
+
+    steps: list[PlannedStep]  # Ordered list of execution steps comprising the plan
 
 
 # Utility functions for working with execution plans (optional convenience functions)
+
 
 def save_execution_plan_to_file(plan: ExecutionPlan, file_path: str) -> None:
     """Save ExecutionPlan to JSON file for persistence or debugging.
@@ -245,15 +254,15 @@ def save_execution_plan_to_file(plan: ExecutionPlan, file_path: str) -> None:
 
     # Add metadata for version tracking
     plan_with_metadata = {
-        '__metadata__': {
-            'version': '1.0',
-            'serialization_type': 'execution_plan',
-            'created_at': datetime.now().isoformat()
+        "__metadata__": {
+            "version": "1.0",
+            "serialization_type": "execution_plan",
+            "created_at": datetime.now().isoformat(),
         },
-        **plan
+        **plan,
     }
 
-    with open(file_path, 'w', encoding='utf-8') as f:
+    with open(file_path, "w", encoding="utf-8") as f:
         json.dump(plan_with_metadata, f, indent=2, ensure_ascii=False)
 
     logger.info(f"Saved ExecutionPlan with {len(plan.get('steps', []))} steps to: {file_path}")
@@ -267,12 +276,12 @@ def load_execution_plan_from_file(file_path: str) -> ExecutionPlan:
     """
     file_path = Path(file_path)
 
-    with open(file_path, encoding='utf-8') as f:
+    with open(file_path, encoding="utf-8") as f:
         data = json.load(f)
 
     # Remove metadata if present
-    if '__metadata__' in data:
-        del data['__metadata__']
+    if "__metadata__" in data:
+        del data["__metadata__"]
 
     logger.info(f"Loaded ExecutionPlan with {len(data.get('steps', []))} steps from: {file_path}")
 

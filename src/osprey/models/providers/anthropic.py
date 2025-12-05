@@ -23,10 +23,7 @@ class AnthropicProviderAdapter(BaseProvider):
     default_base_url = None
     default_model_id = "claude-haiku-4-5-20251001"
     health_check_model_id = "claude-haiku-4-5-20251001"
-    available_models = [
-        "claude-sonnet-4-5-20250929",
-        "claude-haiku-4-5-20251001"
-    ]
+    available_models = ["claude-sonnet-4-5-20250929", "claude-haiku-4-5-20251001"]
 
     # API key acquisition information
     api_key_url = "https://console.anthropic.com/"
@@ -34,7 +31,7 @@ class AnthropicProviderAdapter(BaseProvider):
         "Sign up or log in with your account",
         "Navigate to 'API Keys' in the settings",
         "Click 'Create Key' and name your key",
-        "Copy the key (shown only once!)"
+        "Copy the key (shown only once!)",
     ]
     api_key_note = None
 
@@ -44,17 +41,11 @@ class AnthropicProviderAdapter(BaseProvider):
         api_key: str | None,
         base_url: str | None,
         timeout: float | None,
-        http_client: httpx.AsyncClient | None
+        http_client: httpx.AsyncClient | None,
     ) -> AnthropicModel:
         """Create Anthropic model instance for PydanticAI."""
-        provider = PydanticAnthropicProvider(
-            api_key=api_key,
-            http_client=http_client
-        )
-        return AnthropicModel(
-            model_name=model_id,
-            provider=provider
-        )
+        provider = PydanticAnthropicProvider(api_key=api_key, http_client=http_client)
+        return AnthropicModel(model_name=model_id, provider=provider)
 
     def execute_completion(
         self,
@@ -67,7 +58,7 @@ class AnthropicProviderAdapter(BaseProvider):
         thinking: dict | None = None,
         system_prompt: str | None = None,
         output_format: Any | None = None,
-        **kwargs
+        **kwargs,
     ) -> str | list | Any:
         """Execute Anthropic chat completion with extended thinking support."""
         # Get http_client if provided (for proxy support)
@@ -85,8 +76,7 @@ class AnthropicProviderAdapter(BaseProvider):
             # Check if model supports native structured outputs (Sonnet 4.5, Opus 4.1)
             # Native structured outputs are in beta and only available for specific models
             supports_native_structured_outputs = (
-                "claude-sonnet-4" in model_id or
-                "claude-opus-4" in model_id
+                "claude-sonnet-4" in model_id or "claude-opus-4" in model_id
             )
 
             if supports_native_structured_outputs:
@@ -100,18 +90,16 @@ class AnthropicProviderAdapter(BaseProvider):
                     "temperature": temperature,
                     "response_format": {
                         "type": "json_schema",
-                        "json_schema": {
-                            "name": output_format.__name__,
-                            "schema": schema
-                        }
-                    }
+                        "json_schema": {"name": output_format.__name__, "schema": schema},
+                    },
                 }
 
                 response = client.messages.create(**request_params)
 
                 # Extract text content (should be valid JSON)
                 text_parts = [
-                    block.text for block in response.content
+                    block.text
+                    for block in response.content
                     if isinstance(block, anthropic.types.TextBlock)
                 ]
                 response_text = "\n".join(text_parts).strip()
@@ -130,14 +118,15 @@ Respond ONLY with the JSON object, no additional text or markdown formatting."""
                     "model": model_id,
                     "messages": [{"role": "user", "content": structured_message}],
                     "max_tokens": max_tokens,
-                    "temperature": temperature
+                    "temperature": temperature,
                 }
 
                 response = client.messages.create(**request_params)
 
                 # Extract text content
                 text_parts = [
-                    block.text for block in response.content
+                    block.text
+                    for block in response.content
                     if isinstance(block, anthropic.types.TextBlock)
                 ]
                 response_text = "\n".join(text_parts).strip()
@@ -159,18 +148,20 @@ Respond ONLY with the JSON object, no additional text or markdown formatting."""
 
                 # Handle TypedDict conversion
                 is_typed_dict_output = kwargs.get("is_typed_dict_output", False)
-                if is_typed_dict_output and hasattr(result, 'model_dump'):
+                if is_typed_dict_output and hasattr(result, "model_dump"):
                     return result.model_dump()
                 return result
             except Exception as e:
-                raise ValueError(f"Failed to parse structured output from Anthropic: {e}\nResponse: {response_text[:200]}") from e
+                raise ValueError(
+                    f"Failed to parse structured output from Anthropic: {e}\nResponse: {response_text[:200]}"
+                ) from e
 
         # Regular text completion (no structured output)
         request_params = {
             "model": model_id,
             "messages": [{"role": "user", "content": message}],
             "max_tokens": max_tokens,
-            "temperature": temperature
+            "temperature": temperature,
         }
 
         # Add extended thinking if enabled
@@ -180,10 +171,7 @@ Respond ONLY with the JSON object, no additional text or markdown formatting."""
         if enable_thinking and budget_tokens is not None:
             if budget_tokens >= max_tokens:
                 raise ValueError("budget_tokens must be less than max_tokens")
-            request_params["thinking"] = {
-                "type": "enabled",
-                "budget_tokens": budget_tokens
-            }
+            request_params["thinking"] = {"type": "enabled", "budget_tokens": budget_tokens}
 
         response = client.messages.create(**request_params)
 
@@ -192,7 +180,8 @@ Respond ONLY with the JSON object, no additional text or markdown formatting."""
         else:
             # Concatenate text from all TextBlock instances
             text_parts = [
-                block.text for block in response.content
+                block.text
+                for block in response.content
                 if isinstance(block, anthropic.types.TextBlock)
             ]
             return "\n".join(text_parts)
@@ -202,7 +191,7 @@ Respond ONLY with the JSON object, no additional text or markdown formatting."""
         api_key: str | None,
         base_url: str | None,
         timeout: float = 5.0,
-        model_id: str | None = None
+        model_id: str | None = None,
     ) -> tuple[bool, str]:
         """Check Anthropic API health with minimal test call.
 
@@ -227,7 +216,7 @@ Respond ONLY with the JSON object, no additional text or markdown formatting."""
                 model=test_model,
                 max_tokens=1,
                 messages=[{"role": "user", "content": "Hi"}],
-                timeout=timeout
+                timeout=timeout,
             )
 
             # If we got here, API key works
@@ -255,4 +244,3 @@ Respond ONLY with the JSON object, no additional text or markdown formatting."""
             return False, f"API error: {str(e)[:50]}"
         except Exception as e:
             return False, f"Unexpected error: {str(e)[:50]}"
-

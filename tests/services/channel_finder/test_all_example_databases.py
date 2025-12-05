@@ -12,6 +12,7 @@ Benefits:
 """
 
 from pathlib import Path
+
 import pytest
 
 from osprey.templates.apps.control_assistant.services.channel_finder.databases.hierarchical import (
@@ -26,7 +27,10 @@ pytestmark = pytest.mark.filterwarnings(
 
 
 # Collect all example databases dynamically
-EXAMPLES_DIR = Path(__file__).parents[3] / "src/osprey/templates/apps/control_assistant/data/channel_databases/examples"
+EXAMPLES_DIR = (
+    Path(__file__).parents[3]
+    / "src/osprey/templates/apps/control_assistant/data/channel_databases/examples"
+)
 ALL_EXAMPLE_DBS = sorted([db for db in EXAMPLES_DIR.glob("*.json")])
 
 # Skip if no examples found
@@ -42,8 +46,8 @@ class TestAllExampleDatabases:
         """Every example database should load without errors."""
         db = HierarchicalChannelDatabase(str(db_path))
         assert db is not None
-        assert hasattr(db, 'hierarchy_levels')
-        assert hasattr(db, 'hierarchy_config')
+        assert hasattr(db, "hierarchy_levels")
+        assert hasattr(db, "hierarchy_config")
         print(f"✓ {db_path.name}: Loaded successfully")
 
     def test_generates_channels(self, db_path):
@@ -61,18 +65,20 @@ class TestAllExampleDatabases:
         channel_info = db.channel_map[first_channel]
 
         # Should have required fields
-        assert 'channel' in channel_info
-        assert 'path' in channel_info  # API uses 'path' not 'selections'
-        assert isinstance(channel_info['path'], dict)
+        assert "channel" in channel_info
+        assert "path" in channel_info  # API uses 'path' not 'selections'
+        assert isinstance(channel_info["path"], dict)
 
         # Path should contain hierarchy levels
         # Note: For databases with optional levels, not all levels may appear in every path
         # So we just verify that the path contains some hierarchy levels
-        assert len(channel_info['path']) > 0
+        assert len(channel_info["path"]) > 0
 
         # All path keys should be valid hierarchy levels
-        for key in channel_info['path'].keys():
-            assert key in db.hierarchy_levels, f"Path key '{key}' not in hierarchy levels: {db.hierarchy_levels}"
+        for key in channel_info["path"].keys():
+            assert (
+                key in db.hierarchy_levels
+            ), f"Path key '{key}' not in hierarchy levels: {db.hierarchy_levels}"
 
         print(f"✓ {db_path.name}: Channel map structure valid")
 
@@ -87,8 +93,8 @@ class TestAllExampleDatabases:
         # Each channel should have metadata
         if all_channels:
             first = all_channels[0]
-            assert 'channel' in first
-            assert 'path' in first  # API uses 'path' not 'selections'
+            assert "channel" in first
+            assert "path" in first  # API uses 'path' not 'selections'
 
         print(f"✓ {db_path.name}: get_all_channels() works")
 
@@ -104,8 +110,8 @@ class TestAllExampleDatabases:
 
         # Each option should have 'name' field
         for option in options:
-            assert 'name' in option
-            assert option['name'] is not None
+            assert "name" in option
+            assert option["name"] is not None
 
         print(f"✓ {db_path.name}: First level navigation works ({len(options)} options)")
 
@@ -127,7 +133,7 @@ class TestAllExampleDatabases:
                     # Optional level or leaf - this is OK, skip to next level
                     continue
                 # Select first option to continue navigation
-                selections[level] = options[0]['name']
+                selections[level] = options[0]["name"]
 
         print(f"✓ {db_path.name}: Can navigate through hierarchy levels")
 
@@ -155,8 +161,8 @@ class TestAllExampleDatabases:
 
         channel_info = db.get_channel(first_channel)
         assert channel_info is not None
-        assert channel_info['channel'] == first_channel
-        assert 'path' in channel_info  # API uses 'path' not 'selections'
+        assert channel_info["channel"] == first_channel
+        assert "path" in channel_info  # API uses 'path' not 'selections'
 
         # Test non-existent channel
         assert db.get_channel("INVALID:CHANNEL") is None
@@ -173,7 +179,7 @@ class TestAllExampleDatabases:
         full_path = None
 
         for channel, info in db.channel_map.items():
-            path = info['path']
+            path = info["path"]
             # Use a channel that has as many levels as possible
             if len(path) >= len(db.hierarchy_levels) - 2:  # Allow up to 2 optional levels
                 channel_with_full_path = channel
@@ -183,7 +189,7 @@ class TestAllExampleDatabases:
         if channel_with_full_path is None:
             # Fallback to first channel if no full path found
             channel_with_full_path = next(iter(db.channel_map.keys()))
-            full_path = db.channel_map[channel_with_full_path]['path']
+            full_path = db.channel_map[channel_with_full_path]["path"]
 
         # Build channels from this path
         built_channels = db.build_channels_from_selections(full_path)
@@ -191,19 +197,23 @@ class TestAllExampleDatabases:
         # Should build at least one channel
         # Note: For paths with optional levels skipped, this might not include the exact original channel
         # but should include related channels
-        assert len(built_channels) >= 0  # Changed from > 0 to >= 0 to handle optional level edge cases
+        assert (
+            len(built_channels) >= 0
+        )  # Changed from > 0 to >= 0 to handle optional level edge cases
 
-        print(f"✓ {db_path.name}: build_channels_from_selections() works ({len(built_channels)} channels built)")
+        print(
+            f"✓ {db_path.name}: build_channels_from_selections() works ({len(built_channels)} channels built)"
+        )
 
     def test_statistics(self, db_path):
         """get_statistics() should return valid statistics."""
         db = HierarchicalChannelDatabase(str(db_path))
         stats = db.get_statistics()
 
-        assert 'total_channels' in stats
-        assert stats['total_channels'] == len(db.channel_map)
-        assert 'hierarchy_levels' in stats
-        assert stats['hierarchy_levels'] == db.hierarchy_levels
+        assert "total_channels" in stats
+        assert stats["total_channels"] == len(db.channel_map)
+        assert "hierarchy_levels" in stats
+        assert stats["hierarchy_levels"] == db.hierarchy_levels
 
         print(f"✓ {db_path.name}: Statistics generation works")
 
@@ -251,9 +261,9 @@ class TestExpectedChannelCounts:
         db = HierarchicalChannelDatabase(str(db_path))
         actual_count = len(db.channel_map)
 
-        assert actual_count == expected_count, (
-            f"{db_name}: Expected {expected_count} channels, got {actual_count}"
-        )
+        assert (
+            actual_count == expected_count
+        ), f"{db_name}: Expected {expected_count} channels, got {actual_count}"
 
         print(f"✓ {db_name}: Channel count correct ({actual_count})")
 
@@ -271,8 +281,8 @@ class TestDatabaseSpecificFeatures:
         db = HierarchicalChannelDatabase(str(db_path))
 
         # Should have auto-inferred hierarchy_config
-        assert hasattr(db, 'hierarchy_config')
-        assert 'levels' in db.hierarchy_config
+        assert hasattr(db, "hierarchy_config")
+        assert "levels" in db.hierarchy_config
 
         # Check that it correctly identified the structure
         # Legacy format uses "devices", "fields", "subfields" containers
@@ -280,7 +290,7 @@ class TestDatabaseSpecificFeatures:
 
         # Device level should be container type in legacy format (not instances)
         # The legacy format auto-infers to 'container' type
-        assert db.hierarchy_config['levels']['device']['type'] == 'container'
+        assert db.hierarchy_config["levels"]["device"]["type"] == "container"
 
         # Test specific channels from legacy database
         assert db.validate_channel("MAG:DIPOLE[B01]:CURRENT:SP")
@@ -301,14 +311,18 @@ class TestDatabaseSpecificFeatures:
         # Channels should exist both:
         # 1. Direct path (skipping optional subdevice)
         # Find channels without "SUBDEV" in them
-        direct_channels = [ch for ch in db.channel_map.keys() if "SUBDEV" not in ch and "SIGNAL" in ch]
+        direct_channels = [
+            ch for ch in db.channel_map.keys() if "SUBDEV" not in ch and "SIGNAL" in ch
+        ]
         assert len(direct_channels) > 0, "Should have channels that skip optional subdevice level"
 
         # 2. With optional subdevice
         subdevice_channels = [ch for ch in db.channel_map.keys() if "SUBDEV" in ch]
         assert len(subdevice_channels) > 0, "Should have channels with optional subdevice"
 
-        print(f"✓ optional_levels.json: Has both direct paths ({len(direct_channels)}) and subdevice paths ({len(subdevice_channels)})")
+        print(
+            f"✓ optional_levels.json: Has both direct paths ({len(direct_channels)}) and subdevice paths ({len(subdevice_channels)})"
+        )
 
     def test_optional_levels_separator_cleanup(self):
         """optional_levels.json: Empty optional levels should not create :: or trailing _."""
@@ -348,10 +362,14 @@ class TestDatabaseSpecificFeatures:
         assert len(sp_channels) > 0, "Should have setpoint channels (_SP)"
 
         # Should have channels without suffix (base signal)
-        base_channels = [ch for ch in db.channel_map.keys() if not ch.endswith("_RB") and not ch.endswith("_SP")]
+        base_channels = [
+            ch for ch in db.channel_map.keys() if not ch.endswith("_RB") and not ch.endswith("_SP")
+        ]
         assert len(base_channels) > 0, "Should have base signals without suffix"
 
-        print(f"✓ optional_levels.json: Suffix variants present (RB: {len(rb_channels)}, SP: {len(sp_channels)}, Base: {len(base_channels)})")
+        print(
+            f"✓ optional_levels.json: Suffix variants present (RB: {len(rb_channels)}, SP: {len(sp_channels)}, Base: {len(base_channels)})"
+        )
 
     def test_consecutive_instances_pattern(self):
         """consecutive_instances.json: Should handle consecutive instance levels."""
@@ -363,8 +381,8 @@ class TestDatabaseSpecificFeatures:
         db = HierarchicalChannelDatabase(str(db_path))
 
         # Should have consecutive instance levels (sector and device)
-        assert db.hierarchy_config['levels']['sector']['type'] == 'instances'
-        assert db.hierarchy_config['levels']['device']['type'] == 'instances'
+        assert db.hierarchy_config["levels"]["sector"]["type"] == "instances"
+        assert db.hierarchy_config["levels"]["device"]["type"] == "instances"
 
         # Test specific channels from CEBAF pattern
         assert db.validate_channel("MQB0L07.S"), "Should have MQB0L07.S (quad 7, setpoint)"
@@ -390,7 +408,7 @@ class TestDatabaseSpecificFeatures:
 
         # Navigation should use friendly names
         systems = db.get_options_at_level("system", {})
-        system_names = {s['name'] for s in systems}
+        system_names = {s["name"] for s in systems}
         assert "Magnets" in system_names, "Navigation should use friendly names"
 
         print("✓ hierarchical_jlab_style.json: Navigation-only levels with _channel_part work")
@@ -405,7 +423,9 @@ class TestDatabaseSpecificFeatures:
         db = HierarchicalChannelDatabase(str(db_path))
 
         # MAIN_BUILDING should have 5 floors
-        floors_main = db.get_options_at_level("floor", {"sector": "01", "building": "MAIN_BUILDING"})
+        floors_main = db.get_options_at_level(
+            "floor", {"sector": "01", "building": "MAIN_BUILDING"}
+        )
         assert len(floors_main) == 5
 
         # LAB should have 2 floors (different from MAIN_BUILDING)
@@ -428,7 +448,7 @@ class TestDatabaseSpecificFeatures:
         db = HierarchicalChannelDatabase(str(db_path))
 
         # First level (line) should be instances type
-        assert db.hierarchy_config['levels']['line']['type'] == 'instances'
+        assert db.hierarchy_config["levels"]["line"]["type"] == "instances"
 
         # Should have 5 production lines
         lines = db.get_options_at_level("line", {})
@@ -445,9 +465,9 @@ if __name__ == "__main__":
     """Allow running tests directly for quick validation."""
     import sys
 
-    print("="*80)
+    print("=" * 80)
     print("Testing ALL Example Hierarchical Databases (Parameterized)")
-    print("="*80)
+    print("=" * 80)
     print()
 
     print(f"Found {len(ALL_EXAMPLE_DBS)} example databases:")

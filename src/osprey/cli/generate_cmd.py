@@ -15,30 +15,35 @@ from .styles import Messages, Styles, console
 # Project Detection (same logic as interactive_menu.py)
 # =============================================================================
 
+
 def is_project_initialized() -> bool:
     """Check if we're in an osprey project directory.
 
     Returns:
         True if config.yml exists in current directory
     """
-    return (Path.cwd() / 'config.yml').exists()
+    return (Path.cwd() / "config.yml").exists()
+
 
 # Lazy imports for heavy dependencies
 def get_mcp_generator():
     """Lazy import of MCP generator."""
     from osprey.generators import MCPCapabilityGenerator
+
     return MCPCapabilityGenerator
 
 
 def get_prompt_generator():
     """Lazy import of Prompt generator."""
     from osprey.generators import PromptCapabilityGenerator
+
     return PromptCapabilityGenerator
 
 
 def get_server_template():
     """Lazy import of MCP server template."""
     from osprey.generators.mcp_server_template import write_mcp_server_file
+
     return write_mcp_server_file
 
 
@@ -51,7 +56,7 @@ def initialize_registry():
     from osprey.utils.log_filter import quiet_logger
 
     # Initialize registry (quiet mode to suppress logs)
-    with quiet_logger(['REGISTRY', 'CONFIG']):
+    with quiet_logger(["REGISTRY", "CONFIG"]):
         initialize_registry()
 
     return True
@@ -77,7 +82,7 @@ def _determine_capabilities_path(capability_name: str) -> Path:
             # Capabilities should be in the same directory as registry
             # e.g., if registry is at src/my_project/registry.py
             # capabilities should be at src/my_project/capabilities/
-            capabilities_dir = registry_path.parent / 'capabilities'
+            capabilities_dir = registry_path.parent / "capabilities"
 
             # Create the directory if it doesn't exist
             capabilities_dir.mkdir(parents=True, exist_ok=True)
@@ -128,50 +133,46 @@ def generate():
 
 @generate.command()
 @click.option(
-    '--from-mcp',
-    'mcp_url',
+    "--from-mcp",
+    "mcp_url",
     default=None,
-    help='MCP server URL (e.g., http://localhost:3001) or "simulated" for demo mode'
+    help='MCP server URL (e.g., http://localhost:3001) or "simulated" for demo mode',
 )
 @click.option(
-    '--from-prompt',
-    'prompt',
+    "--from-prompt",
+    "prompt",
     default=None,
-    help='Natural language description of what the capability should do'
+    help="Natural language description of what the capability should do",
 )
 @click.option(
-    '--name', '-n',
-    'capability_name',
+    "--name",
+    "-n",
+    "capability_name",
     default=None,
-    help='Name for the generated capability (e.g., slack_mcp, weather_mcp). Auto-generated if using --from-prompt.'
+    help="Name for the generated capability (e.g., slack_mcp, weather_mcp). Auto-generated if using --from-prompt.",
 )
 @click.option(
-    '--server-name',
+    "--server-name",
     default=None,
-    help='Human-readable server name (only for --from-mcp, default: derived from capability name)'
+    help="Human-readable server name (only for --from-mcp, default: derived from capability name)",
 )
 @click.option(
-    '--output', '-o',
-    'output_file',
+    "--output",
+    "-o",
+    "output_file",
     default=None,
-    help='Output file path (default: ./capabilities/<name>.py)'
+    help="Output file path (default: ./capabilities/<name>.py)",
 )
 @click.option(
-    '--provider',
-    default=None,
-    help='LLM provider override (e.g., anthropic, openai, cborg)'
+    "--provider", default=None, help="LLM provider override (e.g., anthropic, openai, cborg)"
 )
 @click.option(
-    '--model',
-    'model_id',
+    "--model",
+    "model_id",
     default=None,
-    help='Model ID override (e.g., claude-sonnet-4-20250514, gpt-4o)'
+    help="Model ID override (e.g., claude-sonnet-4-20250514, gpt-4o)",
 )
-@click.option(
-    '--quiet', '-q',
-    is_flag=True,
-    help='Reduce output verbosity'
-)
+@click.option("--quiet", "-q", is_flag=True, help="Reduce output verbosity")
 def capability(
     mcp_url: str,
     prompt: str,
@@ -180,7 +181,7 @@ def capability(
     output_file: str,
     provider: str,
     model_id: str,
-    quiet: bool
+    quiet: bool,
 ):
     """Generate Osprey capability from MCP server or natural language prompt.
 
@@ -239,11 +240,21 @@ def capability(
     """
     # Validate: Must provide exactly one of --from-mcp or --from-prompt
     if (mcp_url is None) == (prompt is None):
-        console.print(f"\n{Messages.error('Must specify exactly one of --from-mcp or --from-prompt')}")
+        console.print(
+            f"\n{Messages.error('Must specify exactly one of --from-mcp or --from-prompt')}"
+        )
         console.print()
         console.print("  [bold]Examples:[/bold]")
-        console.print("    " + Messages.command('osprey generate capability --from-mcp http://localhost:3001 -n slack'))
-        console.print("    " + Messages.command('osprey generate capability --from-prompt "Fetch weather data"'))
+        console.print(
+            "    "
+            + Messages.command(
+                "osprey generate capability --from-mcp http://localhost:3001 -n slack"
+            )
+        )
+        console.print(
+            "    "
+            + Messages.command('osprey generate capability --from-prompt "Fetch weather data"')
+        )
         console.print()
         raise click.Abort()
 
@@ -253,14 +264,21 @@ def capability(
     # For --from-prompt, name is optional (will be suggested by LLM)
     if from_prompt_mode:
         if not capability_name and not quiet:
-            console.print(f"\n[{Styles.DIM}]ℹ️  No --name provided. LLM will suggest a capability name.[/{Styles.DIM}]")
+            console.print(
+                f"\n[{Styles.DIM}]ℹ️  No --name provided. LLM will suggest a capability name.[/{Styles.DIM}]"
+            )
     else:
         # For --from-mcp, name is required
         if not capability_name:
             console.print(f"\n{Messages.error('--name is required when using --from-mcp')}")
             console.print()
             console.print("  [bold]Example:[/bold]")
-            console.print("    " + Messages.command('osprey generate capability --from-mcp http://localhost:3001 -n slack_mcp'))
+            console.print(
+                "    "
+                + Messages.command(
+                    "osprey generate capability --from-mcp http://localhost:3001 -n slack_mcp"
+                )
+            )
             console.print()
             raise click.Abort()
 
@@ -271,11 +289,11 @@ def capability(
         console.print("  This command requires an Osprey project with [accent]config.yml[/accent]")
         console.print()
         console.print("  [bold]To create a new project:[/bold]")
-        console.print("    " + Messages.command('osprey init my-project'))
+        console.print("    " + Messages.command("osprey init my-project"))
         console.print()
         console.print("  [bold]Or navigate to an existing project:[/bold]")
-        console.print("    " + Messages.command('cd my-project'))
-        console.print("    " + Messages.command('osprey generate capability ...'))
+        console.print("    " + Messages.command("cd my-project"))
+        console.print("    " + Messages.command("osprey generate capability ..."))
         console.print()
         raise click.Abort()
 
@@ -287,7 +305,7 @@ def capability(
             output_file=output_file,
             provider=provider,
             model_id=model_id,
-            quiet=quiet
+            quiet=quiet,
         )
     else:
         # FROM MCP mode
@@ -298,7 +316,7 @@ def capability(
             output_file=output_file,
             provider=provider,
             model_id=model_id,
-            quiet=quiet
+            quiet=quiet,
         )
 
 
@@ -309,13 +327,13 @@ def _generate_from_mcp(
     output_file: str,
     provider: str,
     model_id: str,
-    quiet: bool
+    quiet: bool,
 ):
     """Generate capability from MCP server."""
     # Derive server name if not provided
     if not server_name:
         # Convert capability_name to title case (e.g., slack_mcp -> Slack Mcp)
-        server_name = capability_name.replace('_', ' ').title().replace(' ', '')
+        server_name = capability_name.replace("_", " ").title().replace(" ", "")
 
     # Derive output file if not provided
     if not output_file:
@@ -330,10 +348,18 @@ def _generate_from_mcp(
         mcp_url = None
 
     console.print("\n🎨 [header]Generating MCP Capability[/header]\n")
-    console.print(f"  [{Styles.LABEL}]Capability:[/{Styles.LABEL}] [{Styles.VALUE}]{capability_name}[/{Styles.VALUE}]")
-    console.print(f"  [{Styles.LABEL}]Server:[/{Styles.LABEL}] [{Styles.VALUE}]{server_name}[/{Styles.VALUE}]")
-    console.print(f"  [{Styles.LABEL}]Mode:[/{Styles.LABEL}] [{Styles.VALUE}]{'Simulated' if simulated else f'Real MCP ({mcp_url})'}[/{Styles.VALUE}]")
-    console.print(f"  [{Styles.LABEL}]Output:[/{Styles.LABEL}] [{Styles.VALUE}]{output_path}[/{Styles.VALUE}]\n")
+    console.print(
+        f"  [{Styles.LABEL}]Capability:[/{Styles.LABEL}] [{Styles.VALUE}]{capability_name}[/{Styles.VALUE}]"
+    )
+    console.print(
+        f"  [{Styles.LABEL}]Server:[/{Styles.LABEL}] [{Styles.VALUE}]{server_name}[/{Styles.VALUE}]"
+    )
+    console.print(
+        f"  [{Styles.LABEL}]Mode:[/{Styles.LABEL}] [{Styles.VALUE}]{'Simulated' if simulated else f'Real MCP ({mcp_url})'}[/{Styles.VALUE}]"
+    )
+    console.print(
+        f"  [{Styles.LABEL}]Output:[/{Styles.LABEL}] [{Styles.VALUE}]{output_path}[/{Styles.VALUE}]\n"
+    )
 
     try:
         # Initialize registry (required for LLM providers)
@@ -351,17 +377,19 @@ def _generate_from_mcp(
             server_name=server_name,
             verbose=not quiet,
             provider=provider,
-            model_id=model_id
+            model_id=model_id,
         )
 
         # Run async generation
-        asyncio.run(_generate_capability_async(
-            generator=generator,
-            mcp_url=mcp_url,
-            simulated=simulated,
-            output_path=output_path,
-            quiet=quiet
-        ))
+        asyncio.run(
+            _generate_capability_async(
+                generator=generator,
+                mcp_url=mcp_url,
+                simulated=simulated,
+                output_path=output_path,
+                quiet=quiet,
+            )
+        )
 
     except KeyboardInterrupt:
         console.print(f"\n{Messages.warning('Generation cancelled by user')}")
@@ -369,7 +397,7 @@ def _generate_from_mcp(
     except RuntimeError as e:
         # RuntimeError with clear message - don't show traceback
         error_msg = str(e)
-        if error_msg.startswith('\n'):
+        if error_msg.startswith("\n"):
             # Error already formatted with newlines
             console.print(error_msg)
         else:
@@ -380,6 +408,7 @@ def _generate_from_mcp(
         console.print(f"\n{Messages.error(f'Generation failed: {e}')}")
         if not quiet:
             import traceback
+
             console.print(f"[dim]{traceback.format_exc()}[/dim]")
         raise click.Abort() from e
 
@@ -390,15 +419,21 @@ def _generate_from_prompt(
     output_file: str,
     provider: str,
     model_id: str,
-    quiet: bool
+    quiet: bool,
 ):
     """Generate capability from natural language prompt."""
     console.print("\n🎨 [header]Generating Capability from Prompt[/header]\n")
-    console.print(f"  [{Styles.LABEL}]Prompt:[/{Styles.LABEL}] [{Styles.VALUE}]{prompt[:80]}{'...' if len(prompt) > 80 else ''}[/{Styles.VALUE}]")
+    console.print(
+        f"  [{Styles.LABEL}]Prompt:[/{Styles.LABEL}] [{Styles.VALUE}]{prompt[:80]}{'...' if len(prompt) > 80 else ''}[/{Styles.VALUE}]"
+    )
     if capability_name:
-        console.print(f"  [{Styles.LABEL}]Name:[/{Styles.LABEL}] [{Styles.VALUE}]{capability_name}[/{Styles.VALUE}]")
+        console.print(
+            f"  [{Styles.LABEL}]Name:[/{Styles.LABEL}] [{Styles.VALUE}]{capability_name}[/{Styles.VALUE}]"
+        )
     else:
-        console.print(f"  [{Styles.LABEL}]Name:[/{Styles.LABEL}] [{Styles.DIM}](will be suggested by LLM)[/{Styles.DIM}]")
+        console.print(
+            f"  [{Styles.LABEL}]Name:[/{Styles.LABEL}] [{Styles.DIM}](will be suggested by LLM)[/{Styles.DIM}]"
+        )
     console.print()
 
     try:
@@ -417,15 +452,13 @@ def _generate_from_prompt(
             capability_name=capability_name,
             verbose=not quiet,
             provider=provider,
-            model_id=model_id
+            model_id=model_id,
         )
 
         # Run async generation
-        asyncio.run(_generate_from_prompt_async(
-            generator=generator,
-            output_file=output_file,
-            quiet=quiet
-        ))
+        asyncio.run(
+            _generate_from_prompt_async(generator=generator, output_file=output_file, quiet=quiet)
+        )
 
     except KeyboardInterrupt:
         console.print(f"\n{Messages.warning('Generation cancelled by user')}")
@@ -434,15 +467,12 @@ def _generate_from_prompt(
         console.print(f"\n{Messages.error(f'Generation failed: {e}')}")
         if not quiet:
             import traceback
+
             console.print(f"[dim]{traceback.format_exc()}[/dim]")
         raise click.Abort() from e
 
 
-async def _generate_from_prompt_async(
-    generator,
-    output_file: str,
-    quiet: bool
-):
+async def _generate_from_prompt_async(generator, output_file: str, quiet: bool):
     """Async helper for prompt-based capability generation."""
     # Step 1: Generate metadata (name suggestions)
     if not quiet:
@@ -464,27 +494,40 @@ async def _generate_from_prompt_async(
     else:
         output_path = Path(output_file)
 
-    console.print(f"  [{Styles.LABEL}]Output:[/{Styles.LABEL}] [{Styles.VALUE}]{output_path}[/{Styles.VALUE}]")
+    console.print(
+        f"  [{Styles.LABEL}]Output:[/{Styles.LABEL}] [{Styles.VALUE}]{output_path}[/{Styles.VALUE}]"
+    )
 
     # Step 2: Generate guides
     if not quiet:
-        console.print(f"\n🤖 [{Styles.HEADER}]Step 2: Generating classifier and orchestrator guides...[/{Styles.HEADER}]")
+        console.print(
+            f"\n🤖 [{Styles.HEADER}]Step 2: Generating classifier and orchestrator guides...[/{Styles.HEADER}]"
+        )
 
     with console.status("[dim]Analyzing requirements and generating examples...[/dim]"):
         classifier_analysis, orchestrator_analysis = await generator.generate_guides()
 
-    num_examples = len(classifier_analysis.positive_examples) + len(classifier_analysis.negative_examples)
-    console.print("  " + Messages.success(f'Generated {num_examples} classifier examples'))
-    console.print("  " + Messages.success(f'Generated {len(orchestrator_analysis.example_steps)} orchestrator examples'))
+    num_examples = len(classifier_analysis.positive_examples) + len(
+        classifier_analysis.negative_examples
+    )
+    console.print("  " + Messages.success(f"Generated {num_examples} classifier examples"))
+    console.print(
+        "  "
+        + Messages.success(
+            f"Generated {len(orchestrator_analysis.example_steps)} orchestrator examples"
+        )
+    )
 
     # Step 3: Generate code
     if not quiet:
-        console.print(f"\n📝 [{Styles.HEADER}]Step 3: Generating capability code...[/{Styles.HEADER}]")
+        console.print(
+            f"\n📝 [{Styles.HEADER}]Step 3: Generating capability code...[/{Styles.HEADER}]"
+        )
 
     with console.status("[dim]Creating capability skeleton...[/dim]"):
         code = generator.generate_capability_code(classifier_analysis, orchestrator_analysis)
 
-    console.print("  " + Messages.success('Code generated'))
+    console.print("  " + Messages.success("Code generated"))
 
     # Step 4: Write file
     if not quiet:
@@ -497,18 +540,24 @@ async def _generate_from_prompt_async(
 
     # Success summary
     console.print("\n" + "=" * 70)
-    console.print(f"[{Styles.BOLD_SUCCESS}]✅ SUCCESS! Capability Skeleton Generated[/{Styles.BOLD_SUCCESS}]")
+    console.print(
+        f"[{Styles.BOLD_SUCCESS}]✅ SUCCESS! Capability Skeleton Generated[/{Styles.BOLD_SUCCESS}]"
+    )
     console.print("=" * 70 + "\n")
 
     console.print(f"[{Styles.HEADER}]What was created:[/{Styles.HEADER}]")
     console.print(f"  ✓ Capability skeleton: {capability_name}")
     console.print(f"  ✓ Classifier guide with {num_examples} examples")
-    console.print(f"  ✓ Orchestrator guide with {len(orchestrator_analysis.example_steps)} examples")
+    console.print(
+        f"  ✓ Orchestrator guide with {len(orchestrator_analysis.example_steps)} examples"
+    )
     console.print("  ✓ Context class structure")
     console.print("  ✓ Error handling structure")
     console.print("  ✓ Registry registration snippet")
 
-    console.print(f"\n[{Styles.WARNING}]⚠️  IMPORTANT: This is a SKELETON with PLACEHOLDER business logic![/{Styles.WARNING}]")
+    console.print(
+        f"\n[{Styles.WARNING}]⚠️  IMPORTANT: This is a SKELETON with PLACEHOLDER business logic![/{Styles.WARNING}]"
+    )
     console.print()
 
     console.print(f"[{Styles.HEADER}]Next Steps:[/{Styles.HEADER}]")
@@ -522,11 +571,7 @@ async def _generate_from_prompt_async(
 
     # Offer to add to registry automatically
     if not quiet:
-        await _offer_registry_integration(
-            generator,
-            classifier_analysis,
-            orchestrator_analysis
-        )
+        await _offer_registry_integration(generator, classifier_analysis, orchestrator_analysis)
 
 
 async def _offer_config_integration(generator):
@@ -558,7 +603,9 @@ async def _offer_config_integration(generator):
         # Check if already configured
         if has_capability_react_model(config_path, capability_name):
             model_key = f"{capability_name}_react"
-            console.print(f"\n[{Styles.DIM}]ℹ️  {model_key} model already configured in config.yml[/{Styles.DIM}]")
+            console.print(
+                f"\n[{Styles.DIM}]ℹ️  {model_key} model already configured in config.yml[/{Styles.DIM}]"
+            )
             return
 
         # Get orchestrator config as template
@@ -574,11 +621,11 @@ async def _offer_config_integration(generator):
         add_to_config = await questionary.confirm(
             f"Add {model_key} model configuration to config.yml?",
             default=True,
-            style=get_questionary_style()
+            style=get_questionary_style(),
         ).ask_async()
 
         if not add_to_config:
-            console.print("\n  " + Messages.info('Skipped. You can add manually if needed.'))
+            console.print("\n  " + Messages.info("Skipped. You can add manually if needed."))
             return
 
         # Show preview
@@ -588,36 +635,47 @@ async def _offer_config_integration(generator):
 
         # Confirm
         confirm = await questionary.confirm(
-            "Apply these changes to config.yml?",
-            default=True,
-            style=get_questionary_style()
+            "Apply these changes to config.yml?", default=True, style=get_questionary_style()
         ).ask_async()
 
         if confirm:
             # Backup first
-            backup_path = config_path.with_suffix('.yml.bak')
+            backup_path = config_path.with_suffix(".yml.bak")
             backup_path.write_text(config_path.read_text())
 
             # Write new content
-            new_content, _ = add_capability_react_to_config(config_path, capability_name, template_config)
+            new_content, _ = add_capability_react_to_config(
+                config_path, capability_name, template_config
+            )
             config_path.write_text(new_content)
 
             console.print(f"\n  {Messages.success(f'Updated {config_path}')}")
             console.print(f"  [{Styles.DIM}]Backup saved to: {backup_path}[/{Styles.DIM}]")
             console.print()
-            console.print("  " + Messages.info(f'{model_key} model configured! {capability_name} will use this model.'))
+            console.print(
+                "  "
+                + Messages.info(
+                    f"{model_key} model configured! {capability_name} will use this model."
+                )
+            )
         else:
-            console.print("\n  " + Messages.info('Changes not applied. '
-                         'Add manually to config.yml if needed.'))
+            console.print(
+                "\n  "
+                + Messages.info("Changes not applied. " "Add manually to config.yml if needed.")
+            )
 
     except ImportError:
         # questionary not available
         pass
     except Exception as e:
         # Escape the error message to prevent Rich markup interpretation
-        error_msg = str(e).replace('[', '\\[').replace(']', '\\]')
-        console.print(f"\n[{Styles.WARNING}]⚠️  Could not update config: {error_msg}[/{Styles.WARNING}]")
-        console.print("  " + Styles.DIM + "Add mcp_react model manually to config.yml." + f"[/{Styles.DIM}]")
+        error_msg = str(e).replace("[", "\\[").replace("]", "\\]")
+        console.print(
+            f"\n[{Styles.WARNING}]⚠️  Could not update config: {error_msg}[/{Styles.WARNING}]"
+        )
+        console.print(
+            "  " + Styles.DIM + "Add mcp_react model manually to config.yml." + f"[/{Styles.DIM}]"
+        )
 
 
 async def _offer_registry_integration(generator, classifier_analysis, orchestrator_analysis):
@@ -642,14 +700,18 @@ async def _offer_registry_integration(generator, classifier_analysis, orchestrat
         # Find registry file from config
         registry_path = find_registry_file()
         if not registry_path:
-            console.print(f"\n[{Styles.DIM}]Note: Could not find registry.py from config. "
-                         "Add capability manually.[/{Styles.DIM}]")
+            console.print(
+                f"\n[{Styles.DIM}]Note: Could not find registry.py from config. "
+                "Add capability manually.[/{Styles.DIM}]"
+            )
             return
 
         # Check if already registered
         if is_already_registered(registry_path, generator.capability_name):
-            console.print(f"\n[{Styles.WARNING}]⚠️  Capability '{generator.capability_name}' "
-                         f"is already registered in {registry_path}[/{Styles.WARNING}]")
+            console.print(
+                f"\n[{Styles.WARNING}]⚠️  Capability '{generator.capability_name}' "
+                f"is already registered in {registry_path}[/{Styles.WARNING}]"
+            )
             return
 
         # Ask user if they want to add it
@@ -661,12 +723,17 @@ async def _offer_registry_integration(generator, classifier_analysis, orchestrat
         add_to_reg = await questionary.confirm(
             "Add this capability to your registry automatically?",
             default=True,
-            style=get_questionary_style()
+            style=get_questionary_style(),
         ).ask_async()
 
         if not add_to_reg:
-            console.print("\n  " + Messages.info('Skipped registry update. '
-                         'Add manually using snippet at bottom of generated file.'))
+            console.print(
+                "\n  "
+                + Messages.info(
+                    "Skipped registry update. "
+                    "Add manually using snippet at bottom of generated file."
+                )
+            )
             return
 
         # Generate class name and context type from generator
@@ -674,15 +741,19 @@ async def _offer_registry_integration(generator, classifier_analysis, orchestrat
         class_name = generator._to_class_name(generator.capability_name)
 
         # Determine context class name and type based on generator type
-        if hasattr(generator, 'server_name'):
+        if hasattr(generator, "server_name"):
             # MCP generator
-            context_class_name = generator._to_class_name(generator.capability_name, suffix='ResultsContext')
+            context_class_name = generator._to_class_name(
+                generator.capability_name, suffix="ResultsContext"
+            )
             context_type = f"{generator.server_name.upper()}_RESULTS"
             description = f"{generator.server_name} operations via MCP server"
         else:
             # Prompt generator - use metadata if available
-            context_class_name = generator._to_class_name(generator.capability_name, suffix='Context')
-            if hasattr(generator, 'metadata') and generator.metadata:
+            context_class_name = generator._to_class_name(
+                generator.capability_name, suffix="Context"
+            )
+            if hasattr(generator, "metadata") and generator.metadata:
                 context_type = generator.metadata.context_type_suggestion
                 description = generator.metadata.description
             else:
@@ -696,7 +767,7 @@ async def _offer_registry_integration(generator, classifier_analysis, orchestrat
             class_name,
             context_type,
             context_class_name,
-            description
+            description,
         )
 
         # Show preview
@@ -705,14 +776,12 @@ async def _offer_registry_integration(generator, classifier_analysis, orchestrat
 
         # Confirm
         confirm = await questionary.confirm(
-            "Apply these changes to registry.py?",
-            default=True,
-            style=get_questionary_style()
+            "Apply these changes to registry.py?", default=True, style=get_questionary_style()
         ).ask_async()
 
         if confirm:
             # Backup first
-            backup_path = registry_path.with_suffix('.py.bak')
+            backup_path = registry_path.with_suffix(".py.bak")
             backup_path.write_text(registry_path.read_text())
 
             # Write new content
@@ -721,39 +790,45 @@ async def _offer_registry_integration(generator, classifier_analysis, orchestrat
             console.print(f"\n  {Messages.success(f'Updated {registry_path}')}")
             console.print(f"  [{Styles.DIM}]Backup saved to: {backup_path}[/{Styles.DIM}]")
             console.print()
-            console.print("  " + Messages.info('Capability is now registered! '
-                         'Test with: osprey chat'))
+            console.print(
+                "  " + Messages.info("Capability is now registered! " "Test with: osprey chat")
+            )
         else:
-            console.print("\n  " + Messages.info('Changes not applied. '
-                         'Add manually if needed.'))
+            console.print("\n  " + Messages.info("Changes not applied. " "Add manually if needed."))
 
     except ImportError:
         # questionary not available
-        console.print(f"\n[{Styles.DIM}]Note: Install questionary for interactive registry updates[/{Styles.DIM}]")
+        console.print(
+            f"\n[{Styles.DIM}]Note: Install questionary for interactive registry updates[/{Styles.DIM}]"
+        )
     except Exception as e:
         # Escape the error message to prevent Rich markup interpretation
-        error_msg = str(e).replace('[', '\\[').replace(']', '\\]')
-        console.print(f"\n[{Styles.WARNING}]⚠️  Could not update registry: {error_msg}[/{Styles.WARNING}]")
-        console.print("  " + Styles.DIM + "Add capability manually using snippet at bottom of generated file." + f"[/{Styles.DIM}]")
+        error_msg = str(e).replace("[", "\\[").replace("]", "\\]")
+        console.print(
+            f"\n[{Styles.WARNING}]⚠️  Could not update registry: {error_msg}[/{Styles.WARNING}]"
+        )
+        console.print(
+            "  "
+            + Styles.DIM
+            + "Add capability manually using snippet at bottom of generated file."
+            + f"[/{Styles.DIM}]"
+        )
 
 
 async def _generate_capability_async(
-    generator,
-    mcp_url: str,
-    simulated: bool,
-    output_path: Path,
-    quiet: bool
+    generator, mcp_url: str, simulated: bool, output_path: Path, quiet: bool
 ):
     """Async helper for capability generation."""
     # Step 1: Discover tools
     if not quiet:
         console.print(f"\n📡 [{Styles.HEADER}]Step 1: Discovering MCP tools...[/{Styles.HEADER}]")
 
-    with console.status("[dim]Connecting to MCP server...[/dim]" if not simulated else "[dim]Loading simulated tools...[/dim]"):
-        tools = await generator.discover_tools(
-            mcp_url=mcp_url,
-            simulated=simulated
-        )
+    with console.status(
+        "[dim]Connecting to MCP server...[/dim]"
+        if not simulated
+        else "[dim]Loading simulated tools...[/dim]"
+    ):
+        tools = await generator.discover_tools(mcp_url=mcp_url, simulated=simulated)
 
     if not tools:
         console.print(f"  {Messages.error('No tools found')}")
@@ -768,23 +843,34 @@ async def _generate_capability_async(
 
     # Step 2: Generate guides
     if not quiet:
-        console.print(f"\n🤖 [{Styles.HEADER}]Step 2: Generating guides with LLM...[/{Styles.HEADER}]")
+        console.print(
+            f"\n🤖 [{Styles.HEADER}]Step 2: Generating guides with LLM...[/{Styles.HEADER}]"
+        )
 
     with console.status("[dim]Analyzing tools and generating examples...[/dim]"):
         classifier_analysis, orchestrator_analysis = await generator.generate_guides()
 
-    num_examples = len(classifier_analysis.positive_examples) + len(classifier_analysis.negative_examples)
-    console.print("  " + Messages.success(f'Generated {num_examples} classifier examples'))
-    console.print("  " + Messages.success(f'Generated {len(orchestrator_analysis.example_steps)} orchestrator examples'))
+    num_examples = len(classifier_analysis.positive_examples) + len(
+        classifier_analysis.negative_examples
+    )
+    console.print("  " + Messages.success(f"Generated {num_examples} classifier examples"))
+    console.print(
+        "  "
+        + Messages.success(
+            f"Generated {len(orchestrator_analysis.example_steps)} orchestrator examples"
+        )
+    )
 
     # Step 3: Generate code
     if not quiet:
-        console.print(f"\n📝 [{Styles.HEADER}]Step 3: Generating capability code...[/{Styles.HEADER}]")
+        console.print(
+            f"\n📝 [{Styles.HEADER}]Step 3: Generating capability code...[/{Styles.HEADER}]"
+        )
 
     with console.status("[dim]Creating capability class...[/dim]"):
         code = generator.generate_capability_code(classifier_analysis, orchestrator_analysis)
 
-    console.print("  " + Messages.success('Code generated'))
+    console.print("  " + Messages.success("Code generated"))
 
     # Step 4: Write file
     if not quiet:
@@ -797,14 +883,18 @@ async def _generate_capability_async(
 
     # Success summary
     console.print("\n" + "=" * 70)
-    console.print(f"[{Styles.BOLD_SUCCESS}]✅ SUCCESS! MCP Capability Generated[/{Styles.BOLD_SUCCESS}]")
+    console.print(
+        f"[{Styles.BOLD_SUCCESS}]✅ SUCCESS! MCP Capability Generated[/{Styles.BOLD_SUCCESS}]"
+    )
     console.print("=" * 70 + "\n")
 
     console.print(f"[{Styles.HEADER}]What was created:[/{Styles.HEADER}]")
     console.print(f"  ✓ Capability class: {generator.capability_name}")
     console.print("  ✓ MCP client integration")
     console.print(f"  ✓ Classifier guide with {num_examples} examples")
-    console.print(f"  ✓ Orchestrator guide with {len(orchestrator_analysis.example_steps)} examples")
+    console.print(
+        f"  ✓ Orchestrator guide with {len(orchestrator_analysis.example_steps)} examples"
+    )
     console.print("  ✓ Context class for results")
     console.print("  ✓ Error handling")
     console.print("  ✓ Registry registration snippet")
@@ -818,40 +908,29 @@ async def _generate_capability_async(
 
     # Offer to add to registry automatically
     if not quiet:
-        await _offer_registry_integration(
-            generator,
-            classifier_analysis,
-            orchestrator_analysis
-        )
+        await _offer_registry_integration(generator, classifier_analysis, orchestrator_analysis)
 
         # Offer to add mcp_react model to config
         await _offer_config_integration(generator)
 
 
-@generate.command(name='mcp-server')
+@generate.command(name="mcp-server")
 @click.option(
-    '--name', '-n',
-    'server_name',
-    default='demo_mcp',
-    help='Name for the server (default: demo_mcp)'
+    "--name",
+    "-n",
+    "server_name",
+    default="demo_mcp",
+    help="Name for the server (default: demo_mcp)",
 )
 @click.option(
-    '--output', '-o',
-    'output_file',
+    "--output",
+    "-o",
+    "output_file",
     default=None,
-    help='Output file path (default: ./<name>_server.py)'
+    help="Output file path (default: ./<name>_server.py)",
 )
-@click.option(
-    '--port', '-p',
-    default=3001,
-    type=int,
-    help='Server port (default: 3001)'
-)
-def mcp_server(
-    server_name: str,
-    output_file: str,
-    port: int
-):
+@click.option("--port", "-p", default=3001, type=int, help="Server port (default: 3001)")
+def mcp_server(server_name: str, output_file: str, port: int):
     """Generate demo MCP server for testing.
 
     Creates a demo MCP server with weather tools that you can run locally
@@ -891,51 +970,58 @@ def mcp_server(
     output_path = Path(output_file)
 
     console.print("\n🚀 [header]Generating MCP Server[/header]\n")
-    console.print(f"  [{Styles.LABEL}]Server:[/{Styles.LABEL}] [{Styles.VALUE}]{server_name}[/{Styles.VALUE}]")
-    console.print(f"  [{Styles.LABEL}]Tools:[/{Styles.LABEL}] [{Styles.VALUE}]weather (demo)[/{Styles.VALUE}]")
-    console.print(f"  [{Styles.LABEL}]Port:[/{Styles.LABEL}] [{Styles.VALUE}]{port}[/{Styles.VALUE}]")
-    console.print(f"  [{Styles.LABEL}]Output:[/{Styles.LABEL}] [{Styles.VALUE}]{output_path}[/{Styles.VALUE}]\n")
+    console.print(
+        f"  [{Styles.LABEL}]Server:[/{Styles.LABEL}] [{Styles.VALUE}]{server_name}[/{Styles.VALUE}]"
+    )
+    console.print(
+        f"  [{Styles.LABEL}]Tools:[/{Styles.LABEL}] [{Styles.VALUE}]weather (demo)[/{Styles.VALUE}]"
+    )
+    console.print(
+        f"  [{Styles.LABEL}]Port:[/{Styles.LABEL}] [{Styles.VALUE}]{port}[/{Styles.VALUE}]"
+    )
+    console.print(
+        f"  [{Styles.LABEL}]Output:[/{Styles.LABEL}] [{Styles.VALUE}]{output_path}[/{Styles.VALUE}]\n"
+    )
 
     try:
         with console.status("[dim]Generating server code...[/dim]"):
             write_mcp_server_file = get_server_template()
             output_path = write_mcp_server_file(
-                output_path=output_path,
-                server_name=server_name,
-                port=port
+                output_path=output_path, server_name=server_name, port=port
             )
 
         console.print(f"  {Messages.success(f'Server generated: {output_path}')}\n")
 
         console.print(f"[{Styles.HEADER}]Next Steps:[/{Styles.HEADER}]")
-        console.print(f"  1. Install dependencies: [{Styles.ACCENT}]pip install fastmcp[/{Styles.ACCENT}]")
-        console.print(f"  2. Run the server: [{Styles.ACCENT}]python {output_path}[/{Styles.ACCENT}]")
-        console.print(f"  3. Generate capability: [{Styles.ACCENT}]osprey generate capability --from-mcp http://localhost:{port} -n {server_name}[/{Styles.ACCENT}]")
+        console.print(
+            f"  1. Install dependencies: [{Styles.ACCENT}]pip install fastmcp[/{Styles.ACCENT}]"
+        )
+        console.print(
+            f"  2. Run the server: [{Styles.ACCENT}]python {output_path}[/{Styles.ACCENT}]"
+        )
+        console.print(
+            f"  3. Generate capability: [{Styles.ACCENT}]osprey generate capability --from-mcp http://localhost:{port} -n {server_name}[/{Styles.ACCENT}]"
+        )
         console.print()
 
     except Exception as e:
         console.print(f"\n{Messages.error(f'Generation failed: {e}')}")
         import traceback
+
         console.print(f"[dim]{traceback.format_exc()}[/dim]")
         raise click.Abort() from e
 
 
-@generate.command(name='claude-config')
+@generate.command(name="claude-config")
 @click.option(
-    '--output', '-o',
-    'output_file',
+    "--output",
+    "-o",
+    "output_file",
     default="claude_generator_config.yml",
-    help='Output file path (default: ./claude_generator_config.yml)'
+    help="Output file path (default: ./claude_generator_config.yml)",
 )
-@click.option(
-    '--force', '-f',
-    is_flag=True,
-    help='Overwrite existing file if it exists'
-)
-def claude_config(
-    output_file: str,
-    force: bool
-):
+@click.option("--force", "-f", is_flag=True, help="Overwrite existing file if it exists")
+def claude_config(output_file: str, force: bool):
     """Generate Claude Code generator configuration file.
 
     Creates a claude_generator_config.yml file with sensible defaults for
@@ -987,7 +1073,9 @@ def claude_config(
         raise click.Abort()
 
     console.print("\n⚙️  [header]Generating Claude Code Configuration[/header]\n")
-    console.print(f"  [{Styles.LABEL}]Output:[/{Styles.LABEL}] [{Styles.VALUE}]{output_path}[/{Styles.VALUE}]")
+    console.print(
+        f"  [{Styles.LABEL}]Output:[/{Styles.LABEL}] [{Styles.VALUE}]{output_path}[/{Styles.VALUE}]"
+    )
 
     try:
         # Try to detect provider from config.yml if available
@@ -999,28 +1087,25 @@ def claude_config(
             try:
                 with open(config_path) as f:
                     config = yaml.safe_load(f)
-                    if config and 'llm' in config:
-                        default_provider = config['llm'].get('default_provider', 'anthropic')
-                        console.print(f"  [{Styles.LABEL}]Detected provider:[/{Styles.LABEL}] [{Styles.VALUE}]{default_provider}[/{Styles.VALUE}]")
+                    if config and "llm" in config:
+                        default_provider = config["llm"].get("default_provider", "anthropic")
+                        console.print(
+                            f"  [{Styles.LABEL}]Detected provider:[/{Styles.LABEL}] [{Styles.VALUE}]{default_provider}[/{Styles.VALUE}]"
+                        )
             except Exception:
                 pass
         else:
             console.print(f"  [{Styles.DIM}]No config.yml found - using defaults[/{Styles.DIM}]")
 
         # Create template context
-        ctx = {
-            "default_provider": default_provider,
-            "default_model": default_model
-        }
+        ctx = {"default_provider": default_provider, "default_model": default_model}
 
         # Render template
         console.print(f"\n  [{Styles.DIM}]Rendering template...[/{Styles.DIM}]")
 
         template_manager = TemplateManager()
         template_manager.render_template(
-            "apps/control_assistant/claude_generator_config.yml.j2",
-            ctx,
-            output_path
+            "apps/control_assistant/claude_generator_config.yml.j2", ctx, output_path
         )
 
         console.print(f"  {Messages.success(f'Configuration generated: {output_path}')}\n")
@@ -1039,11 +1124,11 @@ def claude_config(
         console.print("  2. Enable in [accent]config.yml[/accent]:")
         console.print()
         console.print("     [dim]execution:[/dim]")
-        console.print("     [dim]  code_generator: \"claude_code\"[/dim]")
+        console.print('     [dim]  code_generator: "claude_code"[/dim]')
         console.print("     [dim]  generators:[/dim]")
         console.print("     [dim]    claude_code:[/dim]")
-        console.print("     [dim]      profile: \"fast\"  # or \"robust\"[/dim]")
-        console.print(f"     [dim]      claude_config_path: \"{output_path.name}\"[/dim]")
+        console.print('     [dim]      profile: "fast"  # or "robust"[/dim]')
+        console.print(f'     [dim]      claude_config_path: "{output_path.name}"[/dim]')
         console.print()
         console.print(f"  3. Set API key in [accent].env[/accent]:")
         if default_provider == "cborg":
@@ -1059,10 +1144,10 @@ def claude_config(
     except Exception as e:
         console.print(f"\n{Messages.error(f'Generation failed: {e}')}")
         import traceback
+
         console.print(f"[dim]{traceback.format_exc()}[/dim]")
         raise click.Abort() from e
 
 
 if __name__ == "__main__":
     generate()
-

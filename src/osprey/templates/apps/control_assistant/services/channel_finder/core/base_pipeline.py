@@ -1,8 +1,10 @@
 """
 Abstract base class for all channel finder pipelines.
 """
+
 from abc import ABC, abstractmethod
-from typing import Dict, Any
+from typing import Any, Dict
+
 from .models import ChannelFinderResult
 
 
@@ -49,4 +51,3 @@ class BasePipeline(ABC):
     def pipeline_name(self) -> str:
         """Return the pipeline name."""
         pass
-

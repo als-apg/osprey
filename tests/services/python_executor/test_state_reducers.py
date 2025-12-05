@@ -22,7 +22,7 @@ class TestPreserveOnceSetReducer:
         request = PythonExecutionRequest(
             user_query="Test query",
             task_objective="Test objective",
-            execution_folder_name="test_folder"
+            execution_folder_name="test_folder",
         )
 
         # Simulate state update where existing value should be preserved
@@ -38,7 +38,7 @@ class TestPreserveOnceSetReducer:
         request = PythonExecutionRequest(
             user_query="Test query",
             task_objective="Test objective",
-            execution_folder_name="test_folder"
+            execution_folder_name="test_folder",
         )
 
         # Simulate initial state creation
@@ -54,12 +54,12 @@ class TestPreserveOnceSetReducer:
         request1 = PythonExecutionRequest(
             user_query="First query",
             task_objective="First objective",
-            execution_folder_name="folder1"
+            execution_folder_name="folder1",
         )
         request2 = PythonExecutionRequest(
             user_query="Second query",
             task_objective="Second objective",
-            execution_folder_name="folder2"
+            execution_folder_name="folder2",
         )
 
         # Simulate state update attempting to replace value
@@ -88,7 +88,7 @@ class TestPreserveOnceSetReducer:
         checkpoint_request = PythonExecutionRequest(
             user_query="Write to EPICS PV",
             task_objective="Test EPICS write approval",
-            execution_folder_name="test_approval"
+            execution_folder_name="test_approval",
         )
 
         # Resume payload doesn't include request field (implicitly None)
@@ -131,10 +131,10 @@ class TestStatePreservationIntegration:
         hints = get_type_hints(PythonExecutionState, include_extras=True)
 
         # Check that 'request' field exists
-        assert 'request' in hints, "PythonExecutionState should have 'request' field"
+        assert "request" in hints, "PythonExecutionState should have 'request' field"
 
         # Get the type annotation for 'request'
-        request_annotation = hints['request']
+        request_annotation = hints["request"]
 
         # Check if it's an Annotated type
         origin = get_origin(request_annotation)
@@ -145,8 +145,9 @@ class TestStatePreservationIntegration:
 
             # The second argument should be the reducer function
             metadata = args[1:]
-            assert preserve_once_set in metadata, \
-                "request field should have preserve_once_set reducer in metadata"
+            assert (
+                preserve_once_set in metadata
+            ), "request field should have preserve_once_set reducer in metadata"
 
     def test_state_creation_includes_request(self):
         """Test that _create_internal_state includes request field.
@@ -160,7 +161,7 @@ class TestStatePreservationIntegration:
         request = PythonExecutionRequest(
             user_query="Test query",
             task_objective="Test objective",
-            execution_folder_name="test_folder"
+            execution_folder_name="test_folder",
         )
 
         # Create state manually (mimicking what _create_internal_state does)
@@ -186,16 +187,14 @@ class TestStatePreservationIntegration:
         )
 
         # Verify request is in state
-        assert 'request' in state
-        assert state['request'] == request
+        assert "request" in state
+        assert state["request"] == request
 
         # Simulate a state update that doesn't include request (like Command.resume)
         # The reducer would preserve the request field
         preserved_request = preserve_once_set(
-            existing=state['request'],
-            new=None  # What comes from Command.resume
+            existing=state["request"], new=None  # What comes from Command.resume
         )
 
         assert preserved_request == request
         assert preserved_request is request
-

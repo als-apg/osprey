@@ -61,6 +61,7 @@ def create_generator_node():
         execution_folder = state.get("execution_folder")
         if not execution_folder:
             from osprey.utils.config import get_full_configuration
+
             from ..services import FileManager
 
             configurable = get_full_configuration()
@@ -69,7 +70,9 @@ def create_generator_node():
                 state["request"].execution_folder_name
             )
             execution_folder = execution_context
-            logger.debug(f"Created execution folder for generation: {execution_context.folder_path}")
+            logger.debug(
+                f"Created execution folder for generation: {execution_context.folder_path}"
+            )
 
         # Create generator via factory - configuration-driven selection
         generator = create_code_generator()
@@ -79,12 +82,13 @@ def create_generator_node():
         try:
             # Add execution folder path to request for generators that save prompts
             request = state["request"]
-            if execution_folder and hasattr(execution_folder, 'folder_path'):
+            if execution_folder and hasattr(execution_folder, "folder_path"):
                 # Create a modified request with execution folder path
                 # We use model_copy to avoid mutating the original
                 request_dict = request.model_dump()
-                request_dict['execution_folder_path'] = str(execution_folder.folder_path)
+                request_dict["execution_folder_path"] = str(execution_folder.folder_path)
                 from ..models import PythonExecutionRequest
+
                 request = PythonExecutionRequest(**request_dict)
 
             # Generate code with error feedback from previous attempts
@@ -128,12 +132,13 @@ def create_generator_node():
 
             # Add structured error to chain and check retry limits
             import traceback
+
             error = ExecutionError(
                 error_type="generation",
                 error_message=str(e),
                 traceback=traceback.format_exc(),
                 attempt_number=state.get("generation_attempt", 0) + 1,
-                stage="generation"
+                stage="generation",
             )
             error_chain = state.get("error_chain", []) + [error]
             max_retries = state["request"].retries

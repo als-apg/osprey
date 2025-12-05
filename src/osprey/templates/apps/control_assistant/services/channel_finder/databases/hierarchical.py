@@ -39,41 +39,41 @@ class HierarchicalChannelDatabase(BaseDatabase):
         """Load hierarchical database from JSON with flexible configuration."""
         import warnings
 
-        with open(self.db_path, 'r') as f:
+        with open(self.db_path, "r") as f:
             data = json.load(f)
 
-        self.tree = data['tree']
+        self.tree = data["tree"]
 
         # Support new unified schema (preferred) or legacy three-field format (deprecated)
-        if 'hierarchy' in data:
+        if "hierarchy" in data:
             # NEW UNIFIED SCHEMA: Single "hierarchy" section
-            hierarchy_def = data['hierarchy']
+            hierarchy_def = data["hierarchy"]
 
             # Extract levels list and build derived structures
-            levels_list = hierarchy_def['levels']
-            self.hierarchy_levels = [level['name'] for level in levels_list]
-            self.naming_pattern = hierarchy_def['naming_pattern']
+            levels_list = hierarchy_def["levels"]
+            self.hierarchy_levels = [level["name"] for level in levels_list]
+            self.naming_pattern = hierarchy_def["naming_pattern"]
 
             # Build hierarchy_config from levels list
             self.hierarchy_config = {"levels": {}}
             for level_def in levels_list:
-                self.hierarchy_config["levels"][level_def['name']] = {
-                    "type": level_def['type'],
-                    "optional": level_def.get('optional', False)
+                self.hierarchy_config["levels"][level_def["name"]] = {
+                    "type": level_def["type"],
+                    "optional": level_def.get("optional", False),
                 }
 
             # Validate naming_pattern references correct level names
             self._validate_naming_pattern()
 
-        elif 'hierarchy_definition' in data:
+        elif "hierarchy_definition" in data:
             # LEGACY/INTERMEDIATE FORMAT: Backward compatibility for old schemas
-            self.hierarchy_levels = data['hierarchy_definition']
-            self.naming_pattern = data['naming_pattern']
+            self.hierarchy_levels = data["hierarchy_definition"]
+            self.naming_pattern = data["naming_pattern"]
 
             # Load or infer hierarchy configuration
-            if 'hierarchy_config' in data:
+            if "hierarchy_config" in data:
                 # Intermediate format (unpublished) - silent backward compatibility
-                self.hierarchy_config = data['hierarchy_config']
+                self.hierarchy_config = data["hierarchy_config"]
             else:
                 # TRULY LEGACY FORMAT: Missing hierarchy_config entirely
                 # This is the old container-based format with devices/fields/subfields
@@ -87,7 +87,7 @@ class HierarchicalChannelDatabase(BaseDatabase):
                     "See data/channel_databases/hierarchical.json for the new format, "
                     "or data/channel_databases/examples/hierarchical_legacy.json for the legacy format reference.",
                     DeprecationWarning,
-                    stacklevel=2
+                    stacklevel=2,
                 )
                 self.hierarchy_config = self._infer_legacy_config()
         else:
@@ -113,23 +113,17 @@ class HierarchicalChannelDatabase(BaseDatabase):
         config = {"levels": {}}
 
         # Map legacy container keys
-        legacy_container_keys = {
-            'device': 'devices',
-            'field': 'fields',
-            'subfield': 'subfields'
-        }
+        legacy_container_keys = {"device": "devices", "field": "fields", "subfield": "subfields"}
 
         for i, level in enumerate(self.hierarchy_levels):
             if i < 2:
                 # First two levels: tree-based categories
-                config["levels"][level] = {
-                    "type": "tree"
-                }
+                config["levels"][level] = {"type": "tree"}
             else:
                 # Later levels: container-based (legacy style)
                 config["levels"][level] = {
                     "type": "container",  # Legacy mode
-                    "container_key": legacy_container_keys.get(level, f"{level}s")
+                    "container_key": legacy_container_keys.get(level, f"{level}s"),
                 }
 
         return config
@@ -147,7 +141,7 @@ class HierarchicalChannelDatabase(BaseDatabase):
         import re
 
         # Extract placeholder names from naming pattern (e.g., {system}, {family}, etc.)
-        pattern_placeholders = set(re.findall(r'\{(\w+)\}', self.naming_pattern))
+        pattern_placeholders = set(re.findall(r"\{(\w+)\}", self.naming_pattern))
         expected_placeholders = set(self.hierarchy_levels)
 
         # Pattern placeholders must be subset of hierarchy levels
@@ -159,7 +153,9 @@ class HierarchicalChannelDatabase(BaseDatabase):
             error_msg += f"  Undefined levels in pattern: {sorted(extra)}\n"
             error_msg += f"  Defined hierarchy levels: {self.hierarchy_levels}\n"
             error_msg += f"  Pattern: {self.naming_pattern}\n\n"
-            error_msg += "All placeholders in naming_pattern must correspond to defined hierarchy levels."
+            error_msg += (
+                "All placeholders in naming_pattern must correspond to defined hierarchy levels."
+            )
 
             raise ValueError(error_msg)
 
@@ -217,7 +213,7 @@ class HierarchicalChannelDatabase(BaseDatabase):
             if "type" not in config:
                 raise ValueError(
                     f"Level '{level}' missing required 'type' property.\n"
-                    f"Add: \"type\": \"tree\" or \"instances\"\n"
+                    f'Add: "type": "tree" or "instances"\n'
                     f"  - tree: Semantic categories with direct children\n"
                     f"  - instances: Numbered/patterned instances that share structure"
                 )
@@ -277,9 +273,9 @@ class HierarchicalChannelDatabase(BaseDatabase):
             raise ValueError(
                 f"Instance level '{level_name}' requires container named '{level_name.upper()}' in tree.\n\n"
                 f"Expected structure:\n"
-                f"  \"tree\": {{\n"
-                f"    \"{level_name.upper()}\": {{\n"
-                f"      \"_expansion\": {{...}},\n"
+                f'  "tree": {{\n'
+                f'    "{level_name.upper()}": {{\n'
+                f'      "_expansion": {{...}},\n'
                 f"      ...(children for next level)\n"
                 f"    }}\n"
                 f"  }}\n\n"
@@ -300,15 +296,15 @@ class HierarchicalChannelDatabase(BaseDatabase):
                 f"Found container at: {path}\n"
                 f"Missing: {path}['_expansion']\n\n"
                 f"Add expansion definition:\n"
-                f"  \"_expansion\": {{\n"
-                f"    \"_type\": \"range\",\n"
-                f"    \"_pattern\": \"{{:02d}}\",  // or \"{{}}\"\n"
-                f"    \"_range\": [1, 10]  // [start, end] inclusive\n"
+                f'  "_expansion": {{\n'
+                f'    "_type": "range",\n'
+                f'    "_pattern": "{{:02d}}",  // or "{{}}"\n'
+                f'    "_range": [1, 10]  // [start, end] inclusive\n'
                 f"  }}\n\n"
                 f"Or for list-based:\n"
-                f"  \"_expansion\": {{\n"
-                f"    \"_type\": \"list\",\n"
-                f"    \"_instances\": [\"A\", \"B\", \"C\"]\n"
+                f'  "_expansion": {{\n'
+                f'    "_type": "list",\n'
+                f'    "_instances": ["A", "B", "C"]\n'
                 f"  }}"
             )
 
@@ -332,9 +328,9 @@ class HierarchicalChannelDatabase(BaseDatabase):
                         f"  tree['{next_level.upper()}'] = {{...}}  ← siblings (wrong)\n\n"
                         f"Expected structure (correct):\n"
                         f"  tree['{level_name.upper()}'] = {{\n"
-                        f"    \"_expansion\": {{...}},\n"
-                        f"    \"{next_level.upper()}\": {{  ← nested inside {level_name.upper()}\n"
-                        f"      \"_expansion\": {{...}},\n"
+                        f'    "_expansion": {{...}},\n'
+                        f'    "{next_level.upper()}": {{  ← nested inside {level_name.upper()}\n'
+                        f'      "_expansion": {{...}},\n'
                         f"      ...\n"
                         f"    }}\n"
                         f"  }}\n\n"
@@ -356,16 +352,16 @@ class HierarchicalChannelDatabase(BaseDatabase):
             if "_pattern" not in expansion:
                 raise ValueError(
                     f"Range expansion for '{level_name}' requires '_pattern' field.\n"
-                    f"Example: \"_pattern\": \"{{:02d}}\" for zero-padded numbers (01, 02, ...)\n"
-                    f"Example: \"_pattern\": \"{{}}\" for plain numbers (1, 2, ...)\n"
-                    f"Example: \"_pattern\": \"B{{:02d}}\" for prefixed (B01, B02, ...)"
+                    f'Example: "_pattern": "{{:02d}}" for zero-padded numbers (01, 02, ...)\n'
+                    f'Example: "_pattern": "{{}}" for plain numbers (1, 2, ...)\n'
+                    f'Example: "_pattern": "B{{:02d}}" for prefixed (B01, B02, ...)'
                 )
 
             if "_range" not in expansion:
                 raise ValueError(
                     f"Range expansion for '{level_name}' requires '_range' field.\n"
                     f"Must be [start, end] list (inclusive).\n"
-                    f"Example: \"_range\": [1, 24] generates 1, 2, ..., 24"
+                    f'Example: "_range": [1, 24] generates 1, 2, ..., 24'
                 )
 
             # Validate range format
@@ -393,7 +389,7 @@ class HierarchicalChannelDatabase(BaseDatabase):
                 raise ValueError(
                     f"List expansion for '{level_name}' requires '_instances' field.\n"
                     f"Must be a list of strings.\n"
-                    f"Example: \"_instances\": [\"MAIN\", \"BACKUP\", \"TEST\"]"
+                    f'Example: "_instances": ["MAIN", "BACKUP", "TEST"]'
                 )
 
             if not isinstance(expansion["_instances"], list):
@@ -487,7 +483,7 @@ class HierarchicalChannelDatabase(BaseDatabase):
         import re
 
         # Extract all placeholders from pattern
-        pattern_placeholders = set(re.findall(r'\{(\w+)\}', self.naming_pattern))
+        pattern_placeholders = set(re.findall(r"\{(\w+)\}", self.naming_pattern))
 
         # Return in hierarchy order (not pattern order) for consistent Cartesian product
         return [level for level in self.hierarchy_levels if level in pattern_placeholders]
@@ -519,8 +515,8 @@ class HierarchicalChannelDatabase(BaseDatabase):
             # Skip in naming (navigation only)
             {"Building-1": {"_channel_part": ""}} → ""
         """
-        if '_channel_part' in node:
-            return node['_channel_part']
+        if "_channel_part" in node:
+            return node["_channel_part"]
         return tree_key  # Default: backward compatible
 
     def _is_leaf_node(self, node: dict, current_level_idx: int) -> bool:
@@ -557,14 +553,13 @@ class HierarchicalChannelDatabase(BaseDatabase):
             (subdevice optional, no SUBDEVICE container) → True
         """
         # Explicit _is_leaf marker takes precedence
-        if node.get('_is_leaf', False):
+        if node.get("_is_leaf", False):
             return True
 
         # AUTOMATIC LEAF DETECTION: Node has no children (only metadata)
         # This eliminates the need for explicit _is_leaf on obvious leaf nodes
         has_children = any(
-            not key.startswith('_') and isinstance(node[key], dict)
-            for key in node.keys()
+            not key.startswith("_") and isinstance(node[key], dict) for key in node.keys()
         )
         if not has_children:
             return True
@@ -590,14 +585,14 @@ class HierarchicalChannelDatabase(BaseDatabase):
                     has_next_level_container = any(
                         key.upper() == next_level.upper()
                         for key in node.keys()
-                        if isinstance(node[key], dict) and not key.startswith('_')
+                        if isinstance(node[key], dict) and not key.startswith("_")
                     )
                     # Only a leaf if there's NO container for the next instance level
                     return not has_next_level_container
                 elif next_config["type"] == "tree":
                     # Look for any tree children (non-meta keys)
                     has_tree_children = any(
-                        not key.startswith('_') and isinstance(node[key], dict)
+                        not key.startswith("_") and isinstance(node[key], dict)
                         for key in node.keys()
                     )
                     # Only a leaf if there are NO tree children
@@ -635,26 +630,24 @@ class HierarchicalChannelDatabase(BaseDatabase):
         import re
 
         # Multiple consecutive separators of same type
-        channel = re.sub(r':{2,}', ':', channel)   # :: → :
-        channel = re.sub(r'-{2,}', '-', channel)   # -- → -
-        channel = re.sub(r'_{2,}', '_', channel)   # __ → _
+        channel = re.sub(r":{2,}", ":", channel)  # :: → :
+        channel = re.sub(r"-{2,}", "-", channel)  # -- → -
+        channel = re.sub(r"_{2,}", "_", channel)  # __ → _
 
         # Trailing separators
-        channel = re.sub(r'[:_-]+$', '', channel)  # Remove trailing : _ -
+        channel = re.sub(r"[:_-]+$", "", channel)  # Remove trailing : _ -
 
         # Leading separators (except intentional ones)
-        channel = re.sub(r'^[_:]', '', channel)    # Remove leading _ :
+        channel = re.sub(r"^[_:]", "", channel)  # Remove leading _ :
 
         # Mixed consecutive separators (e.g., ":_" when both parts empty)
         # Keep the first separator type
-        channel = re.sub(r'[:_-]([:_-])+', lambda m: m.group(0)[0], channel)
+        channel = re.sub(r"[:_-]([:_-])+", lambda m: m.group(0)[0], channel)
 
         return channel
 
     def get_options_at_level(
-        self,
-        level: str,
-        previous_selections: dict[str, Any]
+        self, level: str, previous_selections: dict[str, Any]
     ) -> list[dict[str, str]]:
         """
         Get available options at a specific hierarchy level.
@@ -687,11 +680,15 @@ class HierarchicalChannelDatabase(BaseDatabase):
 
         elif level_type == "container":
             # Legacy container mode (backward compatibility)
-            return self._get_container_options(current_node, level, level_config, previous_selections)
+            return self._get_container_options(
+                current_node, level, level_config, previous_selections
+            )
 
         return []
 
-    def _navigate_to_node(self, target_level: str, previous_selections: dict[str, Any]) -> Optional[dict]:
+    def _navigate_to_node(
+        self, target_level: str, previous_selections: dict[str, Any]
+    ) -> Optional[dict]:
         """
         Navigate to current node in tree based on previous selections.
 
@@ -743,11 +740,8 @@ class HierarchicalChannelDatabase(BaseDatabase):
         """Extract options from tree-structured node."""
         options = []
         for key, value in node.items():
-                if not key.startswith('_') and isinstance(value, dict):
-                    options.append({
-                        'name': key,
-                        'description': value.get('_description', '')
-                    })
+            if not key.startswith("_") and isinstance(value, dict):
+                options.append({"name": key, "description": value.get("_description", "")})
         return options
 
     def _get_expansion_options(self, node: dict, level: str) -> list[dict[str, str]]:
@@ -782,36 +776,26 @@ class HierarchicalChannelDatabase(BaseDatabase):
         Returns:
             List of instance options
         """
-        expansion_type = expansion_def.get('_type')
+        expansion_type = expansion_def.get("_type")
         options = []
 
-        if expansion_type == 'range':
-            pattern = expansion_def.get('_pattern', '{}')
-            start, end = expansion_def.get('_range', [1, 1])
+        if expansion_type == "range":
+            pattern = expansion_def.get("_pattern", "{}")
+            start, end = expansion_def.get("_range", [1, 1])
 
             for i in range(start, end + 1):
                 instance_name = pattern.format(i)
-                options.append({
-                    'name': instance_name,
-                    'description': f"Instance {i}"
-                })
+                options.append({"name": instance_name, "description": f"Instance {i}"})
 
-        elif expansion_type == 'list':
-            instances = expansion_def.get('_instances', [])
+        elif expansion_type == "list":
+            instances = expansion_def.get("_instances", [])
             for instance in instances:
-                options.append({
-                    'name': instance,
-                    'description': ''
-                })
+                options.append({"name": instance, "description": ""})
 
         return options
 
     def _get_container_options(
-        self,
-        node: dict,
-        level: str,
-        level_config: dict,
-        previous_selections: dict
+        self, node: dict, level: str, level_config: dict, previous_selections: dict
     ) -> list[dict[str, str]]:
         """
         Get options from legacy container structure.
@@ -885,18 +869,14 @@ class HierarchicalChannelDatabase(BaseDatabase):
         channel_data = self.channel_map.get(channel_name)
         if channel_data:
             # Add address field if not present (use channel name as address)
-            if 'address' not in channel_data:
-                channel_data['address'] = channel_name
+            if "address" not in channel_data:
+                channel_data["address"] = channel_name
         return channel_data
 
     def get_all_channels(self) -> list[dict]:
         """Get all channels in the database."""
         return [
-            {
-                'channel': ch_name,
-                'address': ch_data.get('address', ch_name),
-                **ch_data
-            }
+            {"channel": ch_name, "address": ch_data.get("address", ch_name), **ch_data}
             for ch_name, ch_data in self.channel_map.items()
         ]
 
@@ -931,10 +911,7 @@ class HierarchicalChannelDatabase(BaseDatabase):
                 channel_name = self._clean_optional_separators(channel_name)
 
                 # Store channel
-                channels[channel_name] = {
-                    'channel': channel_name,
-                    'path': path.copy()
-                }
+                channels[channel_name] = {"channel": channel_name, "path": path.copy()}
 
                 # Process children of leaf nodes to handle optional levels
                 # A node can be both a complete channel AND have children for optional suffixes
@@ -942,15 +919,16 @@ class HierarchicalChannelDatabase(BaseDatabase):
                 if level_idx < len(self.hierarchy_levels):
                     # Check if node has children (non-meta keys)
                     has_children = any(
-                        not k.startswith('_') and isinstance(v, dict)
-                        for k, v in node.items()
+                        not k.startswith("_") and isinstance(v, dict) for k, v in node.items()
                     )
 
                     if has_children:
                         # Find next tree level after current position
                         next_tree_level_idx = None
                         for idx in range(level_idx, len(self.hierarchy_levels)):
-                            next_config = self.hierarchy_config["levels"][self.hierarchy_levels[idx]]
+                            next_config = self.hierarchy_config["levels"][
+                                self.hierarchy_levels[idx]
+                            ]
                             if next_config["type"] == "tree":
                                 next_tree_level_idx = idx
                                 break
@@ -959,14 +937,19 @@ class HierarchicalChannelDatabase(BaseDatabase):
                             # Process children as nodes at the next tree level
                             next_level = self.hierarchy_levels[next_tree_level_idx]
                             children = {
-                                k: v for k, v in node.items()
-                                if not k.startswith('_') and isinstance(v, dict)
+                                k: v
+                                for k, v in node.items()
+                                if not k.startswith("_") and isinstance(v, dict)
                             }
 
                             for child_key, child_node in children.items():
                                 channel_part = self._get_channel_part(child_node, child_key)
                                 # Assign child to next tree level
-                                expand_tree({**path, next_level: channel_part}, child_node, next_tree_level_idx + 1)
+                                expand_tree(
+                                    {**path, next_level: channel_part},
+                                    child_node,
+                                    next_tree_level_idx + 1,
+                                )
 
                             # Children processed, return
                             return
@@ -986,8 +969,7 @@ class HierarchicalChannelDatabase(BaseDatabase):
             if level_config["type"] == "tree":
                 # Tree navigation: iterate direct children
                 children = {
-                    k: v for k, v in node.items()
-                    if not k.startswith('_') and isinstance(v, dict)
+                    k: v for k, v in node.items() if not k.startswith("_") and isinstance(v, dict)
                 }
 
                 is_optional_level = level_config.get("optional", False)
@@ -1004,25 +986,31 @@ class HierarchicalChannelDatabase(BaseDatabase):
                         instances = self._get_instance_names(child_node["_expansion"])
                         for instance_name in instances:
                             # Assign instance to current level and recurse
-                            expand_tree({**path, current_level: instance_name}, child_node, level_idx + 1)
+                            expand_tree(
+                                {**path, current_level: instance_name}, child_node, level_idx + 1
+                            )
                         # Don't process this node as regular tree node
                         continue
 
                     # OPTIONAL LEVEL SKIP: If this is an optional level and the child is a leaf,
                     # the child should skip this level and be assigned to the NEXT tree level instead
-                    if is_optional_level and child_node.get('_is_leaf', False):
+                    if is_optional_level and child_node.get("_is_leaf", False):
                         # Find next tree level to assign this child to
                         next_level_idx = level_idx + 1
                         if next_level_idx < len(self.hierarchy_levels):
                             next_level = self.hierarchy_levels[next_level_idx]
                             # Skip current optional level, assign child to next level
-                            expand_tree({**path, next_level: channel_part}, child_node, next_level_idx + 1)
+                            expand_tree(
+                                {**path, next_level: channel_part}, child_node, next_level_idx + 1
+                            )
                         else:
                             # No next level exists, expand normally
                             expand_tree(path, child_node, level_idx + 1)
                     else:
                         # Normal tree expansion: assign child to current level
-                        expand_tree({**path, current_level: channel_part}, child_node, level_idx + 1)
+                        expand_tree(
+                            {**path, current_level: channel_part}, child_node, level_idx + 1
+                        )
 
             elif level_config["type"] == "instances":
                 # Expansion: find expansion definition and generate instances
@@ -1040,7 +1028,9 @@ class HierarchicalChannelDatabase(BaseDatabase):
                 if expansion_def:
                     instances = self._get_instance_names(expansion_def)
                     for instance_name in instances:
-                        expand_tree({**path, current_level: instance_name}, child_node, level_idx + 1)
+                        expand_tree(
+                            {**path, current_level: instance_name}, child_node, level_idx + 1
+                        )
 
             elif level_config["type"] == "container":
                 # Legacy container mode
@@ -1057,27 +1047,30 @@ class HierarchicalChannelDatabase(BaseDatabase):
                     else:
                         # Container with direct children
                         children = {
-                            k: v for k, v in container.items()
-                            if not k.startswith('_') and isinstance(v, dict)
+                            k: v
+                            for k, v in container.items()
+                            if not k.startswith("_") and isinstance(v, dict)
                         }
 
                         for child_name, child_node in children.items():
-                            expand_tree({**path, current_level: child_name}, child_node, level_idx + 1)
+                            expand_tree(
+                                {**path, current_level: child_name}, child_node, level_idx + 1
+                            )
 
         expand_tree({}, self.tree, 0)
         return channels
 
     def _get_instance_names(self, expansion_def: dict) -> list[str]:
         """Get list of instance names from expansion definition."""
-        expansion_type = expansion_def.get('_type')
+        expansion_type = expansion_def.get("_type")
 
-        if expansion_type == 'range':
-            pattern = expansion_def.get('_pattern', '{}')
-            start, end = expansion_def.get('_range', [1, 1])
+        if expansion_type == "range":
+            pattern = expansion_def.get("_pattern", "{}")
+            start, end = expansion_def.get("_range", [1, 1])
             return [pattern.format(i) for i in range(start, end + 1)]
 
-        elif expansion_type == 'list':
-            return expansion_def.get('_instances', [])
+        elif expansion_type == "list":
+            return expansion_def.get("_instances", [])
 
         return []
 
@@ -1093,8 +1086,8 @@ class HierarchicalChannelDatabase(BaseDatabase):
     def get_statistics(self) -> dict[str, Any]:
         """Get database statistics."""
         stats = {
-            'total_channels': len(self.channel_map),
-            'hierarchy_levels': self.hierarchy_levels,
+            "total_channels": len(self.channel_map),
+            "hierarchy_levels": self.hierarchy_levels,
         }
 
         # Count by first level (if it's a tree level)
@@ -1102,17 +1095,17 @@ class HierarchicalChannelDatabase(BaseDatabase):
         if first_level:
             first_config = self.hierarchy_config["levels"].get(first_level, {})
             if first_config.get("type") == "tree":
-                stats['systems'] = []
+                stats["systems"] = []
                 for system_name in self.tree.keys():
-                    if not system_name.startswith('_'):
+                    if not system_name.startswith("_"):
                         system_channels = [
-                            ch for ch in self.channel_map.values()
-                            if ch['path'].get(first_level) == system_name
+                            ch
+                            for ch in self.channel_map.values()
+                            if ch["path"].get(first_level) == system_name
                         ]
-                        stats['systems'].append({
-                            'name': system_name,
-                            'channel_count': len(system_channels)
-                        })
+                        stats["systems"].append(
+                            {"name": system_name, "channel_count": len(system_channels)}
+                        )
 
         return stats
 
@@ -1121,4 +1114,3 @@ class HierarchicalChannelDatabase(BaseDatabase):
         if isinstance(value, list):
             return value[0] if value else None
         return value
-

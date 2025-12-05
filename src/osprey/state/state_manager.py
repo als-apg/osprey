@@ -131,7 +131,6 @@ def get_agent_control_defaults() -> dict[str, Any]:
             "max_step_retries": 0,
             "max_execution_time_seconds": 300,
             "max_concurrent_classifications": 5,
-
             # Bypass configuration defaults
             "task_extraction_bypass_enabled": False,
             "capability_selection_bypass_enabled": False,
@@ -206,10 +205,7 @@ class StateManager:
     """
 
     @staticmethod
-    def create_fresh_state(
-        user_input: str,
-        current_state: AgentState | None = None
-    ) -> AgentState:
+    def create_fresh_state(user_input: str, current_state: AgentState | None = None) -> AgentState:
         """Create fresh agent state for a new conversation turn with selective persistence.
 
         This method creates a complete fresh state for LangGraph execution while
@@ -274,47 +270,39 @@ class StateManager:
 
         # Preserve capability_context_data from previous state if available
         preserved_context_data = {}
-        if current_state and 'capability_context_data' in current_state:
-            preserved_context_data = current_state['capability_context_data']
+        if current_state and "capability_context_data" in current_state:
+            preserved_context_data = current_state["capability_context_data"]
             logger.debug("Preserved capability_context_data from previous state")
 
         # Create complete fresh state with only capability_context_data preserved
         state = AgentState(
             # Messages (from MessagesState)
             messages=[initial_message],
-
             # Only persistent field - preserved from previous state (LangGraph-native dictionary)
             capability_context_data=preserved_context_data,
-
             # Agent control state - reset to defaults each conversation turn
             agent_control=get_agent_control_defaults(),
-
             # Event accumulation - reset each execution
             status_updates=[],
             progress_events=[],
-
             # Task processing fields - reset to defaults
             task_current_task=None,
             task_depends_on_chat_history=False,
             task_depends_on_user_memory=False,
             task_custom_message=None,
-
             # Planning fields - reset to defaults
             planning_active_capabilities=[],
             planning_execution_plan=None,
             planning_current_step_index=0,
-
             # Execution fields - reset to defaults
             execution_step_results={},
             execution_last_result=None,
             execution_pending_approvals={},
             execution_start_time=None,
             execution_total_time=None,
-
             # Approval handling fields - reset to defaults
             approval_approved=None,
             approved_payload=None,
-
             # Control flow fields - reset to defaults
             control_reclassification_reason=None,
             control_reclassification_count=0,
@@ -325,19 +313,16 @@ class StateManager:
             control_error_info=None,
             control_last_error=None,
             control_max_retries=3,
-
             control_is_killed=False,
             control_kill_reason=None,
             control_is_awaiting_validation=False,
             control_validation_context=None,
             control_validation_timestamp=None,
-
             # UI result fields - reset to defaults
             ui_captured_notebooks=[],
             ui_captured_figures=[],
             ui_launchable_commands=[],
             ui_agent_context=None,
-
             # Runtime metadata fields - reset to defaults
             runtime_checkpoint_metadata=None,
             runtime_info=None,
@@ -350,7 +335,7 @@ class StateManager:
     @staticmethod
     def get_current_task(state: AgentState) -> str | None:
         """Get current task from state."""
-        return state.get('task_current_task')
+        return state.get("task_current_task")
 
     @staticmethod
     def get_user_query(state: AgentState) -> str | None:
@@ -367,14 +352,12 @@ class StateManager:
             The user's query string, or None if no user messages exist
         """
         from .messages import ChatHistoryFormatter
-        return ChatHistoryFormatter.get_latest_user_message(state.get('messages', []))
+
+        return ChatHistoryFormatter.get_latest_user_message(state.get("messages", []))
 
     @staticmethod
     def store_context(
-        state: AgentState,
-        context_type: str,
-        context_key: str,
-        context_object: CapabilityContext
+        state: AgentState, context_type: str, context_key: str, context_object: CapabilityContext
     ) -> StateUpdate:
         """Store capability context data and return LangGraph-compatible state updates.
 
@@ -452,14 +435,12 @@ class StateManager:
         context_manager.set_context(context_type, context_key, context_object)
 
         # Return state updates with the updated dictionary data
-        return {
-            "capability_context_data": context_manager.get_raw_data()
-        }
+        return {"capability_context_data": context_manager.get_raw_data()}
 
     @staticmethod
     def get_messages(state: AgentState) -> list[BaseMessage]:
         """Get messages from state."""
-        return state.get('messages', [])
+        return state.get("messages", [])
 
     @staticmethod
     def create_response_update(response: str) -> StateUpdate:
@@ -471,9 +452,7 @@ class StateManager:
         Returns:
             StateUpdate: Update that adds the response message to the conversation
         """
-        return {
-            "messages": [MessageUtils.create_assistant_message(response)]
-        }
+        return {"messages": [MessageUtils.create_assistant_message(response)]}
 
     # ===== PLANNING AND EXECUTION UTILITIES =====
 
@@ -491,10 +470,10 @@ class StateManager:
         Returns:
             ExecutionPlan if available and valid, None otherwise
         """
-        execution_plan = state.get('planning_execution_plan')
+        execution_plan = state.get("planning_execution_plan")
 
         # Type validation - ensure it's a valid ExecutionPlan (TypedDict)
-        if execution_plan and hasattr(execution_plan, 'get'):
+        if execution_plan and hasattr(execution_plan, "get"):
             return execution_plan
 
         return None
@@ -509,7 +488,7 @@ class StateManager:
         Returns:
             Current step index (defaults to 0 if not set)
         """
-        return state.get('planning_current_step_index', 0)
+        return state.get("planning_current_step_index", 0)
 
     @staticmethod
     def get_current_step(state: AgentState) -> PlannedStep:
@@ -542,12 +521,16 @@ class StateManager:
 
         if execution_plan:
             # Type validation already done by get_execution_plan()
-            plan_steps = execution_plan.get('steps', [])
-            logger.debug(f"current_step_index={current_step_index}, plan_steps_length={len(plan_steps)}")
+            plan_steps = execution_plan.get("steps", [])
+            logger.debug(
+                f"current_step_index={current_step_index}, plan_steps_length={len(plan_steps)}"
+            )
 
             if current_step_index < len(plan_steps):
                 step = plan_steps[current_step_index]
-                logger.debug(f"Successfully extracted step at index {current_step_index}: {step.get('capability', 'unknown')}")
+                logger.debug(
+                    f"Successfully extracted step at index {current_step_index}: {step.get('capability', 'unknown')}"
+                )
                 return step
             else:
                 # This should NEVER happen - router should have caught this first
@@ -571,7 +554,7 @@ class StateManager:
         figure_path: str,
         display_name: str | None = None,
         metadata: dict[str, Any] | None = None,
-        current_figures: list[dict[str, Any]] | None = None
+        current_figures: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """
         Register a figure in the centralized UI registry.
@@ -619,7 +602,7 @@ class StateManager:
         figure_entry = {
             "capability": capability,
             "figure_path": figure_path,
-            "created_at": datetime.now().isoformat()
+            "created_at": datetime.now().isoformat(),
         }
 
         # Add optional fields only if provided
@@ -650,7 +633,7 @@ class StateManager:
         display_name: str | None = None,
         command_type: str | None = None,
         metadata: dict[str, Any] | None = None,
-        current_commands: list[dict[str, Any]] | None = None
+        current_commands: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """
         Register a launchable command in the centralized UI registry.
@@ -700,7 +683,7 @@ class StateManager:
         command_entry = {
             "capability": capability,
             "launch_uri": launch_uri,
-            "created_at": datetime.now().isoformat()
+            "created_at": datetime.now().isoformat(),
         }
 
         # Add optional fields only if provided
@@ -721,7 +704,9 @@ class StateManager:
 
         commands_list.append(command_entry)
 
-        logger.info(f"StateManager: prepared command registration for {capability}: {display_name or launch_uri}")
+        logger.info(
+            f"StateManager: prepared command registration for {capability}: {display_name or launch_uri}"
+        )
 
         return {"ui_launchable_commands": commands_list}
 
@@ -732,7 +717,7 @@ class StateManager:
         notebook_path: str,
         notebook_link: str,
         display_name: str | None = None,
-        metadata: dict[str, Any] | None = None
+        metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """
         Register a notebook in the centralized UI registry.
@@ -757,7 +742,9 @@ class StateManager:
         notebook_links = list(state.get("ui_captured_notebooks", []))
         notebook_links.append(notebook_link)
 
-        logger.info(f"StateManager: prepared notebook registration for {capability}: {display_name or notebook_path}")
+        logger.info(
+            f"StateManager: prepared notebook registration for {capability}: {display_name or notebook_path}"
+        )
 
         return {"ui_captured_notebooks": notebook_links}
 
@@ -838,13 +825,12 @@ def get_execution_steps_summary(state: AgentState) -> list[str]:
         return []
 
     # Sort by step_index to ensure correct execution order
-    ordered_results = sorted(step_results.items(), key=lambda x: x[1].get('step_index', 0))
+    ordered_results = sorted(step_results.items(), key=lambda x: x[1].get("step_index", 0))
 
     execution_steps = []
     for step_key, result in ordered_results:
-        step_num = result.get('step_index', 0) + 1
-        task_objective = result.get('task_objective', result.get('capability', 'unknown'))
+        step_num = result.get("step_index", 0) + 1
+        task_objective = result.get("task_objective", result.get("capability", "unknown"))
         execution_steps.append(f"Step {step_num}: {task_objective}")
 
     return execution_steps
-

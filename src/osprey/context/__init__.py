@@ -18,8 +18,8 @@ from .context_manager import ContextManager, ContextNamespace
 from .loader import load_context
 
 __all__ = [
-    'CapabilityContext',     # Pydantic-based context base class
-    'ContextManager',        # Simplified LangGraph-native context manager
-    'ContextNamespace',      # Namespace object for dot notation access to context objects
-    'load_context',          # Utility function for loading context from JSON files
+    "CapabilityContext",  # Pydantic-based context base class
+    "ContextManager",  # Simplified LangGraph-native context manager
+    "ContextNamespace",  # Namespace object for dot notation access to context objects
+    "load_context",  # Utility function for loading context from JSON files
 ]

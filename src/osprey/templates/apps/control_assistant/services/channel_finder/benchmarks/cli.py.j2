@@ -10,21 +10,22 @@ Usage:
     python src/{{ package_name }}/services/channel_finder/benchmarks/cli.py --queries 0:10
 """
 
-import asyncio
-import sys
 import argparse
+import asyncio
 import logging
-from pathlib import Path
+import sys
 from datetime import datetime
+from pathlib import Path
 
 # Add project root to path (enables running as standalone script)
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
 
-from {{ package_name }}.services.channel_finder.benchmarks.runner import BenchmarkRunner
-from {{ package_name }}.services.channel_finder.utils.config import get_config
-from osprey.cli.styles import console, Messages, Styles
 from rich.panel import Panel
 from rich.table import Table
+from {{package_name}}.services.channel_finder.benchmarks.runner import BenchmarkRunner
+from {{package_name}}.services.channel_finder.utils.config import get_config
+
+from osprey.cli.styles import Messages, Styles, console
 
 
 def parse_query_selection(query_arg: str):

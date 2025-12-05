@@ -21,7 +21,7 @@ import pytest
 def find_free_port() -> int:
     """Find a free port for the MCP server."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(('', 0))
+        s.bind(("", 0))
         s.listen(1)
         port = s.getsockname()[1]
     return port
@@ -42,7 +42,7 @@ def wait_for_server(port: int, timeout: float = 10.0) -> bool:
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                 sock.settimeout(1.0)
-                result = sock.connect_ex(('localhost', port))
+                result = sock.connect_ex(("localhost", port))
                 if result == 0:
                     # Port is open, give it a moment to fully initialize
                     time.sleep(0.5)
@@ -75,9 +75,7 @@ async def test_mcp_capability_generation_workflow(e2e_project_factory, llm_judge
     # Step 1: Create Control Assistant project
     # =========================================================================
     project = await e2e_project_factory(
-        name="mcp-test-project",
-        template="control_assistant",
-        registry_style="extend"
+        name="mcp-test-project", template="control_assistant", registry_style="extend"
     )
 
     # Change to project directory for all operations
@@ -97,11 +95,7 @@ async def test_mcp_capability_generation_workflow(e2e_project_factory, llm_judge
         # Generate MCP server code
         from osprey.generators.mcp_server_template import write_mcp_server_file
 
-        write_mcp_server_file(
-            output_path=server_file,
-            server_name=server_name,
-            port=port
-        )
+        write_mcp_server_file(output_path=server_file, server_name=server_name, port=port)
 
         assert server_file.exists(), f"MCP server file not created: {server_file}"
         assert server_file.stat().st_size > 0, "MCP server file is empty"
@@ -115,7 +109,7 @@ async def test_mcp_capability_generation_workflow(e2e_project_factory, llm_judge
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             start_new_session=True,  # Detach from current session
-            cwd=project.project_dir
+            cwd=project.project_dir,
         )
 
         # Wait for server to become available
@@ -143,8 +137,12 @@ async def test_mcp_capability_generation_workflow(e2e_project_factory, llm_judge
         # =====================================================================
         # Step 4: Generate capability from MCP server
         # =====================================================================
-        from osprey.cli.generate_cmd import initialize_registry, get_mcp_generator, _determine_capabilities_path
-        from osprey.cli.generate_cmd import _generate_capability_async
+        from osprey.cli.generate_cmd import (
+            _determine_capabilities_path,
+            _generate_capability_async,
+            get_mcp_generator,
+            initialize_registry,
+        )
 
         capability_name = "weather_mcp"
         server_display_name = "WeatherMCP"
@@ -162,7 +160,7 @@ async def test_mcp_capability_generation_workflow(e2e_project_factory, llm_judge
             server_name=server_display_name,
             verbose=False,
             provider=None,  # Use defaults from config
-            model_id=None
+            model_id=None,
         )
 
         # Run async generation
@@ -171,7 +169,7 @@ async def test_mcp_capability_generation_workflow(e2e_project_factory, llm_judge
             mcp_url=mcp_url,
             simulated=False,  # Use real MCP server
             output_path=output_path,
-            quiet=True
+            quiet=True,
         )
 
         # Verify capability file was created
@@ -185,9 +183,9 @@ async def test_mcp_capability_generation_workflow(e2e_project_factory, llm_judge
         # For testing, we'll manually add it to ensure it's registered
 
         from osprey.generators.registry_updater import (
-            find_registry_file,
             add_to_registry,
-            is_already_registered
+            find_registry_file,
+            is_already_registered,
         )
 
         registry_path = find_registry_file()
@@ -206,7 +204,7 @@ async def test_mcp_capability_generation_workflow(e2e_project_factory, llm_judge
                 class_name,
                 context_type,
                 context_class_name,
-                description
+                description,
             )
             registry_path.write_text(new_content)
 
@@ -229,7 +227,7 @@ async def test_mcp_capability_generation_workflow(e2e_project_factory, llm_judge
 
         # CRITICAL: Remove the project's registry module from sys.modules
         # so it gets re-imported with the new capability registration
-        project_name = project.project_dir.name.replace('-', '_')
+        project_name = project.project_dir.name.replace("-", "_")
         registry_module_name = f"{project_name}.registry"
         if registry_module_name in sys.modules:
             del sys.modules[registry_module_name]
@@ -240,8 +238,8 @@ async def test_mcp_capability_generation_workflow(e2e_project_factory, llm_judge
             del sys.modules[capability_module_name]
 
         # Clear CONFIG_FILE env var
-        if 'CONFIG_FILE' in os.environ:
-            del os.environ['CONFIG_FILE']
+        if "CONFIG_FILE" in os.environ:
+            del os.environ["CONFIG_FILE"]
 
         # Now initialize the project (this will load the new capability)
         await project.initialize()
@@ -249,9 +247,7 @@ async def test_mcp_capability_generation_workflow(e2e_project_factory, llm_judge
         # =====================================================================
         # Step 7: Query for weather in San Francisco
         # =====================================================================
-        result = await project.query(
-            "What's the current weather in San Francisco?"
-        )
+        result = await project.query("What's the current weather in San Francisco?")
 
         # =====================================================================
         # Step 8: Define expectations for LLM judge
@@ -304,10 +300,7 @@ async def test_mcp_capability_generation_workflow(e2e_project_factory, llm_judge
         # =====================================================================
         # Step 9: Evaluate with LLM judge
         # =====================================================================
-        evaluation = await llm_judge.evaluate(
-            result=result,
-            expectations=expectations
-        )
+        evaluation = await llm_judge.evaluate(result=result, expectations=expectations)
 
         # =====================================================================
         # Step 10: Assert success with detailed failure info
@@ -322,32 +315,27 @@ async def test_mcp_capability_generation_workflow(e2e_project_factory, llm_judge
         )
 
         # Additional sanity checks
-        assert result.error is None, (
-            f"Workflow encountered error: {result.error}"
-        )
+        assert result.error is None, f"Workflow encountered error: {result.error}"
 
         # Verify MCP capability was mentioned in trace
         trace_lower = result.execution_trace.lower()
         assert "weather" in trace_lower or "mcp" in trace_lower, (
-            "Weather/MCP capability not executed - check trace:\n"
-            f"{result.execution_trace[:500]}"
+            "Weather/MCP capability not executed - check trace:\n" f"{result.execution_trace[:500]}"
         )
 
         # Verify San Francisco was mentioned
         full_output = (result.execution_trace + result.response).lower()
-        assert "san francisco" in full_output, (
-            "San Francisco not mentioned in workflow output"
-        )
+        assert "san francisco" in full_output, "San Francisco not mentioned in workflow output"
 
         # Verify response contains temperature/weather info
         response_lower = result.response.lower()
         has_weather_keywords = any(
             keyword in response_lower
-            for keyword in ['temperature', 'weather', 'sunny', 'cloudy', 'rain', 'degrees', '°']
+            for keyword in ["temperature", "weather", "sunny", "cloudy", "rain", "degrees", "°"]
         )
-        assert has_weather_keywords, (
-            f"Response does not contain weather information:\n{result.response}"
-        )
+        assert (
+            has_weather_keywords
+        ), f"Response does not contain weather information:\n{result.response}"
 
     finally:
         # =====================================================================
@@ -374,4 +362,3 @@ async def test_mcp_capability_generation_workflow(e2e_project_factory, llm_judge
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s", "--e2e-verbose"])
-

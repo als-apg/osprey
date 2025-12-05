@@ -39,7 +39,9 @@ class BaseProvider(ABC):
 
     # Metadata - subclasses MUST override these class attributes
     name: str = NotImplemented  # Provider identifier (e.g., "anthropic")
-    description: str = NotImplemented  # User-friendly description (e.g., "Anthropic (Claude models)")
+    description: str = (
+        NotImplemented  # User-friendly description (e.g., "Anthropic (Claude models)")
+    )
     requires_api_key: bool = NotImplemented
     requires_base_url: bool = NotImplemented
     requires_model_id: bool = NotImplemented
@@ -61,7 +63,7 @@ class BaseProvider(ABC):
         api_key: str | None,
         base_url: str | None,
         timeout: float | None,
-        http_client: httpx.AsyncClient | None
+        http_client: httpx.AsyncClient | None,
     ) -> Any:
         """Create a model instance for PydanticAI.
 
@@ -89,7 +91,7 @@ class BaseProvider(ABC):
         thinking: dict | None = None,
         system_prompt: str | None = None,
         output_format: Any | None = None,
-        **kwargs
+        **kwargs,
     ) -> str | Any:
         """Execute a direct chat completion.
 
@@ -113,7 +115,7 @@ class BaseProvider(ABC):
         api_key: str | None,
         base_url: str | None,
         timeout: float = 5.0,
-        model_id: str | None = None
+        model_id: str | None = None,
     ) -> tuple[bool, str]:
         """Test provider connectivity and authentication.
 
@@ -127,4 +129,3 @@ class BaseProvider(ABC):
         :return: (success, message) tuple
         """
         pass
-

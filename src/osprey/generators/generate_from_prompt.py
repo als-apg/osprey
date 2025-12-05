@@ -11,6 +11,7 @@ from .models import CapabilityMetadata, ClassifierAnalysis, OrchestratorAnalysis
 # Prompt Capability Generator
 # =============================================================================
 
+
 class PromptCapabilityGenerator(BaseCapabilityGenerator):
     """Generate capability scaffolding from natural language prompt."""
 
@@ -20,7 +21,7 @@ class PromptCapabilityGenerator(BaseCapabilityGenerator):
         capability_name: str | None = None,
         verbose: bool = False,
         provider: str | None = None,
-        model_id: str | None = None
+        model_id: str | None = None,
     ):
         """Initialize generator.
 
@@ -94,7 +95,9 @@ Output as JSON matching the CapabilityMetadata schema.
             print("\n🤖 Generating classifier and orchestrator guides...")
 
         # Use capability name from metadata if available
-        capability_name = self.capability_name or (self.metadata.capability_name_suggestion if self.metadata else "unnamed_capability")
+        capability_name = self.capability_name or (
+            self.metadata.capability_name_suggestion if self.metadata else "unnamed_capability"
+        )
 
         # Generate classifier analysis
         classifier_prompt = f"""You are an expert at analyzing capability requirements and generating task classification rules.
@@ -160,9 +163,7 @@ Output as JSON matching the OrchestratorAnalysis schema.
         return classifier_analysis, orchestrator_analysis
 
     def generate_capability_code(
-        self,
-        classifier_analysis: ClassifierAnalysis,
-        orchestrator_analysis: OrchestratorAnalysis
+        self, classifier_analysis: ClassifierAnalysis, orchestrator_analysis: OrchestratorAnalysis
     ) -> str:
         """Generate capability Python code with placeholder business logic.
 
@@ -186,13 +187,12 @@ Output as JSON matching the OrchestratorAnalysis schema.
             context_type = "TODO_CONTEXT_TYPE"
 
         class_name = self._to_class_name(capability_name)
-        context_class_name = self._to_class_name(capability_name, suffix='Context')
+        context_class_name = self._to_class_name(capability_name, suffix="Context")
 
         # Build examples using base class methods
         classifier_examples_code = self._build_classifier_examples_code(classifier_analysis)
         orchestrator_examples_code = self._build_orchestrator_examples_code(
-            orchestrator_analysis,
-            context_type
+            orchestrator_analysis, context_type
         )
 
         code = f'''"""
@@ -473,4 +473,3 @@ class MyAppRegistryProvider(RegistryConfigProvider):
 '''
 
         return code
-
