@@ -523,34 +523,38 @@ def create_executor_node():
             execution_context = await _create_execution_folder(file_manager, state)
             execution_folder = execution_context
 
-        # Save context using ContextManager
-        try:
-            from osprey.utils.config import get_config_value
+        # Save context using ContextManager (if not already created during pre-approval)
+        if not execution_folder.context_file_path or not execution_folder.context_file_path.exists():
+            try:
+                from osprey.utils.config import get_config_value
 
-            context_manager = ContextManager(state)
+                context_manager = ContextManager(state)
 
-            # Add execution config snapshot for reproducibility
-            execution_config = {}
+                # Add execution config snapshot for reproducibility
+                execution_config = {}
 
-            # Snapshot control system config
-            control_system_config = get_config_value('control_system', {})
-            if control_system_config:
-                execution_config['control_system'] = control_system_config
+                # Snapshot control system config
+                control_system_config = get_config_value('control_system', {})
+                if control_system_config:
+                    execution_config['control_system'] = control_system_config
 
-            # Snapshot Python executor config
-            python_executor_config = get_config_value('python_executor', {})
-            if python_executor_config:
-                execution_config['python_executor'] = python_executor_config
+                # Snapshot Python executor config
+                python_executor_config = get_config_value('python_executor', {})
+                if python_executor_config:
+                    execution_config['python_executor'] = python_executor_config
 
-            # Add execution config to context
-            context_manager.add_execution_config(execution_config)
+                # Add execution config to context
+                context_manager.add_execution_config(execution_config)
 
-            context_file_path = context_manager.save_context_to_file(execution_folder.folder_path)
-            # Update execution context with the saved context file path
-            execution_folder.context_file_path = context_file_path
-        except Exception as e:
-            logger.warning(f"Failed to save context: {e}")
-            # Don't fail the entire execution for context saving issues
+                context_file_path = context_manager.save_context_to_file(execution_folder.folder_path)
+                # Update execution context with the saved context file path
+                execution_folder.context_file_path = context_file_path
+                logger.debug(f"Saved context.json in executor: {context_file_path}")
+            except Exception as e:
+                logger.warning(f"Failed to save context: {e}")
+                # Don't fail the entire execution for context saving issues
+        else:
+            logger.debug(f"Context.json already exists, reusing: {execution_folder.context_file_path}")
 
         # Execute code using appropriate executor based on configuration
         execution_method = _get_execution_method(configurable)

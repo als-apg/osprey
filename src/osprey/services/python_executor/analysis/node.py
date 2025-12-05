@@ -551,6 +551,38 @@ async def _create_pre_approval_notebook(
                 state["request"].execution_folder_name
             )
 
+        # Save context.json for runtime utilities
+        # This must be done BEFORE creating the notebook so the notebook can reference it
+        try:
+            from osprey.context import ContextManager
+            from osprey.utils.config import get_config_value
+
+            context_manager = ContextManager(state)
+
+            # Add execution config snapshot for reproducibility
+            execution_config = {}
+
+            # Snapshot control system config
+            control_system_config = get_config_value('control_system', {})
+            if control_system_config:
+                execution_config['control_system'] = control_system_config
+
+            # Snapshot Python executor config
+            python_executor_config = get_config_value('python_executor', {})
+            if python_executor_config:
+                execution_config['python_executor'] = python_executor_config
+
+            # Add execution config to context
+            context_manager.add_execution_config(execution_config)
+
+            context_file_path = context_manager.save_context_to_file(execution_folder.folder_path)
+            # Update execution context with the saved context file path
+            execution_folder.context_file_path = context_file_path
+            logger.debug(f"Saved context.json for pre-approval notebook: {context_file_path}")
+        except Exception as e:
+            logger.warning(f"Failed to save context for pre-approval notebook: {e}")
+            # Don't fail the entire notebook creation for context saving issues
+
         # Format execution mode for display
         execution_mode = analysis_result.recommended_execution_mode.value if hasattr(
             analysis_result.recommended_execution_mode, 'value'

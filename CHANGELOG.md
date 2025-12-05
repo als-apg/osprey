@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+#### Configuration Management
 - **EPICS Gateway Presets**: Built-in configurations for APS and ALS facilities
   - APS: pvgatemain1.aps4.anl.gov:5064 (read-only and write-access)
   - ALS: cagw-alsdmz.als.lbl.gov:5064 (read-only), :5084 (write-access)
@@ -23,14 +25,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `osprey config set-control-system` - Switch between Mock/EPICS connectors
   - `osprey config set-epics-gateway` - Configure EPICS gateway (APS, ALS, custom)
   - Interactive menu integration for guided configuration workflows
-- **Documentation**: Comprehensive EPICS integration and configuration management guides
+
+#### Control System Operations
+- **Runtime Utilities for Control System Operations**: Control-system-agnostic utilities for generated Python code
+  - New `osprey.runtime` module with synchronous API (write_channel, read_channel, write_channels)
+  - Automatic configuration from execution context for reproducible notebooks
+  - Async operations handled internally for simple generated code
+  - Works with any control system (EPICS, Mock, etc.) without code changes
+  - Complete unit and integration test coverage
+  - API reference documentation with usage examples
+- **Connector Auto-Verification**: Connectors automatically determine verification level and tolerance from configuration
+  - Per-channel verification config from limits database (highest priority)
+  - Global verification config from config.yml (fallback)
+  - Hardcoded safe defaults if no config available (test environments)
+  - New `LimitsValidator.get_verification_config()` method for per-channel lookup
+  - Automatic limits validation on all connector writes (no application-level checks needed)
+  - Comprehensive test coverage including mock and EPICS connectors
+- **Control System Prompt Builders**: Custom prompt builders teaching LLMs to use runtime utilities
+  - New ControlSystemPythonPromptBuilder with osprey.runtime documentation
+  - Automatic injection of domain-specific instructions into capability prompts
+  - Enhanced classifier examples for control system operations
+  - Graceful fallback if custom prompts unavailable
+  - Comprehensive test coverage for prompt builder integration
+  - Complete tutorial on framework prompt customization
+
+#### Testing Infrastructure
+- **E2E Test Infrastructure**: Improved test isolation and added warnings to prevent common test failures
+  - Added pytest hook to warn users when running `pytest -m e2e` instead of `pytest tests/e2e/`
+  - Enhanced registry cleanup in test fixtures to prevent state pollution between tests
+  - Added module cleanup in channel finder benchmarks to prevent stale imports
+  - Updated README.md, TESTING_GUIDE.md, and tests/e2e/README.md with correct test commands
+  - Added critical warnings in pytest.ini about proper e2e test execution
+- **Runtime Utilities E2E Tests**: Comprehensive end-to-end test suite validating complete workflows
+  - LLM learning osprey.runtime API from prompts
+  - Context snapshot preservation and configuration
+  - Channel limits safety integration (validates runtime respects boundaries)
+  - Positive and negative test cases for write operations
+  - Calculation + write workflows (e.g., "set voltage to sqrt(4150)")
+
+#### Documentation
+- **EPICS Integration and Configuration Guides**: Comprehensive documentation for production deployment
   - Getting Started: Mock-first workflow with clear migration path to EPICS
   - CLI Reference: Complete `osprey config` command documentation
   - Production Guide: EPICS gateway configuration with facility presets
   - Architecture Guide: Pattern detection security model and design principles
   - API Reference: Framework-standard pattern detection reference
+- **Documentation Positioning**: Updated README and tutorials to emphasize production-ready control system focus
+  - Highlight plan-first orchestration and control system safety
+  - Emphasize protocol-agnostic integration (EPICS, LabVIEW, Tango)
+  - Note production deployment at major facilities (LBNL Advanced Light Source)
+  - Updated feature list for control system use cases
+  - Added comprehensive tutorial section on how generated code interacts with control systems using osprey.runtime
+- **Developer Documentation**: Commit organization workflow guide for managing complex Git changes
 
 ### Changed
+
+#### Configuration and Architecture
 - **CLI Organization**: Deprecated `osprey export-config` in favor of `osprey config export`
   - Backward compatibility maintained with deprecation notice
   - All configuration operations now unified under `osprey config` namespace
@@ -50,138 +100,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Advanced code generation now available in all installations
   - No longer requires separate installation with [claude-agent] extra
   - Minimum framework version 0.9.6+ for Claude Code generator support
-- **OpenWebUI**: Enhanced configuration for improved out-of-box experience
-  - Auto-configure Ollama and Pipeline connections in docker-compose
-  - Disable authentication for local development (WEBUI_AUTH=false)
-  - Documentation: automatic vs manual configuration guidance
-  - Documentation: Docker vs Podman container networking (host.docker.internal vs host.containers.internal)
 
-### Fixed
-- **Test Configuration Pattern Detection**: Removed pattern overrides from test fixtures to use framework defaults
-  - Test configs now use complete default patterns from `pattern_detection.py`
-  - Fixes approval workflow tests to correctly detect `write_channel`/`read_channel` operations
-  - Ensures tests validate actual framework behavior rather than incomplete test-specific patterns
-  - Fixed 3 failing tests in `TestApprovalWorkflow` integration test suite
-
-- **E2E Test Stability**: Improved test isolation and removed flaky test
-  - Added approval manager singleton cleanup to prevent state pollution between tests
-  - Removed redundant `test_runtime_utilities_calculation_with_write` (flaky due to ambiguous LLM prompt)
-  - Fixed runtime utilities tests to disable limits checking when testing LLM code generation
-  - Corrected config field name from `limits_file` to `database_path`
-  - Fixed `_disable_capabilities` helper to properly comment out multi-line capability registrations
-
-- **Limits validator**: Properly exclude metadata fields (description, source) from unknown field warnings
-
-### Added
-- **Connector Auto-Verification**: Connectors automatically determine verification level and tolerance from configuration
-  - Per-channel verification config from limits database (highest priority)
-  - Global verification config from config.yml (fallback)
-  - Hardcoded safe defaults if no config available (test environments)
-  - New `LimitsValidator.get_verification_config()` method for per-channel lookup
-  - Automatic limits validation on all connector writes (no application-level checks needed)
-  - Comprehensive test coverage including mock and EPICS connectors
-
-- **Runtime Utilities for Control System Operations**: Control-system-agnostic utilities for generated Python code
-  - New `osprey.runtime` module with synchronous API (write_channel, read_channel, write_channels)
-  - Automatic configuration from execution context for reproducible notebooks
-  - Async operations handled internally for simple generated code
-  - Works with any control system (EPICS, Mock, etc.) without code changes
-  - Complete unit and integration test coverage
-  - API reference documentation with usage examples
-
-### Added
-- **Control System Prompt Builders**: Custom prompt builders teaching LLMs to use runtime utilities
-  - New ControlSystemPythonPromptBuilder with osprey.runtime documentation
-  - Automatic injection of domain-specific instructions into capability prompts
-  - Enhanced classifier examples for control system operations
-  - Graceful fallback if custom prompts unavailable
-  - Comprehensive test coverage for prompt builder integration
-  - Complete tutorial on framework prompt customization
-
-- **Runtime Utilities E2E Tests**: Comprehensive end-to-end test suite validating complete workflows
-  - LLM learning osprey.runtime API from prompts
-  - Context snapshot preservation and configuration
-  - Channel limits safety integration (validates runtime respects boundaries)
-  - Positive and negative test cases for write operations
-  - Calculation + write workflows (e.g., "set voltage to sqrt(4150)")
-
-- **Documentation Positioning**: Updated README and tutorials to emphasize production-ready control system focus
-  - Highlight plan-first orchestration and control system safety
-  - Emphasize protocol-agnostic integration (EPICS, LabVIEW, Tango)
-  - Note production deployment at major facilities (LBNL Advanced Light Source)
-  - Updated feature list for control system use cases
-  - Added comprehensive tutorial section on how generated code interacts with control systems using osprey.runtime
-
-### Changed
-- **Channel Write Capability Template**: Simplified by removing limits config loading (now automatic in connector)
-  - Capabilities focus on orchestration (parsing, approval)
-  - Connectors handle safety (limits, verification)
-  - Cleaner separation of concerns
-
-- **Python Execution Infrastructure**: Integrated runtime utilities with execution wrapper and notebooks
-  - Execution wrapper automatically configures runtime from context snapshots
-  - Context manager preserves control system config for reproducible execution
-  - Notebooks include runtime configuration cell for standalone execution
-  - Proper cleanup in finally block ensures resource release
-  - E2E test artifacts now include generated Python code files
-  - Developer guide documentation with integration details
-
-- **Runtime Channel Limits Validation**: Comprehensive safety system for validating writes against configured boundaries
-  - Synchronous validation engine with min/max/step/writable constraints
-  - Failsafe design blocks all unlisted channels by default
-  - Optional max_step checking with I/O overhead warnings
-  - Configurable policy modes: strict (error) vs resilient (skip)
-  - JSON-based limits database with embedded defaults support
-  - New exception: ChannelLimitsViolationError with detailed violation context
-
-- **Python Executor Limits Checking Integration**: Automatic runtime validation of all epics.caput() calls
-  - Transparent monkeypatching of epics.caput() and PV.put() methods
-  - Embedded validator configuration in wrapper for container isolation
-  - Graceful degradation if pyepics unavailable
-  - Clear operator feedback with safety status messages
-
-- **Channel Write Approval Workflow**: Human-in-the-loop approval for direct control system writes
-  - Structured interrupt with operation summary and safety concerns
-  - Integration with existing approval_manager and evaluator system
-  - Clear approval prompts with channel addresses and target values
-  - Resume payload includes complete operation context
-
-- **BaseCapability Helper Method**: get_step_inputs() for accessing orchestrator-provided input contexts
-  - Simplifies access to step inputs list from within execute()
-  - Handles None values gracefully with configurable defaults
-  - Comprehensive tests for various edge cases
-
-- **Control Assistant Channel Capabilities**: Production-ready read/write with comprehensive safety
-  - channel_read: Current value retrieval with connector abstraction
-  - channel_write: LLM-based value parsing with three-tier safety (writes_enabled/limits/approval)
-  - Write verification, example channel limits database, and comprehensive safety tests
-
-- **Developer Documentation**: Commit organization workflow guide for managing complex Git changes
-
-- **Channel Write Capability**: New dedicated capability for writing values to control system channels
-  - **Simple Write Operations**: Direct value assignment to channels ("Set X to 50")
-  - **Multiple Channel Writes**: Support for writing multiple channels in one operation
-  - **Boundary Checking Integration**: Automatically uses configured boundary validation system
-  - **Approval Workflow**: Integrates with framework approval system for safety
-  - **Clear Separation**: Distinct from Python capability - Python for calculations/loops, channel_write for direct value assignment
-  - **Comprehensive Guides**: Orchestrator and classifier guides with clear examples and safety notes
-  - **Context Class**: New `CHANNEL_WRITE_RESULTS` context type with detailed write results including success/failure status
-  - **Template Integration**: Fully integrated into control_assistant template with proper registry and config
-
-- **Runtime PV Boundary Checking**: Comprehensive safety system for validating Process Variable writes at runtime
-  - **Validation Engine** (`boundary_validator.py`): Validates all PV writes against configured safety boundaries with min/max limits, read-only enforcement, optional step size checking, and unlisted PV policy
-  - **Monkeypatch Integration**: Automatic interception of all `epics.caput()` and `PV.put()` calls via execution wrapper monkeypatch, ensuring no bypass possible
-  - **Failsafe Design**: All errors block writes (fail-closed), empty database blocks all writes, read failures block writes when step checking is configured
-  - **Configuration System**: Simple YAML configuration with JSON boundary database, supports per-PV min/max/max_step/writable settings
-  - **Exception Handling**: New `PVBoundaryViolationError` exception with detailed violation messages including PV address, attempted value, current value, configured limits, and clear safety warnings
-  - **Comprehensive Testing**: Unit tests (200+ lines) covering all validation scenarios, integration tests for end-to-end workflow, test fixtures for boundary databases
-  - **Documentation**: Complete feature documentation in `docs/source/features/boundary_checking.rst` with architecture diagrams, configuration examples, deployment guide, troubleshooting, and API reference
-  - **Example Configuration**: Sample `channel_boundaries.json` with examples of min/max validation, step size limits, read-only PVs, and metadata fields
-  - **Performance Optimized**: Instant validation for min/max checks (no I/O), optional ~50-100ms overhead for step size checking (pay-for-what-you-use model)
-  - **Integration Points**: Property-based config loading in `PythonExecutorConfig`, validator injection in `LocalCodeExecutor` and `ContainerCodeExecutor`, config serialization in `ExecutionWrapper`
-
-### Changed
-- **Documentation Positioning**: Updated core documentation to emphasize control system focus
+#### Control System Connectors and Safety
 - **Control System Connector API**: Unified channel naming and comprehensive write verification
   - Method rename: read_pv → read_channel, write_pv → write_channel (deprecated methods emit DeprecationWarning)
   - Class rename: PVValue → ChannelValue, PVMetadata → ChannelMetadata (deprecated classes emit DeprecationWarning)
@@ -189,23 +109,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Rich result objects: ChannelWriteResult and WriteVerification with detailed status
   - Mock connector verification simulation for development testing
   - All deprecated APIs will be removed in v0.10
+- **Runtime Channel Limits Validation**: Comprehensive safety system for validating writes against configured boundaries
+  - Synchronous validation engine with min/max/step/writable constraints
+  - Failsafe design blocks all unlisted channels by default
+  - Optional max_step checking with I/O overhead warnings
+  - Configurable policy modes: strict (error) vs resilient (skip)
+  - JSON-based limits database with embedded defaults support
+  - New exception: ChannelLimitsViolationError with detailed violation context
+- **Python Executor Limits Checking Integration**: Automatic runtime validation of all epics.caput() calls
+  - Transparent monkeypatching of epics.caput() and PV.put() methods
+  - Embedded validator configuration in wrapper for container isolation
+  - Graceful degradation if pyepics unavailable
+  - Clear operator feedback with safety status messages
+
+#### Python Execution and Code Generation
+- **Python Execution Infrastructure**: Integrated runtime utilities with execution wrapper and notebooks
+  - Execution wrapper automatically configures runtime from context snapshots
+  - Context manager preserves control system config for reproducible execution
+  - Notebooks include runtime configuration cell for standalone execution
+  - Proper cleanup in finally block ensures resource release
+  - E2E test artifacts now include generated Python code files
+  - Developer guide documentation with integration details
+- **Channel Write Capability Template**: Simplified by removing limits config loading (now automatic in connector)
+  - Capabilities focus on orchestration (parsing, approval)
+  - Connectors handle safety (limits, verification)
+  - Cleaner separation of concerns
+
+#### Template Configuration and Capabilities
 - **Template Configuration**: Updated minimal template and project config for control system safety features
   - Added control_system section with writes_enabled, limits_checking, write_verification
   - Updated integration guides for new connector API
   - Framework capabilities updated for connector method rename
   - Pattern detection updated with new read_channel/write_channel patterns
   - Registry and utility updates for new context types
-
-- **Documentation Structure**: Refactored Python execution service documentation for improved organization
-  - Removed obsolete standalone 03_python-execution-service.rst file
-  - Streamlined service-overview.rst (793 → 452 lines, 40% reduction)
-  - Focused content on generator extensibility for developers
-  - Updated all cross-references to use directory structure
-  - Improved navigation and reduced redundancy
-
-- **CLI Approval Display**: Enhanced approval message presentation with heavy-bordered panel, bold title, and helpful subtitle for improved visibility and user experience
-- **Error Node**: Removed deprecated manual streaming code and progress tracking in favor of unified logger system with automatic streaming
-- **Gateway Approval Detection**: Enhanced approval response detection with two-tier system - instant pattern matching for simple yes/no responses, with LLM-powered fallback for complex natural language
 - **Channel Value Retrieval Renamed to Channel Read**: Renamed `channel_value_retrieval` capability to `channel_read` throughout the entire codebase for consistency and clarity
   - **Capability Name**: `channel_value_retrieval` → `channel_read`
   - **Class Name**: `ChannelValueRetrievalCapability` → `ChannelReadCapability`
@@ -215,8 +151,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Symmetric Naming**: Now matches `channel_read` (read) / `channel_write` (write) pattern
   - **Registry**: Updated capability registration and context type references
   - **Config**: Updated logging colors and capability lists
+- **Channel Write Approval Workflow**: Human-in-the-loop approval for direct control system writes
+  - Structured interrupt with operation summary and safety concerns
+  - Integration with existing approval_manager and evaluator system
+  - Clear approval prompts with channel addresses and target values
+  - Resume payload includes complete operation context
+- **BaseCapability Helper Method**: get_step_inputs() for accessing orchestrator-provided input contexts
+  - Simplifies access to step inputs list from within execute()
+  - Handles None values gracefully with configurable defaults
+  - Comprehensive tests for various edge cases
+
+#### UI/UX and Documentation Structure
+- **CLI Approval Display**: Enhanced approval message presentation with heavy-bordered panel, bold title, and helpful subtitle for improved visibility and user experience
+- **Gateway Approval Detection**: Enhanced approval response detection with two-tier system - instant pattern matching for simple yes/no responses, with LLM-powered fallback for complex natural language
+- **Documentation Structure**: Refactored Python execution service documentation for improved organization
+  - Removed obsolete standalone 03_python-execution-service.rst file
+  - Streamlined service-overview.rst (793 → 452 lines, 40% reduction)
+  - Focused content on generator extensibility for developers
+  - Updated all cross-references to use directory structure
+  - Improved navigation and reduced redundancy
+- **OpenWebUI**: Enhanced configuration for improved out-of-box experience
+  - Auto-configure Ollama and Pipeline connections in docker-compose
+  - Disable authentication for local development (WEBUI_AUTH=false)
+  - Documentation: automatic vs manual configuration guidance
+  - Documentation: Docker vs Podman container networking (host.docker.internal vs host.containers.internal)
+
+#### Miscellaneous
+- **Error Node**: Removed deprecated manual streaming code and progress tracking in favor of unified logger system with automatic streaming
 
 ### Fixed
+
+- **Runtime Utilities**: Context file now created during pre-approval stage, ensuring configuration access for osprey.runtime
+
+#### Test Infrastructure and Stability
+- **E2E Test**: Fixed `test_runtime_utilities_basic_write` by ensuring `context.json` is created during pre-approval stage
+  - Context file now created before pre-approval notebook generation in `_create_pre_approval_notebook()`
+  - Executor node reuses existing context file instead of recreating it
+  - Test properly disables approval workflows for automated e2e execution
+- **Test Configuration Pattern Detection**: Removed pattern overrides from test fixtures to use framework defaults
+  - Test configs now use complete default patterns from `pattern_detection.py`
+  - Fixes approval workflow tests to correctly detect `write_channel`/`read_channel` operations
+  - Ensures tests validate actual framework behavior rather than incomplete test-specific patterns
+  - Fixed 3 failing tests in `TestApprovalWorkflow` integration test suite
+- **E2E Test Stability**: Improved test isolation and removed flaky test
+  - Added approval manager singleton cleanup to prevent state pollution between tests
+  - Removed redundant `test_runtime_utilities_calculation_with_write` (flaky due to ambiguous LLM prompt)
+  - Fixed runtime utilities tests to disable limits checking when testing LLM code generation
+  - Corrected config field name from `limits_file` to `database_path`
+  - Fixed `_disable_capabilities` helper to properly comment out multi-line capability registrations
+
+#### Validation and Logging
+- **Limits validator**: Properly exclude metadata fields (description, source) from unknown field warnings
 - **Error Node Logging**: Removed duplicate start/completion logging that occurred when combining decorator's automatic logging with manual status messages
 
 ## [0.9.5] - 2025-12-01
