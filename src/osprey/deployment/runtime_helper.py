@@ -43,19 +43,19 @@ def get_runtime_command(config: dict | None = None) -> list[str]:
     # Determine which runtime to try (priority: env var > config > auto)
     config_runtime = None
     if config:
-        config_runtime = config.get('container_runtime', 'auto')
+        config_runtime = config.get("container_runtime", "auto")
 
     # Environment variable override
-    env_runtime = os.getenv('CONTAINER_RUNTIME')
+    env_runtime = os.getenv("CONTAINER_RUNTIME")
     if env_runtime:
         config_runtime = env_runtime
 
     # Build list of runtimes to try
-    if config_runtime and config_runtime.lower() in ['docker', 'podman']:
+    if config_runtime and config_runtime.lower() in ["docker", "podman"]:
         runtimes_to_try = [config_runtime.lower()]
     else:
         # Auto-detect: Docker first, then Podman
-        runtimes_to_try = ['docker', 'podman']
+        runtimes_to_try = ["docker", "podman"]
 
     # Try each runtime
     for runtime in runtimes_to_try:
@@ -64,33 +64,25 @@ def get_runtime_command(config: dict | None = None) -> list[str]:
 
         try:
             # Check if compose subcommand works
-            result = subprocess.run(
-                [runtime, 'compose', 'version'],
-                capture_output=True,
-                timeout=5
-            )
+            result = subprocess.run([runtime, "compose", "version"], capture_output=True, timeout=5)
 
             if result.returncode != 0:
                 continue
 
             # Also verify daemon is actually running
             # This prevents selecting Docker when only Docker CLI is installed but daemon isn't running
-            ps_result = subprocess.run(
-                [runtime, 'ps'],
-                capture_output=True,
-                timeout=5
-            )
+            ps_result = subprocess.run([runtime, "ps"], capture_output=True, timeout=5)
 
             if ps_result.returncode == 0:
-                _cached_runtime_cmd = [runtime, 'compose']
+                _cached_runtime_cmd = [runtime, "compose"]
                 return _cached_runtime_cmd.copy()
 
         except (subprocess.TimeoutExpired, FileNotFoundError):
             continue
 
     # No runtime found - check if any are installed but not running
-    docker_installed = shutil.which('docker') is not None
-    podman_installed = shutil.which('podman') is not None
+    docker_installed = shutil.which("docker") is not None
+    podman_installed = shutil.which("podman") is not None
 
     if docker_installed or podman_installed:
         # Runtimes are installed but not running
@@ -125,12 +117,7 @@ def verify_runtime_is_running(config: dict | None = None) -> tuple[bool, str]:
         runtime = cmd[0]  # 'docker' or 'podman'
 
         # Try a simple ps command to verify daemon is accessible
-        result = subprocess.run(
-            [runtime, 'ps'],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
+        result = subprocess.run([runtime, "ps"], capture_output=True, text=True, timeout=5)
 
         if result.returncode == 0:
             return True, ""
@@ -138,17 +125,17 @@ def verify_runtime_is_running(config: dict | None = None) -> tuple[bool, str]:
         # Check for common error patterns
         stderr = result.stderr.lower()
 
-        if 'cannot connect to the docker daemon' in stderr or 'docker daemon' in stderr:
+        if "cannot connect to the docker daemon" in stderr or "docker daemon" in stderr:
             return False, _get_docker_not_running_message()
 
-        if 'cannot connect to podman' in stderr or 'connection refused' in stderr:
+        if "cannot connect to podman" in stderr or "connection refused" in stderr:
             return False, _get_podman_not_running_message()
 
         # Generic error
         return False, f"{runtime.capitalize()} is installed but not responding:\n{result.stderr}"
 
     except subprocess.TimeoutExpired:
-        runtime = 'container runtime'
+        runtime = "container runtime"
         try:
             cmd = get_runtime_command(config)
             runtime = cmd[0]
@@ -165,6 +152,7 @@ def verify_runtime_is_running(config: dict | None = None) -> tuple[bool, str]:
 def _get_docker_not_running_message() -> str:
     """Get platform-specific message for Docker not running."""
     import platform
+
     system = platform.system()
 
     if system == "Darwin":  # macOS
@@ -203,6 +191,7 @@ def _get_docker_not_running_message() -> str:
 def _get_podman_not_running_message() -> str:
     """Get platform-specific message for Podman not running."""
     import platform
+
     system = platform.system()
 
     if system in ["Darwin", "Windows"]:  # macOS or Windows
@@ -239,10 +228,9 @@ def get_ps_command(config: dict | None = None, all_containers: bool = False) -> 
     cmd = get_runtime_command(config)
     runtime = cmd[0]  # 'docker' or 'podman'
 
-    ps_cmd = [runtime, 'ps']
+    ps_cmd = [runtime, "ps"]
     if all_containers:
-        ps_cmd.append('-a')
-    ps_cmd.extend(['--format', 'json'])
+        ps_cmd.append("-a")
+    ps_cmd.extend(["--format", "json"])
 
     return ps_cmd
-

@@ -37,6 +37,7 @@ from .storage_manager import get_memory_storage_manager
 
 logger = logging.getLogger(__name__)
 
+
 class UserMemoryProvider(DataSourceProvider):
     """Core data source provider for comprehensive user memory integration.
 
@@ -150,8 +151,6 @@ class UserMemoryProvider(DataSourceProvider):
         """
         return "Core user memory system providing saved user information"
 
-
-
     async def retrieve_data(self, request: DataSourceRequest) -> DataSourceContext | None:
         """Retrieve user memory data and create structured context for framework integration.
 
@@ -204,7 +203,9 @@ class UserMemoryProvider(DataSourceProvider):
 
         # Check if query-based retrieval is requested
         if request.query is not None:
-            logger.warning("Query-based memory retrieval is not supported. Will return all memory entries.")
+            logger.warning(
+                "Query-based memory retrieval is not supported. Will return all memory entries."
+            )
 
         try:
             # Get memory entries from the storage manager
@@ -218,10 +219,10 @@ class UserMemoryProvider(DataSourceProvider):
                 # Return empty context instead of None - no data is not a failure
                 user_memories = UserMemories(entries=[])
             else:
-                logger.debug(f"Retrieved {len(memory_entries)} core memory entries for user {user_id}")
-                user_memories = UserMemories(
-                    entries=[entry.content for entry in memory_entries]
+                logger.debug(
+                    f"Retrieved {len(memory_entries)} core memory entries for user {user_id}"
                 )
+                user_memories = UserMemories(entries=[entry.content for entry in memory_entries])
 
             return DataSourceContext(
                 source_name=self.name,
@@ -231,9 +232,9 @@ class UserMemoryProvider(DataSourceProvider):
                     "user_id": user_id,
                     "entry_count": len(memory_entries) if memory_entries else 0,
                     "source_description": "Core user memory system",
-                    "is_core_provider": True
+                    "is_core_provider": True,
                 },
-                provider=self
+                provider=self,
             )
 
         except Exception as e:
@@ -320,7 +321,7 @@ class UserMemoryProvider(DataSourceProvider):
                 "description": "Directory where core user memory files are stored",
                 "type": "string",
                 "required": True,
-                "config_path": "file_paths.user_memory_dir"
+                "config_path": "file_paths.user_memory_dir",
             }
         }
 
@@ -416,13 +417,13 @@ class UserMemoryProvider(DataSourceProvider):
             return ""
 
         user_memories = context.data
-        entry_count = context.metadata.get('entry_count', 0)
+        entry_count = context.metadata.get("entry_count", 0)
 
         # Enhanced formatting for core memory
         sections = []
         sections.append(f"**🧠 User Memory** ({entry_count} saved entries):")
 
-        if hasattr(user_memories, 'entries') and user_memories.entries:
+        if hasattr(user_memories, "entries") and user_memories.entries:
             sections.append("  **Personal Notes & Insights:**")
             for entry in user_memories.entries:
                 # Add bullet point and indent for readability

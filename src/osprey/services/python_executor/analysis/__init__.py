@@ -40,4 +40,3 @@ __all__ = [
     "get_default_patterns",
     "get_framework_standard_patterns",
 ]
-

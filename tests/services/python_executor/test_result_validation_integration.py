@@ -41,11 +41,12 @@ print(f"Std: {std_value}")
         request = PythonExecutionRequest(
             user_query="Calculate statistics",
             task_objective="Compute mean and std",
-            execution_folder_name="test"
+            execution_folder_name="test",
         )
 
         # Generate code (synchronous for mock)
         import asyncio
+
         generated_code = asyncio.run(generator.generate_code(request, []))
 
         # Verify the generated code
@@ -72,12 +73,11 @@ results = {
         generator.set_code(code_with_results)
 
         request = PythonExecutionRequest(
-            user_query="Calculate mean",
-            task_objective="Compute mean",
-            execution_folder_name="test"
+            user_query="Calculate mean", task_objective="Compute mean", execution_folder_name="test"
         )
 
         import asyncio
+
         generated_code = asyncio.run(generator.generate_code(request, []))
 
         # Static validation should pass
@@ -105,10 +105,11 @@ results = dict(
         request = PythonExecutionRequest(
             user_query="Calculate statistics",
             task_objective="Compute stats",
-            execution_folder_name="test"
+            execution_folder_name="test",
         )
 
         import asyncio
+
         generated_code = asyncio.run(generator.generate_code(request, []))
 
         # Static validation should pass
@@ -130,12 +131,11 @@ results = get_results()
         generator.set_code(code_with_function_call)
 
         request = PythonExecutionRequest(
-            user_query="Get results",
-            task_objective="Return results",
-            execution_folder_name="test"
+            user_query="Get results", task_objective="Return results", execution_folder_name="test"
         )
 
         import asyncio
+
         generated_code = asyncio.run(generator.generate_code(request, []))
 
         # Static validation should return False (can't validate function return)
@@ -175,8 +175,9 @@ print(np.mean(data))
         assert result.passed is True
 
         # Should have logged a warning about missing results
-        assert any("does not appear to assign to 'results'" in record.message
-                  for record in caplog.records)
+        assert any(
+            "does not appear to assign to 'results'" in record.message for record in caplog.records
+        )
 
     @pytest.mark.asyncio
     async def test_analysis_node_accepts_valid_results(self):
@@ -217,15 +218,18 @@ class TestRuntimeValidationSimulation:
 
         # Code that doesn't create results
         code_namespace = {}
-        exec("""
+        exec(
+            """
 import numpy as np
 data = np.array([1, 2, 3])
 mean_value = np.mean(data)
 print(mean_value)
-""", code_namespace)
+""",
+            code_namespace,
+        )
 
         # Runtime check: is 'results' in globals?
-        results_captured = 'results' in code_namespace
+        results_captured = "results" in code_namespace
         results_missing = not results_captured
 
         assert results_missing is True
@@ -234,7 +238,8 @@ print(mean_value)
     def test_runtime_validation_would_pass_with_results(self):
         """Simulate runtime check with valid results."""
         code_namespace = {}
-        exec("""
+        exec(
+            """
 import numpy as np
 data = np.array([1, 2, 3])
 mean_value = np.mean(data)
@@ -243,29 +248,34 @@ results = {
     "mean": float(mean_value),
     "count": len(data)
 }
-""", code_namespace)
+""",
+            code_namespace,
+        )
 
         # Runtime check
-        results_captured = 'results' in code_namespace
+        results_captured = "results" in code_namespace
         results_missing = not results_captured
 
         assert results_missing is False
         assert results_captured is True
 
         # Verify it's actually a dict
-        assert isinstance(code_namespace['results'], dict)
-        assert 'mean' in code_namespace['results']
+        assert isinstance(code_namespace["results"], dict)
+        assert "mean" in code_namespace["results"]
 
     def test_runtime_validation_detects_results_none(self):
         """Simulate runtime check when results is None."""
         code_namespace = {}
-        exec("""
+        exec(
+            """
 results = None
-""", code_namespace)
+""",
+            code_namespace,
+        )
 
         # Runtime check
-        results_captured = 'results' in code_namespace
-        results_is_none = code_namespace.get('results') is None
+        results_captured = "results" in code_namespace
+        results_is_none = code_namespace.get("results") is None
 
         assert results_captured is True
         assert results_is_none is True
@@ -273,24 +283,27 @@ results = None
     def test_runtime_validation_detects_function_returned_dict(self):
         """Runtime validation works even when results from function."""
         code_namespace = {}
-        exec("""
+        exec(
+            """
 def get_results():
     return {"value": 42}
 
 results = get_results()
-""", code_namespace)
+""",
+            code_namespace,
+        )
 
         # Runtime check passes even though static analysis couldn't validate
-        results_captured = 'results' in code_namespace
+        results_captured = "results" in code_namespace
 
         assert results_captured is True
-        assert isinstance(code_namespace['results'], dict)
-        assert code_namespace['results']['value'] == 42
+        assert isinstance(code_namespace["results"], dict)
+        assert code_namespace["results"]["value"] == 42
 
 
 @pytest.mark.skipif(
     True,  # Skip by default - only run when execution environment available
-    reason="Requires execution environment (container or local Python)"
+    reason="Requires execution environment (container or local Python)",
 )
 class TestFullExecutionValidation:
     """Full end-to-end tests with actual execution.
@@ -321,7 +334,7 @@ data = np.array([1, 2, 3, 4, 5])
 mean_value = np.mean(data)
 print(f"Mean: {mean_value}")
 # Oops, forgot to create results!
-"""
+""",
         )
 
         # This should raise CodeRuntimeError about missing results
@@ -353,7 +366,7 @@ results = {
     "mean": float(mean_value),
     "count": len(data)
 }
-"""
+""",
         )
 
         # This should succeed
@@ -365,4 +378,3 @@ results = {
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])
-

@@ -19,8 +19,8 @@ import pytest
 class TestRegistryResetInInteractiveMenu:
     """Test that handle_chat_action properly resets registry before starting chat."""
 
-    @patch('osprey.cli.interactive_menu.asyncio.run')
-    @patch('osprey.registry.reset_registry')
+    @patch("osprey.cli.interactive_menu.asyncio.run")
+    @patch("osprey.registry.reset_registry")
     def test_handle_chat_action_resets_registry_with_project_path(
         self, mock_reset, mock_asyncio_run, tmp_path
     ):
@@ -52,8 +52,8 @@ class TestRegistryResetInInteractiveMenu:
             if os.getcwd() != str(original_cwd):
                 os.chdir(original_cwd)
 
-    @patch('osprey.cli.interactive_menu.asyncio.run')
-    @patch('osprey.registry.reset_registry')
+    @patch("osprey.cli.interactive_menu.asyncio.run")
+    @patch("osprey.registry.reset_registry")
     def test_handle_chat_action_resets_registry_default_path(
         self, mock_reset, mock_asyncio_run, tmp_path
     ):
@@ -86,7 +86,7 @@ class TestRegistryResetInInteractiveMenu:
             # Restore original directory
             os.chdir(original_cwd)
 
-    @patch('osprey.registry.reset_registry')
+    @patch("osprey.registry.reset_registry")
     def test_reset_called_before_chat_not_after(self, mock_reset, tmp_path):
         """
         Verify that reset_registry is called BEFORE initializing the chat,
@@ -103,21 +103,23 @@ class TestRegistryResetInInteractiveMenu:
         call_order = []
 
         def track_reset():
-            call_order.append('reset')
+            call_order.append("reset")
 
         def track_run_cli(*args, **kwargs):
-            call_order.append('run_cli')
+            call_order.append("run_cli")
 
         mock_reset.side_effect = track_reset
 
         original_cwd = os.getcwd()
         try:
-            with patch('osprey.cli.interactive_menu.asyncio.run', side_effect=track_run_cli):
+            with patch("osprey.cli.interactive_menu.asyncio.run", side_effect=track_run_cli):
                 handle_chat_action(project_path=test_project)
 
             # Verify reset was called before run_cli
-            assert call_order == ['reset', 'run_cli'], \
-                "reset_registry must be called BEFORE run_cli"
+            assert call_order == [
+                "reset",
+                "run_cli",
+            ], "reset_registry must be called BEFORE run_cli"
         finally:
             if os.getcwd() != str(original_cwd):
                 os.chdir(original_cwd)

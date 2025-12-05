@@ -8,6 +8,7 @@ Tests all three safety layers:
 
 Related to: CRITICAL_CHANNEL_WRITE_SAFETY_BYPASS.md
 """
+
 from unittest.mock import patch
 
 import pytest
@@ -106,7 +107,7 @@ class TestLimitsValidator:
         """Test that from_config returns None when disabled."""
         from osprey.services.python_executor.execution.limits_validator import LimitsValidator
 
-        with patch('osprey.utils.config.get_config_value') as mock_config:
+        with patch("osprey.utils.config.get_config_value") as mock_config:
             mock_config.return_value = False  # enabled=False
             validator = LimitsValidator.from_config()
             assert validator is None
@@ -120,13 +121,10 @@ class TestLimitsValidator:
 
         limits_db = {
             "TEST:PV": ChannelLimitsConfig(
-                channel_address="TEST:PV",
-                min_value=0.0,
-                max_value=100.0,
-                writable=True
+                channel_address="TEST:PV", min_value=0.0, max_value=100.0, writable=True
             )
         }
-        policy = {'allow_unlisted_channels': False}
+        policy = {"allow_unlisted_channels": False}
         validator = LimitsValidator(limits_db, policy)
 
         # Test exceeding max
@@ -145,13 +143,10 @@ class TestLimitsValidator:
 
         limits_db = {
             "TEST:PV": ChannelLimitsConfig(
-                channel_address="TEST:PV",
-                min_value=0.0,
-                max_value=100.0,
-                writable=True
+                channel_address="TEST:PV", min_value=0.0, max_value=100.0, writable=True
             )
         }
-        policy = {'allow_unlisted_channels': False}
+        policy = {"allow_unlisted_channels": False}
         validator = LimitsValidator(limits_db, policy)
 
         # Test below min
@@ -173,10 +168,10 @@ class TestLimitsValidator:
                 channel_address="TEST:PV",
                 min_value=0.0,
                 max_value=100.0,
-                writable=False  # Read-only
+                writable=False,  # Read-only
             )
         }
-        policy = {'allow_unlisted_channels': False}
+        policy = {"allow_unlisted_channels": False}
         validator = LimitsValidator(limits_db, policy)
 
         with pytest.raises(ChannelLimitsViolationError) as exc_info:
@@ -192,7 +187,7 @@ class TestLimitsValidator:
         )
 
         limits_db = {}  # Empty - no PVs listed
-        policy = {'allow_unlisted_channels': False}  # Strict mode
+        policy = {"allow_unlisted_channels": False}  # Strict mode
         validator = LimitsValidator(limits_db, policy)
 
         with pytest.raises(ChannelLimitsViolationError) as exc_info:
@@ -208,7 +203,7 @@ class TestLimitsValidator:
         )
 
         limits_db = {}  # Empty - no PVs listed
-        policy = {'allow_unlisted_channels': True}  # Permissive mode
+        policy = {"allow_unlisted_channels": True}  # Permissive mode
         validator = LimitsValidator(limits_db, policy)
 
         # Should not raise
@@ -223,13 +218,10 @@ class TestLimitsValidator:
 
         limits_db = {
             "TEST:PV": ChannelLimitsConfig(
-                channel_address="TEST:PV",
-                min_value=0.0,
-                max_value=100.0,
-                writable=True
+                channel_address="TEST:PV", min_value=0.0, max_value=100.0, writable=True
             )
         }
-        policy = {'allow_unlisted_channels': False}
+        policy = {"allow_unlisted_channels": False}
         validator = LimitsValidator(limits_db, policy)
 
         # Should not raise
@@ -254,26 +246,26 @@ class TestChannelWriteApprovalInterrupt:
 
         operations = [
             MockWriteOperation("TEST:PV1", 50.0, "A"),
-            MockWriteOperation("TEST:PV2", 100.0, "V")
+            MockWriteOperation("TEST:PV2", 100.0, "V"),
         ]
 
         analysis_details = {
-            'operation_count': 2,
-            'channels': ["TEST:PV1", "TEST:PV2"],
-            'values': [("TEST:PV1", 50.0), ("TEST:PV2", 100.0)],
-            'safety_level': 'high'
+            "operation_count": 2,
+            "channels": ["TEST:PV1", "TEST:PV2"],
+            "values": [("TEST:PV1", 50.0), ("TEST:PV2", 100.0)],
+            "safety_level": "high",
         }
 
         safety_concerns = [
             "Direct hardware write: TEST:PV1 = 50.0",
-            "Direct hardware write: TEST:PV2 = 100.0"
+            "Direct hardware write: TEST:PV2 = 100.0",
         ]
 
         interrupt_data = create_channel_write_approval_interrupt(
             operations=operations,
             analysis_details=analysis_details,
             safety_concerns=safety_concerns,
-            step_objective="Test write operation"
+            step_objective="Test write operation",
         )
 
         # Verify structure
@@ -294,4 +286,3 @@ class TestChannelWriteApprovalInterrupt:
         assert payload["operations"][0]["channel_address"] == "TEST:PV1"
         assert payload["operations"][0]["value"] == 50.0
         assert payload["safety_concerns"] == safety_concerns
-

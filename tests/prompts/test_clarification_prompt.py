@@ -10,14 +10,15 @@ This test suite validates that the clarification prompt builder correctly:
 """
 
 import pytest
+from tests.conftest import PromptTestHelpers, create_test_state
 
 from osprey.prompts.defaults.clarification import DefaultClarificationPromptBuilder
 from osprey.state import AgentState, StateManager
-from tests.conftest import PromptTestHelpers, create_test_state
 
 # ===================================================================
 # Test Fixtures
 # ===================================================================
+
 
 @pytest.fixture
 def sample_state() -> AgentState:
@@ -27,8 +28,8 @@ def sample_state() -> AgentState:
         task_objective="Ask the user to specify the location for which they want to retrieve current weather information",
         capability="clarify",
         context_key="clarify_location",
-        task_current_task='Retrieve current weather information',
-        planning_active_capabilities=['clarify', 'fetch_weather']
+        task_current_task="Retrieve current weather information",
+        planning_active_capabilities=["clarify", "fetch_weather"],
     )
 
 
@@ -44,15 +45,16 @@ def multi_turn_state() -> AgentState:
         task_objective="Ask the user to specify the time range for beam current data retrieval",
         capability="clarify",
         context_key="clarify_timerange",
-        task_current_task='Retrieve beam current data',
+        task_current_task="Retrieve beam current data",
         task_depends_on_chat_history=True,
-        planning_active_capabilities=['clarify', 'data_retrieval']
+        planning_active_capabilities=["clarify", "data_retrieval"],
     )
 
 
 # ===================================================================
 # Tests for Clarification Prompt Generation
 # ===================================================================
+
 
 class TestClarificationPromptGeneration:
     """Test suite for clarification prompt builder."""
@@ -137,7 +139,7 @@ class TestClarificationPromptGeneration:
             "You are helping",
             "CONVERSATION HISTORY:",
             "USER'S ORIGINAL QUERY:",
-            "ORCHESTRATOR'S CLARIFICATION INSTRUCTION:"
+            "ORCHESTRATOR'S CLARIFICATION INSTRUCTION:",
         )
 
         # Verify all sections exist
@@ -146,7 +148,10 @@ class TestClarificationPromptGeneration:
         # Verify order
         assert positions["You are helping"] < positions["CONVERSATION HISTORY:"]
         assert positions["CONVERSATION HISTORY:"] < positions["USER'S ORIGINAL QUERY:"]
-        assert positions["USER'S ORIGINAL QUERY:"] < positions["ORCHESTRATOR'S CLARIFICATION INSTRUCTION:"]
+        assert (
+            positions["USER'S ORIGINAL QUERY:"]
+            < positions["ORCHESTRATOR'S CLARIFICATION INSTRUCTION:"]
+        )
 
     def test_no_redundant_guidelines(self, sample_state):
         """Test that generic guidelines are not duplicated."""
@@ -183,10 +188,10 @@ class TestClarificationPromptGeneration:
             user_message="",  # Empty message
             task_objective="Ask the user for more details",
             capability="clarify",
-            context_key="clarify_test"
+            context_key="clarify_test",
         )
         # Override messages to be empty
-        state['messages'] = []
+        state["messages"] = []
 
         builder = DefaultClarificationPromptBuilder()
         task_objective = "Ask the user for more details"
@@ -204,7 +209,7 @@ class TestClarificationPromptGeneration:
             task_objective="Ask which specific metric for system status",
             capability="clarify",
             context_key="clarify_system",
-            task_current_task='Get system status'
+            task_current_task="Get system status",
         )
 
         builder = DefaultClarificationPromptBuilder()
@@ -214,14 +219,15 @@ class TestClarificationPromptGeneration:
 
         # Extract user query section and verify special characters are preserved
         query_section = PromptTestHelpers.extract_section(prompt, "USER'S ORIGINAL QUERY:")
-        assert 'status' in query_section
+        assert "status" in query_section
         # Check for system identifier (with or without special chars preserved)
-        assert 'system' in query_section.lower()
+        assert "system" in query_section.lower()
 
 
 # ===================================================================
 # Error Handling Tests
 # ===================================================================
+
 
 class TestClarificationErrorHandling:
     """Test suite for error handling and edge cases."""
@@ -229,12 +235,10 @@ class TestClarificationErrorHandling:
     def test_missing_messages_field(self):
         """Test handling when messages field is missing from state."""
         state = create_test_state(
-            user_message="test query",
-            task_objective="Ask for details",
-            capability="clarify"
+            user_message="test query", task_objective="Ask for details", capability="clarify"
         )
         # Remove messages field
-        del state['messages']
+        del state["messages"]
 
         builder = DefaultClarificationPromptBuilder()
 
@@ -248,11 +252,9 @@ class TestClarificationErrorHandling:
     def test_none_execution_plan(self):
         """Test handling when execution plan is None."""
         state = create_test_state(
-            user_message="test query",
-            task_objective="Ask for details",
-            capability="clarify"
+            user_message="test query", task_objective="Ask for details", capability="clarify"
         )
-        state['planning_execution_plan'] = None
+        state["planning_execution_plan"] = None
 
         builder = DefaultClarificationPromptBuilder()
 
@@ -263,9 +265,7 @@ class TestClarificationErrorHandling:
     def test_empty_task_objective(self):
         """Test handling when task_objective is empty string."""
         state = create_test_state(
-            user_message="whats the weather?",
-            task_objective="",
-            capability="clarify"
+            user_message="whats the weather?", task_objective="", capability="clarify"
         )
 
         builder = DefaultClarificationPromptBuilder()
@@ -279,9 +279,7 @@ class TestClarificationErrorHandling:
     def test_none_task_objective(self):
         """Test handling when task_objective is None."""
         state = create_test_state(
-            user_message="test query",
-            task_objective="placeholder",
-            capability="clarify"
+            user_message="test query", task_objective="placeholder", capability="clarify"
         )
 
         builder = DefaultClarificationPromptBuilder()
@@ -299,12 +297,10 @@ class TestClarificationErrorHandling:
     def test_malformed_messages_list(self):
         """Test handling of malformed message objects in messages list."""
         state = create_test_state(
-            user_message="test query",
-            task_objective="Ask for details",
-            capability="clarify"
+            user_message="test query", task_objective="Ask for details", capability="clarify"
         )
         # Add a malformed message (not a proper Message object)
-        state['messages'].append({"invalid": "message"})  # type: ignore
+        state["messages"].append({"invalid": "message"})  # type: ignore
 
         builder = DefaultClarificationPromptBuilder()
 
@@ -322,7 +318,7 @@ class TestClarificationErrorHandling:
         state = create_test_state(
             user_message="What's the weather in 東京? 🌤️ How about 北京?",
             task_objective="Ask user to specify which city",
-            capability="clarify"
+            capability="clarify",
         )
 
         builder = DefaultClarificationPromptBuilder()
@@ -345,7 +341,7 @@ class TestClarificationErrorHandling:
         state = create_test_state(
             conversation_history=conversation,
             task_objective="Ask for clarification",
-            capability="clarify"
+            capability="clarify",
         )
 
         builder = DefaultClarificationPromptBuilder()
@@ -360,12 +356,10 @@ class TestClarificationErrorHandling:
     def test_missing_current_step_index(self):
         """Test handling when current step index is missing."""
         state = create_test_state(
-            user_message="test query",
-            task_objective="Ask for details",
-            capability="clarify"
+            user_message="test query", task_objective="Ask for details", capability="clarify"
         )
         # Remove current step index
-        del state['planning_current_step_index']
+        del state["planning_current_step_index"]
 
         builder = DefaultClarificationPromptBuilder()
 
@@ -380,12 +374,10 @@ class TestClarificationErrorHandling:
     def test_invalid_step_index(self):
         """Test handling when step index is out of bounds."""
         state = create_test_state(
-            user_message="test query",
-            task_objective="Ask for details",
-            capability="clarify"
+            user_message="test query", task_objective="Ask for details", capability="clarify"
         )
         # Set invalid step index
-        state['planning_current_step_index'] = 99
+        state["planning_current_step_index"] = 99
 
         builder = DefaultClarificationPromptBuilder()
 
@@ -397,6 +389,7 @@ class TestClarificationErrorHandling:
 # ===================================================================
 # Integration Tests
 # ===================================================================
+
 
 class TestClarificationIntegration:
     """Integration tests for the full clarification flow."""
@@ -410,7 +403,10 @@ class TestClarificationIntegration:
         # Verify StateManager can get the current step
         current_step = StateManager.get_current_step(sample_state)
         assert current_step is not None
-        assert current_step['task_objective'] == "Ask the user to specify the location for which they want to retrieve current weather information"
+        assert (
+            current_step["task_objective"]
+            == "Ask the user to specify the location for which they want to retrieve current weather information"
+        )
 
     def test_full_prompt_generation_flow(self, sample_state):
         """Test the complete flow from state to final prompt."""
@@ -418,10 +414,10 @@ class TestClarificationIntegration:
 
         # Step 1: Get current step (like clarify_node does)
         step = StateManager.get_current_step(sample_state)
-        task_objective = step.get('task_objective', 'unknown') if step else 'unknown'
+        task_objective = step.get("task_objective", "unknown") if step else "unknown"
 
         # Should not be 'unknown'
-        assert task_objective != 'unknown'
+        assert task_objective != "unknown"
         assert "location" in task_objective
 
         # Step 2: Get prompt builder and generate prompt
@@ -433,4 +429,3 @@ class TestClarificationIntegration:
         assert "whats the weather" in prompt.lower()
         assert "location" in prompt
         assert "ORCHESTRATOR'S CLARIFICATION INSTRUCTION:" in prompt
-

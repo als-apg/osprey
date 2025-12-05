@@ -84,9 +84,9 @@ from .execution import ApprovalRequest
 
 # ===== CUSTOM REDUCER FOR PURE DICTIONARY CONTEXT DATA =====
 
+
 def merge_capability_context_data(
-    existing: dict[str, dict[str, dict[str, Any]]] | None,
-    new: dict[str, dict[str, dict[str, Any]]]
+    existing: dict[str, dict[str, dict[str, Any]]] | None, new: dict[str, dict[str, dict[str, Any]]]
 ) -> dict[str, dict[str, dict[str, Any]]]:
     """Merge capability context data dictionaries for LangGraph-native checkpointing.
 
@@ -156,10 +156,8 @@ def merge_capability_context_data(
     return result
 
 
-
-
-
 # ===== MAIN CONVERSATIONAL STATE =====
+
 
 class AgentState(MessagesState):
     """LangGraph-native conversational agent state with comprehensive execution tracking.
@@ -249,7 +247,9 @@ class AgentState(MessagesState):
 
     # Core persistent context - LangGraph-native dictionary storage
     # Data structure: {context_type: {context_key: {field: value}}}
-    capability_context_data: Annotated[dict[str, dict[str, dict[str, Any]]], merge_capability_context_data]
+    capability_context_data: Annotated[
+        dict[str, dict[str, dict[str, Any]]], merge_capability_context_data
+    ]
 
     # ===== EXECUTION-SCOPED FIELDS (Reset each invocation) =====
 
@@ -285,7 +285,7 @@ class AgentState(MessagesState):
     # Control flow fields
     control_reclassification_reason: str | None
     control_reclassification_count: int
-    control_plans_created_count: int           # Number of plans created by orchestrator for current task
+    control_plans_created_count: int  # Number of plans created by orchestrator for current task
     control_current_step_retry_count: int
     control_retry_count: int  # Total retry count for current capability
     control_has_error: bool  # Error state for manual retry handling
@@ -300,9 +300,15 @@ class AgentState(MessagesState):
     control_validation_timestamp: float | None
 
     # UI result fields
-    ui_captured_notebooks: list[dict[str, Any]]  # Centralized notebook registry for displaying notebooks in the UI
-    ui_captured_figures: list[dict[str, Any]]  # Centralized figure registry for displaying figures in the UI
-    ui_launchable_commands: list[dict[str, Any]]  # Centralized command registry for displaying launchable commands in the UI
+    ui_captured_notebooks: list[
+        dict[str, Any]
+    ]  # Centralized notebook registry for displaying notebooks in the UI
+    ui_captured_figures: list[
+        dict[str, Any]
+    ]  # Centralized figure registry for displaying figures in the UI
+    ui_launchable_commands: list[
+        dict[str, Any]
+    ]  # Centralized command registry for displaying launchable commands in the UI
     ui_agent_context: dict[str, Any] | None
 
     # Runtime metadata fields
@@ -312,7 +318,10 @@ class AgentState(MessagesState):
 
 # ===== UTILITY FUNCTIONS FOR EVENT UPDATES =====
 
-def create_status_update(message: str, progress: float, complete: bool = False, **metadata) -> dict[str, Any]:
+
+def create_status_update(
+    message: str, progress: float, complete: bool = False, **metadata
+) -> dict[str, Any]:
     """Create a status update event for LangGraph state integration.
 
     This utility function creates properly formatted status update events that can be
@@ -365,13 +374,15 @@ def create_status_update(message: str, progress: float, complete: bool = False, 
        :class:`AgentState` : Main state class containing status_updates field
     """
     return {
-        "status_updates": [{
-            "message": message,
-            "progress": progress,
-            "complete": complete,
-            "timestamp": __import__('time').time(),
-            **metadata
-        }]
+        "status_updates": [
+            {
+                "message": message,
+                "progress": progress,
+                "complete": complete,
+                "timestamp": __import__("time").time(),
+                **metadata,
+            }
+        ]
     }
 
 
@@ -439,14 +450,16 @@ def create_progress_event(current: int, total: int, operation: str, **metadata) 
        :class:`AgentState` : Main state class containing progress_events field
     """
     return {
-        "progress_events": [{
-            "current": current,
-            "total": total,
-            "operation": operation,
-            "progress": current / total if total > 0 else 0.0,
-            "timestamp": __import__('time').time(),
-            **metadata
-        }]
+        "progress_events": [
+            {
+                "current": current,
+                "total": total,
+                "operation": operation,
+                "progress": current / total if total > 0 else 0.0,
+                "timestamp": __import__("time").time(),
+                **metadata,
+            }
+        ]
     }
 
 

@@ -19,6 +19,7 @@ from osprey.services.python_executor.models import ExecutionError
 # PROTOCOL TESTS
 # =============================================================================
 
+
 def test_basic_implements_protocol():
     """Verify basic generator implements the CodeGenerator protocol."""
     generator = BasicLLMCodeGenerator(model_config={})
@@ -49,6 +50,7 @@ def test_protocol_requires_generate_code_method():
 # FACTORY TESTS
 # =============================================================================
 
+
 def test_factory_creates_basic_by_default():
     """Factory creates basic generator when not configured."""
     config = {}
@@ -58,11 +60,7 @@ def test_factory_creates_basic_by_default():
 
 def test_factory_creates_basic_explicitly():
     """Factory creates basic generator when explicitly configured."""
-    config = {
-        "execution": {
-            "code_generator": "basic"
-        }
-    }
+    config = {"execution": {"code_generator": "basic"}}
     generator = create_code_generator(config)
     assert isinstance(generator, BasicLLMCodeGenerator)
 
@@ -74,11 +72,7 @@ def test_factory_with_model_config_reference():
     config = {
         "execution": {
             "code_generator": "basic",
-            "generators": {
-                "basic": {
-                    "model_config_name": "python_code_generator"
-                }
-            }
+            "generators": {"basic": {"model_config_name": "python_code_generator"}},
         }
     }
     generator = create_code_generator(config)
@@ -87,11 +81,7 @@ def test_factory_with_model_config_reference():
 
 def test_factory_handles_unknown_generator():
     """Factory raises error for unknown generators."""
-    config = {
-        "execution": {
-            "code_generator": "nonexistent"
-        }
-    }
+    config = {"execution": {"code_generator": "nonexistent"}}
 
     with pytest.raises(ValueError, match="not available"):
         create_code_generator(config)
@@ -100,14 +90,7 @@ def test_factory_handles_unknown_generator():
 def test_factory_passes_inline_config_to_generator():
     """Factory passes inline generator config to the generator."""
     inline_config = {"provider": "cborg", "model_id": "gpt-4", "temperature": 0.5}
-    config = {
-        "execution": {
-            "code_generator": "basic",
-            "generators": {
-                "basic": inline_config
-            }
-        }
-    }
+    config = {"execution": {"code_generator": "basic", "generators": {"basic": inline_config}}}
 
     generator = create_code_generator(config)
     assert isinstance(generator, BasicLLMCodeGenerator)
@@ -133,6 +116,7 @@ def test_factory_passes_inline_config_to_generator():
 # LEGACY GENERATOR TESTS
 # =============================================================================
 
+
 @pytest.mark.asyncio
 async def test_basic_generator_basic_generation(mock_llm_response):
     """Test basic generator produces code."""
@@ -141,7 +125,7 @@ async def test_basic_generator_basic_generation(mock_llm_response):
     request = PythonExecutionRequest(
         user_query="Calculate 2 + 2",
         task_objective="Simple arithmetic",
-        execution_folder_name="test"
+        execution_folder_name="test",
     )
 
     # Mock the LLM response
@@ -159,9 +143,7 @@ async def test_basic_generator_cleans_markdown(mock_llm_response):
     generator = BasicLLMCodeGenerator(model_config={})
 
     request = PythonExecutionRequest(
-        user_query="Test",
-        task_objective="Test",
-        execution_folder_name="test"
+        user_query="Test", task_objective="Test", execution_folder_name="test"
     )
 
     # Mock LLM returning code wrapped in markdown
@@ -181,9 +163,7 @@ async def test_basic_generator_handles_error_chain(mock_llm_response):
     generator = BasicLLMCodeGenerator(model_config={})
 
     request = PythonExecutionRequest(
-        user_query="Test",
-        task_objective="Test",
-        execution_folder_name="test"
+        user_query="Test", task_objective="Test", execution_folder_name="test"
     )
 
     error_chain = [
@@ -191,14 +171,14 @@ async def test_basic_generator_handles_error_chain(mock_llm_response):
             error_type="execution",
             error_message="NameError: name 'undefined_var' is not defined",
             attempt_number=1,
-            stage="execution"
+            stage="execution",
         ),
         ExecutionError(
             error_type="syntax",
             error_message="SyntaxError: invalid syntax",
             attempt_number=2,
-            stage="generation"
-        )
+            stage="generation",
+        ),
     ]
 
     with mock_llm_response("result = 42"):
@@ -214,9 +194,7 @@ async def test_basic_generator_raises_on_empty_response(mock_llm_response):
     generator = BasicLLMCodeGenerator(model_config={})
 
     request = PythonExecutionRequest(
-        user_query="Test",
-        task_objective="Test",
-        execution_folder_name="test"
+        user_query="Test", task_objective="Test", execution_folder_name="test"
     )
 
     with mock_llm_response(""):
@@ -230,9 +208,7 @@ async def test_basic_generator_handles_llm_exception(mock_llm_error):
     generator = BasicLLMCodeGenerator(model_config={})
 
     request = PythonExecutionRequest(
-        user_query="Test",
-        task_objective="Test",
-        execution_folder_name="test"
+        user_query="Test", task_objective="Test", execution_folder_name="test"
     )
 
     with mock_llm_error(Exception("LLM service unavailable")):
@@ -244,20 +220,12 @@ async def test_basic_generator_handles_llm_exception(mock_llm_error):
 # INTEGRATION TESTS
 # =============================================================================
 
+
 @pytest.mark.asyncio
 async def test_end_to_end_factory_and_generation(mock_llm_response):
     """Test complete flow from factory to code generation."""
 
-    config = {
-        "execution": {
-            "code_generator": "basic",
-            "generators": {
-                "basic": {
-                    "model": "gpt-4"
-                }
-            }
-        }
-    }
+    config = {"execution": {"code_generator": "basic", "generators": {"basic": {"model": "gpt-4"}}}}
 
     # Create generator via factory
     generator = create_code_generator(config)
@@ -265,9 +233,7 @@ async def test_end_to_end_factory_and_generation(mock_llm_response):
 
     # Use generator to create code
     request = PythonExecutionRequest(
-        user_query="Calculate mean",
-        task_objective="Statistics",
-        execution_folder_name="test"
+        user_query="Calculate mean", task_objective="Statistics", execution_folder_name="test"
     )
 
     with mock_llm_response("import numpy as np\nresult = np.mean([1, 2, 3])"):
@@ -286,6 +252,7 @@ async def test_end_to_end_factory_and_generation(mock_llm_response):
 # FIXTURES
 # =============================================================================
 
+
 @pytest.fixture
 def mock_llm_response(monkeypatch):
     """Mock get_chat_completion to return specified response."""
@@ -298,7 +265,7 @@ def mock_llm_response(monkeypatch):
 
         monkeypatch.setattr(
             "osprey.services.python_executor.generation.basic_generator.get_chat_completion",
-            mock_completion
+            mock_completion,
         )
         yield
 
@@ -317,7 +284,7 @@ def mock_llm_error(monkeypatch):
 
         monkeypatch.setattr(
             "osprey.services.python_executor.generation.basic_generator.get_chat_completion",
-            mock_completion
+            mock_completion,
         )
         yield
 
@@ -328,6 +295,7 @@ def mock_llm_error(monkeypatch):
 # STRUCTURED ERROR CHAIN TESTS
 # =============================================================================
 
+
 def test_execution_error_to_prompt_text():
     """Verify ExecutionError formats nicely for prompts."""
     error = ExecutionError(
@@ -336,7 +304,7 @@ def test_execution_error_to_prompt_text():
         failed_code="result = 10 / 0",
         traceback="ZeroDivisionError: division by zero",
         attempt_number=1,
-        stage="execution"
+        stage="execution",
     )
 
     text = error.to_prompt_text()
@@ -355,12 +323,9 @@ def test_execution_error_with_analysis_issues():
         error_type="analysis",
         error_message="Static analysis failed",
         failed_code="def broken(\n    pass",
-        analysis_issues=[
-            "Syntax error: Missing closing parenthesis",
-            "Invalid indentation"
-        ],
+        analysis_issues=["Syntax error: Missing closing parenthesis", "Invalid indentation"],
         attempt_number=2,
-        stage="analysis"
+        stage="analysis",
     )
 
     text = error.to_prompt_text()
@@ -380,7 +345,7 @@ def test_execution_error_truncates_long_traceback():
         error_message="Error",
         traceback=long_traceback,
         attempt_number=1,
-        stage="execution"
+        stage="execution",
     )
 
     text = error.to_prompt_text()
@@ -402,7 +367,7 @@ async def test_basic_generator_receives_structured_errors(monkeypatch):
 
     monkeypatch.setattr(
         "osprey.services.python_executor.generation.basic_generator.get_chat_completion",
-        capture_prompt
+        capture_prompt,
     )
 
     generator = BasicLLMCodeGenerator(model_config={})
@@ -415,14 +380,12 @@ async def test_basic_generator_receives_structured_errors(monkeypatch):
             failed_code="result = x + 10",
             traceback="Traceback...\nNameError: name 'x' is not defined",
             attempt_number=1,
-            stage="execution"
+            stage="execution",
         )
     ]
 
     request = PythonExecutionRequest(
-        user_query="Calculate something",
-        task_objective="Do math",
-        execution_folder_name="test"
+        user_query="Calculate something", task_objective="Do math", execution_folder_name="test"
     )
 
     code = await generator.generate_code(request, error_chain)
@@ -442,13 +405,14 @@ async def test_basic_generator_receives_structured_errors(monkeypatch):
 @pytest.mark.asyncio
 async def test_basic_generator_uses_to_prompt_text(monkeypatch):
     """Verify BasicLLMCodeGenerator calls to_prompt_text() method."""
+
     # Mock the LLM call
     def mock_completion(model_config, message):
         return "print('code')"
 
     monkeypatch.setattr(
         "osprey.services.python_executor.generation.basic_generator.get_chat_completion",
-        mock_completion
+        mock_completion,
     )
 
     # Spy on to_prompt_text calls
@@ -469,14 +433,12 @@ async def test_basic_generator_uses_to_prompt_text(monkeypatch):
                 error_type="execution",
                 error_message="Test error",
                 attempt_number=1,
-                stage="execution"
+                stage="execution",
             )
         ]
 
         request = PythonExecutionRequest(
-            user_query="Test",
-            task_objective="Test",
-            execution_folder_name="test"
+            user_query="Test", task_objective="Test", execution_folder_name="test"
         )
 
         await generator.generate_code(request, error_chain)
@@ -495,13 +457,15 @@ async def test_protocol_compatible_with_execution_error():
     """Verify custom generators can handle ExecutionError in protocol."""
 
     class CustomGenerator:
-        async def generate_code(self, request: PythonExecutionRequest, error_chain: list[ExecutionError]) -> str:
+        async def generate_code(
+            self, request: PythonExecutionRequest, error_chain: list[ExecutionError]
+        ) -> str:
             # Should be able to use error chain
             if error_chain:
                 # Access structured error data
                 last_error = error_chain[-1]
-                assert hasattr(last_error, 'to_prompt_text')
-                assert hasattr(last_error, 'failed_code')
+                assert hasattr(last_error, "to_prompt_text")
+                assert hasattr(last_error, "failed_code")
                 return f"# Fixed: {last_error.error_message}"
             return "print('hello')"
 
@@ -519,14 +483,12 @@ async def test_protocol_compatible_with_execution_error():
             error_message="Test error",
             failed_code="broken code",
             attempt_number=1,
-            stage="test"
+            stage="test",
         )
     ]
 
     request = PythonExecutionRequest(
-        user_query="Test",
-        task_objective="Test",
-        execution_folder_name="test"
+        user_query="Test", task_objective="Test", execution_folder_name="test"
     )
 
     generated_code = await generator.generate_code(request, error_chain)
@@ -538,9 +500,7 @@ def test_empty_error_chain_works():
     generator = BasicLLMCodeGenerator(model_config={})
 
     request = PythonExecutionRequest(
-        user_query="Test",
-        task_objective="Test",
-        execution_folder_name="test"
+        user_query="Test", task_objective="Test", execution_folder_name="test"
     )
 
     # Should not raise with empty error chain
@@ -549,4 +509,3 @@ def test_empty_error_chain_works():
     # Should not contain error sections
     assert "PREVIOUS" not in prompt
     assert "FAILED" not in prompt
-

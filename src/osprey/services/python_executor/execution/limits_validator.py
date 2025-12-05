@@ -1,28 +1,30 @@
 """Runtime channel limits validation engine - simplified single-layer design."""
+
 import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
 # Reserved metadata fields (underscore prefix)
 # These are for documentation only and don't affect validation
-METADATA_FIELDS = {'_comment', '_version', '_last_updated', '_description'}
+METADATA_FIELDS = {"_comment", "_version", "_last_updated", "_description"}
 
 # Special functional field (not metadata)
-DEFAULTS_FIELD = 'defaults'
+DEFAULTS_FIELD = "defaults"
 
 
 @dataclass
 class ChannelLimitsConfig:
     """Configuration for a single channel's limits."""
+
     channel_address: str
-    min_value: Optional[float] = None
-    max_value: Optional[float] = None
-    max_step: Optional[float] = None  # Optional: requires channel read (I/O overhead)
+    min_value: float | None = None
+    max_value: float | None = None
+    max_step: float | None = None  # Optional: requires channel read (I/O overhead)
     writable: bool = True
 
 
@@ -33,12 +35,17 @@ class LimitsValidator:
     Raises exceptions directly instead of returning result objects.
     """
 
-    def __init__(self, limits_database: dict[str, ChannelLimitsConfig], policy_config: dict, raw_db: dict = None):
+    def __init__(
+        self,
+        limits_database: dict[str, ChannelLimitsConfig],
+        policy_config: dict,
+        raw_db: dict = None,
+    ):
         self.limits = limits_database
         self.policy = policy_config
         self._raw_db = raw_db  # Keep raw database for verification config access
         # Validation behavior: "error" (raise exception) or "skip" (return False, log warning)
-        self.on_violation = policy_config.get('on_violation', 'error')
+        self.on_violation = policy_config.get("on_violation", "error")
 
     @classmethod
     def from_config(cls):
@@ -50,26 +57,29 @@ class LimitsValidator:
         try:
             from osprey.utils.config import get_config_value
 
-            enabled = get_config_value('control_system.limits_checking.enabled', False)
+            enabled = get_config_value("control_system.limits_checking.enabled", False)
             if not enabled:
                 return None
 
-            db_path = get_config_value('control_system.limits_checking.database_path', None)
+            db_path = get_config_value("control_system.limits_checking.database_path", None)
             # Validate db_path is actually a string path (not None, False, or other types)
             if not db_path or not isinstance(db_path, str):
-                logger.warning("Limits checking enabled but no database path configured - blocking all writes")
+                logger.warning(
+                    "Limits checking enabled but no database path configured - blocking all writes"
+                )
                 return cls({}, {}, {})  # Empty DB = blocks all (failsafe)
 
             limits_db, raw_db = cls._load_limits_database(db_path)
             logger.debug(f"Loaded limits database with {len(limits_db)} channels")
 
             policy = {
-                'allow_unlisted_channels': get_config_value(
-                    'control_system.limits_checking.allow_unlisted_channels', False
+                "allow_unlisted_channels": get_config_value(
+                    "control_system.limits_checking.allow_unlisted_channels", False
                 ),
-                'on_violation': get_config_value(
-                    'control_system.limits_checking.on_violation', 'skip'  # Default to skip for resilience
-                )
+                "on_violation": get_config_value(
+                    "control_system.limits_checking.on_violation",
+                    "skip",  # Default to skip for resilience
+                ),
             }
 
             return cls(limits_db, policy, raw_db)
@@ -78,7 +88,7 @@ class LimitsValidator:
             logger.debug(f"Limits validator not initialized (config unavailable): {e}")
             return None
 
-    def get_limits_config(self, channel_address: str) -> Optional[dict]:
+    def get_limits_config(self, channel_address: str) -> dict | None:
         """Get raw limits configuration for a channel (with defaults merged).
 
         Returns the channel's configuration dictionary with defaults applied,
@@ -96,14 +106,16 @@ class LimitsValidator:
 
         # Convert ChannelLimitsConfig dataclass to dict for compatibility
         return {
-            'channel_address': channel_config.channel_address,
-            'min_value': channel_config.min_value,
-            'max_value': channel_config.max_value,
-            'max_step': channel_config.max_step,
-            'writable': channel_config.writable,
+            "channel_address": channel_config.channel_address,
+            "min_value": channel_config.min_value,
+            "max_value": channel_config.max_value,
+            "max_step": channel_config.max_step,
+            "writable": channel_config.writable,
         }
 
-    def get_verification_config(self, channel_address: str, value: float) -> tuple[str, Optional[float]]:
+    def get_verification_config(
+        self, channel_address: str, value: float
+    ) -> tuple[str, float | None]:
         """Get verification level and tolerance for a channel write.
 
         Extracts verification configuration from the limits database if available.
@@ -124,26 +136,26 @@ class LimitsValidator:
         """
         # Access the raw database to get verification config
         # (This is stored in the raw DB but not in ChannelLimitsConfig dataclass)
-        if not hasattr(self, '_raw_db') or self._raw_db is None:
+        if not hasattr(self, "_raw_db") or self._raw_db is None:
             return None, None
 
         # Get raw channel config
         raw_config = self._raw_db.get(channel_address)
-        if not raw_config or 'verification' not in raw_config:
+        if not raw_config or "verification" not in raw_config:
             return None, None
 
-        verif = raw_config['verification']
-        level = verif.get('level', 'callback')
+        verif = raw_config["verification"]
+        level = verif.get("level", "callback")
 
         # Calculate tolerance (only for readback level)
         tolerance = None
-        if level == 'readback':
+        if level == "readback":
             # Absolute tolerance takes priority
-            if 'tolerance_absolute' in verif:
-                tolerance = verif['tolerance_absolute']
+            if "tolerance_absolute" in verif:
+                tolerance = verif["tolerance_absolute"]
             # Otherwise use percentage
-            elif 'tolerance_percent' in verif:
-                tolerance = abs(value) * verif['tolerance_percent'] / 100.0
+            elif "tolerance_percent" in verif:
+                tolerance = abs(value) * verif["tolerance_percent"] / 100.0
             else:
                 # Default: 0.1% (one per mil)
                 tolerance = abs(value) * 0.1 / 100.0
@@ -161,7 +173,7 @@ class LimitsValidator:
         Raises:
             ValueError: If configuration is invalid with descriptive error message
         """
-        valid_fields = {'min_value', 'max_value', 'max_step', 'writable', 'verification'}
+        valid_fields = {"min_value", "max_value", "max_step", "writable", "verification"}
         unknown_fields = set(config_dict.keys()) - valid_fields - METADATA_FIELDS
 
         if unknown_fields:
@@ -171,7 +183,7 @@ class LimitsValidator:
             )
 
         # Validate numeric fields
-        for field in ['min_value', 'max_value', 'max_step']:
+        for field in ["min_value", "max_value", "max_step"]:
             if field in config_dict:
                 value = config_dict[field]
                 if value is not None and not isinstance(value, (int, float)):
@@ -180,32 +192,32 @@ class LimitsValidator:
                     )
 
         # Validate boolean fields
-        if 'writable' in config_dict:
-            value = config_dict['writable']
+        if "writable" in config_dict:
+            value = config_dict["writable"]
             if not isinstance(value, bool):
                 raise ValueError(
                     f"Field 'writable' must be boolean, got {type(value).__name__} = {value}"
                 )
 
         # Validate nested verification config (if present)
-        if 'verification' in config_dict:
-            verification = config_dict['verification']
+        if "verification" in config_dict:
+            verification = config_dict["verification"]
             if not isinstance(verification, dict):
                 raise ValueError(
                     f"Field 'verification' must be a dictionary, got {type(verification).__name__}"
                 )
 
             # Validate verification fields
-            valid_verif_fields = {'level', 'tolerance_absolute', 'tolerance_percent'}
+            valid_verif_fields = {"level", "tolerance_absolute", "tolerance_percent"}
             unknown_verif = set(verification.keys()) - valid_verif_fields - METADATA_FIELDS
             if unknown_verif:
                 logger.warning(
                     f"Channel '{channel_name}' verification has unknown fields: {unknown_verif}"
                 )
 
-            if 'level' in verification:
-                level = verification['level']
-                if level not in ('none', 'callback', 'readback'):
+            if "level" in verification:
+                level = verification["level"]
+                if level not in ("none", "callback", "readback"):
                     raise ValueError(
                         f"verification.level must be 'none', 'callback', or 'readback', got '{level}'"
                     )
@@ -237,7 +249,7 @@ class LimitsValidator:
                 logger.error(f"Limits database not found: {db_path}")
                 raise ValueError(f"Channel limits database not found: {db_path}")
 
-            with open(path, 'r') as f:
+            with open(path) as f:
                 raw_db = json.load(f)
 
             if not isinstance(raw_db, dict):
@@ -263,7 +275,7 @@ class LimitsValidator:
             limits_db = {}
             for channel_name, config_dict in raw_db.items():
                 # Skip metadata fields (underscore prefix)
-                if channel_name in METADATA_FIELDS or channel_name.startswith('_'):
+                if channel_name in METADATA_FIELDS or channel_name.startswith("_"):
                     logger.debug(f"Skipping metadata field: {channel_name}")
                     continue
 
@@ -286,10 +298,10 @@ class LimitsValidator:
                     # Create validated config object
                     config = ChannelLimitsConfig(
                         channel_address=channel_name,
-                        min_value=config_dict.get('min_value'),
-                        max_value=config_dict.get('max_value'),
-                        max_step=config_dict.get('max_step'),
-                        writable=config_dict.get('writable', True)
+                        min_value=config_dict.get("min_value"),
+                        max_value=config_dict.get("max_value"),
+                        max_step=config_dict.get("max_step"),
+                        writable=config_dict.get("writable", True),
                     )
 
                     # Log performance warning for max_step
@@ -304,7 +316,9 @@ class LimitsValidator:
                 except (TypeError, ValueError, KeyError) as e:
                     logger.error(f"Invalid config for channel '{channel_name}': {e} - SKIPPING")
 
-            logger.info(f"Successfully loaded {len(limits_db)} channel configurations from {db_path}")
+            logger.info(
+                f"Successfully loaded {len(limits_db)} channel configurations from {db_path}"
+            )
             return limits_db, raw_db
 
         except json.JSONDecodeError as e:
@@ -345,7 +359,7 @@ class LimitsValidator:
 
         if channel_config is None:
             # Unlisted channel - check policy
-            if self.policy.get('allow_unlisted_channels', False):
+            if self.policy.get("allow_unlisted_channels", False):
                 return  # Allow unlisted channel
             else:
                 # FAILSAFE: Block unlisted channels
@@ -354,7 +368,7 @@ class LimitsValidator:
                     channel_address=channel_address,
                     value=value,
                     violation_type="UNLISTED_CHANNEL",
-                    violation_reason=f"Channel '{channel_address}' not in limits database"
+                    violation_reason=f"Channel '{channel_address}' not in limits database",
                 )
 
         # Check 2: Channel is writable?
@@ -364,7 +378,7 @@ class LimitsValidator:
                 channel_address=channel_address,
                 value=value,
                 violation_type="READ_ONLY_CHANNEL",
-                violation_reason="Channel is marked as read-only"
+                violation_reason="Channel is marked as read-only",
             )
 
         # Check 3: Min/Max bounds (numeric values only)
@@ -385,7 +399,7 @@ class LimitsValidator:
                 violation_type="MIN_EXCEEDED",
                 violation_reason=f"Value {numeric_value} below minimum {channel_config.min_value}",
                 min_value=channel_config.min_value,
-                max_value=channel_config.max_value
+                max_value=channel_config.max_value,
             )
 
         if channel_config.max_value is not None and numeric_value > channel_config.max_value:
@@ -399,7 +413,7 @@ class LimitsValidator:
                 violation_type="MAX_EXCEEDED",
                 violation_reason=f"Value {numeric_value} above maximum {channel_config.max_value}",
                 min_value=channel_config.min_value,
-                max_value=channel_config.max_value
+                max_value=channel_config.max_value,
             )
 
         # Check 4: Step size limit (OPTIONAL - only if configured, requires I/O)
@@ -421,7 +435,7 @@ class LimitsValidator:
                         channel_address=channel_address,
                         value=value,
                         violation_type="STEP_CHECK_FAILED",
-                        violation_reason="Cannot read current channel value to verify step size"
+                        violation_reason="Cannot read current channel value to verify step size",
                     )
 
                 # Check step size (numeric values only)
@@ -446,7 +460,7 @@ class LimitsValidator:
                             current_value=current_value,
                             max_step=channel_config.max_step,
                             min_value=channel_config.min_value,
-                            max_value=channel_config.max_value
+                            max_value=channel_config.max_value,
                         )
 
                 except (ValueError, TypeError):
@@ -468,7 +482,7 @@ class LimitsValidator:
                     channel_address=channel_address,
                     value=value,
                     violation_type="STEP_CHECK_FAILED",
-                    violation_reason="pyepics not available for step size verification"
+                    violation_reason="pyepics not available for step size verification",
                 )
             except Exception as e:
                 # FAILSAFE: Any error during read → block write
@@ -479,9 +493,8 @@ class LimitsValidator:
                     channel_address=channel_address,
                     value=value,
                     violation_type="STEP_CHECK_FAILED",
-                    violation_reason=f"Channel read failed: {str(e)}"
+                    violation_reason=f"Channel read failed: {str(e)}",
                 )
 
         # All checks passed!
         logger.debug(f"Validated write: {channel_address}={value}")
-

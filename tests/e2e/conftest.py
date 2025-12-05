@@ -14,29 +14,30 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 from langgraph.checkpoint.memory import MemorySaver
+from tests.e2e.judge import LLMJudge, WorkflowResult
 
 from osprey.cli.init_cmd import init
 from osprey.graph import create_graph
 from osprey.infrastructure.gateway import Gateway
 from osprey.registry import get_registry, initialize_registry, reset_registry
 from osprey.utils.config import get_full_configuration
-from tests.e2e.judge import LLMJudge, WorkflowResult
 
 
 # Warn if tests are being run the wrong way
 def pytest_configure(config):
     """Warn users if e2e tests are being run incorrectly."""
     # Check if we're running with -m e2e marker from outside tests/e2e/
-    if config.option.markexpr and 'e2e' in config.option.markexpr:
+    if config.option.markexpr and "e2e" in config.option.markexpr:
         # Get the invocation directory
         invocation_dir = config.invocation_params.dir
         e2e_dir = Path(__file__).parent
 
         # If not invoked from tests/e2e/ directory, warn
-        if not str(invocation_dir).endswith('tests/e2e'):
+        if not str(invocation_dir).endswith("tests/e2e"):
             import warnings
+
             warnings.warn(
-                "\n" + "="*80 + "\n"
+                "\n" + "=" * 80 + "\n"
                 "⚠️  WARNING: You are running e2e tests with '-m e2e' marker!\n"
                 "\n"
                 "This can cause test collection order issues and registry failures.\n"
@@ -47,10 +48,9 @@ def pytest_configure(config):
                 "❌ AVOID using:\n"
                 "   pytest -m e2e\n"
                 "\n"
-                "See tests/e2e/README.md for details.\n"
-                + "="*80,
+                "See tests/e2e/README.md for details.\n" + "=" * 80,
                 UserWarning,
-                stacklevel=2
+                stacklevel=2,
             )
 
 
@@ -70,6 +70,7 @@ def reset_registry_between_tests():
     # CRITICAL: Clear config cache to prevent stale config from previous tests
     # The config module has global caches that persist across registry resets
     from osprey.utils import config as config_module
+
     config_module._default_config = None
     config_module._default_configurable = None
     config_module._config_cache.clear()
@@ -77,13 +78,14 @@ def reset_registry_between_tests():
     # Reset approval manager singleton to prevent approval state pollution
     try:
         import osprey.approval.approval_manager as approval_module
+
         approval_module._approval_manager = None
     except ImportError:
         pass  # Approval manager might not be available in all test environments
 
     # Clear CONFIG_FILE environment variable to prevent contamination
-    if 'CONFIG_FILE' in os.environ:
-        del os.environ['CONFIG_FILE']
+    if "CONFIG_FILE" in os.environ:
+        del os.environ["CONFIG_FILE"]
 
     yield
 
@@ -98,13 +100,14 @@ def reset_registry_between_tests():
     # Reset approval manager singleton again
     try:
         import osprey.approval.approval_manager as approval_module
+
         approval_module._approval_manager = None
     except ImportError:
         pass
 
     # Clear CONFIG_FILE env var again
-    if 'CONFIG_FILE' in os.environ:
-        del os.environ['CONFIG_FILE']
+    if "CONFIG_FILE" in os.environ:
+        del os.environ["CONFIG_FILE"]
 
 
 class E2EProject:
@@ -122,7 +125,7 @@ class E2EProject:
     async def initialize(self):
         """Initialize the framework for this project."""
         # Set config file environment variable (needed for Python executor)
-        os.environ['CONFIG_FILE'] = str(self.config_path)
+        os.environ["CONFIG_FILE"] = str(self.config_path)
 
         # Change to project directory for initialization
         # (registry paths in config.yml are relative to project root)
@@ -136,6 +139,7 @@ class E2EProject:
 
             # Clear config caches to force reload from this project's config
             from osprey.utils import config as config_module
+
             config_module._default_config = None
             config_module._default_configurable = None
             config_module._config_cache.clear()
@@ -145,13 +149,15 @@ class E2EProject:
             configurable = get_full_configuration(str(self.config_path)).copy()
 
             # Add session info
-            configurable.update({
-                "user_id": "e2e_test_user",
-                "thread_id": self._thread_id,
-                "chat_id": "e2e_test_chat",
-                "session_id": self._thread_id,
-                "interface_context": "e2e_test"
-            })
+            configurable.update(
+                {
+                    "user_id": "e2e_test_user",
+                    "thread_id": self._thread_id,
+                    "chat_id": "e2e_test_chat",
+                    "session_id": self._thread_id,
+                    "interface_context": "e2e_test",
+                }
+            )
 
             # 2. Initialize registry
             initialize_registry(config_path=str(self.config_path))
@@ -167,12 +173,10 @@ class E2EProject:
             # 5. Set up base config for graph execution (include full configurable)
             # This matches the CLI pattern and ensures model configs are available
             from osprey.utils.config import get_config_value
+
             recursion_limit = get_config_value("execution_limits.graph_recursion_limit")
 
-            self.base_config = {
-                "configurable": configurable,
-                "recursion_limit": recursion_limit
-            }
+            self.base_config = {"configurable": configurable, "recursion_limit": recursion_limit}
         finally:
             # Restore original working directory
             os.chdir(original_cwd)
@@ -211,7 +215,7 @@ class E2EProject:
             console_handler = logging.StreamHandler(sys.stdout)
             console_handler.setLevel(logging.INFO)
             # Format to show just the important parts
-            console_handler.setFormatter(logging.Formatter('  %(message)s'))
+            console_handler.setFormatter(logging.Formatter("  %(message)s"))
             root_logger.addHandler(console_handler)
             print(f"\n🔄 Executing query: '{message}'")
 
@@ -226,11 +230,7 @@ class E2EProject:
                 print("  ⏳ Processing through gateway...")
 
             # Process message through gateway
-            result = await self.gateway.process_message(
-                message,
-                self.graph,
-                self.base_config
-            )
+            result = await self.gateway.process_message(message, self.graph, self.base_config)
 
             if self.verbose:
                 print("  ⏳ Executing agent graph...")
@@ -239,29 +239,27 @@ class E2EProject:
             if result.resume_command:
                 # Approval flow resumption
                 final_state = await self.graph.ainvoke(
-                    result.resume_command,
-                    config=self.base_config
+                    result.resume_command, config=self.base_config
                 )
             elif result.agent_state:
                 # Normal conversation turn
-                final_state = await self.graph.ainvoke(
-                    result.agent_state,
-                    config=self.base_config
-                )
+                final_state = await self.graph.ainvoke(result.agent_state, config=self.base_config)
             else:
                 error = result.error or "Unknown error in gateway"
                 final_state = None
 
             # Extract response from final state
-            if final_state and 'messages' in final_state:
+            if final_state and "messages" in final_state:
                 # Get last AI message
-                for msg in reversed(final_state['messages']):
-                    if hasattr(msg, 'content') and msg.content:
+                for msg in reversed(final_state["messages"]):
+                    if hasattr(msg, "content") and msg.content:
                         response_text = msg.content
                         break
 
             if self.verbose:
-                print(f"  ✅ Query completed in {asyncio.get_event_loop().time() - start_time:.2f}s")
+                print(
+                    f"  ✅ Query completed in {asyncio.get_event_loop().time() - start_time:.2f}s"
+                )
                 if response_text:
                     print(f"  📝 Response preview: {response_text[:100]}...")
 
@@ -295,7 +293,7 @@ class E2EProject:
             execution_trace=execution_trace,
             artifacts=artifacts,
             error=error,
-            execution_time=execution_time
+            execution_time=execution_time,
         )
 
     def _collect_artifacts(self) -> list[Path]:
@@ -318,11 +316,8 @@ class E2EProject:
             sys.path.remove(src_dir)
 
         # Clean up imported modules
-        project_name = self.project_dir.name.replace('-', '_')
-        modules_to_remove = [
-            key for key in sys.modules.keys()
-            if project_name in key
-        ]
+        project_name = self.project_dir.name.replace("-", "_")
+        modules_to_remove = [key for key in sys.modules.keys() if project_name in key]
         for module in modules_to_remove:
             del sys.modules[module]
 
@@ -370,24 +365,26 @@ async def e2e_project_factory(tmp_path, request):
         # Build CLI arguments matching the current init command
         args = [
             name,
-            '--template', template,
-            '--registry-style', registry_style,
-            '--output-dir', str(output_dir),
+            "--template",
+            template,
+            "--registry-style",
+            registry_style,
+            "--output-dir",
+            str(output_dir),
         ]
 
         # Add provider and model if specified
         if provider:
-            args.extend(['--provider', provider])
+            args.extend(["--provider", provider])
         if model:
-            args.extend(['--model', model])
+            args.extend(["--model", model])
 
         # Create project
         result = runner.invoke(init, args)
 
         if result.exit_code != 0:
             raise RuntimeError(
-                f"Failed to create E2E project: {result.output}\n"
-                f"Exception: {result.exception}"
+                f"Failed to create E2E project: {result.output}\n" f"Exception: {result.exception}"
             )
 
         project_dir = output_dir / name
@@ -417,11 +414,7 @@ def llm_judge(request):
     model = request.config.getoption("--judge-model", default="anthropic/claude-haiku")
     verbose = request.config.getoption("--judge-verbose", default=False)
 
-    return LLMJudge(
-        provider=provider,
-        model=model,
-        verbose=verbose
-    )
+    return LLMJudge(provider=provider, model=model, verbose=verbose)
 
 
 def pytest_addoption(parser):
@@ -430,44 +423,31 @@ def pytest_addoption(parser):
         "--judge-provider",
         action="store",
         default="cborg",
-        help="AI provider to use for LLM judge evaluation"
+        help="AI provider to use for LLM judge evaluation",
     )
     parser.addoption(
         "--judge-model",
         action="store",
         default="anthropic/claude-haiku",
-        help="Model to use for LLM judge evaluation"
+        help="Model to use for LLM judge evaluation",
     )
     parser.addoption(
         "--judge-verbose",
         action="store_true",
         default=False,
-        help="Print detailed judge evaluation information"
+        help="Print detailed judge evaluation information",
     )
     parser.addoption(
         "--e2e-verbose",
         action="store_true",
         default=False,
-        help="Show real-time progress updates during E2E test execution"
+        help="Show real-time progress updates during E2E test execution",
     )
 
 
 def pytest_configure(config):
     """Register custom markers for E2E tests."""
-    config.addinivalue_line(
-        "markers",
-        "e2e: End-to-end workflow tests (requires API keys, slow)"
-    )
-    config.addinivalue_line(
-        "markers",
-        "e2e_smoke: Quick smoke tests for critical workflows"
-    )
-    config.addinivalue_line(
-        "markers",
-        "e2e_tutorial: Tutorial workflow validation tests"
-    )
-    config.addinivalue_line(
-        "markers",
-        "e2e_benchmark: Channel finder benchmark validation tests"
-    )
-
+    config.addinivalue_line("markers", "e2e: End-to-end workflow tests (requires API keys, slow)")
+    config.addinivalue_line("markers", "e2e_smoke: Quick smoke tests for critical workflows")
+    config.addinivalue_line("markers", "e2e_tutorial: Tutorial workflow validation tests")
+    config.addinivalue_line("markers", "e2e_benchmark: Channel finder benchmark validation tests")

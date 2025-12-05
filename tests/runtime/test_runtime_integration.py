@@ -4,13 +4,13 @@ Tests runtime utilities with actual Mock connector (and EPICS if available).
 """
 
 import pytest
-from pathlib import Path
+
 from osprey.runtime import (
+    cleanup_runtime,
     configure_from_context,
-    write_channel,
     read_channel,
+    write_channel,
     write_channels,
-    cleanup_runtime
 )
 
 
@@ -18,39 +18,44 @@ from osprey.runtime import (
 @pytest.fixture(autouse=True)
 def setup_registry(tmp_path):
     """Initialize registry with test config for integration tests."""
-    from osprey.registry import initialize_registry as init_reg, reset_registry
     import os
+
     import yaml
+
+    from osprey.registry import initialize_registry as init_reg
+    from osprey.registry import reset_registry
 
     # Create test config with writes enabled and no noise
     config_file = tmp_path / "config.yml"
     config_data = {
-        'control_system': {
-            'type': 'mock',
-            'writes_enabled': True,  # Enable writes for integration tests
-            'connector': {
-                'mock': {
-                    'noise_level': 0.0,  # Disable noise for predictable tests
-                    'response_delay_ms': 1  # Minimal delay for fast tests
+        "control_system": {
+            "type": "mock",
+            "writes_enabled": True,  # Enable writes for integration tests
+            "connector": {
+                "mock": {
+                    "noise_level": 0.0,  # Disable noise for predictable tests
+                    "response_delay_ms": 1,  # Minimal delay for fast tests
                 }
-            }
+            },
         }
     }
     config_file.write_text(yaml.dump(config_data))
 
     # Create minimal registry
     registry_file = tmp_path / "registry.py"
-    registry_file.write_text("""
+    registry_file.write_text(
+        """
 from osprey.registry import RegistryConfigProvider, extend_framework_registry
 
 class TestRegistryProvider(RegistryConfigProvider):
     def get_registry_config(self):
         return extend_framework_registry()
-""")
+"""
+    )
 
     # Reset and initialize with test config
     reset_registry()
-    os.environ['CONFIG_FILE'] = str(config_file)
+    os.environ["CONFIG_FILE"] = str(config_file)
     init_reg(auto_export=False, config_path=config_file)
     yield
 
@@ -68,20 +73,22 @@ class MockContext:
 @pytest.fixture
 def mock_control_system_context():
     """Create context with mock control system config."""
-    return MockContext({
-        '_execution_config': {
-            'control_system': {
-                'type': 'mock',
-                'writes_enabled': True,  # Enable writes for testing
-                'connector': {
-                    'mock': {
-                        'noise_level': 0.0,  # No noise for predictable tests
-                        'response_delay_ms': 1  # Minimal delay
-                    }
+    return MockContext(
+        {
+            "_execution_config": {
+                "control_system": {
+                    "type": "mock",
+                    "writes_enabled": True,  # Enable writes for testing
+                    "connector": {
+                        "mock": {
+                            "noise_level": 0.0,  # No noise for predictable tests
+                            "response_delay_ms": 1,  # Minimal delay
+                        }
+                    },
                 }
             }
         }
-    })
+    )
 
 
 @pytest.fixture
@@ -135,11 +142,7 @@ def test_write_channels_bulk_with_mock(mock_control_system_context, clear_runtim
     configure_from_context(mock_control_system_context)
 
     # Write multiple channels
-    test_channels = {
-        "MAGNET:H01": 5.0,
-        "MAGNET:H02": 5.2,
-        "MAGNET:H03": 4.8
-    }
+    test_channels = {"MAGNET:H01": 5.0, "MAGNET:H02": 5.2, "MAGNET:H03": 4.8}
 
     # Synchronous API
     write_channels(test_channels)
@@ -175,26 +178,28 @@ def test_context_snapshot_reproducibility(clear_runtime_state):
     import osprey.runtime as runtime
 
     # Create context with mock config
-    epics_context = MockContext({
-        '_execution_config': {
-            'control_system': {
-                'type': 'mock',  # Using mock for testing
-                'connector': {
-                    'mock': {
-                        'noise_level': 0.0,  # No noise for predictable tests
-                        'response_delay_ms': 1
-                    }
+    epics_context = MockContext(
+        {
+            "_execution_config": {
+                "control_system": {
+                    "type": "mock",  # Using mock for testing
+                    "connector": {
+                        "mock": {
+                            "noise_level": 0.0,  # No noise for predictable tests
+                            "response_delay_ms": 1,
+                        }
+                    },
                 }
             }
         }
-    })
+    )
 
     # Configure from snapshot
     configure_from_context(epics_context)
 
     # Verify config was loaded from snapshot
     assert runtime._runtime_config is not None
-    assert runtime._runtime_config['type'] == 'mock'
+    assert runtime._runtime_config["type"] == "mock"
 
     # Write and read should work with snapshot config (synchronous API)
     write_channel("SNAPSHOT:TEST", 999.0)
@@ -260,18 +265,13 @@ async def test_with_epics_connector(clear_runtime_state):
     test environments by removing the skipif decorator.
     """
     # Create context with EPICS config
-    epics_context = MockContext({
-        '_execution_config': {
-            'control_system': {
-                'type': 'epics',
-                'connector': {
-                    'epics': {
-                        'timeout': 5.0
-                    }
-                }
+    epics_context = MockContext(
+        {
+            "_execution_config": {
+                "control_system": {"type": "epics", "connector": {"epics": {"timeout": 5.0}}}
             }
         }
-    })
+    )
 
     # Configure runtime
     configure_from_context(epics_context)
@@ -286,40 +286,40 @@ async def test_with_epics_connector(clear_runtime_state):
 
 def test_fallback_to_global_config(clear_runtime_state):
     """Test fallback to global config when context has no snapshot."""
-    import osprey.runtime as runtime
     from unittest.mock import patch
+
+    import osprey.runtime as runtime
 
     # Create context without execution config
     empty_context = MockContext({})
 
     # Mock get_config_value to return mock config with writes enabled and limits checking disabled
     def mock_config_side_effect(key, default=None):
-        if key == 'control_system':
+        if key == "control_system":
             return {
-                'type': 'mock',
-                'writes_enabled': True,  # Enable writes for this test
-                'connector': {
-                    'mock': {
-                        'noise_level': 0.0,  # No noise for predictable tests
-                        'response_delay_ms': 1
+                "type": "mock",
+                "writes_enabled": True,  # Enable writes for this test
+                "connector": {
+                    "mock": {
+                        "noise_level": 0.0,  # No noise for predictable tests
+                        "response_delay_ms": 1,
                     }
-                }
+                },
             }
-        elif key == 'control_system.writes_enabled':
+        elif key == "control_system.writes_enabled":
             return True  # Enable writes for this test
-        elif key == 'control_system.limits_checking.enabled':
+        elif key == "control_system.limits_checking.enabled":
             return False  # Disable limits checking for this test
         return default
 
-    with patch('osprey.utils.config.get_config_value', side_effect=mock_config_side_effect):
+    with patch("osprey.utils.config.get_config_value", side_effect=mock_config_side_effect):
         # Configure should fall back to global config
         configure_from_context(empty_context)
 
         # Verify fallback was used
-        assert runtime._runtime_config['type'] == 'mock'
+        assert runtime._runtime_config["type"] == "mock"
 
         # Operations should still work (synchronous API)
         write_channel("FALLBACK:TEST", 123.0)
         value = read_channel("FALLBACK:TEST")
         assert value == 123.0
-

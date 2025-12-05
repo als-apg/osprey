@@ -7,4 +7,3 @@ Contains business logic independent of Osprey framework:
 Note: Control system and archiver access is handled by Osprey connectors
       (configured in config.yml). See osprey.connectors for details.
 """
-

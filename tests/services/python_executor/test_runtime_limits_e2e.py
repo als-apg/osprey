@@ -20,7 +20,6 @@ Related to: Runtime Utilities (RUNTIME.md) and Channel Limits Safety
 
 import json
 import os
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -43,13 +42,11 @@ def _disable_approval_in_config(config_data: dict) -> None:
 
     This prevents test pollution when approval is enabled in previous tests.
     """
-    if 'approval' not in config_data:
-        config_data['approval'] = {}
-    if 'capabilities' not in config_data['approval']:
-        config_data['approval']['capabilities'] = {}
-    config_data['approval']['capabilities']['python_execution'] = {
-        'enabled': False
-    }
+    if "approval" not in config_data:
+        config_data["approval"] = {}
+    if "capabilities" not in config_data["approval"]:
+        config_data["approval"]["capabilities"] = {}
+    config_data["approval"]["capabilities"]["python_execution"] = {"enabled": False}
 
 
 @pytest.fixture(autouse=True)
@@ -65,11 +62,11 @@ def cleanup_test_state():
     This prevents test isolation issues when running the full test suite.
     """
     # Save original state
-    original_config_file = os.environ.get('CONFIG_FILE')
+    original_config_file = os.environ.get("CONFIG_FILE")
 
     # CLEAN UP BEFORE TEST - Reset all global state from previous tests
-    from osprey.registry import reset_registry
     import osprey.utils.config as config_module
+    from osprey.registry import reset_registry
 
     reset_registry()
     config_module._default_config = None
@@ -79,6 +76,7 @@ def cleanup_test_state():
     # Reset approval manager singleton BEFORE test starts
     try:
         import osprey.approval.approval_manager as approval_module
+
         approval_module._approval_manager = None
     except ImportError:
         pass
@@ -95,15 +93,16 @@ def cleanup_test_state():
     # Reset approval manager singleton again after test
     try:
         import osprey.approval.approval_manager as approval_module
+
         approval_module._approval_manager = None
     except ImportError:
         pass
 
     # Restore CONFIG_FILE environment variable
     if original_config_file is not None:
-        os.environ['CONFIG_FILE'] = original_config_file
-    elif 'CONFIG_FILE' in os.environ:
-        del os.environ['CONFIG_FILE']
+        os.environ["CONFIG_FILE"] = original_config_file
+    elif "CONFIG_FILE" in os.environ:
+        del os.environ["CONFIG_FILE"]
 
 
 class TestRuntimeUtilitiesRespectChannelLimits:
@@ -126,31 +125,28 @@ class TestRuntimeUtilitiesRespectChannelLimits:
         5. Verify: Write NEVER reached control system
         """
         # === SETUP ===
-        os.environ['CONFIG_FILE'] = str(test_config)
+        os.environ["CONFIG_FILE"] = str(test_config)
 
         # Load and modify test config
         test_config_data = yaml.safe_load(test_config.read_text())
 
         # Ensure control_system section exists and use Mock connector
-        if 'control_system' not in test_config_data:
-            test_config_data['control_system'] = {}
+        if "control_system" not in test_config_data:
+            test_config_data["control_system"] = {}
 
-        test_config_data['control_system']['type'] = 'mock'
-        test_config_data['control_system']['writes_enabled'] = True
-        test_config_data['control_system']['connector'] = {
-            'mock': {
-                'noise_level': 0.0,  # No noise for predictable tests
-                'response_delay_ms': 1
-            }
+        test_config_data["control_system"]["type"] = "mock"
+        test_config_data["control_system"]["writes_enabled"] = True
+        test_config_data["control_system"]["connector"] = {
+            "mock": {"noise_level": 0.0, "response_delay_ms": 1}  # No noise for predictable tests
         }
 
         # Enable limits checking with strict policy
-        test_config_data['control_system']['limits_checking'] = {
-            'enabled': True,
-            'policy': {
-                'allow_unlisted_channels': False,
-                'on_violation': 'error'  # Strict mode - raise exception
-            }
+        test_config_data["control_system"]["limits_checking"] = {
+            "enabled": True,
+            "policy": {
+                "allow_unlisted_channels": False,
+                "on_violation": "error",  # Strict mode - raise exception
+            },
         }
 
         # Create limits file with boundary
@@ -160,11 +156,11 @@ class TestRuntimeUtilitiesRespectChannelLimits:
                 "min_value": 0.0,
                 "max_value": 100.0,  # ← Limit is 100.0
                 "writable": True,
-                "description": "Test voltage channel with limits"
+                "description": "Test voltage channel with limits",
             }
         }
         limits_file.write_text(json.dumps(limits_data))
-        test_config_data['control_system']['limits_checking']['database_path'] = str(limits_file)
+        test_config_data["control_system"]["limits_checking"]["database_path"] = str(limits_file)
 
         # Disable approval to prevent test pollution
         _disable_approval_in_config(test_config_data)
@@ -173,8 +169,8 @@ class TestRuntimeUtilitiesRespectChannelLimits:
         test_config.write_text(yaml.dump(test_config_data))
 
         # Initialize registry with updated config
-        from osprey.registry import initialize_registry, reset_registry
         import osprey.utils.config as config_module
+        from osprey.registry import initialize_registry, reset_registry
 
         config_module._default_config = None
         config_module._default_configurable = None
@@ -186,7 +182,8 @@ class TestRuntimeUtilitiesRespectChannelLimits:
         # === CODE GENERATION ===
         # Generate code that VIOLATES the max limit
         mock_gen = MockCodeGenerator()
-        mock_gen.set_code("""
+        mock_gen.set_code(
+            """
 from osprey.runtime import write_channel
 
 # This value EXCEEDS the max limit of 100.0
@@ -201,11 +198,14 @@ results = {
     'write_attempted': True,
     'should_not_exist': True
 }
-""")
+"""
+        )
 
         # === EXECUTION ===
-        with patch('osprey.services.python_executor.generation.node.create_code_generator',
-                   return_value=mock_gen):
+        with patch(
+            "osprey.services.python_executor.generation.node.create_code_generator",
+            return_value=mock_gen,
+        ):
             from osprey.utils.config import get_full_configuration
 
             service = PythonExecutorService()
@@ -213,13 +213,10 @@ results = {
             request = PythonExecutionRequest(
                 user_query="Set voltage to 150V",
                 task_objective="Write voltage exceeding limits",
-                execution_folder_name=f"limits_violation_{tmp_path.name}"
+                execution_folder_name=f"limits_violation_{tmp_path.name}",
             )
 
-            config = {
-                "thread_id": "test_max_violation",
-                "configurable": get_full_configuration()
-            }
+            config = {"thread_id": "test_max_violation", "configurable": get_full_configuration()}
 
             # Execution should raise CodeRuntimeError for limits violation
             with pytest.raises(CodeRuntimeError):
@@ -237,28 +234,22 @@ results = {
         CRITICAL: Runtime write_channel() below min limit is BLOCKED.
         """
         # === SETUP ===
-        os.environ['CONFIG_FILE'] = str(test_config)
+        os.environ["CONFIG_FILE"] = str(test_config)
 
         test_config_data = yaml.safe_load(test_config.read_text())
 
         # Ensure control_system section exists and use Mock connector
-        if 'control_system' not in test_config_data:
-            test_config_data['control_system'] = {}
+        if "control_system" not in test_config_data:
+            test_config_data["control_system"] = {}
 
-        test_config_data['control_system']['type'] = 'mock'
-        test_config_data['control_system']['writes_enabled'] = True
-        test_config_data['control_system']['connector'] = {
-            'mock': {
-                'noise_level': 0.0,
-                'response_delay_ms': 1
-            }
+        test_config_data["control_system"]["type"] = "mock"
+        test_config_data["control_system"]["writes_enabled"] = True
+        test_config_data["control_system"]["connector"] = {
+            "mock": {"noise_level": 0.0, "response_delay_ms": 1}
         }
-        test_config_data['control_system']['limits_checking'] = {
-            'enabled': True,
-            'policy': {
-                'allow_unlisted_channels': False,
-                'on_violation': 'error'
-            }
+        test_config_data["control_system"]["limits_checking"] = {
+            "enabled": True,
+            "policy": {"allow_unlisted_channels": False, "on_violation": "error"},
         }
 
         # Create limits file
@@ -267,11 +258,11 @@ results = {
             "TEST:CURRENT": {
                 "min_value": 10.0,  # ← Minimum is 10.0
                 "max_value": 100.0,
-                "writable": True
+                "writable": True,
             }
         }
         limits_file.write_text(json.dumps(limits_data))
-        test_config_data['control_system']['limits_checking']['database_path'] = str(limits_file)
+        test_config_data["control_system"]["limits_checking"]["database_path"] = str(limits_file)
 
         # Disable approval to prevent test pollution
         _disable_approval_in_config(test_config_data)
@@ -279,8 +270,8 @@ results = {
         test_config.write_text(yaml.dump(test_config_data))
 
         # Initialize
-        from osprey.registry import initialize_registry, reset_registry
         import osprey.utils.config as config_module
+        from osprey.registry import initialize_registry, reset_registry
 
         config_module._default_config = None
         config_module._default_configurable = None
@@ -290,7 +281,8 @@ results = {
 
         # === CODE GENERATION ===
         mock_gen = MockCodeGenerator()
-        mock_gen.set_code("""
+        mock_gen.set_code(
+            """
 from osprey.runtime import write_channel
 
 # This value is BELOW the min limit of 10.0
@@ -299,25 +291,28 @@ current = 5.0  # ← VIOLATION!
 write_channel("TEST:CURRENT", current)
 
 results = {'current': current}
-""")
+"""
+        )
 
         # === EXECUTION ===
-        with patch('osprey.services.python_executor.generation.node.create_code_generator',
-                   return_value=mock_gen):
+        with patch(
+            "osprey.services.python_executor.generation.node.create_code_generator",
+            return_value=mock_gen,
+        ):
             from osprey.utils.config import get_full_configuration
+
             service = PythonExecutorService()
 
             request = PythonExecutionRequest(
                 user_query="Set current to 5A",
                 task_objective="Write current below minimum",
-                execution_folder_name=f"min_violation_{tmp_path.name}"
+                execution_folder_name=f"min_violation_{tmp_path.name}",
             )
 
             # Execution should raise CodeRuntimeError for limits violation
             with pytest.raises(CodeRuntimeError):
                 await service.ainvoke(
-                    request,
-                    {"thread_id": "test_min", "configurable": get_full_configuration()}
+                    request, {"thread_id": "test_min", "configurable": get_full_configuration()}
                 )
 
         # === VERIFICATION ===
@@ -333,51 +328,37 @@ results = {'current': current}
         limits checking and complete successfully.
         """
         # === SETUP ===
-        os.environ['CONFIG_FILE'] = str(test_config)
+        os.environ["CONFIG_FILE"] = str(test_config)
 
         test_config_data = yaml.safe_load(test_config.read_text())
 
         # Ensure control_system section exists and use Mock connector
-        if 'control_system' not in test_config_data:
-            test_config_data['control_system'] = {}
+        if "control_system" not in test_config_data:
+            test_config_data["control_system"] = {}
 
-        test_config_data['control_system']['type'] = 'mock'
-        test_config_data['control_system']['writes_enabled'] = True
-        test_config_data['control_system']['connector'] = {
-            'mock': {
-                'noise_level': 0.0,
-                'response_delay_ms': 1
-            }
+        test_config_data["control_system"]["type"] = "mock"
+        test_config_data["control_system"]["writes_enabled"] = True
+        test_config_data["control_system"]["connector"] = {
+            "mock": {"noise_level": 0.0, "response_delay_ms": 1}
         }
-        test_config_data['control_system']['limits_checking'] = {
-            'enabled': True,
-            'policy': {
-                'allow_unlisted_channels': False,
-                'on_violation': 'error'
-            }
+        test_config_data["control_system"]["limits_checking"] = {
+            "enabled": True,
+            "policy": {"allow_unlisted_channels": False, "on_violation": "error"},
         }
 
         # CRITICAL: Explicitly disable approval to prevent test pollution
         # When running with full test suite, approval state can leak from other tests
-        if 'approval' not in test_config_data:
-            test_config_data['approval'] = {}
-        if 'capabilities' not in test_config_data['approval']:
-            test_config_data['approval']['capabilities'] = {}
-        test_config_data['approval']['capabilities']['python_execution'] = {
-            'enabled': False
-        }
+        if "approval" not in test_config_data:
+            test_config_data["approval"] = {}
+        if "capabilities" not in test_config_data["approval"]:
+            test_config_data["approval"]["capabilities"] = {}
+        test_config_data["approval"]["capabilities"]["python_execution"] = {"enabled": False}
 
         # Create limits file
         limits_file = tmp_path / "channel_limits.json"
-        limits_data = {
-            "TEST:VOLTAGE": {
-                "min_value": 0.0,
-                "max_value": 100.0,
-                "writable": True
-            }
-        }
+        limits_data = {"TEST:VOLTAGE": {"min_value": 0.0, "max_value": 100.0, "writable": True}}
         limits_file.write_text(json.dumps(limits_data))
-        test_config_data['control_system']['limits_checking']['database_path'] = str(limits_file)
+        test_config_data["control_system"]["limits_checking"]["database_path"] = str(limits_file)
 
         # Disable approval to prevent test pollution
         _disable_approval_in_config(test_config_data)
@@ -385,8 +366,8 @@ results = {'current': current}
         test_config.write_text(yaml.dump(test_config_data))
 
         # Initialize
-        from osprey.registry import initialize_registry, reset_registry
         import osprey.utils.config as config_module
+        from osprey.registry import initialize_registry, reset_registry
 
         config_module._default_config = None
         config_module._default_configurable = None
@@ -397,6 +378,7 @@ results = {'current': current}
         # Force approval manager to reload with updated config AND clear config caches again
         try:
             import osprey.approval.approval_manager as approval_module
+
             approval_module._approval_manager = None
         except ImportError:
             pass
@@ -408,7 +390,8 @@ results = {'current': current}
         # === CODE GENERATION ===
         # Generate code with VALID value (within limits)
         mock_gen = MockCodeGenerator()
-        mock_gen.set_code("""
+        mock_gen.set_code(
+            """
 from osprey.runtime import write_channel
 import math
 
@@ -423,23 +406,26 @@ results = {
     'write_successful': True,
     'within_limits': True
 }
-""")
+"""
+        )
 
         # === EXECUTION ===
-        with patch('osprey.services.python_executor.generation.node.create_code_generator',
-                   return_value=mock_gen):
+        with patch(
+            "osprey.services.python_executor.generation.node.create_code_generator",
+            return_value=mock_gen,
+        ):
             from osprey.utils.config import get_full_configuration
+
             service = PythonExecutorService()
 
             request = PythonExecutionRequest(
                 user_query="Set voltage to sqrt(4150)",
                 task_objective="Write valid voltage within limits",
-                execution_folder_name=f"valid_write_{tmp_path.name}"
+                execution_folder_name=f"valid_write_{tmp_path.name}",
             )
 
             result = await service.ainvoke(
-                request,
-                {"thread_id": "test_valid", "configurable": get_full_configuration()}
+                request, {"thread_id": "test_valid", "configurable": get_full_configuration()}
             )
 
         # === VERIFICATION ===
@@ -451,11 +437,11 @@ results = {
         # 2. Results should show success
         results = result.execution_result.results
         assert results is not None
-        assert results.get('write_successful') is True
-        assert results.get('within_limits') is True
+        assert results.get("write_successful") is True
+        assert results.get("within_limits") is True
 
         # 3. Voltage should be the calculated value (~64.4)
-        voltage = results.get('voltage')
+        voltage = results.get("voltage")
         assert voltage is not None
         assert 64.0 < voltage < 65.0  # sqrt(4150) ≈ 64.42
 
@@ -471,42 +457,35 @@ results = {
         CRITICAL: Runtime write to unlisted channel is BLOCKED when allow_unlisted=false.
         """
         # === SETUP ===
-        os.environ['CONFIG_FILE'] = str(test_config)
+        os.environ["CONFIG_FILE"] = str(test_config)
 
         test_config_data = yaml.safe_load(test_config.read_text())
 
         # Ensure control_system section exists and use Mock connector
-        if 'control_system' not in test_config_data:
-            test_config_data['control_system'] = {}
+        if "control_system" not in test_config_data:
+            test_config_data["control_system"] = {}
 
-        test_config_data['control_system']['type'] = 'mock'
-        test_config_data['control_system']['writes_enabled'] = True
-        test_config_data['control_system']['connector'] = {
-            'mock': {
-                'noise_level': 0.0,
-                'response_delay_ms': 1
-            }
+        test_config_data["control_system"]["type"] = "mock"
+        test_config_data["control_system"]["writes_enabled"] = True
+        test_config_data["control_system"]["connector"] = {
+            "mock": {"noise_level": 0.0, "response_delay_ms": 1}
         }
-        test_config_data['control_system']['limits_checking'] = {
-            'enabled': True,
-            'policy': {
-                'allow_unlisted_channels': False,  # ← Strict: block unlisted
-                'on_violation': 'error'
-            }
+        test_config_data["control_system"]["limits_checking"] = {
+            "enabled": True,
+            "policy": {
+                "allow_unlisted_channels": False,  # ← Strict: block unlisted
+                "on_violation": "error",
+            },
         }
 
         # Create limits file with ONLY one channel
         limits_file = tmp_path / "channel_limits.json"
         limits_data = {
-            "ALLOWED:CHANNEL": {
-                "min_value": 0.0,
-                "max_value": 100.0,
-                "writable": True
-            }
+            "ALLOWED:CHANNEL": {"min_value": 0.0, "max_value": 100.0, "writable": True}
             # UNLISTED:CHANNEL is NOT in the limits file
         }
         limits_file.write_text(json.dumps(limits_data))
-        test_config_data['control_system']['limits_checking']['database_path'] = str(limits_file)
+        test_config_data["control_system"]["limits_checking"]["database_path"] = str(limits_file)
 
         # Disable approval to prevent test pollution
         _disable_approval_in_config(test_config_data)
@@ -514,8 +493,8 @@ results = {
         test_config.write_text(yaml.dump(test_config_data))
 
         # Initialize
-        from osprey.registry import initialize_registry, reset_registry
         import osprey.utils.config as config_module
+        from osprey.registry import initialize_registry, reset_registry
 
         config_module._default_config = None
         config_module._default_configurable = None
@@ -525,32 +504,37 @@ results = {
 
         # === CODE GENERATION ===
         mock_gen = MockCodeGenerator()
-        mock_gen.set_code("""
+        mock_gen.set_code(
+            """
 from osprey.runtime import write_channel
 
 # Try to write to a channel NOT in the limits file
 write_channel("UNLISTED:CHANNEL", 42.0)
 
 results = {'attempted': True}
-""")
+"""
+        )
 
         # === EXECUTION ===
-        with patch('osprey.services.python_executor.generation.node.create_code_generator',
-                   return_value=mock_gen):
+        with patch(
+            "osprey.services.python_executor.generation.node.create_code_generator",
+            return_value=mock_gen,
+        ):
             from osprey.utils.config import get_full_configuration
+
             service = PythonExecutorService()
 
             request = PythonExecutionRequest(
                 user_query="Write to unlisted channel",
                 task_objective="Test unlisted channel blocking",
-                execution_folder_name=f"unlisted_{tmp_path.name}"
+                execution_folder_name=f"unlisted_{tmp_path.name}",
             )
 
             # Execution should raise CodeRuntimeError for unlisted channel
             with pytest.raises(CodeRuntimeError):
                 await service.ainvoke(
                     request,
-                    {"thread_id": "test_unlisted", "configurable": get_full_configuration()}
+                    {"thread_id": "test_unlisted", "configurable": get_full_configuration()},
                 )
 
         # === VERIFICATION ===
@@ -565,46 +549,32 @@ results = {'attempted': True}
         Verifies that bulk write operations validate each channel individually.
         """
         # === SETUP ===
-        os.environ['CONFIG_FILE'] = str(test_config)
+        os.environ["CONFIG_FILE"] = str(test_config)
 
         test_config_data = yaml.safe_load(test_config.read_text())
 
         # Ensure control_system section exists and use Mock connector
-        if 'control_system' not in test_config_data:
-            test_config_data['control_system'] = {}
+        if "control_system" not in test_config_data:
+            test_config_data["control_system"] = {}
 
-        test_config_data['control_system']['type'] = 'mock'
-        test_config_data['control_system']['writes_enabled'] = True
-        test_config_data['control_system']['connector'] = {
-            'mock': {
-                'noise_level': 0.0,
-                'response_delay_ms': 1
-            }
+        test_config_data["control_system"]["type"] = "mock"
+        test_config_data["control_system"]["writes_enabled"] = True
+        test_config_data["control_system"]["connector"] = {
+            "mock": {"noise_level": 0.0, "response_delay_ms": 1}
         }
-        test_config_data['control_system']['limits_checking'] = {
-            'enabled': True,
-            'policy': {
-                'allow_unlisted_channels': False,
-                'on_violation': 'error'
-            }
+        test_config_data["control_system"]["limits_checking"] = {
+            "enabled": True,
+            "policy": {"allow_unlisted_channels": False, "on_violation": "error"},
         }
 
         # Create limits file
         limits_file = tmp_path / "channel_limits.json"
         limits_data = {
-            "MAGNET:01": {
-                "min_value": 0.0,
-                "max_value": 50.0,  # ← Max is 50
-                "writable": True
-            },
-            "MAGNET:02": {
-                "min_value": 0.0,
-                "max_value": 50.0,
-                "writable": True
-            }
+            "MAGNET:01": {"min_value": 0.0, "max_value": 50.0, "writable": True},  # ← Max is 50
+            "MAGNET:02": {"min_value": 0.0, "max_value": 50.0, "writable": True},
         }
         limits_file.write_text(json.dumps(limits_data))
-        test_config_data['control_system']['limits_checking']['database_path'] = str(limits_file)
+        test_config_data["control_system"]["limits_checking"]["database_path"] = str(limits_file)
 
         # Disable approval to prevent test pollution
         _disable_approval_in_config(test_config_data)
@@ -612,8 +582,8 @@ results = {'attempted': True}
         test_config.write_text(yaml.dump(test_config_data))
 
         # Initialize
-        from osprey.registry import initialize_registry, reset_registry
         import osprey.utils.config as config_module
+        from osprey.registry import initialize_registry, reset_registry
 
         config_module._default_config = None
         config_module._default_configurable = None
@@ -624,7 +594,8 @@ results = {'attempted': True}
         # === CODE GENERATION ===
         # One valid value, one exceeds limit
         mock_gen = MockCodeGenerator()
-        mock_gen.set_code("""
+        mock_gen.set_code(
+            """
 from osprey.runtime import write_channels
 
 # Bulk write: one valid, one violates limit (synchronous API)
@@ -634,28 +605,30 @@ write_channels({
 })
 
 results = {'bulk_write': True}
-""")
+"""
+        )
 
         # === EXECUTION ===
-        with patch('osprey.services.python_executor.generation.node.create_code_generator',
-                   return_value=mock_gen):
+        with patch(
+            "osprey.services.python_executor.generation.node.create_code_generator",
+            return_value=mock_gen,
+        ):
             from osprey.utils.config import get_full_configuration
+
             service = PythonExecutorService()
 
             request = PythonExecutionRequest(
                 user_query="Set magnet values",
                 task_objective="Bulk write with one violation",
-                execution_folder_name=f"bulk_violation_{tmp_path.name}"
+                execution_folder_name=f"bulk_violation_{tmp_path.name}",
             )
 
             # Execution should raise CodeRuntimeError for limits violation
             with pytest.raises(CodeRuntimeError):
                 await service.ainvoke(
-                    request,
-                    {"thread_id": "test_bulk", "configurable": get_full_configuration()}
+                    request, {"thread_id": "test_bulk", "configurable": get_full_configuration()}
                 )
 
         # === VERIFICATION ===
         # If we reach here, the test passed - the bulk write was blocked
         # The logs will show "CHANNEL LIMITS VIOLATION DETECTED" for MAGNET:02
-

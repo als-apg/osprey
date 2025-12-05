@@ -9,7 +9,6 @@ specific application is providing them. This achieves true dependency inversion 
 depends on abstractions, not concrete implementations.
 """
 
-
 from .base import FrameworkPromptBuilder
 
 
@@ -473,7 +472,9 @@ class FrameworkPromptLoader:
 
         if application_name not in self._providers:
             available = list(self._providers.keys())
-            raise ValueError(f"Prompt provider '{application_name}' not found. Available: {available}")
+            raise ValueError(
+                f"Prompt provider '{application_name}' not found. Available: {available}"
+            )
 
         return self._providers[application_name]
 

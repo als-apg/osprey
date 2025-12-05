@@ -119,6 +119,7 @@ Documentation Structure
    :hidden:
 
    getting-started/index
+   user-guides/index
    developer-guides/index
    api_reference/index
    example-applications/index

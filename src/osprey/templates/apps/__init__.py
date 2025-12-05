@@ -17,4 +17,3 @@ project generation. Static files (without .j2 extension) are copied as-is.
 """
 
 __all__ = []
-

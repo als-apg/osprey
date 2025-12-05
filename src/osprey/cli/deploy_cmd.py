@@ -8,7 +8,6 @@ IMPORTANT: This is a thin wrapper around osprey.deployment.container_manager.
 All existing functionality is preserved without modification.
 """
 
-
 import click
 
 from osprey.cli.styles import Styles, console
@@ -33,25 +32,28 @@ from .project_utils import resolve_config_path
     type=click.Choice(["up", "down", "restart", "status", "build", "clean", "rebuild"]),
 )
 @click.option(
-    "--project", "-p",
+    "--project",
+    "-p",
     type=click.Path(exists=True, file_okay=False, dir_okay=True),
-    help="Project directory (default: current directory or OSPREY_PROJECT env var)"
+    help="Project directory (default: current directory or OSPREY_PROJECT env var)",
 )
 @click.option(
-    "--config", "-c",
+    "--config",
+    "-c",
     type=click.Path(),
     default="config.yml",
-    help="Configuration file (default: config.yml in project directory)"
+    help="Configuration file (default: config.yml in project directory)",
 )
 @click.option(
-    "--detached", "-d",
+    "--detached",
+    "-d",
     is_flag=True,
-    help="Run services in detached mode (for up, restart, rebuild)"
+    help="Run services in detached mode (for up, restart, rebuild)",
 )
 @click.option(
     "--dev",
     is_flag=True,
-    help="Development mode: copy local osprey package to containers instead of using PyPI version. Use this when testing local osprey changes."
+    help="Development mode: copy local osprey package to containers instead of using PyPI version. Use this when testing local osprey changes.",
 )
 def deploy(action: str, project: str, config: str, detached: bool, dev: bool):
     """Manage Docker/Podman services for Osprey projects.
@@ -122,23 +124,41 @@ def deploy(action: str, project: str, config: str, detached: bool, dev: bool):
 
         # Validate config file exists with helpful error message
         from pathlib import Path
+
         config_file = Path(config_path)
         if not config_file.exists():
-            console.print(f"\n❌ Configuration file not found: [accent]{config_path}[/accent]", style=Styles.ERROR)
+            console.print(
+                f"\n❌ Configuration file not found: [accent]{config_path}[/accent]",
+                style=Styles.ERROR,
+            )
             console.print("\n💡 Are you in a project directory?", style=Styles.WARNING)
             console.print(f"   Current directory: [dim]{Path.cwd()}[/dim]\n")
 
             # Look for nearby project directories with config.yml
             # Exclude common non-project directories
-            excluded_dirs = {'docs', 'tests', 'test', 'build', 'dist', 'venv', '.venv',
-                           'node_modules', '.git', '__pycache__', 'src', 'lib'}
+            excluded_dirs = {
+                "docs",
+                "tests",
+                "test",
+                "build",
+                "dist",
+                "venv",
+                ".venv",
+                "node_modules",
+                ".git",
+                "__pycache__",
+                "src",
+                "lib",
+            }
             nearby_projects = []
             try:
                 for item in Path.cwd().iterdir():
-                    if (item.is_dir() and
-                        item.name not in excluded_dirs and
-                        not item.name.startswith('.') and
-                        (item / "config.yml").exists()):
+                    if (
+                        item.is_dir()
+                        and item.name not in excluded_dirs
+                        and not item.name.startswith(".")
+                        and (item / "config.yml").exists()
+                    ):
                         nearby_projects.append(item.name)
             except PermissionError:
                 pass  # Skip if can't read directory
@@ -146,12 +166,18 @@ def deploy(action: str, project: str, config: str, detached: bool, dev: bool):
             if nearby_projects:
                 console.print("   Found project(s) in current directory:", style=Styles.WARNING)
                 for proj in nearby_projects[:5]:  # Limit to 5 suggestions
-                    console.print(f"     • [command]cd {proj} && osprey deploy {action}[/command] or: ")
-                    console.print(f"       [command]osprey deploy {action} --project {proj}[/command]")
+                    console.print(
+                        f"     • [command]cd {proj} && osprey deploy {action}[/command] or: "
+                    )
+                    console.print(
+                        f"       [command]osprey deploy {action} --project {proj}[/command]"
+                    )
             else:
                 console.print("   Try:", style=Styles.WARNING)
                 console.print("     • Navigate to your project directory first")
-                console.print("     • Use [command]--project[/command] flag to specify project location")
+                console.print(
+                    "     • Use [command]--project[/command] flag to specify project location"
+                )
 
             console.print("\n   Or use interactive menu: [command]osprey[/command]\n")
             raise click.Abort()
@@ -196,12 +222,13 @@ def deploy(action: str, project: str, config: str, detached: bool, dev: bool):
         console.print(f"❌ Deployment failed: {e}", style=Styles.ERROR)
         # Show more details in verbose mode
         import os
+
         if os.environ.get("DEBUG"):
             import traceback
+
             console.print(traceback.format_exc(), style=Styles.DIM)
         raise click.Abort()
 
 
 if __name__ == "__main__":
     deploy()
-

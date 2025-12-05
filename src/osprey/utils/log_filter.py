@@ -97,7 +97,7 @@ class LoggerFilter(logging.Filter):
         message_patterns: list[str] | None = None,
         levels: list[int] | None = None,
         invert: bool = False,
-        name: str = ""
+        name: str = "",
     ):
         r"""Initialize the log filter with filtering criteria.
 
@@ -230,7 +230,7 @@ class LoggerFilter(logging.Filter):
 def suppress_logger(
     logger_name: str | list[str],
     levels: list[int] | None = None,
-    message_patterns: list[str] | None = None
+    message_patterns: list[str] | None = None,
 ):
     """Context manager to temporarily suppress logger output.
 
@@ -284,9 +284,7 @@ def suppress_logger(
 
     # Create filter
     log_filter = LoggerFilter(
-        logger_names=logger_names,
-        levels=levels,
-        message_patterns=message_patterns
+        logger_names=logger_names, levels=levels, message_patterns=message_patterns
     )
 
     # Get logger objects and add filter to each
@@ -303,10 +301,7 @@ def suppress_logger(
 
 
 @contextmanager
-def suppress_logger_level(
-    logger_name: str | list[str],
-    level: int
-):
+def suppress_logger_level(logger_name: str | list[str], level: int):
     """Context manager to temporarily raise logger level to suppress messages.
 
     This is a simpler alternative to suppress_logger() that works by temporarily
@@ -404,9 +399,8 @@ def quiet_logger(logger_name: str | list[str]):
 
 # Export public API
 __all__ = [
-    'LoggerFilter',
-    'suppress_logger',
-    'suppress_logger_level',
-    'quiet_logger',
+    "LoggerFilter",
+    "suppress_logger",
+    "suppress_logger_level",
+    "quiet_logger",
 ]
-

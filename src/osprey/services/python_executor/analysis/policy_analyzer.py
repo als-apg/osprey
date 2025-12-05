@@ -19,6 +19,7 @@ from ..execution.control import ExecutionMode
 
 logger = get_logger("python_analyzer")
 
+
 @dataclass
 class BasicAnalysisResult:
     """Results from framework's basic (non-configurable) analysis steps."""
@@ -65,6 +66,7 @@ class DomainAnalysisResult:
 
 class ExecutionPolicyDecision(NamedTuple):
     """Decision from configurable execution policy analyzer."""
+
     execution_mode: ExecutionMode
     needs_approval: bool
     approval_reasoning: str
@@ -77,6 +79,7 @@ class ExecutionPolicyDecision(NamedTuple):
 # =============================================================================
 # DOMAIN ANALYZER SYSTEM (Registry-Based)
 # =============================================================================
+
 
 class DomainAnalyzer(ABC):
     """
@@ -97,10 +100,7 @@ class DomainAnalyzer(ABC):
         pass
 
     @abstractmethod
-    async def analyze_domain(
-        self,
-        basic_analysis: BasicAnalysisResult
-    ) -> DomainAnalysisResult:
+    async def analyze_domain(self, basic_analysis: BasicAnalysisResult) -> DomainAnalysisResult:
         """
         Perform domain-specific analysis of code.
 
@@ -130,10 +130,7 @@ class DefaultFrameworkDomainAnalyzer(DomainAnalyzer):
     def get_priority(self) -> int:
         return 100  # Default priority
 
-    async def analyze_domain(
-        self,
-        basic_analysis: BasicAnalysisResult
-    ) -> DomainAnalysisResult:
+    async def analyze_domain(self, basic_analysis: BasicAnalysisResult) -> DomainAnalysisResult:
         """Use config-based pattern detection for control system operations"""
 
         from .pattern_detection import detect_control_system_operations
@@ -149,40 +146,40 @@ class DefaultFrameworkDomainAnalyzer(DomainAnalyzer):
         detection_result = detect_control_system_operations(
             code=code,
             patterns=None,  # Use framework standard (or config override if provided)
-            control_system_type=None  # Load from config for logging/metadata
+            control_system_type=None,  # Load from config for logging/metadata
         )
 
         # Map detection results to domain analysis format
-        control_system_type = detection_result['control_system_type']
+        control_system_type = detection_result["control_system_type"]
 
-        if detection_result['has_writes']:
+        if detection_result["has_writes"]:
             detected_operations.append(f"{control_system_type}_writes")
             risk_categories.append("control_system_write")
             domain_data[f"{control_system_type}_write_operations"] = True
-            domain_data["detected_write_patterns"] = detection_result['detected_patterns']['writes']
+            domain_data["detected_write_patterns"] = detection_result["detected_patterns"]["writes"]
 
-        if detection_result['has_reads']:
+        if detection_result["has_reads"]:
             detected_operations.append(f"{control_system_type}_reads")
             domain_data[f"{control_system_type}_read_operations"] = True
-            domain_data["detected_read_patterns"] = detection_result['detected_patterns']['reads']
+            domain_data["detected_read_patterns"] = detection_result["detected_patterns"]["reads"]
 
         # Store control system type for downstream use
         domain_data["control_system_type"] = control_system_type
 
         # Backward compatibility: also set epics_* operations if control system is EPICS
         if control_system_type == "epics":
-            if detection_result['has_writes']:
+            if detection_result["has_writes"]:
                 detected_operations.append("epics_writes")
                 risk_categories.append("accelerator_control")
                 domain_data["epics_write_operations"] = True
-            if detection_result['has_reads']:
+            if detection_result["has_reads"]:
                 detected_operations.append("epics_reads")
                 domain_data["epics_read_operations"] = True
 
         return DomainAnalysisResult(
             detected_operations=detected_operations,
             risk_categories=risk_categories,
-            domain_data=domain_data
+            domain_data=domain_data,
         )
 
 
@@ -204,6 +201,7 @@ class DomainAnalysisManager:
 
         try:
             from osprey.registry import get_registry
+
             registry = get_registry()
 
             # Get registered domain analyzers
@@ -229,10 +227,7 @@ class DomainAnalysisManager:
             self._analyzers = [DefaultFrameworkDomainAnalyzer(self.configurable)]
             self._initialized = True
 
-    async def analyze_domain(
-        self,
-        basic_analysis: BasicAnalysisResult
-    ) -> DomainAnalysisResult:
+    async def analyze_domain(self, basic_analysis: BasicAnalysisResult) -> DomainAnalysisResult:
         """
         Perform domain analysis using registered analyzers in priority order.
         First analyzer (highest priority) is used.
@@ -243,7 +238,9 @@ class DomainAnalysisManager:
             try:
                 logger.debug(f"Using domain analyzer: {analyzer.get_name()}")
                 result = await analyzer.analyze_domain(basic_analysis)
-                logger.info(f"Domain analysis completed: {len(result.detected_operations)} operations detected")
+                logger.info(
+                    f"Domain analysis completed: {len(result.detected_operations)} operations detected"
+                )
                 return result
 
             except Exception as e:
@@ -253,15 +250,14 @@ class DomainAnalysisManager:
         # Fallback: safe default if all analyzers fail
         logger.error("All domain analyzers failed, using safe default")
         return DomainAnalysisResult(
-            detected_operations=[],
-            risk_categories=[],
-            domain_data={"analyzer_failure": True}
+            detected_operations=[], risk_categories=[], domain_data={"analyzer_failure": True}
         )
 
 
 # =============================================================================
 # EXECUTION POLICY ANALYZER SYSTEM (Registry-Based)
 # =============================================================================
+
 
 class ExecutionPolicyAnalyzer(ABC):
     """
@@ -283,9 +279,7 @@ class ExecutionPolicyAnalyzer(ABC):
 
     @abstractmethod
     async def analyze_policy(
-        self,
-        basic_analysis: BasicAnalysisResult,
-        domain_analysis: DomainAnalysisResult
+        self, basic_analysis: BasicAnalysisResult, domain_analysis: DomainAnalysisResult
     ) -> ExecutionPolicyDecision:
         """
         Analyze execution policy to determine mode and approval requirements.
@@ -318,9 +312,7 @@ class DefaultFrameworkPolicyAnalyzer(ExecutionPolicyAnalyzer):
         return 100  # Default priority
 
     async def analyze_policy(
-        self,
-        basic_analysis: BasicAnalysisResult,
-        domain_analysis: DomainAnalysisResult
+        self, basic_analysis: BasicAnalysisResult, domain_analysis: DomainAnalysisResult
     ) -> ExecutionPolicyDecision:
         """Implement existing framework logic as default behavior"""
 
@@ -332,7 +324,7 @@ class DefaultFrameworkPolicyAnalyzer(ExecutionPolicyAnalyzer):
                 approval_reasoning="Code blocked due to syntax errors",
                 additional_issues=basic_analysis.syntax_issues,
                 recommendations=["Fix syntax errors before execution"],
-                analysis_passed=False
+                analysis_passed=False,
             )
 
         if basic_analysis.security_risk_level == "high":
@@ -342,7 +334,7 @@ class DefaultFrameworkPolicyAnalyzer(ExecutionPolicyAnalyzer):
                 approval_reasoning="High security risk detected",
                 additional_issues=basic_analysis.security_issues,
                 recommendations=["Review security concerns before approval"],
-                analysis_passed=False
+                analysis_passed=False,
             )
 
         # Get control system type from domain analysis
@@ -352,9 +344,7 @@ class DefaultFrameworkPolicyAnalyzer(ExecutionPolicyAnalyzer):
         has_control_writes = any(
             op.endswith("_writes") for op in domain_analysis.detected_operations
         )
-        has_control_reads = any(
-            op.endswith("_reads") for op in domain_analysis.detected_operations
-        )
+        has_control_reads = any(op.endswith("_reads") for op in domain_analysis.detected_operations)
 
         # Backward compatibility: also check for legacy epics_* operations
         has_epics_writes = "epics_writes" in domain_analysis.detected_operations
@@ -363,6 +353,7 @@ class DefaultFrameworkPolicyAnalyzer(ExecutionPolicyAnalyzer):
         # Get execution control configuration
         try:
             from ..models import get_execution_control_config_from_configurable
+
             exec_control = get_execution_control_config_from_configurable(self.configurable)
         except Exception as e:
             logger.error(f"Failed to get execution control config: {e}")
@@ -372,38 +363,47 @@ class DefaultFrameworkPolicyAnalyzer(ExecutionPolicyAnalyzer):
                 approval_reasoning=f"Configuration error: {e}",
                 additional_issues=[str(e)],
                 recommendations=["Fix configuration before execution"],
-                analysis_passed=False
+                analysis_passed=False,
             )
 
         # Determine execution mode based on control system operations
         if has_control_writes:
             # Check if control system writes are enabled (with backward compatibility)
-            writes_enabled = getattr(exec_control, 'control_system_writes_enabled',
-                                    getattr(exec_control, 'epics_writes_enabled', False))
+            writes_enabled = getattr(
+                exec_control,
+                "control_system_writes_enabled",
+                getattr(exec_control, "epics_writes_enabled", False),
+            )
 
             if writes_enabled:
                 execution_mode = ExecutionMode.WRITE_ACCESS
-                additional_issues = [f"{control_system_type.upper()} writes detected - using write access mode"]
+                additional_issues = [
+                    f"{control_system_type.upper()} writes detected - using write access mode"
+                ]
             else:
                 return ExecutionPolicyDecision(
                     execution_mode=ExecutionMode.READ_ONLY,
                     needs_approval=False,
                     approval_reasoning=f"{control_system_type.upper()} writes detected but writes disabled in configuration",
-                    additional_issues=[f"{control_system_type.upper()} writes blocked by configuration"],
+                    additional_issues=[
+                        f"{control_system_type.upper()} writes blocked by configuration"
+                    ],
                     recommendations=["Enable control system writes in configuration if needed"],
-                    analysis_passed=False
+                    analysis_passed=False,
                 )
         else:
             execution_mode = ExecutionMode.READ_ONLY
-            additional_issues = [f"No {control_system_type.upper()} writes detected - using read-only mode"]
+            additional_issues = [
+                f"No {control_system_type.upper()} writes detected - using read-only mode"
+            ]
 
         # Determine approval requirements using existing approval system
         # Use has_control_writes, but fall back to has_epics_writes for backward compatibility
         from osprey.approval.approval_manager import get_python_execution_evaluator
+
         approval_evaluator = get_python_execution_evaluator()
         approval_decision = approval_evaluator.evaluate(
-            has_control_writes or has_epics_writes,
-            has_control_reads or has_epics_reads
+            has_control_writes or has_epics_writes, has_control_reads or has_epics_reads
         )
 
         needs_approval = approval_decision.needs_approval
@@ -412,9 +412,13 @@ class DefaultFrameworkPolicyAnalyzer(ExecutionPolicyAnalyzer):
         # Generate recommendations
         recommendations = []
         if has_control_reads and not has_control_writes:
-            recommendations.append(f"Read-only {control_system_type.upper()} operations detected - safe for execution")
+            recommendations.append(
+                f"Read-only {control_system_type.upper()} operations detected - safe for execution"
+            )
         if has_control_writes:
-            recommendations.append(f"{control_system_type.upper()} write operations require careful review")
+            recommendations.append(
+                f"{control_system_type.upper()} write operations require careful review"
+            )
 
         return ExecutionPolicyDecision(
             execution_mode=execution_mode,
@@ -427,13 +431,16 @@ class DefaultFrameworkPolicyAnalyzer(ExecutionPolicyAnalyzer):
                 "has_control_writes": has_control_writes,
                 "has_control_reads": has_control_reads,
                 "control_system_type": control_system_type,
-                "control_system_writes_enabled": getattr(exec_control, 'control_system_writes_enabled',
-                                                         getattr(exec_control, 'epics_writes_enabled', False)),
+                "control_system_writes_enabled": getattr(
+                    exec_control,
+                    "control_system_writes_enabled",
+                    getattr(exec_control, "epics_writes_enabled", False),
+                ),
                 # Backward compatibility fields
                 "has_epics_writes": has_epics_writes,
                 "has_epics_reads": has_epics_reads,
-                "epics_writes_enabled": getattr(exec_control, 'epics_writes_enabled', False)
-            }
+                "epics_writes_enabled": getattr(exec_control, "epics_writes_enabled", False),
+            },
         )
 
 
@@ -455,6 +462,7 @@ class ExecutionPolicyManager:
 
         try:
             from osprey.registry import get_registry
+
             registry = get_registry()
 
             # Get registered execution policy analyzers
@@ -472,7 +480,9 @@ class ExecutionPolicyManager:
             self._analyzers = sorted(analyzers, key=lambda a: a.get_priority())
             self._initialized = True
 
-            logger.info(f"Initialized execution policy analyzers: {[a.get_name() for a in self._analyzers]}")
+            logger.info(
+                f"Initialized execution policy analyzers: {[a.get_name() for a in self._analyzers]}"
+            )
 
         except Exception as e:
             logger.warning(f"Failed to load custom execution policy analyzers: {e}")
@@ -481,9 +491,7 @@ class ExecutionPolicyManager:
             self._initialized = True
 
     async def analyze_policy(
-        self,
-        basic_analysis: BasicAnalysisResult,
-        domain_analysis: DomainAnalysisResult
+        self, basic_analysis: BasicAnalysisResult, domain_analysis: DomainAnalysisResult
     ) -> ExecutionPolicyDecision:
         """
         Perform policy analysis using registered analyzers in priority order.
@@ -494,5 +502,7 @@ class ExecutionPolicyManager:
         for analyzer in self._analyzers:
             logger.debug(f"Using execution policy analyzer: {analyzer.get_name()}")
             decision = await analyzer.analyze_policy(basic_analysis, domain_analysis)
-            logger.info(f"Execution policy decision: {decision.execution_mode}, approval: {decision.needs_approval}")
+            logger.info(
+                f"Execution policy decision: {decision.execution_mode}, approval: {decision.needs_approval}"
+            )
             return decision

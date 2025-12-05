@@ -14,6 +14,7 @@ from osprey.state import AgentState
 # Auto-reset Registry and Config Between Tests
 # ===================================================================
 
+
 @pytest.fixture(autouse=True, scope="function")
 def reset_state_between_tests():
     """Auto-reset registry and config before each test to ensure isolation.
@@ -38,6 +39,7 @@ def reset_state_between_tests():
     # Reset approval manager singleton to prevent approval state pollution
     try:
         import osprey.approval.approval_manager as approval_module
+
         approval_module._approval_manager = None
     except ImportError:
         pass  # Approval manager might not be available in all test environments
@@ -53,13 +55,16 @@ def reset_state_between_tests():
     # Reset approval manager singleton again
     try:
         import osprey.approval.approval_manager as approval_module
+
         approval_module._approval_manager = None
     except ImportError:
         pass
 
+
 # ===================================================================
 # Test State Factory
 # ===================================================================
+
 
 def create_test_state(
     user_message: str = "test query",
@@ -69,7 +74,7 @@ def create_test_state(
     context_key: str = "test_context",
     final_objective: str = "Test objective",
     success_criteria: str = "Task completed successfully",
-    **overrides
+    **overrides,
 ) -> AgentState:
     """Factory function to create test states with minimal boilerplate.
 
@@ -139,53 +144,53 @@ def create_test_state(
                 task_objective=task_objective,
                 success_criteria=success_criteria,
                 expected_output=None,
-                inputs=[]
+                inputs=[],
             )
         ],
-        final_objective=final_objective
+        final_objective=final_objective,
     )
 
     # Create state with defaults
     state: AgentState = {
-        'messages': messages,
-        'planning_execution_plan': execution_plan,
-        'planning_current_step_index': 0,
-        'capability_context_data': {},
-        'agent_control': {},
-        'status_updates': [],
-        'progress_events': [],
-        'task_current_task': 'Test task',
-        'task_depends_on_chat_history': False,
-        'task_depends_on_user_memory': False,
-        'task_custom_message': None,
-        'planning_active_capabilities': [capability],
-        'execution_step_results': {},
-        'execution_last_result': None,
-        'execution_pending_approvals': {},
-        'execution_start_time': None,
-        'execution_total_time': None,
-        'approval_approved': None,
-        'approved_payload': None,
-        'control_reclassification_reason': None,
-        'control_reclassification_count': 0,
-        'control_plans_created_count': 1,
-        'control_current_step_retry_count': 0,
-        'control_retry_count': 0,
-        'control_has_error': False,
-        'control_error_info': None,
-        'control_last_error': None,
-        'control_max_retries': 3,
-        'control_is_killed': False,
-        'control_kill_reason': None,
-        'control_is_awaiting_validation': False,
-        'control_validation_context': None,
-        'control_validation_timestamp': None,
-        'ui_captured_notebooks': [],
-        'ui_captured_figures': [],
-        'ui_launchable_commands': [],
-        'ui_agent_context': None,
-        'runtime_checkpoint_metadata': None,
-        'runtime_info': None,
+        "messages": messages,
+        "planning_execution_plan": execution_plan,
+        "planning_current_step_index": 0,
+        "capability_context_data": {},
+        "agent_control": {},
+        "status_updates": [],
+        "progress_events": [],
+        "task_current_task": "Test task",
+        "task_depends_on_chat_history": False,
+        "task_depends_on_user_memory": False,
+        "task_custom_message": None,
+        "planning_active_capabilities": [capability],
+        "execution_step_results": {},
+        "execution_last_result": None,
+        "execution_pending_approvals": {},
+        "execution_start_time": None,
+        "execution_total_time": None,
+        "approval_approved": None,
+        "approved_payload": None,
+        "control_reclassification_reason": None,
+        "control_reclassification_count": 0,
+        "control_plans_created_count": 1,
+        "control_current_step_retry_count": 0,
+        "control_retry_count": 0,
+        "control_has_error": False,
+        "control_error_info": None,
+        "control_last_error": None,
+        "control_max_retries": 3,
+        "control_is_killed": False,
+        "control_kill_reason": None,
+        "control_is_awaiting_validation": False,
+        "control_validation_context": None,
+        "control_validation_timestamp": None,
+        "ui_captured_notebooks": [],
+        "ui_captured_figures": [],
+        "ui_launchable_commands": [],
+        "ui_agent_context": None,
+        "runtime_checkpoint_metadata": None,
+        "runtime_info": None,
     }
 
     # Apply any overrides
@@ -197,6 +202,7 @@ def create_test_state(
 # ===================================================================
 # Prompt Testing Helpers
 # ===================================================================
+
 
 class PromptTestHelpers:
     """Helper methods for testing prompt structure and content."""
@@ -212,7 +218,7 @@ class PromptTestHelpers:
         Returns:
             The extracted section content (without the header)
         """
-        lines = prompt.split('\n')
+        lines = prompt.split("\n")
         section_lines = []
         in_section = False
 
@@ -222,11 +228,15 @@ class PromptTestHelpers:
                 continue
             if in_section:
                 # Stop at next all-caps header with colon
-                if line.strip() and line.strip().replace(' ', '').replace("'", '').isupper() and ':' in line:
+                if (
+                    line.strip()
+                    and line.strip().replace(" ", "").replace("'", "").isupper()
+                    and ":" in line
+                ):
                     break
                 section_lines.append(line)
 
-        return '\n'.join(section_lines).strip()
+        return "\n".join(section_lines).strip()
 
     @staticmethod
     def get_section_positions(prompt: str, *section_headers: str) -> dict[str, int]:
@@ -252,6 +262,7 @@ class PromptTestHelpers:
 # Pytest Fixtures
 # ===================================================================
 
+
 @pytest.fixture
 def test_state():
     """Fixture providing a basic test state for quick testing."""
@@ -267,6 +278,7 @@ def prompt_helpers():
 # ===================================================================
 # Test Configuration Helpers
 # ===================================================================
+
 
 @pytest.fixture
 def test_config(tmp_path):
@@ -306,7 +318,8 @@ def test_config(tmp_path):
 
     # Create a test registry using extend_framework_registry helper
     registry_file = tmp_path / "registry.py"
-    registry_file.write_text("""
+    registry_file.write_text(
+        """
 # Test registry for integration tests - extends framework with empty additions
 from osprey.registry import RegistryConfigProvider, extend_framework_registry
 
@@ -320,87 +333,70 @@ class TestRegistryProvider(RegistryConfigProvider):
             capabilities=[],
             context_classes=[]
         )
-""")
+"""
+    )
 
     # Minimal working configuration for tests
     config = {
-        'project_root': str(tmp_path),
-        'registry_path': str(registry_file),
-        'langgraph': {
-            'use_postgres': False
-        },
-        'execution_control': {
-            'epics': {
-                'writes_enabled': False
+        "project_root": str(tmp_path),
+        "registry_path": str(registry_file),
+        "langgraph": {"use_postgres": False},
+        "execution_control": {
+            "epics": {"writes_enabled": False},
+            "agent_control": {
+                "task_extraction_bypass_enabled": False,
+                "capability_selection_bypass_enabled": False,
             },
-            'agent_control': {
-                'task_extraction_bypass_enabled': False,
-                'capability_selection_bypass_enabled': False
+            "limits": {
+                "max_reclassifications": 1,
+                "max_planning_attempts": 2,
+                "max_step_retries": 3,
+                "max_execution_time_seconds": 300,
+                "graph_recursion_limit": 100,
+                "max_concurrent_classifications": 5,
             },
-            'limits': {
-                'max_reclassifications': 1,
-                'max_planning_attempts': 2,
-                'max_step_retries': 3,
-                'max_execution_time_seconds': 300,
-                'graph_recursion_limit': 100,
-                'max_concurrent_classifications': 5
-            }
         },
-        'approval': {
-            'global_mode': 'selective',
-            'capabilities': {
-                'python_execution': {
-                    'enabled': False,  # Disable approval for tests
-                    'mode': 'all_code'
+        "approval": {
+            "global_mode": "selective",
+            "capabilities": {
+                "python_execution": {
+                    "enabled": False,  # Disable approval for tests
+                    "mode": "all_code",
                 },
-                'memory': {
-                    'enabled': False  # Disable approval for tests
-                }
-            }
+                "memory": {"enabled": False},  # Disable approval for tests
+            },
         },
-        'control_system': {
-            'type': 'mock',  # Use mock for tests - default patterns include write_channel/read_channel
+        "control_system": {
+            "type": "mock",  # Use mock for tests - default patterns include write_channel/read_channel
         },
-        'execution': {
-            'execution_method': 'local',  # Fast for tests
-            'code_generator': 'mock',  # Use mock by default for tests
-            'generators': {
-                'legacy': {
-                    'provider': 'openai',
-                    'model_id': 'gpt-4'
+        "execution": {
+            "execution_method": "local",  # Fast for tests
+            "code_generator": "mock",  # Use mock by default for tests
+            "generators": {
+                "legacy": {"provider": "openai", "model_id": "gpt-4"},
+                "mock": {},  # Mock generator config
+            },
+            "modes": {
+                "read_only": {
+                    "kernel_name": "python3",
+                    "allows_writes": False,
+                    "requires_approval": False,
                 },
-                'mock': {}  # Mock generator config
-            },
-            'modes': {
-                'read_only': {
-                    'kernel_name': 'python3',
-                    'allows_writes': False,
-                    'requires_approval': False
+                "write_access": {
+                    "kernel_name": "python3",
+                    "allows_writes": True,
+                    "requires_approval": True,
                 },
-                'write_access': {
-                    'kernel_name': 'python3',
-                    'allows_writes': True,
-                    'requires_approval': True
-                }
             },
-            'limits': {
-                'max_retries': 3,
-                'max_execution_time_seconds': 30
-            }
+            "limits": {"max_retries": 3, "max_execution_time_seconds": 30},
         },
-        'models': {
-            'orchestrator': {
-                'provider': 'openai',
-                'model_id': 'gpt-4'
-            },
-            'python_code_generator': {
-                'provider': 'openai',
-                'model_id': 'gpt-4'
-            }
-        }
+        "models": {
+            "orchestrator": {"provider": "openai", "model_id": "gpt-4"},
+            "python_code_generator": {"provider": "openai", "model_id": "gpt-4"},
+        },
     }
 
-    with open(config_file, 'w') as f:
+    with open(config_file, "w") as f:
         yaml.dump(config, f)
 
     # Do NOT initialize registry here - let each test handle registry initialization
@@ -420,7 +416,8 @@ def test_config_with_approval(tmp_path):
 
     # Create a test registry using extend_framework_registry helper
     registry_file = tmp_path / "registry.py"
-    registry_file.write_text("""
+    registry_file.write_text(
+        """
 # Test registry for integration tests - extends framework with empty additions
 from osprey.registry import RegistryConfigProvider, extend_framework_registry
 
@@ -434,87 +431,67 @@ class TestRegistryProvider(RegistryConfigProvider):
             capabilities=[],
             context_classes=[]
         )
-""")
+"""
+    )
 
     # Configuration with approval ENABLED
     config = {
-        'project_root': str(tmp_path),
-        'registry_path': str(registry_file),
-        'langgraph': {
-            'use_postgres': False
-        },
-        'execution_control': {
-            'epics': {
-                'writes_enabled': False
+        "project_root": str(tmp_path),
+        "registry_path": str(registry_file),
+        "langgraph": {"use_postgres": False},
+        "execution_control": {
+            "epics": {"writes_enabled": False},
+            "agent_control": {
+                "task_extraction_bypass_enabled": False,
+                "capability_selection_bypass_enabled": False,
             },
-            'agent_control': {
-                'task_extraction_bypass_enabled': False,
-                'capability_selection_bypass_enabled': False
+            "limits": {
+                "max_reclassifications": 1,
+                "max_planning_attempts": 2,
+                "max_step_retries": 3,
+                "max_execution_time_seconds": 300,
+                "graph_recursion_limit": 100,
+                "max_concurrent_classifications": 5,
             },
-            'limits': {
-                'max_reclassifications': 1,
-                'max_planning_attempts': 2,
-                'max_step_retries': 3,
-                'max_execution_time_seconds': 300,
-                'graph_recursion_limit': 100,
-                'max_concurrent_classifications': 5
-            }
         },
-        'approval': {
-            'global_mode': 'selective',
-            'capabilities': {
-                'python_execution': {
-                    'enabled': True,  # ENABLED for approval tests
-                    'mode': 'all_code'
+        "approval": {
+            "global_mode": "selective",
+            "capabilities": {
+                "python_execution": {
+                    "enabled": True,  # ENABLED for approval tests
+                    "mode": "all_code",
                 },
-                'memory': {
-                    'enabled': True
-                }
-            }
+                "memory": {"enabled": True},
+            },
         },
-        'control_system': {
-            'type': 'mock',  # Use mock for tests - default patterns include write_channel/read_channel
+        "control_system": {
+            "type": "mock",  # Use mock for tests - default patterns include write_channel/read_channel
         },
-        'execution': {
-            'execution_method': 'local',
-            'code_generator': 'mock',
-            'generators': {
-                'legacy': {
-                    'provider': 'openai',
-                    'model_id': 'gpt-4'
+        "execution": {
+            "execution_method": "local",
+            "code_generator": "mock",
+            "generators": {"legacy": {"provider": "openai", "model_id": "gpt-4"}, "mock": {}},
+            "modes": {
+                "read_only": {
+                    "kernel_name": "python3",
+                    "allows_writes": False,
+                    "requires_approval": False,
                 },
-                'mock': {}
-            },
-            'modes': {
-                'read_only': {
-                    'kernel_name': 'python3',
-                    'allows_writes': False,
-                    'requires_approval': False
+                "write_access": {
+                    "kernel_name": "python3",
+                    "allows_writes": True,
+                    "requires_approval": True,
                 },
-                'write_access': {
-                    'kernel_name': 'python3',
-                    'allows_writes': True,
-                    'requires_approval': True
-                }
             },
-            'limits': {
-                'max_retries': 3,
-                'max_execution_time_seconds': 30
-            }
+            "limits": {"max_retries": 3, "max_execution_time_seconds": 30},
         },
-        'models': {
-            'orchestrator': {
-                'provider': 'openai',
-                'model_id': 'gpt-4'
-            },
-            'python_code_generator': {
-                'provider': 'openai',
-                'model_id': 'gpt-4'
-            }
-        }
+        "models": {
+            "orchestrator": {"provider": "openai", "model_id": "gpt-4"},
+            "python_code_generator": {"provider": "openai", "model_id": "gpt-4"},
+        },
     }
 
-    with open(config_file, 'w') as f:
+    with open(config_file, "w") as f:
         yaml.dump(config, f)
 
     # Do NOT initialize registry here - let the test do it
@@ -549,5 +526,5 @@ def mock_code_generator():
                 assert code == "results = {'value': 42}"
     """
     from osprey.services.python_executor.generation import MockCodeGenerator
-    return MockCodeGenerator(behavior="success")
 
+    return MockCodeGenerator(behavior="success")

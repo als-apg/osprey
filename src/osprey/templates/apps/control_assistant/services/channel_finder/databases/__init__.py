@@ -7,13 +7,12 @@ Provides various database backend implementations:
 - hierarchical: Hierarchical tree structure for large databases
 """
 
+from .hierarchical import HierarchicalChannelDatabase
 from .legacy import ChannelDatabase as LegacyChannelDatabase
 from .template import ChannelDatabase as TemplateChannelDatabase
-from .hierarchical import HierarchicalChannelDatabase
 
 __all__ = [
-    'LegacyChannelDatabase',
-    'TemplateChannelDatabase',
-    'HierarchicalChannelDatabase',
+    "LegacyChannelDatabase",
+    "TemplateChannelDatabase",
+    "HierarchicalChannelDatabase",
 ]
-

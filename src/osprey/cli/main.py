@@ -25,6 +25,7 @@ except ImportError:
 # Commands are imported only when invoked, not at module load time.
 # This keeps --help fast and avoids loading heavy dependencies unnecessarily.
 
+
 class LazyGroup(click.Group):
     """Click group that lazily loads subcommands only when invoked."""
 
@@ -32,14 +33,14 @@ class LazyGroup(click.Group):
         """Lazily import and return the command when it's invoked."""
         # Map command names to their module paths
         commands = {
-            'init': 'osprey.cli.init_cmd',
-            'deploy': 'osprey.cli.deploy_cmd',
-            'chat': 'osprey.cli.chat_cmd',
-            'config': 'osprey.cli.config_cmd',
-            'export-config': 'osprey.cli.export_config_cmd',  # DEPRECATED: kept for backward compat
-            'health': 'osprey.cli.health_cmd',
-            'generate': 'osprey.cli.generate_cmd',
-            'remove': 'osprey.cli.remove_cmd',
+            "init": "osprey.cli.init_cmd",
+            "deploy": "osprey.cli.deploy_cmd",
+            "chat": "osprey.cli.chat_cmd",
+            "config": "osprey.cli.config_cmd",
+            "export-config": "osprey.cli.export_config_cmd",  # DEPRECATED: kept for backward compat
+            "health": "osprey.cli.health_cmd",
+            "generate": "osprey.cli.generate_cmd",
+            "remove": "osprey.cli.remove_cmd",
         }
 
         if cmd_name not in commands:
@@ -47,13 +48,14 @@ class LazyGroup(click.Group):
 
         # Lazy import - only loads when command is actually used
         import importlib
+
         mod = importlib.import_module(commands[cmd_name])
 
         # Get the command function from the module
         # Convention: module name without _cmd suffix
-        if cmd_name == 'config':
+        if cmd_name == "config":
             cmd_func = mod.config
-        elif cmd_name == 'export-config':
+        elif cmd_name == "export-config":
             # DEPRECATED: Show warning and redirect to new command
             cmd_func = mod.export_config
         else:
@@ -63,7 +65,7 @@ class LazyGroup(click.Group):
 
     def list_commands(self, ctx):
         """Return list of available commands (for --help)."""
-        return ['init', 'config', 'deploy', 'chat', 'generate', 'remove', 'health']
+        return ["init", "config", "deploy", "chat", "generate", "remove", "health"]
 
 
 @click.group(cls=LazyGroup, invoke_without_command=True)
@@ -93,6 +95,7 @@ def cli(ctx):
     # Initialize theme from config if available (best-effort, silent failure)
     try:
         from .styles import initialize_theme_from_config
+
         initialize_theme_from_config()
     except Exception:
         # Silent failure - default theme will be used
@@ -102,6 +105,7 @@ def cli(ctx):
     # NEW: If no command provided, launch interactive menu
     if ctx.invoked_subcommand is None:
         from .interactive_menu import launch_tui
+
         launch_tui()
 
 
@@ -119,4 +123,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

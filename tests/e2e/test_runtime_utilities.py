@@ -32,7 +32,7 @@ def _disable_capabilities(project, capability_names: list[str]):
     # For each capability, comment out its CapabilityRegistration block
     for cap_name in capability_names:
         # Find all CapabilityRegistration blocks and match by counting parentheses
-        lines = registry_content.split('\n')
+        lines = registry_content.split("\n")
         new_lines = []
         i = 0
 
@@ -40,27 +40,27 @@ def _disable_capabilities(project, capability_names: list[str]):
             line = lines[i]
 
             # Check if this line starts a CapabilityRegistration (and is not already commented)
-            if 'CapabilityRegistration(' in line and not line.strip().startswith('#'):
+            if "CapabilityRegistration(" in line and not line.strip().startswith("#"):
                 # Collect the full block by counting parentheses
                 block_lines = [line]
-                paren_count = line.count('(') - line.count(')')
+                paren_count = line.count("(") - line.count(")")
                 j = i + 1
 
                 while j < len(lines) and paren_count > 0:
                     block_lines.append(lines[j])
-                    paren_count += lines[j].count('(') - lines[j].count(')')
+                    paren_count += lines[j].count("(") - lines[j].count(")")
                     j += 1
 
                 # Check if this block is for the capability we want to disable
-                block_text = '\n'.join(block_lines)
+                block_text = "\n".join(block_lines)
                 if re.search(r'name\s*=\s*["\']' + cap_name + r'["\']', block_text):
                     # Comment out this block
                     for block_line in block_lines:
                         if block_line.strip():
-                            new_lines.append(f'                # {block_line}')
+                            new_lines.append(f"                # {block_line}")
                         else:
-                            new_lines.append('#')
-                    new_lines[-1] += '  # Disabled for testing'
+                            new_lines.append("#")
+                    new_lines[-1] += "  # Disabled for testing"
                     i = j
                 else:
                     # Keep this block as-is
@@ -70,7 +70,7 @@ def _disable_capabilities(project, capability_names: list[str]):
                 new_lines.append(line)
                 i += 1
 
-        registry_content = '\n'.join(new_lines)
+        registry_content = "\n".join(new_lines)
 
     registry_path.write_text(registry_content)
 
@@ -90,9 +90,7 @@ async def test_runtime_utilities_basic_write(e2e_project_factory):
     """
     # Create project with writes enabled
     project = await e2e_project_factory(
-        name="test-runtime-basic",
-        template="control_assistant",
-        registry_style="extend"
+        name="test-runtime-basic", template="control_assistant", registry_style="extend"
     )
 
     # Disable channel capabilities to force Python usage for control system ops
@@ -103,18 +101,19 @@ async def test_runtime_utilities_basic_write(e2e_project_factory):
     # Enable writes and disable limits checking
     config_path = project.config_path
     import yaml
+
     config_data = yaml.safe_load(config_path.read_text())
-    config_data['control_system']['writes_enabled'] = True
+    config_data["control_system"]["writes_enabled"] = True
 
     # Disable limits checking - this test validates LLM can use osprey.runtime,
     # not that limits are enforced (that's tested in test_runtime_utilities_respects_channel_limits)
-    config_data['control_system']['limits_checking']['enabled'] = False
+    config_data["control_system"]["limits_checking"]["enabled"] = False
 
     # Disable approval for e2e testing - we want to test code execution, not approval flow
-    if 'approval' not in config_data:
-        config_data['approval'] = {}
+    if "approval" not in config_data:
+        config_data["approval"] = {}
     # Set global mode to disabled to skip all approval workflows
-    config_data['approval']['global_mode'] = 'disabled'
+    config_data["approval"]["global_mode"] = "disabled"
 
     config_path.write_text(yaml.dump(config_data))
 
@@ -133,29 +132,27 @@ async def test_runtime_utilities_basic_write(e2e_project_factory):
     assert result.error is None, f"Workflow error: {result.error}"
 
     # 2. Python capability was executed
-    assert "python" in result.execution_trace.lower(), (
-        "Python capability not executed"
-    )
+    assert "python" in result.execution_trace.lower(), "Python capability not executed"
 
     # 3. Find the generated Python code
-    code_files = [a for a in result.artifacts if str(a).endswith('.py')]
+    code_files = [a for a in result.artifacts if str(a).endswith(".py")]
     assert len(code_files) > 0, "No Python code files generated"
 
     # Read the generated code
     generated_code = Path(code_files[0]).read_text()
 
     # 4. CRITICAL: Verify LLM used runtime utilities (not direct epics.caput)
-    assert "from osprey.runtime import" in generated_code, (
-        "Generated code doesn't import osprey.runtime - LLM didn't learn the API"
-    )
-    assert "write_channel" in generated_code, (
-        "Generated code doesn't use write_channel() - LLM didn't follow prompts"
-    )
+    assert (
+        "from osprey.runtime import" in generated_code
+    ), "Generated code doesn't import osprey.runtime - LLM didn't learn the API"
+    assert (
+        "write_channel" in generated_code
+    ), "Generated code doesn't use write_channel() - LLM didn't follow prompts"
 
     # 5. Verify code doesn't use deprecated direct EPICS calls
-    assert "epics.caput" not in generated_code.lower(), (
-        "Generated code uses deprecated epics.caput instead of runtime utilities"
-    )
+    assert (
+        "epics.caput" not in generated_code.lower()
+    ), "Generated code uses deprecated epics.caput instead of runtime utilities"
 
     # 6. Verify context snapshot exists
     executed_scripts_dir = project.project_dir / "_agent_data" / "executed_scripts"
@@ -175,25 +172,24 @@ async def test_runtime_utilities_basic_write(e2e_project_factory):
 
     # 7. Verify context snapshot contains control system config
     context_data = json.loads(context_file.read_text())
-    assert "_execution_config" in context_data, (
-        "Context doesn't contain execution config snapshot"
-    )
-    assert "control_system" in context_data["_execution_config"], (
-        "Context snapshot missing control_system config"
-    )
+    assert "_execution_config" in context_data, "Context doesn't contain execution config snapshot"
+    assert (
+        "control_system" in context_data["_execution_config"]
+    ), "Context snapshot missing control_system config"
 
     # 8. Verify notebook includes runtime configuration
-    # After execution completes, a final notebook should be created in the execution folder root
-    notebook_files = list(latest_execution.glob("*.ipynb"))
-    assert len(notebook_files) > 0, f"No notebook generated in {latest_execution}"
+    # Notebooks are in the attempts subdirectory
+    notebook_files = list(latest_execution.glob("**/*.ipynb"))
+    assert len(notebook_files) > 0, "No notebook generated"
 
     import nbformat
+
     notebook = nbformat.read(notebook_files[0], as_version=4)
     notebook_text = "\n".join(cell.source for cell in notebook.cells)
 
-    assert "from osprey.runtime import configure_from_context" in notebook_text, (
-        "Notebook missing runtime configuration cell"
-    )
+    assert (
+        "from osprey.runtime import configure_from_context" in notebook_text
+    ), "Notebook missing runtime configuration cell"
 
     print("✅ Runtime utilities basic write test passed")
     print("   - LLM correctly used osprey.runtime API")
@@ -219,9 +215,7 @@ async def test_runtime_utilities_respects_channel_limits(e2e_project_factory, tm
     """
     # Create project
     project = await e2e_project_factory(
-        name="test-runtime-limits",
-        template="control_assistant",
-        registry_style="extend"
+        name="test-runtime-limits", template="control_assistant", registry_style="extend"
     )
 
     # Disable channel capabilities to force Python usage
@@ -230,18 +224,16 @@ async def test_runtime_utilities_respects_channel_limits(e2e_project_factory, tm
     # Configure with limits checking enabled
     config_path = project.config_path
     import yaml
+
     config_data = yaml.safe_load(config_path.read_text())
 
     # Enable writes
-    config_data['control_system']['writes_enabled'] = True
+    config_data["control_system"]["writes_enabled"] = True
 
     # Enable limits checking
-    config_data['control_system']['limits_checking'] = {
-        'enabled': True,
-        'policy': {
-            'allow_unlisted_channels': False,
-            'on_violation': 'error'
-        }
+    config_data["control_system"]["limits_checking"] = {
+        "enabled": True,
+        "policy": {"allow_unlisted_channels": False, "on_violation": "error"},
     }
 
     # Create limits file
@@ -250,11 +242,11 @@ async def test_runtime_utilities_respects_channel_limits(e2e_project_factory, tm
         "TEST:VOLTAGE": {
             "min_value": 0.0,
             "max_value": 100.0,  # ← LIMIT: max is 100V
-            "writable": True
+            "writable": True,
         }
     }
     limits_file.write_text(json.dumps(limits_data, indent=2))
-    config_data['control_system']['limits_checking']['database_path'] = str(limits_file)
+    config_data["control_system"]["limits_checking"]["database_path"] = str(limits_file)
 
     # Write updated config
     config_path.write_text(yaml.dump(config_data))
@@ -283,17 +275,15 @@ async def test_runtime_utilities_respects_channel_limits(e2e_project_factory, tm
     )
 
     # 4. Check generated code used runtime utilities
-    code_files = [a for a in result.artifacts if str(a).endswith('.py')]
+    code_files = [a for a in result.artifacts if str(a).endswith(".py")]
     if len(code_files) > 0:
         generated_code = Path(code_files[0]).read_text()
 
         # Verify LLM used runtime API
-        assert "from osprey.runtime import" in generated_code, (
-            "Generated code doesn't use runtime utilities"
-        )
-        assert "write_channel" in generated_code, (
-            "Generated code doesn't use write_channel()"
-        )
+        assert (
+            "from osprey.runtime import" in generated_code
+        ), "Generated code doesn't use runtime utilities"
+        assert "write_channel" in generated_code, "Generated code doesn't use write_channel()"
 
     # 5. Find execution folder and check for error details
     executed_scripts_dir = project.project_dir / "_agent_data" / "executed_scripts"
@@ -308,15 +298,15 @@ async def test_runtime_utilities_respects_channel_limits(e2e_project_factory, tm
                 metadata = json.loads(metadata_file.read_text())
 
                 # Verify execution failed (not succeeded)
-                assert metadata.get("success") is False, (
-                    "Execution metadata shows success despite limits violation!"
-                )
+                assert (
+                    metadata.get("success") is False
+                ), "Execution metadata shows success despite limits violation!"
 
                 # Check error mentions limits or violation
                 error_msg = metadata.get("error", "").lower()
-                assert "limit" in error_msg or "violation" in error_msg or "exceed" in error_msg, (
-                    f"Error message doesn't mention limits violation: {error_msg}"
-                )
+                assert (
+                    "limit" in error_msg or "violation" in error_msg or "exceed" in error_msg
+                ), f"Error message doesn't mention limits violation: {error_msg}"
 
     print("✅ Channel limits safety test passed")
     print("   - Runtime utilities correctly blocked violation")
@@ -338,9 +328,7 @@ async def test_runtime_utilities_within_limits_succeeds(e2e_project_factory, tmp
     """
     # Create project
     project = await e2e_project_factory(
-        name="test-runtime-valid",
-        template="control_assistant",
-        registry_style="extend"
+        name="test-runtime-valid", template="control_assistant", registry_style="extend"
     )
 
     # Disable channel capabilities to force Python usage
@@ -349,31 +337,23 @@ async def test_runtime_utilities_within_limits_succeeds(e2e_project_factory, tmp
     # Configure with limits checking enabled
     config_path = project.config_path
     import yaml
+
     config_data = yaml.safe_load(config_path.read_text())
 
     # Enable writes
-    config_data['control_system']['writes_enabled'] = True
+    config_data["control_system"]["writes_enabled"] = True
 
     # Enable limits checking
-    config_data['control_system']['limits_checking'] = {
-        'enabled': True,
-        'policy': {
-            'allow_unlisted_channels': False,
-            'on_violation': 'error'
-        }
+    config_data["control_system"]["limits_checking"] = {
+        "enabled": True,
+        "policy": {"allow_unlisted_channels": False, "on_violation": "error"},
     }
 
     # Create limits file
     limits_file = tmp_path / "channel_limits.json"
-    limits_data = {
-        "TEST:VOLTAGE": {
-            "min_value": 0.0,
-            "max_value": 100.0,
-            "writable": True
-        }
-    }
+    limits_data = {"TEST:VOLTAGE": {"min_value": 0.0, "max_value": 100.0, "writable": True}}
     limits_file.write_text(json.dumps(limits_data, indent=2))
-    config_data['control_system']['limits_checking']['database_path'] = str(limits_file)
+    config_data["control_system"]["limits_checking"]["database_path"] = str(limits_file)
 
     # Write updated config
     config_path.write_text(yaml.dump(config_data))
@@ -396,18 +376,18 @@ async def test_runtime_utilities_within_limits_succeeds(e2e_project_factory, tmp
 
     # 3. Should NOT see limits violation
     trace_lower = result.execution_trace.lower()
-    assert "channellimitsviolationerror" not in trace_lower, (
-        "Valid write was incorrectly blocked by limits checker"
-    )
+    assert (
+        "channellimitsviolationerror" not in trace_lower
+    ), "Valid write was incorrectly blocked by limits checker"
 
     # 4. Response should indicate success
     response_lower = result.response.lower()
-    assert any(word in response_lower for word in ['success', 'set', 'wrote', 'completed']), (
-        f"Response doesn't indicate successful write: {result.response[:300]}"
-    )
+    assert any(
+        word in response_lower for word in ["success", "set", "wrote", "completed"]
+    ), f"Response doesn't indicate successful write: {result.response[:300]}"
 
     # 5. Verify generated code used runtime utilities
-    code_files = [a for a in result.artifacts if str(a).endswith('.py')]
+    code_files = [a for a in result.artifacts if str(a).endswith(".py")]
     assert len(code_files) > 0, "No code files generated"
 
     generated_code = Path(code_files[0]).read_text()
@@ -424,12 +404,11 @@ async def test_runtime_utilities_within_limits_succeeds(e2e_project_factory, tmp
 
     if metadata_file.exists():
         metadata = json.loads(metadata_file.read_text())
-        assert metadata.get("success") is True, (
-            f"Execution failed despite valid write: {metadata.get('error')}"
-        )
+        assert (
+            metadata.get("success") is True
+        ), f"Execution failed despite valid write: {metadata.get('error')}"
 
     print("✅ Valid write test passed")
     print("   - Runtime utilities allowed valid 75V write (limit: 100V)")
     print("   - Execution completed successfully")
     print("   - LLM correctly used runtime API")
-

@@ -102,7 +102,7 @@ class BasicLLMCodeGenerator:
             if self._provided_model_config is not None:
                 # Check if it's a reference to a model config
                 if isinstance(self._provided_model_config, dict):
-                    model_config_name = self._provided_model_config.get('model_config_name')
+                    model_config_name = self._provided_model_config.get("model_config_name")
                     if model_config_name:
                         # Reference to models section
                         logger.debug(f"Loading model config from: {model_config_name}")
@@ -119,9 +119,7 @@ class BasicLLMCodeGenerator:
         return self._model_config
 
     async def generate_code(
-        self,
-        request: PythonExecutionRequest,
-        error_chain: list[ExecutionError]
+        self, request: PythonExecutionRequest, error_chain: list[ExecutionError]
     ) -> str:
         """Generate code using simple LLM chat completion with structured error feedback.
 
@@ -145,7 +143,11 @@ class BasicLLMCodeGenerator:
            error analysis to improve generation quality.
         """
         # Set execution folder for saving prompts
-        if self._save_prompts and hasattr(request, 'execution_folder_path') and request.execution_folder_path:
+        if (
+            self._save_prompts
+            and hasattr(request, "execution_folder_path")
+            and request.execution_folder_path
+        ):
             self._execution_folder = Path(request.execution_folder_path)
             # Initialize prompt data structure
             self._prompt_data = {
@@ -166,16 +168,11 @@ class BasicLLMCodeGenerator:
                 self._prompt_data["generation_prompt"] = prompt
 
             # Generate code (model_config loaded lazily)
-            generated_code = get_chat_completion(
-                model_config=self.model_config,
-                message=prompt
-            )
+            generated_code = get_chat_completion(model_config=self.model_config, message=prompt)
 
             if not generated_code or not generated_code.strip():
                 raise CodeGenerationError(
-                    "LLM returned empty code",
-                    generation_attempt=1,
-                    error_chain=error_chain
+                    "LLM returned empty code", generation_attempt=1, error_chain=error_chain
                 )
 
             # Save raw response if enabled
@@ -200,7 +197,7 @@ class BasicLLMCodeGenerator:
                 f"LLM code generation failed: {str(e)}",
                 generation_attempt=1,
                 error_chain=error_chain,
-                technical_details={"original_error": str(e)}
+                technical_details={"original_error": str(e)},
             ) from e
         finally:
             # Save prompts if enabled
@@ -208,9 +205,7 @@ class BasicLLMCodeGenerator:
                 self._save_prompt_data()
 
     def _build_code_generation_prompt(
-        self,
-        request: PythonExecutionRequest,
-        error_chain: list[ExecutionError]
+        self, request: PythonExecutionRequest, error_chain: list[ExecutionError]
     ) -> str:
         """Build prompt for code generation with structured error feedback.
 
@@ -249,12 +244,16 @@ class BasicLLMCodeGenerator:
 
         # === CRITICAL OUTPUT CONSTRAINTS (safety net) ===
         # These are essential constraints that MUST always be enforced
-        prompt_parts.append(textwrap.dedent("""
+        prompt_parts.append(
+            textwrap.dedent(
+                """
             CRITICAL REQUIREMENTS:
             1. Generate ONLY executable Python code (no markdown, no explanations)
             2. Store computed results in a dictionary variable named 'results'
             3. Include all necessary imports at the top
-            """).strip())
+            """
+            ).strip()
+        )
 
         # Task details
         # Note: task_objective is the STEP-SPECIFIC objective from the orchestrator's execution plan
@@ -273,17 +272,23 @@ class BasicLLMCodeGenerator:
                     prompt_parts.append(prompt)
         else:
             # Fallback if no capability prompts provided
-            prompt_parts.append(textwrap.dedent("""
+            prompt_parts.append(
+                textwrap.dedent(
+                    """
                 GUIDANCE:
                 - Write clean, working Python code for the task
                 - Use clear variable names and add comments
                 - Handle common edge cases appropriately
-                """).strip())
+                """
+                ).strip()
+            )
 
         # Structured error feedback
         if error_chain:
             prompt_parts.append("\n=== PREVIOUS ATTEMPT(S) FAILED - LEARN FROM THESE ERRORS ===")
-            prompt_parts.append("Analyze what went wrong and fix the root cause, not just symptoms.")
+            prompt_parts.append(
+                "Analyze what went wrong and fix the root cause, not just symptoms."
+            )
 
             # Show last 2 attempts with full structured context
             for error in error_chain[-2:]:
@@ -317,26 +322,26 @@ class BasicLLMCodeGenerator:
 
         # Pattern 1: Standard markdown code blocks ```python ... ```
         # This handles both ```python and ``` python (with space)
-        markdown_pattern = r'^```\s*python\s*\n(.*?)\n```$'
+        markdown_pattern = r"^```\s*python\s*\n(.*?)\n```$"
         match = re.match(markdown_pattern, cleaned, re.DOTALL | re.IGNORECASE)
         if match:
             logger.info("Detected and removed markdown code block formatting")
             cleaned = match.group(1).strip()
 
         # Pattern 2: Plain code blocks ``` ... ``` (without python specifier)
-        elif cleaned.startswith('```') and cleaned.endswith('```'):
+        elif cleaned.startswith("```") and cleaned.endswith("```"):
             logger.info("Detected and removed plain markdown code block")
-            lines = cleaned.split('\n')
+            lines = cleaned.split("\n")
             # Remove first and last lines if they're just ```
-            if lines[0].strip() == '```' and lines[-1].strip() == '```':
-                cleaned = '\n'.join(lines[1:-1]).strip()
+            if lines[0].strip() == "```" and lines[-1].strip() == "```":
+                cleaned = "\n".join(lines[1:-1]).strip()
 
         # Pattern 3: Inline code blocks with backticks (less common but possible)
-        elif cleaned.count('`') >= 2:
+        elif cleaned.count("`") >= 2:
             # Only clean if the entire content is wrapped in backticks
-            if cleaned.startswith('`') and cleaned.endswith('`'):
+            if cleaned.startswith("`") and cleaned.endswith("`"):
                 logger.info("Detected and removed inline code formatting")
-                cleaned = cleaned.strip('`').strip()
+                cleaned = cleaned.strip("`").strip()
 
         return cleaned
 
@@ -354,6 +359,7 @@ class BasicLLMCodeGenerator:
 
         try:
             import json
+
             prompts_dir = self._execution_folder / "prompts"
             prompts_dir.mkdir(exist_ok=True)
 
@@ -406,4 +412,3 @@ class BasicLLMCodeGenerator:
             Empty dictionary. Basic generator doesn't provide metadata.
         """
         return {}
-

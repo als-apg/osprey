@@ -69,6 +69,7 @@ except ImportError:
 # Context Class
 # ========================================================
 
+
 class TimeRangeContext(CapabilityContext):
     """Structured context for time range parsing results with datetime objects.
 
@@ -99,8 +100,9 @@ class TimeRangeContext(CapabilityContext):
        :meth:`TimeRangeParsingCapability.execute` : Main capability that creates this context
        :class:`TimeRangeOutput` : Pydantic model that provides data for this context
     """
+
     start_date: datetime  # Start date as datetime object
-    end_date: datetime    # End date as datetime object
+    end_date: datetime  # End date as datetime object
 
     # Class constants for compatibility
     CONTEXT_TYPE: ClassVar[str] = "TIME_RANGE"
@@ -127,8 +129,8 @@ class TimeRangeContext(CapabilityContext):
            Emphasizes the full datetime functionality available including arithmetic,
            comparison operations, and flexible formatting capabilities.
         """
-        start_str = self.start_date.strftime('%Y-%m-%d %H:%M:%S')
-        end_str = self.end_date.strftime('%Y-%m-%d %H:%M:%S')
+        start_str = self.start_date.strftime("%Y-%m-%d %H:%M:%S")
+        end_str = self.end_date.strftime("%Y-%m-%d %H:%M:%S")
         duration = self.end_date - self.start_date
 
         return {
@@ -138,9 +140,8 @@ class TimeRangeContext(CapabilityContext):
             "data_structure": "Two datetime objects: start_date and end_date with full datetime functionality",
             "access_pattern": f"context.{self.CONTEXT_TYPE}.{key}.start_date and context.{self.CONTEXT_TYPE}.{key}.end_date",
             "example_usage": f"context.{self.CONTEXT_TYPE}.{key}.start_date gives datetime object, use .strftime('%Y-%m-%d %H:%M:%S') for string format",
-            "datetime_features": "Direct arithmetic: end_date - start_date, comparison: start_date > other_date, formatting: start_date.strftime(format)"
+            "datetime_features": "Direct arithmetic: end_date - start_date, comparison: start_date > other_date, formatting: start_date.strftime(format)",
         }
-
 
     def get_summary(self) -> dict[str, Any]:
         """Generate summary for UI display and debugging.
@@ -161,12 +162,12 @@ class TimeRangeContext(CapabilityContext):
         duration = self.end_date - self.start_date
         return {
             "type": "Time Range",
-            "start_time": self.start_date.strftime('%Y-%m-%d %H:%M:%S'),
-            "end_time": self.end_date.strftime('%Y-%m-%d %H:%M:%S'),
+            "start_time": self.start_date.strftime("%Y-%m-%d %H:%M:%S"),
+            "end_time": self.end_date.strftime("%Y-%m-%d %H:%M:%S"),
             "duration": str(duration),
         }
 
-    @field_validator('start_date', 'end_date', mode='before')
+    @field_validator("start_date", "end_date", mode="before")
     @classmethod
     def validate_datetime(cls, v):
         """Validate and convert datetime inputs with comprehensive format support.
@@ -191,10 +192,10 @@ class TimeRangeContext(CapabilityContext):
         if isinstance(v, str):
             try:
                 # Try parsing ISO format strings with timezone info
-                if v.endswith('Z'):
+                if v.endswith("Z"):
                     # UTC timezone indicator
-                    return datetime.fromisoformat(v.replace('Z', '+00:00'))
-                elif '+' in v[-6:] or '-' in v[-6:]:
+                    return datetime.fromisoformat(v.replace("Z", "+00:00"))
+                elif "+" in v[-6:] or "-" in v[-6:]:
                     # Has timezone offset
                     return datetime.fromisoformat(v)
                 else:
@@ -203,18 +204,23 @@ class TimeRangeContext(CapabilityContext):
             except ValueError:
                 try:
                     # Fallback: try without timezone
-                    return datetime.strptime(v, '%Y-%m-%d %H:%M:%S')
+                    return datetime.strptime(v, "%Y-%m-%d %H:%M:%S")
                 except ValueError as e:
-                    raise ValueError(f"Invalid datetime string: {v}. Expected ISO format. Error: {e}") from e
+                    raise ValueError(
+                        f"Invalid datetime string: {v}. Expected ISO format. Error: {e}"
+                    ) from e
         elif isinstance(v, datetime):
             return v
         else:
-            raise ValueError(f"TimeRangeContext requires datetime objects or ISO datetime strings, got {type(v)}")
+            raise ValueError(
+                f"TimeRangeContext requires datetime objects or ISO datetime strings, got {type(v)}"
+            )
 
 
 # ========================================================
 # Time Parsing Errors
 # ========================================================
+
 
 class TimeParsingError(Exception):
     """Base exception class for time parsing-related errors.
@@ -230,7 +236,9 @@ class TimeParsingError(Exception):
        :class:`TimeParsingDependencyError` : Specific error for missing dependencies
        :meth:`TimeRangeParsingCapability.execute` : Main method that raises these errors
     """
+
     pass
+
 
 class InvalidTimeFormatError(TimeParsingError):
     """Raised when time expressions cannot be parsed into valid datetime ranges.
@@ -239,7 +247,9 @@ class InvalidTimeFormatError(TimeParsingError):
     expressions, malformed date ranges, or logically inconsistent temporal
     references that cannot be converted to valid datetime objects.
     """
+
     pass
+
 
 class AmbiguousTimeReferenceError(TimeParsingError):
     """Raised when time references are ambiguous or cannot be determined.
@@ -248,7 +258,9 @@ class AmbiguousTimeReferenceError(TimeParsingError):
     or contains ambiguous temporal expressions that cannot be resolved to
     specific datetime ranges without additional context.
     """
+
     pass
+
 
 class TimeParsingDependencyError(TimeParsingError):
     """Raised when required dependencies for time parsing are unavailable.
@@ -257,12 +269,14 @@ class TimeParsingDependencyError(TimeParsingError):
     dependencies that are not available in the current execution environment,
     such as missing query context or unavailable time reference data.
     """
+
     pass
 
 
 # ========================================================
 # Pydantic Models
 # ========================================================
+
 
 class TimeRange(BaseModel):
     """Simple time range model with start and end datetime objects.
@@ -276,8 +290,10 @@ class TimeRange(BaseModel):
     :param end_date: Ending datetime of the range
     :type end_date: datetime
     """
+
     start_date: datetime = Field(description="Start date and time")
     end_date: datetime = Field(description="End date and time")
+
 
 class TimeRangeOutput(BaseModel):
     """Structured output model for LLM-based time range parsing results.
@@ -306,14 +322,22 @@ class TimeRangeOutput(BaseModel):
        :class:`TimeRange` : Simpler time range model without detection flag
        :meth:`TimeRangeParsingCapability.execute` : Main capability method using this model
     """
-    start_date: datetime = Field(description="Start date and time as datetime object in YYYY-MM-DD HH:MM:SS format")
-    end_date: datetime = Field(description="End date and time as datetime object in YYYY-MM-DD HH:MM:SS format")
-    found: bool = Field(description="True if a valid time range was found in the query, False otherwise")
+
+    start_date: datetime = Field(
+        description="Start date and time as datetime object in YYYY-MM-DD HH:MM:SS format"
+    )
+    end_date: datetime = Field(
+        description="End date and time as datetime object in YYYY-MM-DD HH:MM:SS format"
+    )
+    found: bool = Field(
+        description="True if a valid time range was found in the query, False otherwise"
+    )
 
 
 # ========================================================
 # LLM Prompting System
 # ========================================================
+
 
 def _get_time_parsing_system_prompt(user_query: str) -> str:
     """Create comprehensive system prompt for LLM-based time range parsing.
@@ -348,17 +372,18 @@ def _get_time_parsing_system_prompt(user_query: str) -> str:
 
     # Use UTC timezone to avoid confusion
     now = datetime.now(UTC)
-    current_time_str = now.strftime('%Y-%m-%d %H:%M:%S')
-    current_weekday = now.strftime('%A')
+    current_time_str = now.strftime("%Y-%m-%d %H:%M:%S")
+    current_weekday = now.strftime("%A")
 
     # Calculate example dates for the prompt
-    two_hours_ago = (now - timedelta(hours=2)).strftime('%Y-%m-%d %H:%M:%S')
-    yesterday_start = (now - timedelta(days=1)).strftime('%Y-%m-%d') + ' 00:00:00'
-    yesterday_end = (now - timedelta(days=1)).strftime('%Y-%m-%d') + ' 23:59:59'
-    twenty_four_hours_ago = (now - timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S')
-    two_weeks_ago = (now - timedelta(days=14)).strftime('%Y-%m-%d %H:%M:%S')
+    two_hours_ago = (now - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")
+    yesterday_start = (now - timedelta(days=1)).strftime("%Y-%m-%d") + " 00:00:00"
+    yesterday_end = (now - timedelta(days=1)).strftime("%Y-%m-%d") + " 23:59:59"
+    twenty_four_hours_ago = (now - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
+    two_weeks_ago = (now - timedelta(days=14)).strftime("%Y-%m-%d %H:%M:%S")
 
-    prompt = textwrap.dedent(f"""
+    prompt = textwrap.dedent(
+        f"""
         You are an expert time range parser. Your task is to extract time ranges from user queries and convert them to absolute datetime values.
 
         Current time context:
@@ -416,7 +441,8 @@ def _get_time_parsing_system_prompt(user_query: str) -> str:
         The start_date and end_date fields should be datetime values in YYYY-MM-DD HH:MM:SS format
         that will be automatically converted to Python datetime objects.
 
-        User query to parse: {user_query}""")
+        User query to parse: {user_query}"""
+    )
 
     return prompt
 
@@ -424,6 +450,7 @@ def _get_time_parsing_system_prompt(user_query: str) -> str:
 # ========================================================
 # Convention-Based Capability Implementation
 # ========================================================
+
 
 @capability_node
 class TimeRangeParsingCapability(BaseCapability):
@@ -467,7 +494,9 @@ class TimeRangeParsingCapability(BaseCapability):
 
     # Required metadata (loaded through registry configuration)
     name = "time_range_parsing"
-    description = "Extract and parse time ranges from user queries into absolute datetime objects using LLM"
+    description = (
+        "Extract and parse time ranges from user queries into absolute datetime objects using LLM"
+    )
     provides = ["TIME_RANGE"]
     requires = []
 
@@ -535,11 +564,12 @@ class TimeRangeParsingCapability(BaseCapability):
 
             # Set caller context for API call logging (propagates through asyncio.to_thread)
             from osprey.models import set_api_call_context
+
             set_api_call_context(
                 function="execute",
                 module="time_range_parsing",
                 class_name="TimeRangeParsingCapability",
-                extra={"capability": "time_range_parsing"}
+                extra={"capability": "time_range_parsing"},
             )
 
             # LLM call with structured output
@@ -561,7 +591,9 @@ class TimeRangeParsingCapability(BaseCapability):
         logger.status("Validating parsed time range...")
 
         # Debug logging to see what LLM actually returned
-        logger.debug(f"LLM returned: start={response_data.start_date}, end={response_data.end_date}, found={response_data.found}")
+        logger.debug(
+            f"LLM returned: start={response_data.start_date}, end={response_data.end_date}, found={response_data.found}"
+        )
 
         # Check if the LLM found a valid time range
         if not response_data.found:
@@ -570,14 +602,25 @@ class TimeRangeParsingCapability(BaseCapability):
 
         # VALIDATION: Check for invalid date ranges
         if response_data.start_date >= response_data.end_date:
-            logger.error(f"⚠️ LLM returned INVALID date range: start={response_data.start_date} >= end={response_data.end_date}")
-            raise InvalidTimeFormatError(f"Invalid date range: start_date ({response_data.start_date}) must be before end_date ({response_data.end_date})")
+            logger.error(
+                f"⚠️ LLM returned INVALID date range: start={response_data.start_date} >= end={response_data.end_date}"
+            )
+            raise InvalidTimeFormatError(
+                f"Invalid date range: start_date ({response_data.start_date}) must be before end_date ({response_data.end_date})"
+            )
 
         # VALIDATION: Check for future years (likely LLM error)
         current_year = datetime.now().year
-        if response_data.start_date.year > current_year or response_data.end_date.year > current_year:
-            logger.error(f"⚠️ LLM returned FUTURE year: start={response_data.start_date}, end={response_data.end_date}, current_year={current_year}")
-            raise InvalidTimeFormatError(f"Invalid date range: dates cannot be in future years (current year: {current_year})")
+        if (
+            response_data.start_date.year > current_year
+            or response_data.end_date.year > current_year
+        ):
+            logger.error(
+                f"⚠️ LLM returned FUTURE year: start={response_data.start_date}, end={response_data.end_date}, current_year={current_year}"
+            )
+            raise InvalidTimeFormatError(
+                f"Invalid date range: dates cannot be in future years (current year: {current_year})"
+            )
 
         logger.status("Creating time range context...")
 
@@ -588,8 +631,8 @@ class TimeRangeParsingCapability(BaseCapability):
         )
 
         # Display parsed result with structured formatting
-        start_str = time_context.start_date.strftime('%Y-%m-%d %H:%M:%S')
-        end_str = time_context.end_date.strftime('%Y-%m-%d %H:%M:%S')
+        start_str = time_context.start_date.strftime("%Y-%m-%d %H:%M:%S")
+        end_str = time_context.end_date.strftime("%Y-%m-%d %H:%M:%S")
         logger.info("[bold]Parsed time range:[/bold]")
         logger.info(f"  Start: [cyan]{start_str}[/cyan]")
         logger.info(f"  End:   [cyan]{end_str}[/cyan]")
@@ -641,46 +684,46 @@ class TimeRangeParsingCapability(BaseCapability):
             return ErrorClassification(
                 severity=ErrorSeverity.RETRIABLE,
                 user_message="Invalid time format detected, retrying",
-                metadata={"technical_details": str(exc)}
+                metadata={"technical_details": str(exc)},
             )
         elif isinstance(exc, AmbiguousTimeReferenceError):
             return ErrorClassification(
                 severity=ErrorSeverity.REPLANNING,
                 user_message="Unable to identify time reference in query, please clarify the time period",
-                metadata={"technical_details": str(exc)}
+                metadata={"technical_details": str(exc)},
             )
         elif isinstance(exc, TimeParsingDependencyError):
             return ErrorClassification(
                 severity=ErrorSeverity.REPLANNING,
                 user_message="Missing required information for time parsing",
-                metadata={"technical_details": str(exc)}
+                metadata={"technical_details": str(exc)},
             )
         elif isinstance(exc, TimeParsingError):
             return ErrorClassification(
                 severity=ErrorSeverity.RETRIABLE,
                 user_message="Time parsing failed, retrying...",
-                metadata={"technical_details": str(exc)}
+                metadata={"technical_details": str(exc)},
             )
         # Handle permission/configuration errors
         elif "permission" in str(exc).lower():
             return ErrorClassification(
                 severity=ErrorSeverity.CRITICAL,
                 user_message="Permission denied for time parsing operations",
-                metadata={"technical_details": str(exc)}
+                metadata={"technical_details": str(exc)},
             )
         # Retry on temporary issues
-        elif any(keyword in str(exc).lower() for keyword in ['timeout', 'connection', 'temporary']):
+        elif any(keyword in str(exc).lower() for keyword in ["timeout", "connection", "temporary"]):
             return ErrorClassification(
                 severity=ErrorSeverity.RETRIABLE,
                 user_message="Temporary system issue, retrying time parsing...",
-                metadata={"technical_details": str(exc)}
+                metadata={"technical_details": str(exc)},
             )
         # Default: critical for unknown errors
         else:
             return ErrorClassification(
                 severity=ErrorSeverity.CRITICAL,
                 user_message=f"Time parsing failed: {exc}",
-                metadata={"technical_details": str(exc)}
+                metadata={"technical_details": str(exc)},
             )
 
     def _create_orchestrator_guide(self) -> OrchestratorGuide | None:

@@ -27,7 +27,9 @@ logger = get_logger(name="builder", color="white")
 
 class GraphBuildError(Exception):
     """Raised when graph building fails due to configuration issues."""
+
     pass
+
 
 def create_graph(
     registry: RegistryManager,
@@ -80,12 +82,16 @@ def create_graph(
             except Exception as e:
                 # Fall back to memory saver if PostgreSQL fails
                 logger.warning(f"PostgreSQL checkpointer failed: {e}")
-                logger.info("Falling back to in-memory checkpointer (install 'langgraph-checkpoint-postgres psycopg[pool]' for production)")
+                logger.info(
+                    "Falling back to in-memory checkpointer (install 'langgraph-checkpoint-postgres psycopg[pool]' for production)"
+                )
                 checkpointer = create_memory_checkpointer()
         else:
             # Default to memory saver for R&D mode
             checkpointer = create_memory_checkpointer()
-            logger.info("Using in-memory checkpointer for R&D mode (use use_postgres=True for production)")
+            logger.info(
+                "Using in-memory checkpointer for R&D mode (use use_postgres=True for production)"
+            )
     else:
         # User provided checkpointer
         checkpointer_type = type(checkpointer).__name__
@@ -123,17 +129,16 @@ def create_graph(
     _setup_router_controlled_flow(workflow, node_names)
 
     # Compile with LangGraph native features - async checkpointing always enabled
-    compile_kwargs = {
-        "debug": enable_debug,
-        "checkpointer": checkpointer
-    }
+    compile_kwargs = {"debug": enable_debug, "checkpointer": checkpointer}
 
     compiled_graph = workflow.compile(**compile_kwargs)
 
     # Final success message with correct checkpointer type
     checkpointer_type = type(checkpointer).__name__
     mode = "production" if use_postgres or checkpointer_type == "PostgresSaver" else "R&D"
-    logger.success(f"Successfully created async framework graph with {len(all_nodes)} nodes and {checkpointer_type} checkpointing enabled ({mode} mode)")
+    logger.success(
+        f"Successfully created async framework graph with {len(all_nodes)} nodes and {checkpointer_type} checkpointing enabled ({mode} mode)"
+    )
 
     return compiled_graph
 
@@ -160,14 +165,15 @@ def _setup_router_controlled_flow(workflow: StateGraph, node_names):
             # All business logic nodes route back to router for next decision
             workflow.add_edge(name, "router")
 
-    logger.debug("Set up router-controlled execution flow with router as central decision authority")
-
-
+    logger.debug(
+        "Set up router-controlled execution flow with router as central decision authority"
+    )
 
 
 # ==============================================================================
 # Checkpointing - Modern PostgreSQL by Default
 # ==============================================================================
+
 
 def create_async_postgres_checkpointer(db_uri: str | None = None) -> BaseCheckpointSaver:
     """
@@ -189,7 +195,7 @@ def create_async_postgres_checkpointer(db_uri: str | None = None) -> BaseCheckpo
 
     # Get database URI from parameter, environment, or default
     if db_uri is None:
-        db_uri = os.getenv('POSTGRESQL_URI')
+        db_uri = os.getenv("POSTGRESQL_URI")
         if db_uri is None:
             # Default to local development database
             db_uri = "postgresql://postgres:postgres@localhost:5432/osprey"
@@ -217,7 +223,7 @@ def create_async_postgres_checkpointer(db_uri: str | None = None) -> BaseCheckpo
                 "autocommit": True,
                 "row_factory": dict_row,
                 "prepare_threshold": 0,
-            }
+            },
         )
 
         # Create PostgresSaver with sync connection (works with async graphs)
@@ -237,14 +243,15 @@ def create_async_postgres_checkpointer(db_uri: str | None = None) -> BaseCheckpo
 def create_memory_checkpointer() -> BaseCheckpointSaver:
     """Create in-memory checkpointer for testing and development."""
     from langgraph.checkpoint.memory import MemorySaver
+
     logger.info("Created in-memory checkpointer (for testing/development)")
     return MemorySaver()
-
 
 
 # ==============================================================================
 # Setup Functions for Database Initialization
 # ==============================================================================
+
 
 async def setup_postgres_checkpointer(checkpointer: BaseCheckpointSaver) -> None:
     """
@@ -269,6 +276,3 @@ async def setup_postgres_checkpointer(checkpointer: BaseCheckpointSaver) -> None
     except Exception as e:
         logger.error(f"Failed to set up PostgreSQL checkpointer: {e}")
         raise
-
-
-

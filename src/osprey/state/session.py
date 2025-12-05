@@ -126,9 +126,9 @@ class SessionContext(TypedDict, total=False):
        :class:`osprey.state.AgentState` : Main state using session context
        :class:`osprey.state.AgentControlState` : Control state affected by user valves
     """
-    user_id: str | None          # Unique identifier for the user
-    chat_id: str | None          # Unique identifier for the chat session
-    session_id: str | None       # Unique identifier for the session
-    session_url: str | None      # URL associated with the session
-    user_valves: Any | None      # User-specific configuration overrides
 
+    user_id: str | None  # Unique identifier for the user
+    chat_id: str | None  # Unique identifier for the chat session
+    session_id: str | None  # Unique identifier for the session
+    session_url: str | None  # URL associated with the session
+    user_valves: Any | None  # User-specific configuration overrides

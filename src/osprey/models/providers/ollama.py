@@ -27,11 +27,7 @@ class OllamaProviderAdapter(BaseProvider):
     default_base_url = "http://localhost:11434"
     default_model_id = "mistral:7b"  # Mistral 7B as recommended default
     health_check_model_id = "mistral:7b"  # Same for health check (local, no cost)
-    available_models = [
-        "mistral:7b",
-        "gpt-oss:20b",
-        "gpt-oss:120b"
-    ]
+    available_models = ["mistral:7b", "gpt-oss:20b", "gpt-oss:120b"]
 
     # API key acquisition information
     api_key_url = None
@@ -47,20 +43,17 @@ class OllamaProviderAdapter(BaseProvider):
             # Running in container but Ollama might be on localhost
             fallback_urls = [
                 base_url.replace("host.containers.internal", "localhost"),
-                "http://localhost:11434"
+                "http://localhost:11434",
             ]
         elif "localhost" in base_url:
             # Running locally but Ollama might be in container context
             fallback_urls = [
                 base_url.replace("localhost", "host.containers.internal"),
-                "http://host.containers.internal:11434"
+                "http://host.containers.internal:11434",
             ]
         else:
             # Generic fallbacks for other scenarios
-            fallback_urls = [
-                "http://localhost:11434",
-                "http://host.containers.internal:11434"
-            ]
+            fallback_urls = ["http://localhost:11434", "http://host.containers.internal:11434"]
 
         return fallback_urls
 
@@ -69,7 +62,8 @@ class OllamaProviderAdapter(BaseProvider):
         """Test if Ollama is accessible at the given URL."""
         try:
             import requests
-            test_url = base_url.rstrip('/') + '/v1/models'
+
+            test_url = base_url.rstrip("/") + "/v1/models"
             response = requests.get(test_url, timeout=2)
             return response.status_code == 200
         except Exception:
@@ -81,12 +75,12 @@ class OllamaProviderAdapter(BaseProvider):
         api_key: str | None,
         base_url: str | None,
         timeout: float | None,
-        http_client: httpx.AsyncClient | None
+        http_client: httpx.AsyncClient | None,
     ) -> OpenAIModel:
         """Create Ollama model instance with fallback support."""
         effective_base_url = base_url
-        if not base_url.endswith('/v1'):
-            effective_base_url = base_url.rstrip('/') + '/v1'
+        if not base_url.endswith("/v1"):
+            effective_base_url = base_url.rstrip("/") + "/v1"
 
         # Test primary URL first
         if self._test_connection(base_url):
@@ -111,8 +105,8 @@ class OllamaProviderAdapter(BaseProvider):
 
             if working_url:
                 effective_base_url = working_url
-                if not working_url.endswith('/v1'):
-                    effective_base_url = working_url.rstrip('/') + '/v1'
+                if not working_url.endswith("/v1"):
+                    effective_base_url = working_url.rstrip("/") + "/v1"
             else:
                 # All connection attempts failed
                 raise ValueError(
@@ -126,7 +120,7 @@ class OllamaProviderAdapter(BaseProvider):
             client_args = {
                 "api_key": api_key or "ollama",  # Ollama doesn't need real key
                 "http_client": http_client,
-                "base_url": effective_base_url
+                "base_url": effective_base_url,
             }
             openai_client = openai.AsyncOpenAI(**client_args)
         else:
@@ -134,7 +128,7 @@ class OllamaProviderAdapter(BaseProvider):
             client_args = {
                 "api_key": api_key or "ollama",
                 "timeout": effective_timeout,
-                "base_url": effective_base_url
+                "base_url": effective_base_url,
             }
             openai_client = openai.AsyncOpenAI(**client_args)
 
@@ -156,7 +150,7 @@ class OllamaProviderAdapter(BaseProvider):
         thinking: dict | None = None,
         system_prompt: str | None = None,
         output_format: Any | None = None,
-        **kwargs
+        **kwargs,
     ) -> str | Any:
         """Execute Ollama chat completion with fallback support."""
         # Ollama connection with graceful fallback for development workflows
@@ -200,11 +194,11 @@ class OllamaProviderAdapter(BaseProvider):
                 )
 
         # Build request
-        chat_messages = [{'role': 'user', 'content': message}]
+        chat_messages = [{"role": "user", "content": message}]
 
         options = {}
         if max_tokens is not None:
-            options['num_predict'] = max_tokens
+            options["num_predict"] = max_tokens
 
         request_args = {
             "model": model_id,
@@ -227,7 +221,7 @@ class OllamaProviderAdapter(BaseProvider):
             )
 
         # Extract content from response
-        ollama_content_str = response['message']['content']
+        ollama_content_str = response["message"]["content"]
 
         # Handle typed dict output flag
         is_typed_dict_output = kwargs.get("is_typed_dict_output", False)
@@ -235,7 +229,7 @@ class OllamaProviderAdapter(BaseProvider):
         if output_format is not None:
             # Validate the JSON string from Ollama against the Pydantic model
             result = output_format.model_validate_json(ollama_content_str.strip())
-            if is_typed_dict_output and hasattr(result, 'model_dump'):
+            if is_typed_dict_output and hasattr(result, "model_dump"):
                 return result.model_dump()
             return result
         else:
@@ -247,7 +241,7 @@ class OllamaProviderAdapter(BaseProvider):
         api_key: str | None,
         base_url: str | None,
         timeout: float = 5.0,
-        model_id: str | None = None
+        model_id: str | None = None,
     ) -> tuple[bool, str]:
         """Check Ollama connectivity (no API key needed)."""
         if not base_url:
@@ -260,4 +254,3 @@ class OllamaProviderAdapter(BaseProvider):
                 return False, f"Not accessible at {base_url}"
         except Exception as e:
             return False, f"Connection test failed: {str(e)[:50]}"
-

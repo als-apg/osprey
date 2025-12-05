@@ -120,27 +120,25 @@ from .manager import RegistryManager, get_registry, initialize_registry, registr
 
 __all__ = [
     # Core registry system
-    'RegistryManager',
-    'get_registry',
-    'initialize_registry',
-    'reset_registry',
-    'registry',
-
+    "RegistryManager",
+    "get_registry",
+    "initialize_registry",
+    "reset_registry",
+    "registry",
     # Configuration classes for applications
-    'RegistryConfigProvider',
-    'NodeRegistration',
-    'CapabilityRegistration',
-    'ContextClassRegistration',
-    'DataSourceRegistration',
-    'ServiceRegistration',
-    'FrameworkPromptProviderRegistration',
-    'ProviderRegistration',
-    'ConnectorRegistration',
-    'RegistryConfig',
-    'ExtendedRegistryConfig',
-
+    "RegistryConfigProvider",
+    "NodeRegistration",
+    "CapabilityRegistration",
+    "ContextClassRegistration",
+    "DataSourceRegistration",
+    "ServiceRegistration",
+    "FrameworkPromptProviderRegistration",
+    "ProviderRegistration",
+    "ConnectorRegistration",
+    "RegistryConfig",
+    "ExtendedRegistryConfig",
     # Helper functions (NEW - Phase 4.6)
-    'extend_framework_registry',
-    'get_framework_defaults',
-    'generate_explicit_registry_code',
+    "extend_framework_registry",
+    "get_framework_defaults",
+    "generate_explicit_registry_code",
 ]

@@ -116,11 +116,12 @@ class ErrorSeverity(Enum):
        :class:`ErrorClassification` : Structured error analysis with severity
        :class:`ExecutionError` : Comprehensive error information container
     """
-    CRITICAL = "critical"           # End execution
-    RETRIABLE = "retriable"         # Retry execution step
-    REPLANNING = "replanning"       # Replan the execution plan
+
+    CRITICAL = "critical"  # End execution
+    RETRIABLE = "retriable"  # Retry execution step
+    REPLANNING = "replanning"  # Replan the execution plan
     RECLASSIFICATION = "reclassification"  # Reclassify task capabilities
-    FATAL = "fatal"                 # System-level failure - raise exception immediately
+    FATAL = "fatal"  # System-level failure - raise exception immediately
 
 
 @dataclass
@@ -211,6 +212,7 @@ class ErrorClassification:
        :class:`ErrorSeverity` : Severity levels and recovery strategies
        :class:`ExecutionError` : Complete error information container
     """
+
     severity: ErrorSeverity
     user_message: str | None = None
     metadata: dict[str, Any] | None = None
@@ -250,7 +252,7 @@ class ErrorClassification:
         # Build basic error context sections
         sections = [
             "**Previous Execution Error:**",
-            f"- **User Message:** {self.user_message or 'No error message available'}"
+            f"- **User Message:** {self.user_message or 'No error message available'}",
         ]
 
         # Add metadata if available
@@ -258,11 +260,11 @@ class ErrorClassification:
             # Process all metadata keys generically
             for key, value in self.metadata.items():
                 # Format key name for display (convert snake_case to Title Case)
-                display_key = key.replace('_', ' ').title()
+                display_key = key.replace("_", " ").title()
 
                 # Handle different value types appropriately
                 if isinstance(value, (list, tuple)):
-                    formatted_value = ', '.join(str(item) for item in value)
+                    formatted_value = ", ".join(str(item) for item in value)
                 elif isinstance(value, dict):
                     try:
                         formatted_value = json.dumps(value, indent=2)
@@ -273,7 +275,7 @@ class ErrorClassification:
 
                 sections.append(f"- **{display_key}:** {formatted_value}")
 
-        return '\n'.join(sections)
+        return "\n".join(sections)
 
 
 @dataclass
@@ -354,12 +356,12 @@ class ExecutionError:
        :class:`ErrorClassification` : Error analysis and classification system
        :class:`ExecutionResult` : Result containers with error integration
     """
+
     severity: ErrorSeverity
     message: str
     capability_name: str | None = None  # Which capability generated this error
 
     metadata: dict[str, Any] | None = None  # Structured error context and debugging information
-
 
 
 # Framework-specific exception classes
@@ -370,6 +372,7 @@ class FrameworkError(Exception):
     Osprey Framework. It provides a common base for framework-specific
     error handling and categorization.
     """
+
     pass
 
 
@@ -379,6 +382,7 @@ class RegistryError(FrameworkError):
     Raised when issues occur with component registration, lookup, or
     management within the framework's registry system.
     """
+
     pass
 
 
@@ -388,6 +392,7 @@ class ConfigurationError(FrameworkError):
     Raised when configuration files are invalid, missing required settings,
     or contain incompatible values that prevent proper system operation.
     """
+
     pass
 
 
@@ -401,4 +406,5 @@ class ReclassificationRequiredError(FrameworkError):
     - No active capabilities are found for the task
     - Task extraction fails to identify proper task requirements
     """
+
     pass

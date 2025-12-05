@@ -7,7 +7,7 @@ def get_prompt(
     atomic_query: str,
     channel_database: str,
     facility_name: str = "UCSB FEL",
-    facility_description: str = None
+    facility_description: str = None,
 ) -> str:
     """Prompt for Stage 2: Channel matching.
 
@@ -23,9 +23,11 @@ def get_prompt(
     # Use provided description or fall back to default
     if facility_description is None:
         from .system import facility_description as default_desc
+
         facility_description = default_desc
 
-    return textwrap.dedent(f"""
+    return textwrap.dedent(
+        f"""
         You are a channel finder for the UCSB Free Electron Laser (FEL) facility.
 
         FACILITY CONTEXT:
@@ -85,5 +87,5 @@ def get_prompt(
         Return JSON with:
         - "channels_found": boolean
         - "channels": list of exact channel names
-        """).strip()
-
+        """
+    ).strip()

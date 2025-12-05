@@ -33,7 +33,8 @@ class DefaultTimeRangeParsingPromptBuilder(FrameworkPromptBuilder):
 
     def get_instructions(self) -> str:
         """Get the instructions for time range parsing."""
-        return textwrap.dedent("""
+        return textwrap.dedent(
+            """
             INSTRUCTIONS:
             1. Identify time references in the user query (relative, absolute, or implicit)
             2. Convert all time expressions to absolute datetime values
@@ -45,7 +46,8 @@ class DefaultTimeRangeParsingPromptBuilder(FrameworkPromptBuilder):
             - Relative: "last X hours/days", "yesterday", "this week"
             - Absolute: "from YYYY-MM-DD to YYYY-MM-DD"
             - Implicit: "current", "recent" (default to last few minutes)
-            """).strip()
+            """
+        ).strip()
 
     def get_orchestrator_guide(self) -> OrchestratorGuide | None:
         """Create orchestrator guide for time range parsing."""
@@ -59,10 +61,10 @@ class DefaultTimeRangeParsingPromptBuilder(FrameworkPromptBuilder):
                 task_objective="Parse 'last week' time reference into absolute datetime objects",
                 expected_output=registry.context_types.TIME_RANGE,
                 success_criteria="Time range successfully parsed to absolute datetime objects",
-                inputs=[]
+                inputs=[],
             ),
             scenario_description="Parsing relative time references like 'last hour', 'yesterday'",
-            notes=f"Output stored under {registry.context_types.TIME_RANGE} context type as datetime objects with full datetime functionality."
+            notes=f"Output stored under {registry.context_types.TIME_RANGE} context type as datetime objects with full datetime functionality.",
         )
 
         absolute_time_example = OrchestratorExample(
@@ -72,10 +74,10 @@ class DefaultTimeRangeParsingPromptBuilder(FrameworkPromptBuilder):
                 task_objective="Parse explicit datetime range '2024-01-15 09:00:00 to 2024-01-15 21:00:00' and validate format",
                 expected_output=registry.context_types.TIME_RANGE,
                 success_criteria="Explicit time range validated and converted to datetime objects",
-                inputs=[]
+                inputs=[],
             ),
             scenario_description="Parsing explicit time ranges in YYYY-MM-DD HH:MM:SS format",
-            notes=f"Output stored under {registry.context_types.TIME_RANGE} context type. Validates and converts user-provided time ranges to datetime objects"
+            notes=f"Output stored under {registry.context_types.TIME_RANGE} context type. Validates and converts user-provided time ranges to datetime objects",
         )
 
         implicit_time_example = OrchestratorExample(
@@ -85,14 +87,15 @@ class DefaultTimeRangeParsingPromptBuilder(FrameworkPromptBuilder):
                 task_objective="Infer appropriate time range for current beam energy data request (last 5 minutes)",
                 expected_output=registry.context_types.TIME_RANGE,
                 success_criteria="Appropriate time range inferred and converted to datetime objects",
-                inputs=[]
+                inputs=[],
             ),
             scenario_description="Inferring time ranges for 'current' or 'recent' data requests",
-            notes=f"Output stored under {registry.context_types.TIME_RANGE} context type. Provides sensible defaults (e.g., last few minutes) as datetime objects"
+            notes=f"Output stored under {registry.context_types.TIME_RANGE} context type. Provides sensible defaults (e.g., last few minutes) as datetime objects",
         )
 
         return OrchestratorGuide(
-            instructions=textwrap.dedent(f"""
+            instructions=textwrap.dedent(
+                f"""
                 **When to plan "time_range_parsing" steps:**
                 - When tasks require time-based data (historical trends, archiver data, logs)
                 - When user queries contain time references that need to be converted to absolute datetime objects
@@ -120,9 +123,10 @@ class DefaultTimeRangeParsingPromptBuilder(FrameworkPromptBuilder):
 
                 ALWAYS plan this step when any time-based data operations are needed,
                 regardless of whether the user provides explicit time ranges or relative time descriptions.
-                """),
+                """
+            ),
             examples=[relative_time_example, absolute_time_example, implicit_time_example],
-            priority=5
+            priority=5,
         )
 
     def get_classifier_guide(self) -> TaskClassifierGuide | None:
@@ -133,43 +137,43 @@ class DefaultTimeRangeParsingPromptBuilder(FrameworkPromptBuilder):
                 ClassifierExample(
                     query="Which tools do you have?",
                     result=False,
-                    reason="This is a question about AI capabilities, no time range needed."
+                    reason="This is a question about AI capabilities, no time range needed.",
                 ),
                 ClassifierExample(
                     query="Plot the beam current for the last 2 hours",
                     result=True,
-                    reason="Request involves time range ('last 2 hours') that needs parsing."
+                    reason="Request involves time range ('last 2 hours') that needs parsing.",
                 ),
                 ClassifierExample(
                     query="What is the current beam energy?",
                     result=False,
-                    reason="Request is for current value, no time range needed."
+                    reason="Request is for current value, no time range needed.",
                 ),
                 ClassifierExample(
                     query="Show me vacuum trends from yesterday",
                     result=True,
-                    reason="Request involves time range ('yesterday') that needs parsing."
+                    reason="Request involves time range ('yesterday') that needs parsing.",
                 ),
                 ClassifierExample(
                     query="Get historical data from 2024-01-15 09:00:00 to 2024-01-15 21:00:00",
                     result=True,
-                    reason="Request has explicit time range that needs parsing and validation."
+                    reason="Request has explicit time range that needs parsing and validation.",
                 ),
                 ClassifierExample(
                     query="How does the accelerator work?",
                     result=False,
-                    reason="This is a general question about accelerator principles, no time data needed."
+                    reason="This is a general question about accelerator principles, no time data needed.",
                 ),
                 ClassifierExample(
                     query="Show recent trends",
                     result=True,
-                    reason="Request involves implicit time range ('recent') that needs parsing."
+                    reason="Request involves implicit time range ('recent') that needs parsing.",
                 ),
                 ClassifierExample(
                     query="Show me some data",
                     result=False,
-                    reason="Request does not involve time range."
+                    reason="Request does not involve time range.",
                 ),
             ],
-            actions_if_true=ClassifierActions()
+            actions_if_true=ClassifierActions(),
         )

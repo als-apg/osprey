@@ -862,9 +862,301 @@ That's it—no code changes required. The template includes complete implementat
               - ``name``: Level identifier used in navigation and naming pattern
               - ``type``: Either ``"tree"`` (navigate through named semantic categories like MAG, VAC, RF) or ``"instances"`` (expand numbered/patterned instances like QF01, QF02 that share the same structure)
 
-              Define as many or as few levels as your system needs—three levels for simple systems, five for typical accelerators, ten or more for complex facilities. The system validates that all level names appear exactly once in the naming pattern.
+              Define as many or as few levels as your system needs—three levels for simple systems, five for typical accelerators, ten or more for complex facilities.
 
-            - **naming_pattern**: Template for assembling complete channel names from navigation selections. Uses Python format string syntax with level names as placeholders (e.g., ``{system}:{device}:{field}``). Must reference all and only the level names defined in the levels array.
+            - **naming_pattern**: Template for assembling complete channel names from navigation selections. Uses Python format string syntax with level names as placeholders (e.g., ``{system}:{device}:{field}``). All placeholders must reference defined level names.
+
+            .. dropdown:: **New in v0.9.6**: Advanced Hierarchy Patterns
+               :color: info
+               :icon: versions
+
+               Three advanced features enable flexible hierarchical organization for diverse control system naming conventions:
+
+               .. tab-set::
+
+                  .. tab-item:: Navigation-Only Levels
+
+                     **Use Case**: Provide semantic navigation context without cluttering channel names. Perfect when your PV names are self-contained but benefit from hierarchical browsing.
+
+                     **How It Works**: Not all hierarchy levels need to appear in the naming pattern. Omit levels from ``naming_pattern`` to use them for navigation only.
+
+                     **Example** (JLab CEBAF pattern):
+
+                     .. code-block:: json
+
+                        {
+                          "hierarchy": {
+                            "levels": [
+                              {"name": "system", "type": "tree"},      // Navigation only
+                              {"name": "family", "type": "tree"},      // Navigation only
+                              {"name": "location", "type": "tree"},    // Navigation only
+                              {"name": "pv", "type": "tree"}           // Used in pattern ✓
+                            ],
+                            "naming_pattern": "{pv}"
+                          },
+                          "tree": {
+                            "Magnets": {
+                              "Skew Quads": {
+                                "North Linac": {
+                                  "MQS1L02.S": {"_description": "Current Setpoint"},
+                                  "MQS1L02M": {"_description": "Current Readback"}
+                                }
+                              }
+                            }
+                          }
+                        }
+
+                     **Navigation Path**: ``Magnets → Skew Quads → North Linac → MQS1L02.S``
+
+                     **Generated Channel**: ``MQS1L02.S``
+
+                     **Benefits**:
+
+                     - Clean semantic navigation through system hierarchy
+                     - Channel names stay concise (just the PV string)
+                     - Backward compatible with existing PV naming schemes
+                     - LLM gets rich context from navigation levels for better matching
+
+                     **Example Database**: ``hierarchical_jlab_style.json``
+
+                  .. tab-item:: Friendly Names
+
+                     **Use Case**: Use human-readable names for navigation while preserving technical naming conventions in channel names. Separate "what operators call it" from "what the control system needs".
+
+                     **How It Works**: Add ``_channel_part`` field to tree nodes to decouple the tree key (navigation) from the naming component (channel name).
+
+                     **Example**:
+
+                     .. code-block:: json
+
+                        {
+                          "hierarchy": {
+                            "levels": [
+                              {"name": "system", "type": "tree"},
+                              {"name": "device", "type": "tree"}
+                            ],
+                            "naming_pattern": "{system}:{device}"
+                          },
+                          "tree": {
+                            "Magnets": {
+                              "_channel_part": "MAG",
+                              "_description": "Magnet control system",
+                              "Skew Quadrupoles": {
+                                "_channel_part": "SK",
+                                "_description": "Skew quadrupole family"
+                              }
+                            }
+                          }
+                        }
+
+                     **Navigation Path**: ``Magnets → Skew Quadrupoles``
+
+                     **Generated Channel**: ``MAG:SK``
+
+                     **Key Features**:
+
+                     - ``_channel_part`` defaults to tree key (backward compatible)
+                     - Empty string ``_channel_part: ""`` creates navigation-only nodes
+                     - Mix and match: some levels with ``_channel_part``, some without
+                     - Works with instance expansion (``_expansion``)
+
+                     **Benefits**:
+
+                     - Operators navigate using familiar terminology
+                     - Channel names use facility-specific technical codes
+                     - Easier onboarding for new operators (friendly names in navigation)
+                     - Maintains compatibility with existing control systems
+
+                     **Example Database**: ``hierarchical_jlab_style.json``
+
+                  .. tab-item:: Optional Levels
+
+                     **Use Case**: Generate both base channels AND variants with additional suffixes/subdevices. Common for signals that have setpoint/readback pairs or channels that optionally include intermediate levels.
+
+                     **How It Works**: Mark levels as ``"optional": true`` in hierarchy definition. Nodes without children are automatically detected as leaves. Use ``_is_leaf: true`` ONLY on nodes that have children but are also complete channels themselves.
+
+                     **Example** (Signal with optional suffix):
+
+                     .. code-block:: json
+
+                        {
+                          "hierarchy": {
+                            "levels": [
+                              {"name": "system", "type": "tree"},
+                              {"name": "device", "type": "instances"},
+                              {"name": "signal", "type": "tree"},
+                              {"name": "suffix", "type": "tree", "optional": true}
+                            ],
+                            "naming_pattern": "{system}-{device}:{signal}_{suffix}"
+                          },
+                          "tree": {
+                            "SYSTEM": {
+                              "DEVICE": {
+                                "_expansion": {
+                                  "_type": "range",
+                                  "_pattern": "DEV-{:02d}",
+                                  "_range": [1, 10]
+                                },
+                                "SIGNAL-Y": {
+                                  "_is_leaf": true,
+                                  "_description": "Base signal - also has RB/SP variants (explicit _is_leaf needed)",
+                                  "RB": {
+                                    "_description": "Readback variant (already a leaf - no _is_leaf needed)"
+                                  },
+                                  "SP": {
+                                    "_description": "Setpoint variant (already a leaf - no _is_leaf needed)"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+
+                     **Generated Channels**:
+
+                     - ``SYSTEM-DEV-01:SIGNAL-Y`` (base, skips optional suffix)
+                     - ``SYSTEM-DEV-01:SIGNAL-Y_RB`` (with RB suffix)
+                     - ``SYSTEM-DEV-01:SIGNAL-Y_SP`` (with SP suffix)
+
+                     **Key Features**:
+
+                     - ``_is_leaf: true`` marks a node as a complete channel
+                     - Leaf nodes can still have children (for optional levels)
+                     - Automatic separator cleanup (removes ``::`` and trailing ``_``)
+                     - Multiple optional levels can be chained
+
+                     **Benefits**:
+
+                     - Single definition generates both base and variant channels
+                     - Handles complex naming conventions (e.g., with/without subdevices)
+                     - Explicit leaf marking makes intent clear
+                     - Supports gradual migration (some devices with sublevels, some without)
+
+                     **Example Database**: ``optional_levels.json`` (82 channels demonstrating optional levels and separator overrides)
+
+                  .. tab-item:: Custom Separators
+
+                     **Use Case**: Override default separators for specific nodes to match existing EPICS naming conventions that use different delimiters in different contexts.
+
+                     **How It Works**: Add ``_separator`` metadata to any tree node to customize the separator before its children, overriding the default from the naming pattern.
+
+                     **Simple Example**:
+
+                     Your naming pattern uses colons everywhere:
+
+                     .. code-block:: json
+
+                        {
+                          "hierarchy": {
+                            "naming_pattern": "{system}:{device}:{signal}:{suffix}"
+                          }
+                        }
+
+                     Default behavior (all colons):
+
+                     .. code-block:: text
+
+                        CTRL:DEV-01:Mode:RB       (colon before RB)
+                        CTRL:DEV-01:MOTOR:Position (colon before Position)
+
+                     But your facility's actual PV convention uses:
+
+                     - Underscore (``_``) for record field suffixes (RB, SP, CMD)
+                     - Dot (``.``) for motor subsystem navigation
+
+                     **Solution - Add separator overrides**:
+
+                     .. code-block:: json
+
+                        {
+                          "tree": {
+                            "CTRL": {
+                              "DEVICE": {
+                                "_expansion": {"_instances": ["DEV-01", "DEV-02"]},
+
+                                "Mode": {
+                                  "_separator": "_",
+                                  "_is_leaf": true,
+                                  "_description": "Operating mode",
+                                  "RB": {"_description": "Readback"},
+                                  "SP": {"_description": "Setpoint"}
+                                },
+
+                                "MOTOR": {
+                                  "_separator": ".",
+                                  "_description": "Motor subsystem",
+                                  "Position": {"_description": "Position"},
+                                  "Velocity": {"_description": "Velocity"}
+                                }
+                              }
+                            }
+                          }
+                        }
+
+                     **Result - Matches your convention**:
+
+                     .. code-block:: text
+
+                        CTRL:DEV-01:Mode_RB        (underscore from _separator)
+                        CTRL:DEV-01:Mode_SP        (underscore from _separator)
+                        CTRL:DEV-01:MOTOR.Position (dot from _separator)
+                        CTRL:DEV-01:MOTOR.Velocity (dot from _separator)
+
+                     **Why This Matters**:
+
+                     Many EPICS facilities have evolved naming conventions where:
+
+                     - Historical subsystems use dots: ``OLD:MOTOR.Speed``
+                     - Modern subsystems use colons: ``NEW:MOTOR:Speed``
+                     - Record fields always use underscores: ``DEV:Signal_RB``
+
+                     Without separator overrides, you'd need separate databases or complex restructuring. With overrides, each node declares its own separator independently.
+
+                     **Multiple Overrides in One Path**:
+
+                     Different nodes can override independently:
+
+                     .. code-block:: json
+
+                        "LEGACY": {
+                          "_separator": ".",
+                          "CTRL": {
+                            "_separator": "-",
+                            "Mode": {
+                              "_separator": "_",
+                              "RB": {...}
+                            }
+                          }
+                        }
+
+                     Generates: ``CTRL:LEGACY.CTRL-Mode_RB`` (colon, then dot, then dash, then underscore)
+
+                     **Key Features**:
+
+                     - Override works at **any** hierarchy level
+                     - Each node's ``_separator`` only affects its **immediate children**
+                     - Backward compatible (no ``_separator`` = use pattern default)
+                     - Combines with optional levels seamlessly
+
+                     **Common EPICS Patterns**:
+
+                     .. code-block:: json
+
+                        "Signal": {
+                          "_separator": "_",
+                          "RB": {...},   // Signal_RB
+                          "SP": {...}    // Signal_SP
+                        }
+
+                     .. code-block:: json
+
+                        "LegacyMotor": {
+                          "_separator": ".",
+                          "Speed": {...},     // LegacyMotor.Speed
+                          "Position": {...}   // LegacyMotor.Position
+                        }
+
+                     **Example Database**: ``optional_levels.json`` (shows separator overrides with optional levels)
 
             **tree**: The nested hierarchy structure with descriptions at every level (details below).
 

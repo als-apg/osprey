@@ -272,10 +272,10 @@ class Gateway:
             # First check for explicit yes/no responses (fast path)
             normalized_input = user_input.strip().lower()
             # Remove common trailing punctuation
-            normalized_input = normalized_input.rstrip('.!?')
+            normalized_input = normalized_input.rstrip(".!?")
 
             # Check for explicit "yes" responses
-            if normalized_input in ['yes', 'y', 'yep', 'yeah', 'ok', 'okay']:
+            if normalized_input in ["yes", "y", "yep", "yeah", "ok", "okay"]:
                 self.logger.info(f"Detected explicit approval: '{user_input}'")
                 return {
                     "type": "approval",
@@ -285,7 +285,7 @@ class Gateway:
                 }
 
             # Check for explicit "no" responses
-            if normalized_input in ['no', 'n', 'nope', 'nah', 'cancel']:
+            if normalized_input in ["no", "n", "nope", "nah", "cancel"]:
                 self.logger.info(f"Detected explicit rejection: '{user_input}'")
                 return {
                     "type": "rejection",

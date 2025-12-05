@@ -135,11 +135,11 @@ class BaseExample(ABC):
 
     @staticmethod
     def join(
-        examples: list['BaseExample'],
+        examples: list["BaseExample"],
         separator: str = "\n",
         max_examples: int | None = None,
         randomize: bool = False,
-        add_numbering: bool = False
+        add_numbering: bool = False,
     ) -> str:
         """Join multiple examples into a formatted string for prompt inclusion.
 
@@ -190,6 +190,7 @@ class BaseExample(ABC):
         # Apply randomization if requested
         if randomize:
             import random
+
             examples_to_use = examples_to_use.copy()
             random.shuffle(examples_to_use)
 
@@ -224,6 +225,7 @@ class OrchestratorExample(BaseExample):
     :param notes: Additional guidance, caveats, or usage tips
     :type notes: Optional[str]
     """
+
     step: PlannedStep
     scenario_description: str  # Human-readable description of when/why to use this
     context_requirements: dict[str, str] | None = None  # What needs to be in context
@@ -352,10 +354,11 @@ class OrchestratorExample(BaseExample):
         elif isinstance(value, dict):
             return json.dumps(value) if value else "{}"
         elif isinstance(value, (list, set)):
-            return json.dumps(list(value)) if value else ("[]" if isinstance(value, list) else "set()")
+            return (
+                json.dumps(list(value)) if value else ("[]" if isinstance(value, list) else "set()")
+            )
         else:
             return repr(value)
-
 
 
 @dataclass
@@ -373,6 +376,7 @@ class ClassifierExample(BaseExample):
     :param reason: Explanation of why this classification is correct
     :type reason: str
     """
+
     query: str
     result: bool
     reason: str
@@ -412,8 +416,9 @@ class ClassifierExample(BaseExample):
         .. seealso::
            :func:`join` : Batch formatting (with randomization)
         """
-        return f'User Query: "{self.query}" -> Expected Output: {self.result} -> Reason: {self.reason}'
-
+        return (
+            f'User Query: "{self.query}" -> Expected Output: {self.result} -> Reason: {self.reason}'
+        )
 
 
 class ClassifierActions(BaseModel):
@@ -444,6 +449,7 @@ class ClassifierActions(BaseModel):
        :class:`TaskClassifierGuide` : Classification guidance using action specifications
        :class:`CapabilityMatch` : Classification results that trigger actions
     """
+
     pass
 
 
@@ -514,6 +520,7 @@ class TaskClassifierGuide(BaseModel):
        :class:`ClassifierActions` : Action specifications for positive matches
        :mod:`osprey.infrastructure.classifier` : Classification system integration
     """
+
     instructions: str
     examples: list[ClassifierExample] = Field(default_factory=list)
     actions_if_true: ClassifierActions = Field(default_factory=ClassifierActions)
@@ -583,6 +590,7 @@ class OrchestratorGuide(BaseModel):
        :class:`PlannedStep` : Execution step structure and requirements
        :mod:`osprey.infrastructure.orchestration` : Orchestration system integration
     """
+
     instructions: str
     examples: list[OrchestratorExample] = Field(default_factory=list)
     # Priority for orchestrator guide ordering

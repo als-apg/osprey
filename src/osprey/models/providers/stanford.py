@@ -9,10 +9,11 @@ with the Otter agent system, enabling model selection across various providers
 while using a single API key and endpoint.
 """
 
-from typing import Optional, Any, Union
+import logging
+from typing import Any, Optional, Union
+
 import httpx
 import openai
-import logging
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider as PydanticOpenAIProvider
 

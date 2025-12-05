@@ -183,16 +183,17 @@ def create_code_generator(config: dict[str, Any] | None = None):
     # Try registry-based discovery first
     try:
         from osprey.registry import get_registry
+
         registry = get_registry()
 
         # Get registered code generators from registry
         # Registry stores them in _registries['code_generators'] during initialization
-        generator_registrations = registry._registries.get('code_generators', {})
+        generator_registrations = registry._registries.get("code_generators", {})
 
         if generator_type in generator_registrations:
             registry_entry = generator_registrations[generator_type]
-            registration = registry_entry['registration']
-            generator_class = registry_entry['class']
+            registration = registry_entry["registration"]
+            generator_class = registry_entry["class"]
 
             logger.info(f"Found generator '{generator_type}' in registry")
             logger.info(f"Using {registration.description}")
@@ -216,6 +217,7 @@ def create_code_generator(config: dict[str, Any] | None = None):
     if generator_type == "claude_code":
         try:
             from .claude_code_generator import ClaudeCodeGenerator
+
             logger.info("Using Claude Code generator (direct import)")
             return ClaudeCodeGenerator(model_config=generator_config)
         except ImportError as e:
@@ -227,12 +229,14 @@ def create_code_generator(config: dict[str, Any] | None = None):
     # Mock generator (for testing)
     if generator_type == "mock":
         from .mock_generator import MockCodeGenerator
+
         logger.info("Using mock generator (for testing)")
         return MockCodeGenerator(model_config=generator_config)
 
     # Basic generator (always available) - also support legacy name for backwards compatibility
     if generator_type in ("basic", "legacy"):
         from .basic_generator import BasicLLMCodeGenerator
+
         if generator_type == "legacy":
             logger.warning("Generator name 'legacy' is deprecated, use 'basic' instead")
         logger.info("Using basic LLM generator")

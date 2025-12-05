@@ -26,16 +26,17 @@ Key capabilities include:
 
 import logging
 import os
-from typing import Optional, Union, Type, get_origin, get_args, get_type_hints
-from typing_extensions import TypedDict
+from typing import Optional, Type, Union, get_args, get_origin, get_type_hints
 from urllib.parse import urlparse
-from pydantic import BaseModel, create_model, Field
+
 import anthropic
-import openai
-import ollama
 import httpx
+import ollama
+import openai
 from google import genai
 from google.genai import types as genai_types
+from pydantic import BaseModel, Field, create_model
+from typing_extensions import TypedDict
 
 
 def _is_typed_dict(cls) -> bool:
@@ -54,7 +55,7 @@ def _is_typed_dict(cls) -> bool:
        This check is based on the presence of __annotations__ and __total__
        attributes which are characteristic of TypedDict classes.
     """
-    return hasattr(cls, '__annotations__') and hasattr(cls, '__total__')
+    return hasattr(cls, "__annotations__") and hasattr(cls, "__total__")
 
 
 def _convert_typed_dict_to_pydantic(typed_dict_cls) -> Type[BaseModel]:
@@ -88,7 +89,7 @@ def _convert_typed_dict_to_pydantic(typed_dict_cls) -> Type[BaseModel]:
         raise ValueError(f"Expected TypedDict, got {type(typed_dict_cls)}")
 
     # Get the annotations from the TypedDict
-    annotations = getattr(typed_dict_cls, '__annotations__', {})
+    annotations = getattr(typed_dict_cls, "__annotations__", {})
 
     # Convert to Pydantic field definitions
     field_definitions = {}
@@ -203,7 +204,7 @@ def _validate_proxy_url(proxy_url: str) -> bool:
     try:
         parsed = urlparse(proxy_url)
         # Check for valid scheme and netloc (host:port)
-        if parsed.scheme not in ('http', 'https'):
+        if parsed.scheme not in ("http", "https"):
             return False
         if not parsed.netloc:
             return False
@@ -236,20 +237,17 @@ def _get_ollama_fallback_urls(base_url: str) -> list[str]:
         # Running in container but Ollama might be on localhost
         fallback_urls = [
             base_url.replace("host.containers.internal", "localhost"),
-            "http://localhost:11434"
+            "http://localhost:11434",
         ]
     elif "localhost" in base_url:
         # Running locally but Ollama might be in container context
         fallback_urls = [
             base_url.replace("localhost", "host.containers.internal"),
-            "http://host.containers.internal:11434"
+            "http://host.containers.internal:11434",
         ]
     else:
         # Generic fallbacks for other scenarios
-        fallback_urls = [
-            "http://localhost:11434",
-            "http://host.containers.internal:11434"
-        ]
+        fallback_urls = ["http://localhost:11434", "http://host.containers.internal:11434"]
 
     return fallback_urls
 
@@ -263,7 +261,7 @@ def get_chat_completion(
     budget_tokens: int | None = None,
     enable_thinking: bool = False,
     output_model: Optional[Type[BaseModel]] = None,
-    base_url: Optional[str] = None, # currently used only for ollama
+    base_url: Optional[str] = None,  # currently used only for ollama
     provider_config: Optional[dict] = None,
 ) -> Union[str, BaseModel, list]:
     """Execute direct chat completion requests across multiple AI providers.
@@ -417,15 +415,17 @@ def get_chat_completion(
 
     # Define provider requirements
     provider_requirements = {
-        "google":    {"model_id": True, "api_key": True,  "base_url": False, "use_proxy": True},
-        "anthropic": {"model_id": True, "api_key": True,  "base_url": False, "use_proxy": True},
-        "openai":    {"model_id": True, "api_key": True,  "base_url": True,  "use_proxy": True},
-        "ollama":    {"model_id": True, "api_key": False, "base_url": True,  "use_proxy": False},
-        "cborg":     {"model_id": True, "api_key": True,  "base_url": True,  "use_proxy": True},
+        "google": {"model_id": True, "api_key": True, "base_url": False, "use_proxy": True},
+        "anthropic": {"model_id": True, "api_key": True, "base_url": False, "use_proxy": True},
+        "openai": {"model_id": True, "api_key": True, "base_url": True, "use_proxy": True},
+        "ollama": {"model_id": True, "api_key": False, "base_url": True, "use_proxy": False},
+        "cborg": {"model_id": True, "api_key": True, "base_url": True, "use_proxy": True},
     }
 
     if provider not in provider_requirements:
-        raise ValueError(f"Invalid provider: {provider}. Must be 'anthropic', 'cborg', 'google', 'ollama', or 'openai'.")
+        raise ValueError(
+            f"Invalid provider: {provider}. Must be 'anthropic', 'cborg', 'google', 'ollama', or 'openai'."
+        )
 
     requirements = provider_requirements[provider]
 
@@ -449,7 +449,9 @@ def get_chat_completion(
             should_use_proxy = True
             http_client = httpx.Client(proxy=proxy_url)
         else:
-            logger.warning(f"Invalid HTTP_PROXY URL format '{proxy_url}', ignoring proxy configuration")
+            logger.warning(
+                f"Invalid HTTP_PROXY URL format '{proxy_url}', ignoring proxy configuration"
+            )
 
     if not should_use_proxy and requirements["use_proxy"]:
         # Only create client without proxy if no proxy was requested
@@ -471,19 +473,17 @@ def get_chat_completion(
         if enable_thinking and budget_tokens is not None:
             if budget_tokens >= max_tokens:
                 raise ValueError("budget_tokens must be less than max_tokens.")
-            request_params["thinking"] = {
-                "type": "enabled",
-                "budget_tokens": budget_tokens
-            }
+            request_params["thinking"] = {"type": "enabled", "budget_tokens": budget_tokens}
 
         message_response = client.messages.create(**request_params)
 
         if enable_thinking and "thinking" in request_params:
-            return message_response.content # Returns List[ContentBlock]
+            return message_response.content  # Returns List[ContentBlock]
         else:
             # Concatenate text from all TextBlock instances
             text_parts = [
-                block.text for block in message_response.content
+                block.text
+                for block in message_response.content
                 if isinstance(block, anthropic.types.TextBlock)
             ]
             return "\n".join(text_parts)
@@ -495,19 +495,19 @@ def get_chat_completion(
         if not enable_thinking:
             budget_tokens = 0
 
-        if budget_tokens >= max_tokens: # Assuming max_tokens is the overall limit
+        if budget_tokens >= max_tokens:  # Assuming max_tokens is the overall limit
             raise ValueError("budget_tokens must be less than max_tokens.")
 
         response = client.models.generate_content(
             model=model_id,
-            contents=[message], # Use the transformed messages
+            contents=[message],  # Use the transformed messages
             config=genai_types.GenerateContentConfig(
                 **({"thinking_config": genai_types.ThinkingConfig(thinking_budget=budget_tokens)}),
-                max_output_tokens=max_tokens
-            )
+                max_output_tokens=max_tokens,
+            ),
         )
 
-        return response.text # Returns str
+        return response.text  # Returns str
 
     # ----- OPENAI ------
     elif provider == "openai":
@@ -550,18 +550,18 @@ def get_chat_completion(
             # You might log a warning or simply ignore them.
             pass
 
-        chat_messages = [{'role': 'user', 'content': message}]
+        chat_messages = [{"role": "user", "content": message}]
 
         options = {}
-        if max_tokens is not None: # Default is 1024
-             options['num_predict'] = max_tokens
+        if max_tokens is not None:  # Default is 1024
+            options["num_predict"] = max_tokens
         # Other options like temperature, top_p could be added if needed
 
         request_args = {
             "model": model_id,
             "messages": chat_messages,
         }
-        if options: # Only add options if there are any
+        if options:  # Only add options if there are any
             request_args["options"] = options
 
         if output_model is not None:
@@ -624,7 +624,7 @@ def get_chat_completion(
         # response is a dict, e.g.:
         # {'model': 'llama3.1', 'created_at': ...,
         #  'message': {'role': 'assistant', 'content': '...'}, ...}
-        ollama_content_str = response['message']['content']
+        ollama_content_str = response["message"]["content"]
 
         if output_model is not None:
             # Validate the JSON string from Ollama against the Pydantic model

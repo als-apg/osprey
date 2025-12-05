@@ -14,7 +14,8 @@ from osprey.generators.config_updater import (
 @pytest.fixture
 def sample_config_content():
     """Sample config.yml content for testing."""
-    return dedent("""
+    return dedent(
+        """
         control_system:
           type: mock
           connector:
@@ -29,7 +30,8 @@ def sample_config_content():
                   address: cagw-alsdmz.als.lbl.gov
                   port: 5084
                   use_name_server: false
-    """)
+    """
+    )
 
 
 def test_get_epics_gateway_config(tmp_path, sample_config_content):
@@ -40,10 +42,10 @@ def test_get_epics_gateway_config(tmp_path, sample_config_content):
     gateways = get_epics_gateway_config(config_path)
 
     assert gateways is not None
-    assert 'read_only' in gateways
-    assert 'write_access' in gateways
-    assert gateways['read_only']['address'] == 'cagw-alsdmz.als.lbl.gov'
-    assert gateways['read_only']['port'] == 5064
+    assert "read_only" in gateways
+    assert "write_access" in gateways
+    assert gateways["read_only"]["address"] == "cagw-alsdmz.als.lbl.gov"
+    assert gateways["read_only"]["port"] == 5064
 
 
 def test_get_facility_from_gateway_config_als(tmp_path, sample_config_content):
@@ -53,7 +55,7 @@ def test_get_facility_from_gateway_config_als(tmp_path, sample_config_content):
 
     facility = get_facility_from_gateway_config(config_path)
 
-    assert facility == 'ALS (Lawrence Berkeley National Laboratory)'
+    assert facility == "ALS (Lawrence Berkeley National Laboratory)"
 
 
 def test_set_epics_gateway_config_aps(tmp_path, sample_config_content):
@@ -61,17 +63,17 @@ def test_set_epics_gateway_config_aps(tmp_path, sample_config_content):
     config_path = tmp_path / "config.yml"
     config_path.write_text(sample_config_content)
 
-    new_content, preview = set_epics_gateway_config(config_path, 'aps')
+    new_content, preview = set_epics_gateway_config(config_path, "aps")
 
     # Verify preview contains APS information
-    assert 'APS' in preview or 'Argonne' in preview
-    assert 'pvgatemain1.aps4.anl.gov' in new_content
+    assert "APS" in preview or "Argonne" in preview
+    assert "pvgatemain1.aps4.anl.gov" in new_content
 
     # Verify gateway was updated
     config_path.write_text(new_content)
     gateways = get_epics_gateway_config(config_path)
-    assert gateways['read_only']['address'] == 'pvgatemain1.aps4.anl.gov'
-    assert gateways['read_only']['port'] == 5064
+    assert gateways["read_only"]["address"] == "pvgatemain1.aps4.anl.gov"
+    assert gateways["read_only"]["port"] == 5064
 
 
 def test_set_epics_gateway_config_custom(tmp_path, sample_config_content):
@@ -80,29 +82,28 @@ def test_set_epics_gateway_config_custom(tmp_path, sample_config_content):
     config_path.write_text(sample_config_content)
 
     custom_config = {
-        'read_only': {
-            'address': 'custom-gateway.example.com',
-            'port': 6064,
-            'use_name_server': True
+        "read_only": {
+            "address": "custom-gateway.example.com",
+            "port": 6064,
+            "use_name_server": True,
         },
-        'write_access': {
-            'address': 'custom-gateway.example.com',
-            'port': 6084,
-            'use_name_server': True
-        }
+        "write_access": {
+            "address": "custom-gateway.example.com",
+            "port": 6084,
+            "use_name_server": True,
+        },
     }
 
-    new_content, preview = set_epics_gateway_config(config_path, 'custom', custom_config)
+    new_content, preview = set_epics_gateway_config(config_path, "custom", custom_config)
 
     # Verify custom settings in content
-    assert 'custom-gateway.example.com' in new_content
-    assert '6064' in new_content
-    assert 'true' in new_content.lower()  # use_name_server: true
+    assert "custom-gateway.example.com" in new_content
+    assert "6064" in new_content
+    assert "true" in new_content.lower()  # use_name_server: true
 
     # Verify gateway was updated
     config_path.write_text(new_content)
     gateways = get_epics_gateway_config(config_path)
-    assert gateways['read_only']['address'] == 'custom-gateway.example.com'
-    assert gateways['read_only']['port'] == 6064
-    assert gateways['read_only']['use_name_server'] is True
-
+    assert gateways["read_only"]["address"] == "custom-gateway.example.com"
+    assert gateways["read_only"]["port"] == 6064
+    assert gateways["read_only"]["use_name_server"] is True

@@ -37,6 +37,7 @@ logger = get_logger("pipeline")
 # Global log capture system
 _log_buffer = deque(maxlen=1000)  # Keep last 1000 log entries
 
+
 class LogCapture(logging.Handler):
     """Custom logging handler to capture logs in memory for the /logs command"""
 
@@ -44,7 +45,7 @@ class LogCapture(logging.Handler):
         try:
             # Format the log entry
             log_entry = self.format(record)
-            timestamp = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(record.created))
+            timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(record.created))
             formatted_entry = f"[{timestamp}] {record.levelname:8} {log_entry}"
 
             # Add to buffer
@@ -53,6 +54,7 @@ class LogCapture(logging.Handler):
             # Don't let logging errors break the application
             pass
 
+
 # Install the log capture handler
 _log_capture_handler = LogCapture()
 _log_capture_handler.setLevel(logging.INFO)
@@ -60,6 +62,7 @@ _log_capture_handler.setLevel(logging.INFO)
 # Add to root logger to capture all logs
 root_logger = logging.getLogger()
 root_logger.addHandler(_log_capture_handler)
+
 
 def execute_startup_hook(hook_function_path: str):
     """Execute application-specific startup hook functions during pipeline initialization.
@@ -131,6 +134,7 @@ def execute_startup_hook(hook_function_path: str):
 
         # Import the module and execute the function
         import importlib
+
         target_module = importlib.import_module(module_path)
 
         if hasattr(target_module, function_name):
@@ -266,59 +270,46 @@ class Pipeline:
         # Application settings
         app_name: str = Field(
             default="als_assistant",
-            description="Name of the application to run (als_assistant, wind_turbine, etc.)"
+            description="Name of the application to run (als_assistant, wind_turbine, etc.)",
         )
 
         # Agent behavior settings
         planning_mode_enabled: bool = Field(
-            default=False,
-            description="Enable planning mode for complex tasks"
+            default=False, description="Enable planning mode for complex tasks"
         )
 
         # Execution limits
 
         max_execution_time: int = Field(
-            default=300,
-            description="Maximum execution time in seconds"
+            default=300, description="Maximum execution time in seconds"
         )
 
         # EPICS settings
         epics_writes_enabled: bool = Field(
-            default=False,
-            description="Enable EPICS write operations"
+            default=False, description="Enable EPICS write operations"
         )
 
         # Approval settings
         approval_mode: str = Field(
-            default="disabled",
-            description="Approval mode (disabled, selective, enabled)"
+            default="disabled", description="Approval mode (disabled, selective, enabled)"
         )
 
         python_approval_enabled: bool = Field(
-            default=True,
-            description="Require approval for Python execution"
+            default=True, description="Require approval for Python execution"
         )
 
         # Development settings
-        debug_mode: bool = Field(
-            default=False,
-            description="Enable debug mode"
-        )
+        debug_mode: bool = Field(default=False, description="Enable debug mode")
 
-        verbose_logging: bool = Field(
-            default=False,
-            description="Enable verbose logging"
-        )
+        verbose_logging: bool = Field(default=False, description="Enable verbose logging")
 
         log_viewer_enabled: bool = Field(
-            default=True,
-            description="Enable container log viewer commands"
+            default=True, description="Enable container log viewer commands"
         )
 
         # Checkpointing
         use_persistent_checkpointing: bool = Field(
-            default=True,
-            description="Enable persistent checkpointing"
+            default=True, description="Enable persistent checkpointing"
         )
 
     def __init__(self):
@@ -381,14 +372,14 @@ class Pipeline:
         self.valves = self.Valves(
             app_name=get_current_application() or "osprey",
             planning_mode_enabled=os.getenv("PLANNING_MODE_ENABLED", "false").lower() == "true",
-
             max_execution_time=int(os.getenv("MAX_EXECUTION_TIME", "300")),
             epics_writes_enabled=os.getenv("EPICS_WRITES_ENABLED", "false").lower() == "true",
             approval_mode=os.getenv("APPROVAL_MODE", "disabled"),
             python_approval_enabled=os.getenv("PYTHON_APPROVAL_ENABLED", "true").lower() == "true",
             debug_mode=os.getenv("DEBUG_MODE", "false").lower() == "true",
             verbose_logging=os.getenv("VERBOSE_LOGGING", "false").lower() == "true",
-            use_persistent_checkpointing=os.getenv("USE_PERSISTENT_CHECKPOINTING", "true").lower() == "true"
+            use_persistent_checkpointing=os.getenv("USE_PERSISTENT_CHECKPOINTING", "true").lower()
+            == "true",
         )
 
         # Initialize framework components
@@ -398,8 +389,12 @@ class Pipeline:
 
         logger.info(f"Pipeline '{self.name}' initialized with app: {self.valves.app_name}")
         # Initialize log buffer with startup entries
-        _log_buffer.append(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] INFO     Pipeline initialized: {self.name}")
-        _log_buffer.append(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] INFO     Log capture active - buffer capacity: {_log_buffer.maxlen}")
+        _log_buffer.append(
+            f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] INFO     Pipeline initialized: {self.name}"
+        )
+        _log_buffer.append(
+            f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] INFO     Log capture active - buffer capacity: {_log_buffer.maxlen}"
+        )
 
     def _create_status_event(self, description: str, done: bool) -> dict:
         """Helper function to create a status event dictionary for dynamic UI updates."""
@@ -451,7 +446,7 @@ class Pipeline:
                 "data": {
                     "description": status_msg,
                     "done": complete or error,
-                }
+                },
             }
         }
 
@@ -601,55 +596,55 @@ class Pipeline:
 
         # Get base configurable and add session info
         configurable = get_full_configuration().copy()
-        configurable.update({
-            "user_id": user_id,
-            "thread_id": f"{user_id}_{chat_id}",
-            "chat_id": chat_id,
-            "session_id": session_id,
-            "interface_context": "openwebui"
-        })
+        configurable.update(
+            {
+                "user_id": user_id,
+                "thread_id": f"{user_id}_{chat_id}",
+                "chat_id": chat_id,
+                "session_id": session_id,
+                "interface_context": "openwebui",
+            }
+        )
 
         # Apply valve overrides to agent control defaults
         agent_control_defaults = configurable.get("agent_control_defaults", {})
-        agent_control_defaults.update({
-            # Agent control overrides from valves
-            "planning_mode_enabled": self.valves.planning_mode_enabled,
-            "epics_writes_enabled": self.valves.epics_writes_enabled,
-            "debug_mode": self.valves.debug_mode,
-            "verbose_logging": self.valves.verbose_logging,
-
-            # Approval settings from valves
-            "approval_mode": self.valves.approval_mode,
-            "python_approval_enabled": self.valves.python_approval_enabled,
-        })
+        agent_control_defaults.update(
+            {
+                # Agent control overrides from valves
+                "planning_mode_enabled": self.valves.planning_mode_enabled,
+                "epics_writes_enabled": self.valves.epics_writes_enabled,
+                "debug_mode": self.valves.debug_mode,
+                "verbose_logging": self.valves.verbose_logging,
+                # Approval settings from valves
+                "approval_mode": self.valves.approval_mode,
+                "python_approval_enabled": self.valves.python_approval_enabled,
+            }
+        )
         configurable["agent_control_defaults"] = agent_control_defaults
 
         # Apply execution limits from valves
         execution_limits = configurable.get("execution_limits", {})
-        execution_limits.update({
-
-            "max_execution_time": self.valves.max_execution_time,
-        })
+        execution_limits.update(
+            {
+                "max_execution_time": self.valves.max_execution_time,
+            }
+        )
         configurable["execution_limits"] = execution_limits
 
         # Add recursion limit to runtime config (LangGraph requires this at runtime, not compile time)
         from osprey.utils.config import get_config_value
+
         recursion_limit = get_config_value("execution_limits.graph_recursion_limit")
 
-        config = {
-            "configurable": configurable,
-            "recursion_limit": recursion_limit
-        }
+        config = {"configurable": configurable, "recursion_limit": recursion_limit}
 
-        logger.debug(f"Built config for session {session_id} with valve overrides and recursion_limit={recursion_limit}")
+        logger.debug(
+            f"Built config for session {session_id} with valve overrides and recursion_limit={recursion_limit}"
+        )
         return config
 
     def pipe(
-        self,
-        user_message: str,
-        model_id: str,
-        messages: list[dict],
-        body: dict
+        self, user_message: str, model_id: str, messages: list[dict], body: dict
     ) -> str | Generator | Iterator:
         """Main pipeline execution method compatible with OpenWebUI protocol.
 
@@ -721,7 +716,9 @@ class Pipeline:
         # Use generator pattern following LangGraph Pipelines standards
         return self._execute_pipeline(user_message, user_id, chat_id, session_id)
 
-    def _execute_pipeline(self, user_message: str, user_id: str, chat_id: str, session_id: str) -> Iterator[str | dict]:
+    def _execute_pipeline(
+        self, user_message: str, user_id: str, chat_id: str, session_id: str
+    ) -> Iterator[str | dict]:
         """Execute the complete pipeline processing flow with streaming and error handling.
 
         Handles the core pipeline execution including framework initialization,
@@ -820,13 +817,17 @@ class Pipeline:
 
                 # Show slash command processing if any
                 if result.slash_commands_processed:
-                    yield self._create_status_event(f"✅ Processed commands: {result.slash_commands_processed}", False)
+                    yield self._create_status_event(
+                        f"✅ Processed commands: {result.slash_commands_processed}", False
+                    )
 
                 # Execute the result
                 if result.resume_command:
                     yield self._create_status_event("🔄 Resuming from interrupt...", False)
                     # Resume execution with streaming
-                    yield from self._execute_graph_with_streaming(result.resume_command, config, loop)
+                    yield from self._execute_graph_with_streaming(
+                        result.resume_command, config, loop
+                    )
 
                 elif result.agent_state:
                     # Execute new conversation with streaming
@@ -847,7 +848,7 @@ class Pipeline:
                 # Check for interrupts
                 if state.interrupts:
                     interrupt = state.interrupts[0]
-                    user_msg = interrupt.value.get('user_message', 'Input required')
+                    user_msg = interrupt.value.get("user_message", "Input required")
                     yield f"{user_msg}\n"
                 else:
                     # Normal completion - extract final response
@@ -855,10 +856,12 @@ class Pipeline:
                     if response:
                         # Handle large responses by chunking them for streaming
                         if len(response) > 50000:  # 50KB threshold for chunking
-                            logger.info(f"Large response detected ({len(response)} chars), chunking for streaming...")
+                            logger.info(
+                                f"Large response detected ({len(response)} chars), chunking for streaming..."
+                            )
                             chunk_size = 50000
                             for i in range(0, len(response), chunk_size):
-                                chunk = response[i:i + chunk_size]
+                                chunk = response[i : i + chunk_size]
                                 yield chunk
                         else:
                             yield response
@@ -874,7 +877,9 @@ class Pipeline:
             yield self._create_status_event("", True)
             yield f"Error: {str(e)}"
 
-    def _execute_graph_with_streaming(self, input_data: Any, config: dict, loop: asyncio.AbstractEventLoop):
+    def _execute_graph_with_streaming(
+        self, input_data: Any, config: dict, loop: asyncio.AbstractEventLoop
+    ):
         """Execute graph with streaming in sync context and yield events"""
 
         # Use a queue to bridge async streaming with sync generator
@@ -885,8 +890,11 @@ class Pipeline:
         def run_async_streaming():
             """Run async streaming in a separate thread"""
             try:
+
                 async def stream_execution():
-                    async for chunk in self._graph.astream(input_data, config=config, stream_mode="custom"):
+                    async for chunk in self._graph.astream(
+                        input_data, config=config, stream_mode="custom"
+                    ):
                         # Debug: Log all chunks to see what we're receiving
                         logger.debug(f"Received chunk: {chunk}")
 
@@ -895,7 +903,9 @@ class Pipeline:
                             status_event = self._format_streaming_event(chunk)
                             stream_queue.put(("status_event", status_event))
                         else:
-                            logger.debug(f"Non-status chunk: {type(chunk)} {list(chunk.keys()) if isinstance(chunk, dict) else str(chunk)[:100]}")
+                            logger.debug(
+                                f"Non-status chunk: {type(chunk)} {list(chunk.keys()) if isinstance(chunk, dict) else str(chunk)[:100]}"
+                            )
 
                     # Signal completion
                     stream_queue.put(("done", None))
@@ -952,8 +962,8 @@ class Pipeline:
                 if messages:
                     # Get the latest AI message
                     for msg in reversed(messages):
-                        if hasattr(msg, 'content') and msg.content:
-                            if not hasattr(msg, 'type') or msg.type != 'human':
+                        if hasattr(msg, "content") and msg.content:
+                            if not hasattr(msg, "type") or msg.type != "human":
                                 return msg.content
 
         return None
@@ -967,8 +977,8 @@ class Pipeline:
         if messages:
             # Get the latest AI message
             for msg in reversed(messages):
-                if hasattr(msg, 'content') and msg.content:
-                    if not hasattr(msg, 'type') or msg.type != 'human':
+                if hasattr(msg, "content") and msg.content:
+                    if not hasattr(msg, "type") or msg.type != "human":
                         text_response = msg.content
                         break
 
@@ -1034,7 +1044,9 @@ class Pipeline:
                         all_figures_html.append(figure_html)
                     else:
                         # Fallback for failed figure conversion
-                        error_placeholder = f"*❌ Could not display figure from {capability} (Path: {figure_path})*"
+                        error_placeholder = (
+                            f"*❌ Could not display figure from {capability} (Path: {figure_path})*"
+                        )
                         all_figures_html.append(error_placeholder)
 
                 except Exception as e:
@@ -1043,7 +1055,7 @@ class Pipeline:
                     continue
 
             if all_figures_html:
-                return '\n\n'.join(all_figures_html)
+                return "\n\n".join(all_figures_html)
 
             return None
 
@@ -1051,8 +1063,9 @@ class Pipeline:
             logger.error(f"Critical error in figure extraction: {e}")
             return f"*❌ Figure display error: {str(e)}*"
 
-
-    def _convert_figure_to_static_url(self, figure_path: str, figure_number: int, capability: str, created_at: str) -> str | None:
+    def _convert_figure_to_static_url(
+        self, figure_path: str, figure_number: int, capability: str, created_at: str
+    ) -> str | None:
         """Convert agent directory figure to static URL - enforces our architectural constraint"""
 
         try:
@@ -1066,8 +1079,8 @@ class Pipeline:
             # Convert agent directory path to static URL using environment variables
             # NOTE: Pipeline always runs in container where PROJECT_ROOT/AGENT_DATA_DIR are set by deployment system
             # Our architecture constraint: all figures are in ${PROJECT_ROOT}/${agent_data_dir}/
-            project_root = os.getenv('PROJECT_ROOT')
-            agent_data_dir = os.getenv('AGENT_DATA_DIR')
+            project_root = os.getenv("PROJECT_ROOT")
+            agent_data_dir = os.getenv("AGENT_DATA_DIR")
 
             if not project_root:
                 logger.error("PROJECT_ROOT environment variable not set")
@@ -1084,10 +1097,10 @@ class Pipeline:
             # Convert figure path to relative path within agent directory
             if str(figure_path).startswith(host_agent_prefix):
                 # Host format (standard case)
-                relative_path = str(figure_path)[len(host_agent_prefix):]
+                relative_path = str(figure_path)[len(host_agent_prefix) :]
             elif str(figure_path).startswith(container_agent_prefix):
                 # Container format (edge case)
-                relative_path = str(figure_path)[len(container_agent_prefix):]
+                relative_path = str(figure_path)[len(container_agent_prefix) :]
             else:
                 # Architecture constraint violation
                 logger.error("ARCHITECTURE VIOLATION: Figure not in agent directory")
@@ -1154,7 +1167,7 @@ class Pipeline:
                     continue
 
             if all_commands_html:
-                return '\n\n'.join(all_commands_html)
+                return "\n\n".join(all_commands_html)
 
             return None
 
@@ -1219,7 +1232,9 @@ class Pipeline:
 
             yield self._create_status_event("Fetching container logs...", False)
             # Add log entry directly to buffer for immediate feedback
-            _log_buffer.append(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] INFO     Log command requested: {command}")
+            _log_buffer.append(
+                f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] INFO     Log command requested: {command}"
+            )
 
             if len(parts) == 1:
                 # Default: /logs (last 100 lines)
@@ -1239,16 +1254,10 @@ class Pipeline:
 
                 else:
                     yield self._create_status_event("", True)
-                    yield "**Log Commands:**\n\n" \
-                          "• `/logs` - Show last 100 lines\n" \
-                          "• `/logs 50` - Show last 50 lines\n" \
-                          "• `/logs help` - Show this help"
+                    yield "**Log Commands:**\n\n" "• `/logs` - Show last 100 lines\n" "• `/logs 50` - Show last 50 lines\n" "• `/logs help` - Show this help"
             else:
                 yield self._create_status_event("", True)
-                yield "**Log Commands:**\n\n" \
-                      "• `/logs` - Show last 100 lines\n" \
-                      "• `/logs 50` - Show last 50 lines\n" \
-                      "• `/logs help` - Show this help"
+                yield "**Log Commands:**\n\n" "• `/logs` - Show last 100 lines\n" "• `/logs 50` - Show last 50 lines\n" "• `/logs help` - Show this help"
 
         except Exception as e:
             logger.exception(f"Error handling log command: {e}")
@@ -1264,7 +1273,9 @@ class Pipeline:
                 return "No logs captured yet. Log capture system is active and will collect logs as they are generated."
 
             # Get the requested number of recent log entries
-            recent_logs = list(_log_buffer)[-lines:] if len(_log_buffer) >= lines else list(_log_buffer)
+            recent_logs = (
+                list(_log_buffer)[-lines:] if len(_log_buffer) >= lines else list(_log_buffer)
+            )
 
             if not recent_logs:
                 return "No recent logs available."
@@ -1275,7 +1286,7 @@ class Pipeline:
             cleaned_logs = []
             for log_entry in recent_logs:
                 # Remove Rich markup tags
-                entry = re.sub(r'\[/?[^\]]+\]', '', log_entry)
+                entry = re.sub(r"\[/?[^\]]+\]", "", log_entry)
 
                 cleaned_logs.append(entry)
 

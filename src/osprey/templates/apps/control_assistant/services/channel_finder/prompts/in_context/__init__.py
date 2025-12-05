@@ -1,9 +1,6 @@
 """Prompt templates for UCSB FEL Channel Finder."""
 
-from . import query_splitter
-from . import channel_matcher
-from . import correction
-from . import system
+from . import channel_matcher, correction, query_splitter, system
 
 __all__ = [
     "query_splitter",

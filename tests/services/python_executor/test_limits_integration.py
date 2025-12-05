@@ -1,4 +1,5 @@
 """Integration tests for channel limits checking end-to-end."""
+
 import json
 from unittest.mock import patch
 
@@ -14,7 +15,7 @@ from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 class TestLimitsInitializationFailFast:
     """Test that invalid limits database causes initialization to fail fast."""
 
-    @patch('osprey.utils.config.get_config_value')
+    @patch("osprey.utils.config.get_config_value")
     def test_invalid_json_prevents_initialization(self, mock_get_config, tmp_path):
         """Test that invalid JSON in limits database prevents app from starting."""
         # Create invalid JSON file (trailing comma)
@@ -22,11 +23,11 @@ class TestLimitsInitializationFailFast:
         db_file.write_text('{\n  "PV1": {"min_value": 0.0},\n}')
 
         def config_side_effect(key, default):
-            if key == 'control_system.limits_checking.enabled':
+            if key == "control_system.limits_checking.enabled":
                 return True
-            elif key == 'control_system.limits_checking.database_path':
+            elif key == "control_system.limits_checking.database_path":
                 return str(db_file)
-            elif key == 'control_system.limits_checking.allow_unlisted_pvs':
+            elif key == "control_system.limits_checking.allow_unlisted_pvs":
                 return False
             return default
 
@@ -42,23 +43,20 @@ class TestLimitsInitializationFailFast:
         # Verify it's chained from JSONDecodeError
         assert exc_info.value.__cause__ is not None
 
-    @patch('osprey.utils.config.get_config_value')
+    @patch("osprey.utils.config.get_config_value")
     def test_valid_json_initializes_successfully(self, mock_get_config, tmp_path):
         """Test that valid JSON allows successful initialization."""
         # Create valid JSON file
         db_file = tmp_path / "valid_limits.json"
-        db_content = {
-            "PV1": {"min_value": 0.0, "max_value": 100.0},
-            "PV2": {"writable": False}
-        }
+        db_content = {"PV1": {"min_value": 0.0, "max_value": 100.0}, "PV2": {"writable": False}}
         db_file.write_text(json.dumps(db_content))
 
         def config_side_effect(key, default):
-            if key == 'control_system.limits_checking.enabled':
+            if key == "control_system.limits_checking.enabled":
                 return True
-            elif key == 'control_system.limits_checking.database_path':
+            elif key == "control_system.limits_checking.database_path":
                 return str(db_file)
-            elif key == 'control_system.limits_checking.allow_unlisted_pvs':
+            elif key == "control_system.limits_checking.allow_unlisted_pvs":
                 return False
             return default
 
@@ -71,15 +69,16 @@ class TestLimitsInitializationFailFast:
         assert "PV1" in validator.limits
         assert "PV2" in validator.limits
 
-    @patch('osprey.utils.config.get_config_value')
+    @patch("osprey.utils.config.get_config_value")
     def test_missing_file_prevents_initialization(self, mock_get_config):
         """Test that missing limits file prevents initialization."""
+
         def config_side_effect(key, default):
-            if key == 'control_system.limits_checking.enabled':
+            if key == "control_system.limits_checking.enabled":
                 return True
-            elif key == 'control_system.limits_checking.database_path':
+            elif key == "control_system.limits_checking.database_path":
                 return "/nonexistent/limits.json"
-            elif key == 'control_system.limits_checking.allow_unlisted_pvs':
+            elif key == "control_system.limits_checking.allow_unlisted_pvs":
                 return False
             return default
 
@@ -101,25 +100,16 @@ class TestLimitsCheckingIntegration:
         """Create a test validator with sample boundaries."""
         test_db = {
             "TEST:PV": ChannelLimitsConfig(
-                channel_address="TEST:PV",
-                min_value=0.0,
-                max_value=100.0,
-                writable=True
+                channel_address="TEST:PV", min_value=0.0, max_value=100.0, writable=True
             ),
-            "TEST:READONLY": ChannelLimitsConfig(
-                channel_address="TEST:READONLY",
-                writable=False
-            )
+            "TEST:READONLY": ChannelLimitsConfig(channel_address="TEST:READONLY", writable=False),
         }
         policy = {"allow_unlisted_pvs": False}
         return LimitsValidator(test_db, policy)
 
     def test_wrapper_includes_limits_checking(self, test_validator):
         """Test that ExecutionWrapper includes boundary checking monkeypatch."""
-        wrapper = ExecutionWrapper(
-            execution_mode="container",
-            limits_validator=test_validator
-        )
+        wrapper = ExecutionWrapper(execution_mode="container", limits_validator=test_validator)
 
         user_code = "print('Hello, World!')"
         wrapped_code = wrapper.create_wrapper(user_code, execution_folder=None)
@@ -133,10 +123,7 @@ class TestLimitsCheckingIntegration:
 
     def test_wrapper_without_validator_has_no_checking(self):
         """Test that wrapper without validator has no boundary checking code."""
-        wrapper = ExecutionWrapper(
-            execution_mode="container",
-            limits_validator=None
-        )
+        wrapper = ExecutionWrapper(execution_mode="container", limits_validator=None)
 
         user_code = "print('Hello, World!')"
         wrapped_code = wrapper.create_wrapper(user_code, execution_folder=None)
@@ -147,10 +134,7 @@ class TestLimitsCheckingIntegration:
 
     def test_limits_config_serialization(self, test_validator):
         """Test that boundary config is correctly serialized into wrapper."""
-        wrapper = ExecutionWrapper(
-            execution_mode="container",
-            limits_validator=test_validator
-        )
+        wrapper = ExecutionWrapper(execution_mode="container", limits_validator=test_validator)
 
         user_code = "pass"
         wrapped_code = wrapper.create_wrapper(user_code, execution_folder=None)
@@ -171,16 +155,13 @@ class TestLimitsCheckingIntegration:
                 min_value=0.0,
                 max_value=100.0,
                 max_step=10.0,
-                writable=True
+                writable=True,
             )
         }
         policy = {"allow_unlisted_pvs": False}
         validator = LimitsValidator(test_db, policy)
 
-        wrapper = ExecutionWrapper(
-            execution_mode="container",
-            limits_validator=validator
-        )
+        wrapper = ExecutionWrapper(execution_mode="container", limits_validator=validator)
 
         user_code = "pass"
         wrapped_code = wrapper.create_wrapper(user_code, execution_folder=None)
@@ -192,10 +173,7 @@ class TestLimitsCheckingIntegration:
     def test_monkeypatch_intercepts_caput(self, test_validator):
         """Test that monkeypatch successfully intercepts epics.caput() calls."""
         # Create wrapper with validator
-        wrapper = ExecutionWrapper(
-            execution_mode="local",
-            limits_validator=test_validator
-        )
+        wrapper = ExecutionWrapper(execution_mode="local", limits_validator=test_validator)
 
         # Create code that attempts boundary violation
         user_code = """
@@ -218,10 +196,7 @@ results = {"test_result": result}
 
     def test_monkeypatch_allows_valid_writes(self, test_validator):
         """Test that valid writes pass through monkeypatch."""
-        wrapper = ExecutionWrapper(
-            execution_mode="local",
-            limits_validator=test_validator
-        )
+        wrapper = ExecutionWrapper(execution_mode="local", limits_validator=test_validator)
 
         user_code = """
 import epics
@@ -247,10 +222,7 @@ results = {"test_result": result}
 
     def test_policy_serialization(self, test_validator):
         """Test that policy config is correctly serialized."""
-        wrapper = ExecutionWrapper(
-            execution_mode="container",
-            limits_validator=test_validator
-        )
+        wrapper = ExecutionWrapper(execution_mode="container", limits_validator=test_validator)
 
         user_code = "pass"
         wrapped_code = wrapper.create_wrapper(user_code, execution_folder=None)
@@ -265,10 +237,7 @@ results = {"test_result": result}
         # Empty database = blocks all writes (failsafe)
         validator = LimitsValidator({}, {"allow_unlisted_pvs": False})
 
-        wrapper = ExecutionWrapper(
-            execution_mode="container",
-            limits_validator=validator
-        )
+        wrapper = ExecutionWrapper(execution_mode="container", limits_validator=validator)
 
         user_code = "pass"
         wrapped_code = wrapper.create_wrapper(user_code, execution_folder=None)
@@ -281,29 +250,23 @@ results = {"test_result": result}
 class TestConfigIntegration:
     """Test configuration integration with boundary checking."""
 
-    @patch('osprey.utils.config.get_config_value')
+    @patch("osprey.utils.config.get_config_value")
     def test_config_loads_validator(self, mock_get_config, tmp_path):
         """Test that PythonExecutorConfig loads validator from config."""
         from osprey.services.python_executor.config import PythonExecutorConfig
 
         # Create test database file
         db_file = tmp_path / "test_boundaries.json"
-        db_content = {
-            "TEST:PV": {
-                "min_value": 0.0,
-                "max_value": 100.0,
-                "writable": True
-            }
-        }
+        db_content = {"TEST:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}}
         db_file.write_text(json.dumps(db_content))
 
         # Mock config values
         def config_side_effect(key, default):
-            if key == 'control_system.limits_checking.enabled':
+            if key == "control_system.limits_checking.enabled":
                 return True
-            elif key == 'control_system.limits_checking.database_path':
+            elif key == "control_system.limits_checking.database_path":
                 return str(db_file)
-            elif key == 'control_system.limits_checking.allow_unlisted_pvs':
+            elif key == "control_system.limits_checking.allow_unlisted_pvs":
                 return False
             return default
 
@@ -317,7 +280,7 @@ class TestConfigIntegration:
         assert validator is not None
         assert "TEST:PV" in validator.limits
 
-    @patch('osprey.utils.config.get_config_value')
+    @patch("osprey.utils.config.get_config_value")
     def test_config_caches_validator(self, mock_get_config, tmp_path):
         """Test that validator is cached after first load."""
         from osprey.services.python_executor.config import PythonExecutorConfig
@@ -326,11 +289,11 @@ class TestConfigIntegration:
         db_file.write_text(json.dumps({"TEST:PV": {"writable": True}}))
 
         def config_side_effect(key, default):
-            if key == 'control_system.limits_checking.enabled':
+            if key == "control_system.limits_checking.enabled":
                 return True
-            elif key == 'control_system.limits_checking.database_path':
+            elif key == "control_system.limits_checking.database_path":
                 return str(db_file)
-            elif key == 'control_system.limits_checking.allow_unlisted_pvs':
+            elif key == "control_system.limits_checking.allow_unlisted_pvs":
                 return False
             return default
 
@@ -346,7 +309,7 @@ class TestConfigIntegration:
 
         assert validator1 is validator2  # Same object instance
 
-    @patch('osprey.utils.config.get_config_value')
+    @patch("osprey.utils.config.get_config_value")
     def test_config_returns_none_when_disabled(self, mock_get_config):
         """Test that config returns None when boundary checking disabled."""
         from osprey.services.python_executor.config import PythonExecutorConfig
@@ -362,7 +325,7 @@ class TestConfigIntegration:
 class TestExecutorIntegration:
     """Test executor integration with boundary checking."""
 
-    @patch('osprey.utils.config.get_config_value')
+    @patch("osprey.utils.config.get_config_value")
     def test_local_executor_passes_validator_to_wrapper(self, mock_get_config, tmp_path):
         """Test that LocalCodeExecutor passes validator to wrapper."""
         from osprey.services.python_executor.execution.node import LocalCodeExecutor
@@ -373,11 +336,11 @@ class TestExecutorIntegration:
         db_file.write_text(json.dumps(db_content))
 
         def config_side_effect(key, default):
-            if key == 'control_system.limits_checking.enabled':
+            if key == "control_system.limits_checking.enabled":
                 return True
-            elif key == 'control_system.limits_checking.database_path':
+            elif key == "control_system.limits_checking.database_path":
                 return str(db_file)
-            elif key == 'control_system.limits_checking.allow_unlisted_pvs':
+            elif key == "control_system.limits_checking.allow_unlisted_pvs":
                 return False
             return default
 
@@ -394,20 +357,14 @@ class TestExecutorIntegration:
         # Create validator
         test_db = {
             "TEST:PV": ChannelLimitsConfig(
-                channel_address="TEST:PV",
-                min_value=0.0,
-                max_value=100.0,
-                writable=True
+                channel_address="TEST:PV", min_value=0.0, max_value=100.0, writable=True
             )
         }
         policy = {"allow_unlisted_pvs": False}
         validator = LimitsValidator(test_db, policy)
 
         # Create wrapper with validator
-        wrapper = ExecutionWrapper(
-            execution_mode="container",
-            limits_validator=validator
-        )
+        wrapper = ExecutionWrapper(execution_mode="container", limits_validator=validator)
 
         # Generate wrapped code
         user_code = """
@@ -427,4 +384,3 @@ results = {"success": True}
 
         # Verify user code is included
         assert "results = {" in wrapped_code
-

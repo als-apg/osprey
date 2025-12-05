@@ -426,11 +426,12 @@ class OrchestrationNode(BaseInfrastructureNode):
 
         # Set caller context for API call logging (propagates through asyncio.to_thread)
         from osprey.models import set_api_call_context
+
         set_api_call_context(
             function="_create_execution_plan",
             module="orchestration_node",
             class_name="OrchestrationNode",
-            line=428
+            line=428,
         )
 
         # Run sync LLM call in thread pool to avoid blocking event loop for streaming

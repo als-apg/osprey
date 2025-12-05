@@ -29,6 +29,7 @@ over what information gets permanently stored.
    :class:`osprey.approval.ApprovalManager` : Memory approval workflows
    :class:`MemoryContext` : Context structure for memory operation results
 """
+
 import asyncio
 import textwrap
 from dataclasses import dataclass
@@ -61,9 +62,8 @@ from osprey.context import CapabilityContext
 from osprey.context.context_manager import ContextManager
 from osprey.models import get_chat_completion
 from osprey.prompts.loader import get_framework_prompts
-from osprey.registry import get_registry
 from osprey.services.memory_storage import MemoryContent, get_memory_storage_manager
-from osprey.state import AgentState, ChatHistoryFormatter, StateManager
+from osprey.state import ChatHistoryFormatter, StateManager
 from osprey.utils.config import get_model_config, get_session_info
 from osprey.utils.logger import get_logger
 
@@ -74,6 +74,7 @@ logger = get_logger("memory")
 # ===========================================================
 # Context Classes
 # ===========================================================
+
 
 class MemoryContext(CapabilityContext):
     """Framework memory context for storing and retrieving user memory data.
@@ -107,6 +108,7 @@ class MemoryContext(CapabilityContext):
        :func:`_perform_memory_save_operation` : Save operation that produces this context
        :func:`_perform_memory_retrieve_operation` : Retrieve operation that produces this context
     """
+
     CONTEXT_TYPE: ClassVar[str] = "MEMORY_CONTEXT"
     CONTEXT_CATEGORY: ClassVar[str] = "CONTEXTUAL_KNOWLEDGE"
 
@@ -135,7 +137,7 @@ class MemoryContext(CapabilityContext):
             "data_keys": list(self.memory_data.keys()) if self.memory_data else [],
             "access_pattern": f"context.{self.CONTEXT_TYPE}.{key}.memory_data",
             "example_usage": f"context.{self.CONTEXT_TYPE}.{key}.memory_data['user_preferences'] gives stored user preferences",
-            "operation_result": self.operation_result
+            "operation_result": self.operation_result,
         }
 
     def get_summary(self) -> dict[str, Any]:
@@ -159,13 +161,14 @@ class MemoryContext(CapabilityContext):
         return {
             "operation_type": self.operation_type,
             "operation_result": self.operation_result,
-            "memory_data": self.memory_data
+            "memory_data": self.memory_data,
         }
 
 
 # =============================================================================
 # Memory extraction examples
 # =============================================================================
+
 
 class MemoryOperation(Enum):
     """Enumeration of supported memory operation types.
@@ -176,8 +179,10 @@ class MemoryOperation(Enum):
     :cvar SAVE: Store new content to user memory
     :cvar RETRIEVE: Fetch existing memory entries for context
     """
+
     SAVE = "save"
     RETRIEVE = "retrieve"
+
 
 class MemoryOperationClassification(BaseModel):
     """Structured output model for memory operation classification.
@@ -203,8 +208,12 @@ class MemoryOperationClassification(BaseModel):
        :class:`MemoryContentExtraction` : Related model for content extraction
        :class:`MemoryOperation` : Enum defining available operation types
     """
-    operation: str = Field(description="The memory operation type: 'save' for storing new content, 'retrieve' for showing existing memories")
+
+    operation: str = Field(
+        description="The memory operation type: 'save' for storing new content, 'retrieve' for showing existing memories"
+    )
     reasoning: str = Field(description="Brief explanation of why this operation was selected")
+
 
 class MemoryContentExtraction(BaseModel):
     """Structured output model for memory content extraction from chat history.
@@ -228,9 +237,15 @@ class MemoryContentExtraction(BaseModel):
        The LLM analyzes full chat history including context from previous
        capabilities to identify comprehensive memory-worthy content.
     """
-    content: str = Field(description="The content that should be saved to memory, or empty string if no content identified")
-    found: bool = Field(description="True if content to save was identified in the user message, False otherwise")
+
+    content: str = Field(
+        description="The content that should be saved to memory, or empty string if no content identified"
+    )
+    found: bool = Field(
+        description="True if content to save was identified in the user message, False otherwise"
+    )
     explanation: str = Field(description="Brief explanation of what content was extracted and why")
+
 
 @dataclass
 class MemoryExtractionExample(BaseExample):
@@ -259,6 +274,7 @@ class MemoryExtractionExample(BaseExample):
        :meth:`MemoryOperationsCapability._create_classifier_guide` : Uses this example class
        :func:`_extract_memory_content` : Function that leverages these examples
     """
+
     messages: list[BaseMessage]
     expected_output: MemoryContentExtraction
 
@@ -279,7 +295,8 @@ class MemoryExtractionExample(BaseExample):
         # Format chat history using native message formatter
         chat_formatted = ChatHistoryFormatter.format_for_llm(self.messages)
 
-        return textwrap.dedent(f"""
+        return textwrap.dedent(
+            f"""
             **Chat History:**
             {textwrap.indent(chat_formatted, "  ")}
 
@@ -289,10 +306,13 @@ class MemoryExtractionExample(BaseExample):
                 "found": {str(self.expected_output.found).lower()},
                 "explanation": "{self.expected_output.explanation}"
             }}
-            """).strip()
+            """
+        ).strip()
+
 
 # Examples are provided by the application layer through the prompt builder system
 # See: applications/als_assistant/framework_prompts/memory_extraction.py
+
 
 def _get_memory_extraction_system_instructions() -> str:
     """Create system instructions for LLM-based memory content extraction.
@@ -316,6 +336,7 @@ def _get_memory_extraction_system_instructions() -> str:
     memory_builder = prompt_provider.get_memory_extraction_prompt_builder()
 
     return memory_builder.get_system_instructions()
+
 
 async def _classify_memory_operation(task_objective: str, logger) -> MemoryOperation:
     """Classify memory operation using LLM-based analysis.
@@ -375,11 +396,12 @@ async def _classify_memory_operation(task_objective: str, logger) -> MemoryOpera
 
         # Set caller context for API call logging (propagates through asyncio.to_thread)
         from osprey.models import set_api_call_context
+
         set_api_call_context(
             function="_classify_memory_operation",
             module="memory",
             class_name="MemoryCapability",
-            extra={"capability": "memory", "operation": "classification"}
+            extra={"capability": "memory", "operation": "classification"},
         )
 
         response_data = await asyncio.to_thread(
@@ -392,12 +414,16 @@ async def _classify_memory_operation(task_objective: str, logger) -> MemoryOpera
         if isinstance(response_data, MemoryOperationClassification):
             classification = response_data
         else:
-            logger.error(f"Memory operation classification did not return expected model. Got: {type(response_data)}")
+            logger.error(
+                f"Memory operation classification did not return expected model. Got: {type(response_data)}"
+            )
             raise ContentExtractionError("Failed to classify memory operation")
 
         # Validate and convert to enum
         operation_str = classification.operation.lower()
-        logger.info(f"Memory operation classified as: {operation_str} (reasoning: {classification.reasoning})")
+        logger.info(
+            f"Memory operation classified as: {operation_str} (reasoning: {classification.reasoning})"
+        )
 
         if operation_str == "save":
             return MemoryOperation.SAVE
@@ -411,9 +437,11 @@ async def _classify_memory_operation(task_objective: str, logger) -> MemoryOpera
         logger.error(f"Failed to classify memory operation: {e}")
         raise ContentExtractionError(f"Memory operation classification failed: {e}")
 
+
 # =============================================================================
 # Exception Classes
 # =============================================================================
+
 
 class MemoryCapabilityError(Exception):
     """Base exception class for memory capability-specific errors.
@@ -428,7 +456,9 @@ class MemoryCapabilityError(Exception):
        :class:`ContentExtractionError` : Specific error for failed content extraction
        :class:`MemoryFileError` : Specific error for storage system failures
     """
+
     pass
+
 
 class UserIdNotAvailableError(MemoryCapabilityError):
     """Raised when user ID is not available in session configuration.
@@ -437,7 +467,9 @@ class UserIdNotAvailableError(MemoryCapabilityError):
     with the correct user account. This error indicates that the session
     configuration does not contain the required user identification.
     """
+
     pass
+
 
 class ContentExtractionError(MemoryCapabilityError):
     """Raised when content extraction from chat history fails.
@@ -446,7 +478,9 @@ class ContentExtractionError(MemoryCapabilityError):
     identify memory-worthy content in the conversation, or that the
     extraction process itself failed due to technical issues.
     """
+
     pass
+
 
 class MemoryFileError(MemoryCapabilityError):
     """Raised when memory storage operations fail.
@@ -455,7 +489,9 @@ class MemoryFileError(MemoryCapabilityError):
     during save or load operations. This could be due to file system issues,
     permission problems, or storage system failures.
     """
+
     pass
+
 
 class MemoryRetrievalError(MemoryCapabilityError):
     """Raised when memory retrieval operations fail.
@@ -463,7 +499,9 @@ class MemoryRetrievalError(MemoryCapabilityError):
     Indicates that the system could not successfully retrieve stored memory
     entries, either due to storage system issues or data corruption problems.
     """
+
     pass
+
 
 class LLMCallError(MemoryCapabilityError):
     """Raised when LLM operations for memory processing fail.
@@ -472,13 +510,13 @@ class LLMCallError(MemoryCapabilityError):
     operation classification, or other memory-related analysis failed
     due to model errors, configuration issues, or service unavailability.
     """
+
     pass
 
- # ===========================================================
+
+# ===========================================================
 # Convention-Based Capability
 # ===========================================================
-
-from osprey.base.capability import BaseCapability
 
 
 @capability_node
@@ -574,7 +612,9 @@ class MemoryOperationsCapability(BaseCapability):
         # PHASE 1: CHECK FOR APPROVED MEMORY OPERATION (HIGHEST PRIORITY)
         # =====================================================================
 
-        has_approval_resume, approved_payload = get_approval_resume_data(self._state, create_approval_type("memory", "save"))
+        has_approval_resume, approved_payload = get_approval_resume_data(
+            self._state, create_approval_type("memory", "save")
+        )
 
         if has_approval_resume and approved_payload:
             logger.success("Using approved memory operation from agent state")
@@ -590,10 +630,7 @@ class MemoryOperationsCapability(BaseCapability):
             # Store context using StateManager
             step = self._step
             context_update = StateManager.store_context(
-                self._state,
-                "MEMORY_CONTEXT",
-                step.get("context_key"),
-                memory_context
+                self._state, "MEMORY_CONTEXT", step.get("context_key"), memory_context
             )
             approval_cleanup = clear_approval_state()
 
@@ -613,10 +650,12 @@ class MemoryOperationsCapability(BaseCapability):
             user_id = session_info.get("user_id")
 
             if not user_id:
-                raise UserIdNotAvailableError("Cannot perform memory operations: user ID not available in config")
+                raise UserIdNotAvailableError(
+                    "Cannot perform memory operations: user ID not available in config"
+                )
 
             # Extract and classify the request using helper method
-            task_objective = self.get_task_objective(default='unknown')
+            task_objective = self.get_task_objective(default="unknown")
 
             # Use LLM-based classification
             operation = await _classify_memory_operation(task_objective, logger)
@@ -647,7 +686,9 @@ class MemoryOperationsCapability(BaseCapability):
                     context_section = ""
 
                     if step_inputs:
-                        logger.info(f"Memory save: Including context from {len(step_inputs)} previous steps")
+                        logger.info(
+                            f"Memory save: Including context from {len(step_inputs)} previous steps"
+                        )
                         try:
                             context_manager = ContextManager(self._state)
                             context_summaries = context_manager.get_summaries(self._step)
@@ -655,7 +696,10 @@ class MemoryOperationsCapability(BaseCapability):
                             if context_summaries:
                                 # Format list as readable string
                                 import json
-                                formatted_summaries = json.dumps(context_summaries, indent=2, default=str)
+
+                                formatted_summaries = json.dumps(
+                                    context_summaries, indent=2, default=str
+                                )
                                 context_section = f"\n\nAVAILABLE CONTEXT FROM PREVIOUS STEPS:\n{formatted_summaries}\n"
                                 logger.debug(f"Added context summaries: {context_summaries}")
                         except Exception as e:
@@ -671,18 +715,19 @@ class MemoryOperationsCapability(BaseCapability):
 
                         # Set caller context for API call logging (propagates through asyncio.to_thread)
                         from osprey.models import set_api_call_context
+
                         set_api_call_context(
                             function="_extract_memory_content",
                             module="memory",
                             class_name="MemoryCapability",
-                            extra={"capability": "memory", "operation": "extraction"}
+                            extra={"capability": "memory", "operation": "extraction"},
                         )
 
                         response_data = await asyncio.to_thread(
                             get_chat_completion,
                             message=message,
                             model_config=memory_model_config,
-                            output_model=MemoryContentExtraction
+                            output_model=MemoryContentExtraction,
                         )
 
                         # Enhanced logging pattern for debugging
@@ -694,7 +739,9 @@ class MemoryOperationsCapability(BaseCapability):
                         if response_data.found and response_data.content.strip():
                             memory_extraction_result = response_data
                         else:
-                            logger.debug(f"No content identified for saving: {response_data.explanation}")
+                            logger.debug(
+                                f"No content identified for saving: {response_data.explanation}"
+                            )
 
                     except Exception as e:
                         logger.error(f"LLM call failed for memory content extraction: {e}")
@@ -725,11 +772,13 @@ class MemoryOperationsCapability(BaseCapability):
                         content=memory_extraction_result.content,
                         operation_type="save",
                         user_id=user_id,
-                        step_objective=self.get_task_objective(default='Save content to memory')
+                        step_objective=self.get_task_objective(default="Save content to memory"),
                     )
 
                     logger.approval("Interrupting execution for memory approval")
-                    logger.debug(f"Interrupt data created for memory content: '{memory_extraction_result.content[:100]}...'")
+                    logger.debug(
+                        f"Interrupt data created for memory content: '{memory_extraction_result.content[:100]}...'"
+                    )
 
                     # LangGraph interrupt - execution stops here until user responds
                     interrupt(interrupt_data)
@@ -740,21 +789,23 @@ class MemoryOperationsCapability(BaseCapability):
                     # Execute the memory save operation
                     logger.status("Saving to memory...")
                     memory_context = await _perform_memory_save_operation(
-                        content=memory_extraction_result.content,
-                        user_id=user_id,
-                        logger=logger
+                        content=memory_extraction_result.content, user_id=user_id, logger=logger
                     )
                     logger.status("Memory saved successfully")
 
                     # Store context using helper method
                     return self.store_output_context(memory_context)
             else:
-                raise ContentExtractionError("Unknown memory operation. Supported operations: save content to memory, show memory")
+                raise ContentExtractionError(
+                    "Unknown memory operation. Supported operations: save content to memory, show memory"
+                )
 
         except Exception as e:
             # Re-raise GraphInterrupt immediately - it's not an error!
             if _is_graph_interrupt(e):
-                logger.info("GraphInterrupt detected in memory - re-raising for LangGraph to handle")
+                logger.info(
+                    "GraphInterrupt detected in memory - re-raising for LangGraph to handle"
+                )
                 raise e
 
             logger.error(f"Memory operation failed: {e}")
@@ -793,31 +844,31 @@ class MemoryOperationsCapability(BaseCapability):
             return ErrorClassification(
                 severity=ErrorSeverity.CRITICAL,
                 user_message="Cannot perform memory operations: user ID not available",
-                metadata={"technical_details": str(exc)}
+                metadata={"technical_details": str(exc)},
             )
         elif isinstance(exc, ContentExtractionError):
             return ErrorClassification(
                 severity=ErrorSeverity.REPLANNING,
                 user_message="Need clarification on what to save to memory",
-                metadata={"technical_details": str(exc)}
+                metadata={"technical_details": str(exc)},
             )
         elif isinstance(exc, MemoryRetrievalError):
             return ErrorClassification(
                 severity=ErrorSeverity.RETRIABLE,
                 user_message="Failed to retrieve memory, retrying...",
-                metadata={"technical_details": str(exc)}
+                metadata={"technical_details": str(exc)},
             )
         elif isinstance(exc, MemoryFileError):
             return ErrorClassification(
                 severity=ErrorSeverity.RETRIABLE,
                 user_message="Memory file operation failed, retrying...",
-                metadata={"technical_details": str(exc)}
+                metadata={"technical_details": str(exc)},
             )
         else:
             return ErrorClassification(
                 severity=ErrorSeverity.RETRIABLE,
                 user_message=f"Memory operation error: {str(exc)}",
-                metadata={"technical_details": str(exc)}
+                metadata={"technical_details": str(exc)},
             )
 
     def _create_orchestrator_guide(self) -> OrchestratorGuide | None:
@@ -873,13 +924,7 @@ memory_capability = MemoryOperationsCapability()
 # =============================================================================
 
 
-
-
-async def _perform_memory_save_operation(
-    content: str,
-    user_id: str,
-    logger
-) -> MemoryContext:
+async def _perform_memory_save_operation(content: str, user_id: str, logger) -> MemoryContext:
     """Execute memory save operation with comprehensive validation and error handling.
 
     Centralizes all memory save business logic into a reusable helper function
@@ -915,10 +960,7 @@ async def _perform_memory_save_operation(
 
     try:
         # Create memory entry from content
-        memory_entry = MemoryContent(
-            timestamp=datetime.now(),
-            content=content
-        )
+        memory_entry = MemoryContent(timestamp=datetime.now(), content=content)
 
         # Save to memory
         memory_manager = get_memory_storage_manager()
@@ -930,9 +972,12 @@ async def _perform_memory_save_operation(
 
             # Return MemoryContext with save operation results
             return MemoryContext(
-                memory_data={"saved_content": content, "timestamp": memory_entry.timestamp.isoformat()},
+                memory_data={
+                    "saved_content": content,
+                    "timestamp": memory_entry.timestamp.isoformat(),
+                },
                 operation_type="save",
-                operation_result="Successfully saved content to memory"
+                operation_result="Successfully saved content to memory",
             )
         else:
             raise MemoryFileError("Failed to save memory content to file")
@@ -942,10 +987,7 @@ async def _perform_memory_save_operation(
         raise
 
 
-async def _perform_memory_retrieve_operation(
-    user_id: str,
-    logger
-) -> MemoryContext:
+async def _perform_memory_retrieve_operation(user_id: str, logger) -> MemoryContext:
     """Execute memory retrieval operation with comprehensive error handling.
 
     Centralizes all memory retrieval business logic into a reusable helper
@@ -988,11 +1030,9 @@ async def _perform_memory_retrieve_operation(
         return MemoryContext(
             memory_data={"memories": memory_entries},
             operation_type="retrieve",
-            operation_result=f"Retrieved {len(memory_entries)} memory entries"
+            operation_result=f"Retrieved {len(memory_entries)} memory entries",
         )
 
     except Exception as e:
         logger.error(f"Memory retrieve operation failed: {e}")
         raise MemoryRetrievalError(f"Failed to retrieve memory entries: {e}")
-
-

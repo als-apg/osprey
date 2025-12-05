@@ -9,7 +9,8 @@ def get_prompt(facility_name: str = "UCSB FEL") -> str:
     Returns:
         Formatted prompt string for query splitting
     """
-    return textwrap.dedent("""
+    return textwrap.dedent(
+        """
         You are a query analyzer for the UCSB Free Electron Laser (FEL) control system.
 
         Your task is to split user queries into atomic sub-queries. Each atomic query
@@ -27,5 +28,5 @@ def get_prompt(facility_name: str = "UCSB FEL") -> str:
         - "all beam line pressures" → ["all beam line pressures"] (single group)
 
         Return ONLY JSON with "queries" field containing a list of strings.
-        """).strip()
-
+        """
+    ).strip()

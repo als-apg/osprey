@@ -181,15 +181,17 @@ class ChatHistoryFormatter:
             role_display = role.title()
 
             # Format content with proper indentation for multi-line messages
-            content_lines = msg.content.split('\n')
+            content_lines = msg.content.split("\n")
             if len(content_lines) == 1:
                 content_formatted = content_lines[0]
             else:
-                content_formatted = content_lines[0] + '\n' + '\n'.join(f"    {line}" for line in content_lines[1:])
+                content_formatted = (
+                    content_lines[0] + "\n" + "\n".join(f"    {line}" for line in content_lines[1:])
+                )
 
             formatted_messages.append(f"**{role_display}{timestamp_str}:** {content_formatted}")
 
-        return '\n\n'.join(formatted_messages)
+        return "\n\n".join(formatted_messages)
 
 
 @dataclass
@@ -202,6 +204,7 @@ class UserMemories:
     :param entries: List of memory entry strings
     :type entries: list[str]
     """
+
     entries: list[str]
 
     def __bool__(self) -> bool:

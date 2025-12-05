@@ -1,4 +1,5 @@
 """Unit tests for Channel Limits Validator."""
+
 import json
 from unittest.mock import MagicMock, patch
 
@@ -17,10 +18,7 @@ class TestChannelLimitsConfig:
     def test_create_basic_config(self):
         """Test creating a basic channel config."""
         config = ChannelLimitsConfig(
-            channel_address="TEST:PV",
-            min_value=0.0,
-            max_value=100.0,
-            writable=True
+            channel_address="TEST:PV", min_value=0.0, max_value=100.0, writable=True
         )
         assert config.channel_address == "TEST:PV"
         assert config.min_value == 0.0
@@ -30,11 +28,7 @@ class TestChannelLimitsConfig:
 
     def test_create_config_with_max_step(self):
         """Test creating config with max_step."""
-        config = ChannelLimitsConfig(
-            channel_address="TEST:PV",
-            max_step=5.0,
-            writable=True
-        )
+        config = ChannelLimitsConfig(channel_address="TEST:PV", max_step=5.0, writable=True)
         assert config.max_step == 5.0
 
     def test_default_writable_value(self):
@@ -51,19 +45,14 @@ class TestLimitsValidator:
         """Create validator with basic test database."""
         test_db = {
             "TEST:PV": ChannelLimitsConfig(
-                channel_address="TEST:PV",
-                min_value=0.0,
-                max_value=100.0,
-                writable=True
+                channel_address="TEST:PV", min_value=0.0, max_value=100.0, writable=True
             ),
             "TEST:PV:READONLY": ChannelLimitsConfig(
-                channel_address="TEST:PV:READONLY",
-                writable=False
+                channel_address="TEST:PV:READONLY", writable=False
             ),
             "TEST:PV:NO_LIMITS": ChannelLimitsConfig(
-                channel_address="TEST:PV:NO_LIMITS",
-                writable=True
-            )
+                channel_address="TEST:PV:NO_LIMITS", writable=True
+            ),
         }
         policy = {"allow_unlisted_pvs": False}
         return LimitsValidator(test_db, policy)
@@ -73,10 +62,7 @@ class TestLimitsValidator:
         """Create validator with permissive policy."""
         test_db = {
             "TEST:PV": ChannelLimitsConfig(
-                channel_address="TEST:PV",
-                min_value=0.0,
-                max_value=100.0,
-                writable=True
+                channel_address="TEST:PV", min_value=0.0, max_value=100.0, writable=True
             )
         }
         policy = {"allow_unlisted_channels": True}
@@ -91,7 +77,7 @@ class TestLimitsValidator:
                 min_value=0.0,
                 max_value=100.0,
                 max_step=10.0,
-                writable=True
+                writable=True,
             )
         }
         policy = {"allow_unlisted_pvs": False}
@@ -198,7 +184,7 @@ class TestLimitsValidator:
         mock_epics = MagicMock()
         mock_epics.caget = MagicMock(return_value=50.0)
 
-        with patch.dict('sys.modules', {'epics': mock_epics}):
+        with patch.dict("sys.modules", {"epics": mock_epics}):
             # This should work: step=5 (from 50 to 55)
             step_validator.validate("TEST:PV:STEP", 55.0)
 
@@ -220,7 +206,7 @@ class TestLimitsValidator:
         mock_epics = MagicMock()
         mock_epics.caget = MagicMock(return_value=None)
 
-        with patch.dict('sys.modules', {'epics': mock_epics}):
+        with patch.dict("sys.modules", {"epics": mock_epics}):
             # Should fail because we can't read current value
             with pytest.raises(ChannelLimitsViolationError) as exc_info:
                 step_validator.validate("TEST:PV:STEP", 55.0)
@@ -230,7 +216,7 @@ class TestLimitsValidator:
     def test_max_step_epics_import_failure(self, step_validator):
         """Test that epics import failure blocks write when step checking required."""
         # Remove epics from sys.modules to simulate ImportError
-        with patch.dict('sys.modules', {'epics': None}):
+        with patch.dict("sys.modules", {"epics": None}):
             with pytest.raises(ChannelLimitsViolationError) as exc_info:
                 step_validator.validate("TEST:PV:STEP", 55.0)
 
@@ -247,7 +233,7 @@ class TestLimitsValidator:
         mock_epics = MagicMock()
         mock_epics.caget = MagicMock(return_value="invalid")  # Non-numeric current value
 
-        with patch.dict('sys.modules', {'epics': mock_epics}):
+        with patch.dict("sys.modules", {"epics": mock_epics}):
             # Should not raise because current value is non-numeric
             step_validator.validate("TEST:PV:STEP", 55.0)
 
@@ -259,20 +245,9 @@ class TestLimitsValidator:
         """Test loading valid database from JSON file."""
         db_file = tmp_path / "test_boundaries.json"
         db_content = {
-            "TEST:PV1": {
-                "min_value": 0.0,
-                "max_value": 100.0,
-                "writable": True
-            },
-            "TEST:PV2": {
-                "writable": False
-            },
-            "TEST:PV3": {
-                "min_value": -10.0,
-                "max_value": 10.0,
-                "max_step": 2.0,
-                "writable": True
-            }
+            "TEST:PV1": {"min_value": 0.0, "max_value": 100.0, "writable": True},
+            "TEST:PV2": {"writable": False},
+            "TEST:PV3": {"min_value": -10.0, "max_value": 10.0, "max_step": 2.0, "writable": True},
         }
         db_file.write_text(json.dumps(db_content))
 
@@ -293,10 +268,7 @@ class TestLimitsValidator:
         db_content = {
             "_comment": "This is a comment",
             "_note": "Another comment",
-            "TEST:PV": {
-                "min_value": 0.0,
-                "max_value": 100.0
-            }
+            "TEST:PV": {"min_value": 0.0, "max_value": 100.0},
         }
         db_file.write_text(json.dumps(db_content))
 
@@ -344,19 +316,10 @@ class TestLimitsValidator:
         """Test that database loader skips entries with invalid config."""
         db_file = tmp_path / "test_boundaries.json"
         db_content = {
-            "VALID:PV": {
-                "min_value": 0.0,
-                "max_value": 100.0
-            },
-            "INVALID:PV1": {
-                "min_value": "not_a_number"  # Invalid type
-            },
-            "INVALID:PV2": {
-                "max_step": "also_invalid"  # Invalid type
-            },
-            "VALID:PV2": {
-                "writable": False
-            }
+            "VALID:PV": {"min_value": 0.0, "max_value": 100.0},
+            "INVALID:PV1": {"min_value": "not_a_number"},  # Invalid type
+            "INVALID:PV2": {"max_step": "also_invalid"},  # Invalid type
+            "VALID:PV2": {"writable": False},
         }
         db_file.write_text(json.dumps(db_content))
 
@@ -373,7 +336,7 @@ class TestLimitsValidator:
     # Configuration Loading Tests
     # =========================================================================
 
-    @patch('osprey.utils.config.get_config_value')
+    @patch("osprey.utils.config.get_config_value")
     def test_from_config_disabled(self, mock_get_config):
         """Test that from_config returns None when disabled."""
         mock_get_config.return_value = False
@@ -382,15 +345,16 @@ class TestLimitsValidator:
 
         assert validator is None
 
-    @patch('osprey.utils.config.get_config_value')
+    @patch("osprey.utils.config.get_config_value")
     def test_from_config_no_database_path(self, mock_get_config):
         """Test that from_config returns empty validator when no database path."""
+
         def config_side_effect(key, default):
-            if key == 'control_system.limits_checking.enabled':
+            if key == "control_system.limits_checking.enabled":
                 return True
-            elif key == 'control_system.limits_checking.database_path':
+            elif key == "control_system.limits_checking.database_path":
                 return None
-            elif key == 'control_system.limits_checking.allow_unlisted_pvs':
+            elif key == "control_system.limits_checking.allow_unlisted_pvs":
                 return False
             return default
 
@@ -401,25 +365,19 @@ class TestLimitsValidator:
         assert validator is not None
         assert validator.limits == {}  # Empty database (blocks all writes)
 
-    @patch('osprey.utils.config.get_config_value')
+    @patch("osprey.utils.config.get_config_value")
     def test_from_config_loads_database(self, mock_get_config, tmp_path):
         """Test that from_config loads database from configured path."""
         db_file = tmp_path / "test_boundaries.json"
-        db_content = {
-            "TEST:PV": {
-                "min_value": 0.0,
-                "max_value": 100.0,
-                "writable": True
-            }
-        }
+        db_content = {"TEST:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}}
         db_file.write_text(json.dumps(db_content))
 
         def config_side_effect(key, default):
-            if key == 'control_system.limits_checking.enabled':
+            if key == "control_system.limits_checking.enabled":
                 return True
-            elif key == 'control_system.limits_checking.database_path':
+            elif key == "control_system.limits_checking.database_path":
                 return str(db_file)
-            elif key == 'control_system.limits_checking.allow_unlisted_channels':
+            elif key == "control_system.limits_checking.allow_unlisted_channels":
                 return False
             return default
 
@@ -430,20 +388,20 @@ class TestLimitsValidator:
         assert validator is not None
         assert len(validator.limits) == 1
         assert "TEST:PV" in validator.limits
-        assert validator.policy['allow_unlisted_channels'] is False
+        assert validator.policy["allow_unlisted_channels"] is False
 
-    @patch('osprey.utils.config.get_config_value')
+    @patch("osprey.utils.config.get_config_value")
     def test_from_config_invalid_json_fails_fast(self, mock_get_config, tmp_path):
         """Test that from_config raises error on invalid JSON (fail-fast at init)."""
         db_file = tmp_path / "invalid.json"
         db_file.write_text('{"PV1": {"min_value": 0.0},}')  # Trailing comma
 
         def config_side_effect(key, default):
-            if key == 'control_system.limits_checking.enabled':
+            if key == "control_system.limits_checking.enabled":
                 return True
-            elif key == 'control_system.limits_checking.database_path':
+            elif key == "control_system.limits_checking.database_path":
                 return str(db_file)
-            elif key == 'control_system.limits_checking.allow_unlisted_channels':
+            elif key == "control_system.limits_checking.allow_unlisted_channels":
                 return False
             return default
 
@@ -456,15 +414,16 @@ class TestLimitsValidator:
         error_msg = str(exc_info.value)
         assert "Invalid JSON" in error_msg
 
-    @patch('osprey.utils.config.get_config_value')
+    @patch("osprey.utils.config.get_config_value")
     def test_from_config_missing_file_fails_fast(self, mock_get_config):
         """Test that from_config raises error on missing file (fail-fast at init)."""
+
         def config_side_effect(key, default):
-            if key == 'control_system.limits_checking.enabled':
+            if key == "control_system.limits_checking.enabled":
                 return True
-            elif key == 'control_system.limits_checking.database_path':
+            elif key == "control_system.limits_checking.database_path":
                 return "/nonexistent/path/to/limits.json"
-            elif key == 'control_system.limits_checking.allow_unlisted_pvs':
+            elif key == "control_system.limits_checking.allow_unlisted_pvs":
                 return False
             return default
 
@@ -489,7 +448,7 @@ class TestChannelLimitsViolationError:
             violation_type="MAX_EXCEEDED",
             violation_reason="Value 150.0 above maximum 100.0",
             min_value=0.0,
-            max_value=100.0
+            max_value=100.0,
         )
 
         error_msg = str(error)
@@ -508,7 +467,7 @@ class TestChannelLimitsViolationError:
             current_value=50.0,
             max_step=10.0,
             min_value=0.0,
-            max_value=100.0
+            max_value=100.0,
         )
 
         error_msg = str(error)
@@ -523,10 +482,9 @@ class TestChannelLimitsViolationError:
             channel_address="TEST:PV",
             value=150.0,
             violation_type="MAX_EXCEEDED",
-            violation_reason="Test"
+            violation_reason="Test",
         )
 
         assert error.category == ErrorCategory.CODE_RELATED
         assert error.is_code_error() is True
         assert error.should_retry_code_generation() is True
-

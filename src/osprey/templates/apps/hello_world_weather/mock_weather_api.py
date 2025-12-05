@@ -107,10 +107,12 @@ class CurrentWeatherReading:
        :class:`SimpleWeatherAPI` : Mock service that generates instances of this class
        :doc:`/developer-guides/data-models` : Data modeling best practices guide
     """
+
     location: str
     temperature: float  # Celsius
     conditions: str
     timestamp: datetime
+
 
 class SimpleWeatherAPI:
     """Mock weather service for Hello World Weather tutorial application.
@@ -187,7 +189,7 @@ class SimpleWeatherAPI:
     CITY_DATA = {
         "San Francisco": {"base_temp": 18, "conditions": ["Sunny", "Foggy", "Partly Cloudy"]},
         "New York": {"base_temp": 15, "conditions": ["Sunny", "Rainy", "Cloudy", "Snow"]},
-        "Prague": {"base_temp": 12, "conditions": ["Rainy", "Cloudy", "Partly Cloudy"]}
+        "Prague": {"base_temp": 12, "conditions": ["Rainy", "Cloudy", "Partly Cloudy"]},
     }
     """Weather pattern configuration for supported cities.
 
@@ -299,8 +301,9 @@ class SimpleWeatherAPI:
             location=location,
             temperature=float(temperature),
             conditions=conditions,
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
+
 
 # Global API instance for application-wide weather data access
 weather_api = SimpleWeatherAPI()

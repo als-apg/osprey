@@ -17,7 +17,7 @@ def is_project_initialized() -> bool:
     Returns:
         True if config.yml exists in current directory
     """
-    return (Path.cwd() / 'config.yml').exists()
+    return (Path.cwd() / "config.yml").exists()
 
 
 def find_capability_file(capability_name: str) -> Path | None:
@@ -35,7 +35,7 @@ def find_capability_file(capability_name: str) -> Path | None:
         # Try to find from registry location
         registry_path = find_registry_file()
         if registry_path:
-            capabilities_dir = registry_path.parent / 'capabilities'
+            capabilities_dir = registry_path.parent / "capabilities"
             capability_file = capabilities_dir / f"{capability_name}.py"
             if capability_file.exists():
                 return capability_file
@@ -76,26 +76,15 @@ def remove():
 
 @remove.command()
 @click.option(
-    '--name', '-n',
-    'capability_name',
+    "--name",
+    "-n",
+    "capability_name",
     required=True,
-    help='Name of the capability to remove (e.g., weather_demo, slack_mcp)'
+    help="Name of the capability to remove (e.g., weather_demo, slack_mcp)",
 )
-@click.option(
-    '--force', '-f',
-    is_flag=True,
-    help='Force removal without confirmation prompt'
-)
-@click.option(
-    '--quiet', '-q',
-    is_flag=True,
-    help='Reduce output verbosity'
-)
-def capability(
-    capability_name: str,
-    force: bool,
-    quiet: bool
-):
+@click.option("--force", "-f", is_flag=True, help="Force removal without confirmation prompt")
+@click.option("--quiet", "-q", is_flag=True, help="Reduce output verbosity")
+def capability(capability_name: str, force: bool, quiet: bool):
     """Remove capability from project.
 
     Removes a capability and all its associated components:
@@ -127,13 +116,17 @@ def capability(
         console.print("  This command requires an Osprey project with [accent]config.yml[/accent]")
         console.print()
         console.print("  [bold]Navigate to your project:[/bold]")
-        console.print("    " + Messages.command('cd my-project'))
-        console.print("    " + Messages.command(f'osprey remove capability --name {capability_name}'))
+        console.print("    " + Messages.command("cd my-project"))
+        console.print(
+            "    " + Messages.command(f"osprey remove capability --name {capability_name}")
+        )
         console.print()
         raise click.Abort()
 
     if not quiet:
-        console.print(f"\n🗑️  [{Styles.HEADER}]Removing Capability: {capability_name}[/{Styles.HEADER}]\n")
+        console.print(
+            f"\n🗑️  [{Styles.HEADER}]Removing Capability: {capability_name}[/{Styles.HEADER}]\n"
+        )
 
     try:
         from osprey.generators.config_updater import (
@@ -162,25 +155,35 @@ def capability(
 
         if not quiet:
             if has_registry:
-                console.print(f"  ✓ Registry entries: [{Styles.VALUE}]{registry_path}[/{Styles.VALUE}]")
+                console.print(
+                    f"  ✓ Registry entries: [{Styles.VALUE}]{registry_path}[/{Styles.VALUE}]"
+                )
             else:
                 console.print(f"  [{Styles.DIM}]✗ Registry entries: not found[/{Styles.DIM}]")
 
             if has_config:
                 model_key = f"{capability_name}_react"
-                console.print(f"  ✓ Config model: [{Styles.VALUE}]{model_key}[/{Styles.VALUE}] in {config_path}")
+                console.print(
+                    f"  ✓ Config model: [{Styles.VALUE}]{model_key}[/{Styles.VALUE}] in {config_path}"
+                )
             else:
                 console.print(f"  [{Styles.DIM}]✗ Config model: not found[/{Styles.DIM}]")
 
             if has_file:
-                console.print(f"  ✓ Capability file: [{Styles.VALUE}]{capability_file}[/{Styles.VALUE}]")
+                console.print(
+                    f"  ✓ Capability file: [{Styles.VALUE}]{capability_file}[/{Styles.VALUE}]"
+                )
             else:
                 console.print(f"  [{Styles.DIM}]✗ Capability file: not found[/{Styles.DIM}]")
 
         # Nothing to remove?
         if not has_registry and not has_config and not has_file:
-            console.print(f"\n{Messages.warning(f'No components found for capability: {capability_name}')}")
-            console.print(f"\n  [{Styles.DIM}]Nothing to remove. Capability may already be removed or never existed.[/{Styles.DIM}]")
+            console.print(
+                f"\n{Messages.warning(f'No components found for capability: {capability_name}')}"
+            )
+            console.print(
+                f"\n  [{Styles.DIM}]Nothing to remove. Capability may already be removed or never existed.[/{Styles.DIM}]"
+            )
             return
 
         # Step 2: Show preview of what will be removed
@@ -219,7 +222,7 @@ def capability(
                 confirmed = questionary.confirm(
                     "Proceed with removal? (backups will be created)",
                     default=True,
-                    style=get_questionary_style()
+                    style=get_questionary_style(),
                 ).ask()
 
                 if not confirmed:
@@ -228,7 +231,9 @@ def capability(
 
             except ImportError:
                 # questionary not available, require --force flag
-                console.print(f"\n{Messages.warning('Interactive mode requires questionary package')}")
+                console.print(
+                    f"\n{Messages.warning('Interactive mode requires questionary package')}"
+                )
                 console.print("  Install with: pip install questionary")
                 console.print("  Or use --force flag to proceed without confirmation")
                 raise click.Abort() from None
@@ -241,7 +246,7 @@ def capability(
         # Remove from registry
         if has_registry:
             # Create backup
-            backup_path = registry_path.with_suffix('.py.bak')
+            backup_path = registry_path.with_suffix(".py.bak")
             backup_path.write_text(registry_path.read_text())
             if not quiet:
                 console.print(f"  ✓ Created backup: [{Styles.DIM}]{backup_path}[/{Styles.DIM}]")
@@ -254,7 +259,7 @@ def capability(
         # Remove from config
         if has_config:
             # Create backup
-            backup_path = config_path.with_suffix('.yml.bak')
+            backup_path = config_path.with_suffix(".yml.bak")
             backup_path.write_text(config_path.read_text())
             if not quiet:
                 console.print(f"  ✓ Created backup: [{Styles.DIM}]{backup_path}[/{Styles.DIM}]")
@@ -271,11 +276,15 @@ def capability(
 
         # Success!
         console.print("\n" + "=" * 70)
-        console.print(f"[{Styles.BOLD_SUCCESS}]✅ Capability '{capability_name}' successfully removed![/{Styles.BOLD_SUCCESS}]")
+        console.print(
+            f"[{Styles.BOLD_SUCCESS}]✅ Capability '{capability_name}' successfully removed![/{Styles.BOLD_SUCCESS}]"
+        )
         console.print("=" * 70 + "\n")
 
         if has_registry or has_config:
-            console.print(f"[{Styles.DIM}]Backups created in case you need to restore:[/{Styles.DIM}]")
+            console.print(
+                f"[{Styles.DIM}]Backups created in case you need to restore:[/{Styles.DIM}]"
+            )
             if has_registry:
                 console.print(f"  • {registry_path.with_suffix('.py.bak')}")
             if has_config:
@@ -289,10 +298,10 @@ def capability(
         console.print(f"\n{Messages.error(f'Removal failed: {e}')}")
         if not quiet:
             import traceback
+
             console.print(f"[dim]{traceback.format_exc()}[/dim]")
         raise click.Abort() from e
 
 
 if __name__ == "__main__":
     remove()
-

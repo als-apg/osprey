@@ -37,6 +37,7 @@ Examples:
    This module is designed for security-critical operations. All approval
    functions include comprehensive validation and error handling.
 """
+
 from __future__ import annotations
 
 import logging
@@ -56,6 +57,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # LANGGRAPH-NATIVE APPROVAL SYSTEM
 # =============================================================================
+
 
 def create_approval_type(capability_name: str, operation_type: str = None) -> str:
     """Generate dynamic approval type identifier from capability and operation.
@@ -106,9 +108,7 @@ def create_approval_type(capability_name: str, operation_type: str = None) -> st
 
 
 def create_plan_approval_interrupt(
-    execution_plan: ExecutionPlan,
-    plan_file_path: str = None,
-    pending_plans_dir: str = None
+    execution_plan: ExecutionPlan, plan_file_path: str = None, pending_plans_dir: str = None
 ) -> dict[str, Any]:
     """Create structured interrupt data for execution plan approval with file-based storage support.
 
@@ -155,7 +155,7 @@ def create_plan_approval_interrupt(
        :func:`clear_approval_state` : State cleanup after approval processing
     """
     # Extract plan structure for user presentation
-    steps = execution_plan.get('steps', [])
+    steps = execution_plan.get("steps", [])
     estimated_steps = len(steps)
 
     # Build human-readable approval prompt with step details
@@ -185,7 +185,7 @@ def create_plan_approval_interrupt(
     # Create enhanced resume payload with file information
     resume_payload = {
         "approval_type": create_approval_type("orchestrator", "plan"),
-        "execution_plan": execution_plan  # Keep for backward compatibility
+        "execution_plan": execution_plan,  # Keep for backward compatibility
     }
 
     # Add file-based parameters if provided
@@ -194,10 +194,7 @@ def create_plan_approval_interrupt(
     if pending_plans_dir:
         resume_payload["pending_plans_dir"] = pending_plans_dir
 
-    return {
-        "user_message": user_message,
-        "resume_payload": resume_payload
-    }
+    return {"user_message": user_message, "resume_payload": resume_payload}
 
 
 def create_memory_approval_interrupt(
@@ -205,7 +202,7 @@ def create_memory_approval_interrupt(
     operation_type: str,
     user_id: str,
     existing_memory: str = "",
-    step_objective: str = "Save content to memory"
+    step_objective: str = "Save content to memory",
 ) -> dict[str, Any]:
     """Create structured interrupt data for memory operation approval.
 
@@ -281,16 +278,16 @@ Memory save operation requires human approval
             "content": content,
             "operation_type": operation_type,
             "user_id": user_id,
-            "existing_memory": existing_memory
-        }
+            "existing_memory": existing_memory,
+        },
     }
 
 
 def create_channel_write_approval_interrupt(
     operations: list,
     analysis_details: dict[str, Any],
-    safety_concerns: list[str] = None,
-    step_objective: str = "Write values to control system channels"
+    safety_concerns: list[str] | None = None,
+    step_objective: str = "Write values to control system channels",
 ) -> dict[str, Any]:
     """Create structured interrupt data for channel write operation approval.
 
@@ -315,7 +312,7 @@ def create_channel_write_approval_interrupt(
 
     # Build operation summary
     operations_text = ""
-    for i, (channel, value) in enumerate(analysis_details.get('values', []), 1):
+    for i, (channel, value) in enumerate(analysis_details.get("values", []), 1):
         operations_text += f"**{i}.** {channel} = {value}\n"
 
     # Build safety concerns section
@@ -350,13 +347,13 @@ Channel write operation requires human approval
                     "channel_address": op.channel_address,
                     "value": op.value,
                     "units": op.units,
-                    "notes": op.notes
+                    "notes": op.notes,
                 }
                 for op in operations
             ],
             "analysis_details": analysis_details,
-            "safety_concerns": safety_concerns
-        }
+            "safety_concerns": safety_concerns,
+        },
     }
 
 
@@ -370,7 +367,7 @@ def create_code_approval_interrupt(
     execution_request: Any | None = None,
     expected_results: dict[str, Any] | None = None,
     execution_folder_path: Path | None = None,
-    step_objective: str = "Execute Python code"
+    step_objective: str = "Execute Python code",
 ) -> dict[str, Any]:
     """Create structured interrupt data for Python code execution approval.
 
@@ -439,8 +436,9 @@ def create_code_approval_interrupt(
     else:
         notebook_section = "**Code is available for review in the execution environment.**"
 
-    reasoning = analysis_details.get('approval_reasoning',
-                                   f"Python code requires human approval for {execution_mode} mode")
+    reasoning = analysis_details.get(
+        "approval_reasoning", f"Python code requires human approval for {execution_mode} mode"
+    )
 
     user_message = f"""
 ⚠️ **HUMAN APPROVAL REQUIRED** ⚠️
@@ -469,17 +467,18 @@ def create_code_approval_interrupt(
             "notebook_link": notebook_link,
             "execution_request": execution_request,
             "expected_results": expected_results,
-            "execution_folder_path": str(execution_folder_path) if execution_folder_path else None
-        }
+            "execution_folder_path": str(execution_folder_path) if execution_folder_path else None,
+        },
     }
+
 
 # =============================================================================
 # STREAMLINED APPROVAL HELPERS
 # =============================================================================
 
+
 def get_approval_resume_data(
-    state: AgentState,
-    expected_approval_type: str
+    state: AgentState, expected_approval_type: str
 ) -> tuple[bool, dict[str, Any] | None]:
     """Extract and validate approval resume data from agent state.
 
@@ -548,14 +547,18 @@ def get_approval_resume_data(
         # Validate approval_type is a non-empty string
         approval_type = approved_payload["approval_type"]
         if not isinstance(approval_type, str) or not approval_type.strip():
-            raise ValueError(f"approval_type must be a non-empty string, got: {repr(approval_type)}")
+            raise ValueError(
+                f"approval_type must be a non-empty string, got: {repr(approval_type)}"
+            )
 
     # Has approval state = this is a resume
     if approval_approved:
         # Extract and validate payload for the expected type
         payload = get_approved_payload_from_state(state, expected_approval_type)
         if not payload:
-            raise ValueError(f"Approval was approved but no valid payload found for type {expected_approval_type}")
+            raise ValueError(
+                f"Approval was approved but no valid payload found for type {expected_approval_type}"
+            )
         return True, payload
     else:
         # Explicitly rejected
@@ -563,8 +566,7 @@ def get_approval_resume_data(
 
 
 def get_approved_payload_from_state(
-    state: AgentState,
-    expected_approval_type: str
+    state: AgentState, expected_approval_type: str
 ) -> dict[str, Any] | None:
     """Extract approved payload directly from agent state for specific approval type.
 
@@ -630,11 +632,7 @@ def clear_approval_state() -> dict[str, Any]:
        This function only returns the state updates - callers must apply
        them to the actual state object.
     """
-    return {
-        "approval_approved": None,
-        "approved_payload": None
-    }
-
+    return {"approval_approved": None, "approved_payload": None}
 
 
 async def handle_service_with_interrupts(
@@ -642,7 +640,7 @@ async def handle_service_with_interrupts(
     request: Any,
     config: dict[str, Any],
     logger,
-    capability_name: str = "parent_capability"
+    capability_name: str = "parent_capability",
 ) -> Any:
     """Handle service calls with consistent interrupt propagation.
 
@@ -707,26 +705,38 @@ async def handle_service_with_interrupts(
 
         # Check if this is a GraphInterrupt from the subgraph
         if isinstance(e, GraphInterrupt):
-            logger.info(f"{capability_name}: Service was interrupted - extracting interrupt data for main graph")
+            logger.info(
+                f"{capability_name}: Service was interrupted - extracting interrupt data for main graph"
+            )
 
             try:
                 # Extract interrupt data from GraphInterrupt using standard structure
                 # GraphInterrupt structure: e.args[0][0].value contains the interrupt data
                 interrupt_data = e.args[0][0].value
-                logger.debug(f"{capability_name}: Extracted interrupt data with keys: {list(interrupt_data.keys())}")
+                logger.debug(
+                    f"{capability_name}: Extracted interrupt data with keys: {list(interrupt_data.keys())}"
+                )
 
                 # Create new interrupt in main graph context using the extracted data
-                logger.info(f"⏸️  {capability_name}: Creating approval interrupt in main graph context")
+                logger.info(
+                    f"⏸️  {capability_name}: Creating approval interrupt in main graph context"
+                )
                 interrupt(interrupt_data)
 
                 # This line should never be reached - interrupt() should pause execution
-                logger.error(f"UNEXPECTED: interrupt() returned instead of pausing execution in {capability_name}")
+                logger.error(
+                    f"UNEXPECTED: interrupt() returned instead of pausing execution in {capability_name}"
+                )
                 raise RuntimeError(f"Interrupt mechanism failed in {capability_name}")
 
             except (IndexError, KeyError, AttributeError) as extract_error:
-                logger.error(f"{capability_name}: Failed to extract interrupt data from GraphInterrupt: {extract_error}")
+                logger.error(
+                    f"{capability_name}: Failed to extract interrupt data from GraphInterrupt: {extract_error}"
+                )
                 logger.debug(f"{capability_name}: GraphInterrupt args structure: {e.args}")
-                raise RuntimeError(f"{capability_name}: Failed to handle service interrupt: {extract_error}") from extract_error
+                raise RuntimeError(
+                    f"{capability_name}: Failed to handle service interrupt: {extract_error}"
+                ) from extract_error
         else:
             # Handle all other exceptions as actual errors - re-raise as-is
             logger.error(f"{capability_name}: Service failed with non-interrupt exception: {e}")

@@ -7,7 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Python Executor: Context File Creation for Pre-Approval Notebooks**: Fixed timing issue where `context.json` was not created until execution, causing warnings and test failures when approval was required. Context is now saved immediately when creating pre-approval, syntax error, and static analysis failure notebooks.
+- **Code Quality: Pre-merge cleanup**: Removed unused imports and applied code formatting standards (black + isort) across entire codebase for consistency
+- **Documentation: Fixed RST docstring formatting**: Corrected docstring syntax in `BaseInfrastructureNode.get_current_task()` to use proper RST code block notation (eliminates Sphinx warnings)
+
 ### Added
+- **Hierarchical Channel Finder: Custom Separator Overrides**: Per-node control of channel name separators
+  - New `_separator` metadata field overrides default separators from naming pattern
+  - Works at any hierarchy level (leaf-level, mid-level, multiple in one path)
+  - Solves EPICS naming conventions with mixed delimiters (e.g., `:` for subdevices, `_` for suffixes, `.` for legacy subsystems)
+  - Essential for optional levels where default separator assignment causes mismatches
+  - Example: `Mode` node with `"_separator": "_"` generates `DEV:Mode_RB` instead of `DEV:Mode:RB`
+  - Backward compatible: nodes without `_separator` use pattern defaults
+  - Implementation: `_parse_naming_pattern_separators()`, `_build_channel_with_separators()`, separator tracking through recursion
+  - Updated `optional_levels.json` with clear educational examples (82 channels, uniform colon pattern)
+  - Documentation: New "Custom Separators" tab in Advanced Hierarchy Patterns section
+- **Hierarchical Channel Finder: Automatic Leaf Detection**: Eliminates verbose `_is_leaf` markers for childless nodes
+  - Nodes without children are automatically detected as leaves (no explicit marker needed)
+  - `_is_leaf` now only required for nodes that have children but are also complete channels
+  - Reduces verbosity in database definitions (e.g., RB/SP readback/setpoint nodes)
+  - Backward compatible: explicit `_is_leaf` markers still work (take precedence)
+  - Updated all examples and documentation to reflect cleaner syntax
+  - Test coverage: 2 new tests for automatic leaf detection functionality
+- **Channel Finder: Comprehensive Parameterized Test Suite**: Automated testing coverage for all example databases
+  - New `test_all_example_databases.py` with 80 tests covering all 6 example databases
+  - Parameterized tests automatically run on any new example database added
+  - Core functionality tests: loading, navigation, channel generation, validation, statistics
+  - Database-specific feature tests for unique characteristics (optional levels, legacy format, etc.)
+  - Expected channel count validation for all databases (total: 30,908 channels)
+  - Now testing previously uncovered databases: `hierarchical_legacy.json` and `optional_levels.json`
+  - Suppresses expected deprecation warnings for intentional legacy format testing
+- **Channel Finder: Pluggable Pipeline and Database System**: Registration pattern for custom implementations
+  - `register_pipeline()` and `register_database()` methods for extending channel finder
+  - Discovery API: `list_available_pipelines()` and `list_available_databases()`
+  - Config-driven selection without modifying framework code
+  - Examples for RAG pipeline and PostgreSQL database implementations
+- **Hierarchical Channel Finder: Flexible Naming Configuration**: Navigation-only levels and decoupled naming
+  - Naming pattern can reference subset of hierarchy levels (not all required in pattern)
+  - New `_channel_part` field decouples tree keys from naming components
+  - Enables semantic tree organization with PV names at leaf (JLab CEBAF pattern)
+  - Enables friendly navigation with technical naming ("Magnets" → "MAG")
+  - Backward compatible: existing databases work unchanged
+  - Example database: `hierarchical_jlab_style.json` demonstrating both features
+  - Test coverage: 18 new tests for flexible naming functionality
 
 #### Configuration Management
 - **EPICS Gateway Presets**: Built-in configurations for APS and ALS facilities
@@ -81,6 +124,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Developer Documentation**: Commit organization workflow guide for managing complex Git changes
 
 ### Changed
+
+- **Code Quality**: Pre-merge cleanup improvements across codebase
+  - Code formatting: Applied Black and isort to all changed files for consistent style
+  - Linting fixes: Resolved ruff warnings (unused imports, bare except, unused variables)
+  - Logging improvements: Replaced debug print() statements with proper logger.debug() calls in runtime module
+  - Type hints: Added return type hints to 6 public functions for better IDE support
+  - Import cleanup: Removed duplicate import in memory capability
 
 #### Configuration and Architecture
 - **CLI Organization**: Deprecated `osprey export-config` in favor of `osprey config export`

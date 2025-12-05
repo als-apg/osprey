@@ -32,7 +32,7 @@ class CBorgProviderAdapter(BaseProvider):
         "google/gemini-flash",
         "google/gemini-pro",
         "openai/gpt-4o",
-        "openai/gpt-4o-mini"
+        "openai/gpt-4o-mini",
     ]
 
     # API key acquisition information
@@ -40,7 +40,7 @@ class CBorgProviderAdapter(BaseProvider):
     api_key_instructions = [
         "As a Berkeley Lab employee, go to 'API' -> 'Request API Key'",
         "Create an API key ($50/month per user allocation)",
-        "Copy the key provided"
+        "Copy the key provided",
     ]
     api_key_note = "Must have affiliation with Berkeley Lab to request an API key."
 
@@ -50,23 +50,15 @@ class CBorgProviderAdapter(BaseProvider):
         api_key: str | None,
         base_url: str | None,
         timeout: float | None,
-        http_client: httpx.AsyncClient | None
+        http_client: httpx.AsyncClient | None,
     ) -> OpenAIModel:
         """Create CBORG model instance for PydanticAI."""
         if http_client:
-            client_args = {
-                "api_key": api_key,
-                "http_client": http_client,
-                "base_url": base_url
-            }
+            client_args = {"api_key": api_key, "http_client": http_client, "base_url": base_url}
             openai_client = openai.AsyncOpenAI(**client_args)
         else:
             effective_timeout = timeout if timeout is not None else 60.0
-            client_args = {
-                "api_key": api_key,
-                "timeout": effective_timeout,
-                "base_url": base_url
-            }
+            client_args = {"api_key": api_key, "timeout": effective_timeout, "base_url": base_url}
             openai_client = openai.AsyncOpenAI(**client_args)
 
         model = OpenAIModel(
@@ -87,7 +79,7 @@ class CBorgProviderAdapter(BaseProvider):
         thinking: dict | None = None,
         system_prompt: str | None = None,
         output_format: Any | None = None,
-        **kwargs
+        **kwargs,
     ) -> str | Any:
         """Execute CBORG chat completion."""
         # Check for thinking parameters (not supported by CBORG)
@@ -122,7 +114,7 @@ class CBorgProviderAdapter(BaseProvider):
             result = response.choices[0].message.parsed
 
             # Handle TypedDict conversion
-            if is_typed_dict_output and hasattr(result, 'model_dump'):
+            if is_typed_dict_output and hasattr(result, "model_dump"):
                 return result.model_dump()
             return result
         else:
@@ -141,7 +133,7 @@ class CBorgProviderAdapter(BaseProvider):
         api_key: str | None,
         base_url: str | None,
         timeout: float = 5.0,
-        model_id: str | None = None
+        model_id: str | None = None,
     ) -> tuple[bool, str]:
         """Check CBORG API health by testing /v1/models endpoint."""
         import requests
@@ -153,7 +145,7 @@ class CBorgProviderAdapter(BaseProvider):
             return False, "Base URL not configured"
 
         try:
-            test_url = base_url.rstrip('/') + '/models'
+            test_url = base_url.rstrip("/") + "/models"
             headers = {"Authorization": f"Bearer {api_key}"}
 
             response = requests.get(test_url, headers=headers, timeout=timeout)
@@ -171,4 +163,3 @@ class CBorgProviderAdapter(BaseProvider):
             return False, f"Connection failed: {str(e)[:50]}"
         except Exception as e:
             return False, f"Health check failed: {str(e)[:50]}"
-

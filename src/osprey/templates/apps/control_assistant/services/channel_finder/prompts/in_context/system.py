@@ -1,7 +1,7 @@
 import textwrap
 
-
-facility_description = textwrap.dedent("""
+facility_description = textwrap.dedent(
+    """
     The University of California, Santa Barbara (UCSB) Free Electron Laser (FEL) uses relativistic electrons to generate a powerful terahertz (THz) laser beam. The accelerator and its control system coordinate several key subsystems to create, accelerate, guide, and recover the electron beam.
     1. Electron Source (Thermionic Gun):
     - Electrons are emitted from a thermionic cathode in short pulses.
@@ -43,4 +43,5 @@ facility_description = textwrap.dedent("""
       * beamline2 (return transport to decelerating tube)
       * xray beamline (diagnostic branch)
     - If query says "FEL beamlines", return ONLY the three FEL output beamlines
-    - If query says "all beamlines", include both FEL output and transport beamlines""")
+    - If query says "all beamlines", include both FEL output and transport beamlines"""
+)

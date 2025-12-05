@@ -7,4 +7,3 @@ Provides different processing pipeline strategies:
 """
 
 __all__ = []
-

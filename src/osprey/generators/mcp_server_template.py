@@ -7,10 +7,7 @@ Uses FastMCP for simple, Pythonic MCP server implementation.
 from pathlib import Path
 
 
-def generate_mcp_server(
-    server_name: str = "demo_mcp",
-    port: int = 3001
-) -> str:
+def generate_mcp_server(server_name: str = "demo_mcp", port: int = 3001) -> str:
     """Generate MCP server Python code.
 
     Args:
@@ -284,7 +281,7 @@ def get_weather_alerts(
 
 def _get_weather_metadata() -> str:
     """Get weather tool metadata."""
-    return '''[
+    return """[
     {
         "name": "get_current_weather",
         "description": "Get current weather conditions for a location",
@@ -310,13 +307,11 @@ def _get_weather_metadata() -> str:
             {"name": "severity", "type": "string", "required": False, "description": "Filter by alert severity (all/severe/moderate/minor)"}
         ]
     }
-]'''
+]"""
 
 
 def write_mcp_server_file(
-    output_path: Path,
-    server_name: str = "demo_mcp",
-    port: int = 3001
+    output_path: Path, server_name: str = "demo_mcp", port: int = 3001
 ) -> Path:
     """Generate and write MCP server file.
 
@@ -335,4 +330,3 @@ def write_mcp_server_file(
     output_path.chmod(0o755)  # Make executable
 
     return output_path
-

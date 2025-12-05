@@ -8,8 +8,9 @@ Extends the original ChannelDatabase to support:
 """
 
 import json
-from typing import List, Dict, Optional
 from pathlib import Path
+from typing import Dict, List, Optional
+
 from .legacy import ChannelDatabase as ChannelDatabaseLegacy
 
 
@@ -29,13 +30,13 @@ class ChannelDatabase(ChannelDatabaseLegacy):
 
     def load_database(self):
         """Load database and expand any template entries into explicit channels."""
-        with open(self.db_path, 'r') as f:
+        with open(self.db_path, "r") as f:
             raw_data = json.load(f)
 
         # Handle both list format and dict format with metadata
         if isinstance(raw_data, dict):
-            entries = raw_data.get('channels', [])
-            self.metadata = {k: v for k, v in raw_data.items() if k != 'channels'}
+            entries = raw_data.get("channels", [])
+            self.metadata = {k: v for k, v in raw_data.items() if k != "channels"}
         else:
             entries = raw_data
             self.metadata = {}
@@ -49,20 +50,20 @@ class ChannelDatabase(ChannelDatabaseLegacy):
         self.standalone_entry_count = 0
 
         for entry in entries:
-            if entry.get('template'):
+            if entry.get("template"):
                 self.template_entry_count += 1
                 expanded = self._expand_template(entry)
                 self.channels.extend(expanded)
                 # Track template membership for grouping
-                template_key = entry['base_name']
+                template_key = entry["base_name"]
                 for ch in expanded:
-                    self.template_map[ch['channel']] = template_key
+                    self.template_map[ch["channel"]] = template_key
             else:
                 self.standalone_entry_count += 1
                 self.channels.append(entry)
 
         # Create lookup map for O(1) access
-        self.channel_map = {ch['channel']: ch for ch in self.channels}
+        self.channel_map = {ch["channel"]: ch for ch in self.channels}
 
     def _expand_template(self, tmpl: dict) -> List[dict]:
         """
@@ -83,17 +84,17 @@ class ChannelDatabase(ChannelDatabaseLegacy):
             }
         }
         """
-        base_name = tmpl['base_name']
-        start, end = tmpl['instances']
-        sub_channels = tmpl.get('sub_channels', [])
-        axes = tmpl.get('axes', [None])  # None means no axis
-        generic_description = tmpl.get('description', '')
-        address_pattern = tmpl.get('address_pattern', '{base}{instance:02d}{suffix}')
-        channel_descriptions = tmpl.get('channel_descriptions', {})
+        base_name = tmpl["base_name"]
+        start, end = tmpl["instances"]
+        sub_channels = tmpl.get("sub_channels", [])
+        axes = tmpl.get("axes", [None])  # None means no axis
+        generic_description = tmpl.get("description", "")
+        address_pattern = tmpl.get("address_pattern", "{base}{instance:02d}{suffix}")
+        channel_descriptions = tmpl.get("channel_descriptions", {})
 
         # If no sub_channels, use empty string so loop executes once
         if not sub_channels:
-            sub_channels = ['']
+            sub_channels = [""]
 
         expanded = []
 
@@ -112,12 +113,14 @@ class ChannelDatabase(ChannelDatabaseLegacy):
 
                     # Build address (use pattern if provided, else same as channel name)
                     # When address_pattern has {axis}, use plain suffix; otherwise use actual_suffix
-                    pattern_suffix = suffix if (axis and '{axis}' in address_pattern) else actual_suffix
+                    pattern_suffix = (
+                        suffix if (axis and "{axis}" in address_pattern) else actual_suffix
+                    )
                     address = address_pattern.format(
                         base=base_name,
                         instance=instance_num,
                         suffix=pattern_suffix,
-                        axis=axis if axis else ""
+                        axis=axis if axis else "",
                     )
 
                     # Choose description: specific sub-channel description or generic fallback
@@ -129,25 +132,20 @@ class ChannelDatabase(ChannelDatabaseLegacy):
                         desc_template = generic_description
 
                     # Build description with instance and axis substitution
-                    desc = desc_template.format(
-                        instance=instance_num,
-                        axis=axis if axis else ""
-                    )
+                    desc = desc_template.format(instance=instance_num, axis=axis if axis else "")
 
-                    expanded.append({
-                        'channel': channel_name,
-                        'address': address,
-                        'description': desc,
-                        'template_source': base_name
-                    })
+                    expanded.append(
+                        {
+                            "channel": channel_name,
+                            "address": address,
+                            "description": desc,
+                            "template_source": base_name,
+                        }
+                    )
 
         return expanded
 
-    def format_chunk_for_prompt(
-        self,
-        chunk: List[Dict],
-        include_addresses: bool = False
-    ) -> str:
+    def format_chunk_for_prompt(self, chunk: List[Dict], include_addresses: bool = False) -> str:
         """
         Format chunk using selected presentation mode.
 
@@ -175,7 +173,7 @@ class ChannelDatabase(ChannelDatabaseLegacy):
         standalone = []
 
         for ch in chunk:
-            template_source = ch.get('template_source')
+            template_source = ch.get("template_source")
             if template_source:
                 if template_source not in grouped:
                     grouped[template_source] = []
@@ -192,7 +190,7 @@ class ChannelDatabase(ChannelDatabaseLegacy):
             else:
                 entry = f"- {ch['channel']}"
 
-            if ch.get('description'):
+            if ch.get("description"):
                 entry += f": {ch['description']}"
 
             formatted.append(entry)
@@ -203,22 +201,22 @@ class ChannelDatabase(ChannelDatabaseLegacy):
             # (normalize for instance numbers to detect if descriptions vary by sub-channel)
             normalized_descs = set()
             for ch in channels:
-                if ch.get('description'):
+                if ch.get("description"):
                     # Normalize by removing instance numbers
-                    normalized = ch['description']
+                    normalized = ch["description"]
                     for i in range(1, 100):
-                        normalized = normalized.replace(f'{i:02d}', '{N}')
+                        normalized = normalized.replace(f"{i:02d}", "{N}")
                     normalized_descs.add(normalized)
 
             # If all descriptions are the same, show compact format with header
             # If they differ, show individual descriptions for each channel
             show_individual_descriptions = len(normalized_descs) > 1
 
-            if not show_individual_descriptions and channels and channels[0].get('description'):
+            if not show_individual_descriptions and channels and channels[0].get("description"):
                 # Compact format: header with generic description, list channel names only
-                desc = channels[0]['description']
+                desc = channels[0]["description"]
                 # Remove instance-specific parts for header
-                desc = desc.replace('01', '{N}').replace('02', '{N}')
+                desc = desc.replace("01", "{N}").replace("02", "{N}")
                 formatted.append(f"\n{template_name} devices: {desc}")
 
                 # List all channel names
@@ -237,7 +235,7 @@ class ChannelDatabase(ChannelDatabaseLegacy):
                     else:
                         entry = f"- {ch['channel']}"
 
-                    if ch.get('description'):
+                    if ch.get("description"):
                         entry += f": {ch['description']}"
 
                     formatted.append(entry)
@@ -255,7 +253,7 @@ class ChannelDatabase(ChannelDatabaseLegacy):
         standalone = []
 
         for ch in chunk:
-            template_source = ch.get('template_source')
+            template_source = ch.get("template_source")
             if template_source:
                 if template_source not in grouped:
                     grouped[template_source] = []
@@ -272,7 +270,7 @@ class ChannelDatabase(ChannelDatabaseLegacy):
             else:
                 entry = f"- {ch['channel']}"
 
-            if ch.get('description'):
+            if ch.get("description"):
                 entry += f": {ch['description']}"
 
             formatted.append(entry)
@@ -283,9 +281,9 @@ class ChannelDatabase(ChannelDatabaseLegacy):
             pattern_info = self._detect_pattern(channels)
 
             # Add group header
-            if channels and channels[0].get('description'):
-                desc = channels[0]['description']
-                desc = desc.replace('01', '{N}').replace('02', '{N}')
+            if channels and channels[0].get("description"):
+                desc = channels[0]["description"]
+                desc = desc.replace("01", "{N}").replace("02", "{N}")
                 formatted.append(f"\n{template_name} devices: {desc}")
             else:
                 formatted.append(f"\n{template_name} devices:")
@@ -295,7 +293,7 @@ class ChannelDatabase(ChannelDatabaseLegacy):
 
             # Show 2 examples
             examples = channels[:2]
-            example_str = ", ".join(ch['channel'] for ch in examples)
+            example_str = ", ".join(ch["channel"] for ch in examples)
             if len(channels) > 2:
                 example_str += f", ... ({len(channels)} total)"
             formatted.append(f"  Examples: {example_str}")
@@ -309,17 +307,17 @@ class ChannelDatabase(ChannelDatabaseLegacy):
         Returns dict with 'pattern' string representation.
         """
         if not channels:
-            return {'pattern': ''}
+            return {"pattern": ""}
 
         # Analyze first and last to detect ranges
-        first = channels[0]['channel']
-        last = channels[-1]['channel']
+        first = channels[0]["channel"]
+        last = channels[-1]["channel"]
 
         # Simple pattern detection - find numbers and suffixes
         import re
 
         # Try pattern with optional suffix: Base + Number + OptionalSuffix
-        matches = [re.match(r'([A-Za-z]+)(\d+)([A-Za-z]*)', ch['channel']) for ch in channels]
+        matches = [re.match(r"([A-Za-z]+)(\d+)([A-Za-z]*)", ch["channel"]) for ch in channels]
 
         if all(matches):
             base = matches[0].group(1)
@@ -345,14 +343,13 @@ class ChannelDatabase(ChannelDatabaseLegacy):
             # Fallback
             pattern = f"{first} ... {last}"
 
-        return {'pattern': pattern}
+        return {"pattern": pattern}
 
     def get_statistics(self) -> Dict:
         """Get database statistics."""
         base_stats = super().get_statistics()
-        base_stats['format'] = 'template'
-        base_stats['presentation_mode'] = self.presentation_mode
-        base_stats['template_entries'] = self.template_entry_count
-        base_stats['standalone_entries'] = self.standalone_entry_count
+        base_stats["format"] = "template"
+        base_stats["presentation_mode"] = self.presentation_mode
+        base_stats["template_entries"] = self.template_entry_count
+        base_stats["standalone_entries"] = self.standalone_entry_count
         return base_stats
-

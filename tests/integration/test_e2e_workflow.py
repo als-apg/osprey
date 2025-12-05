@@ -4,14 +4,15 @@ This test validates the complete workflow from project creation to runtime,
 ensuring all components work together correctly.
 """
 
-import pytest
 import sys
 from pathlib import Path
+
+import pytest
 from click.testing import CliRunner
 
 from osprey.cli.init_cmd import init
-from osprey.utils.config import ConfigBuilder
 from osprey.registry.manager import RegistryManager
+from osprey.utils.config import ConfigBuilder
 
 
 class TestE2EWorkflow:
@@ -36,11 +37,9 @@ class TestE2EWorkflow:
         # ==========================================
         # STEP 1: Create project with framework init
         # ==========================================
-        result = runner.invoke(init, [
-            'test-project',
-            '--template', 'minimal',
-            '--output-dir', str(tmp_path)
-        ])
+        result = runner.invoke(
+            init, ["test-project", "--template", "minimal", "--output-dir", str(tmp_path)]
+        )
 
         assert result.exit_code == 0, f"Init command failed: {result.output}"
         assert "Project created successfully" in result.output
@@ -88,16 +87,16 @@ class TestE2EWorkflow:
         assert isinstance(config_builder.raw_config, dict)
 
         # Verify key configuration elements exist
-        assert 'project_root' in config_builder.raw_config
-        assert 'registry_path' in config_builder.raw_config
-        assert 'models' in config_builder.raw_config
-        assert 'services' in config_builder.raw_config
+        assert "project_root" in config_builder.raw_config
+        assert "registry_path" in config_builder.raw_config
+        assert "models" in config_builder.raw_config
+        assert "services" in config_builder.raw_config
 
         # Verify registry path is correctly set
-        registry_path = config_builder.get('registry_path')
+        registry_path = config_builder.get("registry_path")
         assert registry_path is not None
-        assert 'test_project' in registry_path
-        assert registry_path.endswith('registry.py')
+        assert "test_project" in registry_path
+        assert registry_path.endswith("registry.py")
 
         # ==========================================
         # STEP 4: Verify registry discovers application
@@ -107,7 +106,7 @@ class TestE2EWorkflow:
 
         try:
             # Resolve registry path relative to project directory
-            if registry_path.startswith('./'):
+            if registry_path.startswith("./"):
                 abs_registry_path = project_dir / registry_path[2:]
             else:
                 abs_registry_path = project_dir / registry_path
@@ -119,9 +118,9 @@ class TestE2EWorkflow:
             assert registry_manager.config is not None
 
             # Verify registry has the expected structure
-            assert hasattr(registry_manager.config, 'capabilities')
-            assert hasattr(registry_manager.config, 'context_classes')
-            assert hasattr(registry_manager.config, 'core_nodes')
+            assert hasattr(registry_manager.config, "capabilities")
+            assert hasattr(registry_manager.config, "context_classes")
+            assert hasattr(registry_manager.config, "core_nodes")
 
             # For minimal template, capabilities list may be empty but should be a list
             assert isinstance(registry_manager.config.capabilities, list)
@@ -132,7 +131,7 @@ class TestE2EWorkflow:
             sys.path.remove(str(src_dir))
 
             # Clean up imported modules
-            modules_to_remove = [key for key in sys.modules.keys() if 'test_project' in key]
+            modules_to_remove = [key for key in sys.modules.keys() if "test_project" in key]
             for module in modules_to_remove:
                 del sys.modules[module]
 
@@ -144,16 +143,16 @@ class TestE2EWorkflow:
         registry_code = registry_file.read_text()
 
         # Should contain key elements
-        assert 'RegistryConfigProvider' in registry_code
-        assert 'RegistryConfig' in registry_code
-        assert 'get_registry_config' in registry_code
+        assert "RegistryConfigProvider" in registry_code
+        assert "RegistryConfig" in registry_code
+        assert "get_registry_config" in registry_code
 
         # Should use helper function (compact style)
-        assert 'extend_framework_registry' in registry_code
+        assert "extend_framework_registry" in registry_code
 
         # Verify it's valid Python by compiling
         try:
-            compile(registry_code, str(registry_file), 'exec')
+            compile(registry_code, str(registry_file), "exec")
         except SyntaxError as e:
             pytest.fail(f"Generated registry.py has syntax error: {e}")
 
@@ -166,7 +165,7 @@ class TestE2EWorkflow:
 
         # Verify it's valid Python
         try:
-            compile(context_code, str(context_file), 'exec')
+            compile(context_code, str(context_file), "exec")
         except SyntaxError as e:
             pytest.fail(f"Generated context_classes.py has syntax error: {e}")
 
@@ -184,11 +183,9 @@ class TestE2EWorkflow:
         """Test that generated config file contains all necessary sections."""
         runner = CliRunner()
 
-        result = runner.invoke(init, [
-            'config-test-project',
-            '--template', 'minimal',
-            '--output-dir', str(tmp_path)
-        ])
+        result = runner.invoke(
+            init, ["config-test-project", "--template", "minimal", "--output-dir", str(tmp_path)]
+        )
 
         assert result.exit_code == 0
 
@@ -197,18 +194,18 @@ class TestE2EWorkflow:
 
         # Verify all major sections are present
         required_sections = [
-            'project_root',
-            'registry_path',
-            'models',
-            'services',
-            'approval',
-            'execution_control',
-            'file_paths',
-            'execution',
-            'pipeline',
-            'development',
-            'logging',
-            'api',
+            "project_root",
+            "registry_path",
+            "models",
+            "services",
+            "approval",
+            "execution_control",
+            "file_paths",
+            "execution",
+            "pipeline",
+            "development",
+            "logging",
+            "api",
         ]
 
         for section in required_sections:
@@ -218,11 +215,10 @@ class TestE2EWorkflow:
         """Test that hello_world_weather template generates with all its components."""
         runner = CliRunner()
 
-        result = runner.invoke(init, [
-            'weather-app',
-            '--template', 'hello_world_weather',
-            '--output-dir', str(tmp_path)
-        ])
+        result = runner.invoke(
+            init,
+            ["weather-app", "--template", "hello_world_weather", "--output-dir", str(tmp_path)],
+        )
 
         assert result.exit_code == 0
 
@@ -237,7 +233,7 @@ class TestE2EWorkflow:
 
         # Verify registry uses helper
         registry_code = (app_dir / "registry.py").read_text()
-        assert 'extend_framework_registry' in registry_code
+        assert "extend_framework_registry" in registry_code
 
         # Verify hello_world_weather does NOT include services (no containers needed)
         assert not (project_dir / "services").exists()
@@ -246,21 +242,24 @@ class TestE2EWorkflow:
         config_content = (project_dir / "config.yml").read_text()
 
         # Check for deployed services and services configuration
-        assert 'deployed_services:' not in config_content  # No deployed services list
-        assert 'jupyter:' not in config_content  # No Jupyter service
-        assert 'open_webui:' not in config_content  # No OpenWebUI service
-        assert 'containers:' not in config_content  # No container configurations
+        assert "deployed_services:" not in config_content  # No deployed services list
+        assert "jupyter:" not in config_content  # No Jupyter service
+        assert "open_webui:" not in config_content  # No OpenWebUI service
+        assert "containers:" not in config_content  # No container configurations
 
         # Check for production-only sections - using unique strings from those sections
-        assert 'container_runtime:' not in config_content  # No container runtime config
-        assert 'global_mode:' not in config_content  # No approval configuration (unique to approval section)
-        assert 'execution_control:' not in config_content  # No execution control
-        assert 'execution_method:' not in config_content  # No execution infrastructure (unique to execution section)
-        assert 'max_generation_retries:' not in config_content  # No python executor section
-        assert 'gateways:' not in config_content  # No EPICS gateway configuration
-        assert 'writes_enabled:' not in config_content  # No EPICS writes configuration
+        assert "container_runtime:" not in config_content  # No container runtime config
+        assert (
+            "global_mode:" not in config_content
+        )  # No approval configuration (unique to approval section)
+        assert "execution_control:" not in config_content  # No execution control
+        assert (
+            "execution_method:" not in config_content
+        )  # No execution infrastructure (unique to execution section)
+        assert "max_generation_retries:" not in config_content  # No python executor section
+        assert "gateways:" not in config_content  # No EPICS gateway configuration
+        assert "writes_enabled:" not in config_content  # No EPICS writes configuration
 
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-

@@ -59,7 +59,13 @@ class ComponentLogger:
     - resume: Resume messages
     """
 
-    def __init__(self, base_logger: logging.Logger, component_name: str, color: str = "white", state: Any = None):
+    def __init__(
+        self,
+        base_logger: logging.Logger,
+        component_name: str,
+        color: str = "white",
+        state: Any = None,
+    ):
         """
         Initialize component logger.
 
@@ -85,6 +91,7 @@ class ComponentLogger:
             self._stream_writer_attempted = True
             try:
                 from langgraph.config import get_stream_writer
+
                 self._stream_writer = get_stream_writer()
                 # Also extract step info when we get the writer
                 self._step_info = self._extract_step_info(self._state)
@@ -113,20 +120,20 @@ class ComponentLogger:
             return TASK_PREPARATION_STEPS[self.component_name]
 
         # For execution phase, extract from state
-        if state and hasattr(state, 'get'):
+        if state and hasattr(state, "get"):
             try:
                 from osprey.state.state_manager import StateManager
 
-                execution_plan = state.get('planning_execution_plan')
-                if execution_plan and execution_plan.get('steps'):
+                execution_plan = state.get("planning_execution_plan")
+                if execution_plan and execution_plan.get("steps"):
                     current_step_index = StateManager.get_current_step_index(state)
-                    total_steps = len(execution_plan.get('steps', []))
+                    total_steps = len(execution_plan.get("steps", []))
 
                     if total_steps > 0:
                         return {
                             "step": current_step_index + 1,
                             "total_steps": total_steps,
-                            "phase": "Execution"
+                            "phase": "Execution",
                         }
             except Exception:
                 pass  # Graceful degradation
@@ -135,7 +142,7 @@ class ComponentLogger:
         return {
             "step": None,
             "total_steps": None,
-            "phase": self.component_name.replace("_", " ").title()
+            "phase": self.component_name.replace("_", " ").title(),
         }
 
     def _emit_stream_event(self, message: str, event_type: str = "status", **kwargs):
@@ -146,13 +153,14 @@ class ComponentLogger:
 
         try:
             import time
+
             event = {
                 "event_type": event_type,
                 "message": message,
                 "component": self.component_name,
                 "timestamp": time.time(),
                 **(self._step_info or {}),
-                **kwargs
+                **kwargs,
             }
 
             # Clean up None values
@@ -163,7 +171,7 @@ class ComponentLogger:
             # Don't crash logging just because streaming failed
             self.debug(f"Failed to emit stream event: {e}")
 
-    def _format_message(self, message: str, style: str, emoji: str = '') -> str:
+    def _format_message(self, message: str, style: str, emoji: str = "") -> str:
         """Format message with Rich markup and emoji prefix."""
         try:
             prefix = f"{emoji}{self.component_name.title()}: "
@@ -201,7 +209,7 @@ class ComponentLogger:
             **kwargs: Additional metadata for streaming event
         """
         style = f"bold {self.color}" if self.color != "white" else "bold white"
-        formatted = self._format_message(message, style, '')
+        formatted = self._format_message(message, style, "")
         self.base_logger.info(formatted)
 
         if stream:
@@ -222,7 +230,7 @@ class ComponentLogger:
             logger.info("Active capabilities: [...]")  # CLI only
             logger.info("Step completed", stream=True)  # CLI + stream
         """
-        formatted = self._format_message(message, self.color, '')
+        formatted = self._format_message(message, self.color, "")
         self.base_logger.info(formatted)
 
         if stream:
@@ -239,7 +247,7 @@ class ComponentLogger:
             **kwargs: Additional metadata for streaming event
         """
         style = f"dim {self.color}" if self.color != "white" else "dim white"
-        formatted = self._format_message(message, style, '🔍 ')
+        formatted = self._format_message(message, style, "🔍 ")
         self.base_logger.debug(formatted)
 
         if stream:
@@ -255,7 +263,7 @@ class ComponentLogger:
             stream: Whether to stream (default: True)
             **kwargs: Additional metadata for streaming event
         """
-        formatted = self._format_message(message, "bold yellow", '⚠️  ')
+        formatted = self._format_message(message, "bold yellow", "⚠️  ")
         self.base_logger.warning(formatted)
 
         if stream:
@@ -271,7 +279,7 @@ class ComponentLogger:
             exc_info: Whether to include exception traceback
             **kwargs: Additional error metadata for streaming event
         """
-        formatted = self._format_message(message, "bold red", '❌ ')
+        formatted = self._format_message(message, "bold red", "❌ ")
         self.base_logger.error(formatted, exc_info=exc_info)
         self._emit_stream_event(message, "error", error=True, **kwargs)
 
@@ -285,7 +293,7 @@ class ComponentLogger:
             stream: Whether to stream (default: True)
             **kwargs: Additional metadata for streaming event
         """
-        formatted = self._format_message(message, "bold green", '✅ ')
+        formatted = self._format_message(message, "bold green", "✅ ")
         self.base_logger.info(formatted)
 
         if stream:
@@ -299,7 +307,7 @@ class ComponentLogger:
             stream: Whether to stream (default: False)
             **kwargs: Additional metadata for streaming event
         """
-        formatted = self._format_message(message, "bold white", '🕒 ')
+        formatted = self._format_message(message, "bold white", "🕒 ")
         self.base_logger.info(formatted)
 
         if stream:
@@ -315,7 +323,7 @@ class ComponentLogger:
             stream: Whether to stream (default: True)
             **kwargs: Additional metadata for streaming event
         """
-        formatted = self._format_message(message, "bold yellow", '🔍⚠️ ')
+        formatted = self._format_message(message, "bold yellow", "🔍⚠️ ")
         self.base_logger.info(formatted)
 
         if stream:
@@ -331,7 +339,7 @@ class ComponentLogger:
             stream: Whether to stream (default: True)
             **kwargs: Additional metadata for streaming event
         """
-        formatted = self._format_message(message, "bold green", '🔄 ')
+        formatted = self._format_message(message, "bold green", "🔄 ")
         self.base_logger.info(formatted)
 
         if stream:
@@ -339,11 +347,11 @@ class ComponentLogger:
 
     # Compatibility methods - delegate to base logger
     def critical(self, message: str, *args, **kwargs) -> None:
-        formatted = self._format_message(message, "bold red", '❌ ')
+        formatted = self._format_message(message, "bold red", "❌ ")
         self.base_logger.critical(formatted, *args, **kwargs)
 
     def exception(self, message: str, *args, **kwargs) -> None:
-        formatted = self._format_message(message, "bold red", '❌ ')
+        formatted = self._format_message(message, "bold red", "❌ ")
         self.base_logger.exception(formatted, *args, **kwargs)
 
     def log(self, level: int, message: str, *args, **kwargs) -> None:
@@ -363,8 +371,6 @@ class ComponentLogger:
 
     def isEnabledFor(self, level: int) -> bool:
         return self.base_logger.isEnabledFor(level)
-
-
 
 
 def _setup_rich_logging(level: int = logging.INFO) -> None:
@@ -397,18 +403,18 @@ def _setup_rich_logging(level: int = logging.INFO) -> None:
 
     # Optimize console for containerized and CI/CD environments
     console = Console(
-        force_terminal=True,    # Ensure color output in Docker containers and CI systems
-        width=120,              # Prevent line wrapping in standard terminal sizes
+        force_terminal=True,  # Ensure color output in Docker containers and CI systems
+        width=120,  # Prevent line wrapping in standard terminal sizes
         color_system="truecolor",  # Enable full color spectrum for component identification
     )
 
     handler = RichHandler(
-        console=console,                    # Use our custom console
-        rich_tracebacks=rich_tracebacks,    # Configurable rich tracebacks
-        markup=True,                        # Enable [bold], [green], etc. in log messages
-        show_path=show_full_paths,          # Configurable path display
-        show_time=True,                     # Show timestamp
-        show_level=True,                    # Show log level
+        console=console,  # Use our custom console
+        rich_tracebacks=rich_tracebacks,  # Configurable rich tracebacks
+        markup=True,  # Enable [bold], [green], etc. in log messages
+        show_path=show_full_paths,  # Configurable path display
+        show_time=True,  # Show timestamp
+        show_level=True,  # Show log level
         tracebacks_show_locals=show_traceback_locals,  # Configurable local variables
     )
 
@@ -419,14 +425,16 @@ def _setup_rich_logging(level: int = logging.INFO) -> None:
         logging.getLogger(lib).setLevel(logging.WARNING)
 
 
-def get_logger(component_name: str = None,
-               level: int = logging.INFO,
-               *,
-               state: Any = None,
-               name: str = None,
-               color: str = None,
-               # Deprecated parameters - kept for backward compatibility
-               source: str = None) -> ComponentLogger:
+def get_logger(
+    component_name: str = None,
+    level: int = logging.INFO,
+    *,
+    state: Any = None,
+    name: str = None,
+    color: str = None,
+    # Deprecated parameters - kept for backward compatibility
+    source: str = None,
+) -> ComponentLogger:
     """
     Get a unified logger that handles both CLI logging and LangGraph streaming.
 
@@ -477,7 +485,7 @@ def get_logger(component_name: str = None,
     if name is not None:
         # Direct logger creation bypasses convention-based color assignment
         base_logger = logging.getLogger(name)
-        actual_color = color or 'white'
+        actual_color = color or "white"
         return ComponentLogger(base_logger, name, actual_color, state=state)
 
     # Handle deprecated two-parameter API: get_logger("framework", "component")
@@ -488,7 +496,7 @@ def get_logger(component_name: str = None,
             f"Use get_logger('{component_name}') instead. The 'source' parameter is no longer needed "
             f"as the configuration uses a flat structure: logging.logging_colors.{component_name}",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
         # For backward compatibility, still accept the old format but ignore source
         # component_name is already set from the second positional argument
@@ -510,15 +518,18 @@ def get_logger(component_name: str = None,
         color = get_config_value(config_path)
 
         if not color:
-            color = 'white'
+            color = "white"
 
     except Exception as e:
         # Graceful degradation ensures logging continues even with config issues
-        color = 'white'
+        color = "white"
         # Only show warning in debug mode to reduce noise
         import os
-        if os.getenv('DEBUG_LOGGING'):
-            print(f"⚠️  WARNING: Failed to load color config for {component_name}: {e}. Using white as fallback.")
+
+        if os.getenv("DEBUG_LOGGING"):
+            print(
+                f"⚠️  WARNING: Failed to load color config for {component_name}: {e}. Using white as fallback."
+            )
 
     # Pass state to enable streaming
     return ComponentLogger(base_logger, component_name, color, state=state)

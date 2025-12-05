@@ -293,7 +293,7 @@ class ClaudeCodeGenerator:
 
         # Compact initialization logging
         save_prompts_indicator = " [SAVE_PROMPTS]" if self._save_prompts else ""
-        phases = self.config.get('profile_phases', ['generate'])
+        phases = self.config.get("profile_phases", ["generate"])
         logger.info(
             f"Claude Code: {self.config.get('profile', 'fast')} profile, "
             f"phases={phases}{save_prompts_indicator}"
@@ -341,10 +341,14 @@ class ClaudeCodeGenerator:
                 "model": profile.get("model", "claude-haiku-4-5-20251001"),
                 "max_turns": profile.get("max_turns", 5),
                 "max_budget_usd": profile.get("max_budget_usd", 0.50),
-                "save_prompts": profile.get("save_prompts", True),  # Default to True for transparency
+                "save_prompts": profile.get(
+                    "save_prompts", True
+                ),  # Default to True for transparency
                 "codebase_dirs": self._get_codebase_dirs(full_config, profile),
                 "codebase_guidance": full_config.get("codebase_guidance", {}),
-                "phase_definitions": full_config.get("phases", {}),  # Phase definitions (scan, plan, generate, implement)
+                "phase_definitions": full_config.get(
+                    "phases", {}
+                ),  # Phase definitions (scan, plan, generate, implement)
                 "api_config": full_config.get("api_config", {}),
             }
         else:
@@ -352,11 +356,15 @@ class ClaudeCodeGenerator:
             logger.info("Using inline configuration (no separate config file)")
             return {
                 "profile": self.model_config.get("profile", "fast"),
-                "profile_phases": self.model_config.get("phases", ["generate"]),  # Direct phase specification
+                "profile_phases": self.model_config.get(
+                    "phases", ["generate"]
+                ),  # Direct phase specification
                 "model": self.model_config.get("model", "claude-haiku-4-5-20251001"),
                 "max_turns": self.model_config.get("max_turns", 5),
                 "max_budget_usd": self.model_config.get("max_budget_usd", 0.50),
-                "save_prompts": self.model_config.get("save_prompts", True),  # Default to True for transparency
+                "save_prompts": self.model_config.get(
+                    "save_prompts", True
+                ),  # Default to True for transparency
                 "codebase_dirs": [],
                 "codebase_guidance": {},
                 "phase_definitions": {},  # No phase definitions in inline mode
@@ -613,6 +621,7 @@ class ClaudeCodeGenerator:
 
         try:
             import json
+
             prompts_dir = self._execution_folder / "prompts"
             prompts_dir.mkdir(exist_ok=True)
 
@@ -640,7 +649,7 @@ class ClaudeCodeGenerator:
             if "conversation_history" in self._prompt_data:
                 (prompts_dir / "conversation_full.json").write_text(
                     json.dumps(self._prompt_data["conversation_history"], indent=2),
-                    encoding="utf-8"
+                    encoding="utf-8",
                 )
 
             # Save example scripts content
@@ -706,8 +715,14 @@ class ClaudeCodeGenerator:
         }
 
         # Set execution folder for saving prompts
-        logger.info(f"🔍 save_prompts check: _save_prompts={self._save_prompts}, has_attr={hasattr(request, 'execution_folder_path')}, path={getattr(request, 'execution_folder_path', None)}")
-        if self._save_prompts and hasattr(request, 'execution_folder_path') and request.execution_folder_path:
+        logger.info(
+            f"🔍 save_prompts check: _save_prompts={self._save_prompts}, has_attr={hasattr(request, 'execution_folder_path')}, path={getattr(request, 'execution_folder_path', None)}"
+        )
+        if (
+            self._save_prompts
+            and hasattr(request, "execution_folder_path")
+            and request.execution_folder_path
+        ):
             self._execution_folder = Path(request.execution_folder_path)
             # Initialize prompt data structure
             self._prompt_data = {
@@ -718,7 +733,9 @@ class ClaudeCodeGenerator:
             }
             logger.info(f"📝 Will save prompts to: {self._execution_folder / 'prompts'}")
         elif self._save_prompts:
-            logger.warning(f"⚠️  save_prompts=True but cannot save: has_execution_folder_path={hasattr(request, 'execution_folder_path')}, path={getattr(request, 'execution_folder_path', None)}")
+            logger.warning(
+                f"⚠️  save_prompts=True but cannot save: has_execution_folder_path={hasattr(request, 'execution_folder_path')}, path={getattr(request, 'execution_folder_path', None)}"
+            )
 
         # Try to get LangGraph stream writer (graceful degradation if not available)
         self._stream_writer = self._get_stream_writer()
@@ -890,7 +907,11 @@ class ClaudeCodeGenerator:
         restricted_cwd = self._get_restricted_cwd()
 
         # Compact workflow configuration logging
-        config_parts = [workflow_model, ' → '.join(phases_to_run), f"${self.config['max_budget_usd']}"]
+        config_parts = [
+            workflow_model,
+            " → ".join(phases_to_run),
+            f"${self.config['max_budget_usd']}",
+        ]
         logger.info(f"🔧 Workflow: {', '.join(config_parts)}")
 
         options = ClaudeAgentOptions(
@@ -938,13 +959,17 @@ class ClaudeCodeGenerator:
                         example_scripts_dir = Path(restricted_cwd) / "example_scripts"
                         if example_scripts_dir.exists():
                             file_count = len(list(example_scripts_dir.glob("**/*.py")))
-                            logger.info(f"📂 {file_count} example files available: {example_scripts_dir}")
+                            logger.info(
+                                f"📂 {file_count} example files available: {example_scripts_dir}"
+                            )
 
                             # Capture example script content if saving prompts
                             if self._save_prompts:
                                 for script_file in example_scripts_dir.glob("**/*.py"):
                                     rel_path = str(script_file.relative_to(example_scripts_dir))
-                                    self._prompt_data["example_scripts"][rel_path] = script_file.read_text(encoding="utf-8")
+                                    self._prompt_data["example_scripts"][rel_path] = (
+                                        script_file.read_text(encoding="utf-8")
+                                    )
                         else:
                             logger.info("📂 No example scripts available")
 
@@ -962,7 +987,9 @@ class ClaudeCodeGenerator:
 
                     # Timing: Calculate and log phase duration
                     phase_duration = time.time() - phase_start_time
-                    logger.info(f"✅ {phase_name.upper()}: {len(response)} chars in {phase_duration:.1f}s")
+                    logger.info(
+                        f"✅ {phase_name.upper()}: {len(response)} chars in {phase_duration:.1f}s"
+                    )
 
                     # Track this phase as executed for context chaining
                     executed_phases.append(phase_name)
@@ -996,7 +1023,7 @@ class ClaudeCodeGenerator:
                         summary_parts = [
                             f"{len(code)} chars",
                             f"{workflow_duration:.1f}s",
-                            ' → '.join(executed_phases)
+                            " → ".join(executed_phases),
                         ]
                         if self.generation_metadata.get("cost_usd"):
                             summary_parts.append(f"${self.generation_metadata['cost_usd']:.4f}")
@@ -1019,7 +1046,6 @@ class ClaudeCodeGenerator:
                 generation_attempt=len(error_chain) + 1,
                 error_chain=error_chain,
             ) from e
-
 
     async def _execute_query(
         self,
@@ -1143,7 +1169,10 @@ class ClaudeCodeGenerator:
                     total_cost = message.total_cost_usd
 
                     # Compact summary logging
-                    summary_parts = [f"{message.num_turns} turns", f"{message.duration_ms/1000:.1f}s"]
+                    summary_parts = [
+                        f"{message.num_turns} turns",
+                        f"{message.duration_ms/1000:.1f}s",
+                    ]
                     if total_cost:
                         summary_parts.append(f"${total_cost:.4f}")
                     if tool_uses:
@@ -1267,22 +1296,32 @@ class ClaudeCodeGenerator:
         elif phase_name == "plan":
             if "scan" in executed_phases:
                 parts.append("\n**Context from Scan Phase:**")
-                parts.append("Based on the codebase analysis you just performed above, create a detailed implementation plan.")
+                parts.append(
+                    "Based on the codebase analysis you just performed above, create a detailed implementation plan."
+                )
 
         elif phase_name in ("generate", "implement"):
             # Reference workflow context
             if "scan" in executed_phases and "plan" in executed_phases:
                 parts.append("\n**Context from Previous Phases:**")
                 parts.append("You have already:")
-                parts.append("1. Scanned the codebase and identified relevant patterns and examples")
+                parts.append(
+                    "1. Scanned the codebase and identified relevant patterns and examples"
+                )
                 parts.append("2. Created a detailed implementation plan")
-                parts.append("\nNow use BOTH the codebase insights AND your implementation plan to generate high-quality code.")
+                parts.append(
+                    "\nNow use BOTH the codebase insights AND your implementation plan to generate high-quality code."
+                )
             elif "plan" in executed_phases:
                 parts.append("\n**Context from Plan Phase:**")
-                parts.append("You created an implementation plan above. Now implement it with high-quality Python code.")
+                parts.append(
+                    "You created an implementation plan above. Now implement it with high-quality Python code."
+                )
             elif "scan" in executed_phases:
                 parts.append("\n**Context from Scan Phase:**")
-                parts.append("You analyzed the codebase above. Now use those insights to generate high-quality code.")
+                parts.append(
+                    "You analyzed the codebase above. Now use those insights to generate high-quality code."
+                )
 
         # Add common request details
         if request.task_objective:
@@ -1314,10 +1353,14 @@ class ClaudeCodeGenerator:
                     "\n3. Read relevant examples and explain patterns to follow"
                     "\n4. If no relevant examples exist, use standard best practices"
                 )
-            parts.append("\n**Important:** Provide a clear, structured analysis that can be used in the next phase for planning.")
+            parts.append(
+                "\n**Important:** Provide a clear, structured analysis that can be used in the next phase for planning."
+            )
 
         elif phase_name == "plan":
-            parts.append("\n**Important:** Provide a clear, actionable implementation plan that will guide the code generation in the next phase.")
+            parts.append(
+                "\n**Important:** Provide a clear, actionable implementation plan that will guide the code generation in the next phase."
+            )
 
         elif phase_name in ("generate", "implement"):
             # Handle capability prompts
@@ -1373,8 +1416,12 @@ class ClaudeCodeGenerator:
             sections.append("```python")
             sections.append(f"results = {json.dumps(plan.result_schema, indent=2)}")
             sections.append("```")
-            sections.append("\nIMPORTANT: Your code MUST produce a 'results' dictionary matching this exact structure.")
-            sections.append("Replace placeholder values (like '<float>', '<string>') with actual computed values.")
+            sections.append(
+                "\nIMPORTANT: Your code MUST produce a 'results' dictionary matching this exact structure."
+            )
+            sections.append(
+                "Replace placeholder values (like '<float>', '<string>') with actual computed values."
+            )
 
         return sections
 
@@ -1665,55 +1712,49 @@ and executed in a secure environment."""
             result["content"] = []
             for block in message.content:
                 if isinstance(block, TextBlock):
-                    result["content"].append({
-                        "type": "text",
-                        "text": block.text
-                    })
+                    result["content"].append({"type": "text", "text": block.text})
                 elif isinstance(block, ThinkingBlock):
-                    result["content"].append({
-                        "type": "thinking",
-                        "thinking": block.thinking,
-                        "signature": block.signature
-                    })
+                    result["content"].append(
+                        {
+                            "type": "thinking",
+                            "thinking": block.thinking,
+                            "signature": block.signature,
+                        }
+                    )
                 elif isinstance(block, ToolUseBlock):
-                    result["content"].append({
-                        "type": "tool_use",
-                        "id": block.id,
-                        "name": block.name,
-                        "input": block.input
-                    })
+                    result["content"].append(
+                        {
+                            "type": "tool_use",
+                            "id": block.id,
+                            "name": block.name,
+                            "input": block.input,
+                        }
+                    )
             # Capture additional metadata
             if message.parent_tool_use_id:
                 result["parent_tool_use_id"] = message.parent_tool_use_id
             if message.error:
-                result["error"] = {
-                    "type": message.error.type,
-                    "message": message.error.message
-                }
+                result["error"] = {"type": message.error.type, "message": message.error.message}
 
         elif isinstance(message, UserMessage):
             result["role"] = "user"
             # UserMessage.content can be a string or list of ContentBlocks
             if isinstance(message.content, str):
-                result["content"] = [{
-                    "type": "text",
-                    "text": message.content
-                }]
+                result["content"] = [{"type": "text", "text": message.content}]
             else:
                 result["content"] = []
                 for block in message.content:
                     if isinstance(block, TextBlock):
-                        result["content"].append({
-                            "type": "text",
-                            "text": block.text
-                        })
+                        result["content"].append({"type": "text", "text": block.text})
                     elif isinstance(block, ToolResultBlock):
-                        result["content"].append({
-                            "type": "tool_result",
-                            "tool_use_id": block.tool_use_id,
-                            "content": block.content,
-                            "is_error": block.is_error
-                        })
+                        result["content"].append(
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": block.tool_use_id,
+                                "content": block.content,
+                                "is_error": block.is_error,
+                            }
+                        )
             # Also capture parent_tool_use_id if present
             if message.parent_tool_use_id:
                 result["parent_tool_use_id"] = message.parent_tool_use_id
@@ -1731,7 +1772,7 @@ and executed in a secure environment."""
                 "num_turns": message.num_turns,
                 "duration_ms": message.duration_ms,
                 "total_cost_usd": message.total_cost_usd,
-                "result": message.result
+                "result": message.result,
             }
         else:
             # Unknown message type - capture what we can

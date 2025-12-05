@@ -24,9 +24,10 @@ from osprey.cli.styles import Styles, console
 
 @click.group(name="config", invoke_without_command=True)
 @click.option(
-    "--project", "-p",
+    "--project",
+    "-p",
     type=click.Path(exists=True, file_okay=False, dir_okay=True),
-    help="Project directory (default: current directory or OSPREY_PROJECT env var)"
+    help="Project directory (default: current directory or OSPREY_PROJECT env var)",
 )
 @click.pass_context
 def config(ctx, project):
@@ -72,35 +73,24 @@ def config(ctx, project):
 
                 if not config_path.exists():
                     console.print(
-                        "❌ No Osprey project found in current directory",
-                        style=Styles.ERROR
+                        "❌ No Osprey project found in current directory", style=Styles.ERROR
                     )
-                    console.print(
-                        f"   Looking for: {config_path}",
-                        style=Styles.DIM
-                    )
+                    console.print(f"   Looking for: {config_path}", style=Styles.DIM)
                     console.print(
                         "\n💡 Create a new project with: [bold cyan]osprey init my-project[/bold cyan]",
-                        style=Styles.DIM
+                        style=Styles.DIM,
                     )
-                    console.print(
-                        "   Or run from a project directory",
-                        style=Styles.DIM
-                    )
+                    console.print("   Or run from a project directory", style=Styles.DIM)
                     sys.exit(1)
 
             except Exception:
-                console.print(
-                    "❌ No Osprey project found",
-                    style=Styles.ERROR
-                )
+                console.print("❌ No Osprey project found", style=Styles.ERROR)
                 console.print(
                     "\n💡 Create a new project with: [bold cyan]osprey init my-project[/bold cyan]",
-                    style=Styles.DIM
+                    style=Styles.DIM,
                 )
                 console.print(
-                    "   Or run from a project directory containing config.yml",
-                    style=Styles.DIM
+                    "   Or run from a project directory containing config.yml", style=Styles.DIM
                 )
                 sys.exit(1)
 
@@ -115,23 +105,26 @@ def config(ctx, project):
         except Exception as e:
             console.print(f"❌ Failed to launch config menu: {e}", style=Styles.ERROR)
             import os
+
             if os.environ.get("DEBUG"):
                 import traceback
+
                 console.print(traceback.format_exc(), style=Styles.DIM)
             sys.exit(1)
 
 
 @config.command(name="show")
 @click.option(
-    "--project", "-p",
+    "--project",
+    "-p",
     type=click.Path(exists=True, file_okay=False, dir_okay=True),
-    help="Project directory (default: current directory or OSPREY_PROJECT env var)"
+    help="Project directory (default: current directory or OSPREY_PROJECT env var)",
 )
 @click.option(
     "--format",
     type=click.Choice(["yaml", "json"]),
     default="yaml",
-    help="Output format (default: yaml)"
+    help="Output format (default: yaml)",
 )
 def show(project: str, format: str):
     """Display current project configuration.
@@ -160,29 +153,22 @@ def show(project: str, format: str):
         try:
             config_path_str = resolve_config_path(project)
             config_path = Path(config_path_str)
-        except Exception as e:
-            console.print(
-                "❌ No Osprey project found",
-                style=Styles.ERROR
-            )
+        except Exception:
+            console.print("❌ No Osprey project found", style=Styles.ERROR)
             console.print(
                 "\n💡 Create a new project with: [bold cyan]osprey init my-project[/bold cyan]",
-                style=Styles.DIM
+                style=Styles.DIM,
             )
             console.print(
-                "   Or run from a project directory containing config.yml",
-                style=Styles.DIM
+                "   Or run from a project directory containing config.yml", style=Styles.DIM
             )
             raise click.Abort()
 
         if not config_path.exists():
-            console.print(
-                f"❌ Configuration file not found: {config_path}",
-                style=Styles.ERROR
-            )
+            console.print(f"❌ Configuration file not found: {config_path}", style=Styles.ERROR)
             console.print(
                 "\n💡 Create a new project with: [bold cyan]osprey init my-project[/bold cyan]",
-                style=Styles.DIM
+                style=Styles.DIM,
             )
             raise click.Abort()
 
@@ -193,24 +179,16 @@ def show(project: str, format: str):
         # Format output
         if format == "yaml":
             output_str = yaml.dump(
-                config_data,
-                default_flow_style=False,
-                sort_keys=False,
-                allow_unicode=True
+                config_data, default_flow_style=False, sort_keys=False, allow_unicode=True
             )
         else:  # json
             import json
+
             output_str = json.dumps(config_data, indent=2, ensure_ascii=False)
 
         # Display with syntax highlighting
         console.print(f"\n[bold]Configuration:[/bold] {config_path}\n")
-        syntax = Syntax(
-            output_str,
-            format,
-            theme="monokai",
-            line_numbers=False,
-            word_wrap=True
-        )
+        syntax = Syntax(output_str, format, theme="monokai", line_numbers=False, word_wrap=True)
         console.print(syntax)
 
     except KeyboardInterrupt:
@@ -222,16 +200,12 @@ def show(project: str, format: str):
 
 
 @config.command(name="export")
-@click.option(
-    "--output", "-o",
-    type=click.Path(),
-    help="Output file (default: print to console)"
-)
+@click.option("--output", "-o", type=click.Path(), help="Output file (default: print to console)")
 @click.option(
     "--format",
     type=click.Choice(["yaml", "json"]),
     default="yaml",
-    help="Output format (default: yaml)"
+    help="Output format (default: yaml)",
 )
 def export(output: str, format: str):
     """Export framework default configuration template.
@@ -262,14 +236,8 @@ def export(output: str, format: str):
         template_path = Path(__file__).parent.parent / "templates" / "project" / "config.yml.j2"
 
         if not template_path.exists():
-            console.print(
-                "❌ Could not locate Osprey configuration template.",
-                style=Styles.ERROR
-            )
-            console.print(
-                f"   Expected at: {template_path}",
-                style=Styles.DIM
-            )
+            console.print("❌ Could not locate Osprey configuration template.", style=Styles.ERROR)
+            console.print(f"   Expected at: {template_path}", style=Styles.DIM)
             raise click.Abort()
 
         # Read and render the template with example values
@@ -283,7 +251,7 @@ def export(output: str, format: str):
             project_root="/path/to/example_project",
             hostname="localhost",
             default_provider="cborg",
-            default_model="anthropic/claude-haiku"
+            default_model="anthropic/claude-haiku",
         )
 
         # Parse the rendered config as YAML
@@ -292,36 +260,24 @@ def export(output: str, format: str):
         # Format output based on requested format
         if format == "yaml":
             output_str = yaml.dump(
-                config_data,
-                default_flow_style=False,
-                sort_keys=False,
-                allow_unicode=True
+                config_data, default_flow_style=False, sort_keys=False, allow_unicode=True
             )
         else:  # json
             import json
+
             output_str = json.dumps(config_data, indent=2, ensure_ascii=False)
 
         # Output to file or console
         if output:
             output_path = Path(output)
             output_path.write_text(output_str)
-            console.print(
-                f"✅ Configuration exported to: [bold]{output_path}[/bold]"
-            )
+            console.print(f"✅ Configuration exported to: [bold]{output_path}[/bold]")
         else:
             # Print to console with syntax highlighting
             console.print("\n[bold]Osprey Framework Default Configuration:[/bold]\n")
-            syntax = Syntax(
-                output_str,
-                format,
-                theme="monokai",
-                line_numbers=False,
-                word_wrap=True
-            )
+            syntax = Syntax(output_str, format, theme="monokai", line_numbers=False, word_wrap=True)
             console.print(syntax)
-            console.print(
-                "\n[dim]💡 Tip: Save to file with --output flag[/dim]"
-            )
+            console.print("\n[dim]💡 Tip: Save to file with --output flag[/dim]")
 
     except KeyboardInterrupt:
         console.print("\n⚠️  Operation cancelled", style=Styles.WARNING)
@@ -329,21 +285,23 @@ def export(output: str, format: str):
     except Exception as e:
         console.print(f"❌ Failed to export configuration: {e}", style=Styles.ERROR)
         import os
+
         if os.environ.get("DEBUG"):
             import traceback
+
             console.print(traceback.format_exc(), style=Styles.DIM)
         raise click.Abort()
 
 
 @config.command(name="set-control-system")
 @click.argument(
-    "system_type",
-    type=click.Choice(["mock", "epics", "tango", "labview"], case_sensitive=False)
+    "system_type", type=click.Choice(["mock", "epics", "tango", "labview"], case_sensitive=False)
 )
 @click.option(
-    "--project", "-p",
+    "--project",
+    "-p",
     type=click.Path(exists=True, file_okay=False, dir_okay=True),
-    help="Project directory (default: current directory or OSPREY_PROJECT env var)"
+    help="Project directory (default: current directory or OSPREY_PROJECT env var)",
 )
 def set_control_system(system_type: str, project: str):
     """Switch control system connector type.
@@ -369,48 +327,37 @@ def set_control_system(system_type: str, project: str):
       osprey config set-control-system tango
     """
     try:
-        from .project_utils import resolve_config_path
         from osprey.generators.config_updater import update_control_system_type
+
+        from .project_utils import resolve_config_path
 
         try:
             config_path_str = resolve_config_path(project)
             config_path = Path(config_path_str)
         except Exception:
-            console.print(
-                "❌ No Osprey project found",
-                style=Styles.ERROR
-            )
+            console.print("❌ No Osprey project found", style=Styles.ERROR)
             console.print(
                 "\n💡 Create a new project with: [bold cyan]osprey init my-project[/bold cyan]",
-                style=Styles.DIM
+                style=Styles.DIM,
             )
             console.print(
-                "   Or run from a project directory containing config.yml",
-                style=Styles.DIM
+                "   Or run from a project directory containing config.yml", style=Styles.DIM
             )
             raise click.Abort()
 
         if not config_path.exists():
-            console.print(
-                f"❌ Configuration file not found: {config_path}",
-                style=Styles.ERROR
-            )
+            console.print(f"❌ Configuration file not found: {config_path}", style=Styles.ERROR)
             console.print(
                 "\n💡 Create a new project with: [bold cyan]osprey init my-project[/bold cyan]",
-                style=Styles.DIM
+                style=Styles.DIM,
             )
             raise click.Abort()
 
         # Update configuration
         update_control_system_type(config_path, system_type.lower())
 
-        console.print(
-            f"✅ Control system type updated to: [bold]{system_type}[/bold]"
-        )
-        console.print(
-            f"   Configuration: {config_path}",
-            style=Styles.DIM
-        )
+        console.print(f"✅ Control system type updated to: [bold]{system_type}[/bold]")
+        console.print(f"   Configuration: {config_path}", style=Styles.DIM)
 
     except Exception as e:
         console.print(f"❌ Failed to update control system: {e}", style=Styles.ERROR)
@@ -421,21 +368,15 @@ def set_control_system(system_type: str, project: str):
 @click.option(
     "--facility",
     type=click.Choice(["als", "aps", "custom"], case_sensitive=False),
-    help="Facility preset (als, aps, or custom for manual entry)"
+    help="Facility preset (als, aps, or custom for manual entry)",
 )
+@click.option("--address", help="Gateway address (for custom facility)")
+@click.option("--port", type=int, help="Gateway port (for custom facility)")
 @click.option(
-    "--address",
-    help="Gateway address (for custom facility)"
-)
-@click.option(
-    "--port",
-    type=int,
-    help="Gateway port (for custom facility)"
-)
-@click.option(
-    "--project", "-p",
+    "--project",
+    "-p",
     type=click.Path(exists=True, file_okay=False, dir_okay=True),
-    help="Project directory (default: current directory or OSPREY_PROJECT env var)"
+    help="Project directory (default: current directory or OSPREY_PROJECT env var)",
 )
 def set_epics_gateway(facility: str, address: str, port: int, project: str):
     """Configure EPICS gateway settings.
@@ -459,55 +400,41 @@ def set_epics_gateway(facility: str, address: str, port: int, project: str):
           --address gateway.example.com --port 5064
     """
     try:
-        from .project_utils import resolve_config_path
         from osprey.generators.config_updater import update_epics_gateway
+
+        from .project_utils import resolve_config_path
 
         try:
             config_path_str = resolve_config_path(project)
             config_path = Path(config_path_str)
         except Exception:
-            console.print(
-                "❌ No Osprey project found",
-                style=Styles.ERROR
-            )
+            console.print("❌ No Osprey project found", style=Styles.ERROR)
             console.print(
                 "\n💡 Create a new project with: [bold cyan]osprey init my-project[/bold cyan]",
-                style=Styles.DIM
+                style=Styles.DIM,
             )
             console.print(
-                "   Or run from a project directory containing config.yml",
-                style=Styles.DIM
+                "   Or run from a project directory containing config.yml", style=Styles.DIM
             )
             raise click.Abort()
 
         if not config_path.exists():
-            console.print(
-                f"❌ Configuration file not found: {config_path}",
-                style=Styles.ERROR
-            )
+            console.print(f"❌ Configuration file not found: {config_path}", style=Styles.ERROR)
             console.print(
                 "\n💡 Create a new project with: [bold cyan]osprey init my-project[/bold cyan]",
-                style=Styles.DIM
+                style=Styles.DIM,
             )
             raise click.Abort()
 
         if facility == "custom" and (not address or not port):
-            console.print(
-                "❌ Custom facility requires --address and --port",
-                style=Styles.ERROR
-            )
+            console.print("❌ Custom facility requires --address and --port", style=Styles.ERROR)
             raise click.Abort()
 
         # Update configuration
         update_epics_gateway(config_path, facility, address, port)
 
-        console.print(
-            f"✅ EPICS gateway updated"
-        )
-        console.print(
-            f"   Configuration: {config_path}",
-            style=Styles.DIM
-        )
+        console.print("✅ EPICS gateway updated")
+        console.print(f"   Configuration: {config_path}", style=Styles.DIM)
 
     except Exception as e:
         console.print(f"❌ Failed to update EPICS gateway: {e}", style=Styles.ERROR)
@@ -516,4 +443,3 @@ def set_epics_gateway(facility: str, address: str, port: int, project: str):
 
 if __name__ == "__main__":
     config()
-

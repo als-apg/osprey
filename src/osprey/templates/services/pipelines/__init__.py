@@ -2,4 +2,3 @@
 
 This module provides integration with pipelines service infrastructure.
 """
-

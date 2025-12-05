@@ -34,21 +34,19 @@ from .types import Command, CommandCategory, CommandContext, CommandHandler, Com
 
 __all__ = [
     # Core system
-    'CommandRegistry',
-    'get_command_registry',
-    'register_command',
-    'execute_command',
-    'parse_command_line',
-
+    "CommandRegistry",
+    "get_command_registry",
+    "register_command",
+    "execute_command",
+    "parse_command_line",
     # Types
-    'Command',
-    'CommandResult',
-    'CommandCategory',
-    'CommandContext',
-    'CommandHandler',
-
+    "Command",
+    "CommandResult",
+    "CommandCategory",
+    "CommandContext",
+    "CommandHandler",
     # Command categories
-    'register_cli_commands',
-    'register_agent_control_commands',
-    'register_service_commands'
+    "register_cli_commands",
+    "register_agent_control_commands",
+    "register_service_commands",
 ]

@@ -21,15 +21,17 @@ from osprey.interfaces.cli.direct_conversation import run_cli
 
 @click.command()
 @click.option(
-    "--project", "-p",
+    "--project",
+    "-p",
     type=click.Path(exists=True, file_okay=False, dir_okay=True),
-    help="Project directory (default: current directory or OSPREY_PROJECT env var)"
+    help="Project directory (default: current directory or OSPREY_PROJECT env var)",
 )
 @click.option(
-    "--config", "-c",
+    "--config",
+    "-c",
     type=click.Path(exists=True),
     default="config.yml",
-    help="Configuration file (default: config.yml in project directory)"
+    help="Configuration file (default: config.yml in project directory)",
 )
 def chat(project: str, config: str):
     """Start interactive CLI conversation interface.
@@ -85,7 +87,8 @@ def chat(project: str, config: str):
         # Set CONFIG_FILE environment variable for subprocess execution
         # This is critical for Python executor subprocess to initialize registry
         import os
-        os.environ['CONFIG_FILE'] = str(config_path)
+
+        os.environ["CONFIG_FILE"] = str(config_path)
 
         # Call the existing run_cli function with config_path
         # This is the ORIGINAL function from Phase 1.5, behavior unchanged
@@ -98,12 +101,13 @@ def chat(project: str, config: str):
         console.print(f"\n❌ Error: {e}", style=Styles.ERROR)
         # Show more details in verbose mode
         import os
+
         if os.environ.get("DEBUG"):
             import traceback
+
             console.print(traceback.format_exc(), style=Styles.DIM)
         raise click.Abort()
 
 
 if __name__ == "__main__":
     chat()
-

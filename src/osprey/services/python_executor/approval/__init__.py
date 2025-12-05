@@ -21,4 +21,3 @@ from .node import create_approval_node
 __all__ = [
     "create_approval_node",
 ]
-

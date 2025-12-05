@@ -200,18 +200,24 @@ class BaseCapability(ABC):
         """
         # Validate that subclass has defined required attributes
         if self.name is None:
-            raise NotImplementedError(f"{self.__class__.__name__} must define 'name' class attribute")
+            raise NotImplementedError(
+                f"{self.__class__.__name__} must define 'name' class attribute"
+            )
         if self.description is None:
-            raise NotImplementedError(f"{self.__class__.__name__} must define 'description' class attribute")
+            raise NotImplementedError(
+                f"{self.__class__.__name__} must define 'description' class attribute"
+            )
 
         # Validate that execute method is implemented
-        if not hasattr(self.__class__, 'execute'):
-            raise NotImplementedError(f"{self.__class__.__name__} must implement 'execute' static method")
+        if not hasattr(self.__class__, "execute"):
+            raise NotImplementedError(
+                f"{self.__class__.__name__} must implement 'execute' static method"
+            )
 
         # Set defaults for optional attributes if not defined
-        if not hasattr(self.__class__, 'provides') or self.provides is None:
+        if not hasattr(self.__class__, "provides") or self.provides is None:
             self.__class__.provides = []
-        if not hasattr(self.__class__, 'requires') or self.requires is None:
+        if not hasattr(self.__class__, "requires") or self.requires is None:
             self.__class__.requires = []
 
         # Validate requires field format at initialization
@@ -255,8 +261,7 @@ class BaseCapability(ABC):
     # ========================================
 
     def get_required_contexts(
-        self,
-        constraint_mode: Literal["hard", "soft"] = "hard"
+        self, constraint_mode: Literal["hard", "soft"] = "hard"
     ) -> RequiredContexts:
         """
         Automatically extract contexts based on 'requires' field.
@@ -341,8 +346,7 @@ class BaseCapability(ABC):
                     ctx_type = getattr(registry.context_types, ctx_type_name)
                 except AttributeError:
                     available = [
-                        attr for attr in dir(registry.context_types)
-                        if not attr.startswith('_')
+                        attr for attr in dir(registry.context_types) if not attr.startswith("_")
                     ]
                     raise ValueError(
                         f"[{self.name}] Context type '{ctx_type_name}' not found in registry.\n"
@@ -358,8 +362,7 @@ class BaseCapability(ABC):
                     ctx_type = getattr(registry.context_types, ctx_type_name)
                 except AttributeError:
                     available = [
-                        attr for attr in dir(registry.context_types)
-                        if not attr.startswith('_')
+                        attr for attr in dir(registry.context_types) if not attr.startswith("_")
                     ]
                     raise ValueError(
                         f"[{self.name}] Context type '{ctx_type_name}' not found in registry.\n"
@@ -375,13 +378,11 @@ class BaseCapability(ABC):
                 self._step,
                 self._state,
                 constraints=constraints,
-                constraint_mode=constraint_mode  # Applies uniformly to ALL
+                constraint_mode=constraint_mode,  # Applies uniformly to ALL
             )
         except ValueError as e:
             # Add capability context to errors
-            raise ValueError(
-                f"[{self.name}] Failed to extract required contexts: {e}"
-            ) from e
+            raise ValueError(f"[{self.name}] Failed to extract required contexts: {e}") from e
 
         # Convert registry types to string keys for cleaner access
         # Note: In soft mode, raw_contexts might not have all requested keys
@@ -403,8 +404,7 @@ class BaseCapability(ABC):
         return RequiredContexts(processed, ordered_keys)
 
     def process_extracted_contexts(
-        self,
-        contexts: dict[str, CapabilityContext | list[CapabilityContext]]
+        self, contexts: dict[str, CapabilityContext | list[CapabilityContext]]
     ) -> dict[str, CapabilityContext | list[CapabilityContext]]:
         """
         Override to customize extracted contexts (e.g., flatten lists).
@@ -473,7 +473,7 @@ class BaseCapability(ABC):
             default = {}
 
         # Handle case where 'parameters' key exists but is None
-        params = self._step.get('parameters', default)
+        params = self._step.get("parameters", default)
         if params is None:
             return default
         return params
@@ -519,7 +519,7 @@ class BaseCapability(ABC):
             )
 
         # Try to get from step first
-        task_objective = self._step.get('task_objective')
+        task_objective = self._step.get("task_objective")
 
         if task_objective:
             return task_objective
@@ -530,6 +530,7 @@ class BaseCapability(ABC):
 
         # Import here to avoid circular dependencies
         from osprey.state import StateManager
+
         return StateManager.get_current_task(self._state)
 
     def get_step_inputs(self, default: list[dict[str, str]] | None = None) -> list[dict[str, str]]:
@@ -577,15 +578,12 @@ class BaseCapability(ABC):
             default = []
 
         # Handle case where 'inputs' key exists but is None
-        inputs = self._step.get('inputs', default)
+        inputs = self._step.get("inputs", default)
         if inputs is None:
             return default
         return inputs
 
-    def store_output_context(
-        self,
-        context_data: CapabilityContext
-    ) -> dict[str, Any]:
+    def store_output_context(self, context_data: CapabilityContext) -> dict[str, Any]:
         """
         Store single output context - uses context's CONTEXT_TYPE attribute.
 
@@ -610,10 +608,7 @@ class BaseCapability(ABC):
         # Delegate to the multiple contexts version
         return self.store_output_contexts(context_data)
 
-    def store_output_contexts(
-        self,
-        *context_objects: CapabilityContext
-    ) -> dict[str, Any]:
+    def store_output_contexts(self, *context_objects: CapabilityContext) -> dict[str, Any]:
         """
         Store multiple output contexts - all self-describing.
 
@@ -672,7 +667,7 @@ class BaseCapability(ABC):
         # Store each and merge updates
         merged: dict[str, Any] = {}
         for obj in context_objects:
-            if not hasattr(obj, 'CONTEXT_TYPE'):
+            if not hasattr(obj, "CONTEXT_TYPE"):
                 raise AttributeError(
                     f"Context {type(obj).__name__} must have CONTEXT_TYPE class variable"
                 )
@@ -681,20 +676,14 @@ class BaseCapability(ABC):
                 ctx_type = getattr(registry.context_types, obj.CONTEXT_TYPE)
             except AttributeError:
                 available = [
-                    attr for attr in dir(registry.context_types)
-                    if not attr.startswith('_')
+                    attr for attr in dir(registry.context_types) if not attr.startswith("_")
                 ]
                 raise ValueError(
                     f"[{self.name}] Context type '{obj.CONTEXT_TYPE}' not found in registry.\n"
                     f"Available types: {', '.join(available)}"
                 ) from None
 
-            updates = StateManager.store_context(
-                self._state,
-                ctx_type,
-                context_key,
-                obj
-            )
+            updates = StateManager.store_context(self._state, ctx_type, context_key, obj)
             merged = {**merged, **updates}
 
         return merged
@@ -749,6 +738,7 @@ class BaseCapability(ABC):
            :func:`get_logger` : Underlying logger factory function
         """
         from osprey.utils.logger import get_logger
+
         return get_logger(self.name, state=self._state)
 
     @abstractmethod
@@ -815,7 +805,9 @@ class BaseCapability(ABC):
            :meth:`store_output_context` : Automatic context storage
         """
         logger = logging.getLogger(__name__)
-        logger.warning("⚠️  Capability is using the empty base execute() - consider implementing execute() for proper functionality.")
+        logger.warning(
+            "⚠️  Capability is using the empty base execute() - consider implementing execute() for proper functionality."
+        )
         pass
 
     # Optional methods for registry configuration - implement as needed
@@ -887,11 +879,11 @@ class BaseCapability(ABC):
            :class:`ErrorClassification` : Error classification result structure
            :class:`ErrorSeverity` : Available severity levels and their meanings
         """
-        capability_name = context.get('capability', 'unknown_capability')
+        capability_name = context.get("capability", "unknown_capability")
         return ErrorClassification(
             severity=ErrorSeverity.CRITICAL,
             user_message=f"Unhandled error in {capability_name}: {exc}",
-            metadata={"technical_details": str(exc)}
+            metadata={"technical_details": str(exc)},
         )
 
     @staticmethod
@@ -942,11 +934,7 @@ class BaseCapability(ABC):
            :func:`classify_error` : Error classification that determines when to retry
            :class:`ErrorSeverity` : RETRIABLE severity triggers retry policy usage
         """
-        return {
-            "max_attempts": 3,
-            "delay_seconds": 0.5,
-            "backoff_factor": 1.5
-        }
+        return {"max_attempts": 3, "delay_seconds": 0.5, "backoff_factor": 1.5}
 
     def _create_orchestrator_guide(self) -> Any | None:
         """Template Method: Create orchestrator guide for planning integration.
@@ -983,9 +971,11 @@ class BaseCapability(ABC):
                 )
         """
         logger = logging.getLogger(__name__)
-        logger.warning(f"⚠️  Capability '{self.name}' is using base _create_orchestrator_guide() - "
-                      "this may cause orchestrator hallucination. Consider implementing "
-                      "_create_orchestrator_guide() for proper integration.")
+        logger.warning(
+            f"⚠️  Capability '{self.name}' is using base _create_orchestrator_guide() - "
+            "this may cause orchestrator hallucination. Consider implementing "
+            "_create_orchestrator_guide() for proper integration."
+        )
         return None
 
     def _create_classifier_guide(self) -> Any | None:
@@ -1023,9 +1013,11 @@ class BaseCapability(ABC):
         :rtype: Optional[TaskClassifierGuide]
         """
         logger = logging.getLogger(__name__)
-        logger.warning(f"⚠️  Capability '{self.name}' is using base _create_classifier_guide() - "
-                      "this may cause classification issues. Consider implementing "
-                      "_create_classifier_guide() for proper task classification.")
+        logger.warning(
+            f"⚠️  Capability '{self.name}' is using base _create_classifier_guide() - "
+            "this may cause classification issues. Consider implementing "
+            "_create_classifier_guide() for proper task classification."
+        )
         return None
 
     # Properties for compatibility and introspection
@@ -1040,7 +1032,7 @@ class BaseCapability(ABC):
         :return: Orchestrator guide for execution planning integration, or None if not needed
         :rtype: Optional[OrchestratorGuide]
         """
-        if not hasattr(self, '_orchestrator_guide'):
+        if not hasattr(self, "_orchestrator_guide"):
             try:
                 self._orchestrator_guide = self._create_orchestrator_guide()
             except Exception as e:
@@ -1060,7 +1052,7 @@ class BaseCapability(ABC):
         :return: Classifier guide for capability activation, or None if not needed
         :rtype: Optional[TaskClassifierGuide]
         """
-        if not hasattr(self, '_classifier_guide'):
+        if not hasattr(self, "_classifier_guide"):
             try:
                 self._classifier_guide = self._create_classifier_guide()
             except Exception as e:

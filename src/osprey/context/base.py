@@ -30,17 +30,14 @@ class CapabilityContext(BaseModel):
     model_config = {
         # Enforce JSON-compatible types only (no complex Python objects)
         "arbitrary_types_allowed": False,
-
         # Allow field names for compatibility
         "populate_by_name": True,
-
         # Use enum values for serialization
         "use_enum_values": True,
-
         # JSON encoders for specific types (Pydantic v2 syntax)
         "json_encoders": {
             datetime: lambda v: v.isoformat(),
-        }
+        },
     }
 
     # Class constants - using ClassVar to exclude from model fields
@@ -80,17 +77,18 @@ class CapabilityContext(BaseModel):
         """
         # Check if subclass overrides get_human_summary (legacy support)
         # We check __dict__ to see if the method is actually implemented in this class
-        if 'get_human_summary' in self.__class__.__dict__:
+        if "get_human_summary" in self.__class__.__dict__:
             import warnings
+
             warnings.warn(
                 f"get_human_summary() is deprecated in {self.__class__.__name__}. "
                 f"Please rename the method to get_summary(). "
                 f"This backwards compatibility will be removed in a future version.",
                 DeprecationWarning,
-                stacklevel=2
+                stacklevel=2,
             )
             # Call the legacy method directly - it may have key parameter
-            legacy_method = self.__class__.__dict__['get_human_summary']
+            legacy_method = self.__class__.__dict__["get_human_summary"]
             # Try calling with no args first (new style), fall back to with key
             try:
                 return legacy_method(self)

@@ -20,7 +20,8 @@ class DefaultErrorAnalysisPromptBuilder(FrameworkPromptBuilder):
 
     def get_instructions(self) -> str:
         """Get the error analysis instructions."""
-        return textwrap.dedent("""
+        return textwrap.dedent(
+            """
             A structured error report has already been generated with the following information:
             - Error type and timestamp
             - Task description and failed operation
@@ -38,12 +39,12 @@ class DefaultErrorAnalysisPromptBuilder(FrameworkPromptBuilder):
             - Consider the system capabilities context when suggesting alternatives
             - Keep it under 100 words
             - Use a professional, technical tone
-            """).strip()
+            """
+        ).strip()
 
-    def _get_dynamic_context(self,
-                          capabilities_overview: str = "",
-                          error_context=None,
-                          **kwargs) -> str:
+    def _get_dynamic_context(
+        self, capabilities_overview: str = "", error_context=None, **kwargs
+    ) -> str:
         """Build dynamic context with capabilities and error information."""
         sections = []
 
@@ -53,14 +54,15 @@ class DefaultErrorAnalysisPromptBuilder(FrameworkPromptBuilder):
 
         # Error context
         if error_context:
-            error_info = textwrap.dedent(f"""
+            error_info = textwrap.dedent(
+                f"""
                 ERROR CONTEXT:
                 - Current task: {getattr(error_context, 'current_task', 'Unknown')}
                 - Error type: {getattr(error_context, 'error_type', {}).value if hasattr(getattr(error_context, 'error_type', {}), 'value') else 'Unknown'}
                 - Capability: {getattr(error_context, 'capability_name', None) or 'Unknown'}
                 - Error message: {getattr(error_context, 'error_message', 'Unknown')}
-                """).strip()
+                """
+            ).strip()
             sections.append(error_info)
 
         return "\n\n".join(sections)
-

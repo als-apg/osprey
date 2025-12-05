@@ -15,20 +15,11 @@ from osprey.models import get_chat_completion
 class JudgeEvaluation(BaseModel):
     """Structured evaluation result from the LLM judge."""
 
-    passed: bool = Field(
-        description="Whether the workflow passed all expectations"
-    )
-    reasoning: str = Field(
-        description="Detailed explanation of the evaluation decision"
-    )
-    confidence: float = Field(
-        description="Confidence score between 0 and 1",
-        ge=0.0,
-        le=1.0
-    )
+    passed: bool = Field(description="Whether the workflow passed all expectations")
+    reasoning: str = Field(description="Detailed explanation of the evaluation decision")
+    confidence: float = Field(description="Confidence score between 0 and 1", ge=0.0, le=1.0)
     warnings: list[str] = Field(
-        default_factory=list,
-        description="Non-critical issues or concerns found"
+        default_factory=list, description="Non-critical issues or concerns found"
     )
 
 
@@ -60,10 +51,7 @@ class LLMJudge:
     """
 
     def __init__(
-        self,
-        provider: str = "cborg",
-        model: str = "anthropic/claude-haiku",
-        verbose: bool = False
+        self, provider: str = "cborg", model: str = "anthropic/claude-haiku", verbose: bool = False
     ):
         """Initialize the LLM judge.
 
@@ -76,11 +64,7 @@ class LLMJudge:
         self.model = model
         self.verbose = verbose
 
-    async def evaluate(
-        self,
-        result: WorkflowResult,
-        expectations: str
-    ) -> JudgeEvaluation:
+    async def evaluate(self, result: WorkflowResult, expectations: str) -> JudgeEvaluation:
         """Evaluate a workflow result against expectations.
 
         Args:
@@ -94,11 +78,11 @@ class LLMJudge:
         prompt = self._build_evaluation_prompt(result, expectations)
 
         if self.verbose:
-            print("\n" + "="*80)
+            print("\n" + "=" * 80)
             print("LLM JUDGE EVALUATION")
-            print("="*80)
+            print("=" * 80)
             print(prompt)
-            print("="*80 + "\n")
+            print("=" * 80 + "\n")
 
         # Get LLM evaluation using structured output
         full_prompt = f"{self._get_system_prompt()}\n\n{prompt}"
@@ -108,13 +92,13 @@ class LLMJudge:
             provider=self.provider,
             model_id=self.model,
             output_model=JudgeEvaluation,
-            max_tokens=8096
+            max_tokens=8096,
         )
 
         if self.verbose:
-            print("\n" + "="*80)
+            print("\n" + "=" * 80)
             print("JUDGE DECISION")
-            print("="*80)
+            print("=" * 80)
             print(f"Passed: {evaluation.passed}")
             print(f"Confidence: {evaluation.confidence}")
             print(f"\nReasoning:\n{evaluation.reasoning}")
@@ -122,7 +106,7 @@ class LLMJudge:
                 print("\nWarnings:")
                 for warning in evaluation.warnings:
                     print(f"  - {warning}")
-            print("="*80 + "\n")
+            print("=" * 80 + "\n")
 
         return evaluation
 
@@ -149,17 +133,17 @@ expectations are met. Critical failures (crashes, wrong outputs, no response) sh
 
 Provide a clear pass/fail decision with detailed reasoning. Be specific about what worked well and what didn't."""
 
-    def _build_evaluation_prompt(
-        self,
-        result: WorkflowResult,
-        expectations: str
-    ) -> str:
+    def _build_evaluation_prompt(self, result: WorkflowResult, expectations: str) -> str:
         """Build the evaluation prompt from result and expectations."""
         # Format artifacts list
-        artifacts_str = "\n".join(
-            f"  - {artifact.name} ({artifact.stat().st_size if artifact.exists() else 'MISSING'} bytes)"
-            for artifact in result.artifacts
-        ) if result.artifacts else "  (none)"
+        artifacts_str = (
+            "\n".join(
+                f"  - {artifact.name} ({artifact.stat().st_size if artifact.exists() else 'MISSING'} bytes)"
+                for artifact in result.artifacts
+            )
+            if result.artifacts
+            else "  (none)"
+        )
 
         # Format error info
         error_str = f"\n\nERROR ENCOUNTERED:\n{result.error}" if result.error else ""
@@ -200,20 +184,19 @@ quality issues (unclear response, missing context, suboptimal execution path).""
 # Add helper method to WorkflowResult
 def _format_trace_excerpt(self: WorkflowResult, max_lines: int = 100) -> str:
     """Format execution trace with reasonable truncation."""
-    lines = self.execution_trace.split('\n')
+    lines = self.execution_trace.split("\n")
     if len(lines) <= max_lines:
         return self.execution_trace
 
     # Show first and last portions
     half = max_lines // 2
     truncated = (
-        '\n'.join(lines[:half]) +
-        f'\n\n... ({len(lines) - max_lines} lines truncated) ...\n\n' +
-        '\n'.join(lines[-half:])
+        "\n".join(lines[:half])
+        + f"\n\n... ({len(lines) - max_lines} lines truncated) ...\n\n"
+        + "\n".join(lines[-half:])
     )
     return truncated
 
 
 # Monkey-patch the method onto WorkflowResult
 WorkflowResult._format_trace_excerpt = _format_trace_excerpt
-

@@ -8,38 +8,38 @@ Based on contributions from PR #37 by Marty Smith.
 
 # Facility gateway configurations
 FACILITY_PRESETS = {
-    'aps': {
-        'name': 'APS (Argonne National Laboratory)',
-        'description': 'Advanced Photon Source',
-        'gateways': {
-            'read_only': {
-                'address': 'pvgatemain1.aps4.anl.gov',
-                'port': 5064,
-                'use_name_server': False
+    "aps": {
+        "name": "APS (Argonne National Laboratory)",
+        "description": "Advanced Photon Source",
+        "gateways": {
+            "read_only": {
+                "address": "pvgatemain1.aps4.anl.gov",
+                "port": 5064,
+                "use_name_server": False,
             },
-            'write_access': {
-                'address': 'pvgatemain1.aps4.anl.gov',
-                'port': 5064,
-                'use_name_server': False
-            }
-        }
+            "write_access": {
+                "address": "pvgatemain1.aps4.anl.gov",
+                "port": 5064,
+                "use_name_server": False,
+            },
+        },
     },
-    'als': {
-        'name': 'ALS (Lawrence Berkeley National Laboratory)',
-        'description': 'Advanced Light Source',
-        'gateways': {
-            'read_only': {
-                'address': 'cagw-alsdmz.als.lbl.gov',
-                'port': 5064,
-                'use_name_server': False
+    "als": {
+        "name": "ALS (Lawrence Berkeley National Laboratory)",
+        "description": "Advanced Light Source",
+        "gateways": {
+            "read_only": {
+                "address": "cagw-alsdmz.als.lbl.gov",
+                "port": 5064,
+                "use_name_server": False,
             },
-            'write_access': {
-                'address': 'cagw-alsdmz.als.lbl.gov',
-                'port': 5084,
-                'use_name_server': False
-            }
-        }
-    }
+            "write_access": {
+                "address": "cagw-alsdmz.als.lbl.gov",
+                "port": 5084,
+                "use_name_server": False,
+            },
+        },
+    },
 }
 
 
@@ -81,4 +81,3 @@ def get_facility_choices() -> list[tuple[str, str]]:
         for facility, config in FACILITY_PRESETS.items()
     ]
     return choices
-

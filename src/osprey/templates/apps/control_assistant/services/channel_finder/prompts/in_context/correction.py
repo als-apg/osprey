@@ -1,14 +1,14 @@
 """Correction Prompt for Stage 3."""
 
 import textwrap
-from typing import List, Dict
+from typing import Dict, List
 
 
 def get_prompt(
     original_queries: List[str],
     validation_results: List[Dict[str, any]],
     chunk_database: str,
-    facility_name: str = "UCSB FEL"
+    facility_name: str = "UCSB FEL",
 ) -> str:
     """Prompt for Stage 3: Channel correction.
 
@@ -23,13 +23,14 @@ def get_prompt(
     # Format validation results for prompt
     results_list = []
     for entry in validation_results:
-        status = "✓ VALID" if entry['valid'] else "✗ INVALID (not in database)"
+        status = "✓ VALID" if entry["valid"] else "✗ INVALID (not in database)"
         results_list.append(f"- {entry['channel']} {status}")
     results_formatted = "\n".join(results_list)
 
     queries_formatted = "\n".join(f'- "{q}"' for q in original_queries)
 
-    return textwrap.dedent(f"""
+    return textwrap.dedent(
+        f"""
         Some channel names you returned don't exist in the database.
 
         ORIGINAL QUERIES:
@@ -49,5 +50,5 @@ def get_prompt(
 
         Return JSON with:
         - "corrected_channels": complete list of valid channel names only
-        """).strip()
-
+        """
+    ).strip()

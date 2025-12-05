@@ -39,8 +39,6 @@ def pytest_configure(config):
     osprey.registry.manager.get_registry = lambda **kwargs: mock_reg
 
 
-
-
 @pytest.fixture
 def mock_state() -> AgentState:
     """Create a mock agent state with complete execution plan."""

@@ -24,9 +24,6 @@ if TYPE_CHECKING:
 logger = get_logger("osprey")
 
 
-
-
-
 class FrameworkPromptBuilder(ABC):
     """Abstract base class for building domain-agnostic framework prompts with flexible composition.
 
@@ -155,7 +152,7 @@ class FrameworkPromptBuilder(ABC):
         """
         pass
 
-    def _get_examples(self, **kwargs) -> list['BaseExample'] | None:
+    def _get_examples(self, **kwargs) -> list["BaseExample"] | None:
         """Provide few-shot examples to guide agent behavior and output format.
 
         This method can return static examples or generate dynamic examples based
@@ -365,10 +362,11 @@ class FrameworkPromptBuilder(ABC):
                     pass
                 # Returns: "dataanalysis"
         """
-        return getattr(self, 'PROMPT_TYPE', self.__class__.__name__.replace('PromptBuilder', '').lower())
+        return getattr(
+            self, "PROMPT_TYPE", self.__class__.__name__.replace("PromptBuilder", "").lower()
+        )
 
-
-    def _format_examples(self, examples: list['BaseExample']) -> str:
+    def _format_examples(self, examples: list["BaseExample"]) -> str:
         """Format example objects into prompt-ready text representation.
 
         This method converts a list of BaseExample objects into a formatted string
@@ -404,7 +402,7 @@ class FrameworkPromptBuilder(ABC):
         """
         return "\n".join(ex.format_for_prompt() for ex in examples)
 
-    def get_orchestrator_guide(self) -> Optional['OrchestratorGuide']:
+    def get_orchestrator_guide(self) -> Optional["OrchestratorGuide"]:
         """Provide orchestrator planning guidance for capability-specific prompts.
 
         This method allows prompt builders to provide structured guidance to the
@@ -449,7 +447,7 @@ class FrameworkPromptBuilder(ABC):
         """
         return None
 
-    def get_classifier_guide(self) -> Optional['TaskClassifierGuide']:
+    def get_classifier_guide(self) -> Optional["TaskClassifierGuide"]:
         """Provide task classification guidance for capability-specific prompts.
 
         This method allows prompt builders to provide structured guidance to the
@@ -575,7 +573,7 @@ def debug_print_prompt(prompt: str, name: str, builder_class: str | None = None)
 
         # File output
         if prompts_config.get("print_all", False):
-            prompts_dir = get_agent_dir('prompts_dir')
+            prompts_dir = get_agent_dir("prompts_dir")
             os.makedirs(prompts_dir, exist_ok=True)
 
             # Determine filename based on latest_only flag
@@ -590,14 +588,16 @@ def debug_print_prompt(prompt: str, name: str, builder_class: str | None = None)
 
             # Create header with metadata
             timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            header = textwrap.dedent(f"""
+            header = textwrap.dedent(
+                f"""
                 # PROMPT METADATA
                 # Generated: {timestamp_str}
                 # Name: {name}
                 # Builder: {builder_class or 'Unknown'}
                 # File: {prompt_file_path}
                 # Latest Only: {latest_only}
-                """).strip()
+                """
+            ).strip()
 
             with open(prompt_file_path, "w") as f:
                 f.write(header + "\n\n\n" + prompt)

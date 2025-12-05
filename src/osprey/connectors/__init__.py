@@ -11,5 +11,4 @@ Related to Issue #18 - Control System Abstraction (Layer 2)
 
 from osprey.connectors.factory import ConnectorFactory
 
-__all__ = ['ConnectorFactory']
-
+__all__ = ["ConnectorFactory"]

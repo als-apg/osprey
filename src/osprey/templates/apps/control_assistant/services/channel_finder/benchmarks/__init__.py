@@ -17,21 +17,15 @@ Usage:
     await runner.run_all_enabled_benchmarks()
 """
 
-from .models import (
-    QueryBenchmarkEntry,
-    QueryRunResult,
-    QueryEvaluation,
-    BenchmarkResults
-)
+from .models import BenchmarkResults, QueryBenchmarkEntry, QueryEvaluation, QueryRunResult
 from .runner import BenchmarkRunner
 
 __all__ = [
-    'QueryBenchmarkEntry',
-    'QueryRunResult',
-    'QueryEvaluation',
-    'BenchmarkResults',
-    'BenchmarkRunner',
+    "QueryBenchmarkEntry",
+    "QueryRunResult",
+    "QueryEvaluation",
+    "BenchmarkResults",
+    "BenchmarkRunner",
 ]
 
-__version__ = '1.0.0'
-
+__version__ = "1.0.0"

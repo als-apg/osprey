@@ -10,4 +10,3 @@ from .python import ControlSystemPythonPromptBuilder
 __all__ = [
     "ControlSystemPythonPromptBuilder",
 ]
-

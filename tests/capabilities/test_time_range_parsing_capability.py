@@ -56,6 +56,7 @@ class TestTimeRangeParsingCapabilityMigration:
         class MockTimeRangeContext:
             CONTEXT_TYPE = "TIME_RANGE"
             CONTEXT_CATEGORY = "METADATA"
+
             def __init__(self, start_date, end_date, *args, **kwargs):
                 self.start_date = start_date
                 self.end_date = end_date
@@ -64,9 +65,17 @@ class TestTimeRangeParsingCapabilityMigration:
             def model_dump(self):
                 """Mimic Pydantic's model_dump() method."""
                 return {
-                    "start_date": self.start_date.isoformat() if hasattr(self.start_date, 'isoformat') else str(self.start_date),
-                    "end_date": self.end_date.isoformat() if hasattr(self.end_date, 'isoformat') else str(self.end_date),
-                    "context_type": self.context_type
+                    "start_date": (
+                        self.start_date.isoformat()
+                        if hasattr(self.start_date, "isoformat")
+                        else str(self.start_date)
+                    ),
+                    "end_date": (
+                        self.end_date.isoformat()
+                        if hasattr(self.end_date, "isoformat")
+                        else str(self.end_date)
+                    ),
+                    "context_type": self.context_type,
                 }
 
         mock_context_class = MockTimeRangeContext
@@ -116,6 +125,7 @@ class TestTimeRangeParsingCapabilityMigration:
         class MockTimeRangeContext:
             CONTEXT_TYPE = "TIME_RANGE"
             CONTEXT_CATEGORY = "METADATA"
+
             def __init__(self, start_date, end_date, *args, **kwargs):
                 self.start_date = start_date
                 self.end_date = end_date
@@ -124,9 +134,17 @@ class TestTimeRangeParsingCapabilityMigration:
             def model_dump(self):
                 """Mimic Pydantic's model_dump() method."""
                 return {
-                    "start_date": self.start_date.isoformat() if hasattr(self.start_date, 'isoformat') else str(self.start_date),
-                    "end_date": self.end_date.isoformat() if hasattr(self.end_date, 'isoformat') else str(self.end_date),
-                    "context_type": self.context_type
+                    "start_date": (
+                        self.start_date.isoformat()
+                        if hasattr(self.start_date, "isoformat")
+                        else str(self.start_date)
+                    ),
+                    "end_date": (
+                        self.end_date.isoformat()
+                        if hasattr(self.end_date, "isoformat")
+                        else str(self.end_date)
+                    ),
+                    "context_type": self.context_type,
                 }
 
         monkeypatch.setattr(
@@ -171,6 +189,7 @@ class TestTimeRangeParsingCapabilityMigration:
         class MockTimeRangeContext:
             CONTEXT_TYPE = "TIME_RANGE"
             CONTEXT_CATEGORY = "METADATA"
+
             def __init__(self, start_date, end_date, *args, **kwargs):
                 self.start_date = start_date
                 self.end_date = end_date
@@ -179,9 +198,17 @@ class TestTimeRangeParsingCapabilityMigration:
             def model_dump(self):
                 """Mimic Pydantic's model_dump() method."""
                 return {
-                    "start_date": self.start_date.isoformat() if hasattr(self.start_date, 'isoformat') else str(self.start_date),
-                    "end_date": self.end_date.isoformat() if hasattr(self.end_date, 'isoformat') else str(self.end_date),
-                    "context_type": self.context_type
+                    "start_date": (
+                        self.start_date.isoformat()
+                        if hasattr(self.start_date, "isoformat")
+                        else str(self.start_date)
+                    ),
+                    "end_date": (
+                        self.end_date.isoformat()
+                        if hasattr(self.end_date, "isoformat")
+                        else str(self.end_date)
+                    ),
+                    "context_type": self.context_type,
                 }
 
         monkeypatch.setattr(

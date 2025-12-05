@@ -37,6 +37,7 @@ class MemoryContent(BaseModel):
        :class:`osprey.state.UserMemories` : State container for memory collections
        :meth:`format_for_llm` : LLM-optimized formatting method
     """
+
     timestamp: datetime = Field(description="The timestamp of the memory content")
     content: str = Field(description="The content that should be saved to memory")
 
@@ -88,5 +89,5 @@ class MemoryContent(BaseModel):
 
 
 __all__ = [
-    'MemoryContent',
+    "MemoryContent",
 ]

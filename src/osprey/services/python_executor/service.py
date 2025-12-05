@@ -28,7 +28,6 @@ from .models import PythonExecutionRequest, PythonExecutionState, PythonServiceR
 logger = get_logger("python")
 
 
-
 class PythonExecutorService:
     """Advanced Python execution service with flexible deployment and human oversight capabilities.
 
@@ -224,12 +223,14 @@ class PythonExecutorService:
 
         if isinstance(input_data, Command):
             logger.debug(f"Service ainvoke received input_data type: {type(input_data)}")
-            logger.debug(f"Service ainvoke input_data isinstance PythonExecutionRequest: {isinstance(input_data, PythonExecutionRequest)}")
+            logger.debug(
+                f"Service ainvoke input_data isinstance PythonExecutionRequest: {isinstance(input_data, PythonExecutionRequest)}"
+            )
 
             # This is a resume command (approval response)
-            if hasattr(input_data, 'resume') and input_data.resume:
+            if hasattr(input_data, "resume") and input_data.resume:
                 logger.info("Resuming Python service execution after approval")
-                approval_result = input_data.resume.get('approved', False)
+                approval_result = input_data.resume.get("approved", False)
                 logger.info(f"Approval result: {approval_result}")
                 logger.info(f"Full resume payload keys: {list(input_data.resume.keys())}")
 
@@ -243,11 +244,15 @@ class PythonExecutorService:
 
                 return result
             else:
-                raise ValueError("Invalid Command received by service - missing or invalid resume data")
+                raise ValueError(
+                    "Invalid Command received by service - missing or invalid resume data"
+                )
 
         elif isinstance(input_data, PythonExecutionRequest):
             logger.debug(f"Service ainvoke received input_data type: {type(input_data)}")
-            logger.debug(f"Service ainvoke input_data isinstance PythonExecutionRequest: {isinstance(input_data, PythonExecutionRequest)}")
+            logger.debug(
+                f"Service ainvoke input_data isinstance PythonExecutionRequest: {isinstance(input_data, PythonExecutionRequest)}"
+            )
 
             logger.debug("Converting PythonExecutionRequest to internal state")
             internal_state = self._create_internal_state(input_data)
@@ -266,7 +271,7 @@ class PythonExecutorService:
                 execution_result=result["execution_result"],
                 generated_code=result.get("generated_code", ""),
                 generation_attempt=result.get("generation_attempt", 1),
-                analysis_warnings=result.get("analysis_warnings", [])
+                analysis_warnings=result.get("analysis_warnings", []),
             )
         else:
             # Clean API: Only accept defined input types
@@ -284,12 +289,14 @@ class PythonExecutorService:
         :raises CodeRuntimeError: If execution was not successful
         """
         if not result.get("is_successful", False):
-            failure_reason = result.get("failure_reason") or result.get("execution_error", "Code execution failed")
+            failure_reason = result.get("failure_reason") or result.get(
+                "execution_error", "Code execution failed"
+            )
             logger.error(f"Python execution failed: {failure_reason}")
             raise CodeRuntimeError(
                 message=f"Python code execution failed: {failure_reason}",
                 traceback_info=result.get("execution_error", ""),
-                execution_attempt=result.get("generation_attempt", 1)
+                execution_attempt=result.get("generation_attempt", 1),
             )
 
     def _build_and_compile_graph(self):
@@ -314,8 +321,8 @@ class PythonExecutorService:
                 "approve": "python_approval_node",
                 "retry": "python_code_generator",
                 "execute": "python_code_executor",
-                "__end__": "__end__"  # Handle permanent failures
-            }
+                "__end__": "__end__",  # Handle permanent failures
+            },
         )
         workflow.add_conditional_edges(
             "python_approval_node",
@@ -323,16 +330,13 @@ class PythonExecutorService:
             {
                 "approved": "python_code_executor",
                 "rejected": "__end__",
-                "retry": "python_code_generator"
-            }
+                "retry": "python_code_generator",
+            },
         )
         workflow.add_conditional_edges(
             "python_code_executor",
             self._executor_conditional_edge,
-            {
-                "retry": "python_code_generator",
-                "__end__": "__end__"
-            }
+            {"retry": "python_code_generator", "__end__": "__end__"},
         )
 
         # Compile with checkpointer for interrupt support - use same pattern as main graph
@@ -351,21 +355,17 @@ class PythonExecutorService:
         """
         return PythonExecutionState(
             request=request,  # Store serializable request data
-
             # Extract capability context data to top level for ContextManager compatibility
             capability_context_data=request.capability_context_data,
-
             # Initialize execution state
             generation_attempt=0,
             error_chain=[],
             current_stage="generation",
-
             # Approval state
             requires_approval=None,
             approval_interrupt_data=None,
             approval_result=None,
             approved=None,
-
             # Runtime state
             generated_code=None,
             analysis_result=None,
@@ -373,7 +373,6 @@ class PythonExecutorService:
             execution_failed=None,
             execution_result=None,
             execution_folder=None,
-
             # Control flags
             is_successful=False,
             is_failed=False,

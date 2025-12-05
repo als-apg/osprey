@@ -113,9 +113,7 @@ class ControlSystemConnector(ABC):
 
     @abstractmethod
     async def read_channel(
-        self,
-        channel_address: str,
-        timeout: float | None = None
+        self, channel_address: str, timeout: float | None = None
     ) -> ChannelValue:
         """
         Read current value of a channel.
@@ -141,7 +139,7 @@ class ControlSystemConnector(ABC):
         value: Any,
         timeout: float | None = None,
         verification_level: str = "callback",
-        tolerance: float | None = None
+        tolerance: float | None = None,
     ) -> ChannelWriteResult:
         """
         Write value to a channel with configurable verification.
@@ -175,9 +173,7 @@ class ControlSystemConnector(ABC):
 
     @abstractmethod
     async def read_multiple_channels(
-        self,
-        channel_addresses: list[str],
-        timeout: float | None = None
+        self, channel_addresses: list[str], timeout: float | None = None
     ) -> dict[str, ChannelValue]:
         """
         Read multiple channels efficiently (can be optimized per control system).
@@ -194,9 +190,7 @@ class ControlSystemConnector(ABC):
 
     @abstractmethod
     async def subscribe(
-        self,
-        channel_address: str,
-        callback: Callable[[ChannelValue], None]
+        self, channel_address: str, callback: Callable[[ChannelValue], None]
     ) -> str:
         """
         Subscribe to channel changes.
@@ -250,11 +244,7 @@ class ControlSystemConnector(ABC):
         pass
 
     # Deprecated method aliases for backward compatibility
-    async def read_pv(
-        self,
-        pv_address: str,
-        timeout: float | None = None
-    ) -> ChannelValue:
+    async def read_pv(self, pv_address: str, timeout: float | None = None) -> ChannelValue:
         """
         Read current value of a PV/channel.
 
@@ -267,7 +257,7 @@ class ControlSystemConnector(ABC):
             "Use read_channel() instead. The term 'PV' is EPICS-specific; "
             "'channel' is control-system agnostic.",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
         return await self.read_channel(pv_address, timeout)
 
@@ -277,7 +267,7 @@ class ControlSystemConnector(ABC):
         value: Any,
         timeout: float | None = None,
         verification_level: str = "callback",
-        tolerance: float | None = None
+        tolerance: float | None = None,
     ) -> ChannelWriteResult:
         """
         Write value to a PV/channel.
@@ -291,14 +281,12 @@ class ControlSystemConnector(ABC):
             "Use write_channel() instead. The term 'PV' is EPICS-specific; "
             "'channel' is control-system agnostic.",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
         return await self.write_channel(pv_address, value, timeout, verification_level, tolerance)
 
     async def read_multiple_pvs(
-        self,
-        pv_addresses: list[str],
-        timeout: float | None = None
+        self, pv_addresses: list[str], timeout: float | None = None
     ) -> dict[str, ChannelValue]:
         """
         Read multiple PVs/channels.
@@ -311,7 +299,7 @@ class ControlSystemConnector(ABC):
             "Use read_multiple_channels() instead. The term 'PV' is EPICS-specific; "
             "'channel' is control-system agnostic.",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
         return await self.read_multiple_channels(pv_addresses, timeout)
 
@@ -327,7 +315,7 @@ class ControlSystemConnector(ABC):
             "Use validate_channel() instead. The term 'PV' is EPICS-specific; "
             "'channel' is control-system agnostic.",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
         return await self.validate_channel(pv_address)
 
@@ -352,7 +340,7 @@ class PVMetadata(ChannelMetadata):
             "Use ChannelMetadata instead. The term 'PV' is EPICS-specific; "
             "'channel' is control-system agnostic.",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
         super().__init__(*args, **kwargs)
 
@@ -373,6 +361,6 @@ class PVValue(ChannelValue):
             "Use ChannelValue instead. The term 'PV' is EPICS-specific; "
             "'channel' is control-system agnostic.",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
         super().__init__(*args, **kwargs)

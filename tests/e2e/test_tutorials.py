@@ -33,9 +33,7 @@ async def test_bpm_timeseries_and_correlation_tutorial(e2e_project_factory, llm_
     """
     # Step 1: Create project exactly like the tutorial
     project = await e2e_project_factory(
-        name="my-control-assistant",
-        template="control_assistant",
-        registry_style="extend"
+        name="my-control-assistant", template="control_assistant", registry_style="extend"
     )
 
     # Step 2: Initialize framework
@@ -100,10 +98,7 @@ async def test_bpm_timeseries_and_correlation_tutorial(e2e_project_factory, llm_
     """
 
     # Step 5: Evaluate with LLM judge
-    evaluation = await llm_judge.evaluate(
-        result=result,
-        expectations=expectations
-    )
+    evaluation = await llm_judge.evaluate(result=result, expectations=expectations)
 
     # Step 6: Assert success with detailed failure info
     assert evaluation.passed, (
@@ -115,14 +110,10 @@ async def test_bpm_timeseries_and_correlation_tutorial(e2e_project_factory, llm_
 
     # Additional sanity checks (belt and suspenders)
     # Check for at least one PNG (plots may be combined in one figure)
-    png_files = [a for a in result.artifacts if a.suffix == '.png']
-    assert len(png_files) >= 1, (
-        f"Expected at least 1 PNG file, got {len(png_files)}"
-    )
+    png_files = [a for a in result.artifacts if a.suffix == ".png"]
+    assert len(png_files) >= 1, f"Expected at least 1 PNG file, got {len(png_files)}"
 
-    assert result.error is None, (
-        f"Workflow encountered error: {result.error}"
-    )
+    assert result.error is None, f"Workflow encountered error: {result.error}"
 
     # Verify key capabilities were mentioned in trace (basic smoke check)
     trace_lower = result.execution_trace.lower()
@@ -148,10 +139,7 @@ async def test_simple_query_smoke_test(e2e_project_factory, llm_judge):
     Use this for quick validation before running full tutorial tests.
     """
     # Create minimal project
-    project = await e2e_project_factory(
-        name="smoke-test-project",
-        template="minimal"
-    )
+    project = await e2e_project_factory(name="smoke-test-project", template="minimal")
 
     await project.initialize()
 
@@ -169,9 +157,7 @@ async def test_simple_query_smoke_test(e2e_project_factory, llm_judge):
 
     evaluation = await llm_judge.evaluate(result, expectations)
 
-    assert evaluation.passed, (
-        f"Basic smoke test failed: {evaluation.reasoning}"
-    )
+    assert evaluation.passed, f"Basic smoke test failed: {evaluation.reasoning}"
 
 
 @pytest.mark.e2e
@@ -196,18 +182,14 @@ async def test_hello_world_weather_tutorial(e2e_project_factory, llm_judge):
     """
     # Step 1: Create project from hello_world_weather template
     project = await e2e_project_factory(
-        name="hello-weather",
-        template="hello_world_weather",
-        registry_style="extend"
+        name="hello-weather", template="hello_world_weather", registry_style="extend"
     )
 
     # Step 2: Initialize framework
     await project.initialize()
 
     # Step 3: Execute the tutorial query
-    result = await project.query(
-        "What's the weather in San Francisco?"
-    )
+    result = await project.query("What's the weather in San Francisco?")
 
     # Step 4: Define expectations in plain text
     expectations = """
@@ -260,10 +242,7 @@ async def test_hello_world_weather_tutorial(e2e_project_factory, llm_judge):
     """
 
     # Step 5: Evaluate with LLM judge
-    evaluation = await llm_judge.evaluate(
-        result=result,
-        expectations=expectations
-    )
+    evaluation = await llm_judge.evaluate(result=result, expectations=expectations)
 
     # Step 6: Assert success with detailed failure info
     assert evaluation.passed, (
@@ -274,21 +253,17 @@ async def test_hello_world_weather_tutorial(e2e_project_factory, llm_judge):
     )
 
     # Additional sanity checks
-    assert result.error is None, (
-        f"Workflow encountered error: {result.error}"
-    )
+    assert result.error is None, f"Workflow encountered error: {result.error}"
 
     # Verify weather capability was mentioned in trace
     trace_lower = result.execution_trace.lower()
-    assert "weather" in trace_lower or "current_weather" in trace_lower, (
-        "Weather capability not executed"
-    )
+    assert (
+        "weather" in trace_lower or "current_weather" in trace_lower
+    ), "Weather capability not executed"
 
     # Verify San Francisco was mentioned (either in trace or response)
     full_output = (result.execution_trace + result.response).lower()
-    assert "san francisco" in full_output, (
-        "San Francisco not mentioned in workflow output"
-    )
+    assert "san francisco" in full_output, "San Francisco not mentioned in workflow output"
 
 
 # Template for adding new tutorial tests:
@@ -317,4 +292,3 @@ async def test_hello_world_weather_tutorial(e2e_project_factory, llm_judge):
 #
 #     evaluation = await llm_judge.evaluate(result, expectations)
 #     assert evaluation.passed, evaluation.reasoning
-

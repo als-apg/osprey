@@ -3,12 +3,11 @@
 Tests the runtime utilities for control system operations in generated Python code.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from osprey.runtime import (
-    _get_connector,
     cleanup_runtime,
     configure_from_context,
     read_channel,
@@ -56,16 +55,9 @@ class MockConnector:
 @pytest.fixture
 def mock_context_with_config():
     """Create mock context with valid config."""
-    return MockContext({
-        '_execution_config': {
-            'control_system': {
-                'type': 'mock',
-                'connector': {
-                    'mock': {}
-                }
-            }
-        }
-    })
+    return MockContext(
+        {"_execution_config": {"control_system": {"type": "mock", "connector": {"mock": {}}}}}
+    )
 
 
 @pytest.fixture
@@ -78,6 +70,7 @@ def mock_context_without_config():
 def clear_runtime_state():
     """Clear runtime module state before each test."""
     import osprey.runtime as runtime
+
     runtime._runtime_connector = None
     runtime._runtime_config = None
     yield
@@ -94,7 +87,7 @@ def test_configure_from_context_with_valid_config(mock_context_with_config, clea
 
     # Should have loaded config from context
     assert runtime._runtime_config is not None
-    assert runtime._runtime_config['type'] == 'mock'
+    assert runtime._runtime_config["type"] == "mock"
 
 
 def test_configure_from_context_without_config(mock_context_without_config, clear_runtime_state):
@@ -102,15 +95,15 @@ def test_configure_from_context_without_config(mock_context_without_config, clea
     import osprey.runtime as runtime
 
     # Mock get_config_value to return mock config
-    with patch('osprey.utils.config.get_config_value') as mock_get_config:
-        mock_get_config.return_value = {'type': 'mock'}
+    with patch("osprey.utils.config.get_config_value") as mock_get_config:
+        mock_get_config.return_value = {"type": "mock"}
 
         configure_from_context(mock_context_without_config)
 
         # Should have fallen back to global config
         assert runtime._runtime_config is not None
-        assert runtime._runtime_config['type'] == 'mock'
-        mock_get_config.assert_called_once_with('control_system', {})
+        assert runtime._runtime_config["type"] == "mock"
+        mock_get_config.assert_called_once_with("control_system", {})
 
 
 def test_configure_from_none_context(clear_runtime_state):
@@ -118,8 +111,8 @@ def test_configure_from_none_context(clear_runtime_state):
     import osprey.runtime as runtime
 
     # Mock get_config_value to return mock config
-    with patch('osprey.utils.config.get_config_value') as mock_get_config:
-        mock_get_config.return_value = {'type': 'mock'}
+    with patch("osprey.utils.config.get_config_value") as mock_get_config:
+        mock_get_config.return_value = {"type": "mock"}
 
         configure_from_context(None)
 
@@ -130,10 +123,9 @@ def test_configure_from_none_context(clear_runtime_state):
 
 def test_configure_error_handling(clear_runtime_state):
     """Test error handling when both context and global config fail."""
-    import osprey.runtime as runtime
 
     # Mock get_config_value to raise error
-    with patch('osprey.utils.config.get_config_value') as mock_get_config:
+    with patch("osprey.utils.config.get_config_value") as mock_get_config:
         mock_get_config.side_effect = RuntimeError("Config not available")
 
         # Should raise clear error
@@ -143,7 +135,6 @@ def test_configure_error_handling(clear_runtime_state):
 
 def test_write_channel_success(mock_context_with_config, clear_runtime_state):
     """Test write_channel with successful write."""
-    import osprey.runtime as runtime
 
     # Configure runtime
     configure_from_context(mock_context_with_config)
@@ -152,7 +143,9 @@ def test_write_channel_success(mock_context_with_config, clear_runtime_state):
     mock_connector = MockConnector()
 
     # Mock the connector factory
-    with patch('osprey.connectors.factory.ConnectorFactory.create_control_system_connector') as mock_factory:
+    with patch(
+        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+    ) as mock_factory:
         mock_factory.return_value = mock_connector
 
         # Write channel (synchronous API)
@@ -166,7 +159,6 @@ def test_write_channel_success(mock_context_with_config, clear_runtime_state):
 
 def test_write_channel_failure(mock_context_with_config, clear_runtime_state):
     """Test write_channel with failed write."""
-    import osprey.runtime as runtime
 
     # Configure runtime
     configure_from_context(mock_context_with_config)
@@ -183,7 +175,9 @@ def test_write_channel_failure(mock_context_with_config, clear_runtime_state):
     mock_connector.write_channel = failing_write
 
     # Mock the connector factory
-    with patch('osprey.connectors.factory.ConnectorFactory.create_control_system_connector') as mock_factory:
+    with patch(
+        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+    ) as mock_factory:
         mock_factory.return_value = mock_connector
 
         # Write should raise RuntimeError (synchronous API)
@@ -193,7 +187,6 @@ def test_write_channel_failure(mock_context_with_config, clear_runtime_state):
 
 def test_read_channel_success(mock_context_with_config, clear_runtime_state):
     """Test read_channel with successful read."""
-    import osprey.runtime as runtime
 
     # Configure runtime
     configure_from_context(mock_context_with_config)
@@ -202,7 +195,9 @@ def test_read_channel_success(mock_context_with_config, clear_runtime_state):
     mock_connector = MockConnector()
 
     # Mock the connector factory
-    with patch('osprey.connectors.factory.ConnectorFactory.create_control_system_connector') as mock_factory:
+    with patch(
+        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+    ) as mock_factory:
         mock_factory.return_value = mock_connector
 
         # Read channel (synchronous API)
@@ -216,7 +211,6 @@ def test_read_channel_success(mock_context_with_config, clear_runtime_state):
 
 def test_write_channels_bulk(mock_context_with_config, clear_runtime_state):
     """Test write_channels bulk operation."""
-    import osprey.runtime as runtime
 
     # Configure runtime
     configure_from_context(mock_context_with_config)
@@ -225,15 +219,13 @@ def test_write_channels_bulk(mock_context_with_config, clear_runtime_state):
     mock_connector = MockConnector()
 
     # Mock the connector factory
-    with patch('osprey.connectors.factory.ConnectorFactory.create_control_system_connector') as mock_factory:
+    with patch(
+        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+    ) as mock_factory:
         mock_factory.return_value = mock_connector
 
         # Write multiple channels (synchronous API)
-        write_channels({
-            "PV1": 1.0,
-            "PV2": 2.0,
-            "PV3": 3.0
-        })
+        write_channels({"PV1": 1.0, "PV2": 2.0, "PV3": 3.0})
 
         # Verify all writes were called
         assert len(mock_connector.write_calls) == 3
@@ -254,7 +246,9 @@ async def test_cleanup_runtime(mock_context_with_config, clear_runtime_state):
     mock_connector = MockConnector()
 
     # Mock the connector factory
-    with patch('osprey.connectors.factory.ConnectorFactory.create_control_system_connector') as mock_factory:
+    with patch(
+        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+    ) as mock_factory:
         mock_factory.return_value = mock_connector
 
         # Create connector by writing (synchronous API)
@@ -273,7 +267,6 @@ async def test_cleanup_runtime(mock_context_with_config, clear_runtime_state):
 
 def test_connector_reuse(mock_context_with_config, clear_runtime_state):
     """Test that connector is created once and reused."""
-    import osprey.runtime as runtime
 
     # Configure runtime
     configure_from_context(mock_context_with_config)
@@ -282,7 +275,9 @@ def test_connector_reuse(mock_context_with_config, clear_runtime_state):
     mock_connector = MockConnector()
 
     # Mock the connector factory
-    with patch('osprey.connectors.factory.ConnectorFactory.create_control_system_connector') as mock_factory:
+    with patch(
+        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+    ) as mock_factory:
         mock_factory.return_value = mock_connector
 
         # Write multiple times (synchronous API)
@@ -301,7 +296,6 @@ def test_connector_reuse(mock_context_with_config, clear_runtime_state):
 @pytest.mark.asyncio
 async def test_connector_recreated_after_cleanup(mock_context_with_config, clear_runtime_state):
     """Test that connector is recreated after cleanup."""
-    import osprey.runtime as runtime
 
     # Configure runtime
     configure_from_context(mock_context_with_config)
@@ -311,7 +305,9 @@ async def test_connector_recreated_after_cleanup(mock_context_with_config, clear
     mock_connector2 = MockConnector()
 
     # Mock the connector factory
-    with patch('osprey.connectors.factory.ConnectorFactory.create_control_system_connector') as mock_factory:
+    with patch(
+        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+    ) as mock_factory:
         mock_factory.side_effect = [mock_connector1, mock_connector2]
 
         # First write (synchronous API)
@@ -327,4 +323,3 @@ async def test_connector_recreated_after_cleanup(mock_context_with_config, clear
 
         # Factory should be called twice
         assert mock_factory.call_count == 2
-

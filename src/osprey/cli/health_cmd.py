@@ -57,6 +57,7 @@ class HealthChecker:
         """Load .env file from current directory if it exists."""
         try:
             from dotenv import load_dotenv
+
             dotenv_path = self.cwd / ".env"
             if dotenv_path.exists():
                 load_dotenv(dotenv_path, override=False)  # Don't override existing env vars
@@ -73,10 +74,12 @@ class HealthChecker:
             from osprey.registry import initialize_registry
 
             # Show spinner during registry initialization
-            spinner = Spinner("dots", text="[dim]Initializing framework registry...[/dim]", style=Styles.INFO)
+            spinner = Spinner(
+                "dots", text="[dim]Initializing framework registry...[/dim]", style=Styles.INFO
+            )
             with Live(spinner, console=console, transient=True):
                 if not self.verbose:
-                    with quiet_logger(['REGISTRY', 'CONFIG']):
+                    with quiet_logger(["REGISTRY", "CONFIG"]):
                         initialize_registry()
                 else:
                     initialize_registry()
@@ -116,7 +119,7 @@ class HealthChecker:
                 "error",
                 "config.yml not found in current directory",
                 f"Looking in: {self.cwd}\n"
-                "Please run this command from a project directory containing config.yml"
+                "Please run this command from a project directory containing config.yml",
             )
             console.print(f"  {Messages.error('❌ config.yml not found')}")
             return
@@ -127,6 +130,7 @@ class HealthChecker:
         # Try to load and parse YAML
         try:
             import yaml
+
             with open(config_path) as f:
                 config = yaml.safe_load(f)
 
@@ -164,8 +168,14 @@ class HealthChecker:
 
         # Check required framework models (8 total)
         required_models = [
-            "orchestrator", "response", "classifier", "approval",
-            "task_extraction", "memory", "python_code_generator", "time_parsing"
+            "orchestrator",
+            "response",
+            "classifier",
+            "approval",
+            "task_extraction",
+            "memory",
+            "python_code_generator",
+            "time_parsing",
         ]
 
         models = config.get("models", {})
@@ -176,13 +186,17 @@ class HealthChecker:
                 "required_models",
                 "error",
                 f"Missing required models: {', '.join(missing_models)}",
-                "Framework requires 8 models: " + ", ".join(required_models)
+                "Framework requires 8 models: " + ", ".join(required_models),
             )
-            missing_str = ', '.join(missing_models)
+            missing_str = ", ".join(missing_models)
             console.print(f"  {Messages.error(f'Missing required models: {missing_str}')}")
         else:
-            self.add_result("required_models", "ok", f"All {len(required_models)} required models defined")
-            console.print(f"  {Messages.success(f'All {len(required_models)} required models defined')}")
+            self.add_result(
+                "required_models", "ok", f"All {len(required_models)} required models defined"
+            )
+            console.print(
+                f"  {Messages.success(f'All {len(required_models)} required models defined')}"
+            )
 
         # Check model configurations
         invalid_models = []
@@ -199,9 +213,9 @@ class HealthChecker:
             self.add_result(
                 "model_configs_valid",
                 "warning",
-                f"Invalid model configurations: {', '.join(invalid_models)}"
+                f"Invalid model configurations: {', '.join(invalid_models)}",
             )
-            invalid_str = ', '.join(invalid_models)
+            invalid_str = ", ".join(invalid_models)
             console.print(f"  {Messages.warning(f'Invalid model configs: {invalid_str}')}")
         else:
             self.add_result("model_configs_valid", "ok", "All model configurations valid")
@@ -210,17 +224,13 @@ class HealthChecker:
         # Check deployed_services
         deployed_services = config.get("deployed_services", [])
         if not deployed_services:
-            self.add_result(
-                "deployed_services",
-                "warning",
-                "No deployed services configured"
-            )
+            self.add_result("deployed_services", "warning", "No deployed services configured")
             console.print(f"  {Messages.warning('No deployed services configured')}")
         else:
             self.add_result(
                 "deployed_services",
                 "ok",
-                f"{len(deployed_services)} services configured: {', '.join(deployed_services)}"
+                f"{len(deployed_services)} services configured: {', '.join(deployed_services)}",
             )
             console.print(f"  {Messages.success(f'{len(deployed_services)} services configured')}")
 
@@ -231,9 +241,9 @@ class HealthChecker:
             self.add_result(
                 "service_definitions",
                 "error",
-                f"Services not defined: {', '.join(undefined_services)}"
+                f"Services not defined: {', '.join(undefined_services)}",
             )
-            undefined_str = ', '.join(undefined_services)
+            undefined_str = ", ".join(undefined_services)
             console.print(f"  {Messages.error(f'Undefined services: {undefined_str}')}")
         else:
             self.add_result("service_definitions", "ok", "All deployed services defined")
@@ -243,17 +253,13 @@ class HealthChecker:
         # Check API providers
         api_providers = config.get("api", {}).get("providers", {})
         if not api_providers:
-            self.add_result(
-                "api_providers",
-                "warning",
-                "No API providers configured"
-            )
+            self.add_result("api_providers", "warning", "No API providers configured")
             console.print(f"  {Messages.warning(' No API providers configured')}")
         else:
             self.add_result(
                 "api_providers",
                 "ok",
-                f"{len(api_providers)} providers configured: {', '.join(api_providers.keys())}"
+                f"{len(api_providers)} providers configured: {', '.join(api_providers.keys())}",
             )
             console.print(f"  {Messages.success(f'{len(api_providers)} API providers configured')}")
 
@@ -263,7 +269,7 @@ class HealthChecker:
 
         # Find all ${VAR_NAME} patterns in config
         config_str = str(config)
-        env_vars = re.findall(r'\$\{([A-Za-z_][A-Za-z0-9_]*)\}', config_str)
+        env_vars = re.findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", config_str)
         env_vars = list(set(env_vars))  # Remove duplicates
 
         missing_vars = [var for var in env_vars if var not in os.environ]
@@ -273,25 +279,25 @@ class HealthChecker:
                 "environment_variables",
                 "warning",
                 f"Missing environment variables: {', '.join(missing_vars)}",
-                "These variables are referenced in config.yml but not set in environment"
+                "These variables are referenced in config.yml but not set in environment",
             )
-            missing_vars_str = ', '.join(missing_vars)
+            missing_vars_str = ", ".join(missing_vars)
             console.print(f"  {Messages.warning(f' Missing env vars: {missing_vars_str}')}")
         else:
             if env_vars:
                 self.add_result(
-                    "environment_variables",
-                    "ok",
-                    f"All {len(env_vars)} environment variables set"
+                    "environment_variables", "ok", f"All {len(env_vars)} environment variables set"
                 )
-                console.print(f"  {Messages.success(f'All {len(env_vars)} environment variables set')}")
+                console.print(
+                    f"  {Messages.success(f'All {len(env_vars)} environment variables set')}"
+                )
 
     def _check_project_paths(self):
         """Check if project_root and agent data directory paths are valid and accessible."""
 
         try:
             # Get project_root from config (could be hardcoded or env var)
-            project_root = self.config.get('project_root')
+            project_root = self.config.get("project_root")
             if not project_root:
                 self.add_result("project_paths", "warning", "No project_root configured")
                 console.print(f"  {Messages.warning(' No project_root configured')}")
@@ -303,34 +309,56 @@ class HealthChecker:
 
             # Check if project_root exists
             if project_root_path.exists():
-                self.add_result("project_root_path", "ok", f"Project root exists: {project_root_path}")
+                self.add_result(
+                    "project_root_path", "ok", f"Project root exists: {project_root_path}"
+                )
                 console.print(f"  {Messages.success(f'Project root exists: {project_root_path}')}")
             else:
-                self.add_result("project_root_path", "warning", f"Project root does not exist: {project_root_path}")
-                console.print(f"  {Messages.warning(f' Project root does not exist: {project_root_path}')}")
+                self.add_result(
+                    "project_root_path",
+                    "warning",
+                    f"Project root does not exist: {project_root_path}",
+                )
+                console.print(
+                    f"  {Messages.warning(f' Project root does not exist: {project_root_path}')}"
+                )
                 # Don't return - we can still check if it could be created
 
             # Check agent data directory
-            file_paths = self.config.get('file_paths', {})
-            agent_data_dir = file_paths.get('agent_data_dir', '_agent_data')
+            file_paths = self.config.get("file_paths", {})
+            agent_data_dir = file_paths.get("agent_data_dir", "_agent_data")
             agent_data_path = project_root_path / agent_data_dir
 
             if agent_data_path.exists():
                 # Check if it's writable
                 if os.access(agent_data_path, os.W_OK):
-                    self.add_result("agent_data_dir", "ok", f"Agent data directory writable: {agent_data_path}")
+                    self.add_result(
+                        "agent_data_dir", "ok", f"Agent data directory writable: {agent_data_path}"
+                    )
                     console.print(f"  {Messages.success('Agent data directory writable')}")
                 else:
-                    self.add_result("agent_data_dir", "warning", f"Agent data directory not writable: {agent_data_path}")
+                    self.add_result(
+                        "agent_data_dir",
+                        "warning",
+                        f"Agent data directory not writable: {agent_data_path}",
+                    )
                     console.print(f"  {Messages.warning(' Agent data directory not writable')}")
             else:
                 # Check if parent directory exists and is writable (can we create it?)
                 parent_dir = agent_data_path.parent
                 if parent_dir.exists() and os.access(parent_dir, os.W_OK):
-                    self.add_result("agent_data_dir", "ok", f"Agent data directory can be created: {agent_data_path}")
+                    self.add_result(
+                        "agent_data_dir",
+                        "ok",
+                        f"Agent data directory can be created: {agent_data_path}",
+                    )
                     console.print(f"  {Messages.success('Agent data directory can be created')}")
                 else:
-                    self.add_result("agent_data_dir", "warning", f"Cannot create agent data directory: {agent_data_path}")
+                    self.add_result(
+                        "agent_data_dir",
+                        "warning",
+                        f"Cannot create agent data directory: {agent_data_path}",
+                    )
                     console.print(f"  {Messages.warning(' Cannot create agent data directory')}")
 
         except Exception as e:
@@ -358,6 +386,7 @@ class HealthChecker:
             config_path = self.cwd / "config.yml"
             if config_path.exists():
                 import yaml
+
                 with open(config_path) as f:
                     config = yaml.safe_load(f)
 
@@ -368,15 +397,17 @@ class HealthChecker:
                     registry_path = self.cwd / registry_path_str
 
                     if registry_path.exists():
-                        self.add_result("registry_file", "ok", f"Registry file found: {registry_path}")
+                        self.add_result(
+                            "registry_file", "ok", f"Registry file found: {registry_path}"
+                        )
                         console.print(f"  {Messages.success('Registry file found')}")
                     else:
                         self.add_result(
-                            "registry_file",
-                            "error",
-                            f"Registry file not found: {registry_path}"
+                            "registry_file", "error", f"Registry file not found: {registry_path}"
                         )
-                        console.print(f"  {Messages.error(f'Registry file not found: {registry_path}')}")
+                        console.print(
+                            f"  {Messages.error(f'Registry file not found: {registry_path}')}"
+                        )
         except Exception:
             # Don't fail if we can't check registry
             pass
@@ -405,9 +436,7 @@ class HealthChecker:
 
         if version.major < 3 or (version.major == 3 and version.minor < 11):
             self.add_result(
-                "python_version",
-                "warning",
-                f"Python {version_str} (recommended: 3.11+)"
+                "python_version", "warning", f"Python {version_str} (recommended: 3.11+)"
             )
             console.print(f"  {Messages.warning(f' Python {version_str} (recommended: 3.11+)')}")
         else:
@@ -415,25 +444,26 @@ class HealthChecker:
             console.print(f"  {Messages.success(f'Python {version_str}')}")
 
         # Check if we're in a virtual environment
-        in_venv = hasattr(sys, 'real_prefix') or (
-            hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix
+        in_venv = hasattr(sys, "real_prefix") or (
+            hasattr(sys, "base_prefix") and sys.base_prefix != sys.prefix
         )
 
         if in_venv:
             self.add_result("virtual_environment", "ok", "Virtual environment active")
             console.print(f"  {Messages.success('Virtual environment active')}")
         else:
-            self.add_result(
-                "virtual_environment",
-                "warning",
-                "Not in a virtual environment"
-            )
+            self.add_result("virtual_environment", "warning", "Not in a virtual environment")
             console.print(f"  {Messages.warning(' Not in a virtual environment')}")
 
         # Check core dependencies
         core_deps = [
-            "click", "rich", "yaml", "jinja2",
-            "pydantic_ai", "langgraph", "langchain_core"
+            "click",
+            "rich",
+            "yaml",
+            "jinja2",
+            "pydantic_ai",
+            "langgraph",
+            "langchain_core",
         ]
 
         missing_deps = []
@@ -454,15 +484,17 @@ class HealthChecker:
 
         if missing_deps:
             self.add_result(
-                "core_dependencies",
-                "error",
-                f"Missing dependencies: {', '.join(missing_deps)}"
+                "core_dependencies", "error", f"Missing dependencies: {', '.join(missing_deps)}"
             )
-            missing_deps_str = ', '.join(missing_deps)
+            missing_deps_str = ", ".join(missing_deps)
             console.print(f"  {Messages.error(f'Missing dependencies: {missing_deps_str}')}")
         else:
-            self.add_result("core_dependencies", "ok", f"All {len(core_deps)} core dependencies installed")
-            console.print(f"  {Messages.success(f'Core dependencies installed ({len(core_deps)}/{len(core_deps)})')}")
+            self.add_result(
+                "core_dependencies", "ok", f"All {len(core_deps)} core dependencies installed"
+            )
+            console.print(
+                f"  {Messages.success(f'Core dependencies installed ({len(core_deps)}/{len(core_deps)})')}"
+            )
 
     def check_containers(self):
         """Check container runtime and deployed services."""
@@ -474,10 +506,7 @@ class HealthChecker:
             runtime = runtime_cmd[0]  # 'docker' or 'podman'
 
             result = subprocess.run(
-                [runtime, "--version"],
-                capture_output=True,
-                text=True,
-                timeout=5
+                [runtime, "--version"], capture_output=True, text=True, timeout=5
             )
 
             if result.returncode == 0:
@@ -488,17 +517,27 @@ class HealthChecker:
                 # Check container status
                 self._check_container_status()
             else:
-                self.add_result(f"{runtime}_available", "error", f"{runtime.capitalize()} command failed")
-                console.print(f"  {Messages.error(f'❌ {runtime.capitalize()} not working properly')}")
+                self.add_result(
+                    f"{runtime}_available", "error", f"{runtime.capitalize()} command failed"
+                )
+                console.print(
+                    f"  {Messages.error(f'❌ {runtime.capitalize()} not working properly')}"
+                )
         except RuntimeError as e:
             # No runtime found
             self.add_result("container_runtime", "warning", str(e))
-            console.print(f"  {Messages.warning(' No container runtime found (Docker or Podman required)')}")
+            console.print(
+                f"  {Messages.warning(' No container runtime found (Docker or Podman required)')}"
+            )
         except FileNotFoundError:
             self.add_result("container_runtime", "warning", "Container runtime not found in PATH")
-            console.print(f"  {Messages.warning(' Container runtime not installed or not in PATH')}")
+            console.print(
+                f"  {Messages.warning(' Container runtime not installed or not in PATH')}"
+            )
         except Exception as e:
-            self.add_result("container_runtime", "warning", f"Could not check container runtime: {e}")
+            self.add_result(
+                "container_runtime", "warning", f"Could not check container runtime: {e}"
+            )
             console.print(f"  {Messages.warning(f' Could not check container runtime: {e}')}")
 
     def _check_container_status(self):
@@ -510,6 +549,7 @@ class HealthChecker:
                 return
 
             import yaml
+
             with open(config_path) as f:
                 config = yaml.safe_load(f)
 
@@ -522,7 +562,7 @@ class HealthChecker:
                 get_ps_command(config, all_containers=True),
                 capture_output=True,
                 text=True,
-                timeout=10
+                timeout=10,
             )
 
             if result.returncode != 0:
@@ -533,7 +573,7 @@ class HealthChecker:
             # Check each expected service
             for service in deployed_services:
                 # Extract service short name (handle dotted paths like "osprey.jupyter")
-                service_short = str(service).split('.')[-1].lower()
+                service_short = str(service).split(".")[-1].lower()
 
                 # Look for containers matching the service name
                 # Use smart matching to handle underscore/hyphen variations
@@ -546,9 +586,11 @@ class HealthChecker:
                         names_str = str(names).lower()
 
                     # Check for match (handles both underscore and hyphen)
-                    if (service_short in names_str or
-                        service_short.replace('_', '-') in names_str or
-                        service_short.replace('-', '_') in names_str):
+                    if (
+                        service_short in names_str
+                        or service_short.replace("_", "-") in names_str
+                        or service_short.replace("-", "_") in names_str
+                    ):
                         matching.append(c)
 
                 if matching:
@@ -556,25 +598,13 @@ class HealthChecker:
                     state = container.get("State", "unknown")
 
                     if state == "running":
-                        self.add_result(
-                            f"container_{service}",
-                            "ok",
-                            f"{service}: running"
-                        )
+                        self.add_result(f"container_{service}", "ok", f"{service}: running")
                         console.print(f"  {Messages.success(f'{service}: running')}")
                     else:
-                        self.add_result(
-                            f"container_{service}",
-                            "warning",
-                            f"{service}: {state}"
-                        )
+                        self.add_result(f"container_{service}", "warning", f"{service}: {state}")
                         console.print(f"  {Messages.warning(f' {service}: {state}')}")
                 else:
-                    self.add_result(
-                        f"container_{service}",
-                        "warning",
-                        f"{service}: not found"
-                    )
+                    self.add_result(f"container_{service}", "warning", f"{service}: not found")
                     console.print(f"  {Messages.warning(f' {service}: not deployed')}")
 
         except Exception as e:
@@ -592,6 +622,7 @@ class HealthChecker:
                 return
 
             import yaml
+
             with open(config_path) as f:
                 config = yaml.safe_load(f)
 
@@ -611,7 +642,7 @@ class HealthChecker:
         try:
             # Suppress REGISTRY and CONFIG loggers unless in verbose mode
             if not self.verbose:
-                with quiet_logger(['REGISTRY', 'CONFIG']):
+                with quiet_logger(["REGISTRY", "CONFIG"]):
                     registry = get_registry()
                     provider_class = registry.get_provider(provider_name)
             else:
@@ -626,7 +657,7 @@ class HealthChecker:
             self.add_result(
                 f"provider_{provider_name}",
                 "warning",
-                f"{provider_name}: Unknown provider (not in registry)"
+                f"{provider_name}: Unknown provider (not in registry)",
             )
             console.print(f"  {Messages.warning(f' {provider_name}: Unknown provider')}")
             return
@@ -645,18 +676,10 @@ class HealthChecker:
         success, message = provider.check_health(api_key, base_url, timeout=5.0)
 
         if success:
-            self.add_result(
-                f"provider_{provider_name}",
-                "ok",
-                f"{provider_name}: {message}"
-            )
+            self.add_result(f"provider_{provider_name}", "ok", f"{provider_name}: {message}")
             console.print(f"  {Messages.success(f'{provider_name}: {message}')}")
         else:
-            self.add_result(
-                f"provider_{provider_name}",
-                "warning",
-                f"{provider_name}: {message}"
-            )
+            self.add_result(f"provider_{provider_name}", "warning", f"{provider_name}: {message}")
             console.print(f"  {Messages.warning(f' {provider_name}: {message}')}")
 
     def _resolve_api_key(self, api_key: str) -> str:
@@ -678,6 +701,7 @@ class HealthChecker:
                 return
 
             import yaml
+
             with open(config_path) as f:
                 config = yaml.safe_load(f)
 
@@ -730,19 +754,19 @@ class HealthChecker:
             # Suppress REGISTRY and CONFIG loggers unless in verbose mode
             try:
                 if not self.verbose:
-                    with quiet_logger(['REGISTRY', 'CONFIG']):
+                    with quiet_logger(["REGISTRY", "CONFIG"]):
                         response = get_chat_completion(
                             message=test_message,
                             provider=provider,
                             model_id=model_id,
-                            max_tokens=50  # Keep it minimal
+                            max_tokens=50,  # Keep it minimal
                         )
                 else:
                     response = get_chat_completion(
                         message=test_message,
                         provider=provider,
                         model_id=model_id,
-                        max_tokens=50  # Keep it minimal
+                        max_tokens=50,  # Keep it minimal
                     )
 
                 # If we got here without exception and have a response, the model works
@@ -750,36 +774,32 @@ class HealthChecker:
                     self.add_result(
                         f"model_chat_{provider}_{model_id}",
                         "ok",
-                        f"{model_label}: Chat completion successful"
+                        f"{model_label}: Chat completion successful",
                     )
-                    console.print(Messages.success('Working'))
+                    console.print(Messages.success("Working"))
                 else:
                     self.add_result(
                         f"model_chat_{provider}_{model_id}",
                         "warning",
-                        f"{model_label}: Empty response"
+                        f"{model_label}: Empty response",
                     )
-                    console.print(Messages.warning(' Empty response'))
+                    console.print(Messages.warning(" Empty response"))
 
             except Exception as e:
                 # Check if it's a timeout-like error
                 error_msg = str(e)
                 if "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
                     self.add_result(
-                        f"model_chat_{provider}_{model_id}",
-                        "warning",
-                        f"{model_label}: Timeout"
+                        f"model_chat_{provider}_{model_id}", "warning", f"{model_label}: Timeout"
                     )
-                    console.print(Messages.warning(' Timeout'))
+                    console.print(Messages.warning(" Timeout"))
                 else:
                     # Some other error
                     display_msg = error_msg[:80] + "..." if len(error_msg) > 80 else error_msg
                     self.add_result(
-                        f"model_chat_{provider}_{model_id}",
-                        "error",
-                        f"{model_label}: {error_msg}"
+                        f"model_chat_{provider}_{model_id}", "error", f"{model_label}: {error_msg}"
                     )
-                    console.print(Messages.error('❌ Failed'))
+                    console.print(Messages.error("❌ Failed"))
                     console.print(f"     [dim]{display_msg}[/dim]")
                 return
 
@@ -793,11 +813,9 @@ class HealthChecker:
             display_msg = error_msg[:80] + "..." if len(error_msg) > 80 else error_msg
 
             self.add_result(
-                f"model_chat_{provider}_{model_id}",
-                "error",
-                f"{model_label}: {error_msg}"
+                f"model_chat_{provider}_{model_id}", "error", f"{model_label}: {error_msg}"
             )
-            console.print(Messages.error('❌ Failed'))
+            console.print(Messages.error("❌ Failed"))
 
             # Always show error details in full mode (not just verbose)
             console.print(f"     [dim]{display_msg}[/dim]")
@@ -841,26 +859,26 @@ class HealthChecker:
             title="🏥 Osprey Health Check Results",
             border_style=Styles.BORDER_DIM,
             expand=False,
-            padding=(1, 2)
+            padding=(1, 2),
         )
         console.print(panel)
 
 
 @click.command()
 @click.option(
-    "--project", "-p",
+    "--project",
+    "-p",
     type=click.Path(exists=True, file_okay=False, dir_okay=True),
-    help="Project directory (default: current directory or OSPREY_PROJECT env var)"
+    help="Project directory (default: current directory or OSPREY_PROJECT env var)",
 )
 @click.option(
-    "--verbose", "-v",
-    is_flag=True,
-    help="Show detailed information about warnings and errors"
+    "--verbose", "-v", is_flag=True, help="Show detailed information about warnings and errors"
 )
 @click.option(
-    "--basic", "-b",
+    "--basic",
+    "-b",
     is_flag=True,
-    help="Skip model completion tests (only check configuration and connectivity)"
+    help="Skip model completion tests (only check configuration and connectivity)",
 )
 def health(project: str, verbose: bool, basic: bool):
     """Check the health of your Osprey installation and configuration.
@@ -956,4 +974,3 @@ def health(project: str, verbose: bool, basic: bool):
         if verbose:
             console.print_exception()
         sys.exit(3)
-

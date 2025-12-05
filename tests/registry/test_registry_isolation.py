@@ -138,11 +138,11 @@ class TestRegistryIsolation:
     def test_approval_manager_reset(self, temp_config):
         """Verify approval manager singleton is properly reset."""
         try:
-            from osprey.approval.approval_manager import (
-                get_approval_manager,
-                _approval_manager,
-            )
             import osprey.approval.approval_manager as approval_module
+            from osprey.approval.approval_manager import (
+                _approval_manager,
+                get_approval_manager,
+            )
 
             # Initialize registry (which initializes approval manager)
             reset_registry()
@@ -167,7 +167,7 @@ class TestRegistryIsolation:
     def test_env_var_isolation(self, temp_config):
         """Verify CONFIG_FILE env var doesn't pollute between tests."""
         # Set CONFIG_FILE
-        os.environ['CONFIG_FILE'] = temp_config
+        os.environ["CONFIG_FILE"] = temp_config
 
         reset_registry()
         initialize_registry()
@@ -175,7 +175,7 @@ class TestRegistryIsolation:
         assert registry1._initialized
 
         # Clear env var (simulating test cleanup)
-        del os.environ['CONFIG_FILE']
+        del os.environ["CONFIG_FILE"]
 
         # Reset and reinitialize with explicit path
         reset_registry()
@@ -190,6 +190,7 @@ class TestRegistryIsolation:
 
         # Create a fake module
         import types
+
         fake_module = types.ModuleType(test_module_name)
         sys.modules[test_module_name] = fake_module
 
@@ -210,11 +211,11 @@ class TestRegistryStateAfterBenchmark:
         """Simulate benchmark test pattern and verify proper cleanup."""
         # Simulate what benchmark test does
         original_cwd = os.getcwd()
-        original_config = os.environ.get('CONFIG_FILE')
+        original_config = os.environ.get("CONFIG_FILE")
 
         try:
             # Set CONFIG_FILE like benchmark does
-            os.environ['CONFIG_FILE'] = temp_config
+            os.environ["CONFIG_FILE"] = temp_config
 
             # Initialize registry (benchmark runner might do this internally)
             reset_registry()
@@ -226,9 +227,9 @@ class TestRegistryStateAfterBenchmark:
             # Cleanup like benchmark test finally block
             os.chdir(original_cwd)
             if original_config is not None:
-                os.environ['CONFIG_FILE'] = original_config
-            elif 'CONFIG_FILE' in os.environ:
-                del os.environ['CONFIG_FILE']
+                os.environ["CONFIG_FILE"] = original_config
+            elif "CONFIG_FILE" in os.environ:
+                del os.environ["CONFIG_FILE"]
 
         # Now simulate the next test (like the failing e2e tests)
         # This should work with proper cleanup
@@ -236,6 +237,7 @@ class TestRegistryStateAfterBenchmark:
 
         # Clear config cache like test fixture should
         from osprey.utils import config as config_module
+
         config_module._default_config = None
         config_module._default_configurable = None
         config_module._config_cache.clear()
@@ -250,4 +252,3 @@ class TestRegistryStateAfterBenchmark:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-

@@ -42,7 +42,9 @@ class Action:
             # Look through messages in reverse order (most recent first)
             for i, message in enumerate(reversed(messages)):
                 try:
-                    logger.debug(f"Checking message {i}: role={message.get('role')}, has_info={message.get('info') is not None}")
+                    logger.debug(
+                        f"Checking message {i}: role={message.get('role')}, has_info={message.get('info') is not None}"
+                    )
 
                     if message.get("role") == "assistant" and message.get("info"):
                         info_keys = list(message["info"].keys())
@@ -51,11 +53,15 @@ class Action:
                         # Check for context summary (check both old and new key names for compatibility)
                         if "als_assistant_agent_context" in message["info"]:
                             context_data = message["info"]["als_assistant_agent_context"]
-                            logger.info(f"Found agent context with {context_data.get('total_context_items', 0)} items")
+                            logger.info(
+                                f"Found agent context with {context_data.get('total_context_items', 0)} items"
+                            )
                             return context_data
                         elif "als_assistant_context_summary" in message["info"]:
                             context_data = message["info"]["als_assistant_context_summary"]
-                            logger.info(f"Found agent context with {len(context_data.get('context_details', {}))} categories")
+                            logger.info(
+                                f"Found agent context with {len(context_data.get('context_details', {}))} categories"
+                            )
                             return context_data
 
                 except Exception as e:
@@ -68,13 +74,16 @@ class Action:
         except Exception as e:
             logger.error(f"Error extracting context from messages: {e}")
             import traceback
+
             logger.error(f"Full traceback: {traceback.format_exc()}")
             return None
 
     def format_context_summary_markdown(self, context_summary: dict[str, Any], user_valves) -> str:
         """Format the agent context summary as a well-structured markdown string."""
         # Handle both new and old data formats
-        context_data = context_summary.get("context_data") or context_summary.get("context_details", {})
+        context_data = context_summary.get("context_data") or context_summary.get(
+            "context_details", {}
+        )
 
         if not context_summary or not context_data:
             return "# 🧠 ALS Assistant Agent Context\n\n> No context data available. The agent has not yet collected or processed any data."
@@ -130,11 +139,13 @@ class Action:
             "VISUALIZATION_RESULTS": "📊",
             "OPERATION_RESULTS": "⚙️",
             "MEMORY_CONTEXT": "🧠",
-            "CONVERSATION_RESULTS": "💬"
+            "CONVERSATION_RESULTS": "💬",
         }
         return emoji_map.get(context_type, "📁")
 
-    def _add_context_summary_table(self, markdown: str, context_info: dict[str, Any], user_valves) -> str:
+    def _add_context_summary_table(
+        self, markdown: str, context_info: dict[str, Any], user_valves
+    ) -> str:
         """Add a summary table for the context item."""
         # Common fields
         summary_table = "| Field | Value |\n|-------|-------|\n"
@@ -200,7 +211,7 @@ class Action:
             pv_list = context_info.get("pv_list", [])
             if pv_list:
                 markdown += "**PV Addresses:**\n"
-                for i, pv in enumerate(pv_list[:user_valves.max_sample_items]):
+                for i, pv in enumerate(pv_list[: user_valves.max_sample_items]):
                     markdown += f"- `{pv}`\n"
                 if len(pv_list) > user_valves.max_sample_items:
                     markdown += f"- *(and {len(pv_list) - user_valves.max_sample_items} more)*\n"
@@ -229,11 +240,13 @@ class Action:
 
             if pv_names:
                 markdown += "**Available PVs:**\n"
-                for pv in pv_names[:user_valves.max_sample_items]:
+                for pv in pv_names[: user_valves.max_sample_items]:
                     markdown += f"- `{pv}`"
                     if pv in sample_values:
                         values = sample_values[pv][:3]  # Show first 3 sample values
-                        values_str = ", ".join([f"{v:.3f}" if isinstance(v, (int, float)) else str(v) for v in values])
+                        values_str = ", ".join(
+                            [f"{v:.3f}" if isinstance(v, (int, float)) else str(v) for v in values]
+                        )
                         markdown += f" (sample: {values_str}...)"
                     markdown += "\n"
                 if len(pv_names) > user_valves.max_sample_items:
@@ -249,7 +262,9 @@ class Action:
                     if count >= user_valves.max_sample_items:
                         break
                     if isinstance(value, (list, dict)) and len(str(value)) > 100:
-                        markdown += f"- **{key.replace('_', ' ').title()}**: *(large data structure)*\n"
+                        markdown += (
+                            f"- **{key.replace('_', ' ').title()}**: *(large data structure)*\n"
+                        )
                     else:
                         markdown += f"- **{key.replace('_', ' ').title()}**: {value}\n"
                     count += 1
@@ -261,7 +276,7 @@ class Action:
             memories = context_info.get("memories", [])
             if memories:
                 markdown += "**Memory Entries:**\n"
-                for i, memory in enumerate(memories[:user_valves.max_sample_items]):
+                for i, memory in enumerate(memories[: user_valves.max_sample_items]):
                     content = memory.get("content", "N/A")
                     timestamp = memory.get("timestamp", "N/A")
                     markdown += f"- {content} *(@ {timestamp})*\n"
@@ -286,7 +301,9 @@ class Action:
         __event_call__=None,
     ) -> dict | None:
         """Display formatted agent context using a popup modal."""
-        logger.info(f"User - Name: {__user__['name']}, ID: {__user__['id']} - Requesting ALS Assistant agent context")
+        logger.info(
+            f"User - Name: {__user__['name']}, ID: {__user__['id']} - Requesting ALS Assistant agent context"
+        )
 
         user_valves = __user__.get("valves")
         if not user_valves:
@@ -301,7 +318,9 @@ class Action:
 
         try:
             # Log debug information about the request
-            logger.info(f"Processing agent context request for user {__user__.get('name', 'unknown')}")
+            logger.info(
+                f"Processing agent context request for user {__user__.get('name', 'unknown')}"
+            )
             logger.info(f"Message count: {len(body.get('messages', []))}")
 
             # Extract context summary from the last assistant message
@@ -507,7 +526,9 @@ class Action:
             )
 
             context_categories = len(context_summary.get("context_details", {}))
-            logger.info(f"User - Name: {__user__['name']}, ID: {__user__['id']} - Agent context popup displayed successfully ({context_categories} categories)")
+            logger.info(
+                f"User - Name: {__user__['name']}, ID: {__user__['id']} - Agent context popup displayed successfully ({context_categories} categories)"
+            )
 
         except Exception as e:
             logger.error(f"Error processing agent context: {e}")
@@ -603,7 +624,9 @@ class Action:
     def format_context_summary_html(self, context_summary: dict[str, Any], user_valves) -> str:
         """Format the agent context summary as HTML for the popup display."""
         # Handle both new and old data formats
-        context_data = context_summary.get("context_data") or context_summary.get("context_details", {})
+        context_data = context_summary.get("context_data") or context_summary.get(
+            "context_details", {}
+        )
 
         if not context_summary or not context_data:
             return '<div style="text-align: center; padding: 40px; color: #6b7280; font-style: italic;">No context data available.</div>'
@@ -634,7 +657,7 @@ class Action:
         if categories:
             html += f'<div style="font-size: 14px; color: #4b5563;"><strong>Categories:</strong> {", ".join(categories)}</div>'
 
-        html += '</div>'
+        html += "</div>"
 
         # Process each context category
         for context_type, contexts_dict in context_data.items():
@@ -670,9 +693,9 @@ class Action:
                 if user_valves.show_detailed_values:
                     html += self._add_detailed_values_html(context_info, user_valves)
 
-                html += '</div>'
+                html += "</div>"
 
-            html += '</div></div>'
+            html += "</div></div>"
 
         return html
 
@@ -803,7 +826,7 @@ class Action:
                 </tr>
             """
 
-        summary_html += '</tbody></table></div>'
+        summary_html += "</tbody></table></div>"
         return summary_html
 
     def _add_detailed_values_html(self, context_info: dict[str, Any], user_valves) -> str:
@@ -819,11 +842,11 @@ class Action:
                     <h5 style="margin: 0 0 8px 0; font-size: 14px; font-weight: 600; color: #374151;">PV Addresses:</h5>
                     <div style="background: #f8fafc; padding: 12px; border-radius: 4px; border: 1px solid #e2e8f0; font-family: monospace; font-size: 12px; max-height: 200px; overflow-y: auto;">
                 """
-                for i, pv in enumerate(pv_list[:user_valves.max_sample_items]):
+                for i, pv in enumerate(pv_list[: user_valves.max_sample_items]):
                     html += f'<div style="margin-bottom: 4px; color: #1f2937;">• {pv}</div>'
                 if len(pv_list) > user_valves.max_sample_items:
                     html += f'<div style="color: #6b7280; font-style: italic;">• (and {len(pv_list) - user_valves.max_sample_items} more)</div>'
-                html += '</div></div>'
+                html += "</div></div>"
 
         elif context_type == "PV Values":
             pv_data = context_info.get("pv_data", {})
@@ -844,7 +867,7 @@ class Action:
                     count += 1
                 if len(pv_data) > user_valves.max_sample_items:
                     html += f'<div style="color: #6b7280; font-style: italic; text-align: center; margin-top: 8px;">• (and {len(pv_data) - user_valves.max_sample_items} more)</div>'
-                html += '</div></div>'
+                html += "</div></div>"
 
         elif context_type == "Archiver Data":
             pv_names = context_info.get("pv_names", [])
@@ -856,16 +879,18 @@ class Action:
                     <h5 style="margin: 0 0 8px 0; font-size: 14px; font-weight: 600; color: #374151;">Available PVs:</h5>
                     <div style="background: #f8fafc; padding: 12px; border-radius: 4px; border: 1px solid #e2e8f0; font-size: 12px; max-height: 200px; overflow-y: auto;">
                 """
-                for pv in pv_names[:user_valves.max_sample_items]:
+                for pv in pv_names[: user_valves.max_sample_items]:
                     html += f'<div style="margin-bottom: 4px; color: #1f2937; font-family: monospace;">• {pv}'
                     if pv in sample_values:
                         values = sample_values[pv][:3]  # Show first 3 sample values
-                        values_str = ", ".join([f"{v:.3f}" if isinstance(v, (int, float)) else str(v) for v in values])
+                        values_str = ", ".join(
+                            [f"{v:.3f}" if isinstance(v, (int, float)) else str(v) for v in values]
+                        )
                         html += f' <span style="color: #6b7280; font-size: 11px;">(sample: {values_str}...)</span>'
-                    html += '</div>'
+                    html += "</div>"
                 if len(pv_names) > user_valves.max_sample_items:
                     html += f'<div style="color: #6b7280; font-style: italic; text-align: center; margin-top: 8px;">• (and {len(pv_names) - user_valves.max_sample_items} more)</div>'
-                html += '</div></div>'
+                html += "</div></div>"
 
         elif context_type in ["Analysis Results", "Visualization Results", "Operation Results"]:
             results = context_info.get("results", {})
@@ -879,7 +904,7 @@ class Action:
                 for key, value in results.items():
                     if count >= user_valves.max_sample_items:
                         break
-                    display_key = key.replace('_', ' ').title()
+                    display_key = key.replace("_", " ").title()
                     if isinstance(value, (list, dict)) and len(str(value)) > 100:
                         html += f'<div style="margin-bottom: 8px; padding: 8px; background: white; border-radius: 3px; border: 1px solid #e2e8f0;"><strong style="color: #1f2937;">{display_key}:</strong> <span style="color: #6b7280; font-style: italic;">(large data structure)</span></div>'
                     else:
@@ -887,7 +912,7 @@ class Action:
                     count += 1
                 if len(results) > user_valves.max_sample_items:
                     html += f'<div style="color: #6b7280; font-style: italic; text-align: center; margin-top: 8px;">• (and {len(results) - user_valves.max_sample_items} more)</div>'
-                html += '</div></div>'
+                html += "</div></div>"
 
         elif context_type == "Memory Context":
             memories = context_info.get("memories", [])
@@ -897,13 +922,13 @@ class Action:
                     <h5 style="margin: 0 0 8px 0; font-size: 14px; font-weight: 600; color: #374151;">Memory Entries:</h5>
                     <div style="background: #f8fafc; padding: 12px; border-radius: 4px; border: 1px solid #e2e8f0; font-size: 12px; max-height: 200px; overflow-y: auto;">
                 """
-                for i, memory in enumerate(memories[:user_valves.max_sample_items]):
+                for i, memory in enumerate(memories[: user_valves.max_sample_items]):
                     content = memory.get("content", "N/A")
                     timestamp = memory.get("timestamp", "N/A")
                     html += f'<div style="margin-bottom: 8px; padding: 8px; background: white; border-radius: 3px; border: 1px solid #e2e8f0;"><div style="color: #1f2937; margin-bottom: 4px;">{content}</div><div style="color: #6b7280; font-size: 11px;">@ {timestamp}</div></div>'
                 if len(memories) > user_valves.max_sample_items:
                     html += f'<div style="color: #6b7280; font-style: italic; text-align: center; margin-top: 8px;">• (and {len(memories) - user_valves.max_sample_items} more)</div>'
-                html += '</div></div>'
+                html += "</div></div>"
 
         elif context_type == "Conversation Results":
             full_response = context_info.get("full_response", "N/A")
@@ -917,7 +942,7 @@ class Action:
                     html += f'<div style="color: #1f2937; line-height: 1.4;"><strong>Preview:</strong> {full_response[:200]}...</div>'
                 else:
                     html += f'<div style="color: #1f2937; line-height: 1.4;"><strong>Full Response:</strong> {full_response}</div>'
-                html += '</div></div>'
+                html += "</div></div>"
 
         return html
 
@@ -928,6 +953,6 @@ actions = [
         "id": "als_assistant_agent_context",
         "name": "Agent Context",
         "description": "View current ALS Assistant agent context data and available information",
-        "icon_url": "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyUzYuNDggMjIgMTIgMjJTMjIgMTcuNTIgMjIgMTJTMTcuNTIgMiAxMiAyWk0xMiAyMEM3LjU5IDIwIDQgMTYuNDEgNCAxMlM3LjU5IDQgMTIgNFMyMCA3LjU5IDIwIDEyUzE2LjQxIDIwIDEyIDIwWiIgZmlsbD0iY3VycmVudENvbG9yIi8+CjxwYXRoIGQ9Ik0xMiA2VjhNMTIgMTZWMThNMTAgMTJIMTRNOCAxMkg2TTE4IDEySDE2IiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KPC9zdmc+"
+        "icon_url": "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyUzYuNDggMjIgMTIgMjJTMjIgMTcuNTIgMjIgMTJTMTcuNTIgMiAxMiAyWk0xMiAyMEM3LjU5IDIwIDQgMTYuNDEgNCAxMlM3LjU5IDQgMTIgNFMyMCA3LjU5IDIwIDEyUzE2LjQxIDIwIDEyIDIwWiIgZmlsbD0iY3VycmVudENvbG9yIi8+CjxwYXRoIGQ9Ik0xMiA2VjhNMTIgMTZWMThNMTAgMTJIMTRNOCAxMkg2TTE4IDEySDE2IiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KPC9zdmc+",
     }
 ]

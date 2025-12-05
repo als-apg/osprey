@@ -114,7 +114,8 @@ class ExecutionMode(Enum):
             >>> print(f"Control mode: {mode.value}")
             Control mode: write_access
     """
-    READ_ONLY = "read_only"        # Safe read-only operations only
+
+    READ_ONLY = "read_only"  # Safe read-only operations only
     WRITE_ACCESS = "write_access"  # Live EPICS write access (dangerous!)
 
 
@@ -245,9 +246,7 @@ class ExecutionControlConfig:
 
         # Live writes are potentially dangerous - log warning
         if self.epics_writes_enabled:
-            warnings.append(
-                "WARNING: epics.writes_enabled=true (live EPICS writes enabled!)"
-            )
+            warnings.append("WARNING: epics.writes_enabled=true (live EPICS writes enabled!)")
 
         return warnings
 
@@ -279,12 +278,18 @@ def get_execution_control_config() -> ExecutionControlConfig:
         if writes_enabled_new is not None:
             writes_enabled = writes_enabled_new
             if writes_enabled_old is not None and writes_enabled_old != writes_enabled_new:
-                logger.warning("⚠️  Both 'control_system.writes_enabled' and 'execution_control.epics.writes_enabled' are set with different values!")
-                logger.warning(f"   Using NEW location value: control_system.writes_enabled = {writes_enabled_new}")
+                logger.warning(
+                    "⚠️  Both 'control_system.writes_enabled' and 'execution_control.epics.writes_enabled' are set with different values!"
+                )
+                logger.warning(
+                    f"   Using NEW location value: control_system.writes_enabled = {writes_enabled_new}"
+                )
         elif writes_enabled_old is not None:
             writes_enabled = writes_enabled_old
             logger.warning("⚠️  DEPRECATED: 'execution_control.epics.writes_enabled' is deprecated.")
-            logger.warning("   Please move this setting to 'control_system.writes_enabled' in your config.yml")
+            logger.warning(
+                "   Please move this setting to 'control_system.writes_enabled' in your config.yml"
+            )
         else:
             writes_enabled = False  # Safe default
 
@@ -295,7 +300,7 @@ def get_execution_control_config() -> ExecutionControlConfig:
         execution_control = ExecutionControlConfig(
             epics_writes_enabled=writes_enabled,  # Kept for backward compat
             control_system_writes_enabled=writes_enabled,
-            control_system_type=control_system_type
+            control_system_type=control_system_type,
         )
 
         # Validate configuration and log warnings
@@ -304,7 +309,9 @@ def get_execution_control_config() -> ExecutionControlConfig:
             for warning in warnings:
                 logger.warning(f"Execution control config: {warning}")
 
-        logger.debug(f"Loaded execution control config: writes_enabled={execution_control.control_system_writes_enabled}, type={control_system_type}")
+        logger.debug(
+            f"Loaded execution control config: writes_enabled={execution_control.control_system_writes_enabled}, type={control_system_type}"
+        )
 
         return execution_control
 
@@ -313,6 +320,5 @@ def get_execution_control_config() -> ExecutionControlConfig:
 
         # Return safe defaults
         return ExecutionControlConfig(
-            epics_writes_enabled=False,
-            control_system_writes_enabled=False
+            epics_writes_enabled=False, control_system_writes_enabled=False
         )

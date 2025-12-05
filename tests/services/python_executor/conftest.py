@@ -37,7 +37,7 @@ def python_execution_request():
     return PythonExecutionRequest(
         user_query="Test query",
         task_objective="Test objective",
-        execution_folder_name="test_execution"
+        execution_folder_name="test_execution",
     )
 
 
@@ -57,7 +57,7 @@ def sample_python_codes():
                     compile(code, '<string>', 'exec')
     """
     return {
-        'success': """
+        "success": """
 import json
 from datetime import datetime
 
@@ -67,22 +67,19 @@ results = {
     'timestamp': datetime.now().isoformat()
 }
 """.strip(),
-
-        'syntax_error': """
+        "syntax_error": """
 def broken_function(
     # Missing closing parenthesis
 results = {}
 """.strip(),
-
-        'runtime_error': """
+        "runtime_error": """
 import json
 
 value = 100 / 0  # This will raise ZeroDivisionError
 
 results = {'value': value}
 """.strip(),
-
-        'channel_write': """
+        "channel_write": """
 from osprey.runtime import read_channel, write_channel
 
 current = read_channel('TEST:PV')
@@ -90,8 +87,7 @@ write_channel('TEST:PV', current * 1.1)
 
 results = {'operation': 'write', 'channel': 'TEST:PV'}
 """.strip(),
-
-        'channel_read': """
+        "channel_read": """
 from osprey.runtime import read_channel
 
 value = read_channel('TEST:PV')
@@ -112,7 +108,7 @@ def sample_execution_error():
         error_type="execution",
         error_message="Test error message",
         attempt_number=1,
-        stage="execution"
+        stage="execution",
     )
 
 
@@ -129,15 +125,15 @@ def sample_error_chain():
             error_message="NameError: name 'undefined_var' is not defined",
             failed_code="x = undefined_var + 1",
             attempt_number=1,
-            stage="execution"
+            stage="execution",
         ),
         ExecutionError(
             error_type="syntax",
             error_message="SyntaxError: invalid syntax",
             failed_code="def broken(\n    print('hi')",
             attempt_number=2,
-            stage="generation"
-        )
+            stage="generation",
+        ),
     ]
 
 
@@ -145,19 +141,14 @@ def sample_error_chain():
 def pytest_configure(config):
     """Register Python executor-specific pytest markers."""
     config.addinivalue_line(
-        "markers",
-        "integration: marks tests as integration tests (may be slow)"
+        "markers", "integration: marks tests as integration tests (may be slow)"
     )
     config.addinivalue_line(
-        "markers",
-        "slow: marks tests as slow running (deselect with '-m \"not slow\"')"
+        "markers", "slow: marks tests as slow running (deselect with '-m \"not slow\"')"
     )
     config.addinivalue_line(
-        "markers",
-        "requires_container: marks tests that require container infrastructure"
+        "markers", "requires_container: marks tests that require container infrastructure"
     )
     config.addinivalue_line(
-        "markers",
-        "requires_epics: marks tests that require EPICS infrastructure"
+        "markers", "requires_epics: marks tests that require EPICS infrastructure"
     )
-

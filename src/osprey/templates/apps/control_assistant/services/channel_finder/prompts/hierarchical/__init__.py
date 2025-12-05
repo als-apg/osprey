@@ -18,12 +18,7 @@ Architecture:
 This maintains clean separation: data vs prompts.
 """
 
+from . import hierarchical_context, query_splitter
 from .system import facility_description
-from . import query_splitter
-from . import hierarchical_context
 
-__all__ = [
-    'facility_description',
-    'query_splitter',
-    'hierarchical_context'
-]
+__all__ = ["facility_description", "query_splitter", "hierarchical_context"]

@@ -84,9 +84,9 @@ def test_get_capability_react_config(temp_config):
     config = get_capability_react_config(temp_config, "weather_demo")
 
     assert config is not None
-    assert config['provider'] == "anthropic"
-    assert config['model_id'] == "claude-haiku-4-5-20251001"
-    assert config['max_tokens'] == 4096
+    assert config["provider"] == "anthropic"
+    assert config["model_id"] == "claude-haiku-4-5-20251001"
+    assert config["max_tokens"] == 4096
 
 
 def test_get_nonexistent_config(temp_config):
@@ -98,15 +98,9 @@ def test_get_nonexistent_config(temp_config):
 def test_add_then_remove_model(temp_config):
     """Test adding a model and then removing it."""
     # Add new model
-    template_config = {
-        'provider': 'anthropic',
-        'model_id': 'claude-sonnet-4',
-        'max_tokens': 4096
-    }
+    template_config = {"provider": "anthropic", "model_id": "claude-sonnet-4", "max_tokens": 4096}
     new_content, add_preview = add_capability_react_to_config(
-        temp_config,
-        capability_name="jira_mcp",
-        template_config=template_config
+        temp_config, capability_name="jira_mcp", template_config=template_config
     )
 
     # Write the new content
@@ -116,7 +110,9 @@ def test_add_then_remove_model(temp_config):
     assert has_capability_react_model(temp_config, "jira_mcp")
 
     # Remove it
-    removed_content, remove_preview, found = remove_capability_react_from_config(temp_config, "jira_mcp")
+    removed_content, remove_preview, found = remove_capability_react_from_config(
+        temp_config, "jira_mcp"
+    )
 
     # Verify it was removed
     assert found
@@ -171,4 +167,3 @@ def test_remove_multiple_models_sequentially(temp_config):
     final_content = temp_config.read_text()
     assert "orchestrator:" in final_content
     assert "models:" in final_content
-

@@ -45,7 +45,7 @@ def load_context(context_file: str = "context.json") -> ContextManager | None:
             return None
 
         # Load JSON data
-        with open(context_path, encoding='utf-8') as f:
+        with open(context_path, encoding="utf-8") as f:
             context_data = json.load(f)
 
         # Ensure registry is initialized before creating ContextManager
@@ -57,10 +57,10 @@ def load_context(context_file: str = "context.json") -> ContextManager | None:
 
             # Get config path from environment variable if available
             # This is critical for subprocess execution where cwd is not project root
-            config_path = os.environ.get('CONFIG_FILE')
+            config_path = os.environ.get("CONFIG_FILE")
 
             registry = get_registry(config_path=config_path)
-            if not getattr(registry, '_initialized', False):
+            if not getattr(registry, "_initialized", False):
                 logger.debug("Registry not initialized, initializing now...")
                 initialize_registry(auto_export=False, config_path=config_path)
                 logger.debug("Registry initialization completed")
@@ -71,7 +71,7 @@ def load_context(context_file: str = "context.json") -> ContextManager | None:
         # Create ContextManager with the loaded data
         # The data structure should be: {context_type: {context_key: {field: value}}}
         # ContextManager expects an AgentState with capability_context_data key
-        fake_state = {'capability_context_data': context_data}
+        fake_state = {"capability_context_data": context_data}
         context_manager = ContextManager(fake_state)
 
         # Validate that we have properly structured data

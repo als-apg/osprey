@@ -64,6 +64,7 @@ from ..models import PythonExecutionState
 
 logger = get_logger("python")
 
+
 def create_approval_node():
     """Create a pure approval node function for LangGraph integration.
 
@@ -163,9 +164,6 @@ def create_approval_node():
         approved = human_response.get("approved", False)
         node_logger.info(f"Approval result: {approved}")
 
-        return {
-            "approval_result": human_response,
-            "approved": approved
-        }
+        return {"approval_result": human_response, "approved": approved}
 
     return approval_node
