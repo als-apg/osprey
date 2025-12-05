@@ -39,11 +39,7 @@ class ExecutionWrapper:
         self.execution_mode = execution_mode
         self.limits_validator = limits_validator
 
-    def create_wrapper(
-        self,
-        user_code: str,
-        execution_folder: Path | None = None
-    ) -> str:
+    def create_wrapper(self, user_code: str, execution_folder: Path | None = None) -> str:
         """
         Create complete wrapped Python script.
 
@@ -66,16 +62,18 @@ class ExecutionWrapper:
         cleanup_and_export = self._get_cleanup_and_export()
 
         # Assemble complete wrapper
-        wrapped_code = "\n".join([
-            imports,
-            environment_setup,
-            limits_checking,
-            metadata_init,
-            context_loading,
-            output_capture_start,
-            user_code_section,
-            cleanup_and_export
-        ])
+        wrapped_code = "\n".join(
+            [
+                imports,
+                environment_setup,
+                limits_checking,
+                metadata_init,
+                context_loading,
+                output_capture_start,
+                user_code_section,
+                cleanup_and_export,
+            ]
+        )
 
         return wrapped_code
 
@@ -215,16 +213,17 @@ print(f"Container working directory: {{Path.cwd()}}")
         limits_db_serialized = {}
         for pv_name, config in self.limits_validator.limits.items():
             limits_db_serialized[pv_name] = {
-                'min_value': config.min_value,
-                'max_value': config.max_value,
-                'max_step': config.max_step,  # IMPORTANT: Include max_step for serialization
-                'writable': config.writable
+                "min_value": config.min_value,
+                "max_value": config.max_value,
+                "max_step": config.max_step,  # IMPORTANT: Include max_step for serialization
+                "writable": config.writable,
             }
 
         db_json = json.dumps(limits_db_serialized)
         policy_json = json.dumps(self.limits_validator.policy)
 
-        return textwrap.dedent(f"""
+        return textwrap.dedent(
+            f"""
             # Runtime Channel Limits Checking (Monkeypatch with Embedded Config)
             try:
                 import json
@@ -290,11 +289,13 @@ print(f"Container working directory: {{Path.cwd()}}")
                 print(f"⚠️  Limits checking setup failed: {{e}}")
                 import traceback
                 traceback.print_exc()
-        """).strip()
+        """
+        ).strip()
 
     def _get_metadata_init(self) -> str:
         """Initialize execution metadata tracking."""
-        return textwrap.dedent(f"""
+        return textwrap.dedent(
+            f"""
             # Execution metadata
             execution_metadata = {{
                 "start_time": _datetime.now().isoformat(),
@@ -311,11 +312,13 @@ print(f"Container working directory: {{Path.cwd()}}")
                 "figure_count": 0,
                 "execution_mode": "{self.execution_mode}"
             }}
-        """).strip()
+        """
+        ).strip()
 
     def _get_context_loading(self) -> str:
         """Get context loading code with error handling."""
-        return textwrap.dedent("""
+        return textwrap.dedent(
+            """
             # Load execution context
             try:
                 print(f"Looking for context.json at: {{Path.cwd() / 'context.json'}}")
@@ -349,7 +352,8 @@ print(f"Container working directory: {{Path.cwd()}}")
                 execution_metadata["error_type"] = "INFRASTRUCTURE_ERROR"
                 execution_metadata["infrastructure_error"] = f"Context loading failed: {{str(e)}}"
                 context = None
-        """).strip()
+        """
+        ).strip()
 
     def _get_cleanup_code(self) -> str:
         """Get runtime cleanup code.
@@ -357,7 +361,8 @@ print(f"Container working directory: {{Path.cwd()}}")
         This should be called in the finally block of the execution wrapper
         to ensure cleanup happens even if user code raises an exception.
         """
-        return textwrap.dedent("""
+        return textwrap.dedent(
+            """
             # Cleanup runtime resources
             try:
                 import asyncio
@@ -365,11 +370,13 @@ print(f"Container working directory: {{Path.cwd()}}")
                 asyncio.run(cleanup_runtime())
             except Exception as e:
                 print(f"⚠️  Cleanup warning: {{e}}")
-        """).strip()
+        """
+        ).strip()
 
     def _get_output_capture_start(self) -> str:
         """Start output capture for both environments."""
-        return textwrap.dedent("""
+        return textwrap.dedent(
+            """
             # Capture stdout/stderr
             original_stdout = sys.stdout
             original_stderr = sys.stderr
@@ -380,7 +387,8 @@ print(f"Container working directory: {{Path.cwd()}}")
                 # Redirect output streams
                 sys.stdout = stdout_capture
                 sys.stderr = stderr_capture
-        """).strip()
+        """
+        ).strip()
 
     def _wrap_user_code(self, user_code: str) -> str:
         """Execute user code directly (synchronous).
@@ -389,7 +397,9 @@ print(f"Container working directory: {{Path.cwd()}}")
         handle async internally so generated code can be simple and straightforward.
         """
         # Indent user code (8 spaces = 2 levels, inside try block)
-        indented_code = "\n".join("        " + line if line.strip() else line for line in user_code.split("\n"))
+        indented_code = "\n".join(
+            "        " + line if line.strip() else line for line in user_code.split("\n")
+        )
 
         return f"""
     # Execute user code
@@ -416,7 +426,8 @@ print(f"Container working directory: {{Path.cwd()}}")
         # Environment-specific differences
         if self.execution_mode == "local":
             # Local execution needs to output captured content to host process
-            host_output_section = textwrap.dedent("""
+            host_output_section = textwrap.dedent(
+                """
                 # Output captured content so host process can see it (LOCAL ONLY)
                 captured_stdout = stdout_capture.getvalue()
                 captured_stderr = stderr_capture.getvalue()
@@ -425,26 +436,32 @@ print(f"Container working directory: {{Path.cwd()}}")
                     print(captured_stdout, end='')
                 if captured_stderr:
                     print(captured_stderr, file=sys.stderr, end='')
-            """).strip()
+            """
+            ).strip()
 
             # Local execution is more forgiving about metadata save failures
-            metadata_error_handling = textwrap.dedent("""
+            metadata_error_handling = textwrap.dedent(
+                """
                     print(f"ERROR: Failed to save execution metadata: {e}", file=sys.stderr)
                     # Don't raise for local execution - just log the error
-            """).strip()
+            """
+            ).strip()
 
         else:  # Container execution
             # Container doesn't need host output (Jupyter handles this)
             host_output_section = ""
 
             # Container execution is strict about metadata save failures
-            metadata_error_handling = textwrap.dedent("""
+            metadata_error_handling = textwrap.dedent(
+                """
                     print(f"CRITICAL ERROR: Failed to save execution metadata: {e}", file=sys.stderr)
                     raise RuntimeError(f"Failed to save execution metadata: {e}")
-            """).strip()
+            """
+            ).strip()
 
         # Build the complete code block properly
-        base_cleanup = textwrap.dedent("""
+        base_cleanup = textwrap.dedent(
+            """
             except Exception as e:
                 execution_metadata["success"] = False
                 execution_metadata["error"] = str(e)
@@ -477,9 +494,11 @@ print(f"Container working directory: {{Path.cwd()}}")
                     asyncio.run(cleanup_runtime())
                 except Exception as e:
                     print(f"⚠️  Cleanup warning: {{e}}")
-        """).strip()
+        """
+        ).strip()
 
-        file_persistence_section = textwrap.dedent("""
+        file_persistence_section = textwrap.dedent(
+            """
                 # Import robust serialization function
                 from osprey.services.python_executor.services import serialize_results_to_file
 
@@ -540,7 +559,8 @@ print(f"Container working directory: {{Path.cwd()}}")
                     with open('execution_metadata.json', 'w', encoding='utf-8') as f:
                         json.dump(serializable_metadata, f, indent=2, ensure_ascii=False)
                 except Exception as e:
-        """).strip()
+        """
+        ).strip()
 
         # Combine all parts properly
         parts = [base_cleanup]
@@ -548,16 +568,19 @@ print(f"Container working directory: {{Path.cwd()}}")
         # Add host output section if needed (with proper indentation)
         if host_output_section:
             # Add proper indentation for the host output section (4 spaces to match finally block)
-            indented_host_section = "\n".join("    " + line if line.strip() else line
-                                            for line in host_output_section.split("\n"))
+            indented_host_section = "\n".join(
+                "    " + line if line.strip() else line for line in host_output_section.split("\n")
+            )
             parts.append(indented_host_section)
 
         parts.append(file_persistence_section)
 
         # Add proper indentation for metadata error handling
         if metadata_error_handling:
-            indented_error_handling = "\n".join("    " + line if line.strip() else line
-                                              for line in metadata_error_handling.split("\n"))
+            indented_error_handling = "\n".join(
+                "    " + line if line.strip() else line
+                for line in metadata_error_handling.split("\n")
+            )
             parts.append(indented_error_handling)
 
         return "\n".join(parts)
@@ -582,9 +605,13 @@ print(f"Container working directory: {{Path.cwd()}}")
                 return f"/home/jovyan/work/executed_scripts/{relative_path.as_posix()}"
             except ValueError:
                 # Should not happen if startswith check passed, but handle gracefully
-                logger.warning(f"Could not get relative path from {host_path} to {executed_scripts_base}")
+                logger.warning(
+                    f"Could not get relative path from {host_path} to {executed_scripts_base}"
+                )
 
         # Fallback: log the issue and use the folder name
-        logger.warning(f"Host path {host_path} is not under configured executed scripts directory {executed_scripts_base}")
+        logger.warning(
+            f"Host path {host_path} is not under configured executed scripts directory {executed_scripts_base}"
+        )
         logger.warning("Using fallback container path mapping")
         return f"/home/jovyan/work/executed_scripts/{host_path.name}"

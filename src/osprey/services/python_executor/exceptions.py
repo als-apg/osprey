@@ -100,10 +100,11 @@ class ErrorCategory(Enum):
        :meth:`PythonExecutorException.should_retry_execution` : Infrastructure retry logic
        :meth:`PythonExecutorException.should_retry_code_generation` : Code regeneration logic
     """
+
     INFRASTRUCTURE = "infrastructure"  # Container/connectivity issues
-    CODE_RELATED = "code_related"      # Syntax/runtime/logic errors
-    WORKFLOW = "workflow"              # Approval, timeout, etc.
-    CONFIGURATION = "configuration"   # Config/setup issues
+    CODE_RELATED = "code_related"  # Syntax/runtime/logic errors
+    WORKFLOW = "workflow"  # Approval, timeout, etc.
+    CONFIGURATION = "configuration"  # Config/setup issues
 
 
 class PythonExecutorException(Exception):
@@ -142,7 +143,7 @@ class PythonExecutorException(Exception):
         message: str,
         category: ErrorCategory,
         technical_details: dict[str, Any] | None = None,
-        folder_path: Path | None = None
+        folder_path: Path | None = None,
     ):
         super().__init__(message)
         self.message = message
@@ -259,6 +260,7 @@ class PythonExecutorException(Exception):
 # INFRASTRUCTURE ERRORS (Container/Connectivity Issues)
 # =============================================================================
 
+
 class ContainerConnectivityError(PythonExecutorException):
     """Exception raised when Jupyter container is unreachable or connection fails.
 
@@ -300,11 +302,7 @@ class ContainerConnectivityError(PythonExecutorException):
     """
 
     def __init__(
-        self,
-        message: str,
-        host: str,
-        port: int,
-        technical_details: dict[str, Any] | None = None
+        self, message: str, host: str, port: int, technical_details: dict[str, Any] | None = None
     ):
         super().__init__(message, ErrorCategory.INFRASTRUCTURE, technical_details)
         self.host = host
@@ -343,6 +341,7 @@ class ContainerConfigurationError(PythonExecutorException):
 # CODE-RELATED ERRORS (Require Code Regeneration)
 # =============================================================================
 
+
 class CodeGenerationError(PythonExecutorException):
     """LLM failed to generate valid code"""
 
@@ -351,7 +350,7 @@ class CodeGenerationError(PythonExecutorException):
         message: str,
         generation_attempt: int,
         error_chain: list[str],
-        technical_details: dict[str, Any] | None = None
+        technical_details: dict[str, Any] | None = None,
     ):
         super().__init__(message, ErrorCategory.CODE_RELATED, technical_details)
         self.generation_attempt = generation_attempt
@@ -365,7 +364,7 @@ class CodeSyntaxError(PythonExecutorException):
         self,
         message: str,
         syntax_issues: list[str],
-        technical_details: dict[str, Any] | None = None
+        technical_details: dict[str, Any] | None = None,
     ):
         super().__init__(message, ErrorCategory.CODE_RELATED, technical_details)
         self.syntax_issues = syntax_issues
@@ -380,7 +379,7 @@ class CodeRuntimeError(PythonExecutorException):
         traceback_info: str,
         execution_attempt: int,
         technical_details: dict[str, Any] | None = None,
-        folder_path: Path | None = None
+        folder_path: Path | None = None,
     ):
         super().__init__(message, ErrorCategory.CODE_RELATED, technical_details, folder_path)
         self.traceback_info = traceback_info
@@ -445,7 +444,7 @@ class ChannelLimitsViolationError(PythonExecutorException):
         min_value: float | None = None,
         max_value: float | None = None,
         max_step: float | None = None,
-        current_value: Any | None = None
+        current_value: Any | None = None,
     ):
         self.channel_address = channel_address
         self.attempted_value = value
@@ -458,17 +457,14 @@ class ChannelLimitsViolationError(PythonExecutorException):
 
         message = self._format_violation_message()
 
-        super().__init__(
-            message=message,
-            category=ErrorCategory.CODE_RELATED
-        )
+        super().__init__(message=message, category=ErrorCategory.CODE_RELATED)
 
     def _format_violation_message(self) -> str:
         """Format a user-friendly violation message with all relevant details."""
         msg = [
-            "\n" + "="*70,
+            "\n" + "=" * 70,
             "CHANNEL LIMITS VIOLATION DETECTED",
-            "="*70,
+            "=" * 70,
             f"Channel Address: {self.channel_address}",
             f"Attempted Value: {self.attempted_value}",
         ]
@@ -487,11 +483,13 @@ class ChannelLimitsViolationError(PythonExecutorException):
         if self.max_step is not None:
             msg.append(f"Maximum Step Size: {self.max_step}")
 
-        msg.extend([
-            "="*70,
-            "⚠️  Write operation BLOCKED for safety",
-            "="*70,
-        ])
+        msg.extend(
+            [
+                "=" * 70,
+                "⚠️  Write operation BLOCKED for safety",
+                "=" * 70,
+            ]
+        )
 
         return "\n".join(msg)
 
@@ -506,7 +504,6 @@ ChannelBoundaryViolationError = ChannelLimitsViolationError
 # =============================================================================
 
 
-
 class ExecutionTimeoutError(PythonExecutorException):
     """Code execution exceeded timeout"""
 
@@ -514,7 +511,7 @@ class ExecutionTimeoutError(PythonExecutorException):
         self,
         timeout_seconds: int,
         technical_details: dict[str, Any] | None = None,
-        folder_path: Path | None = None
+        folder_path: Path | None = None,
     ):
         message = f"Python code execution timeout after {timeout_seconds} seconds"
         super().__init__(message, ErrorCategory.WORKFLOW, technical_details, folder_path)
@@ -530,7 +527,7 @@ class MaxAttemptsExceededError(PythonExecutorException):
         max_attempts: int,
         error_chain: list[str],
         technical_details: dict[str, Any] | None = None,
-        folder_path: Path | None = None
+        folder_path: Path | None = None,
     ):
         message = f"Maximum {operation_type} attempts ({max_attempts}) exceeded"
         super().__init__(message, ErrorCategory.WORKFLOW, technical_details, folder_path)
@@ -548,7 +545,7 @@ class WorkflowError(PythonExecutorException):
         stage: str,  # "code_generation", "static_analysis", "execution", "orchestration"
         original_exception: Exception | None = None,
         technical_details: dict[str, Any] | None = None,
-        folder_path: Path | None = None
+        folder_path: Path | None = None,
     ):
         super().__init__(message, ErrorCategory.WORKFLOW, technical_details, folder_path)
         self.stage = stage

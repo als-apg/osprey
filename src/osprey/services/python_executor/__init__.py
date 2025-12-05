@@ -214,20 +214,16 @@ from .analysis import (
     get_default_patterns,
     get_framework_standard_patterns,
 )
-from .exceptions import (
-    # Code errors (retry code generation)
+from .exceptions import (  # Code errors (retry code generation); Infrastructure errors (retry execution); Workflow errors (special handling); Base
     ChannelLimitsViolationError,
     CodeGenerationError,
     CodeRuntimeError,
     CodeSyntaxError,
     ContainerConfigurationError,
-    # Infrastructure errors (retry execution)
     ContainerConnectivityError,
     ErrorCategory,
-    # Workflow errors (special handling)
     ExecutionTimeoutError,
     MaxAttemptsExceededError,
-    # Base
     PythonExecutorException,
     WorkflowError,
 )
@@ -262,13 +258,11 @@ from .services import (
 __all__ = [
     # Main interface
     "PythonExecutorService",
-
     # Core types
     "PythonExecutionRequest",
     "PythonExecutionSuccess",
     "PythonExecutionState",
     "PythonServiceResult",
-
     # Code generator interfaces
     "CodeGenerator",
     "BasicLLMCodeGenerator",
@@ -277,26 +271,22 @@ __all__ = [
     "CLAUDE_SDK_AVAILABLE",
     "create_code_generator",
     # Note: Generator registration now via registry system (see osprey.registry.base.CodeGeneratorRegistration)
-
     # Analysis utilities
     "detect_control_system_operations",
     "get_default_patterns",
     "get_framework_standard_patterns",
-
     # Execution context and notebook management
     "NotebookAttempt",
     "NotebookType",
     "PythonExecutionContext",
     "FileManager",
     "NotebookManager",
-
     # Configuration utilities
     "ExecutionModeConfig",
     "ContainerEndpointConfig",
     "ExecutionMode",
     "ExecutionControlConfig",
     "get_execution_control_config",
-
     # Exception hierarchy
     "PythonExecutorException",
     "ErrorCategory",
@@ -309,8 +299,7 @@ __all__ = [
     "ExecutionTimeoutError",
     "MaxAttemptsExceededError",
     "WorkflowError",
-
     # Serialization utilities
     "make_json_serializable",
-    "serialize_results_to_file"
+    "serialize_results_to_file",
 ]

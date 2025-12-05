@@ -82,6 +82,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Code Quality**: Pre-merge cleanup improvements across codebase
+  - Code formatting: Applied Black and isort to all changed files for consistent style
+  - Linting fixes: Resolved ruff warnings (unused imports, bare except, unused variables)
+  - Logging improvements: Replaced debug print() statements with proper logger.debug() calls in runtime module
+  - Type hints: Added return type hints to 6 public functions for better IDE support
+  - Import cleanup: Removed duplicate import in memory capability
+
 #### Configuration and Architecture
 - **CLI Organization**: Deprecated `osprey export-config` in favor of `osprey config export`
   - Backward compatibility maintained with deprecation notice

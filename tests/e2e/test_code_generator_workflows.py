@@ -76,7 +76,7 @@ if __name__ == "__main__":
     # Expected output: [-42.0, -21.0, 0.0, 21.0, 42.0]
 '''
 
-FACILITY_README = '''# Facility Data Processing Utilities
+FACILITY_README = """# Facility Data Processing Utilities
 
 ## MANDATORY: Use Facility-Standard Normalization
 
@@ -108,7 +108,7 @@ constant 42.0 scales the output to match our detector calibration.
 - You MUST import and use `normalize_facility_data` for ALL normalization
 - Do NOT implement your own normalization
 - Do NOT use standard normalization functions (they will give wrong results)
-'''
+"""
 
 
 @pytest.mark.e2e
@@ -129,9 +129,7 @@ async def test_basic_generator_simple_code_generation(e2e_project_factory):
     """
     # Step 1: Create project with basic generator (default for control_assistant)
     project = await e2e_project_factory(
-        name="test-basic-generator",
-        template="control_assistant",
-        registry_style="extend"
+        name="test-basic-generator", template="control_assistant", registry_style="extend"
     )
 
     # Step 2: Initialize framework
@@ -154,21 +152,19 @@ async def test_basic_generator_simple_code_generation(e2e_project_factory):
     )
 
     # Step 6: Verify plot artifact was created
-    assert len(result.artifacts) > 0, (
-        f"Expected at least one artifact (plot), got {len(result.artifacts)}"
-    )
+    assert (
+        len(result.artifacts) > 0
+    ), f"Expected at least one artifact (plot), got {len(result.artifacts)}"
 
     # Step 7: Verify at least one PNG file was created
-    png_files = [a for a in result.artifacts if str(a).lower().endswith('.png')]
-    assert len(png_files) > 0, (
-        f"Expected PNG file in artifacts, got: {result.artifacts}"
-    )
+    png_files = [a for a in result.artifacts if str(a).lower().endswith(".png")]
+    assert len(png_files) > 0, f"Expected PNG file in artifacts, got: {result.artifacts}"
 
     # Step 8: Verify response indicates success
     response_lower = result.response.lower()
-    assert any(word in response_lower for word in ['success', 'created', 'saved', 'completed']), (
-        f"Response does not indicate successful completion:\n{result.response[:300]}"
-    )
+    assert any(
+        word in response_lower for word in ["success", "created", "saved", "completed"]
+    ), f"Response does not indicate successful completion:\n{result.response[:300]}"
 
     print(f"✅ Basic generator test passed - created {len(result.artifacts)} artifact(s)")
 
@@ -176,10 +172,7 @@ async def test_basic_generator_simple_code_generation(e2e_project_factory):
 @pytest.mark.e2e
 @pytest.mark.slow
 @pytest.mark.requires_cborg
-@pytest.mark.skipif(
-    not CLAUDE_SDK_AVAILABLE,
-    reason="Claude Agent SDK not installed"
-)
+@pytest.mark.skipif(not CLAUDE_SDK_AVAILABLE, reason="Claude Agent SDK not installed")
 @pytest.mark.asyncio
 async def test_claude_code_generator_with_codebase_guidance(e2e_project_factory, tmp_path):
     """Test Claude Code generator reads example scripts and uses facility functions.
@@ -199,9 +192,7 @@ async def test_claude_code_generator_with_codebase_guidance(e2e_project_factory,
 
     # Step 1: Create project with control_assistant template
     project = await e2e_project_factory(
-        name="test-claude-code",
-        template="control_assistant",
-        registry_style="extend"
+        name="test-claude-code", template="control_assistant", registry_style="extend"
     )
 
     # Step 2: Modify config.yml to use claude_code generator
@@ -210,24 +201,21 @@ async def test_claude_code_generator_with_codebase_guidance(e2e_project_factory,
 
     # Replace basic generator with claude_code
     config_content = config_content.replace(
-        'code_generator: "basic"',
-        'code_generator: "claude_code"'
+        'code_generator: "basic"', 'code_generator: "claude_code"'
     )
     config_path.write_text(config_content)
 
     # Step 3: Generate claude_generator_config.yml
     from osprey.cli.templates import TemplateManager
+
     template_manager = TemplateManager()
 
-    ctx = {
-        "default_provider": "cborg",
-        "default_model": "anthropic/claude-haiku"
-    }
+    ctx = {"default_provider": "cborg", "default_model": "anthropic/claude-haiku"}
 
     template_manager.render_template(
         "apps/control_assistant/claude_generator_config.yml.j2",
         ctx,
-        project.project_dir / "claude_generator_config.yml"
+        project.project_dir / "claude_generator_config.yml",
     )
 
     # Step 4: Set up example scripts with facility-specific utility function
@@ -272,8 +260,7 @@ async def test_claude_code_generator_with_codebase_guidance(e2e_project_factory,
     results_files = list(executed_scripts_dir.glob("**/results.json"))
 
     assert len(results_files) > 0, (
-        f"No results.json found in executed scripts!\n"
-        f"Searched in: {executed_scripts_dir}"
+        f"No results.json found in executed scripts!\n" f"Searched in: {executed_scripts_dir}"
     )
 
     # Get the most recent results file
@@ -298,7 +285,7 @@ async def test_claude_code_generator_with_codebase_guidance(e2e_project_factory,
     # Expected: [-42.0, -21.0, 0.0, 21.0, 42.0]
 
     # Step 11: Check if normalized_data is in results
-    actual_output = execution_results.get('normalized_data')
+    actual_output = execution_results.get("normalized_data")
 
     # Debug output
     print("\n🔍 Codebase Function Usage Validation:")
@@ -341,16 +328,13 @@ async def test_claude_code_generator_with_codebase_guidance(e2e_project_factory,
         f"Claude must READ facility_utils.py and USE the function defined there."
     )
 
-    print(f"✅ Claude Code codebase guidance test passed - facility function correctly used!")
+    print("✅ Claude Code codebase guidance test passed - facility function correctly used!")
 
 
 @pytest.mark.e2e
 @pytest.mark.slow
 @pytest.mark.requires_cborg
-@pytest.mark.skipif(
-    not CLAUDE_SDK_AVAILABLE,
-    reason="Claude Agent SDK not installed"
-)
+@pytest.mark.skipif(not CLAUDE_SDK_AVAILABLE, reason="Claude Agent SDK not installed")
 @pytest.mark.asyncio
 async def test_claude_code_robust_profile_workflow(e2e_project_factory):
     """Test Claude Code generator robust profile (multi-phase workflow).
@@ -360,9 +344,7 @@ async def test_claude_code_robust_profile_workflow(e2e_project_factory):
     """
     # Step 1: Create project
     project = await e2e_project_factory(
-        name="test-claude-robust",
-        template="control_assistant",
-        registry_style="extend"
+        name="test-claude-robust", template="control_assistant", registry_style="extend"
     )
 
     # Step 2: Configure for claude_code with robust profile
@@ -371,33 +353,25 @@ async def test_claude_code_robust_profile_workflow(e2e_project_factory):
 
     # Switch to claude_code
     config_content = config_content.replace(
-        'code_generator: "basic"',
-        'code_generator: "claude_code"'
+        'code_generator: "basic"', 'code_generator: "claude_code"'
     )
     config_path.write_text(config_content)
 
     # Step 3: Generate claude config with robust profile
     from osprey.cli.templates import TemplateManager
+
     template_manager = TemplateManager()
 
-    ctx = {
-        "default_provider": "cborg",
-        "default_model": "anthropic/claude-haiku"
-    }
+    ctx = {"default_provider": "cborg", "default_model": "anthropic/claude-haiku"}
 
     claude_config_path = project.project_dir / "claude_generator_config.yml"
     template_manager.render_template(
-        "apps/control_assistant/claude_generator_config.yml.j2",
-        ctx,
-        claude_config_path
+        "apps/control_assistant/claude_generator_config.yml.j2", ctx, claude_config_path
     )
 
     # Modify to use robust profile by updating config.yml
     config_content = config_path.read_text()
-    config_content = config_content.replace(
-        'profile: "fast"',
-        'profile: "robust"'
-    )
+    config_content = config_content.replace('profile: "fast"', 'profile: "robust"')
     config_path.write_text(config_content)
 
     # Step 4: Initialize
@@ -421,21 +395,17 @@ async def test_claude_code_robust_profile_workflow(e2e_project_factory):
     )
 
     # Step 8: Verify plot artifacts were created
-    assert len(result.artifacts) > 0, (
-        f"Expected plot artifacts, got {len(result.artifacts)}"
-    )
+    assert len(result.artifacts) > 0, f"Expected plot artifacts, got {len(result.artifacts)}"
 
     # Step 9: Verify PNG file was created
-    png_files = [a for a in result.artifacts if str(a).lower().endswith('.png')]
-    assert len(png_files) > 0, (
-        f"Expected PNG file in artifacts, got: {result.artifacts}"
-    )
+    png_files = [a for a in result.artifacts if str(a).lower().endswith(".png")]
+    assert len(png_files) > 0, f"Expected PNG file in artifacts, got: {result.artifacts}"
 
     # Step 10: Verify response indicates success
     response_lower = result.response.lower()
-    assert any(word in response_lower for word in ['success', 'created', 'saved', 'completed', 'subplot']), (
-        f"Response does not indicate successful completion:\n{result.response[:300]}"
-    )
+    assert any(
+        word in response_lower for word in ["success", "created", "saved", "completed", "subplot"]
+    ), f"Response does not indicate successful completion:\n{result.response[:300]}"
 
     # Step 11: Optional - check for multi-phase indicators (scan/plan/implement)
     # This is informational and not critical to the test passing
@@ -462,4 +432,3 @@ async def test_claude_code_robust_profile_workflow(e2e_project_factory):
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])
-

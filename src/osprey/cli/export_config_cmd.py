@@ -17,20 +17,17 @@ from osprey.cli.styles import Styles, console
 
 @click.command(name="export-config")
 @click.option(
-    "--project", "-p",
+    "--project",
+    "-p",
     type=click.Path(exists=True, file_okay=False, dir_okay=True),
-    help="Project directory (default: current directory or OSPREY_PROJECT env var)"
+    help="Project directory (default: current directory or OSPREY_PROJECT env var)",
 )
-@click.option(
-    "--output", "-o",
-    type=click.Path(),
-    help="Output file (default: print to console)"
-)
+@click.option("--output", "-o", type=click.Path(), help="Output file (default: print to console)")
 @click.option(
     "--format",
     type=click.Choice(["yaml", "json"]),
     default="yaml",
-    help="Output format (default: yaml)"
+    help="Output format (default: yaml)",
 )
 def export_config(project: str, output: str, format: str):
     """Export osprey default configuration template.
@@ -66,26 +63,17 @@ def export_config(project: str, output: str, format: str):
     # Show deprecation warning
     console.print(
         "⚠️  [yellow]DEPRECATED:[/yellow] 'osprey export-config' is deprecated.",
-        style=Styles.WARNING
+        style=Styles.WARNING,
     )
-    console.print(
-        "   Use [bold cyan]osprey config export[/bold cyan] instead.\n",
-        style=Styles.DIM
-    )
+    console.print("   Use [bold cyan]osprey config export[/bold cyan] instead.\n", style=Styles.DIM)
 
     try:
         # Load osprey's configuration template (known location in osprey structure)
         template_path = Path(__file__).parent.parent / "templates" / "project" / "config.yml.j2"
 
         if not template_path.exists():
-            console.print(
-                "❌ Could not locate osprey configuration template.",
-                style=Styles.ERROR
-            )
-            console.print(
-                f"   Expected at: {template_path}",
-                style=Styles.DIM
-            )
+            console.print("❌ Could not locate osprey configuration template.", style=Styles.ERROR)
+            console.print(f"   Expected at: {template_path}", style=Styles.DIM)
             raise click.Abort()
 
         # Read and render the template with example values
@@ -99,7 +87,7 @@ def export_config(project: str, output: str, format: str):
             project_root="/path/to/example_project",
             hostname="localhost",
             default_provider="cborg",
-            default_model="anthropic/claude-haiku"
+            default_model="anthropic/claude-haiku",
         )
 
         # Parse the rendered config as YAML
@@ -108,36 +96,24 @@ def export_config(project: str, output: str, format: str):
         # Format output based on requested format
         if format == "yaml":
             output_str = yaml.dump(
-                config_data,
-                default_flow_style=False,
-                sort_keys=False,
-                allow_unicode=True
+                config_data, default_flow_style=False, sort_keys=False, allow_unicode=True
             )
         else:  # json
             import json
+
             output_str = json.dumps(config_data, indent=2, ensure_ascii=False)
 
         # Output to file or console
         if output:
             output_path = Path(output)
             output_path.write_text(output_str)
-            console.print(
-                f"✅ Configuration exported to: [bold]{output_path}[/bold]"
-            )
+            console.print(f"✅ Configuration exported to: [bold]{output_path}[/bold]")
         else:
             # Print to console with syntax highlighting
             console.print("\n[bold]Osprey Default Configuration:[/bold]\n")
-            syntax = Syntax(
-                output_str,
-                format,
-                theme="monokai",
-                line_numbers=False,
-                word_wrap=True
-            )
+            syntax = Syntax(output_str, format, theme="monokai", line_numbers=False, word_wrap=True)
             console.print(syntax)
-            console.print(
-                "\n[dim]💡 Tip: Save to file with --output flag[/dim]"
-            )
+            console.print("\n[dim]💡 Tip: Save to file with --output flag[/dim]")
 
     except KeyboardInterrupt:
         console.print("\n⚠️  Operation cancelled", style=Styles.WARNING)
@@ -145,12 +121,13 @@ def export_config(project: str, output: str, format: str):
     except Exception as e:
         console.print(f"❌ Failed to export configuration: {e}", style=Styles.ERROR)
         import os
+
         if os.environ.get("DEBUG"):
             import traceback
+
             console.print(traceback.format_exc(), style=Styles.DIM)
         raise click.Abort()
 
 
 if __name__ == "__main__":
     export_config()
-

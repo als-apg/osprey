@@ -38,7 +38,7 @@ Behaviors:
 
 from typing import Any
 
-from ..models import PythonExecutionRequest, ExecutionError
+from ..models import ExecutionError, PythonExecutionRequest
 
 
 class MockCodeGenerator:
@@ -96,9 +96,7 @@ class MockCodeGenerator:
             self._apply_behavior(behavior)
 
     async def generate_code(
-        self,
-        request: PythonExecutionRequest,
-        error_chain: list[ExecutionError]
+        self, request: PythonExecutionRequest, error_chain: list[ExecutionError]
     ) -> str:
         """Generate Python code based on configured behavior.
 
@@ -188,8 +186,7 @@ class MockCodeGenerator:
 
         if behavior not in behaviors:
             raise ValueError(
-                f"Unknown behavior: {behavior}. "
-                f"Available: {', '.join(behaviors.keys())}"
+                f"Unknown behavior: {behavior}. " f"Available: {', '.join(behaviors.keys())}"
             )
 
         # Apply behavior if it has a generator function
@@ -199,7 +196,8 @@ class MockCodeGenerator:
 
     def _behavior_success(self) -> None:
         """Generate successful, valid Python code."""
-        self.set_code("""
+        self.set_code(
+            """
 # Mock generated code - success path
 import json
 from datetime import datetime
@@ -212,21 +210,25 @@ results = {
     'timestamp': timestamp,
     'status': 'success'
 }
-""".strip())
+""".strip()
+        )
 
     def _behavior_syntax_error(self) -> None:
         """Generate code with syntax error."""
-        self.set_code("""
+        self.set_code(
+            """
 # Mock generated code - syntax error
 def broken_function(
     # Missing closing parenthesis causes syntax error
 
 results = {'value': 42}
-""".strip())
+""".strip()
+        )
 
     def _behavior_runtime_error(self) -> None:
         """Generate code that fails at runtime."""
-        self.set_code("""
+        self.set_code(
+            """
 # Mock generated code - runtime error
 import json
 
@@ -234,11 +236,13 @@ import json
 value = 100 / 0
 
 results = {'value': value}
-""".strip())
+""".strip()
+        )
 
     def _behavior_missing_results(self) -> None:
         """Generate valid code without results dictionary."""
-        self.set_code("""
+        self.set_code(
+            """
 # Mock generated code - missing results
 import json
 
@@ -246,7 +250,8 @@ value = 42 * 2
 
 # Forgot to create results dictionary
 print(f"Value is {value}")
-""".strip())
+""".strip()
+        )
 
     def _behavior_channel_write(self) -> None:
         """Generate code with control system write operations.
@@ -254,7 +259,8 @@ print(f"Value is {value}")
         Uses the unified osprey.runtime API for control system operations.
         Works with any configured control system (EPICS, Mock, etc.).
         """
-        self.set_code("""
+        self.set_code(
+            """
 # Mock generated code - control system write operation
 from osprey.runtime import read_channel, write_channel
 
@@ -269,7 +275,8 @@ results = {
     'new_value': new_value,
     'channel': 'DEVICE:PV:SETPOINT'
 }
-""".strip())
+""".strip()
+        )
 
     def _behavior_channel_read(self) -> None:
         """Generate code with control system read operations only.
@@ -277,7 +284,8 @@ results = {
         Uses the unified osprey.runtime API for control system operations.
         Works with any configured control system (EPICS, Mock, etc.).
         """
-        self.set_code("""
+        self.set_code(
+            """
 # Mock generated code - control system read operation
 from osprey.runtime import read_channel
 
@@ -289,11 +297,13 @@ results = {
     'status': channel_status,
     'operation': 'read_only'
 }
-""".strip())
+""".strip()
+        )
 
     def _behavior_security_risk(self) -> None:
         """Generate code with security concerns."""
-        self.set_code("""
+        self.set_code(
+            """
 # Mock generated code - security risk
 import subprocess
 import os
@@ -308,12 +318,11 @@ results = {
     'output': output.stdout.decode(),
     'files': files
 }
-""".strip())
+""".strip()
+        )
 
     def _generate_error_aware_code(
-        self,
-        request: PythonExecutionRequest,
-        error_chain: list[ExecutionError]
+        self, request: PythonExecutionRequest, error_chain: list[ExecutionError]
     ) -> str:
         """Generate code that adapts based on error feedback."""
         # First attempt
@@ -325,9 +334,9 @@ results['mean'] = mean_value
 """.strip()
 
         # Adapt based on error type - extract error messages from ExecutionError objects
-        errors_str = ' '.join(err.error_message for err in error_chain).lower()
+        errors_str = " ".join(err.error_message for err in error_chain).lower()
 
-        if 'nameerror' in errors_str or 'import' in errors_str:
+        if "nameerror" in errors_str or "import" in errors_str:
             return """
 import json
 from statistics import mean
@@ -340,7 +349,7 @@ results = {
 }
 """.strip()
 
-        if 'zerodivisionerror' in errors_str:
+        if "zerodivisionerror" in errors_str:
             return """
 import json
 
@@ -358,7 +367,7 @@ results = {
 }
 """.strip()
 
-        if 'syntax' in errors_str:
+        if "syntax" in errors_str:
             return """
 import json
 
@@ -381,4 +390,3 @@ results = {
     'message': 'Fixed after error'
 }
 """.strip()
-

@@ -69,12 +69,12 @@ class MockConnector(ControlSystemConnector):
                 - noise_level: Relative noise level 0-1 (default: 0.01)
                 - enable_writes: (DEPRECATED) Use execution_control.epics.writes_enabled instead
         """
-        self._response_delay = config.get('response_delay_ms', 10) / 1000.0
-        self._noise_level = config.get('noise_level', 0.01)
+        self._response_delay = config.get("response_delay_ms", 10) / 1000.0
+        self._noise_level = config.get("noise_level", 0.01)
 
         # Use global writes_enabled flag (with deprecation support)
         # Check for deprecated parameter
-        local_enable = config.get('enable_writes')
+        local_enable = config.get("enable_writes")
         if local_enable is not None:
             logger.warning(
                 "config.control_system.connector.mock.enable_writes is deprecated. "
@@ -88,14 +88,20 @@ class MockConnector(ControlSystemConnector):
             try:
                 from osprey.utils.config import get_config_value
 
-                writes_enabled = get_config_value('control_system.writes_enabled', None)
+                writes_enabled = get_config_value("control_system.writes_enabled", None)
 
                 # Fall back to old location for backward compatibility
                 if writes_enabled is None:
-                    writes_enabled = get_config_value('execution_control.epics.writes_enabled', None)
+                    writes_enabled = get_config_value(
+                        "execution_control.epics.writes_enabled", None
+                    )
                     if writes_enabled is not None:
-                        logger.warning("⚠️  DEPRECATED: 'execution_control.epics.writes_enabled' is deprecated.")
-                        logger.warning("   Please move this setting to 'control_system.writes_enabled' in your config.yml")
+                        logger.warning(
+                            "⚠️  DEPRECATED: 'execution_control.epics.writes_enabled' is deprecated."
+                        )
+                        logger.warning(
+                            "   Please move this setting to 'control_system.writes_enabled' in your config.yml"
+                        )
                     else:
                         writes_enabled = False  # Default to safe
 
@@ -107,6 +113,7 @@ class MockConnector(ControlSystemConnector):
 
         # Initialize limits validator for automatic validation and verification config
         from osprey.services.python_executor.execution.limits_validator import LimitsValidator
+
         self._limits_validator = LimitsValidator.from_config()
         if self._limits_validator:
             logger.debug("Mock connector: limits validator initialized")
@@ -122,9 +129,7 @@ class MockConnector(ControlSystemConnector):
         logger.debug("Mock connector disconnected")
 
     async def read_channel(
-        self,
-        channel_address: str,
-        timeout: float | None = None
+        self, channel_address: str, timeout: float | None = None
     ) -> ChannelValue:
         """
         Read channel - generates realistic value if not cached.
@@ -154,11 +159,13 @@ class MockConnector(ControlSystemConnector):
             metadata=ChannelMetadata(
                 units=self._infer_units(channel_address),
                 timestamp=datetime.now(),
-                description=f"Mock channel: {channel_address}"
-            )
+                description=f"Mock channel: {channel_address}",
+            ),
         )
 
-    def _get_verification_config(self, channel_address: str, value: float) -> tuple[str, float | None]:
+    def _get_verification_config(
+        self, channel_address: str, value: float
+    ) -> tuple[str, float | None]:
         """Get verification level and tolerance for a channel write.
 
         Priority:
@@ -176,7 +183,9 @@ class MockConnector(ControlSystemConnector):
         """
         # Try per-channel config first (if limits validator available)
         if self._limits_validator:
-            level, tolerance = self._limits_validator.get_verification_config(channel_address, value)
+            level, tolerance = self._limits_validator.get_verification_config(
+                channel_address, value
+            )
             if level is not None:
                 logger.debug(f"Using per-channel verification for {channel_address}: {level}")
                 return level, tolerance
@@ -184,20 +193,25 @@ class MockConnector(ControlSystemConnector):
         # Fall back to global config (or hardcoded defaults if config unavailable)
         try:
             from osprey.utils.config import get_config_value
-            level = get_config_value('control_system.write_verification.default_level', 'callback')
+
+            level = get_config_value("control_system.write_verification.default_level", "callback")
 
             # Calculate tolerance for readback verification
             tolerance = None
-            if level == 'readback':
-                default_percent = get_config_value('control_system.write_verification.default_tolerance_percent', 0.1)
+            if level == "readback":
+                default_percent = get_config_value(
+                    "control_system.write_verification.default_tolerance_percent", 0.1
+                )
                 tolerance = abs(value) * default_percent / 100.0
 
             logger.debug(f"Using global verification config for {channel_address}: {level}")
             return level, tolerance
         except (FileNotFoundError, KeyError, RuntimeError):
             # Config not available - use hardcoded safe defaults
-            logger.debug(f"Using hardcoded verification defaults for {channel_address} (config unavailable)")
-            return 'callback', None
+            logger.debug(
+                f"Using hardcoded verification defaults for {channel_address} (config unavailable)"
+            )
+            return "callback", None
 
     async def write_channel(
         self,
@@ -205,7 +219,7 @@ class MockConnector(ControlSystemConnector):
         value: Any,
         timeout: float | None = None,
         verification_level: str | None = None,
-        tolerance: float | None = None
+        tolerance: float | None = None,
     ) -> ChannelWriteResult:
         """
         Write channel with automatic limits validation and verification.
@@ -246,7 +260,9 @@ class MockConnector(ControlSystemConnector):
 
         # Step 2: Auto-determine verification config if not provided
         if verification_level is None:
-            verification_level, auto_tolerance = self._get_verification_config(channel_address, float(value))
+            verification_level, auto_tolerance = self._get_verification_config(
+                channel_address, float(value)
+            )
             if tolerance is None:
                 tolerance = auto_tolerance
         # Step 3: Check writes_enabled flag
@@ -259,9 +275,9 @@ class MockConnector(ControlSystemConnector):
                 verification=WriteVerification(
                     level=verification_level,
                     verified=False,
-                    notes="Writes disabled in mock connector"
+                    notes="Writes disabled in mock connector",
                 ),
-                error_message="Mock connector has writes disabled"
+                error_message="Mock connector has writes disabled",
             )
 
         # Step 4: Execute write with verification
@@ -272,7 +288,7 @@ class MockConnector(ControlSystemConnector):
         self._state[channel_address] = float(value)
 
         # Update corresponding readback channel (simulate small offset)
-        readback_ch = channel_address.replace(':SP', ':RB').replace(':SET', ':GET')
+        readback_ch = channel_address.replace(":SP", ":RB").replace(":SET", ":GET")
         if readback_ch != channel_address:
             # Simulate small offset between setpoint and readback
             offset = np.random.normal(0, abs(float(value)) * 0.001)
@@ -285,10 +301,8 @@ class MockConnector(ControlSystemConnector):
                 value_written=value,
                 success=True,
                 verification=WriteVerification(
-                    level="none",
-                    verified=False,
-                    notes="No verification requested (mock)"
-                )
+                    level="none", verified=False, notes="No verification requested (mock)"
+                ),
             )
 
         elif verification_level == "callback":
@@ -299,10 +313,8 @@ class MockConnector(ControlSystemConnector):
                 value_written=value,
                 success=True,
                 verification=WriteVerification(
-                    level="callback",
-                    verified=True,
-                    notes="Simulated callback confirmation (mock)"
-                )
+                    level="callback", verified=True, notes="Simulated callback confirmation (mock)"
+                ),
             )
 
         elif verification_level == "readback":
@@ -333,10 +345,10 @@ class MockConnector(ControlSystemConnector):
                         tolerance_used=tolerance,
                         notes=(
                             f"Simulated readback: {readback.value}, tolerance: ±{tolerance}, diff: {diff:.6f} (mock)"
-                            if verified else
-                            f"Simulated readback mismatch: {readback.value} (expected {value}, diff: {diff:.6f} > tolerance {tolerance}) (mock)"
-                        )
-                    )
+                            if verified
+                            else f"Simulated readback mismatch: {readback.value} (expected {value}, diff: {diff:.6f} > tolerance {tolerance}) (mock)"
+                        ),
+                    ),
                 )
 
             except Exception as e:
@@ -348,18 +360,18 @@ class MockConnector(ControlSystemConnector):
                     verification=WriteVerification(
                         level="readback",
                         verified=False,
-                        notes=f"Simulated readback failed: {str(e)} (mock)"
+                        notes=f"Simulated readback failed: {str(e)} (mock)",
                     ),
-                    error_message=f"Mock readback verification failed: {str(e)}"
+                    error_message=f"Mock readback verification failed: {str(e)}",
                 )
 
         else:
-            raise ValueError(f"Invalid verification_level: {verification_level}. Must be 'none', 'callback', or 'readback'")
+            raise ValueError(
+                f"Invalid verification_level: {verification_level}. Must be 'none', 'callback', or 'readback'"
+            )
 
     async def read_multiple_channels(
-        self,
-        channel_addresses: list[str],
-        timeout: float | None = None
+        self, channel_addresses: list[str], timeout: float | None = None
     ) -> dict[str, ChannelValue]:
         """Read multiple channels concurrently."""
         tasks = [self.read_channel(ch) for ch in channel_addresses]
@@ -372,9 +384,7 @@ class MockConnector(ControlSystemConnector):
         }
 
     async def subscribe(
-        self,
-        channel_address: str,
-        callback: Callable[[ChannelValue], None]
+        self, channel_address: str, callback: Callable[[ChannelValue], None]
     ) -> str:
         """
         Subscribe to channel changes.
@@ -397,7 +407,7 @@ class MockConnector(ControlSystemConnector):
         return ChannelMetadata(
             units=self._infer_units(channel_address),
             description=f"Mock channel: {channel_address}",
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
 
     async def validate_channel(self, channel_address: str) -> bool:
@@ -412,21 +422,21 @@ class MockConnector(ControlSystemConnector):
         """
         ch_lower = channel_name.lower()
 
-        if 'current' in ch_lower:
-            return 500.0 if 'beam' in ch_lower else 150.0
-        elif 'voltage' in ch_lower:
+        if "current" in ch_lower:
+            return 500.0 if "beam" in ch_lower else 150.0
+        elif "voltage" in ch_lower:
             return 5000.0
-        elif 'power' in ch_lower:
+        elif "power" in ch_lower:
             return 50.0
-        elif 'pressure' in ch_lower:
+        elif "pressure" in ch_lower:
             return 1e-9
-        elif 'temp' in ch_lower:
+        elif "temp" in ch_lower:
             return 25.0
-        elif 'lifetime' in ch_lower:
+        elif "lifetime" in ch_lower:
             return 10.0
-        elif 'position' in ch_lower or 'pos' in ch_lower:
+        elif "position" in ch_lower or "pos" in ch_lower:
             return 0.0
-        elif 'energy' in ch_lower:
+        elif "energy" in ch_lower:
             return 1900.0  # MeV for typical storage ring
         else:
             return 100.0
@@ -435,22 +445,21 @@ class MockConnector(ControlSystemConnector):
         """Infer units from channel name."""
         ch_lower = channel_name.lower()
 
-        if 'current' in ch_lower:
-            return 'mA' if 'beam' in ch_lower else 'A'
-        elif 'voltage' in ch_lower:
-            return 'V'
-        elif 'power' in ch_lower:
-            return 'kW'
-        elif 'pressure' in ch_lower:
-            return 'Torr'
-        elif 'temp' in ch_lower:
-            return '°C'
-        elif 'lifetime' in ch_lower:
-            return 'hours'
-        elif 'position' in ch_lower or 'pos' in ch_lower:
-            return 'mm'
-        elif 'energy' in ch_lower:
-            return 'MeV'
+        if "current" in ch_lower:
+            return "mA" if "beam" in ch_lower else "A"
+        elif "voltage" in ch_lower:
+            return "V"
+        elif "power" in ch_lower:
+            return "kW"
+        elif "pressure" in ch_lower:
+            return "Torr"
+        elif "temp" in ch_lower:
+            return "°C"
+        elif "lifetime" in ch_lower:
+            return "hours"
+        elif "position" in ch_lower or "pos" in ch_lower:
+            return "mm"
+        elif "energy" in ch_lower:
+            return "MeV"
         else:
-            return ''
-
+            return ""

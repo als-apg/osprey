@@ -28,7 +28,9 @@ class PythonExecutorConfig:
         self.max_execution_retries = executor_config.get("max_execution_retries", 3)
 
         # Timeout configuration - how long to wait for operations
-        self.execution_timeout_seconds = executor_config.get("execution_timeout_seconds", 600)  # 10 minutes
+        self.execution_timeout_seconds = executor_config.get(
+            "execution_timeout_seconds", 600
+        )  # 10 minutes
 
         # Limits validator - lazy-loaded from config
         self._limits_validator = None
@@ -45,9 +47,8 @@ class PythonExecutorConfig:
         :rtype: LimitsValidator | None
         """
         if self._limits_validator is None:
-            from osprey.services.python_executor.execution.limits_validator import (
-                LimitsValidator
-            )
+            from osprey.services.python_executor.execution.limits_validator import LimitsValidator
+
             self._limits_validator = LimitsValidator.from_config()
 
             if self._limits_validator:

@@ -12,9 +12,8 @@ from .facility_presets import (
 )
 
 __all__ = [
-    'FACILITY_PRESETS',
-    'get_facility_choices',
-    'get_facility_config',
-    'list_facilities',
+    "FACILITY_PRESETS",
+    "get_facility_choices",
+    "get_facility_config",
+    "list_facilities",
 ]
-

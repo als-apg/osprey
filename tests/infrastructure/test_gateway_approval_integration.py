@@ -18,10 +18,7 @@ def mock_graph():
     interrupt = MagicMock()
     interrupt.value = {
         "user_message": "Test approval request",
-        "resume_payload": {
-            "approval_type": "test_approval",
-            "test_data": "test_value"
-        }
+        "resume_payload": {"approval_type": "test_approval", "test_data": "test_value"},
     }
     interrupt_state.interrupts = [interrupt]
 
@@ -97,7 +94,9 @@ class TestApprovalWorkflowIntegration:
         assert result.is_interrupt_resume is True
 
     @pytest.mark.asyncio
-    async def test_explicit_no_with_punctuation_creates_rejection_command(self, gateway, mock_graph):
+    async def test_explicit_no_with_punctuation_creates_rejection_command(
+        self, gateway, mock_graph
+    ):
         """Test that 'no.' creates correct rejection command."""
         graph, interrupt_state, _ = mock_graph
         graph.get_state.return_value = interrupt_state
@@ -153,17 +152,15 @@ class TestApprovalWorkflowIntegration:
 
         config = {"thread_id": "test"}
 
-        with patch('osprey.infrastructure.gateway.get_chat_completion') as mock_llm:
-            with patch('osprey.infrastructure.gateway.get_model_config') as mock_config:
+        with patch("osprey.infrastructure.gateway.get_chat_completion") as mock_llm:
+            with patch("osprey.infrastructure.gateway.get_model_config") as mock_config:
                 # Setup mocks
                 mock_config.return_value = {"model": "test-model"}
                 mock_llm.return_value = MagicMock(approved=True)
 
                 # Process complex response
                 result = await gateway.process_message(
-                    "I think this looks good, let's proceed",
-                    graph,
-                    config
+                    "I think this looks good, let's proceed", graph, config
                 )
 
                 # Should call LLM for complex response
@@ -205,7 +202,9 @@ class TestApprovalWorkflowIntegration:
 
             # All should be approved
             assert result.resume_command is not None, f"Failed for '{test_input}'"
-            assert result.resume_command.update["approval_approved"] is True, f"Not approved for '{test_input}'"
+            assert (
+                result.resume_command.update["approval_approved"] is True
+            ), f"Not approved for '{test_input}'"
 
     @pytest.mark.asyncio
     async def test_case_insensitive_rejection(self, gateway, mock_graph):
@@ -222,7 +221,9 @@ class TestApprovalWorkflowIntegration:
 
             # All should be rejected
             assert result.resume_command is not None, f"Failed for '{test_input}'"
-            assert result.resume_command.update["approval_approved"] is False, f"Not rejected for '{test_input}'"
+            assert (
+                result.resume_command.update["approval_approved"] is False
+            ), f"Not rejected for '{test_input}'"
 
     @pytest.mark.asyncio
     async def test_whitespace_handling(self, gateway, mock_graph):
@@ -239,5 +240,6 @@ class TestApprovalWorkflowIntegration:
 
             # All should be approved
             assert result.resume_command is not None, f"Failed for '{test_input}'"
-            assert result.resume_command.update["approval_approved"] is True, f"Not approved for '{test_input}'"
-
+            assert (
+                result.resume_command.update["approval_approved"] is True
+            ), f"Not approved for '{test_input}'"

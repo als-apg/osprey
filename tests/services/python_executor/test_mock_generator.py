@@ -17,12 +17,12 @@ Test Coverage:
 import pytest
 
 from osprey.services.python_executor.generation import CodeGenerator, MockCodeGenerator
-from osprey.services.python_executor.models import PythonExecutionRequest, ExecutionError
-
+from osprey.services.python_executor.models import ExecutionError, PythonExecutionRequest
 
 # =============================================================================
 # PROTOCOL COMPLIANCE TESTS
 # =============================================================================
+
 
 class TestMockGeneratorProtocol:
     """Test that MockCodeGenerator implements the CodeGenerator protocol."""
@@ -35,7 +35,7 @@ class TestMockGeneratorProtocol:
     def test_has_generate_code_method(self):
         """MockCodeGenerator should have generate_code method."""
         generator = MockCodeGenerator()
-        assert hasattr(generator, 'generate_code')
+        assert hasattr(generator, "generate_code")
         assert callable(generator.generate_code)
 
     def test_accepts_model_config(self):
@@ -49,6 +49,7 @@ class TestMockGeneratorProtocol:
 # STATIC CODE GENERATION TESTS
 # =============================================================================
 
+
 class TestStaticCodeGeneration:
     """Test static code generation mode."""
 
@@ -60,9 +61,7 @@ class TestStaticCodeGeneration:
         generator.set_code(test_code)
 
         request = PythonExecutionRequest(
-            user_query="Test",
-            task_objective="Test",
-            execution_folder_name="test"
+            user_query="Test", task_objective="Test", execution_folder_name="test"
         )
 
         code = await generator.generate_code(request, [])
@@ -76,9 +75,7 @@ class TestStaticCodeGeneration:
         generator.set_code(test_code)
 
         request = PythonExecutionRequest(
-            user_query="Test",
-            task_objective="Test",
-            execution_folder_name="test"
+            user_query="Test", task_objective="Test", execution_folder_name="test"
         )
 
         # Multiple calls should return same code
@@ -96,9 +93,7 @@ class TestStaticCodeGeneration:
         generator = MockCodeGenerator()
 
         request = PythonExecutionRequest(
-            user_query="Test",
-            task_objective="Test",
-            execution_folder_name="test"
+            user_query="Test", task_objective="Test", execution_folder_name="test"
         )
 
         with pytest.raises(ValueError, match="not configured"):
@@ -108,6 +103,7 @@ class TestStaticCodeGeneration:
 # =============================================================================
 # CODE SEQUENCE TESTS
 # =============================================================================
+
 
 class TestCodeSequenceGeneration:
     """Test code sequence generation mode."""
@@ -119,14 +115,12 @@ class TestCodeSequenceGeneration:
         sequence = [
             "results = {'attempt': 1}",
             "results = {'attempt': 2}",
-            "results = {'attempt': 3}"
+            "results = {'attempt': 3}",
         ]
         generator.set_code_sequence(sequence)
 
         request = PythonExecutionRequest(
-            user_query="Test",
-            task_objective="Test",
-            execution_folder_name="test"
+            user_query="Test", task_objective="Test", execution_folder_name="test"
         )
 
         code1 = await generator.generate_code(request, [])
@@ -141,16 +135,11 @@ class TestCodeSequenceGeneration:
     async def test_sequence_repeats_last_code(self):
         """After sequence exhausted, should repeat last code."""
         generator = MockCodeGenerator()
-        sequence = [
-            "results = {'first': 1}",
-            "results = {'last': 2}"
-        ]
+        sequence = ["results = {'first': 1}", "results = {'last': 2}"]
         generator.set_code_sequence(sequence)
 
         request = PythonExecutionRequest(
-            user_query="Test",
-            task_objective="Test",
-            execution_folder_name="test"
+            user_query="Test", task_objective="Test", execution_folder_name="test"
         )
 
         # Call more times than sequence length
@@ -173,9 +162,7 @@ class TestCodeSequenceGeneration:
         generator.set_code("new_static")
 
         request = PythonExecutionRequest(
-            user_query="Test",
-            task_objective="Test",
-            execution_folder_name="test"
+            user_query="Test", task_objective="Test", execution_folder_name="test"
         )
 
         code1 = await generator.generate_code(request, [])
@@ -193,9 +180,7 @@ class TestCodeSequenceGeneration:
         generator.set_code_sequence(["seq1", "seq2"])
 
         request = PythonExecutionRequest(
-            user_query="Test",
-            task_objective="Test",
-            execution_folder_name="test"
+            user_query="Test", task_objective="Test", execution_folder_name="test"
         )
 
         code1 = await generator.generate_code(request, [])
@@ -210,6 +195,7 @@ class TestCodeSequenceGeneration:
 # PREDEFINED BEHAVIORS TESTS
 # =============================================================================
 
+
 class TestPredefinedBehaviors:
     """Test predefined behavior patterns."""
 
@@ -219,19 +205,17 @@ class TestPredefinedBehaviors:
         generator = MockCodeGenerator(behavior="success")
 
         request = PythonExecutionRequest(
-            user_query="Test",
-            task_objective="Test",
-            execution_folder_name="test"
+            user_query="Test", task_objective="Test", execution_folder_name="test"
         )
 
         code = await generator.generate_code(request, [])
 
         # Should be valid Python
-        compile(code, '<string>', 'exec')
+        compile(code, "<string>", "exec")
 
         # Should have results dictionary
-        assert 'results' in code
-        assert '{' in code
+        assert "results" in code
+        assert "{" in code
 
     @pytest.mark.asyncio
     async def test_behavior_syntax_error(self):
@@ -239,16 +223,14 @@ class TestPredefinedBehaviors:
         generator = MockCodeGenerator(behavior="syntax_error")
 
         request = PythonExecutionRequest(
-            user_query="Test",
-            task_objective="Test",
-            execution_folder_name="test"
+            user_query="Test", task_objective="Test", execution_folder_name="test"
         )
 
         code = await generator.generate_code(request, [])
 
         # Should have syntax error
         with pytest.raises(SyntaxError):
-            compile(code, '<string>', 'exec')
+            compile(code, "<string>", "exec")
 
     @pytest.mark.asyncio
     async def test_behavior_runtime_error(self):
@@ -256,18 +238,16 @@ class TestPredefinedBehaviors:
         generator = MockCodeGenerator(behavior="runtime_error")
 
         request = PythonExecutionRequest(
-            user_query="Test",
-            task_objective="Test",
-            execution_folder_name="test"
+            user_query="Test", task_objective="Test", execution_folder_name="test"
         )
 
         code = await generator.generate_code(request, [])
 
         # Should compile (valid syntax)
-        compile(code, '<string>', 'exec')
+        compile(code, "<string>", "exec")
 
         # Should have division by zero
-        assert '/ 0' in code
+        assert "/ 0" in code
 
     @pytest.mark.asyncio
     async def test_behavior_missing_results(self):
@@ -275,18 +255,16 @@ class TestPredefinedBehaviors:
         generator = MockCodeGenerator(behavior="missing_results")
 
         request = PythonExecutionRequest(
-            user_query="Test",
-            task_objective="Test",
-            execution_folder_name="test"
+            user_query="Test", task_objective="Test", execution_folder_name="test"
         )
 
         code = await generator.generate_code(request, [])
 
         # Should be valid Python
-        compile(code, '<string>', 'exec')
+        compile(code, "<string>", "exec")
 
         # Should not have results = {...}
-        assert 'results = {' not in code or 'results = {}' not in code
+        assert "results = {" not in code or "results = {}" not in code
 
     @pytest.mark.asyncio
     async def test_behavior_channel_write(self):
@@ -294,17 +272,15 @@ class TestPredefinedBehaviors:
         generator = MockCodeGenerator(behavior="channel_write")
 
         request = PythonExecutionRequest(
-            user_query="Test",
-            task_objective="Test",
-            execution_folder_name="test"
+            user_query="Test", task_objective="Test", execution_folder_name="test"
         )
 
         code = await generator.generate_code(request, [])
 
         # Should have runtime imports and write operations
-        assert 'osprey.runtime' in code
-        assert 'write_channel' in code
-        assert 'results' in code
+        assert "osprey.runtime" in code
+        assert "write_channel" in code
+        assert "results" in code
 
     @pytest.mark.asyncio
     async def test_behavior_channel_read(self):
@@ -312,18 +288,16 @@ class TestPredefinedBehaviors:
         generator = MockCodeGenerator(behavior="channel_read")
 
         request = PythonExecutionRequest(
-            user_query="Test",
-            task_objective="Test",
-            execution_folder_name="test"
+            user_query="Test", task_objective="Test", execution_folder_name="test"
         )
 
         code = await generator.generate_code(request, [])
 
         # Should have runtime imports and read operations
-        assert 'osprey.runtime' in code
-        assert 'read_channel' in code
+        assert "osprey.runtime" in code
+        assert "read_channel" in code
         # Should NOT have write operations
-        assert 'write_channel' not in code
+        assert "write_channel" not in code
 
     @pytest.mark.asyncio
     async def test_behavior_security_risk(self):
@@ -331,15 +305,13 @@ class TestPredefinedBehaviors:
         generator = MockCodeGenerator(behavior="security_risk")
 
         request = PythonExecutionRequest(
-            user_query="Test",
-            task_objective="Test",
-            execution_folder_name="test"
+            user_query="Test", task_objective="Test", execution_folder_name="test"
         )
 
         code = await generator.generate_code(request, [])
 
         # Should have security-sensitive operations
-        assert 'subprocess' in code or 'os.system' in code
+        assert "subprocess" in code or "os.system" in code
 
     def test_unknown_behavior_raises_error(self):
         """Unknown behavior should raise ValueError."""
@@ -351,6 +323,7 @@ class TestPredefinedBehaviors:
 # ERROR-AWARE GENERATION TESTS
 # =============================================================================
 
+
 class TestErrorAwareGeneration:
     """Test error-aware generation that adapts to feedback."""
 
@@ -360,16 +333,14 @@ class TestErrorAwareGeneration:
         generator = MockCodeGenerator(behavior="error_aware")
 
         request = PythonExecutionRequest(
-            user_query="Test",
-            task_objective="Test",
-            execution_folder_name="test"
+            user_query="Test", task_objective="Test", execution_folder_name="test"
         )
 
         code = await generator.generate_code(request, [])
 
         # Should be valid Python
-        compile(code, '<string>', 'exec')
-        assert 'results' in code
+        compile(code, "<string>", "exec")
+        assert "results" in code
 
     @pytest.mark.asyncio
     async def test_adapts_to_import_error(self):
@@ -377,9 +348,7 @@ class TestErrorAwareGeneration:
         generator = MockCodeGenerator(behavior="error_aware")
 
         request = PythonExecutionRequest(
-            user_query="Test",
-            task_objective="Test",
-            execution_folder_name="test"
+            user_query="Test", task_objective="Test", execution_folder_name="test"
         )
 
         # Second attempt with import error
@@ -388,14 +357,14 @@ class TestErrorAwareGeneration:
                 error_type="execution",
                 error_message="NameError: name 'statistics' is not defined",
                 attempt_number=1,
-                stage="execution"
+                stage="execution",
             )
         ]
         code = await generator.generate_code(request, error_chain)
 
         # Should have added imports
-        assert 'import' in code
-        assert 'results' in code
+        assert "import" in code
+        assert "results" in code
 
     @pytest.mark.asyncio
     async def test_adapts_to_zero_division_error(self):
@@ -403,9 +372,7 @@ class TestErrorAwareGeneration:
         generator = MockCodeGenerator(behavior="error_aware")
 
         request = PythonExecutionRequest(
-            user_query="Test",
-            task_objective="Test",
-            execution_folder_name="test"
+            user_query="Test", task_objective="Test", execution_folder_name="test"
         )
 
         error_chain = [
@@ -413,13 +380,13 @@ class TestErrorAwareGeneration:
                 error_type="execution",
                 error_message="ZeroDivisionError: division by zero",
                 attempt_number=1,
-                stage="execution"
+                stage="execution",
             )
         ]
         code = await generator.generate_code(request, error_chain)
 
         # Should have zero check
-        assert ('if' in code and '> 0' in code) or 'count > 0' in code
+        assert ("if" in code and "> 0" in code) or "count > 0" in code
 
     @pytest.mark.asyncio
     async def test_adapts_to_syntax_error(self):
@@ -427,9 +394,7 @@ class TestErrorAwareGeneration:
         generator = MockCodeGenerator(behavior="error_aware")
 
         request = PythonExecutionRequest(
-            user_query="Test",
-            task_objective="Test",
-            execution_folder_name="test"
+            user_query="Test", task_objective="Test", execution_folder_name="test"
         )
 
         error_chain = [
@@ -437,13 +402,13 @@ class TestErrorAwareGeneration:
                 error_type="syntax",
                 error_message="SyntaxError: invalid syntax",
                 attempt_number=1,
-                stage="generation"
+                stage="generation",
             )
         ]
         code = await generator.generate_code(request, error_chain)
 
         # Should be valid Python now
-        compile(code, '<string>', 'exec')
+        compile(code, "<string>", "exec")
 
     @pytest.mark.asyncio
     async def test_generic_fix_for_unknown_errors(self):
@@ -451,9 +416,7 @@ class TestErrorAwareGeneration:
         generator = MockCodeGenerator(behavior="error_aware")
 
         request = PythonExecutionRequest(
-            user_query="Test",
-            task_objective="Test",
-            execution_folder_name="test"
+            user_query="Test", task_objective="Test", execution_folder_name="test"
         )
 
         error_chain = [
@@ -461,19 +424,20 @@ class TestErrorAwareGeneration:
                 error_type="execution",
                 error_message="SomeWeirdError: something went wrong",
                 attempt_number=1,
-                stage="execution"
+                stage="execution",
             )
         ]
         code = await generator.generate_code(request, error_chain)
 
         # Should return simple working code
-        compile(code, '<string>', 'exec')
-        assert 'results' in code
+        compile(code, "<string>", "exec")
+        assert "results" in code
 
 
 # =============================================================================
 # CALL TRACKING TESTS
 # =============================================================================
+
 
 class TestCallTracking:
     """Test call tracking and state management."""
@@ -485,9 +449,7 @@ class TestCallTracking:
         generator.set_code("results = {}")
 
         request = PythonExecutionRequest(
-            user_query="Test",
-            task_objective="Test",
-            execution_folder_name="test"
+            user_query="Test", task_objective="Test", execution_folder_name="test"
         )
 
         assert generator.call_count == 0
@@ -508,15 +470,11 @@ class TestCallTracking:
         generator.set_code("results = {}")
 
         request1 = PythonExecutionRequest(
-            user_query="First query",
-            task_objective="First task",
-            execution_folder_name="test1"
+            user_query="First query", task_objective="First task", execution_folder_name="test1"
         )
 
         request2 = PythonExecutionRequest(
-            user_query="Second query",
-            task_objective="Second task",
-            execution_folder_name="test2"
+            user_query="Second query", task_objective="Second task", execution_folder_name="test2"
         )
 
         await generator.generate_code(request1, [])
@@ -532,32 +490,21 @@ class TestCallTracking:
         generator.set_code("results = {}")
 
         request = PythonExecutionRequest(
-            user_query="Test",
-            task_objective="Test",
-            execution_folder_name="test"
+            user_query="Test", task_objective="Test", execution_folder_name="test"
         )
 
         error_chain1 = [
             ExecutionError(
-                error_type="execution",
-                error_message="Error 1",
-                attempt_number=1,
-                stage="execution"
+                error_type="execution", error_message="Error 1", attempt_number=1, stage="execution"
             )
         ]
         error_chain2 = [
             ExecutionError(
-                error_type="execution",
-                error_message="Error 2",
-                attempt_number=1,
-                stage="execution"
+                error_type="execution", error_message="Error 2", attempt_number=1, stage="execution"
             ),
             ExecutionError(
-                error_type="execution",
-                error_message="Error 3",
-                attempt_number=2,
-                stage="execution"
-            )
+                error_type="execution", error_message="Error 3", attempt_number=2, stage="execution"
+            ),
         ]
 
         await generator.generate_code(request, error_chain1)
@@ -572,16 +519,11 @@ class TestCallTracking:
         generator.set_code("results = {}")
         generator.call_count = 5
         generator.last_request = PythonExecutionRequest(
-            user_query="Test",
-            task_objective="Test",
-            execution_folder_name="test"
+            user_query="Test", task_objective="Test", execution_folder_name="test"
         )
         generator.last_error_chain = [
             ExecutionError(
-                error_type="execution",
-                error_message="error",
-                attempt_number=1,
-                stage="execution"
+                error_type="execution", error_message="error", attempt_number=1, stage="execution"
             )
         ]
 
@@ -607,6 +549,7 @@ class TestCallTracking:
 # INTEGRATION TESTS
 # =============================================================================
 
+
 class TestMockGeneratorIntegration:
     """Integration tests combining multiple features."""
 
@@ -616,21 +559,20 @@ class TestMockGeneratorIntegration:
         generator = MockCodeGenerator()
 
         # First attempt fails (syntax error)
-        generator.set_code_sequence([
-            "def broken(",  # Syntax error
-            "results = {'fixed': True}"  # Fixed version
-        ])
+        generator.set_code_sequence(
+            ["def broken(", "results = {'fixed': True}"]  # Syntax error  # Fixed version
+        )
 
         request = PythonExecutionRequest(
             user_query="Calculate statistics",
             task_objective="Compute mean",
-            execution_folder_name="test"
+            execution_folder_name="test",
         )
 
         # First call: get broken code
         code1 = await generator.generate_code(request, [])
         with pytest.raises(SyntaxError):
-            compile(code1, '<string>', 'exec')
+            compile(code1, "<string>", "exec")
 
         # Second call: get fixed code
         error_chain = [
@@ -638,11 +580,11 @@ class TestMockGeneratorIntegration:
                 error_type="syntax",
                 error_message="SyntaxError: invalid syntax",
                 attempt_number=1,
-                stage="generation"
+                stage="generation",
             )
         ]
         code2 = await generator.generate_code(request, error_chain)
-        compile(code2, '<string>', 'exec')  # Should work now
+        compile(code2, "<string>", "exec")  # Should work now
 
         # Verify tracking
         assert generator.call_count == 2
@@ -654,9 +596,7 @@ class TestMockGeneratorIntegration:
         generator = MockCodeGenerator(behavior="error_aware")
 
         request = PythonExecutionRequest(
-            user_query="Test",
-            task_objective="Test",
-            execution_folder_name="test"
+            user_query="Test", task_objective="Test", execution_folder_name="test"
         )
 
         # First: no errors
@@ -667,7 +607,7 @@ class TestMockGeneratorIntegration:
             error_type="execution",
             error_message="NameError: name 'x' is not defined",
             attempt_number=1,
-            stage="execution"
+            stage="execution",
         )
         code2 = await generator.generate_code(request, [error1])
 
@@ -676,23 +616,24 @@ class TestMockGeneratorIntegration:
             error_type="execution",
             error_message="ZeroDivisionError",
             attempt_number=2,
-            stage="execution"
+            stage="execution",
         )
         code3 = await generator.generate_code(request, [error2])
 
         # Each should be valid Python
-        compile(code1, '<string>', 'exec')
-        compile(code2, '<string>', 'exec')
-        compile(code3, '<string>', 'exec')
+        compile(code1, "<string>", "exec")
+        compile(code2, "<string>", "exec")
+        compile(code3, "<string>", "exec")
 
         # Should have adapted
-        assert 'import' in code2  # Added imports
-        assert 'if' in code3 or 'check' in code3.lower()  # Added check
+        assert "import" in code2  # Added imports
+        assert "if" in code3 or "check" in code3.lower()  # Added check
 
 
 # =============================================================================
 # FIXTURES
 # =============================================================================
+
 
 @pytest.fixture
 def sample_request():
@@ -701,7 +642,7 @@ def sample_request():
         user_query="Calculate mean of dataset",
         task_objective="Statistical analysis",
         execution_folder_name="test_analysis",
-        expected_results={"mean": "float", "count": "int"}
+        expected_results={"mean": "float", "count": "int"},
     )
 
 
@@ -709,4 +650,3 @@ def sample_request():
 def mock_generator():
     """Fixture providing a fresh mock generator."""
     return MockCodeGenerator()
-

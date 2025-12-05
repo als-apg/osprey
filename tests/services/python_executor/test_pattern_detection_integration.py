@@ -37,21 +37,22 @@ results = {'status': 'success'}
             prohibited_imports=[],
             has_result_structure=True,
             code=runtime_write_code,
-            code_length=len(runtime_write_code)
+            code_length=len(runtime_write_code),
         )
 
         result = await analyzer.analyze_domain(basic_analysis)
 
         # Should detect control system type
-        assert 'control_system_type' in result.domain_data
-        assert result.domain_data['control_system_type'] in ['epics', 'mock']
+        assert "control_system_type" in result.domain_data
+        assert result.domain_data["control_system_type"] in ["epics", "mock"]
 
         # Should detect write operations
-        assert any('_writes' in op for op in result.detected_operations), \
-            f"Expected write operations in {result.detected_operations}"
+        assert any(
+            "_writes" in op for op in result.detected_operations
+        ), f"Expected write operations in {result.detected_operations}"
 
         # Should store detected patterns
-        assert 'detected_write_patterns' in result.domain_data
+        assert "detected_write_patterns" in result.domain_data
 
     @pytest.mark.asyncio
     async def test_detects_epics_writes(self):
@@ -74,13 +75,13 @@ results = {}
             prohibited_imports=[],
             has_result_structure=True,
             code=code,
-            code_length=len(code)
+            code_length=len(code),
         )
 
         result = await analyzer.analyze_domain(basic_analysis)
 
         # Should detect write operation
-        has_writes = any('_writes' in op for op in result.detected_operations)
+        has_writes = any("_writes" in op for op in result.detected_operations)
         assert has_writes, f"Write operation not detected. Operations: {result.detected_operations}"
 
     @pytest.mark.asyncio
@@ -104,13 +105,13 @@ results = {'value': value}
             prohibited_imports=[],
             has_result_structure=True,
             code=code,
-            code_length=len(code)
+            code_length=len(code),
         )
 
         result = await analyzer.analyze_domain(basic_analysis)
 
         # Should detect read operation
-        has_reads = any('_reads' in op for op in result.detected_operations)
+        has_reads = any("_reads" in op for op in result.detected_operations)
         assert has_reads, f"Read operation not detected. Operations: {result.detected_operations}"
 
     @pytest.mark.asyncio
@@ -134,19 +135,21 @@ results = {}
             prohibited_imports=[],
             has_result_structure=True,
             code=code,
-            code_length=len(code)
+            code_length=len(code),
         )
 
         result = await analyzer.analyze_domain(basic_analysis)
 
         # For EPICS control system, should also set legacy flags
-        if result.domain_data.get('control_system_type') == 'epics':
-            assert 'epics_writes' in result.detected_operations, \
-                "Should set epics_writes for backward compatibility"
-            assert 'epics_reads' in result.detected_operations, \
-                "Should set epics_reads for backward compatibility"
-            assert result.domain_data.get('epics_write_operations') is True
-            assert result.domain_data.get('epics_read_operations') is True
+        if result.domain_data.get("control_system_type") == "epics":
+            assert (
+                "epics_writes" in result.detected_operations
+            ), "Should set epics_writes for backward compatibility"
+            assert (
+                "epics_reads" in result.detected_operations
+            ), "Should set epics_reads for backward compatibility"
+            assert result.domain_data.get("epics_write_operations") is True
+            assert result.domain_data.get("epics_read_operations") is True
 
     @pytest.mark.asyncio
     async def test_no_operations_detected(self):
@@ -169,14 +172,14 @@ results = {'mean': mean}
             prohibited_imports=[],
             has_result_structure=True,
             code=code,
-            code_length=len(code)
+            code_length=len(code),
         )
 
         result = await analyzer.analyze_domain(basic_analysis)
 
         # Should not detect any control system operations
-        assert not any('_writes' in op for op in result.detected_operations)
-        assert not any('_reads' in op for op in result.detected_operations)
+        assert not any("_writes" in op for op in result.detected_operations)
+        assert not any("_reads" in op for op in result.detected_operations)
 
     @pytest.mark.asyncio
     async def test_multiple_write_patterns(self):
@@ -202,13 +205,13 @@ results = {'mean': mean}
                 prohibited_imports=[],
                 has_result_structure=True,
                 code=full_code,
-                code_length=len(full_code)
+                code_length=len(full_code),
             )
 
             result = await analyzer.analyze_domain(basic_analysis)
 
             # Should detect write in all cases
-            has_writes = any('_writes' in op for op in result.detected_operations)
+            has_writes = any("_writes" in op for op in result.detected_operations)
             assert has_writes, f"Failed to detect write in: {code}"
 
     @pytest.mark.asyncio
@@ -232,16 +235,19 @@ results = {}
             prohibited_imports=[],
             has_result_structure=True,
             code=code,
-            code_length=len(code)
+            code_length=len(code),
         )
 
         result = await analyzer.analyze_domain(basic_analysis)
 
         # Should set risk category for writes
-        assert len(result.risk_categories) > 0, \
-            "Risk categories should be set for control system writes"
-        assert 'control_system_write' in result.risk_categories or \
-               'accelerator_control' in result.risk_categories
+        assert (
+            len(result.risk_categories) > 0
+        ), "Risk categories should be set for control system writes"
+        assert (
+            "control_system_write" in result.risk_categories
+            or "accelerator_control" in result.risk_categories
+        )
 
 
 class TestPatternDetectionDirect:
@@ -251,26 +257,27 @@ class TestPatternDetectionDirect:
         """Verify pattern_detection module can be imported."""
         from osprey.services.python_executor.analysis.pattern_detection import (
             detect_control_system_operations,
-            get_framework_standard_patterns
+            get_framework_standard_patterns,
         )
+
         assert detect_control_system_operations is not None
         assert get_framework_standard_patterns is not None
 
     def test_framework_patterns_structure(self):
         """Test that framework patterns have correct structure."""
         from osprey.services.python_executor.analysis.pattern_detection import (
-            get_framework_standard_patterns
+            get_framework_standard_patterns,
         )
 
         patterns = get_framework_standard_patterns()
 
         # Should have flat structure with write and read patterns
-        assert 'write' in patterns
-        assert 'read' in patterns
-        assert isinstance(patterns['write'], list)
-        assert isinstance(patterns['read'], list)
-        assert len(patterns['write']) > 0
-        assert len(patterns['read']) > 0
+        assert "write" in patterns
+        assert "read" in patterns
+        assert isinstance(patterns["write"], list)
+        assert isinstance(patterns["read"], list)
+        assert len(patterns["write"]) > 0
+        assert len(patterns["read"]) > 0
 
     def test_detect_epics_operations(self):
         """Test pattern detection for EPICS operations."""
@@ -282,15 +289,15 @@ class TestPatternDetectionDirect:
         write_code = "caput('PV', 42)"
         result = detect_control_system_operations(code=write_code)
 
-        assert result['has_writes'] is True
-        assert len(result['detected_patterns']['writes']) > 0
+        assert result["has_writes"] is True
+        assert len(result["detected_patterns"]["writes"]) > 0
 
         # Test EPICS read
         read_code = "value = caget('PV')"
         result = detect_control_system_operations(code=read_code)
 
-        assert result['has_reads'] is True
-        assert len(result['detected_patterns']['reads']) > 0
+        assert result["has_reads"] is True
+        assert len(result["detected_patterns"]["reads"]) > 0
 
     def test_detect_unified_api_operations(self):
         """Test pattern detection for unified API operations."""
@@ -302,13 +309,13 @@ class TestPatternDetectionDirect:
         write_code = "write_channel('PV', 42)"
         result = detect_control_system_operations(code=write_code)
 
-        assert result['has_writes'] is True
+        assert result["has_writes"] is True
 
         # Test unified API read
         read_code = "value = read_channel('PV')"
         result = detect_control_system_operations(code=read_code)
 
-        assert result['has_reads'] is True
+        assert result["has_reads"] is True
 
     def test_no_operations_detected_direct(self):
         """Test that non-control-system code doesn't trigger detection."""
@@ -319,8 +326,8 @@ class TestPatternDetectionDirect:
         code = "import numpy as np\nresult = np.mean([1, 2, 3])"
         result = detect_control_system_operations(code=code)
 
-        assert result['has_writes'] is False
-        assert result['has_reads'] is False
+        assert result["has_writes"] is False
+        assert result["has_reads"] is False
 
     def test_control_system_agnostic_detection(self):
         """Test that patterns work regardless of control_system_type."""
@@ -331,14 +338,13 @@ class TestPatternDetectionDirect:
         # Patterns should work the same regardless of control_system_type
         code = "write_channel('PV', 42)"
 
-        result_epics = detect_control_system_operations(code, control_system_type='epics')
-        result_mock = detect_control_system_operations(code, control_system_type='mock')
+        result_epics = detect_control_system_operations(code, control_system_type="epics")
+        result_mock = detect_control_system_operations(code, control_system_type="mock")
 
         # Should detect writes regardless of control system type
-        assert result_epics['has_writes'] is True
-        assert result_mock['has_writes'] is True
+        assert result_epics["has_writes"] is True
+        assert result_mock["has_writes"] is True
 
         # Both should have detected write patterns
-        assert len(result_epics['detected_patterns']['writes']) > 0
-        assert len(result_mock['detected_patterns']['writes']) > 0
-
+        assert len(result_epics["detected_patterns"]["writes"]) > 0
+        assert len(result_mock["detected_patterns"]["writes"]) > 0

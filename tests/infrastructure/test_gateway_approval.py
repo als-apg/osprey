@@ -18,7 +18,7 @@ class TestExplicitApprovalDetection:
 
     def test_explicit_yes(self, gateway):
         """Test that 'yes' is detected as approval without LLM call."""
-        with patch('osprey.infrastructure.gateway.get_chat_completion') as mock_llm:
+        with patch("osprey.infrastructure.gateway.get_chat_completion") as mock_llm:
             result = gateway._detect_approval_response("yes")
 
             # Should not call LLM for simple "yes"
@@ -32,7 +32,7 @@ class TestExplicitApprovalDetection:
         """Test that 'yes!' and 'yes.' are detected as approval."""
         test_cases = ["yes!", "yes.", "yes?", "Yes!", "YES."]
 
-        with patch('osprey.infrastructure.gateway.get_chat_completion') as mock_llm:
+        with patch("osprey.infrastructure.gateway.get_chat_completion") as mock_llm:
             for test_input in test_cases:
                 result = gateway._detect_approval_response(test_input)
 
@@ -47,7 +47,7 @@ class TestExplicitApprovalDetection:
         """Test various explicit approval words."""
         test_cases = ["y", "yep", "yeah", "ok", "okay", "OK!", "OKAY."]
 
-        with patch('osprey.infrastructure.gateway.get_chat_completion') as mock_llm:
+        with patch("osprey.infrastructure.gateway.get_chat_completion") as mock_llm:
             for test_input in test_cases:
                 result = gateway._detect_approval_response(test_input)
 
@@ -60,7 +60,7 @@ class TestExplicitApprovalDetection:
 
     def test_explicit_no(self, gateway):
         """Test that 'no' is detected as rejection without LLM call."""
-        with patch('osprey.infrastructure.gateway.get_chat_completion') as mock_llm:
+        with patch("osprey.infrastructure.gateway.get_chat_completion") as mock_llm:
             result = gateway._detect_approval_response("no")
 
             # Should not call LLM for simple "no"
@@ -74,7 +74,7 @@ class TestExplicitApprovalDetection:
         """Test that 'no!' and 'no.' are detected as rejection."""
         test_cases = ["no!", "no.", "no?", "No!", "NO."]
 
-        with patch('osprey.infrastructure.gateway.get_chat_completion') as mock_llm:
+        with patch("osprey.infrastructure.gateway.get_chat_completion") as mock_llm:
             for test_input in test_cases:
                 result = gateway._detect_approval_response(test_input)
 
@@ -89,7 +89,7 @@ class TestExplicitApprovalDetection:
         """Test various explicit rejection words."""
         test_cases = ["n", "nope", "nah", "cancel", "CANCEL!", "Nope."]
 
-        with patch('osprey.infrastructure.gateway.get_chat_completion') as mock_llm:
+        with patch("osprey.infrastructure.gateway.get_chat_completion") as mock_llm:
             for test_input in test_cases:
                 result = gateway._detect_approval_response(test_input)
 
@@ -102,8 +102,8 @@ class TestExplicitApprovalDetection:
 
     def test_complex_response_uses_llm(self, gateway):
         """Test that complex responses fall back to LLM detection."""
-        with patch('osprey.infrastructure.gateway.get_chat_completion') as mock_llm:
-            with patch('osprey.infrastructure.gateway.get_model_config') as mock_config:
+        with patch("osprey.infrastructure.gateway.get_chat_completion") as mock_llm:
+            with patch("osprey.infrastructure.gateway.get_model_config") as mock_config:
                 # Setup mocks
                 mock_config.return_value = {"model": "test-model"}
                 mock_llm.return_value = MagicMock(approved=True)
@@ -121,7 +121,7 @@ class TestExplicitApprovalDetection:
         test_cases = ["  yes  ", "\tyes\t", "\nyes\n", "  yes!  ", "  no.  "]
         expected_results = [True, True, True, True, False]
 
-        with patch('osprey.infrastructure.gateway.get_chat_completion') as mock_llm:
+        with patch("osprey.infrastructure.gateway.get_chat_completion") as mock_llm:
             for test_input, expected_approved in zip(test_cases, expected_results):
                 result = gateway._detect_approval_response(test_input)
 
@@ -136,7 +136,7 @@ class TestExplicitApprovalDetection:
         test_cases = ["YES", "Yes", "yEs", "NO", "No", "nO"]
         expected_results = [True, True, True, False, False, False]
 
-        with patch('osprey.infrastructure.gateway.get_chat_completion') as mock_llm:
+        with patch("osprey.infrastructure.gateway.get_chat_completion") as mock_llm:
             for test_input, expected_approved in zip(test_cases, expected_results):
                 result = gateway._detect_approval_response(test_input)
 
@@ -145,4 +145,3 @@ class TestExplicitApprovalDetection:
 
                 assert result is not None, f"No result for '{test_input}'"
                 assert result["approved"] == expected_approved, f"Wrong approval for '{test_input}'"
-

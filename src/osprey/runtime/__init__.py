@@ -31,7 +31,17 @@ import asyncio
 import atexit
 from typing import Any
 
-__all__ = ['configure_from_context', 'write_channel', 'read_channel', 'write_channels', 'cleanup_runtime']
+from osprey.utils.logger import get_logger
+
+logger = get_logger("runtime")
+
+__all__ = [
+    "configure_from_context",
+    "write_channel",
+    "read_channel",
+    "write_channels",
+    "cleanup_runtime",
+]
 
 # Module-level state
 _runtime_connector: Any | None = None
@@ -60,31 +70,32 @@ def configure_from_context(context) -> None:
     global _runtime_config
 
     # Try context snapshot first
-    if context and hasattr(context, '_data'):
+    if context and hasattr(context, "_data"):
         try:
             # Access the raw data dictionary
-            raw_data = context._data if hasattr(context, '_data') else {}
-            exec_config = raw_data.get('_execution_config')
+            raw_data = context._data if hasattr(context, "_data") else {}
+            exec_config = raw_data.get("_execution_config")
 
-            if exec_config and 'control_system' in exec_config:
-                _runtime_config = exec_config['control_system']
+            if exec_config and "control_system" in exec_config:
+                _runtime_config = exec_config["control_system"]
 
                 # Validate required fields
-                if 'type' not in _runtime_config:
+                if "type" not in _runtime_config:
                     raise ValueError("Context config missing 'type' field")
 
-                print(f"🔧 Runtime configured from context snapshot: {_runtime_config['type']}")
+                logger.debug(f"Runtime configured from context snapshot: {_runtime_config['type']}")
                 return
         except Exception as e:
-            print(f"⚠️  Failed to load context config: {e}")
-            print("⚠️  Falling back to global configuration")
+            logger.debug(f"Failed to load context config: {e}")
+            logger.debug("Falling back to global configuration")
 
     # Fallback to global config
     try:
         from osprey.utils.config import get_config_value
-        _runtime_config = get_config_value('control_system', {})
-        if _runtime_config and 'type' in _runtime_config:
-            print(f"🔧 Runtime configured from global config: {_runtime_config['type']}")
+
+        _runtime_config = get_config_value("control_system", {})
+        if _runtime_config and "type" in _runtime_config:
+            logger.debug(f"Runtime configured from global config: {_runtime_config['type']}")
         else:
             raise RuntimeError("No control system configuration available")
     except Exception as e:
@@ -111,13 +122,15 @@ async def _get_connector():
 
             if _runtime_config:
                 # Use config snapshot from context (reproducible)
-                print(f"🔌 Creating connector from context config: {_runtime_config.get('type')}")
+                logger.debug(
+                    f"Creating connector from context config: {_runtime_config.get('type')}"
+                )
                 _runtime_connector = await ConnectorFactory.create_control_system_connector(
                     config=_runtime_config
                 )
             else:
                 # Use current global config
-                print("🔌 Creating connector from global config")
+                logger.debug("Creating connector from global config")
                 _runtime_connector = await ConnectorFactory.create_control_system_connector(
                     config=None
                 )
@@ -129,6 +142,7 @@ async def _get_connector():
 # Internal async implementations
 # ========================================================
 
+
 async def _write_channel_async(channel_address: str, value: Any, **kwargs) -> None:
     """Internal async implementation for writing to a channel.
 
@@ -139,15 +153,13 @@ async def _write_channel_async(channel_address: str, value: Any, **kwargs) -> No
     result = await connector.write_channel(channel_address, value, **kwargs)
 
     if not result.success:
-        raise RuntimeError(
-            f"Write failed for {channel_address}: {result.error_message}"
-        )
+        raise RuntimeError(f"Write failed for {channel_address}: {result.error_message}")
 
     # Log success with verification info if available
     if result.verification and result.verification.verified:
-        print(f"✓ Wrote {channel_address} = {value} [{result.verification.level} verified]")
+        logger.debug(f"Wrote {channel_address} = {value} [{result.verification.level} verified]")
     else:
-        print(f"✓ Wrote {channel_address} = {value}")
+        logger.debug(f"Wrote {channel_address} = {value}")
 
 
 async def _read_channel_async(channel_address: str, **kwargs) -> Any:
@@ -163,7 +175,7 @@ async def _write_channels_async(channel_values: dict[str, Any], **kwargs) -> Non
         await _write_channel_async(channel_address, value, **kwargs)
 
 
-def _run_async(coro):
+def _run_async(coro) -> Any:
     """Run async coroutine synchronously.
 
     Handles both subprocess and Jupyter notebook contexts correctly.
@@ -173,6 +185,7 @@ def _run_async(coro):
         asyncio.get_running_loop()
         # If we have a running loop, we need to run in a new thread
         import concurrent.futures
+
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future = executor.submit(asyncio.run, coro)
             return future.result()
@@ -184,6 +197,7 @@ def _run_async(coro):
 # ========================================================
 # Public synchronous API (like EPICS caput/caget)
 # ========================================================
+
 
 def write_channel(channel_address: str, value: Any, **kwargs) -> None:
     """Write value to control system channel.
@@ -281,24 +295,25 @@ async def cleanup_runtime() -> None:
         if _runtime_connector is not None:
             try:
                 # Check if connector has cleanup method
-                if hasattr(_runtime_connector, 'disconnect'):
+                if hasattr(_runtime_connector, "disconnect"):
                     await _runtime_connector.disconnect()
-                elif hasattr(_runtime_connector, 'close'):
+                elif hasattr(_runtime_connector, "close"):
                     await _runtime_connector.close()
-                print("✓ Runtime connector cleaned up")
+                logger.debug("Runtime connector cleaned up")
             except Exception as e:
-                print(f"⚠️  Error during connector cleanup: {e}")
+                logger.warning(f"Error during connector cleanup: {e}")
             finally:
                 _runtime_connector = None
 
 
 # Register cleanup on module exit
-def _cleanup_on_exit():
+def _cleanup_on_exit() -> None:
     """Synchronous cleanup for atexit handler."""
     if _runtime_connector is not None:
         try:
             asyncio.run(cleanup_runtime())
         except Exception:
             pass  # Best effort cleanup
+
 
 atexit.register(_cleanup_on_exit)

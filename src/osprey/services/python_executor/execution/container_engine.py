@@ -89,6 +89,7 @@ import websocket
 
 from osprey.utils.logger import get_logger
 
+from ..config import PythonExecutorConfig
 from ..exceptions import CodeRuntimeError, ContainerConnectivityError, ExecutionTimeoutError
 from ..models import PythonExecutionEngineResult
 
@@ -150,6 +151,7 @@ class ContainerEndpoint:
             >>> print(f"Secure URL: {secure_endpoint.base_url}")
             Secure URL: https://jupyter.example.com:443
     """
+
     host: str
     port: int
     kernel_name: str
@@ -208,6 +210,7 @@ class ContainerEndpoint:
 @dataclass
 class SessionInfo:
     """Information about a Jupyter session"""
+
     session_id: str
     kernel_id: str
 
@@ -216,11 +219,10 @@ class SessionInfo:
         return bool(self.session_id and self.kernel_id)
 
 
-
-
 # =============================================================================
 # JUPYTER SESSION MANAGER
 # =============================================================================
+
 
 class JupyterSessionManager:
     """Manages Jupyter session and kernel lifecycle"""
@@ -247,7 +249,7 @@ class JupyterSessionManager:
             response = requests.get(
                 f"{self.endpoint.base_url}/api/sessions/{session.session_id}",
                 timeout=5,
-                proxies={'http': None, 'https': None}
+                proxies={"http": None, "https": None},
             )
             is_healthy = response.status_code == 200
             if not is_healthy:
@@ -269,7 +271,7 @@ class JupyterSessionManager:
             "kernel": {"name": self.endpoint.kernel_name},
             "path": "/home/jovyan/work",
             "type": "notebook",
-            "name": f"agent_execution_{uuid.uuid4().hex[:8]}"
+            "name": f"agent_execution_{uuid.uuid4().hex[:8]}",
         }
 
         try:
@@ -277,7 +279,7 @@ class JupyterSessionManager:
                 f"{self.endpoint.base_url}/api/sessions",
                 json=session_data,
                 timeout=30,
-                proxies={'http': None, 'https': None}
+                proxies={"http": None, "https": None},
             )
             response.raise_for_status()
         except requests.exceptions.ConnectTimeout as e:
@@ -285,42 +287,42 @@ class JupyterSessionManager:
                 f"Jupyter container connection timeout: {e}",
                 host=self.endpoint.host,
                 port=self.endpoint.port,
-                technical_details={"timeout": 30}
+                technical_details={"timeout": 30},
             ) from e
         except requests.exceptions.ConnectionError as e:
             raise ContainerConnectivityError(
                 f"Jupyter container connection error: {e}",
                 host=self.endpoint.host,
                 port=self.endpoint.port,
-                technical_details={"connection_error": str(e)}
+                technical_details={"connection_error": str(e)},
             ) from e
         except requests.exceptions.HTTPError as e:
             raise ContainerConnectivityError(
                 f"Jupyter session creation failed: HTTP {response.status_code} - {response.text[:200]}",
                 host=self.endpoint.host,
                 port=self.endpoint.port,
-                technical_details={"http_error": response.status_code, "response": response.text[:200]}
+                technical_details={
+                    "http_error": response.status_code,
+                    "response": response.text[:200],
+                },
             ) from e
         except requests.exceptions.RequestException as e:
             raise ContainerConnectivityError(
                 f"Jupyter session creation request failed: {e}",
                 host=self.endpoint.host,
                 port=self.endpoint.port,
-                technical_details={"request_error": str(e)}
+                technical_details={"request_error": str(e)},
             ) from e
         except Exception as e:
             raise ContainerConnectivityError(
                 f"Unexpected Jupyter session creation error: {e}",
                 host=self.endpoint.host,
                 port=self.endpoint.port,
-                technical_details={"unexpected_error": str(e)}
+                technical_details={"unexpected_error": str(e)},
             ) from e
 
         session_info = response.json()
-        session = SessionInfo(
-            session_id=session_info["id"],
-            kernel_id=session_info["kernel"]["id"]
-        )
+        session = SessionInfo(session_id=session_info["id"], kernel_id=session_info["kernel"]["id"])
 
         logger.info(f"Created session {session.session_id} with kernel {session.kernel_id}")
         return session
@@ -335,7 +337,7 @@ class JupyterSessionManager:
                 response = requests.get(
                     f"{self.endpoint.base_url}/api/kernels/{session.kernel_id}",
                     timeout=5,
-                    proxies={'http': None, 'https': None}
+                    proxies={"http": None, "https": None},
                 )
                 if response.status_code == 200:
                     kernel_info = response.json()
@@ -345,9 +347,13 @@ class JupyterSessionManager:
                         logger.debug(f"Kernel ready in state: {state}")
                         return
                     elif state == "starting":
-                        logger.debug(f"Kernel still starting (attempt {attempt + 1}/{max_attempts})")
+                        logger.debug(
+                            f"Kernel still starting (attempt {attempt + 1}/{max_attempts})"
+                        )
                     else:
-                        logger.debug(f"Kernel not ready, state: {state} (attempt {attempt + 1}/{max_attempts})")
+                        logger.debug(
+                            f"Kernel not ready, state: {state} (attempt {attempt + 1}/{max_attempts})"
+                        )
                 else:
                     last_error = f"HTTP {response.status_code}: {response.text[:200]}"
             except Exception as e:
@@ -356,11 +362,15 @@ class JupyterSessionManager:
             await asyncio.sleep(1)
 
         if last_error:
-            logger.warning(f"Kernel did not reach ready state after {max_attempts} attempts. Last error: {last_error}. Will attempt execution anyway.")
+            logger.warning(
+                f"Kernel did not reach ready state after {max_attempts} attempts. Last error: {last_error}. Will attempt execution anyway."
+            )
+
 
 # =============================================================================
 # CODE EXECUTION ENGINE
 # =============================================================================
+
 
 class CodeExecutionEngine:
     """Handles pure code execution via WebSocket"""
@@ -377,27 +387,29 @@ class CodeExecutionEngine:
         try:
             logger.debug(f"Creating WebSocket connection to {ws_url}")
             # Disable proxy to avoid "failed CONNECT via proxy status: 403" errors
-            ws = websocket.create_connection(ws_url, timeout=10, http_proxy_host=None, http_proxy_port=None)
+            ws = websocket.create_connection(
+                ws_url, timeout=10, http_proxy_host=None, http_proxy_port=None
+            )
         except websocket.WebSocketTimeoutException as e:
             raise ContainerConnectivityError(
                 f"WebSocket connection timeout: {e}",
                 host=self.endpoint.host,
                 port=self.endpoint.port,
-                technical_details={"websocket_timeout": True}
+                technical_details={"websocket_timeout": True},
             ) from e
         except websocket.WebSocketException as e:
             raise ContainerConnectivityError(
                 f"WebSocket connection error: {e}",
                 host=self.endpoint.host,
                 port=self.endpoint.port,
-                technical_details={"websocket_error": str(e)}
+                technical_details={"websocket_error": str(e)},
             ) from e
         except Exception as e:
             raise ContainerConnectivityError(
                 f"WebSocket connection failed: {e}",
                 host=self.endpoint.host,
                 port=self.endpoint.port,
-                technical_details={"connection_failed": str(e)}
+                technical_details={"connection_failed": str(e)},
             ) from e
 
         try:
@@ -406,8 +418,9 @@ class CodeExecutionEngine:
         finally:
             ws.close()
 
-
-    def _send_execute_request(self, ws: websocket.WebSocket, code: str, session: SessionInfo) -> str:
+    def _send_execute_request(
+        self, ws: websocket.WebSocket, code: str, session: SessionInfo
+    ) -> str:
         """Send execute request and return message ID"""
         msg_id = str(uuid.uuid4())
         execute_request = {
@@ -417,18 +430,13 @@ class CodeExecutionEngine:
                 "version": "5.3",
                 "session": session.session_id,  # Include session ID in header
                 "username": "username",
-                "date": datetime.now().isoformat()
+                "date": datetime.now().isoformat(),
             },
             "parent_header": {},
             "metadata": {},
-            "content": {
-                "code": code,
-                "silent": False,
-                "store_history": True,
-                "allow_stdin": False
-            },
+            "content": {"code": code, "silent": False, "store_history": True, "allow_stdin": False},
             "buffers": [],
-            "channel": "shell"
+            "channel": "shell",
         }
 
         ws.send(json.dumps(execute_request))
@@ -463,10 +471,17 @@ class CodeExecutionEngine:
                         stream_name = content.get("name", "unknown")
                         text = content.get("text", "")
                         # Log all stderr and any debug/error messages
-                        if stream_name == "stderr" or "DEBUG:" in text or "CRITICAL ERROR:" in text or "Failed to save" in text:
+                        if (
+                            stream_name == "stderr"
+                            or "DEBUG:" in text
+                            or "CRITICAL ERROR:" in text
+                            or "Failed to save" in text
+                        ):
                             logger.info(f"Container {stream_name}: {text.strip()}")
                         # Also log stdout messages that might contain useful info
-                        elif stream_name == "stdout" and ("ERROR" in text or "✅" in text or "Loaded execution context" in text):
+                        elif stream_name == "stdout" and (
+                            "ERROR" in text or "✅" in text or "Loaded execution context" in text
+                        ):
                             logger.debug(f"Container {stream_name}: {text.strip()}")
                     elif msg_type == "error":
                         error_name = content.get("ename", "Unknown")
@@ -478,7 +493,7 @@ class CodeExecutionEngine:
                             logger.error(f"Container traceback: {traceback_text}")
 
                 # Check for execution completion
-                if (msg_type == "execute_reply" and parent_msg_id == expected_msg_id):
+                if msg_type == "execute_reply" and parent_msg_id == expected_msg_id:
                     execution_complete = True
                     logger.debug("Execution completed successfully")
 
@@ -496,8 +511,8 @@ class CodeExecutionEngine:
                             technical_details={
                                 "error_name": error_name,
                                 "error_value": error_value,
-                                "traceback": traceback_info
-                            }
+                                "traceback": traceback_info,
+                            },
                         )
 
             except TimeoutError:
@@ -520,7 +535,7 @@ class CodeExecutionEngine:
                     f"WebSocket execution failed: {last_error}",
                     host=self.endpoint.host,
                     port=self.endpoint.port,
-                    technical_details={"websocket_error": str(last_error)}
+                    technical_details={"websocket_error": str(last_error)},
                 )
             else:
                 # Keep session alive for potential reuse on retry
@@ -529,13 +544,15 @@ class CodeExecutionEngine:
                     technical_details={
                         "host": self.endpoint.host,
                         "port": self.endpoint.port,
-                        "expected_msg_id": expected_msg_id
-                    }
+                        "expected_msg_id": expected_msg_id,
+                    },
                 )
+
 
 # =============================================================================
 # FILE-BASED RESULT COLLECTOR
 # =============================================================================
+
 
 class FileBasedResultCollector:
     """Collects execution results from files in the execution folder"""
@@ -549,7 +566,7 @@ class FileBasedResultCollector:
 
         try:
             # Read execution metadata
-            metadata = await self._read_json_file('execution_metadata.json')
+            metadata = await self._read_json_file("execution_metadata.json")
             if not metadata:
                 # Try to read debug files to understand what happened
                 debug_info = []
@@ -561,7 +578,11 @@ class FileBasedResultCollector:
                         debug_info.append(f"Execution folder contents: {[f.name for f in files]}")
 
                         # Check if any debug or log files exist
-                        debug_files = [f for f in files if f.name.startswith('debug_') or f.name.endswith('.log')]
+                        debug_files = [
+                            f
+                            for f in files
+                            if f.name.startswith("debug_") or f.name.endswith(".log")
+                        ]
                         if debug_files:
                             debug_info.append(f"Debug files found: {[f.name for f in debug_files]}")
                     except Exception as e:
@@ -569,19 +590,21 @@ class FileBasedResultCollector:
                 else:
                     debug_info.append("Execution folder does not exist or not configured")
 
-                debug_context = "; ".join(debug_info) if debug_info else "No additional debug info available"
+                debug_context = (
+                    "; ".join(debug_info) if debug_info else "No additional debug info available"
+                )
 
                 raise CodeRuntimeError(
                     f"Failed to read execution metadata from container. {debug_context}",
                     traceback_info="",
                     execution_attempt=1,
-                    technical_details={"metadata_missing": True, "debug_info": debug_info}
+                    technical_details={"metadata_missing": True, "debug_info": debug_info},
                 )
 
             # Read results dictionary if it exists
             result_dict = None
             if metadata.get("results_saved", False):
-                result_dict = await self._read_json_file('results.json')
+                result_dict = await self._read_json_file("results.json")
 
             # Collect generated figures
             figure_paths = await self._collect_figure_files()
@@ -613,7 +636,7 @@ class FileBasedResultCollector:
                 raise CodeRuntimeError(
                     message=error_msg,
                     traceback_info="Runtime validation failed: 'results' variable not found in execution namespace",
-                    execution_attempt=1
+                    execution_attempt=1,
                 )
 
             # Include traceback in error message if execution failed
@@ -627,12 +650,17 @@ class FileBasedResultCollector:
 
                 if error_type == "INFRASTRUCTURE_ERROR":
                     # Context loading or other infrastructure issue
-                    infrastructure_error = metadata.get("infrastructure_error", "Unknown infrastructure error")
+                    infrastructure_error = metadata.get(
+                        "infrastructure_error", "Unknown infrastructure error"
+                    )
                     raise ContainerConnectivityError(
                         f"Infrastructure error: {infrastructure_error}",
                         host="unknown",
                         port=0,
-                        technical_details={"metadata": metadata, "infrastructure_error": infrastructure_error}
+                        technical_details={
+                            "metadata": metadata,
+                            "infrastructure_error": infrastructure_error,
+                        },
                     )
                 else:
                     # Code execution error
@@ -640,7 +668,7 @@ class FileBasedResultCollector:
                         error_message,
                         traceback_info=traceback_info or "",
                         execution_attempt=1,
-                        technical_details={"metadata": metadata}
+                        technical_details={"metadata": metadata},
                     )
 
             logger.key_info("File-based result collection completed:")
@@ -655,7 +683,7 @@ class FileBasedResultCollector:
                 result_dict=result_dict,
                 error_message=error_message,
                 execution_time_seconds=execution_time,
-                captured_figures=figure_paths
+                captured_figures=figure_paths,
             )
 
         except CodeRuntimeError:
@@ -667,7 +695,7 @@ class FileBasedResultCollector:
                 f"Failed to collect execution results: {str(e)}",
                 traceback_info="",
                 execution_attempt=1,
-                technical_details={"collection_error": str(e)}
+                technical_details={"collection_error": str(e)},
             ) from e
 
     async def _read_json_file(self, filename: str) -> dict[str, Any] | None:
@@ -683,7 +711,7 @@ class FileBasedResultCollector:
                 logger.debug(f"File {filename} does not exist in execution folder")
                 return None
 
-            with open(file_path, encoding='utf-8') as f:
+            with open(file_path, encoding="utf-8") as f:
                 data = json.load(f)
 
             logger.debug(f"Successfully read {filename}")
@@ -706,11 +734,12 @@ class FileBasedResultCollector:
 
         try:
             # Common image file extensions (PNG is most common from matplotlib)
-            image_extensions = ['*.png', '*.jpg', '*.jpeg', '*.svg']
+            image_extensions = ["*.png", "*.jpg", "*.jpeg", "*.svg"]
 
             # Scan main directory and all subdirectories except 'attempts'
-            for root_path in [self.execution_folder] + [d for d in self.execution_folder.iterdir()
-                                                       if d.is_dir() and d.name != 'attempts']:
+            for root_path in [self.execution_folder] + [
+                d for d in self.execution_folder.iterdir() if d.is_dir() and d.name != "attempts"
+            ]:
                 for extension in image_extensions:
                     for figure_file in sorted(root_path.glob(extension)):
                         if figure_file.is_file():
@@ -728,12 +757,10 @@ class FileBasedResultCollector:
             return figure_paths
 
 
-
-
-
 # =============================================================================
 # ORCHESTRATING CONTAINER EXECUTOR
 # =============================================================================
+
 
 class ContainerExecutor:
     """High-level orchestrator for container-based Python code execution.
@@ -807,7 +834,7 @@ class ContainerExecutor:
         endpoint: ContainerEndpoint,
         execution_folder: Path | None = None,
         timeout: int = 300,
-        executor_config: 'PythonExecutorConfig | None' = None
+        executor_config: "PythonExecutorConfig | None" = None,
     ):
         """Initialize with endpoint and execution parameters."""
         self.endpoint = endpoint
@@ -834,13 +861,15 @@ class ContainerExecutor:
 
             # 2. Get limits validator from config
             limits_validator = (
-                self.executor_config.limits_validator
-                if self.executor_config else None
+                self.executor_config.limits_validator if self.executor_config else None
             )
 
             # 3. Execute the wrapped code using unified wrapper with validator
             from .wrapper import ExecutionWrapper
-            wrapper = ExecutionWrapper(execution_mode="container", limits_validator=limits_validator)
+
+            wrapper = ExecutionWrapper(
+                execution_mode="container", limits_validator=limits_validator
+            )
             wrapped_code = wrapper.create_wrapper(code, self.execution_folder)
 
             # 4. Execute the wrapped code using the execution engine
@@ -862,15 +891,17 @@ class ContainerExecutor:
                 f"Container execution error: {str(e)}",
                 host=self.endpoint.host,
                 port=self.endpoint.port,
-                technical_details={"unexpected_error": str(e)}
+                technical_details={"unexpected_error": str(e)},
             ) from e
         finally:
             # Clean up session if needed
             await self.session_manager.cleanup_session()
 
+
 # =============================================================================
 # PUBLIC API
 # =============================================================================
+
 
 async def execute_python_code_in_container(
     code: str,
@@ -878,7 +909,7 @@ async def execute_python_code_in_container(
     figures_dir: Path | None = None,  # Legacy parameter, not used
     timeout: int = 300,
     execution_folder: Path | None = None,
-    executor_config: 'PythonExecutorConfig | None' = None
+    executor_config: "PythonExecutorConfig | None" = None,
 ) -> PythonExecutionEngineResult:
     """
     Execute Python code in container using file-based result communication.
@@ -906,6 +937,6 @@ async def execute_python_code_in_container(
         endpoint=endpoint,
         execution_folder=execution_folder,
         timeout=timeout,
-        executor_config=executor_config
+        executor_config=executor_config,
     )
     return await executor.execute_code(code)

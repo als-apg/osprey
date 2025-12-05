@@ -96,34 +96,34 @@ class EPICSConnector(ControlSystemConnector):
         # Import epics here to give clear error if not installed
         try:
             import epics
+
             self._epics = epics
         except ImportError:
             raise ImportError(
-                "pyepics is required for EPICS connector. "
-                "Install with: pip install pyepics"
+                "pyepics is required for EPICS connector. " "Install with: pip install pyepics"
             )
 
         # Extract gateway configuration
-        gateway_config = config.get('gateways', {}).get('read_only', {})
+        gateway_config = config.get("gateways", {}).get("read_only", {})
         if gateway_config:
-            address = gateway_config.get('address', '')
-            port = gateway_config.get('port', 5064)
+            address = gateway_config.get("address", "")
+            port = gateway_config.get("port", 5064)
             # Explicit configuration for connection method
             # Config system automatically converts "true"/"false" strings to booleans
-            use_name_server = gateway_config.get('use_name_server', False)
+            use_name_server = gateway_config.get("use_name_server", False)
 
             # Configure EPICS environment variables
             if use_name_server:
                 # Use CA_NAME_SERVERS (required for SSH tunnels and some gateway configurations)
-                os.environ['EPICS_CA_NAME_SERVERS'] = f'{address}:{port}'
+                os.environ["EPICS_CA_NAME_SERVERS"] = f"{address}:{port}"
                 logger.debug(f"Using EPICS_CA_NAME_SERVERS: {address}:{port}")
             else:
                 # Use CA_ADDR_LIST (standard gateway configuration)
-                os.environ['EPICS_CA_ADDR_LIST'] = address
-                os.environ['EPICS_CA_SERVER_PORT'] = str(port)
+                os.environ["EPICS_CA_ADDR_LIST"] = address
+                os.environ["EPICS_CA_SERVER_PORT"] = str(port)
                 logger.debug(f"Using EPICS_CA_ADDR_LIST: {address}, CA_SERVER_PORT: {port}")
 
-            os.environ['EPICS_CA_AUTO_ADDR_LIST'] = 'NO'
+            os.environ["EPICS_CA_AUTO_ADDR_LIST"] = "NO"
 
             # Clear EPICS cache to pick up new environment
             self._epics.ca.clear_cache()
@@ -131,10 +131,11 @@ class EPICSConnector(ControlSystemConnector):
             logger.debug(f"Configured EPICS gateway: {address}:{port}")
             self._epics_configured = True
 
-        self._timeout = config.get('timeout', 5.0)
+        self._timeout = config.get("timeout", 5.0)
 
         # Initialize limits validator for automatic validation and verification config
         from osprey.services.python_executor.execution.limits_validator import LimitsValidator
+
         self._limits_validator = LimitsValidator.from_config()
         if self._limits_validator:
             logger.debug("EPICS connector: limits validator initialized")
@@ -153,9 +154,7 @@ class EPICSConnector(ControlSystemConnector):
         logger.info("EPICS connector disconnected")
 
     async def read_channel(
-        self,
-        channel_address: str,
-        timeout: float | None = None
+        self, channel_address: str, timeout: float | None = None
     ) -> ChannelValue:
         """
         Read current value from EPICS channel.
@@ -174,11 +173,7 @@ class EPICSConnector(ControlSystemConnector):
         timeout = timeout or self._timeout
 
         # Use asyncio.to_thread for blocking EPICS operations
-        pv_result = await asyncio.to_thread(
-            self._read_channel_sync,
-            channel_address,
-            timeout
-        )
+        pv_result = await asyncio.to_thread(self._read_channel_sync, channel_address, timeout)
 
         return pv_result
 
@@ -189,8 +184,7 @@ class EPICSConnector(ControlSystemConnector):
 
         if not pv.connected:
             raise ConnectionError(
-                f"Failed to connect to PV '{pv_address}' "
-                f"(timeout after {timeout}s)"
+                f"Failed to connect to PV '{pv_address}' " f"(timeout after {timeout}s)"
             )
 
         value = pv.value
@@ -203,24 +197,22 @@ class EPICSConnector(ControlSystemConnector):
 
         # Extract metadata
         metadata = ChannelMetadata(
-            units=getattr(pv, 'units', '') or '',
-            precision=getattr(pv, 'precision', None),
-            alarm_status=pv.status if hasattr(pv, 'status') else None,
+            units=getattr(pv, "units", "") or "",
+            precision=getattr(pv, "precision", None),
+            alarm_status=pv.status if hasattr(pv, "status") else None,
             timestamp=timestamp,
             raw_metadata={
-                'severity': getattr(pv, 'severity', None),
-                'type': getattr(pv, 'type', None),
-                'count': getattr(pv, 'count', None),
-            }
+                "severity": getattr(pv, "severity", None),
+                "type": getattr(pv, "type", None),
+                "count": getattr(pv, "count", None),
+            },
         )
 
-        return ChannelValue(
-            value=value,
-            timestamp=timestamp,
-            metadata=metadata
-        )
+        return ChannelValue(value=value, timestamp=timestamp, metadata=metadata)
 
-    def _get_verification_config(self, channel_address: str, value: float) -> tuple[str, float | None]:
+    def _get_verification_config(
+        self, channel_address: str, value: float
+    ) -> tuple[str, float | None]:
         """Get verification level and tolerance for a channel write.
 
         Priority:
@@ -238,7 +230,9 @@ class EPICSConnector(ControlSystemConnector):
         """
         # Try per-channel config first (if limits validator available)
         if self._limits_validator:
-            level, tolerance = self._limits_validator.get_verification_config(channel_address, value)
+            level, tolerance = self._limits_validator.get_verification_config(
+                channel_address, value
+            )
             if level is not None:
                 logger.debug(f"Using per-channel verification for {channel_address}: {level}")
                 return level, tolerance
@@ -246,20 +240,25 @@ class EPICSConnector(ControlSystemConnector):
         # Fall back to global config (or hardcoded defaults if config unavailable)
         try:
             from osprey.utils.config import get_config_value
-            level = get_config_value('control_system.write_verification.default_level', 'callback')
+
+            level = get_config_value("control_system.write_verification.default_level", "callback")
 
             # Calculate tolerance for readback verification
             tolerance = None
-            if level == 'readback':
-                default_percent = get_config_value('control_system.write_verification.default_tolerance_percent', 0.1)
+            if level == "readback":
+                default_percent = get_config_value(
+                    "control_system.write_verification.default_tolerance_percent", 0.1
+                )
                 tolerance = abs(value) * default_percent / 100.0
 
             logger.debug(f"Using global verification config for {channel_address}: {level}")
             return level, tolerance
         except (FileNotFoundError, KeyError, RuntimeError):
             # Config not available - use hardcoded safe defaults
-            logger.debug(f"Using hardcoded verification defaults for {channel_address} (config unavailable)")
-            return 'callback', None
+            logger.debug(
+                f"Using hardcoded verification defaults for {channel_address} (config unavailable)"
+            )
+            return "callback", None
 
     async def write_channel(
         self,
@@ -267,7 +266,7 @@ class EPICSConnector(ControlSystemConnector):
         value: Any,
         timeout: float | None = None,
         verification_level: str | None = None,
-        tolerance: float | None = None
+        tolerance: float | None = None,
     ) -> ChannelWriteResult:
         """
         Write value to EPICS channel with automatic limits validation and verification.
@@ -312,7 +311,9 @@ class EPICSConnector(ControlSystemConnector):
 
         # Step 2: Auto-determine verification config if not provided
         if verification_level is None:
-            verification_level, auto_tolerance = self._get_verification_config(channel_address, float(value))
+            verification_level, auto_tolerance = self._get_verification_config(
+                channel_address, float(value)
+            )
             if tolerance is None:
                 tolerance = auto_tolerance
 
@@ -320,11 +321,7 @@ class EPICSConnector(ControlSystemConnector):
         if verification_level == "none":
             # Fast path - no verification, no wait for callback
             success = await asyncio.to_thread(
-                self._epics.caput,
-                channel_address,
-                value,
-                wait=False,
-                timeout=timeout
+                self._epics.caput, channel_address, value, wait=False, timeout=timeout
             )
 
             if not success:
@@ -333,11 +330,9 @@ class EPICSConnector(ControlSystemConnector):
                     value_written=value,
                     success=False,
                     verification=WriteVerification(
-                        level="none",
-                        verified=False,
-                        notes="Write command failed"
+                        level="none", verified=False, notes="Write command failed"
                     ),
-                    error_message=f"Failed to write to channel '{channel_address}'"
+                    error_message=f"Failed to write to channel '{channel_address}'",
                 )
 
             logger.debug(f"EPICS write (no verification): {channel_address} = {value}")
@@ -346,10 +341,8 @@ class EPICSConnector(ControlSystemConnector):
                 value_written=value,
                 success=True,
                 verification=WriteVerification(
-                    level="none",
-                    verified=False,
-                    notes="No verification requested"
-                )
+                    level="none", verified=False, notes="No verification requested"
+                ),
             )
 
         elif verification_level == "callback":
@@ -359,7 +352,7 @@ class EPICSConnector(ControlSystemConnector):
                 channel_address,
                 value,
                 wait=True,  # Wait for IOC callback
-                timeout=timeout
+                timeout=timeout,
             )
 
             if not success:
@@ -368,11 +361,9 @@ class EPICSConnector(ControlSystemConnector):
                     value_written=value,
                     success=False,
                     verification=WriteVerification(
-                        level="callback",
-                        verified=False,
-                        notes="IOC callback failed or timeout"
+                        level="callback", verified=False, notes="IOC callback failed or timeout"
                     ),
-                    error_message=f"Failed to write to channel '{channel_address}'"
+                    error_message=f"Failed to write to channel '{channel_address}'",
                 )
 
             logger.debug(f"EPICS write (callback verified): {channel_address} = {value}")
@@ -381,20 +372,14 @@ class EPICSConnector(ControlSystemConnector):
                 value_written=value,
                 success=True,
                 verification=WriteVerification(
-                    level="callback",
-                    verified=True,
-                    notes="IOC callback confirmed"
-                )
+                    level="callback", verified=True, notes="IOC callback confirmed"
+                ),
             )
 
         elif verification_level == "readback":
             # Full verification - callback + readback
             success = await asyncio.to_thread(
-                self._epics.caput,
-                channel_address,
-                value,
-                wait=True,
-                timeout=timeout
+                self._epics.caput, channel_address, value, wait=True, timeout=timeout
             )
 
             if not success:
@@ -403,11 +388,9 @@ class EPICSConnector(ControlSystemConnector):
                     value_written=value,
                     success=False,
                     verification=WriteVerification(
-                        level="readback",
-                        verified=False,
-                        notes="Write command failed"
+                        level="readback", verified=False, notes="Write command failed"
                     ),
-                    error_message=f"Failed to write to channel '{channel_address}'"
+                    error_message=f"Failed to write to channel '{channel_address}'",
                 )
 
             # Read back to verify
@@ -434,10 +417,10 @@ class EPICSConnector(ControlSystemConnector):
                         tolerance_used=tolerance,
                         notes=(
                             f"Readback: {readback.value}, tolerance: ±{tolerance}, diff: {diff:.6f}"
-                            if verified else
-                            f"Readback mismatch: {readback.value} (expected {value}, diff: {diff:.6f} > tolerance {tolerance})"
-                        )
-                    )
+                            if verified
+                            else f"Readback mismatch: {readback.value} (expected {value}, diff: {diff:.6f} > tolerance {tolerance})"
+                        ),
+                    ),
                 )
 
             except Exception as e:
@@ -447,20 +430,18 @@ class EPICSConnector(ControlSystemConnector):
                     value_written=value,
                     success=True,  # Write succeeded, but readback failed
                     verification=WriteVerification(
-                        level="readback",
-                        verified=False,
-                        notes=f"Readback failed: {str(e)}"
+                        level="readback", verified=False, notes=f"Readback failed: {str(e)}"
                     ),
-                    error_message=f"Readback verification failed: {str(e)}"
+                    error_message=f"Readback verification failed: {str(e)}",
                 )
 
         else:
-            raise ValueError(f"Invalid verification_level: {verification_level}. Must be 'none', 'callback', or 'readback'")
+            raise ValueError(
+                f"Invalid verification_level: {verification_level}. Must be 'none', 'callback', or 'readback'"
+            )
 
     async def read_multiple_channels(
-        self,
-        channel_addresses: list[str],
-        timeout: float | None = None
+        self, channel_addresses: list[str], timeout: float | None = None
     ) -> dict[str, ChannelValue]:
         """Read multiple channels concurrently."""
         tasks = [self.read_channel(ch_addr, timeout) for ch_addr in channel_addresses]
@@ -473,9 +454,7 @@ class EPICSConnector(ControlSystemConnector):
         }
 
     async def subscribe(
-        self,
-        channel_address: str,
-        callback: Callable[[ChannelValue], None]
+        self, channel_address: str, callback: Callable[[ChannelValue], None]
     ) -> str:
         """
         Subscribe to channel value changes.
@@ -495,9 +474,8 @@ class EPICSConnector(ControlSystemConnector):
                 value=value,
                 timestamp=datetime.fromtimestamp(timestamp) if timestamp else datetime.now(),
                 metadata=ChannelMetadata(
-                    units=kwargs.get('units', ''),
-                    alarm_status=kwargs.get('status')
-                )
+                    units=kwargs.get("units", ""), alarm_status=kwargs.get("status")
+                ),
             )
             # Schedule callback in event loop
             loop.call_soon_threadsafe(callback, pv_value)
@@ -541,4 +519,3 @@ class EPICSConnector(ControlSystemConnector):
         except Exception as e:
             logger.debug(f"Channel validation failed for {channel_address}: {e}")
             return False
-

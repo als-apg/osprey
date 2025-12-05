@@ -47,86 +47,76 @@ def get_framework_standard_patterns() -> dict[str, list[str]]:
         such attempts in the approval workflow, regardless of which library is used.
     """
     return {
-        'write': [
+        "write": [
             # ============================================================
             # APPROVED: osprey.runtime unified API (has all safety features)
             # ============================================================
-            r'\bwrite_channel\s*\(',      # write_channel('PV', value)
-            r'\bwrite_channels\s*\(',     # write_channels({'PV1': val1, ...})
-
+            r"\bwrite_channel\s*\(",  # write_channel('PV', value)
+            r"\bwrite_channels\s*\(",  # write_channels({'PV1': val1, ...})
             # ============================================================
             # CIRCUMVENTION DETECTION: EPICS (PyEPICS library)
             # ============================================================
-            r'\bcaput\s*\(',              # caput('PV', value) - standalone
-            r'epics\.caput\(',            # epics.caput('PV', value)
-            r'\.put\s*\(',                # pv.put(value) - PV object method
-            r'\.set_value\s*\(',          # pv.set_value(value)
-            r'PV\([^)]*\)\.put',          # PV('PV').put(value)
-            r'epics\.PV\([^)]*\)\.put',   # epics.PV('PV').put(value)
-
+            r"\bcaput\s*\(",  # caput('PV', value) - standalone
+            r"epics\.caput\(",  # epics.caput('PV', value)
+            r"\.put\s*\(",  # pv.put(value) - PV object method
+            r"\.set_value\s*\(",  # pv.set_value(value)
+            r"PV\([^)]*\)\.put",  # PV('PV').put(value)
+            r"epics\.PV\([^)]*\)\.put",  # epics.PV('PV').put(value)
             # ============================================================
             # CIRCUMVENTION DETECTION: Tango (PyTango library)
             # ============================================================
-            r'DeviceProxy\([^)]*\)\.write_attribute\(',  # DeviceProxy(...).write_attribute(...)
-            r'\.write_attribute\s*\(',                   # device.write_attribute(...)
-            r'\.write_attribute_asynch\s*\(',            # device.write_attribute_asynch(...)
-            r'tango\.DeviceProxy\([^)]*\)\.write',       # tango.DeviceProxy(...).write_attribute(...)
-
+            r"DeviceProxy\([^)]*\)\.write_attribute\(",  # DeviceProxy(...).write_attribute(...)
+            r"\.write_attribute\s*\(",  # device.write_attribute(...)
+            r"\.write_attribute_asynch\s*\(",  # device.write_attribute_asynch(...)
+            r"tango\.DeviceProxy\([^)]*\)\.write",  # tango.DeviceProxy(...).write_attribute(...)
             # ============================================================
             # CIRCUMVENTION DETECTION: LabVIEW (potential patterns)
             # ============================================================
             # Note: LabVIEW Python integration varies by implementation
             # Add patterns as needed based on your LabVIEW integration
-            r'labview\.set_control\(',                   # Example LabVIEW pattern
-            r'\.SetControlValue\(',                      # Example LabVIEW ActiveX pattern
-
+            r"labview\.set_control\(",  # Example LabVIEW pattern
+            r"\.SetControlValue\(",  # Example LabVIEW ActiveX pattern
             # ============================================================
             # ADVANCED: Direct connector usage (internal/advanced use)
             # ============================================================
-            r'connector\.write_channel\(',  # Direct connector access
+            r"connector\.write_channel\(",  # Direct connector access
         ],
-        'read': [
+        "read": [
             # ============================================================
             # APPROVED: osprey.runtime unified API (has all safety features)
             # ============================================================
-            r'\bread_channel\s*\(',       # read_channel('PV')
-
+            r"\bread_channel\s*\(",  # read_channel('PV')
             # ============================================================
             # CIRCUMVENTION DETECTION: EPICS (PyEPICS library)
             # ============================================================
-            r'\bcaget\s*\(',              # caget('PV') - standalone
-            r'epics\.caget\(',            # epics.caget('PV')
-            r'\.get\s*\(',                # pv.get() - PV object method
-            r'\.get_value\s*\(',          # pv.get_value()
-            r'PV\([^)]*\)\.get',          # PV('PV').get()
-            r'epics\.PV\([^)]*\)\.get',   # epics.PV('PV').get()
-
+            r"\bcaget\s*\(",  # caget('PV') - standalone
+            r"epics\.caget\(",  # epics.caget('PV')
+            r"\.get\s*\(",  # pv.get() - PV object method
+            r"\.get_value\s*\(",  # pv.get_value()
+            r"PV\([^)]*\)\.get",  # PV('PV').get()
+            r"epics\.PV\([^)]*\)\.get",  # epics.PV('PV').get()
             # ============================================================
             # CIRCUMVENTION DETECTION: Tango (PyTango library)
             # ============================================================
-            r'DeviceProxy\([^)]*\)\.read_attribute\(',   # DeviceProxy(...).read_attribute(...)
-            r'\.read_attribute\s*\(',                    # device.read_attribute(...)
-            r'\.read_attribute_asynch\s*\(',             # device.read_attribute_asynch(...)
-            r'tango\.DeviceProxy\([^)]*\)\.read',        # tango.DeviceProxy(...).read_attribute(...)
-
+            r"DeviceProxy\([^)]*\)\.read_attribute\(",  # DeviceProxy(...).read_attribute(...)
+            r"\.read_attribute\s*\(",  # device.read_attribute(...)
+            r"\.read_attribute_asynch\s*\(",  # device.read_attribute_asynch(...)
+            r"tango\.DeviceProxy\([^)]*\)\.read",  # tango.DeviceProxy(...).read_attribute(...)
             # ============================================================
             # CIRCUMVENTION DETECTION: LabVIEW (potential patterns)
             # ============================================================
-            r'labview\.get_control\(',                   # Example LabVIEW pattern
-            r'\.GetControlValue\(',                      # Example LabVIEW ActiveX pattern
-
+            r"labview\.get_control\(",  # Example LabVIEW pattern
+            r"\.GetControlValue\(",  # Example LabVIEW ActiveX pattern
             # ============================================================
             # ADVANCED: Direct connector usage (internal/advanced use)
             # ============================================================
-            r'connector\.read_channel\(',   # Direct connector access
-        ]
+            r"connector\.read_channel\(",  # Direct connector access
+        ],
     }
 
 
 def detect_control_system_operations(
-    code: str,
-    patterns: dict[str, list[str]] | None = None,
-    control_system_type: str | None = None
+    code: str, patterns: dict[str, list[str]] | None = None, control_system_type: str | None = None
 ) -> dict[str, any]:
     """
     Detect control system operations using framework-standard or custom patterns.
@@ -178,9 +168,10 @@ def detect_control_system_operations(
     if control_system_type is None:
         try:
             from osprey.utils.config import get_config_value
-            control_system_type = get_config_value('control_system.type', 'epics')
+
+            control_system_type = get_config_value("control_system.type", "epics")
         except Exception:
-            control_system_type = 'epics'  # Default for logging
+            control_system_type = "epics"  # Default for logging
 
     # Get patterns: config override → framework standard
     if patterns is None:
@@ -188,14 +179,14 @@ def detect_control_system_operations(
             from osprey.utils.config import get_config_value
 
             # Try to load custom patterns from config (optional override)
-            custom_patterns = get_config_value('control_system.patterns', None)
+            custom_patterns = get_config_value("control_system.patterns", None)
 
             if custom_patterns is not None:
                 # User provided custom patterns in config
                 # Support both old nested format and new flat format for migration
                 if isinstance(custom_patterns, dict):
                     # Check if it's the new flat format: {'write': [...], 'read': [...]}
-                    if 'write' in custom_patterns or 'read' in custom_patterns:
+                    if "write" in custom_patterns or "read" in custom_patterns:
                         patterns = custom_patterns
                         logger.info("Using custom patterns from config.yml")
                     # Check if it's the old nested format: {'epics': {'write': [...], ...}, ...}
@@ -210,8 +201,8 @@ def detect_control_system_operations(
                     else:
                         # Unknown format, use framework standard
                         logger.warning(
-                            f"Unrecognized pattern format in config.yml. "
-                            f"Using framework standard patterns."
+                            "Unrecognized pattern format in config.yml. "
+                            "Using framework standard patterns."
                         )
                         patterns = get_framework_standard_patterns()
                 else:
@@ -221,12 +212,14 @@ def detect_control_system_operations(
                 patterns = get_framework_standard_patterns()
 
         except Exception as e:
-            logger.debug(f"Could not load patterns from config: {e}. Using framework standard patterns.")
+            logger.debug(
+                f"Could not load patterns from config: {e}. Using framework standard patterns."
+            )
             patterns = get_framework_standard_patterns()
 
     # Extract write and read patterns
-    write_patterns = patterns.get('write', [])
-    read_patterns = patterns.get('read', [])
+    write_patterns = patterns.get("write", [])
+    read_patterns = patterns.get("read", [])
 
     # Track which patterns matched
     detected_writes = []
@@ -252,13 +245,10 @@ def detect_control_system_operations(
     has_reads = len(detected_reads) > 0
 
     result = {
-        'has_writes': has_writes,
-        'has_reads': has_reads,
-        'control_system_type': control_system_type,
-        'detected_patterns': {
-            'writes': detected_writes,
-            'reads': detected_reads
-        }
+        "has_writes": has_writes,
+        "has_reads": has_reads,
+        "control_system_type": control_system_type,
+        "detected_patterns": {"writes": detected_writes, "reads": detected_reads},
     }
 
     if has_writes or has_reads:
@@ -288,16 +278,14 @@ def get_default_patterns() -> dict[str, dict[str, list[str]]]:
         This function will be removed in a future version.
     """
     logger.warning(
-        "get_default_patterns() is deprecated. "
-        "Use get_framework_standard_patterns() instead."
+        "get_default_patterns() is deprecated. " "Use get_framework_standard_patterns() instead."
     )
 
     # Return framework standard patterns in old nested format for backward compatibility
     framework_patterns = get_framework_standard_patterns()
 
     return {
-        'mock': framework_patterns,
-        'epics': framework_patterns,
+        "mock": framework_patterns,
+        "epics": framework_patterns,
         # All control systems use the same patterns now (control-system-agnostic)
     }
-

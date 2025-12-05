@@ -23,22 +23,20 @@ class TestMockConnectorVerification:
     async def connector(self):
         """Create and connect MockConnector."""
         conn = MockConnector()
-        await conn.connect({
-            'response_delay_ms': 1,  # Fast for testing
-            'noise_level': 0.001,  # Low noise
-            'enable_writes': True
-        })
+        await conn.connect(
+            {
+                "response_delay_ms": 1,  # Fast for testing
+                "noise_level": 0.001,  # Low noise
+                "enable_writes": True,
+            }
+        )
         yield conn
         await conn.disconnect()
 
     @pytest.mark.asyncio
     async def test_verification_none(self, connector):
         """Test 'none' verification level - no verification performed."""
-        result = await connector.write_channel(
-            "TEST:CHANNEL",
-            100.0,
-            verification_level="none"
-        )
+        result = await connector.write_channel("TEST:CHANNEL", 100.0, verification_level="none")
 
         assert isinstance(result, ChannelWriteResult)
         assert result.success is True
@@ -52,11 +50,7 @@ class TestMockConnectorVerification:
     @pytest.mark.asyncio
     async def test_verification_callback(self, connector):
         """Test 'callback' verification level - simulated callback confirmation."""
-        result = await connector.write_channel(
-            "TEST:CHANNEL",
-            100.0,
-            verification_level="callback"
-        )
+        result = await connector.write_channel("TEST:CHANNEL", 100.0, verification_level="callback")
 
         assert isinstance(result, ChannelWriteResult)
         assert result.success is True
@@ -72,7 +66,7 @@ class TestMockConnectorVerification:
             "TEST:CHANNEL",
             100.0,
             verification_level="readback",
-            tolerance=1.0  # Larger tolerance to account for mock noise (0.1% noise on 100 = ~0.1, but can be larger)
+            tolerance=1.0,  # Larger tolerance to account for mock noise (0.1% noise on 100 = ~0.1, but can be larger)
         )
 
         assert isinstance(result, ChannelWriteResult)
@@ -99,7 +93,7 @@ class TestMockConnectorVerification:
             "TEST:CHANNEL",
             written_value,
             verification_level="readback",
-            tolerance=absolute_tolerance
+            tolerance=absolute_tolerance,
         )
 
         assert result.success is True
@@ -113,16 +107,9 @@ class TestMockConnectorVerification:
         """Test that writes fail when connector has writes disabled."""
         # Reconfigure connector with writes disabled
         await connector.disconnect()
-        await connector.connect({
-            'response_delay_ms': 1,
-            'enable_writes': False  # Disable writes
-        })
+        await connector.connect({"response_delay_ms": 1, "enable_writes": False})  # Disable writes
 
-        result = await connector.write_channel(
-            "TEST:CHANNEL",
-            100.0,
-            verification_level="callback"
-        )
+        result = await connector.write_channel("TEST:CHANNEL", 100.0, verification_level="callback")
 
         assert result.success is False
         assert result.verification is not None
@@ -134,12 +121,7 @@ class TestMockConnectorVerification:
     async def test_invalid_verification_level_raises_error(self, connector):
         """Test that invalid verification level raises ValueError."""
         with pytest.raises(ValueError, match="Invalid verification_level"):
-            await connector.write_channel(
-                "TEST:CHANNEL",
-                100.0,
-                verification_level="invalid_level"
-            )
-
+            await connector.write_channel("TEST:CHANNEL", 100.0, verification_level="invalid_level")
 
 
 class TestVerificationDataModels:
@@ -152,7 +134,7 @@ class TestVerificationDataModels:
             verified=True,
             readback_value=100.5,
             tolerance_used=0.1,
-            notes="Readback confirmed"
+            notes="Readback confirmed",
         )
 
         assert verif.level == "readback"
@@ -168,10 +150,8 @@ class TestVerificationDataModels:
             value_written=100.0,
             success=True,
             verification=WriteVerification(
-                level="callback",
-                verified=True,
-                notes="IOC callback confirmed"
-            )
+                level="callback", verified=True, notes="IOC callback confirmed"
+            ),
         )
 
         assert result.channel_address == "TEST:CHANNEL"
@@ -184,10 +164,7 @@ class TestVerificationDataModels:
     def test_channel_write_result_without_verification(self):
         """Test ChannelWriteResult can be created without verification."""
         result = ChannelWriteResult(
-            channel_address="TEST:CHANNEL",
-            value_written=100.0,
-            success=True,
-            verification=None
+            channel_address="TEST:CHANNEL", value_written=100.0, success=True, verification=None
         )
 
         assert result.success is True
@@ -220,7 +197,7 @@ class TestVerificationTolerance:
         # Test cases
         assert abs(1000.5 - written_value) <= absolute_tolerance  # Pass
         assert abs(1001.0 - written_value) <= absolute_tolerance  # Pass
-        assert abs(1001.5 - written_value) > absolute_tolerance   # Fail
+        assert abs(1001.5 - written_value) > absolute_tolerance  # Fail
 
     def test_scale_adaptive_tolerance(self):
         """Test that percentage tolerance adapts to value scale."""
@@ -239,4 +216,3 @@ class TestVerificationTolerance:
         # Both are 0.1% of their respective values
         assert (large_tolerance / large_value) * 100 == pytest.approx(0.1, rel=1e-6)
         assert (small_tolerance / small_value) * 100 == pytest.approx(0.1, rel=1e-6)
-

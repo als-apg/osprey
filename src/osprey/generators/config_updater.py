@@ -17,7 +17,7 @@ def find_config_file() -> Path | None:
     Returns:
         Path to config.yml or None if not found
     """
-    config_path = Path.cwd() / 'config.yml'
+    config_path = Path.cwd() / "config.yml"
     return config_path if config_path.exists() else None
 
 
@@ -36,7 +36,7 @@ def has_capability_react_model(config_path: Path, capability_name: str) -> bool:
             config = yaml.safe_load(f)
 
         model_key = f"{capability_name}_react"
-        if 'models' in config and model_key in config['models']:
+        if "models" in config and model_key in config["models"]:
             return True
     except Exception:
         pass
@@ -57,12 +57,12 @@ def get_orchestrator_model_config(config_path: Path) -> dict | None:
         with open(config_path) as f:
             config = yaml.safe_load(f)
 
-        if 'models' in config and 'orchestrator' in config['models']:
-            orch_config = config['models']['orchestrator']
+        if "models" in config and "orchestrator" in config["models"]:
+            orch_config = config["models"]["orchestrator"]
             return {
-                'provider': orch_config.get('provider', 'anthropic'),
-                'model_id': orch_config.get('model_id', 'claude-sonnet-4'),
-                'max_tokens': orch_config.get('max_tokens', 4096)
+                "provider": orch_config.get("provider", "anthropic"),
+                "model_id": orch_config.get("model_id", "claude-sonnet-4"),
+                "max_tokens": orch_config.get("max_tokens", 4096),
             }
     except Exception:
         pass
@@ -70,7 +70,9 @@ def get_orchestrator_model_config(config_path: Path) -> dict | None:
     return None
 
 
-def generate_capability_react_yaml(capability_name: str, template_config: dict | None = None) -> str:
+def generate_capability_react_yaml(
+    capability_name: str, template_config: dict | None = None
+) -> str:
     """Generate YAML snippet for capability-specific react model.
 
     Args:
@@ -82,12 +84,12 @@ def generate_capability_react_yaml(capability_name: str, template_config: dict |
         Formatted YAML string for {capability_name}_react model
     """
     if template_config:
-        provider = template_config['provider']
-        model_id = template_config['model_id']
-        max_tokens = template_config['max_tokens']
+        provider = template_config["provider"]
+        model_id = template_config["model_id"]
+        max_tokens = template_config["max_tokens"]
     else:
-        provider = 'anthropic'
-        model_id = 'claude-sonnet-4'
+        provider = "anthropic"
+        model_id = "claude-sonnet-4"
         max_tokens = 4096
 
     return f"""  {capability_name}_react:
@@ -96,7 +98,9 @@ def generate_capability_react_yaml(capability_name: str, template_config: dict |
     max_tokens: {max_tokens}"""
 
 
-def add_capability_react_to_config(config_path: Path, capability_name: str, template_config: dict | None = None) -> tuple[str, str]:
+def add_capability_react_to_config(
+    config_path: Path, capability_name: str, template_config: dict | None = None
+) -> tuple[str, str]:
     """Add capability-specific react model to config.yml.
 
     Args:
@@ -119,7 +123,7 @@ def add_capability_react_to_config(config_path: Path, capability_name: str, temp
     # Strategy: Find the models: section, then find where the next top-level key starts
     # Insert capability_react before that next section
 
-    models_pattern = r'(models:\s*\n(?:  \w+:.*\n(?:    .*\n)*)+)'
+    models_pattern = r"(models:\s*\n(?:  \w+:.*\n(?:    .*\n)*)+)"
 
     def add_capability_react(match):
         models_section = match.group(1)
@@ -162,8 +166,7 @@ If not configured, the capability falls back to using the 'orchestrator' model.[
 
 
 def remove_capability_react_from_config(
-    config_path: Path,
-    capability_name: str
+    config_path: Path, capability_name: str
 ) -> tuple[str, str, bool]:
     """Remove capability-specific react model from config.yml.
 
@@ -186,7 +189,7 @@ def remove_capability_react_from_config(
     #     provider: ...
     #     model_id: ...
     #     max_tokens: ...
-    model_pattern = rf'^  {re.escape(model_key)}:\s*\n(?:    .*\n)*'
+    model_pattern = rf"^  {re.escape(model_key)}:\s*\n(?:    .*\n)*"
 
     match = re.search(model_pattern, content, flags=re.MULTILINE)
 
@@ -198,7 +201,7 @@ def remove_capability_react_from_config(
     removed_section = match.group(0).rstrip()
 
     # Remove the section
-    new_content = re.sub(model_pattern, '', content, flags=re.MULTILINE)
+    new_content = re.sub(model_pattern, "", content, flags=re.MULTILINE)
 
     # Generate preview
     preview = f"""
@@ -225,8 +228,8 @@ def get_capability_react_config(config_path: Path, capability_name: str) -> dict
             config = yaml.safe_load(f)
 
         model_key = f"{capability_name}_react"
-        if 'models' in config and model_key in config['models']:
-            return config['models'][model_key]
+        if "models" in config and model_key in config["models"]:
+            return config["models"][model_key]
     except Exception:
         pass
 
@@ -238,7 +241,7 @@ def get_capability_react_config(config_path: Path, capability_name: str) -> dict
 # ============================================================================
 
 
-def get_control_system_type(config_path: Path, key: str = 'control_system.type') -> str | None:
+def get_control_system_type(config_path: Path, key: str = "control_system.type") -> str | None:
     """Get control system or archiver type from config.yml.
 
     Args:
@@ -253,7 +256,7 @@ def get_control_system_type(config_path: Path, key: str = 'control_system.type')
             config = yaml.safe_load(f)
 
         # Navigate nested keys
-        keys = key.split('.')
+        keys = key.split(".")
         value = config
         for k in keys:
             value = value.get(k)
@@ -268,9 +271,7 @@ def get_control_system_type(config_path: Path, key: str = 'control_system.type')
 
 
 def set_control_system_type(
-    config_path: Path,
-    control_type: str,
-    archiver_type: str | None = None
+    config_path: Path, control_type: str, archiver_type: str | None = None
 ) -> tuple[str, str]:
     """Update control system and optionally archiver type in config.yml.
 
@@ -285,20 +286,22 @@ def set_control_system_type(
     content = config_path.read_text()
 
     # Update control_system.type
-    control_pattern = r'(control_system:\s*\n\s*type:\s*)\w+'
-    control_replacement = rf'\1{control_type}'
+    control_pattern = r"(control_system:\s*\n\s*type:\s*)\w+"
+    control_replacement = rf"\1{control_type}"
     new_content = re.sub(control_pattern, control_replacement, content, flags=re.MULTILINE)
 
     # Update archiver.type if specified
     if archiver_type:
-        archiver_pattern = r'(archiver:\s*\n(?:.*\n)*?\s*type:\s*)\w+'
-        archiver_replacement = rf'\1{archiver_type}'
-        new_content = re.sub(archiver_pattern, archiver_replacement, new_content, flags=re.MULTILINE)
+        archiver_pattern = r"(archiver:\s*\n(?:.*\n)*?\s*type:\s*)\w+"
+        archiver_replacement = rf"\1{archiver_type}"
+        new_content = re.sub(
+            archiver_pattern, archiver_replacement, new_content, flags=re.MULTILINE
+        )
 
     # Create preview
     preview_lines = [
         "[bold]Control System Configuration[/bold]\n",
-        f"control_system.type: {control_type}"
+        f"control_system.type: {control_type}",
     ]
 
     if archiver_type:
@@ -317,9 +320,7 @@ def set_control_system_type(
 
 
 def set_epics_gateway_config(
-    config_path: Path,
-    facility: str,
-    custom_config: dict | None = None
+    config_path: Path, facility: str, custom_config: dict | None = None
 ) -> tuple[str, str]:
     """Update EPICS gateway configuration in config.yml.
 
@@ -340,7 +341,7 @@ def set_epics_gateway_config(
     """
     from osprey.templates.data import get_facility_config
 
-    if facility == 'custom':
+    if facility == "custom":
         if not custom_config:
             raise ValueError("custom_config required when facility='custom'")
         gateway_config = custom_config
@@ -349,8 +350,8 @@ def set_epics_gateway_config(
         preset = get_facility_config(facility)
         if not preset:
             raise ValueError(f"Unknown facility: {facility}")
-        gateway_config = preset['gateways']
-        facility_name = preset['name']
+        gateway_config = preset["gateways"]
+        facility_name = preset["name"]
 
     content = config_path.read_text()
 
@@ -359,7 +360,7 @@ def set_epics_gateway_config(
 
     # Find and replace the gateways section within control_system.connector.epics
     # Pattern: Look for the gateways: section under epics:
-    pattern = r'(epics:\s*\n\s*timeout:.*?\n\s*gateways:\s*\n)((?:\s+\w+:\s*\n(?:\s+.*\n)*)*)'
+    pattern = r"(epics:\s*\n\s*timeout:.*?\n\s*gateways:\s*\n)((?:\s+\w+:\s*\n(?:\s+.*\n)*)*)"
 
     def replace_gateways(match):
         header = match.group(1)  # Keep "epics:\n  timeout: X\n  gateways:\n"
@@ -390,15 +391,17 @@ def _format_gateway_yaml(gateway_config: dict) -> str:
     """
     lines = []
 
-    for gateway_type in ['read_only', 'write_access']:
+    for gateway_type in ["read_only", "write_access"]:
         if gateway_type in gateway_config:
             gw = gateway_config[gateway_type]
             lines.append(f"        {gateway_type}:")
             lines.append(f"          address: {gw['address']}")
             lines.append(f"          port: {gw['port']}")
-            lines.append(f"          use_name_server: {str(gw.get('use_name_server', False)).lower()}")
+            lines.append(
+                f"          use_name_server: {str(gw.get('use_name_server', False)).lower()}"
+            )
 
-    return '\n'.join(lines) + '\n'
+    return "\n".join(lines) + "\n"
 
 
 def get_epics_gateway_config(config_path: Path) -> dict | None:
@@ -414,7 +417,9 @@ def get_epics_gateway_config(config_path: Path) -> dict | None:
         with open(config_path) as f:
             config = yaml.safe_load(f)
 
-        gateways = config.get('control_system', {}).get('connector', {}).get('epics', {}).get('gateways')
+        gateways = (
+            config.get("control_system", {}).get("connector", {}).get("epics", {}).get("gateways")
+        )
         return gateways
     except Exception:
         pass
@@ -441,22 +446,23 @@ def get_facility_from_gateway_config(config_path: Path) -> str | None:
 
     # Check if current config matches any preset
     for facility_id, preset in FACILITY_PRESETS.items():
-        preset_gateways = preset['gateways']
+        preset_gateways = preset["gateways"]
 
         # Compare read_only gateway
-        if 'read_only' in current_gateways and 'read_only' in preset_gateways:
-            current_read = current_gateways['read_only']
-            preset_read = preset_gateways['read_only']
+        if "read_only" in current_gateways and "read_only" in preset_gateways:
+            current_read = current_gateways["read_only"]
+            preset_read = preset_gateways["read_only"]
 
-            if (current_read.get('address') == preset_read['address'] and
-                current_read.get('port') == preset_read['port']):
-                return preset['name']
+            if (
+                current_read.get("address") == preset_read["address"]
+                and current_read.get("port") == preset_read["port"]
+            ):
+                return preset["name"]
 
     # Check if it looks like a custom configuration (not default ALS)
-    if 'read_only' in current_gateways:
-        read_addr = current_gateways['read_only'].get('address', '')
-        if read_addr and read_addr != 'cagw-alsdmz.als.lbl.gov':
-            return 'Custom'
+    if "read_only" in current_gateways:
+        read_addr = current_gateways["read_only"].get("address", "")
+        if read_addr and read_addr != "cagw-alsdmz.als.lbl.gov":
+            return "Custom"
 
     return None
-

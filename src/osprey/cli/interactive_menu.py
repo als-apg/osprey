@@ -65,6 +65,7 @@ custom_style = get_questionary_style()
 # BANNER AND BRANDING
 # ============================================================================
 
+
 def show_banner(context: str = "interactive", config_path: str | None = None):
     """Display the unified osprey banner with ASCII art.
 
@@ -82,6 +83,7 @@ def show_banner(context: str = "interactive", config_path: str | None = None):
     # Get version number
     try:
         from osprey import __version__
+
         version_str = f"v{__version__}"
     except (ImportError, AttributeError):
         version_str = ""
@@ -94,7 +96,7 @@ def show_banner(context: str = "interactive", config_path: str | None = None):
     try:
         # Check if config exists before trying to load
         # Suppress config loading messages in interactive menu
-        with quiet_logger(['REGISTRY', 'CONFIG']):
+        with quiet_logger(["REGISTRY", "CONFIG"]):
             if config_path:
                 banner_text = get_config_value("cli.banner", None, config_path)
             elif (Path.cwd() / "config.yml").exists():
@@ -129,11 +131,15 @@ def show_banner(context: str = "interactive", config_path: str | None = None):
     # Context-specific subtitle
     if context == "interactive":
         console.print(f"    [{Styles.HEADER}]Interactive Menu System[/{Styles.HEADER}]")
-        console.print(f"    [{Styles.DIM}]Use arrow keys to navigate • Press Ctrl+C to exit[/{Styles.DIM}]")
+        console.print(
+            f"    [{Styles.DIM}]Use arrow keys to navigate • Press Ctrl+C to exit[/{Styles.DIM}]"
+        )
     elif context == "chat":
         msg = Messages.info("💡 Type 'bye' or 'end' to exit")
         console.print(f"    {msg}")
-        console.print(f"    [{Styles.ACCENT}]⚡ Use slash commands (/) for quick actions - try /help[/{Styles.ACCENT}]")
+        console.print(
+            f"    [{Styles.ACCENT}]⚡ Use slash commands (/) for quick actions - try /help[/{Styles.ACCENT}]"
+        )
 
     console.print()
 
@@ -152,13 +158,14 @@ def show_success_art():
 # PROJECT DETECTION
 # ============================================================================
 
+
 def is_project_initialized() -> bool:
     """Check if we're in an osprey project directory.
 
     Returns:
         True if config.yml exists in current directory
     """
-    return (Path.cwd() / 'config.yml').exists()
+    return (Path.cwd() / "config.yml").exists()
 
 
 def get_project_info(config_path: Path | None = None) -> dict[str, Any]:
@@ -172,7 +179,7 @@ def get_project_info(config_path: Path | None = None) -> dict[str, Any]:
         Returns empty dict if no project found or error parsing
     """
     if config_path is None:
-        config_path = Path.cwd() / 'config.yml'
+        config_path = Path.cwd() / "config.yml"
 
     if not config_path.exists():
         return {}
@@ -183,33 +190,35 @@ def get_project_info(config_path: Path | None = None) -> dict[str, Any]:
 
         # Validate config.yml structure after parsing
         if config is None:
-            if os.environ.get('DEBUG'):
+            if os.environ.get("DEBUG"):
                 console.print(f"[dim]Warning: Empty config.yml at {config_path}[/dim]")
             return {}
 
         if not isinstance(config, dict):
-            if os.environ.get('DEBUG'):
-                console.print(f"[dim]Warning: Invalid config.yml structure (not a dict) at {config_path}[/dim]")
+            if os.environ.get("DEBUG"):
+                console.print(
+                    f"[dim]Warning: Invalid config.yml structure (not a dict) at {config_path}[/dim]"
+                )
             return {}
 
         # Extract relevant information with safe defaults
         info = {
-            'project_root': config.get('project_root', str(config_path.parent)),
-            'registry_path': config.get('registry_path', ''),
+            "project_root": config.get("project_root", str(config_path.parent)),
+            "registry_path": config.get("registry_path", ""),
         }
 
         # Extract provider and model from models.orchestrator section
-        models_config = config.get('models', {})
+        models_config = config.get("models", {})
         if not isinstance(models_config, dict):
             models_config = {}
 
-        orchestrator = models_config.get('orchestrator', {})
+        orchestrator = models_config.get("orchestrator", {})
         if not isinstance(orchestrator, dict):
             orchestrator = {}
 
         if orchestrator:
-            info['provider'] = orchestrator.get('provider', 'unknown')
-            info['model'] = orchestrator.get('model_id', 'unknown')
+            info["provider"] = orchestrator.get("provider", "unknown")
+            info["model"] = orchestrator.get("model_id", "unknown")
 
         return info
 
@@ -257,11 +266,25 @@ def discover_nearby_projects(max_dirs: int = 50, max_time_ms: int = 100) -> list
 
     # Directories to ignore (common non-project directories)
     ignore_dirs = {
-        'node_modules', 'venv', '.venv', 'env', '.env',
-        '__pycache__', '.git', '.svn', '.hg',
-        'build', 'dist', '.egg-info', 'site-packages',
-        '.pytest_cache', '.mypy_cache', '.tox',
-        'docs', '_agent_data', '.cache'
+        "node_modules",
+        "venv",
+        ".venv",
+        "env",
+        ".env",
+        "__pycache__",
+        ".git",
+        ".svn",
+        ".hg",
+        "build",
+        "dist",
+        ".egg-info",
+        "site-packages",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".tox",
+        "docs",
+        "_agent_data",
+        ".cache",
     }
 
     try:
@@ -274,7 +297,7 @@ def discover_nearby_projects(max_dirs: int = 50, max_time_ms: int = 100) -> list
             for item in cwd.iterdir():
                 # Check timeout
                 if time.time() - start_time > max_time_seconds:
-                    if os.environ.get('DEBUG'):
+                    if os.environ.get("DEBUG"):
                         console.print(f"[dim]Project discovery timeout after {max_time_ms}ms[/dim]")
                     break
 
@@ -283,7 +306,7 @@ def discover_nearby_projects(max_dirs: int = 50, max_time_ms: int = 100) -> list
                     continue
 
                 # Skip hidden directories (start with .)
-                if item.name.startswith('.'):
+                if item.name.startswith("."):
                     continue
 
                 # Skip common non-project directories
@@ -294,7 +317,7 @@ def discover_nearby_projects(max_dirs: int = 50, max_time_ms: int = 100) -> list
 
         except (PermissionError, OSError) as e:
             # Skip directories we can't read
-            if os.environ.get('DEBUG'):
+            if os.environ.get("DEBUG"):
                 console.print(f"[dim]Warning: Could not read directory: {e}[/dim]")
             return projects
 
@@ -305,17 +328,19 @@ def discover_nearby_projects(max_dirs: int = 50, max_time_ms: int = 100) -> list
         for subdir in subdirs:
             # Check limits
             if checked_count >= max_dirs:
-                if os.environ.get('DEBUG'):
-                    console.print(f"[dim]Project discovery stopped after checking {max_dirs} directories[/dim]")
+                if os.environ.get("DEBUG"):
+                    console.print(
+                        f"[dim]Project discovery stopped after checking {max_dirs} directories[/dim]"
+                    )
                 break
 
             if time.time() - start_time > max_time_seconds:
-                if os.environ.get('DEBUG'):
+                if os.environ.get("DEBUG"):
                     console.print(f"[dim]Project discovery timeout after {max_time_ms}ms[/dim]")
                 break
 
             try:
-                config_file = subdir / 'config.yml'
+                config_file = subdir / "config.yml"
 
                 if config_file.exists() and config_file.is_file():
                     # Found a project!
@@ -329,7 +354,7 @@ def discover_nearby_projects(max_dirs: int = 50, max_time_ms: int = 100) -> list
 
     except Exception as e:
         # Fail gracefully - return whatever we found so far
-        if os.environ.get('DEBUG'):
+        if os.environ.get("DEBUG"):
             console.print(f"[dim]Warning during project discovery: {e}[/dim]")
 
     # Return sorted list
@@ -345,6 +370,7 @@ _provider_cache: dict[str, dict[str, Any]] | None = None
 
 # Cache for code generator metadata (loaded once per TUI session)
 _code_generator_cache: dict[str, dict[str, Any]] | None = None
+
 
 def get_provider_metadata() -> dict[str, dict[str, Any]]:
     """Get provider information from osprey registry.
@@ -403,21 +429,23 @@ def get_provider_metadata() -> dict[str, dict[str, Any]]:
 
                 # Extract metadata from class attributes (single source of truth)
                 providers[provider_class.name] = {
-                    'name': provider_class.name,
-                    'description': provider_class.description,
-                    'requires_key': provider_class.requires_api_key,
-                    'requires_base_url': provider_class.requires_base_url,
-                    'models': provider_class.available_models,
-                    'default_model': provider_class.default_model_id,
-                    'health_check_model': provider_class.health_check_model_id,
-                    'api_key_url': provider_class.api_key_url,
-                    'api_key_instructions': provider_class.api_key_instructions,
-                    'api_key_note': provider_class.api_key_note
+                    "name": provider_class.name,
+                    "description": provider_class.description,
+                    "requires_key": provider_class.requires_api_key,
+                    "requires_base_url": provider_class.requires_base_url,
+                    "models": provider_class.available_models,
+                    "default_model": provider_class.default_model_id,
+                    "health_check_model": provider_class.health_check_model_id,
+                    "api_key_url": provider_class.api_key_url,
+                    "api_key_instructions": provider_class.api_key_instructions,
+                    "api_key_note": provider_class.api_key_note,
                 }
             except Exception as e:
                 # Skip providers that fail to load, but log for debugging
-                if os.environ.get('DEBUG'):
-                    console.print(f"[dim]Warning: Could not load provider {provider_reg.class_name}: {e}[/dim]")
+                if os.environ.get("DEBUG"):
+                    console.print(
+                        f"[dim]Warning: Could not load provider {provider_reg.class_name}: {e}[/dim]"
+                    )
                 continue
 
         if not providers:
@@ -430,9 +458,14 @@ def get_provider_metadata() -> dict[str, dict[str, Any]]:
     except Exception as e:
         # This should rarely happen - osprey registry should always be available
         console.print(Messages.error(f"Could not load providers from osprey registry: {e}"))
-        console.print(Messages.warning("The TUI requires access to provider information to initialize projects."))
-        if os.environ.get('DEBUG'):
+        console.print(
+            Messages.warning(
+                "The TUI requires access to provider information to initialize projects."
+            )
+        )
+        if os.environ.get("DEBUG"):
             import traceback
+
             traceback.print_exc()
 
         # Return empty dict but don't cache failures
@@ -487,8 +520,8 @@ def get_code_generator_metadata() -> dict[str, dict[str, Any]]:
         # Load each code generator registration from osprey config
         for gen_reg in config.code_generators:
             # Skip mock generators (for testing only)
-            if gen_reg.name == 'mock':
-                if os.environ.get('DEBUG'):
+            if gen_reg.name == "mock":
+                if os.environ.get("DEBUG"):
                     console.print("[dim]Skipping mock generator (testing only)[/dim]")
                 continue
 
@@ -499,39 +532,49 @@ def get_code_generator_metadata() -> dict[str, dict[str, Any]]:
 
                 # Generator is available
                 generators[gen_reg.name] = {
-                    'name': gen_reg.name,
-                    'description': gen_reg.description,
-                    'available': True,
-                    'optional_dependencies': gen_reg.optional_dependencies if hasattr(gen_reg, 'optional_dependencies') else []
+                    "name": gen_reg.name,
+                    "description": gen_reg.description,
+                    "available": True,
+                    "optional_dependencies": (
+                        gen_reg.optional_dependencies
+                        if hasattr(gen_reg, "optional_dependencies")
+                        else []
+                    ),
                 }
 
             except ImportError as e:
                 # Generator not available (missing dependencies)
-                if hasattr(gen_reg, 'optional_dependencies') and gen_reg.optional_dependencies:
+                if hasattr(gen_reg, "optional_dependencies") and gen_reg.optional_dependencies:
                     # Optional dependency not installed - include but mark unavailable
                     generators[gen_reg.name] = {
-                        'name': gen_reg.name,
-                        'description': gen_reg.description,
-                        'available': False,
-                        'optional_dependencies': gen_reg.optional_dependencies,
-                        'import_error': str(e)
+                        "name": gen_reg.name,
+                        "description": gen_reg.description,
+                        "available": False,
+                        "optional_dependencies": gen_reg.optional_dependencies,
+                        "import_error": str(e),
                     }
-                    if os.environ.get('DEBUG'):
+                    if os.environ.get("DEBUG"):
                         console.print(f"[dim]Generator '{gen_reg.name}' unavailable: {e}[/dim]")
                 else:
                     # Required dependency missing - this is an error
-                    if os.environ.get('DEBUG'):
-                        console.print(f"[dim]Warning: Could not load generator {gen_reg.name}: {e}[/dim]")
+                    if os.environ.get("DEBUG"):
+                        console.print(
+                            f"[dim]Warning: Could not load generator {gen_reg.name}: {e}[/dim]"
+                        )
                     continue
 
             except Exception as e:
                 # Other errors - skip this generator
-                if os.environ.get('DEBUG'):
-                    console.print(f"[dim]Warning: Could not load generator {gen_reg.name}: {e}[/dim]")
+                if os.environ.get("DEBUG"):
+                    console.print(
+                        f"[dim]Warning: Could not load generator {gen_reg.name}: {e}[/dim]"
+                    )
                 continue
 
         if not generators:
-            console.print(Messages.warning("No code generators could be loaded from osprey registry"))
+            console.print(
+                Messages.warning("No code generators could be loaded from osprey registry")
+            )
 
         # Cache the result for future calls
         _code_generator_cache = generators
@@ -541,8 +584,9 @@ def get_code_generator_metadata() -> dict[str, dict[str, Any]]:
         # This should rarely happen - osprey registry should always be available
         console.print(Messages.error(f"Could not load code generators from osprey registry: {e}"))
         console.print(Messages.warning("The TUI requires access to code generator information."))
-        if os.environ.get('DEBUG'):
+        if os.environ.get("DEBUG"):
             import traceback
+
             traceback.print_exc()
 
         # Return empty dict but don't cache failures
@@ -553,7 +597,8 @@ def get_code_generator_metadata() -> dict[str, dict[str, Any]]:
 # MAIN MENU
 # ============================================================================
 
-def get_project_menu_choices(exit_action: str = 'exit') -> list[Choice]:
+
+def get_project_menu_choices(exit_action: str = "exit") -> list[Choice]:
     """Get standard project menu choices.
 
     This is the single source of truth for project menu options,
@@ -567,22 +612,22 @@ def get_project_menu_choices(exit_action: str = 'exit') -> list[Choice]:
         List of Choice objects for the project menu
     """
     choices = [
-        Choice("[>] chat        - Start CLI conversation", value='chat'),
-        Choice("[>] deploy      - Manage services (web UIs)", value='deploy'),
-        Choice("[>] health      - Run system health check", value='health'),
-        Choice("[>] generate    - Generate components", value='generate'),
-        Choice("[>] config      - Configuration settings", value='config'),
-        Choice("[>] registry    - Show registry contents", value='registry'),
+        Choice("[>] chat        - Start CLI conversation", value="chat"),
+        Choice("[>] deploy      - Manage services (web UIs)", value="deploy"),
+        Choice("[>] health      - Run system health check", value="health"),
+        Choice("[>] generate    - Generate components", value="generate"),
+        Choice("[>] config      - Configuration settings", value="config"),
+        Choice("[>] registry    - Show registry contents", value="registry"),
         Choice("─" * 60, value=None, disabled=True),
-        Choice("[+] init        - Create new project", value='init_interactive'),
-        Choice("[?] help        - Show all commands", value='help'),
+        Choice("[+] init        - Create new project", value="init_interactive"),
+        Choice("[?] help        - Show all commands", value="help"),
     ]
 
     # Add context-appropriate exit/back option
-    if exit_action == 'back':
-        choices.append(Choice("[<] back        - Return to main menu", value='back'))
+    if exit_action == "back":
+        choices.append(Choice("[<] back        - Return to main menu", value="back"))
     else:
-        choices.append(Choice("[x] exit        - Exit CLI", value='exit'))
+        choices.append(Choice("[x] exit        - Exit CLI", value="exit"))
 
     return choices
 
@@ -614,30 +659,30 @@ def show_main_menu() -> str | None:
 
             for project_name, project_path in nearby_projects:
                 # Get project info for display
-                project_info = get_project_info(project_path / 'config.yml')
+                project_info = get_project_info(project_path / "config.yml")
 
-                if project_info and 'provider' in project_info:
+                if project_info and "provider" in project_info:
                     display = f"[→] {project_name:20} ({project_info['provider']} / {project_info.get('model', 'unknown')[:20]})"
                 else:
                     display = f"[→] {project_name:20} (osprey project)"
 
                 # Value is tuple so we can distinguish from other actions
-                choices.append(Choice(display, value=('select_project', project_path)))
+                choices.append(Choice(display, value=("select_project", project_path)))
 
             # Add separator
             choices.append(Choice("─" * 60, value=None, disabled=True))
 
         # Standard menu options
-        choices.extend([
-            Choice("[+] Create new project (interactive)", value='init_interactive'),
-            Choice("[?] Help", value='help'),
-            Choice("[x] Exit", value='exit')
-        ])
+        choices.extend(
+            [
+                Choice("[+] Create new project (interactive)", value="init_interactive"),
+                Choice("[?] Help", value="help"),
+                Choice("[x] Exit", value="exit"),
+            ]
+        )
 
         return questionary.select(
-            "What would you like to do?",
-            choices=choices,
-            style=custom_style
+            "What would you like to do?", choices=choices, style=custom_style
         ).ask()
     else:
         # Project menu
@@ -646,20 +691,23 @@ def show_main_menu() -> str | None:
 
         console.print(f"\n{Messages.header('Project:')} {project_name}")
         if project_info:
-            console.print(f"[dim]Provider: {project_info.get('provider', 'unknown')} | "
-                         f"Model: {project_info.get('model', 'unknown')}[/dim]")
+            console.print(
+                f"[dim]Provider: {project_info.get('provider', 'unknown')} | "
+                f"Model: {project_info.get('model', 'unknown')}[/dim]"
+            )
 
         # Use centralized project menu choices (with 'exit' action)
         return questionary.select(
             "Select command:",
-            choices=get_project_menu_choices(exit_action='exit'),
-            style=custom_style
+            choices=get_project_menu_choices(exit_action="exit"),
+            style=custom_style,
         ).ask()
 
 
 # ============================================================================
 # DIRECTORY SAFETY CHECKS
 # ============================================================================
+
 
 def check_directory_has_active_mounts(directory: Path) -> tuple[bool, list[str]]:
     """Check if a directory has active Docker/Podman volume mounts.
@@ -699,14 +747,11 @@ def check_directory_has_active_mounts(directory: Path) -> tuple[bool, list[str]]
     # Check for container mounts using detected runtime
     try:
         result = subprocess.run(
-            [runtime, "ps", "--format", "{{.Names}}"],
-            capture_output=True,
-            text=True,
-            timeout=1
+            [runtime, "ps", "--format", "{{.Names}}"], capture_output=True, text=True, timeout=1
         )
 
         if result.returncode == 0:
-            containers = result.stdout.strip().split('\n')
+            containers = result.stdout.strip().split("\n")
             containers = [c for c in containers if c]  # Remove empty strings
 
             for container in containers:
@@ -715,23 +760,21 @@ def check_directory_has_active_mounts(directory: Path) -> tuple[bool, list[str]]
                     [runtime, "inspect", "--format", "{{json .Mounts}}", container],
                     capture_output=True,
                     text=True,
-                    timeout=5
+                    timeout=5,
                 )
 
                 if inspect_result.returncode == 0:
                     try:
                         mounts = json.loads(inspect_result.stdout)
                         for mount in mounts:
-                            source = mount.get('Source', '')
+                            source = mount.get("Source", "")
                             if dir_str in source or source.startswith(dir_str):
-                                mount_details.append(
-                                    f"Container '{container}' has mount: {source}"
-                                )
+                                mount_details.append(f"Container '{container}' has mount: {source}")
                     except json.JSONDecodeError:
                         pass
     except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
-            # Podman also not available - assume no mounts
-            pass
+        # Podman also not available - assume no mounts
+        pass
 
     return len(mount_details) > 0, mount_details
 
@@ -739,6 +782,7 @@ def check_directory_has_active_mounts(directory: Path) -> tuple[bool, list[str]]
 # ============================================================================
 # TEMPLATE SELECTION
 # ============================================================================
+
 
 def select_template(templates: list[str]) -> str | None:
     """Interactive template selection.
@@ -751,22 +795,18 @@ def select_template(templates: list[str]) -> str | None:
     """
     # Template descriptions (could also come from template metadata)
     descriptions = {
-        'minimal': 'Empty project structure with TODO placeholders',
-        'hello_world_weather': 'Single capability weather example (tutorial)',
-        'control_assistant': 'Control system integration with channel finder (production-grade)'
+        "minimal": "Empty project structure with TODO placeholders",
+        "hello_world_weather": "Single capability weather example (tutorial)",
+        "control_assistant": "Control system integration with channel finder (production-grade)",
     }
 
     choices = []
     for template in templates:
-        desc = descriptions.get(template, 'No description available')
+        desc = descriptions.get(template, "No description available")
         display = f"{template:22} - {desc}"
         choices.append(Choice(display, value=template))
 
-    return questionary.select(
-        "Select project template:",
-        choices=choices,
-        style=custom_style
-    ).ask()
+    return questionary.select("Select project template:", choices=choices, style=custom_style).ask()
 
 
 def get_default_name_for_template(template: str) -> str:
@@ -779,11 +819,11 @@ def get_default_name_for_template(template: str) -> str:
         Default project name suggestion
     """
     defaults = {
-        'minimal': 'my-agent',
-        'hello_world_weather': 'weather-agent',
-        'control_assistant': 'my-control-assistant'
+        "minimal": "my-agent",
+        "hello_world_weather": "weather-agent",
+        "control_assistant": "my-control-assistant",
     }
-    return defaults.get(template, 'my-project')
+    return defaults.get(template, "my-project")
 
 
 def select_channel_finder_mode() -> str | None:
@@ -797,23 +837,19 @@ def select_channel_finder_mode() -> str | None:
     choices = [
         Choice(
             "in_context       - Semantic search (best for few hundred channels, faster)",
-            value='in_context'
+            value="in_context",
         ),
         Choice(
             "hierarchical     - Structured navigation (best for >1,000 channels, scalable)",
-            value='hierarchical'
+            value="hierarchical",
         ),
         Choice(
             "both             - Include both pipelines (maximum flexibility, comparison)",
-            value='both'
+            value="both",
         ),
     ]
 
-    return questionary.select(
-        "Channel finder mode:",
-        choices=choices,
-        style=custom_style
-    ).ask()
+    return questionary.select("Channel finder mode:", choices=choices, style=custom_style).ask()
 
 
 def select_code_generator(generators: dict[str, dict[str, Any]]) -> str | None:
@@ -831,7 +867,9 @@ def select_code_generator(generators: dict[str, dict[str, Any]]) -> str | None:
     if not generators:
         console.print(f"\n{Messages.error('No code generators available')}")
         console.print(Messages.warning("Osprey could not load any code generators."))
-        console.print(f"[dim]Check that osprey is properly installed: {Messages.command('pip install -e .[all]')}[/dim]\n")
+        console.print(
+            f"[dim]Check that osprey is properly installed: {Messages.command('pip install -e .[all]')}[/dim]\n"
+        )
         return None
 
     console.print("[dim]Select the code generation strategy for Python execution:[/dim]\n")
@@ -841,13 +879,12 @@ def select_code_generator(generators: dict[str, dict[str, Any]]) -> str | None:
 
     # Sort generators: available first, then unavailable
     sorted_generators = sorted(
-        generators.items(),
-        key=lambda x: (not x[1].get('available', False), x[0])
+        generators.items(), key=lambda x: (not x[1].get("available", False), x[0])
     )
 
     for gen_name, gen_info in sorted_generators:
-        is_available = gen_info.get('available', False)
-        description = gen_info.get('description', 'No description available')
+        is_available = gen_info.get("available", False)
+        description = gen_info.get("description", "No description available")
 
         if is_available:
             # Available generator
@@ -855,32 +892,30 @@ def select_code_generator(generators: dict[str, dict[str, Any]]) -> str | None:
             choices.append(Choice(display, value=gen_name))
 
             # Set basic as default if available
-            if gen_name == 'basic' and default_choice is None:
+            if gen_name == "basic" and default_choice is None:
                 default_choice = gen_name
 
         else:
             # Unavailable generator (missing optional dependencies)
-            deps = gen_info.get('optional_dependencies', [])
-            deps_str = ', '.join(deps) if deps else 'unknown dependencies'
+            deps = gen_info.get("optional_dependencies", [])
+            deps_str = ", ".join(deps) if deps else "unknown dependencies"
             display = f"{gen_name:15} - [dim]{description} (requires: {deps_str})[/dim]"
             choices.append(Choice(display, value=gen_name, disabled=True))
 
-    if not any(not c.disabled for c in choices if hasattr(c, 'disabled')):
+    if not any(not c.disabled for c in choices if hasattr(c, "disabled")):
         console.print(f"\n{Messages.error('No available code generators found')}")
         console.print(f"{Messages.warning('All generators require additional dependencies.')}\n")
         return None
 
     return questionary.select(
-        "Code generator:",
-        choices=choices,
-        style=custom_style,
-        default=default_choice
+        "Code generator:", choices=choices, style=custom_style, default=default_choice
     ).ask()
 
 
 # ============================================================================
 # PROVIDER AND MODEL SELECTION
 # ============================================================================
+
 
 def select_provider(providers: dict[str, dict[str, Any]]) -> str | None:
     """Interactive provider selection.
@@ -895,7 +930,9 @@ def select_provider(providers: dict[str, dict[str, Any]]) -> str | None:
     if not providers:
         console.print(f"\n{Messages.error('No providers available')}")
         console.print(Messages.warning("Osprey could not load any AI providers."))
-        console.print(f"[dim]Check that osprey is properly installed: {Messages.command('pip install -e .[all]')}[/dim]\n")
+        console.print(
+            f"[dim]Check that osprey is properly installed: {Messages.command('pip install -e .[all]')}[/dim]\n"
+        )
         return None
 
     choices = []
@@ -904,17 +941,17 @@ def select_provider(providers: dict[str, dict[str, Any]]) -> str | None:
             # Validate provider metadata structure
             if not isinstance(p, dict):
                 continue
-            if 'name' not in p or 'description' not in p:
-                if os.environ.get('DEBUG'):
+            if "name" not in p or "description" not in p:
+                if os.environ.get("DEBUG"):
                     console.print(f"[dim]Warning: Provider {key} missing required metadata[/dim]")
                 continue
 
             # Description comes directly from provider class attribute
-            key_info = " [requires API key]" if p.get('requires_key', True) else " [no API key]"
+            key_info = " [requires API key]" if p.get("requires_key", True) else " [no API key]"
             display = f"{p['name']:12} - {p['description']}{key_info}"
             choices.append(Choice(display, value=key))
         except Exception as e:
-            if os.environ.get('DEBUG'):
+            if os.environ.get("DEBUG"):
                 console.print(f"[dim]Warning: Error processing provider {key}: {e}[/dim]")
             continue
 
@@ -927,7 +964,7 @@ def select_provider(providers: dict[str, dict[str, Any]]) -> str | None:
         "Select default AI provider:",
         choices=choices,
         style=custom_style,
-        instruction="(This sets default provider in config.yml)"
+        instruction="(This sets default provider in config.yml)",
     ).ask()
 
 
@@ -943,24 +980,22 @@ def select_model(provider: str, providers: dict[str, dict[str, Any]]) -> str | N
     """
     provider_info = providers[provider]
 
-    choices = [
-        Choice(model, value=model)
-        for model in provider_info['models']
-    ]
+    choices = [Choice(model, value=model) for model in provider_info["models"]]
 
-    default = provider_info.get('default_model')
+    default = provider_info.get("default_model")
 
     return questionary.select(
         f"Select default model for {provider}:",
         choices=choices,
         style=custom_style,
-        default=default if default in provider_info['models'] else None
+        default=default if default in provider_info["models"] else None,
     ).ask()
 
 
 # ============================================================================
 # API KEY MANAGEMENT
 # ============================================================================
+
 
 def get_api_key_name(provider: str) -> str | None:
     """Get environment variable name for provider API key.
@@ -972,19 +1007,20 @@ def get_api_key_name(provider: str) -> str | None:
         Environment variable name, or None if provider doesn't need API key
     """
     key_names = {
-        'cborg': 'CBORG_API_KEY',
-        'stanford': 'STANFORD_API_KEY',
-        'argo': 'ARGO_API_KEY',
-        'anthropic': 'ANTHROPIC_API_KEY',
-        'google': 'GOOGLE_API_KEY',
-        'openai': 'OPENAI_API_KEY',
-        'ollama': None  # Ollama doesn't need API key
+        "cborg": "CBORG_API_KEY",
+        "stanford": "STANFORD_API_KEY",
+        "argo": "ARGO_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+        "google": "GOOGLE_API_KEY",
+        "openai": "OPENAI_API_KEY",
+        "ollama": None,  # Ollama doesn't need API key
     }
-    return key_names.get(provider, f'{provider.upper()}_API_KEY')
+    return key_names.get(provider, f"{provider.upper()}_API_KEY")
 
 
-def configure_api_key(provider: str, project_path: Path,
-                     providers: dict[str, dict[str, Any]]) -> bool:
+def configure_api_key(
+    provider: str, project_path: Path, providers: dict[str, dict[str, Any]]
+) -> bool:
     """Configure API key for the selected provider.
 
     Args:
@@ -1009,6 +1045,7 @@ def configure_api_key(provider: str, project_path: Path,
 
     # Check if already detected from environment
     from osprey.cli.templates import TemplateManager
+
     manager = TemplateManager()
     detected_env = manager._detect_environment_variables()
 
@@ -1030,18 +1067,18 @@ def configure_api_key(provider: str, project_path: Path,
     action = questionary.select(
         "How would you like to configure the API key?",
         choices=[
-            Choice("[#] Paste API key now (secure input)", value='paste'),
-            Choice("[-] Configure later (edit .env manually)", value='later'),
-            Choice("[?] Where do I get an API key?", value='help'),
+            Choice("[#] Paste API key now (secure input)", value="paste"),
+            Choice("[-] Configure later (edit .env manually)", value="later"),
+            Choice("[?] Where do I get an API key?", value="help"),
         ],
         style=custom_style,
     ).ask()
 
-    if action == 'help':
+    if action == "help":
         show_api_key_help(provider)
         return configure_api_key(provider, project_path, providers)  # Ask again
 
-    elif action == 'paste':
+    elif action == "paste":
         console.print(f"\n[dim]Enter your {key_name} (input will be hidden)[/dim]")
 
         api_key = questionary.password(
@@ -1057,7 +1094,7 @@ def configure_api_key(provider: str, project_path: Path,
             console.print(f"\n{Messages.warning('No API key provided')}\n")
             return False
 
-    elif action == 'later':
+    elif action == "later":
         show_manual_config_instructions(provider, key_name, project_path)
         return False
 
@@ -1116,11 +1153,11 @@ def show_api_key_help(provider: str):
             return
 
         # Display provider-specific instructions from metadata
-        provider_display = provider_data.get('description') or provider.title()
+        provider_display = provider_data.get("description") or provider.title()
         console.print(f"[bold]Getting a {provider_display} API Key:[/bold]")
 
         # Show URL if available
-        api_key_url = provider_data.get('api_key_url')
+        api_key_url = provider_data.get("api_key_url")
         if api_key_url:
             console.print(f"  1. Visit: {api_key_url}")
             step_offset = 2
@@ -1128,14 +1165,14 @@ def show_api_key_help(provider: str):
             step_offset = 1
 
         # Show instructions
-        api_key_instructions = provider_data.get('api_key_instructions', [])
+        api_key_instructions = provider_data.get("api_key_instructions", [])
         if api_key_instructions:
             for i, instruction in enumerate(api_key_instructions, start=step_offset):
                 console.print(f"  {i}. {instruction}")
             console.print()  # Extra line after instructions
 
         # Show note if available
-        api_key_note = provider_data.get('api_key_note')
+        api_key_note = provider_data.get("api_key_note")
         if api_key_note:
             console.print(f"[dim]Note: {api_key_note}[/dim]\n")
 
@@ -1167,6 +1204,7 @@ def show_manual_config_instructions(provider: str, key_name: str, project_path: 
 # INTERACTIVE INIT FLOW
 # ============================================================================
 
+
 def run_interactive_init() -> str:
     """Interactive init flow with provider/model selection.
 
@@ -1184,20 +1222,22 @@ def run_interactive_init() -> str:
 
     try:
         # Show spinner while loading
-        with console.status("[dim]Loading templates, providers, and code generators...[/dim]", spinner="dots"):
+        with console.status(
+            "[dim]Loading templates, providers, and code generators...[/dim]", spinner="dots"
+        ):
             templates = manager.list_app_templates()
             providers = get_provider_metadata()
             code_generators = get_code_generator_metadata()
     except Exception as e:
         console.print(f"[error]✗ Error loading templates/providers/generators:[/error] {e}")
         input("\nPress ENTER to continue...")
-        return 'menu'
+        return "menu"
 
     # 1. Template selection
     console.print("[bold]Step 1: Select Template[/bold]\n")
     template = select_template(templates)
     if template is None:
-        return 'menu'
+        return "menu"
 
     # 2. Project name
     console.print("\n[bold]Step 2: Project Name[/bold]\n")
@@ -1208,25 +1248,25 @@ def run_interactive_init() -> str:
     ).ask()
 
     if not project_name:
-        return 'menu'
+        return "menu"
 
     # 2b. Channel finder mode (only for control_assistant template)
     channel_finder_mode = None
-    if template == 'control_assistant':
+    if template == "control_assistant":
         console.print("\n[bold]Step 3: Channel Finder Configuration[/bold]\n")
         channel_finder_mode = select_channel_finder_mode()
         if channel_finder_mode is None:
-            return 'menu'
+            return "menu"
 
     # 2c. Code generator selection (for templates that use Python execution)
     # Skip for hello_world_weather (simple example), include for control_assistant
     code_generator = None
-    if template == 'control_assistant':
+    if template == "control_assistant":
         step_num = 4  # After channel finder
         console.print(f"\n[bold]Step {step_num}: Code Generator[/bold]\n")
         code_generator = select_code_generator(code_generators)
         if code_generator is None:
-            return 'menu'
+            return "menu"
 
     # Check if project directory already exists (before other configuration steps)
     project_path = Path.cwd() / project_name
@@ -1238,8 +1278,12 @@ def run_interactive_init() -> str:
         has_mounts, mount_details = check_directory_has_active_mounts(project_path)
 
         if has_mounts:
-            console.print(f"{Messages.error('⚠️  DANGER: This directory has active container mounts!')}")
-            console.print(f"{Messages.warning('The following containers are using this directory:')}\n")
+            console.print(
+                f"{Messages.error('⚠️  DANGER: This directory has active container mounts!')}"
+            )
+            console.print(
+                f"{Messages.warning('The following containers are using this directory:')}\n"
+            )
             for detail in mount_details:
                 console.print(f"  • {detail}")
             console.print("\n[bold]You MUST stop containers before deleting this directory:[/bold]")
@@ -1253,25 +1297,30 @@ def run_interactive_init() -> str:
 
             if not proceed_anyway:
                 console.print(f"\n{Messages.warning('✗ Project creation cancelled')}")
-                console.print(f"[dim]Tip: Stop containers first with {Messages.command('osprey deploy down')}[/dim]")
+                console.print(
+                    f"[dim]Tip: Stop containers first with {Messages.command('osprey deploy down')}[/dim]"
+                )
                 input("\nPress ENTER to continue...")
-                return 'menu'
+                return "menu"
 
         action = questionary.select(
             "What would you like to do?",
             choices=[
-                Choice("[!] Override - Delete existing directory and create new project", value='override'),
-                Choice("[*] Rename - Choose a different project name", value='rename'),
-                Choice("[-] Abort - Return to main menu", value='abort'),
+                Choice(
+                    "[!] Override - Delete existing directory and create new project",
+                    value="override",
+                ),
+                Choice("[*] Rename - Choose a different project name", value="rename"),
+                Choice("[-] Abort - Return to main menu", value="abort"),
             ],
             style=custom_style,
         ).ask()
 
-        if action == 'abort' or action is None:
+        if action == "abort" or action is None:
             console.print(f"\n{Messages.warning('✗ Project creation cancelled')}")
             input("\nPress ENTER to continue...")
-            return 'menu'
-        elif action == 'rename':
+            return "menu"
+        elif action == "rename":
             # Go back to project name input
             console.print("\n[bold]Choose a different project name:[/bold]\n")
             new_project_name = questionary.text(
@@ -1281,7 +1330,7 @@ def run_interactive_init() -> str:
             ).ask()
 
             if not new_project_name:
-                return 'menu'
+                return "menu"
 
             project_name = new_project_name
             project_path = Path.cwd() / project_name
@@ -1299,28 +1348,34 @@ def run_interactive_init() -> str:
                 if not override:
                     console.print(f"\n{Messages.warning('✗ Project creation cancelled')}")
                     input("\nPress ENTER to continue...")
-                    return 'menu'
+                    return "menu"
 
                 # Delete existing directory
                 console.print("\n[dim]Removing existing directory...[/dim]")
 
                 # Check directory exists immediately before deletion (TOCTOU protection)
                 if not project_path.exists():
-                    console.print(Messages.warning("Directory was already deleted by another process"))
+                    console.print(
+                        Messages.warning("Directory was already deleted by another process")
+                    )
                 else:
                     try:
                         shutil.rmtree(project_path)
                         console.print(f"  {Messages.success('Removed existing directory')}")
                     except PermissionError as e:
                         console.print(f"\n{Messages.error(f'Permission denied: {e}')}")
-                        console.print(Messages.warning("Try running with appropriate permissions or stop any running processes"))
+                        console.print(
+                            Messages.warning(
+                                "Try running with appropriate permissions or stop any running processes"
+                            )
+                        )
                         input("\nPress ENTER to continue...")
-                        return 'menu'
+                        return "menu"
                     except OSError as e:
                         console.print(f"\n{Messages.error(f'Could not delete directory: {e}')}")
                         input("\nPress ENTER to continue...")
-                        return 'menu'
-        elif action == 'override':
+                        return "menu"
+        elif action == "override":
             # Delete existing directory
             console.print("\n[dim]Removing existing directory...[/dim]")
 
@@ -1333,16 +1388,20 @@ def run_interactive_init() -> str:
                     console.print(f"  {Messages.success('Removed existing directory')}")
                 except PermissionError as e:
                     console.print(f"\n{Messages.error(f'Permission denied: {e}')}")
-                    console.print(Messages.warning("Try running with appropriate permissions or stop any running processes"))
+                    console.print(
+                        Messages.warning(
+                            "Try running with appropriate permissions or stop any running processes"
+                        )
+                    )
                     input("\nPress ENTER to continue...")
-                    return 'menu'
+                    return "menu"
                 except OSError as e:
                     console.print(f"\n{Messages.error(f'Could not delete directory: {e}')}")
                     input("\nPress ENTER to continue...")
-                    return 'menu'
+                    return "menu"
 
     # 3. Registry style (step number adjusts based on previous steps)
-    if template == 'control_assistant':
+    if template == "control_assistant":
         step_num = 5  # After template, name, channel_finder, code_generator
     else:
         step_num = 3  # After template, name
@@ -1351,35 +1410,35 @@ def run_interactive_init() -> str:
     registry_style = questionary.select(
         "Select registry style:",
         choices=[
-            Choice("extend     - Extends framework defaults (recommended)", value='extend'),
-            Choice("standalone - Complete explicit registry (advanced)", value='standalone'),
+            Choice("extend     - Extends framework defaults (recommended)", value="extend"),
+            Choice("standalone - Complete explicit registry (advanced)", value="standalone"),
         ],
         style=custom_style,
-        instruction="(extend mode is recommended for most projects)"
+        instruction="(extend mode is recommended for most projects)",
     ).ask()
 
     if registry_style is None:
-        return 'menu'
+        return "menu"
 
     # 4. Provider selection (step number adjusts)
-    if template == 'control_assistant':
+    if template == "control_assistant":
         step_num = 6  # After template, name, channel_finder, code_generator, registry
     else:
         step_num = 4  # After template, name, registry
     console.print(f"\n[bold]Step {step_num}: AI Provider[/bold]\n")
     provider = select_provider(providers)
     if provider is None:
-        return 'menu'
+        return "menu"
 
     # 5. Model selection (step number adjusts)
-    if template == 'control_assistant':
+    if template == "control_assistant":
         step_num = 7  # After template, name, channel_finder, code_generator, registry, provider
     else:
         step_num = 5  # After template, name, registry, provider
     console.print(f"\n[bold]Step {step_num}: Model Selection[/bold]\n")
     model = select_model(provider, providers)
     if model is None:
-        return 'menu'
+        return "menu"
 
     # Summary
     console.print(f"\n{Messages.header('Configuration Summary:')}")
@@ -1403,7 +1462,7 @@ def run_interactive_init() -> str:
     if not proceed:
         console.print(f"\n{Messages.warning('✗ Project creation cancelled')}")
         input("\nPress ENTER to continue...")
-        return 'menu'
+        return "menu"
 
     # Create project
     console.print("\n[bold]Creating project...[/bold]\n")
@@ -1411,14 +1470,11 @@ def run_interactive_init() -> str:
     try:
         # Note: force=True because we already handled directory deletion if user chose override
         # Build context dict with optional channel_finder_mode and code_generator
-        context = {
-            'default_provider': provider,
-            'default_model': model
-        }
+        context = {"default_provider": provider, "default_model": model}
         if channel_finder_mode:
-            context['channel_finder_mode'] = channel_finder_mode
+            context["channel_finder_mode"] = channel_finder_mode
         if code_generator:
-            context['code_generator'] = code_generator
+            context["code_generator"] = code_generator
 
         project_path = manager.create_project(
             project_name=project_name,
@@ -1426,16 +1482,22 @@ def run_interactive_init() -> str:
             template_name=template,
             registry_style=registry_style,
             context=context,
-            force=True
+            force=True,
         )
 
-        msg = Messages.success('Project created at:')
+        msg = Messages.success("Project created at:")
         path = Messages.path(str(project_path))
         console.print(f"\n{msg} {path}\n")
 
         # Check if API keys were detected and .env was created
         detected_env = manager._detect_environment_variables()
-        api_keys = ['CBORG_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GOOGLE_API_KEY', 'STANFORD_API_KEY']
+        api_keys = [
+            "CBORG_API_KEY",
+            "OPENAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "GOOGLE_API_KEY",
+            "STANFORD_API_KEY",
+        ]
         has_api_keys = any(key in detected_env for key in api_keys)
 
         if has_api_keys:
@@ -1446,7 +1508,7 @@ def run_interactive_init() -> str:
                 console.print(f"[dim]  Detected: {', '.join(detected_keys)}[/dim]\n")
 
         # API key configuration
-        if providers[provider]['requires_key']:
+        if providers[provider]["requires_key"]:
             api_configured = configure_api_key(provider, project_path, providers)
         else:
             api_configured = True
@@ -1462,56 +1524,64 @@ def run_interactive_init() -> str:
             next_action = questionary.select(
                 "Select action:",
                 choices=[
-                    Choice("[>] Start chat in this project now", value='chat'),
-                    Choice("[<] Return to main menu", value='menu'),
-                    Choice("[x] Exit and show next steps", value='exit'),
+                    Choice("[>] Start chat in this project now", value="chat"),
+                    Choice("[<] Return to main menu", value="menu"),
+                    Choice("[x] Exit and show next steps", value="exit"),
                 ],
                 style=custom_style,
             ).ask()
 
-            if next_action == 'chat':
+            if next_action == "chat":
                 console.print(f"\n[dim]Launching chat for project: {project_path.name}[/dim]\n")
                 handle_chat_action(project_path=project_path)
-                return 'menu'
-            elif next_action == 'exit':
+                return "menu"
+            elif next_action == "exit":
                 # Show next steps like the direct init command
                 console.print("\n[bold]Next steps:[/bold]")
-                console.print(f"  1. Navigate to project: {Messages.command(f'cd {project_path.name}')}")
+                console.print(
+                    f"  1. Navigate to project: {Messages.command(f'cd {project_path.name}')}"
+                )
                 console.print("  2. # .env already configured with API key")
                 console.print(f"  3. Start chatting: {Messages.command('osprey chat')}")
                 console.print(f"  4. Start services: {Messages.command('osprey deploy up')}")
                 console.print()
-                return 'exit'
+                return "exit"
         else:
             console.print("[bold]Next steps:[/bold]")
-            console.print(f"  1. Navigate to project: {Messages.command(f'cd {project_path.name}')}")
-            console.print(f"  2. Configure API key: {Messages.command('cp .env.example .env')} (then edit)")
+            console.print(
+                f"  1. Navigate to project: {Messages.command(f'cd {project_path.name}')}"
+            )
+            console.print(
+                f"  2. Configure API key: {Messages.command('cp .env.example .env')} (then edit)"
+            )
             console.print(f"  3. Start chatting: {Messages.command('osprey chat')}")
             console.print(f"  4. Start services: {Messages.command('osprey deploy up')}")
 
             console.print("\n[dim]Press ENTER to continue...[/dim]")
             input()
 
-        return 'menu'
+        return "menu"
 
     except ValueError as e:
         # This should not happen anymore since we check directory existence above
         # But catch it just in case
         console.print(f"\n[error]✗ Error creating project:[/error] {e}")
         input("\nPress ENTER to continue...")
-        return 'menu'
+        return "menu"
     except Exception as e:
         console.print(f"\n[error]✗ Unexpected error creating project:[/error] {e}")
-        if os.environ.get('DEBUG'):
+        if os.environ.get("DEBUG"):
             import traceback
+
             traceback.print_exc()
         input("\nPress ENTER to continue...")
-        return 'menu'
+        return "menu"
 
 
 # ============================================================================
 # COMMAND HANDLERS
 # ============================================================================
+
 
 def handle_project_selection(project_path: Path):
     """Handle selection of a discovered project from subdirectory.
@@ -1522,7 +1592,7 @@ def handle_project_selection(project_path: Path):
         project_path: Path to the selected project directory
     """
     project_name = project_path.name
-    project_info = get_project_info(project_path / 'config.yml')
+    project_info = get_project_info(project_path / "config.yml")
 
     # Loop to keep showing project menu after actions complete
     while True:
@@ -1533,27 +1603,29 @@ def handle_project_selection(project_path: Path):
         console.print(f"[dim]Location: {Messages.path(str(project_path))}[/dim]")
 
         if project_info:
-            console.print(f"[dim]Provider: {project_info.get('provider', 'unknown')} | "
-                         f"Model: {project_info.get('model', 'unknown')}[/dim]\n")
+            console.print(
+                f"[dim]Provider: {project_info.get('provider', 'unknown')} | "
+                f"Model: {project_info.get('model', 'unknown')}[/dim]\n"
+            )
 
         # Use centralized project menu choices (with 'back' action)
         action = questionary.select(
             "Select command:",
-            choices=get_project_menu_choices(exit_action='back'),
-            style=custom_style
+            choices=get_project_menu_choices(exit_action="back"),
+            style=custom_style,
         ).ask()
 
-        if action == 'back' or action is None:
+        if action == "back" or action is None:
             return  # Exit the loop and return to main menu
 
         # Execute the selected action with the project path
-        if action == 'chat':
+        if action == "chat":
             handle_chat_action(project_path=project_path)
-        elif action == 'deploy':
+        elif action == "deploy":
             handle_deploy_action(project_path=project_path)
-        elif action == 'health':
+        elif action == "health":
             handle_health_action(project_path=project_path)
-        elif action == 'generate':
+        elif action == "generate":
             # Generate needs to run in the project directory
             original_dir = Path.cwd()
             try:
@@ -1564,18 +1636,19 @@ def handle_project_selection(project_path: Path):
                     os.chdir(original_dir)
                 except (OSError, PermissionError):
                     pass
-        elif action == 'config':
+        elif action == "config":
             handle_config_action(project_path=project_path)
-        elif action == 'registry':
+        elif action == "registry":
             from osprey.cli.registry_cmd import handle_registry_action
+
             handle_registry_action(project_path=project_path)
-        elif action == 'init_interactive':
+        elif action == "init_interactive":
             # Save current directory before init flow
             original_dir = Path.cwd()
             try:
                 # Init can run from anywhere, but we restore directory after
                 next_action = run_interactive_init()
-                if next_action == 'exit':
+                if next_action == "exit":
                     # User chose to exit after init, return to main menu instead
                     return
             finally:
@@ -1583,7 +1656,7 @@ def handle_project_selection(project_path: Path):
                     os.chdir(original_dir)
                 except (OSError, PermissionError):
                     pass
-        elif action == 'help':
+        elif action == "help":
             handle_help_action()
 
         # After action completes, loop continues and shows project menu again
@@ -1608,22 +1681,29 @@ def handle_chat_action(project_path: Path | None = None):
         console.print(f"\n{Messages.error(f'Dependency Error: {error_msg}')}\n")
 
         if "TypedDict" in error_msg and "Python < 3.12" in error_msg:
-            console.print(f"{Messages.warning('This appears to be a pydantic/Python version compatibility issue.')}\n")
+            console.print(
+                f"{Messages.warning('This appears to be a pydantic/Python version compatibility issue.')}\n"
+            )
             console.print("[bold]Possible solutions:[/bold]")
             console.print("  1. Upgrade typing_extensions:")
             console.print(f"     {Messages.command('pip install --upgrade typing-extensions')}\n")
             console.print("  2. Upgrade pydantic:")
-            console.print(f"     {Messages.command('pip install --upgrade pydantic pydantic-core')}\n")
+            console.print(
+                f"     {Messages.command('pip install --upgrade pydantic pydantic-core')}\n"
+            )
             console.print("  3. Check pydantic-ai compatibility:")
             console.print(f"     {Messages.command('pip install --upgrade pydantic-ai')}\n")
             console.print("  4. Or upgrade to Python 3.12+\n")
         else:
             console.print(Messages.warning("There was an error loading the chat dependencies."))
-            console.print(f"[dim]Try reinstalling osprey dependencies: {Messages.command('pip install -e .[all]')}[/dim]\n")
+            console.print(
+                f"[dim]Try reinstalling osprey dependencies: {Messages.command('pip install -e .[all]')}[/dim]\n"
+            )
 
-        if os.environ.get('DEBUG'):
+        if os.environ.get("DEBUG"):
             console.print("\n[dim]Full traceback:[/dim]")
             import traceback
+
             traceback.print_exc()
 
         input("\nPress ENTER to continue...")
@@ -1642,16 +1722,17 @@ def handle_chat_action(project_path: Path | None = None):
 
             # Save original state
             original_dir = Path.cwd()
-            original_config_env = os.environ.get('CONFIG_FILE')
+            original_config_env = os.environ.get("CONFIG_FILE")
 
             try:
                 # Reset the global registry to ensure we load the correct project configuration
                 # This prevents capability leakage when switching between projects in the same session
                 from osprey.registry import reset_registry
+
                 reset_registry()
 
                 # Set up environment for the project
-                os.environ['CONFIG_FILE'] = config_path
+                os.environ["CONFIG_FILE"] = config_path
 
                 # Add exception handling around os.chdir() operations
                 try:
@@ -1669,22 +1750,27 @@ def handle_chat_action(project_path: Path | None = None):
                     os.chdir(original_dir)
                 except (OSError, PermissionError) as e:
                     # If we can't restore, at least warn the user
-                    console.print(f"\n{Messages.warning(f'Could not restore original directory: {e}')}")
-                    console.print(f"[dim]Current directory may have changed. Original was: {original_dir}[/dim]")
+                    console.print(
+                        f"\n{Messages.warning(f'Could not restore original directory: {e}')}"
+                    )
+                    console.print(
+                        f"[dim]Current directory may have changed. Original was: {original_dir}[/dim]"
+                    )
 
                 if original_config_env is not None:
-                    os.environ['CONFIG_FILE'] = original_config_env
-                elif 'CONFIG_FILE' in os.environ:
-                    del os.environ['CONFIG_FILE']
+                    os.environ["CONFIG_FILE"] = original_config_env
+                elif "CONFIG_FILE" in os.environ:
+                    del os.environ["CONFIG_FILE"]
         else:
             # Default behavior - run in current directory
             # Reset the global registry to ensure we load the correct project configuration
             from osprey.registry import reset_registry
+
             reset_registry()
 
             # Set CONFIG_FILE for subprocess execution (critical for Python executor)
             config_path = str(Path.cwd() / "config.yml")
-            os.environ['CONFIG_FILE'] = config_path
+            os.environ["CONFIG_FILE"] = config_path
             asyncio.run(run_cli(config_path=config_path))
 
     except KeyboardInterrupt:
@@ -1692,8 +1778,9 @@ def handle_chat_action(project_path: Path | None = None):
         # No pause needed - user intentionally exited with Ctrl+C
     except Exception as e:
         console.print(f"\n{Messages.error(f'Chat error: {e}')}")
-        if os.environ.get('DEBUG'):
+        if os.environ.get("DEBUG"):
             import traceback
+
             traceback.print_exc()
         input("\nPress ENTER to continue...")
 
@@ -1712,7 +1799,9 @@ def show_deploy_help():
     console.print("  • Builds and starts all containers defined in docker-compose.yml")
     console.print("  • Creates volumes and networks as needed")
     console.print("  • Runs services in detached mode (background)")
-    console.print(f"  • [{Styles.DIM}]Use this to start your web UI services (Open WebUI, Jupyter, etc.)[/{Styles.DIM}]")
+    console.print(
+        f"  • [{Styles.DIM}]Use this to start your web UI services (Open WebUI, Jupyter, etc.)[/{Styles.DIM}]"
+    )
     console.print()
 
     console.print(f"[{Styles.HEADER}][v] down - Stop all services[/{Styles.HEADER}]")
@@ -1728,7 +1817,9 @@ def show_deploy_help():
     console.print("  • Lists all containers for this project")
     console.print("  • Shows running state, ports, and health status")
     console.print("  • Displays resource usage if available")
-    console.print(f"  • [{Styles.DIM}]Use this to verify services are running correctly[/{Styles.DIM}]")
+    console.print(
+        f"  • [{Styles.DIM}]Use this to verify services are running correctly[/{Styles.DIM}]"
+    )
     console.print()
 
     console.print(f"[{Styles.HEADER}][*] restart - Restart all services[/{Styles.HEADER}]")
@@ -1736,24 +1827,34 @@ def show_deploy_help():
     console.print("  • Stops and restarts all containers")
     console.print("  • Applies configuration changes")
     console.print("  • Preserves volumes and data")
-    console.print(f"  • [{Styles.DIM}]Use after modifying docker-compose.yml or environment variables[/{Styles.DIM}]")
+    console.print(
+        f"  • [{Styles.DIM}]Use after modifying docker-compose.yml or environment variables[/{Styles.DIM}]"
+    )
     console.print()
 
-    console.print(f"[{Styles.HEADER}][+] build - Build/prepare compose files only[/{Styles.HEADER}]")
+    console.print(
+        f"[{Styles.HEADER}][+] build - Build/prepare compose files only[/{Styles.HEADER}]"
+    )
     console.print()
     console.print("  • Generates docker-compose.yml from templates")
     console.print("  • Does not start any containers")
     console.print("  • Validates compose file structure")
-    console.print(f"  • [{Styles.DIM}]Use to inspect generated configuration before deployment[/{Styles.DIM}]")
+    console.print(
+        f"  • [{Styles.DIM}]Use to inspect generated configuration before deployment[/{Styles.DIM}]"
+    )
     console.print()
 
-    console.print(f"[{Styles.HEADER}][R] rebuild - Clean, rebuild, and restart services[/{Styles.HEADER}]")
+    console.print(
+        f"[{Styles.HEADER}][R] rebuild - Clean, rebuild, and restart services[/{Styles.HEADER}]"
+    )
     console.print()
     console.print("  • Stops and removes all containers and volumes")
     console.print("  • Removes container images")
     console.print("  • Rebuilds everything from scratch")
     console.print("  • Starts services with fresh state")
-    console.print(f"  • [{Styles.WARNING}]⚠️  Warning: All data in volumes will be lost[/{Styles.WARNING}]")
+    console.print(
+        f"  • [{Styles.WARNING}]⚠️  Warning: All data in volumes will be lost[/{Styles.WARNING}]"
+    )
     console.print()
 
     console.print(f"[{Styles.HEADER}][X] clean - Remove containers and volumes[/{Styles.HEADER}]")
@@ -1778,24 +1879,27 @@ def handle_deploy_action(project_path: Path | None = None):
         action = questionary.select(
             "Select deployment action:",
             choices=[
-                Choice("[^] up      - Start all services", value='up'),
-                Choice("[v] down    - Stop all services", value='down'),
-                Choice("[i] status  - Show service status", value='status'),
-                Choice("[*] restart - Restart all services", value='restart'),
-                Choice("[+] build   - Build/prepare compose files only", value='build'),
-                Choice("[R] rebuild - Clean, rebuild, and restart services", value='rebuild'),
-                Choice("[X] clean   - Remove containers and volumes (WARNING: destructive)", value='clean'),
+                Choice("[^] up      - Start all services", value="up"),
+                Choice("[v] down    - Stop all services", value="down"),
+                Choice("[i] status  - Show service status", value="status"),
+                Choice("[*] restart - Restart all services", value="restart"),
+                Choice("[+] build   - Build/prepare compose files only", value="build"),
+                Choice("[R] rebuild - Clean, rebuild, and restart services", value="rebuild"),
+                Choice(
+                    "[X] clean   - Remove containers and volumes (WARNING: destructive)",
+                    value="clean",
+                ),
                 Choice("─" * 60, value=None, disabled=True),
-                Choice("[?] help    - Detailed descriptions and usage guide", value='show_help'),
-                Choice("[<] back    - Back to main menu", value='back'),
+                Choice("[?] help    - Detailed descriptions and usage guide", value="show_help"),
+                Choice("[<] back    - Back to main menu", value="back"),
             ],
             style=custom_style,
         ).ask()
 
-        if action == 'back' or action is None:
+        if action == "back" or action is None:
             return
 
-        if action == 'show_help':
+        if action == "show_help":
             show_deploy_help()
             continue  # Return to menu after help
 
@@ -1820,7 +1924,7 @@ def handle_deploy_action(project_path: Path | None = None):
 
         try:
             # Confirm destructive operations
-            if action == 'clean':
+            if action == "clean":
                 console.print("\n[bold red]⚠️  WARNING: Destructive Operation[/bold red]")
                 console.print("\n[warning]This will permanently delete:[/warning]")
                 console.print("  • All containers for this project")
@@ -1830,9 +1934,7 @@ def handle_deploy_action(project_path: Path | None = None):
                 console.print("\n[dim]This action cannot be undone![/dim]\n")
 
                 confirm = questionary.confirm(
-                    "Are you sure you want to proceed?",
-                    default=False,
-                    style=custom_style
+                    "Are you sure you want to proceed?", default=False, style=custom_style
                 ).ask()
 
                 if not confirm:
@@ -1845,7 +1947,7 @@ def handle_deploy_action(project_path: Path | None = None):
                             pass
                     continue  # Return to menu
 
-            elif action == 'rebuild':
+            elif action == "rebuild":
                 console.print("\n[bold yellow]⚠️  Rebuild Operation[/bold yellow]")
                 console.print("\n[warning]This will:[/warning]")
                 console.print("  • Stop and remove all containers")
@@ -1856,9 +1958,7 @@ def handle_deploy_action(project_path: Path | None = None):
                 console.print("\n[dim]Any data stored in volumes will be lost![/dim]\n")
 
                 confirm = questionary.confirm(
-                    "Proceed with rebuild?",
-                    default=False,
-                    style=custom_style
+                    "Proceed with rebuild?", default=False, style=custom_style
                 ).ask()
 
                 if not confirm:
@@ -1875,22 +1975,22 @@ def handle_deploy_action(project_path: Path | None = None):
             # Use 'osprey' command directly to avoid module import warnings
             cmd = ["osprey", "deploy", action]
 
-            if action in ['up', 'restart', 'rebuild']:
+            if action in ["up", "restart", "rebuild"]:
                 cmd.append("-d")  # Run in detached mode
 
             cmd.extend(["--config", config_path])
 
-            if action == 'up':
+            if action == "up":
                 console.print("\n[bold]Starting services...[/bold]")
-            elif action == 'down':
+            elif action == "down":
                 console.print("\n[bold]Stopping services...[/bold]")
-            elif action == 'restart':
+            elif action == "restart":
                 console.print("\n[bold]Restarting services...[/bold]")
-            elif action == 'build':
+            elif action == "build":
                 console.print("\n[bold]Building compose files...[/bold]")
-            elif action == 'rebuild':
+            elif action == "rebuild":
                 console.print("\n[bold]Rebuilding services (clean + build + start)...[/bold]")
-            elif action == 'clean':
+            elif action == "clean":
                 console.print("\n[bold red]⚠️  Cleaning deployment...[/bold red]")
             # Note: 'status' action doesn't print a header here because show_status() prints its own
 
@@ -1898,11 +1998,13 @@ def handle_deploy_action(project_path: Path | None = None):
                 # Run subprocess with timeout (5 minutes for deploy operations)
                 # Set environment to suppress config/registry warnings in subprocess
                 env = os.environ.copy()
-                env['OSPREY_QUIET'] = '1'  # Signal to suppress non-critical warnings
+                env["OSPREY_QUIET"] = "1"  # Signal to suppress non-critical warnings
                 result = subprocess.run(cmd, cwd=project_path or Path.cwd(), timeout=300, env=env)
             except subprocess.TimeoutExpired:
                 console.print(f"\n{Messages.error('Command timed out after 5 minutes')}")
-                console.print(Messages.warning("The operation took too long. Check your container runtime."))
+                console.print(
+                    Messages.warning("The operation took too long. Check your container runtime.")
+                )
                 input("\nPress ENTER to continue...")
                 if original_dir:
                     try:
@@ -1912,24 +2014,27 @@ def handle_deploy_action(project_path: Path | None = None):
                 continue  # Return to menu
 
             if result.returncode == 0:
-                if action == 'up':
+                if action == "up":
                     console.print(f"\n{Messages.success('Services started')}")
-                elif action == 'down':
+                elif action == "down":
                     console.print(f"\n{Messages.success('Services stopped')}")
-                elif action == 'restart':
+                elif action == "restart":
                     console.print(f"\n{Messages.success('Services restarted')}")
-                elif action == 'build':
+                elif action == "build":
                     console.print(f"\n{Messages.success('Compose files built')}")
-                elif action == 'rebuild':
+                elif action == "rebuild":
                     console.print(f"\n{Messages.success('Services rebuilt and started')}")
-                elif action == 'clean':
+                elif action == "clean":
                     console.print(f"\n{Messages.success('Deployment cleaned')}")
             else:
-                console.print(f"\n{Messages.warning(f'Command exited with code {result.returncode}')}")
+                console.print(
+                    f"\n{Messages.warning(f'Command exited with code {result.returncode}')}"
+                )
 
         except Exception as e:
             console.print(f"\n{Messages.error(str(e))}")
             import traceback
+
             traceback.print_exc()
         finally:
             # Restore original directory
@@ -1968,7 +2073,7 @@ def handle_health_action(project_path: Path | None = None):
 
         # Create and run health checker (full mode by default)
         # Suppress config/registry initialization messages
-        with quiet_logger(['REGISTRY', 'CONFIG']):
+        with quiet_logger(["REGISTRY", "CONFIG"]):
             checker = HealthChecker(verbose=False, full=True)
             success = checker.check_all()
 
@@ -2012,19 +2117,12 @@ def handle_export_action(project_path: Path | None = None):
                     config_data = yaml.safe_load(f)
 
                 output_str = yaml.dump(
-                    config_data,
-                    default_flow_style=False,
-                    sort_keys=False,
-                    allow_unicode=True
+                    config_data, default_flow_style=False, sort_keys=False, allow_unicode=True
                 )
 
                 console.print(f"\n[bold]Configuration for {project_path.name}:[/bold]\n")
                 syntax = Syntax(
-                    output_str,
-                    "yaml",
-                    theme="monokai",
-                    line_numbers=False,
-                    word_wrap=True
+                    output_str, "yaml", theme="monokai", line_numbers=False, word_wrap=True
                 )
                 console.print(syntax)
             else:
@@ -2048,7 +2146,7 @@ def handle_export_action(project_path: Path | None = None):
                     project_root="/path/to/example_project",
                     hostname="localhost",
                     default_provider="cborg",
-                    default_model="anthropic/claude-haiku"
+                    default_model="anthropic/claude-haiku",
                 )
 
                 # Parse the rendered config as YAML
@@ -2056,23 +2154,18 @@ def handle_export_action(project_path: Path | None = None):
 
                 # Format as YAML
                 output_str = yaml.dump(
-                    config_data,
-                    default_flow_style=False,
-                    sort_keys=False,
-                    allow_unicode=True
+                    config_data, default_flow_style=False, sort_keys=False, allow_unicode=True
                 )
 
                 # Print to console with syntax highlighting
                 console.print("\n[bold]Osprey Default Configuration:[/bold]\n")
                 syntax = Syntax(
-                    output_str,
-                    "yaml",
-                    theme="monokai",
-                    line_numbers=False,
-                    word_wrap=True
+                    output_str, "yaml", theme="monokai", line_numbers=False, word_wrap=True
                 )
                 console.print(syntax)
-                console.print(f"\n[dim]Tip: Use {Messages.command('osprey config export --output file.yml')} to save to file[/dim]")
+                console.print(
+                    f"\n[dim]Tip: Use {Messages.command('osprey config export --output file.yml')} to save to file[/dim]"
+                )
 
     except Exception as e:
         console.print(f"\n{Messages.error(str(e))}")
@@ -2093,7 +2186,9 @@ def handle_help_action_root():
     console.print("  • Navigate into an existing Osprey project in a subdirectory")
     console.print("  • Opens the project menu with full access to all commands")
     console.print("  • Use chat, deploy services, generate capabilities, etc.")
-    console.print(f"  • [{Styles.DIM}]Perfect for: Working with an existing agent project[/{Styles.DIM}]")
+    console.print(
+        f"  • [{Styles.DIM}]Perfect for: Working with an existing agent project[/{Styles.DIM}]"
+    )
     console.print()
 
     # Create new project
@@ -2104,7 +2199,9 @@ def handle_help_action_root():
     console.print("  • Select AI provider (Anthropic, OpenAI, etc.) and model")
     console.print("  • Configure API keys securely with interactive prompts")
     console.print("  • Generates complete project structure ready to use")
-    console.print(f"  • [{Styles.DIM}]Perfect for: Starting your first agent or creating a new use case[/{Styles.DIM}]")
+    console.print(
+        f"  • [{Styles.DIM}]Perfect for: Starting your first agent or creating a new use case[/{Styles.DIM}]"
+    )
     console.print()
 
     # Workflow
@@ -2135,7 +2232,9 @@ def handle_help_action():
     console.print("  • Opens an interactive chat session with your AI agent")
     console.print("  • Use natural language to query data, execute code, or control systems")
     console.print("  • Supports slash commands (type /help in chat for details)")
-    console.print(f"  • [{Styles.DIM}]Perfect for: Testing your agent, exploring capabilities, debugging[/{Styles.DIM}]")
+    console.print(
+        f"  • [{Styles.DIM}]Perfect for: Testing your agent, exploring capabilities, debugging[/{Styles.DIM}]"
+    )
     console.print()
 
     # deploy
@@ -2153,7 +2252,9 @@ def handle_help_action():
     console.print("  • Verifies your Osprey installation")
     console.print("  • Tests API connectivity to your LLM provider")
     console.print("  • Checks capabilities and registry configuration")
-    console.print(f"  • [{Styles.DIM}]Perfect for: Troubleshooting, validating setup after changes[/{Styles.DIM}]")
+    console.print(
+        f"  • [{Styles.DIM}]Perfect for: Troubleshooting, validating setup after changes[/{Styles.DIM}]"
+    )
     console.print()
 
     # generate
@@ -2162,7 +2263,9 @@ def handle_help_action():
     console.print("  • Create capabilities from MCP servers or natural language")
     console.print("  • Generate demo MCP servers for testing")
     console.print("  • Create Claude Code generator configurations")
-    console.print(f"  • [{Styles.DIM}]Perfect for: Extending your agent with new capabilities[/{Styles.DIM}]")
+    console.print(
+        f"  • [{Styles.DIM}]Perfect for: Extending your agent with new capabilities[/{Styles.DIM}]"
+    )
     console.print()
 
     # config
@@ -2171,7 +2274,9 @@ def handle_help_action():
     console.print("  • View your current project configuration")
     console.print("  • See provider, model, and capability settings")
     console.print("  • Verify registry and execution configuration")
-    console.print(f"  • [{Styles.DIM}]Perfect for: Understanding your project setup, debugging config issues[/{Styles.DIM}]")
+    console.print(
+        f"  • [{Styles.DIM}]Perfect for: Understanding your project setup, debugging config issues[/{Styles.DIM}]"
+    )
     console.print()
 
     # registry
@@ -2180,7 +2285,9 @@ def handle_help_action():
     console.print("  • View all registered capabilities, providers, and tools")
     console.print("  • See what your agent has access to")
     console.print("  • Inspect capability metadata and parameters")
-    console.print(f"  • [{Styles.DIM}]Perfect for: Understanding available features, debugging capabilities[/{Styles.DIM}]")
+    console.print(
+        f"  • [{Styles.DIM}]Perfect for: Understanding available features, debugging capabilities[/{Styles.DIM}]"
+    )
     console.print()
 
     # init
@@ -2189,7 +2296,9 @@ def handle_help_action():
     console.print("  • Guided wizard to create a new Osprey project")
     console.print("  • Choose template, provider, model, and configure API keys")
     console.print("  • Generates complete project structure ready to use")
-    console.print(f"  • [{Styles.DIM}]Perfect for: Starting a new agent project from scratch[/{Styles.DIM}]")
+    console.print(
+        f"  • [{Styles.DIM}]Perfect for: Starting a new agent project from scratch[/{Styles.DIM}]"
+    )
     console.print()
 
     input("Press ENTER to continue...")
@@ -2199,6 +2308,7 @@ def handle_help_action():
 # GENERATE MENU
 # ============================================================================
 
+
 def show_generate_help():
     """Display detailed help for all generate options."""
     console.clear()
@@ -2207,14 +2317,18 @@ def show_generate_help():
     console.print(f"\n{Messages.header('Generate Components - Help')}\n")
 
     # capability option
-    console.print(f"[{Styles.HEADER}][→] capability - From MCP server or natural language[/{Styles.HEADER}]")
+    console.print(
+        f"[{Styles.HEADER}][→] capability - From MCP server or natural language[/{Styles.HEADER}]"
+    )
     console.print()
     console.print(f"  [{Styles.ACCENT}]From MCP Server:[/{Styles.ACCENT}]")
     console.print("  • Connects to a running MCP (Model Context Protocol) server")
     console.print("  • Introspects available tools and resources")
     console.print("  • Generates production-ready capability with ReAct agent")
     console.print("  • Includes automatic retry logic and error handling")
-    console.print(f"  • [{Styles.DIM}]Best for: Integrating external services (weather, databases, APIs)[/{Styles.DIM}]")
+    console.print(
+        f"  • [{Styles.DIM}]Best for: Integrating external services (weather, databases, APIs)[/{Styles.DIM}]"
+    )
     console.print()
     console.print(f"  [{Styles.ACCENT}]From Natural Language Prompt:[/{Styles.ACCENT}]")
     console.print("  • Describe what the capability should do in plain English")
@@ -2225,23 +2339,35 @@ def show_generate_help():
     console.print()
 
     # mcp-server option
-    console.print(f"[{Styles.HEADER}][→] mcp-server - Demo MCP server for testing[/{Styles.HEADER}]")
+    console.print(
+        f"[{Styles.HEADER}][→] mcp-server - Demo MCP server for testing[/{Styles.HEADER}]"
+    )
     console.print()
     console.print("  • Creates demo weather MCP server for testing and learning")
     console.print("  • FastMCP-based HTTP server")
     console.print("  • Includes example tools (get_weather, get_forecast)")
-    console.print(f"  • Ready to run: just [{Styles.VALUE}]pip install fastmcp && python server.py[/{Styles.VALUE}]")
-    console.print(f"  • [{Styles.DIM}]Perfect for: Testing capability generation, learning MCP protocol[/{Styles.DIM}]")
+    console.print(
+        f"  • Ready to run: just [{Styles.VALUE}]pip install fastmcp && python server.py[/{Styles.VALUE}]"
+    )
+    console.print(
+        f"  • [{Styles.DIM}]Perfect for: Testing capability generation, learning MCP protocol[/{Styles.DIM}]"
+    )
     console.print()
 
     # claude-config option
-    console.print(f"[{Styles.HEADER}][→] claude-config - Claude Code generator configuration[/{Styles.HEADER}]")
+    console.print(
+        f"[{Styles.HEADER}][→] claude-config - Claude Code generator configuration[/{Styles.HEADER}]"
+    )
     console.print()
-    console.print(f"  • Generates [{Styles.VALUE}]claude_generator_config.yml[/{Styles.VALUE}] for Claude Code SDK")
+    console.print(
+        f"  • Generates [{Styles.VALUE}]claude_generator_config.yml[/{Styles.VALUE}] for Claude Code SDK"
+    )
     console.print("  • Configures code generation profiles (fast vs robust)")
     console.print("  • Sets up agentic code execution with Claude")
     console.print("  • Includes tool definitions and execution limits")
-    console.print(f"  • [{Styles.DIM}]Required for: Using claude_code generator in Python execution[/{Styles.DIM}]")
+    console.print(
+        f"  • [{Styles.DIM}]Required for: Using claude_code generator in Python execution[/{Styles.DIM}]"
+    )
     console.print()
 
     input("Press ENTER to continue...")
@@ -2262,14 +2388,22 @@ def show_config_menu() -> str | None:
     return questionary.select(
         "What would you like to do?",
         choices=[
-            Choice("[→] show               - Display current configuration", value='show'),
-            Choice("[→] export             - Export framework default configuration", value='export'),
-            Choice("[→] set-control-system - Switch between Mock/EPICS connectors", value='set_control_system'),
-            Choice("[→] set-epics-gateway  - Configure EPICS gateway (APS, ALS, custom)", value='set_epics_gateway'),
+            Choice("[→] show               - Display current configuration", value="show"),
+            Choice(
+                "[→] export             - Export framework default configuration", value="export"
+            ),
+            Choice(
+                "[→] set-control-system - Switch between Mock/EPICS connectors",
+                value="set_control_system",
+            ),
+            Choice(
+                "[→] set-epics-gateway  - Configure EPICS gateway (APS, ALS, custom)",
+                value="set_epics_gateway",
+            ),
             Choice("─" * 60, value=None, disabled=True),
-            Choice("[←] back               - Return to main menu", value='back')
+            Choice("[←] back               - Return to main menu", value="back"),
         ],
-        style=custom_style
+        style=custom_style,
     ).ask()
 
 
@@ -2288,29 +2422,35 @@ def show_generate_menu() -> str | None:
     return questionary.select(
         "What would you like to generate?",
         choices=[
-            Choice("[→] capability     - From MCP server or natural language", value='generate_capability'),
-            Choice("[→] mcp-server     - Demo MCP server for testing", value='generate_mcp_server'),
-            Choice("[→] claude-config  - Claude Code generator configuration", value='generate_claude_config'),
+            Choice(
+                "[→] capability     - From MCP server or natural language",
+                value="generate_capability",
+            ),
+            Choice("[→] mcp-server     - Demo MCP server for testing", value="generate_mcp_server"),
+            Choice(
+                "[→] claude-config  - Claude Code generator configuration",
+                value="generate_claude_config",
+            ),
             Choice("─" * 60, value=None, disabled=True),
-            Choice("[?] help           - Detailed descriptions and usage guide", value='show_help'),
-            Choice("[←] back           - Return to main menu", value='back')
+            Choice("[?] help           - Detailed descriptions and usage guide", value="show_help"),
+            Choice("[←] back           - Return to main menu", value="back"),
         ],
-        style=custom_style
+        style=custom_style,
     ).ask()
 
 
-def handle_config_action(project_path: Path | None = None):
+def handle_config_action(project_path: Path | None = None) -> None:
     """Handle config menu and its subcommands."""
     while True:
         action = show_config_menu()
 
-        if action is None or action == 'back':
+        if action is None or action == "back":
             return  # Return to main menu
 
-        if action == 'show':
+        if action == "show":
             handle_export_action(project_path)
             input("\nPress ENTER to continue...")
-        elif action == 'export':
+        elif action == "export":
             # Export framework defaults (works from anywhere)
             import click
 
@@ -2318,17 +2458,17 @@ def handle_config_action(project_path: Path | None = None):
 
             try:
                 ctx = click.Context(export_cmd)
-                ctx.invoke(export_cmd, output=None, format='yaml')
+                ctx.invoke(export_cmd, output=None, format="yaml")
             except click.Abort:
                 pass
             input("\nPress ENTER to continue...")
-        elif action == 'set_control_system':
+        elif action == "set_control_system":
             handle_set_control_system(project_path)
-        elif action == 'set_epics_gateway':
+        elif action == "set_epics_gateway":
             handle_set_epics_gateway(project_path)
 
 
-def handle_set_control_system(project_path: Path | None = None):
+def handle_set_control_system(project_path: Path | None = None) -> None:
     """Handle interactive control system type configuration."""
     from osprey.generators.config_updater import (
         find_config_file,
@@ -2341,7 +2481,7 @@ def handle_set_control_system(project_path: Path | None = None):
 
     # Find config file
     if project_path:
-        config_path = project_path / 'config.yml'
+        config_path = project_path / "config.yml"
     else:
         config_path = find_config_file()
 
@@ -2352,62 +2492,54 @@ def handle_set_control_system(project_path: Path | None = None):
 
     # Show current configuration
     current_type = get_control_system_type(config_path)
-    current_archiver = get_control_system_type(config_path, key='archiver.type')
+    current_archiver = get_control_system_type(config_path, key="archiver.type")
 
     console.print(f"[dim]Current control system: {current_type or 'mock'}[/dim]")
     console.print(f"[dim]Current archiver: {current_archiver or 'mock_archiver'}[/dim]\n")
 
     # Show choices
     choices = [
-        Choice("Mock - Tutorial/Development mode (safe, no hardware)", value='mock'),
-        Choice("EPICS - Production mode (connects to real control system)", value='epics'),
+        Choice("Mock - Tutorial/Development mode (safe, no hardware)", value="mock"),
+        Choice("EPICS - Production mode (connects to real control system)", value="epics"),
         Choice("─" * 60, value=None, disabled=True),
-        Choice("[←] Back - Return to config menu", value='back')
+        Choice("[←] Back - Return to config menu", value="back"),
     ]
 
     control_type = questionary.select(
-        "Select control system type:",
-        choices=choices,
-        style=custom_style
+        "Select control system type:", choices=choices, style=custom_style
     ).ask()
 
-    if control_type is None or control_type == 'back':
+    if control_type is None or control_type == "back":
         return
 
     # Ask about archiver too
-    if control_type == 'epics':
+    if control_type == "epics":
         console.print("\n[bold]Archiver Configuration[/bold]\n")
         archiver_type = questionary.select(
             "Also switch archiver to EPICS?",
             choices=[
-                Choice("Yes - Use EPICS Archiver Appliance", value='epics_archiver'),
-                Choice("No - Keep mock archiver", value='mock_archiver'),
+                Choice("Yes - Use EPICS Archiver Appliance", value="epics_archiver"),
+                Choice("No - Keep mock archiver", value="mock_archiver"),
             ],
-            style=custom_style
+            style=custom_style,
         ).ask()
     else:
-        archiver_type = 'mock_archiver'
+        archiver_type = "mock_archiver"
 
     # Update configuration
-    new_content, preview = set_control_system_type(
-        config_path,
-        control_type,
-        archiver_type
-    )
+    new_content, preview = set_control_system_type(config_path, control_type, archiver_type)
 
     # Show preview
     console.print("\n" + preview)
 
     # Confirm
     if questionary.confirm(
-        "\nUpdate config.yml with this configuration?",
-        default=True,
-        style=custom_style
+        "\nUpdate config.yml with this configuration?", default=True, style=custom_style
     ).ask():
         config_path.write_text(new_content)
         console.print(f"\n{Messages.success('✓ Control system configuration updated!')}")
 
-        if control_type == 'epics':
+        if control_type == "epics":
             console.print("\n[dim]💡 Next steps:[/dim]")
             console.print("[dim]   1. Configure EPICS gateway: config → set-epics-gateway[/dim]")
             console.print("[dim]   2. Verify EPICS connection settings[/dim]")
@@ -2419,7 +2551,7 @@ def handle_set_control_system(project_path: Path | None = None):
     input("\nPress ENTER to continue...")
 
 
-def handle_set_epics_gateway(project_path: Path | None = None):
+def handle_set_epics_gateway(project_path: Path | None = None) -> None:
     """Handle interactive EPICS gateway configuration."""
     from osprey.generators.config_updater import (
         find_config_file,
@@ -2433,7 +2565,7 @@ def handle_set_epics_gateway(project_path: Path | None = None):
 
     # Find config file
     if project_path:
-        config_path = project_path / 'config.yml'
+        config_path = project_path / "config.yml"
     else:
         config_path = find_config_file()
 
@@ -2455,69 +2587,58 @@ def handle_set_epics_gateway(project_path: Path | None = None):
         display_name = f"{preset['name']} - {preset['description']}"
         choices.append(Choice(display_name, value=facility_id))
 
-    choices.extend([
-        Choice("Custom - Manual configuration", value='custom'),
-        Choice("─" * 60, value=None, disabled=True),
-        Choice("[←] Back - Return to config menu", value='back')
-    ])
+    choices.extend(
+        [
+            Choice("Custom - Manual configuration", value="custom"),
+            Choice("─" * 60, value=None, disabled=True),
+            Choice("[←] Back - Return to config menu", value="back"),
+        ]
+    )
 
     facility = questionary.select(
-        "Select EPICS facility:",
-        choices=choices,
-        style=custom_style
+        "Select EPICS facility:", choices=choices, style=custom_style
     ).ask()
 
-    if facility is None or facility == 'back':
+    if facility is None or facility == "back":
         return
 
-    if facility == 'custom':
+    if facility == "custom":
         # Interactive prompts for custom gateway
         console.print("\n[bold]Custom EPICS Gateway Configuration[/bold]\n")
 
         read_address = questionary.text(
-            "Read gateway address:",
-            default="your-gateway.facility.edu"
+            "Read gateway address:", default="your-gateway.facility.edu"
         ).ask()
 
         if not read_address:
             return
 
-        read_port = questionary.text(
-            "Read gateway port:",
-            default="5064"
-        ).ask()
+        read_port = questionary.text("Read gateway port:", default="5064").ask()
 
         write_address = questionary.text(
-            "Write gateway address (or same as read):",
-            default=read_address
+            "Write gateway address (or same as read):", default=read_address
         ).ask()
 
-        write_port = questionary.text(
-            "Write gateway port:",
-            default="5084"
-        ).ask()
+        write_port = questionary.text("Write gateway port:", default="5084").ask()
 
         use_name_server = questionary.confirm(
-            "Use name server mode? (for SSH tunnels)",
-            default=False
+            "Use name server mode? (for SSH tunnels)", default=False
         ).ask()
 
         custom_config = {
-            'read_only': {
-                'address': read_address,
-                'port': int(read_port),
-                'use_name_server': use_name_server
+            "read_only": {
+                "address": read_address,
+                "port": int(read_port),
+                "use_name_server": use_name_server,
             },
-            'write_access': {
-                'address': write_address,
-                'port': int(write_port),
-                'use_name_server': use_name_server
-            }
+            "write_access": {
+                "address": write_address,
+                "port": int(write_port),
+                "use_name_server": use_name_server,
+            },
         }
 
-        new_content, preview = set_epics_gateway_config(
-            config_path, 'custom', custom_config
-        )
+        new_content, preview = set_epics_gateway_config(config_path, "custom", custom_config)
     else:
         # Use preset
         new_content, preview = set_epics_gateway_config(config_path, facility)
@@ -2527,13 +2648,13 @@ def handle_set_epics_gateway(project_path: Path | None = None):
 
     # Confirm
     if questionary.confirm(
-        "\nUpdate config.yml with this configuration?",
-        default=True,
-        style=custom_style
+        "\nUpdate config.yml with this configuration?", default=True, style=custom_style
     ).ask():
         config_path.write_text(new_content)
         console.print(f"\n{Messages.success('✓ EPICS gateway configuration updated!')}")
-        console.print("\n[dim]Remember to also set control_system.type to 'epics' for production use[/dim]")
+        console.print(
+            "\n[dim]Remember to also set control_system.type to 'epics' for production use[/dim]"
+        )
     else:
         console.print(f"\n{Messages.warning('✗ Configuration not changed')}")
 
@@ -2545,16 +2666,16 @@ def handle_generate_action():
     while True:
         action = show_generate_menu()
 
-        if action is None or action == 'back':
+        if action is None or action == "back":
             return  # Return to main menu
 
-        if action == 'generate_capability':
+        if action == "generate_capability":
             handle_generate_capability()
-        elif action == 'generate_mcp_server':
+        elif action == "generate_mcp_server":
             handle_generate_mcp_server()
-        elif action == 'generate_claude_config':
+        elif action == "generate_claude_config":
             handle_generate_claude_config()
-        elif action == 'show_help':
+        elif action == "show_help":
             show_generate_help()
             # Loop continues - returns to generate menu after help
 
@@ -2568,27 +2689,28 @@ def handle_generate_capability():
     mode = questionary.select(
         "How would you like to generate the capability?",
         choices=[
-            Choice("[→] From MCP Server - Production-ready with ReAct agent", value='mcp'),
-            Choice("[→] From Prompt - Skeleton with guides (you implement)", value='prompt'),
-            Choice("[←] Back", value='back')
+            Choice("[→] From MCP Server - Production-ready with ReAct agent", value="mcp"),
+            Choice("[→] From Prompt - Skeleton with guides (you implement)", value="prompt"),
+            Choice("[←] Back", value="back"),
         ],
-        style=custom_style
+        style=custom_style,
     ).ask()
 
-    if mode is None or mode == 'back':
+    if mode is None or mode == "back":
         return
 
     try:
         from osprey.cli.generate_cmd import _generate_from_mcp, _generate_from_prompt
 
-        if mode == 'mcp':
+        if mode == "mcp":
             # Check if port 3001 is reachable (default MCP server port)
             default_url = "simulated"
             try:
                 import socket
+
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 sock.settimeout(0.5)  # 500ms timeout
-                result = sock.connect_ex(('localhost', 3001))
+                result = sock.connect_ex(("localhost", 3001))
                 sock.close()
                 if result == 0:
                     # Port 3001 is open, likely our demo MCP server
@@ -2599,9 +2721,7 @@ def handle_generate_capability():
 
             # Get MCP URL
             mcp_url = questionary.text(
-                "MCP server URL (or 'simulated' for demo):",
-                default=default_url,
-                style=custom_style
+                "MCP server URL (or 'simulated' for demo):", default=default_url, style=custom_style
             ).ask()
 
             if not mcp_url:
@@ -2609,9 +2729,7 @@ def handle_generate_capability():
 
             # Get capability name
             capability_name = questionary.text(
-                "Capability name:",
-                default="weather_mcp",
-                style=custom_style
+                "Capability name:", default="weather_mcp", style=custom_style
             ).ask()
 
             if not capability_name:
@@ -2625,15 +2743,13 @@ def handle_generate_capability():
                 output_file=None,
                 provider=None,
                 model_id=None,
-                quiet=False
+                quiet=False,
             )
 
-        elif mode == 'prompt':
+        elif mode == "prompt":
             # Get prompt
             prompt = questionary.text(
-                "Describe what the capability should do:",
-                multiline=True,
-                style=custom_style
+                "Describe what the capability should do:", multiline=True, style=custom_style
             ).ask()
 
             if not prompt:
@@ -2641,9 +2757,7 @@ def handle_generate_capability():
 
             # Get capability name (optional)
             capability_name = questionary.text(
-                "Capability name (leave empty for LLM suggestion):",
-                default="",
-                style=custom_style
+                "Capability name (leave empty for LLM suggestion):", default="", style=custom_style
             ).ask()
 
             # Generate
@@ -2653,7 +2767,7 @@ def handle_generate_capability():
                 output_file=None,
                 provider=None,
                 model_id=None,
-                quiet=False
+                quiet=False,
             )
 
         console.print()
@@ -2662,7 +2776,7 @@ def handle_generate_capability():
     except RuntimeError as e:
         # RuntimeError with clear message - show it directly
         error_msg = str(e)
-        if error_msg.startswith('\n'):
+        if error_msg.startswith("\n"):
             console.print(error_msg)
         else:
             console.print(f"\n{Messages.error('Generation failed: ')}")
@@ -2682,21 +2796,13 @@ def handle_generate_mcp_server():
     console.print("[dim]Creates a demo weather MCP server for testing[/dim]\n")
 
     # Get server name
-    server_name = questionary.text(
-        "Server name:",
-        default="demo_mcp",
-        style=custom_style
-    ).ask()
+    server_name = questionary.text("Server name:", default="demo_mcp", style=custom_style).ask()
 
     if not server_name:
         return
 
     # Get port
-    port_str = questionary.text(
-        "Port:",
-        default="3001",
-        style=custom_style
-    ).ask()
+    port_str = questionary.text("Port:", default="3001", style=custom_style).ask()
 
     if not port_str:
         return
@@ -2718,9 +2824,7 @@ def handle_generate_mcp_server():
 
         write_mcp_server_file = get_server_template()
         output_path = write_mcp_server_file(
-            output_path=output_path,
-            server_name=server_name,
-            port=port
+            output_path=output_path, server_name=server_name, port=port
         )
 
         console.print(f"\n{Messages.success(f'Server generated: {output_path}')}\n")
@@ -2729,6 +2833,7 @@ def handle_generate_mcp_server():
         fastmcp_installed = False
         try:
             import importlib.util
+
             if importlib.util.find_spec("fastmcp") is not None:
                 fastmcp_installed = True
         except Exception:
@@ -2737,27 +2842,47 @@ def handle_generate_mcp_server():
         # Always show the instructions upfront
         console.print(f"[{Styles.HEADER}]Usage Instructions:[/{Styles.HEADER}]")
         if not fastmcp_installed:
-            console.print(f"  1. Install dependencies: [{Styles.ACCENT}]pip install fastmcp[/{Styles.ACCENT}]")
-            console.print(f"  2. Run the server: [{Styles.ACCENT}]python {output_path}[/{Styles.ACCENT}]")
-            console.print(f"  3. Generate capability: [{Styles.ACCENT}]osprey generate capability --from-mcp http://localhost:{port} -n {server_name}[/{Styles.ACCENT}]")
+            console.print(
+                f"  1. Install dependencies: [{Styles.ACCENT}]pip install fastmcp[/{Styles.ACCENT}]"
+            )
+            console.print(
+                f"  2. Run the server: [{Styles.ACCENT}]python {output_path}[/{Styles.ACCENT}]"
+            )
+            console.print(
+                f"  3. Generate capability: [{Styles.ACCENT}]osprey generate capability --from-mcp http://localhost:{port} -n {server_name}[/{Styles.ACCENT}]"
+            )
         else:
             console.print(f"  • Server file: [{Styles.VALUE}]{output_path}[/{Styles.VALUE}]")
-            console.print(f"  • Server URL: [{Styles.VALUE}]http://localhost:{port}[/{Styles.VALUE}]")
-            console.print(f"  • Manual start: [{Styles.ACCENT}]python {output_path}[/{Styles.ACCENT}]")
-            console.print(f"  • Create capability: [{Styles.ACCENT}]osprey generate capability --from-mcp http://localhost:{port} -n {server_name}[/{Styles.ACCENT}]")
+            console.print(
+                f"  • Server URL: [{Styles.VALUE}]http://localhost:{port}[/{Styles.VALUE}]"
+            )
+            console.print(
+                f"  • Manual start: [{Styles.ACCENT}]python {output_path}[/{Styles.ACCENT}]"
+            )
+            console.print(
+                f"  • Create capability: [{Styles.ACCENT}]osprey generate capability --from-mcp http://localhost:{port} -n {server_name}[/{Styles.ACCENT}]"
+            )
         console.print()
 
         # Offer to launch the server immediately with three options
         if fastmcp_installed:
             choices = [
-                Choice("[▶] Launch in background - Detached, returns to menu", value='background'),
-                Choice("[▶] Launch in this terminal - Interactive, see output live", value='foreground'),
-                Choice("[←] Back to menu - Launch manually later", value='back'),
+                Choice("[▶] Launch in background - Detached, returns to menu", value="background"),
+                Choice(
+                    "[▶] Launch in this terminal - Interactive, see output live", value="foreground"
+                ),
+                Choice("[←] Back to menu - Launch manually later", value="back"),
             ]
         else:
             choices = [
-                Choice("[!] Cannot launch - fastmcp not installed (pip install fastmcp)", value='install', disabled=True),
-                Choice("[←] Back to menu - Install fastmcp and launch manually later", value='back'),
+                Choice(
+                    "[!] Cannot launch - fastmcp not installed (pip install fastmcp)",
+                    value="install",
+                    disabled=True,
+                ),
+                Choice(
+                    "[←] Back to menu - Install fastmcp and launch manually later", value="back"
+                ),
             ]
 
         next_action = questionary.select(
@@ -2766,22 +2891,24 @@ def handle_generate_mcp_server():
             style=custom_style,
         ).ask()
 
-        if next_action == 'background' and fastmcp_installed:
+        if next_action == "background" and fastmcp_installed:
             # Launch the server in the background (detached)
             console.print("\n[dim]Starting MCP server in background...[/dim]")
 
             import subprocess
+
             try:
                 # Start the server process in the background
                 process = subprocess.Popen(
                     [sys.executable, str(output_path)],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
-                    start_new_session=True  # Detach from current session
+                    start_new_session=True,  # Detach from current session
                 )
 
                 # Give it a moment to start
                 import time
+
                 time.sleep(1)
 
                 # Check if it's still running
@@ -2791,8 +2918,12 @@ def handle_generate_mcp_server():
                     console.print(f"[dim]  URL: http://localhost:{port}[/dim]")
                     console.print(f"\n[{Styles.ACCENT}]To stop the server:[/{Styles.ACCENT}]")
                     console.print(f"  kill {process.pid}")
-                    console.print(f"\n[{Styles.ACCENT}]Next step - Generate a capability:[/{Styles.ACCENT}]")
-                    console.print(f"  osprey generate capability --from-mcp http://localhost:{port} -n {server_name}")
+                    console.print(
+                        f"\n[{Styles.ACCENT}]Next step - Generate a capability:[/{Styles.ACCENT}]"
+                    )
+                    console.print(
+                        f"  osprey generate capability --from-mcp http://localhost:{port} -n {server_name}"
+                    )
                 else:
                     # Process died immediately, show error
                     _, stderr = process.communicate(timeout=1)
@@ -2805,19 +2936,17 @@ def handle_generate_mcp_server():
             console.print()
             input("Press ENTER to continue...")
 
-        elif next_action == 'foreground' and fastmcp_installed:
+        elif next_action == "foreground" and fastmcp_installed:
             # Launch the server in the foreground (this terminal)
             console.print(f"\n{Messages.success('Starting MCP server in this terminal...')}")
             console.print(f"[dim]Server URL: http://localhost:{port}[/dim]")
             console.print("[dim]Press Ctrl+C to stop the server and return to menu[/dim]\n")
 
             import subprocess
+
             try:
                 # Start the server in foreground (user can see output)
-                process = subprocess.run(
-                    [sys.executable, str(output_path)],
-                    cwd=Path.cwd()
-                )
+                process = subprocess.run([sys.executable, str(output_path)], cwd=Path.cwd())
             except KeyboardInterrupt:
                 console.print(f"\n\n{Messages.warning('Server stopped by user')}")
             except Exception as e:
@@ -2841,13 +2970,12 @@ def handle_generate_claude_config():
 
     # Check if file exists
     from pathlib import Path
+
     output_path = Path("claude_generator_config.yml")
 
     if output_path.exists():
         overwrite = questionary.confirm(
-            f"{output_path} already exists. Overwrite?",
-            default=False,
-            style=custom_style
+            f"{output_path} already exists. Overwrite?", default=False, style=custom_style
         ).ask()
 
         if not overwrite:
@@ -2866,24 +2994,19 @@ def handle_generate_claude_config():
             try:
                 with open(config_path) as f:
                     config = yaml.safe_load(f)
-                    if config and 'llm' in config:
-                        default_provider = config['llm'].get('default_provider', 'anthropic')
+                    if config and "llm" in config:
+                        default_provider = config["llm"].get("default_provider", "anthropic")
                         console.print(f"[dim]Detected provider: {default_provider}[/dim]\n")
             except Exception:
                 pass
 
         # Create template context
-        ctx = {
-            "default_provider": default_provider,
-            "default_model": "claude-haiku-4-5-20251001"
-        }
+        ctx = {"default_provider": default_provider, "default_model": "claude-haiku-4-5-20251001"}
 
         # Render template
         template_manager = TemplateManager()
         template_manager.render_template(
-            "apps/control_assistant/claude_generator_config.yml.j2",
-            ctx,
-            output_path
+            "apps/control_assistant/claude_generator_config.yml.j2", ctx, output_path
         )
 
         console.print(f"\n{Messages.success(f'Configuration generated: {output_path}')}\n")
@@ -2895,11 +3018,11 @@ def handle_generate_claude_config():
         console.print("  2. Enable in [accent]config.yml[/accent]:")
         console.print()
         console.print("     [dim]execution:[/dim]")
-        console.print("     [dim]  code_generator: \"claude_code\"[/dim]")
+        console.print('     [dim]  code_generator: "claude_code"[/dim]')
         console.print("     [dim]  generators:[/dim]")
         console.print("     [dim]    claude_code:[/dim]")
-        console.print("     [dim]      profile: \"fast\"  # or \"robust\"[/dim]")
-        console.print(f"     [dim]      claude_config_path: \"{output_path.name}\"[/dim]")
+        console.print('     [dim]      profile: "fast"  # or "robust"[/dim]')
+        console.print(f'     [dim]      claude_config_path: "{output_path.name}"[/dim]')
         console.print()
         console.print("  3. Set API key in [accent].env[/accent]:")
         if default_provider == "cborg":
@@ -2912,6 +3035,7 @@ def handle_generate_claude_config():
     except Exception as e:
         console.print(f"\n{Messages.error(f'Generation failed: {e}')}")
         import traceback
+
         console.print(f"[dim]{traceback.format_exc()}[/dim]")
         console.print()
         input("Press ENTER to continue...")
@@ -2921,6 +3045,7 @@ def handle_generate_claude_config():
 # NAVIGATION LOOP
 # ============================================================================
 
+
 def navigation_loop():
     """Main navigation loop."""
     while True:
@@ -2929,7 +3054,7 @@ def navigation_loop():
 
         action = show_main_menu()
 
-        if action is None or action == 'exit':
+        if action is None or action == "exit":
             console.print("\n[accent]👋 Goodbye![/accent]\n")
             break
 
@@ -2937,30 +3062,31 @@ def navigation_loop():
         if isinstance(action, tuple):
             action_type, action_data = action
 
-            if action_type == 'select_project':
+            if action_type == "select_project":
                 project_path = action_data
                 handle_project_selection(project_path)
                 continue
 
         # Handle string actions (standard commands)
-        if action == 'init_interactive':
+        if action == "init_interactive":
             next_action = run_interactive_init()
-            if next_action == 'exit':
+            if next_action == "exit":
                 break
-        elif action == 'chat':
+        elif action == "chat":
             handle_chat_action()
-        elif action == 'deploy':
+        elif action == "deploy":
             handle_deploy_action()
-        elif action == 'health':
+        elif action == "health":
             handle_health_action()
-        elif action == 'generate':
+        elif action == "generate":
             handle_generate_action()
-        elif action == 'config':
+        elif action == "config":
             handle_config_action()
-        elif action == 'registry':
+        elif action == "registry":
             from osprey.cli.registry_cmd import handle_registry_action
+
             handle_registry_action()
-        elif action == 'help':
+        elif action == "help":
             # Show contextual help based on whether we're in a project or not
             if is_project_initialized():
                 handle_help_action()
@@ -2971,6 +3097,7 @@ def navigation_loop():
 # ============================================================================
 # ENTRY POINT
 # ============================================================================
+
 
 def launch_tui():
     """Entry point for TUI mode."""
@@ -2991,6 +3118,6 @@ def launch_tui():
     except Exception as e:
         console.print(f"\n{Messages.error(f'Unexpected error: {e}')}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
-
