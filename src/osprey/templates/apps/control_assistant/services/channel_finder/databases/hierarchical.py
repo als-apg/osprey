@@ -99,6 +99,9 @@ class HierarchicalChannelDatabase(BaseDatabase):
         # Validate configuration
         self._validate_hierarchy_config()
 
+        # Parse default separators from naming pattern
+        self.default_separators = self._parse_naming_pattern_separators()
+
         # Build flat channel map for validation and lookup
         self.channel_map = self._build_channel_map()
 
@@ -488,6 +491,45 @@ class HierarchicalChannelDatabase(BaseDatabase):
         # Return in hierarchy order (not pattern order) for consistent Cartesian product
         return [level for level in self.hierarchy_levels if level in pattern_placeholders]
 
+    def _parse_naming_pattern_separators(self) -> dict[tuple[str, str], str]:
+        """
+        Extract default separators between levels from naming pattern.
+
+        The naming pattern defines how levels are joined with separators.
+        This method extracts those separators for use as defaults.
+
+        Returns:
+            Dict mapping (level, next_level) tuples to separator strings
+
+        Example:
+            Pattern: "{system}-{subsystem}:{device}_{signal}"
+            Returns: {
+                ('system', 'subsystem'): '-',
+                ('subsystem', 'device'): ':',
+                ('device', 'signal'): '_'
+            }
+        """
+        import re
+
+        separators = {}
+        pattern = self.naming_pattern
+
+        # Find all {level} placeholders and text between them
+        matches = list(re.finditer(r"\{(\w+)\}", pattern))
+
+        for i in range(len(matches) - 1):
+            current_level = matches[i].group(1)
+            next_level = matches[i + 1].group(1)
+
+            # Extract text between placeholders (the separator)
+            start = matches[i].end()
+            end = matches[i + 1].start()
+            separator = pattern[start:end]
+
+            separators[(current_level, next_level)] = separator
+
+        return separators
+
     def _get_channel_part(self, node: dict, tree_key: str) -> str:
         """
         Get the channel name component for a tree node.
@@ -645,6 +687,104 @@ class HierarchicalChannelDatabase(BaseDatabase):
         channel = re.sub(r"[:_-]([:_-])+", lambda m: m.group(0)[0], channel)
 
         return channel
+
+    def _find_separator_between_levels(
+        self, start_idx: int, end_idx: int, pattern_levels: list[str]
+    ) -> str:
+        """
+        Find the appropriate separator between two non-consecutive pattern levels.
+
+        When optional levels are skipped, we need to find which separator to use.
+        We use the first separator encountered when walking from start to end.
+
+        Args:
+            start_idx: Index of the starting level (last non-empty)
+            end_idx: Index of the ending level (current non-empty)
+            pattern_levels: List of all pattern levels in order
+
+        Returns:
+            Separator string to use
+
+        Example:
+            Levels: [system, device, subdevice, signal]
+            Pattern: {system}-{device}:{subdevice}:{signal}
+            If subdevice is empty and we're connecting device (idx=1) to signal (idx=3):
+            - Check device→subdevice separator: ":"
+            - Return ":"
+        """
+        # Walk through levels from start to end and find first separator
+        for i in range(start_idx, end_idx):
+            current_level = pattern_levels[i]
+            next_level = pattern_levels[i + 1]
+            sep_key = (current_level, next_level)
+
+            if sep_key in self.default_separators:
+                return self.default_separators[sep_key]
+
+        # Fallback to colon if no separator found
+        return ":"
+
+    def _build_channel_with_separators(
+        self, path: dict[str, str], separator_overrides: dict[tuple[str, str], str]
+    ) -> str:
+        """
+        Build channel name using path components and custom separators.
+
+        This method constructs channel names by joining path components with
+        separators, respecting both default separators (from naming pattern)
+        and custom overrides (from _separator metadata in tree nodes).
+
+        Args:
+            path: Dict mapping level names to values
+            separator_overrides: Dict mapping (level, next_level) tuples to custom separators
+
+        Returns:
+            Complete channel name with correct separators
+
+        Examples:
+            # Default separators from pattern
+            path = {"system": "SYS", "device": "DEV-01", "signal": "TEMP"}
+            pattern = "{system}-{device}:{signal}"
+            → "SYS-DEV-01:TEMP"
+
+            # With custom separator override
+            path = {"device": "DEV-01", "signal": "Lock", "suffix": "SC"}
+            overrides = {("signal", "suffix"): "_"}  # Lock node has _separator="_"
+            → "DEV-01:Lock_SC"  (uses custom _ instead of default)
+        """
+        pattern_levels = self._get_pattern_levels()
+        parts = []
+        last_level_with_value = None
+        last_level_index = None
+
+        # First pass: collect non-empty values
+        for i, level in enumerate(pattern_levels):
+            value = path.get(level, "")
+
+            if value:  # Only include non-empty values
+                # Add separator before this value (if not first)
+                if last_level_with_value is not None:
+                    # Find the appropriate separator
+                    # Check for custom override first
+                    sep_key = (last_level_with_value, level)
+                    if sep_key in separator_overrides:
+                        separator = separator_overrides[sep_key]
+                    else:
+                        # Find separator by walking through pattern levels
+                        # Use the first separator we encounter between last and current
+                        separator = self._find_separator_between_levels(
+                            last_level_index, i, pattern_levels
+                        )
+
+                    parts.append(separator)
+
+                parts.append(value)
+                last_level_with_value = level
+                last_level_index = i
+
+        channel = "".join(parts)
+        # Still clean up any artifacts (defensive)
+        return self._clean_optional_separators(channel)
 
     def get_options_at_level(
         self, level: str, previous_selections: dict[str, Any]
@@ -893,22 +1033,50 @@ class HierarchicalChannelDatabase(BaseDatabase):
         channels = {}
         pattern_levels = self._get_pattern_levels()
 
-        def expand_tree(path: dict[str, str], node: dict, level_idx: int):
-            """Recursively expand tree with flexible level handling."""
+        def expand_tree(
+            path: dict[str, str],
+            node: dict,
+            level_idx: int,
+            separator_overrides: Optional[dict[tuple[str, str], str]] = None,
+        ):
+            """Recursively expand tree with flexible level handling and custom separators."""
+            if separator_overrides is None:
+                separator_overrides = {}
+
+            # Check if this node specifies a custom separator for its children
+            # Create a NEW dict for this subtree to avoid polluting siblings
+            local_overrides = separator_overrides.copy()
+
+            if "_separator" in node and level_idx > 0:
+                # Get current level (where this node is assigned)
+                current_level_idx = level_idx - 1
+                if current_level_idx < len(self.hierarchy_levels):
+                    current_level = self.hierarchy_levels[current_level_idx]
+
+                    # Find next tree level for children
+                    for next_idx in range(level_idx, len(self.hierarchy_levels)):
+                        next_config = self.hierarchy_config["levels"][
+                            self.hierarchy_levels[next_idx]
+                        ]
+                        if next_config["type"] == "tree":
+                            next_level = self.hierarchy_levels[next_idx]
+                            # Store the custom separator in LOCAL copy
+                            local_overrides[(current_level, next_level)] = node["_separator"]
+                            break
+
             # Check for leaf nodes (supports optional hierarchy levels)
             if self._is_leaf_node(node, level_idx):
-                # Build channel from path using only pattern-referenced levels
-                pattern_params = {k: v for k, v in path.items() if k in pattern_levels}
-
-                # Handle optional levels not yet in path
+                # Build channel from path with custom separators
+                # First ensure all pattern levels have values (empty string for skipped optional)
+                complete_path = path.copy()
                 for level in pattern_levels:
-                    if level not in pattern_params:
-                        # Optional level was skipped - use empty string
-                        pattern_params[level] = ""
+                    if level not in complete_path:
+                        complete_path[level] = ""
 
-                # Build and clean channel name
-                channel_name = self.naming_pattern.format(**pattern_params)
-                channel_name = self._clean_optional_separators(channel_name)
+                # Build channel name using custom separators
+                channel_name = self._build_channel_with_separators(
+                    complete_path, local_overrides
+                )
 
                 # Store channel
                 channels[channel_name] = {"channel": channel_name, "path": path.copy()}
@@ -949,6 +1117,7 @@ class HierarchicalChannelDatabase(BaseDatabase):
                                     {**path, next_level: channel_part},
                                     child_node,
                                     next_tree_level_idx + 1,
+                                    local_overrides,
                                 )
 
                             # Children processed, return
@@ -987,7 +1156,10 @@ class HierarchicalChannelDatabase(BaseDatabase):
                         for instance_name in instances:
                             # Assign instance to current level and recurse
                             expand_tree(
-                                {**path, current_level: instance_name}, child_node, level_idx + 1
+                                {**path, current_level: instance_name},
+                                child_node,
+                                level_idx + 1,
+                                local_overrides,
                             )
                         # Don't process this node as regular tree node
                         continue
@@ -1001,15 +1173,21 @@ class HierarchicalChannelDatabase(BaseDatabase):
                             next_level = self.hierarchy_levels[next_level_idx]
                             # Skip current optional level, assign child to next level
                             expand_tree(
-                                {**path, next_level: channel_part}, child_node, next_level_idx + 1
+                                {**path, next_level: channel_part},
+                                child_node,
+                                next_level_idx + 1,
+                                local_overrides,
                             )
                         else:
                             # No next level exists, expand normally
-                            expand_tree(path, child_node, level_idx + 1)
+                            expand_tree(path, child_node, level_idx + 1, local_overrides)
                     else:
                         # Normal tree expansion: assign child to current level
                         expand_tree(
-                            {**path, current_level: channel_part}, child_node, level_idx + 1
+                            {**path, current_level: channel_part},
+                            child_node,
+                            level_idx + 1,
+                            local_overrides,
                         )
 
             elif level_config["type"] == "instances":
@@ -1029,7 +1207,10 @@ class HierarchicalChannelDatabase(BaseDatabase):
                     instances = self._get_instance_names(expansion_def)
                     for instance_name in instances:
                         expand_tree(
-                            {**path, current_level: instance_name}, child_node, level_idx + 1
+                            {**path, current_level: instance_name},
+                            child_node,
+                            level_idx + 1,
+                            local_overrides,
                         )
 
             elif level_config["type"] == "container":
@@ -1043,7 +1224,12 @@ class HierarchicalChannelDatabase(BaseDatabase):
                         # Instance expansion
                         instances = self._get_instance_names(container)
                         for instance_name in instances:
-                            expand_tree({**path, current_level: instance_name}, node, level_idx + 1)
+                            expand_tree(
+                                {**path, current_level: instance_name},
+                                node,
+                                level_idx + 1,
+                                local_overrides,
+                            )
                     else:
                         # Container with direct children
                         children = {
@@ -1054,10 +1240,13 @@ class HierarchicalChannelDatabase(BaseDatabase):
 
                         for child_name, child_node in children.items():
                             expand_tree(
-                                {**path, current_level: child_name}, child_node, level_idx + 1
+                                {**path, current_level: child_name},
+                                child_node,
+                                level_idx + 1,
+                                local_overrides,
                             )
 
-        expand_tree({}, self.tree, 0)
+        expand_tree({}, self.tree, 0, {})
         return channels
 
     def _get_instance_names(self, expansion_def: dict) -> list[str]:

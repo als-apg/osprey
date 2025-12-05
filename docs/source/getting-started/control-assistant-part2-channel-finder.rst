@@ -1032,7 +1032,131 @@ That's it—no code changes required. The template includes complete implementat
                      - Explicit leaf marking makes intent clear
                      - Supports gradual migration (some devices with sublevels, some without)
 
-                     **Example Database**: ``optional_levels.json`` (23,040 channels demonstrating multiple optional levels)
+                     **Example Database**: ``optional_levels.json`` (82 channels demonstrating optional levels and separator overrides)
+
+                  .. tab-item:: Custom Separators
+
+                     **Use Case**: Override default separators for specific nodes to match existing EPICS naming conventions that use different delimiters in different contexts.
+
+                     **How It Works**: Add ``_separator`` metadata to any tree node to customize the separator before its children, overriding the default from the naming pattern.
+
+                     **Simple Example**:
+
+                     Your naming pattern uses colons everywhere:
+
+                     .. code-block:: json
+
+                        {
+                          "hierarchy": {
+                            "naming_pattern": "{system}:{device}:{signal}:{suffix}"
+                          }
+                        }
+
+                     Default behavior (all colons):
+
+                     .. code-block:: text
+
+                        CTRL:DEV-01:Mode:RB       (colon before RB)
+                        CTRL:DEV-01:MOTOR:Position (colon before Position)
+
+                     But your facility's actual PV convention uses:
+
+                     - Underscore (``_``) for record field suffixes (RB, SP, CMD)
+                     - Dot (``.``) for motor subsystem navigation
+
+                     **Solution - Add separator overrides**:
+
+                     .. code-block:: json
+
+                        {
+                          "tree": {
+                            "CTRL": {
+                              "DEVICE": {
+                                "_expansion": {"_instances": ["DEV-01", "DEV-02"]},
+
+                                "Mode": {
+                                  "_separator": "_",
+                                  "_is_leaf": true,
+                                  "_description": "Operating mode",
+                                  "RB": {"_description": "Readback"},
+                                  "SP": {"_description": "Setpoint"}
+                                },
+
+                                "MOTOR": {
+                                  "_separator": ".",
+                                  "_description": "Motor subsystem",
+                                  "Position": {"_description": "Position"},
+                                  "Velocity": {"_description": "Velocity"}
+                                }
+                              }
+                            }
+                          }
+                        }
+
+                     **Result - Matches your convention**:
+
+                     .. code-block:: text
+
+                        CTRL:DEV-01:Mode_RB        (underscore from _separator)
+                        CTRL:DEV-01:Mode_SP        (underscore from _separator)
+                        CTRL:DEV-01:MOTOR.Position (dot from _separator)
+                        CTRL:DEV-01:MOTOR.Velocity (dot from _separator)
+
+                     **Why This Matters**:
+
+                     Many EPICS facilities have evolved naming conventions where:
+
+                     - Historical subsystems use dots: ``OLD:MOTOR.Speed``
+                     - Modern subsystems use colons: ``NEW:MOTOR:Speed``
+                     - Record fields always use underscores: ``DEV:Signal_RB``
+
+                     Without separator overrides, you'd need separate databases or complex restructuring. With overrides, each node declares its own separator independently.
+
+                     **Multiple Overrides in One Path**:
+
+                     Different nodes can override independently:
+
+                     .. code-block:: json
+
+                        "LEGACY": {
+                          "_separator": ".",
+                          "CTRL": {
+                            "_separator": "-",
+                            "Mode": {
+                              "_separator": "_",
+                              "RB": {...}
+                            }
+                          }
+                        }
+
+                     Generates: ``CTRL:LEGACY.CTRL-Mode_RB`` (colon, then dot, then dash, then underscore)
+
+                     **Key Features**:
+
+                     - Override works at **any** hierarchy level
+                     - Each node's ``_separator`` only affects its **immediate children**
+                     - Backward compatible (no ``_separator`` = use pattern default)
+                     - Combines with optional levels seamlessly
+
+                     **Common EPICS Patterns**:
+
+                     .. code-block:: json
+
+                        "Signal": {
+                          "_separator": "_",
+                          "RB": {...},   // Signal_RB
+                          "SP": {...}    // Signal_SP
+                        }
+
+                     .. code-block:: json
+
+                        "LegacyMotor": {
+                          "_separator": ".",
+                          "Speed": {...},     // LegacyMotor.Speed
+                          "Position": {...}   // LegacyMotor.Position
+                        }
+
+                     **Example Database**: ``optional_levels.json`` (shows separator overrides with optional levels)
 
             **tree**: The nested hierarchy structure with descriptions at every level (details below).
 
