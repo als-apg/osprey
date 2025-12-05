@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **Python Executor: Context File Creation for Pre-Approval Notebooks**: Fixed timing issue where `context.json` was not created until execution, causing warnings and test failures when approval was required. Context is now saved immediately when creating pre-approval, syntax error, and static analysis failure notebooks.
 - **Code Quality: Pre-merge cleanup**: Removed unused imports and applied code formatting standards (black + isort) across entire codebase for consistency
+- **Documentation: Fixed RST docstring formatting**: Corrected docstring syntax in `BaseInfrastructureNode.get_current_task()` to use proper RST code block notation (eliminates Sphinx warnings)
 
 ### Added
 - **Hierarchical Channel Finder: Automatic Leaf Detection**: Eliminates verbose `_is_leaf` markers for childless nodes

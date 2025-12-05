@@ -337,13 +337,12 @@ class BaseInfrastructureNode(ABC):
         Returns:
             Current task string, or None if not set
 
-        Example:
-            ```python
+        Example::
+
             async def execute(self) -> dict[str, Any]:
                 current_task = self.get_current_task()
                 if not current_task:
                     raise ValueError("No current task available")
-            ```
         """
         from osprey.state import StateManager
 
