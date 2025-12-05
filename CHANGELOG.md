@@ -15,13 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Hierarchical Channel Finder: Custom Separator Overrides**: Per-node control of channel name separators
   - New `_separator` metadata field overrides default separators from naming pattern
-  - Works at any hierarchy level (leaf-level, mid-level, multiple in one path)
   - Solves EPICS naming conventions with mixed delimiters (e.g., `:` for subdevices, `_` for suffixes, `.` for legacy subsystems)
-  - Essential for optional levels where default separator assignment causes mismatches
-  - Example: `Mode` node with `"_separator": "_"` generates `DEV:Mode_RB` instead of `DEV:Mode:RB`
   - Backward compatible: nodes without `_separator` use pattern defaults
-  - Implementation: `_parse_naming_pattern_separators()`, `_build_channel_with_separators()`, separator tracking through recursion
-  - Updated `optional_levels.json` with clear educational examples (82 channels, uniform colon pattern)
   - Documentation: New "Custom Separators" tab in Advanced Hierarchy Patterns section
 - **Hierarchical Channel Finder: Automatic Leaf Detection**: Eliminates verbose `_is_leaf` markers for childless nodes
   - Nodes without children are automatically detected as leaves (no explicit marker needed)
