@@ -32,8 +32,10 @@ from osprey.base.planning import PlannedStep
 from osprey.registry import get_registry
 
 from ..context_classes import ChannelAddressesContext
-from ..services.channel_finder.service import ChannelFinderService
-from ..data.tools.pv_catalog import PVEntry, get_pv_catalog
+from ..data.tools.pv_catalog import (
+    PVEntry,
+    get_pv_catalog,
+)
 
 
 PV_CATALOG_PATH = Path(__file__).resolve().parent.parent / "data" / "channel_databases" / "PVs.mon"
@@ -86,13 +88,23 @@ class ChannelFindingCapability(BaseCapability):
 
     def _find_with_pv_catalog(self, search_query: str, logger: logging.Logger) -> List[PVEntry]:
         """
-        Resolve PVs locally using the PV catalog (PVs.mon) aliases.
+        Resolve PVs locally using the PV catalog (PVs.mon) aliases or srcorr.json fast-path.
         """
         try:
             catalog = get_pv_catalog(str(PV_CATALOG_PATH))
         except Exception as exc:
             logger.warning(f"PV catalog unavailable at {PV_CATALOG_PATH}: {exc}")
             return []
+
+        # First, try SR corrector PV finding (uses srcorr.json)
+        logger.info(f"🔍 Checking if SR corrector query...")
+        sr_entries = catalog.find_sr_corrector_pvs(search_query)
+        if sr_entries:
+            logger.info(f"✅ Found {len(sr_entries)} SR corrector PVs via srcorr.json")
+            logger.info(f"   First 5 PVs: {[e.pv_name for e in sr_entries[:5]]}")
+            return sr_entries
+        else:
+            logger.info(f"ℹ️  Not an SR corrector query, using standard PV catalog")
 
         # Try to extract explicit PV-like tokens (e.g., "S10A:Q1") and search by prefix
         pv_tokens = [
@@ -134,16 +146,14 @@ class ChannelFindingCapability(BaseCapability):
         """
         Find control system channel addresses based on search query.
 
-        This method uses the configured channel finder service to search the
-        channel database and return matching control system addresses. The search
-        query is extracted from the task objective.
+        This method uses the PV catalog (including srcorr.json for SR devices) to find
+        matching control system addresses. The search query is extracted from the task objective.
 
         Returns:
             State updates containing CHANNEL_ADDRESSES context with found channels.
 
         Raises:
             ChannelNotFoundError: If no matching channels are found.
-            ChannelFinderServiceError: If the search service fails.
         """
         # Extract search query from task objective
         search_query = self.get_task_objective(default='unknown')
@@ -152,6 +162,7 @@ class ChannelFindingCapability(BaseCapability):
         logger = self.get_logger()
 
         # Log the query
+        logger.info(f'🆕 CODE UPDATED 2025-12-05 15:50 - Using PV catalog only (no LLM service)')
         logger.info(f'Channel finding query: "{search_query}"')
 
         # Some logger implementations in Osprey support `status()`, but if we are
@@ -162,72 +173,19 @@ class ChannelFindingCapability(BaseCapability):
         else:
             logger.info(status_message)
 
-        # Configure logging for channel finder service to show detailed pipeline logs
-        # This ensures the hierarchical navigation logs (Level: system, Selected, etc.) are visible
-        # The service uses __name__ for loggers, so we need to configure the full module path
-        cf_root_logger = logging.getLogger("aps_control_assistant.services.channel_finder")
-
-        # Get the current framework logger's level and apply it to all channel_finder submodules
-        current_level = logger.level if logger.level != 0 else logging.INFO
-        cf_root_logger.setLevel(current_level)
-
-        # Ensure all child loggers inherit this level and propagate to framework handlers
-        cf_root_logger.propagate = True
-
         channel_list: List[str] = []
         description = ""
-        result = None
-        service_error_message = ""
 
-        # First, try local PV catalog (PVs.mon) for direct alias matching
+        # Use PV catalog exclusively (includes srcorr.json fast-path for SR devices)
         catalog_matches = self._find_with_pv_catalog(search_query, logger)
         if catalog_matches:
             channel_list = [entry.pv_name for entry in catalog_matches]
             description = f"Found {len(channel_list)} PV(s) via PV catalog for query: '{search_query}'."
+            logger.info(f"✅ Found {len(channel_list)} channel addresses")
         else:
-            try:
-                # Initialize service (reads pipeline_mode from config.yml at runtime)
-                service = ChannelFinderService()
-
-                status_message = "Searching channel database..."
-                if hasattr(logger, "status"):
-                    logger.status(status_message)
-                else:
-                    logger.info(status_message)
-
-                # Execute channel finding
-                result = await service.find_channels(search_query)
-
-            except Exception as e:
-                logger.warning(f"Channel finder service unavailable for query '{search_query}': {e}. Using PV catalog only.")
-                result = None
-                channel_list = []
-                description = ""
-                service_error_message = str(e)
-
-            # Log results
-            # IMPORTANT: We extract the ADDRESS field, not the channel name
-            # The database contains both:
-            #   - 'channel': descriptive/user-friendly name (e.g., "BeamCurrent")
-            #   - 'address': actual control system address (e.g., "BEAM:CURRENT")
-            # We use the ADDRESS for all downstream operations
-            if result.total_channels > 0:
-                logger.info(f"Found {result.total_channels} channel address{'es' if result.total_channels != 1 else ''}")
-                # Detailed logging can be enabled via framework log level
-                for ch in result.channels:
-                    logger.debug(f"  {ch.channel} -> {ch.address}")
-
-            # Convert service layer response to framework context
-            # CRITICAL: Extract ADDRESSES, not channel names
-            # These addresses are what we'll use for actual control system operations
-            channel_list = [ch.address for ch in result.channels]
-            description = f"Found {result.total_channels} channel addresses for query: '{result.query}'. {result.processing_notes}"
-
-        # Check if no channels were found and raise appropriate error for re-planning
-        if not channel_list:
-            processing_notes = result.processing_notes if result else service_error_message
-            error_msg = f"No channel addresses found for query: '{search_query}'. {processing_notes}"
-            logger.warning(f"Channel address not found: {error_msg}")
+            # No matches found in PV catalog
+            error_msg = f"No channel addresses found for query: '{search_query}'."
+            logger.warning(f"❌ Channel address not found: {error_msg}")
             raise ChannelNotFoundError(error_msg)
 
         # Create framework context object

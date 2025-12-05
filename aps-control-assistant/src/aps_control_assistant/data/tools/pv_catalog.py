@@ -4,14 +4,16 @@ Utility for loading PV aliases from the PVs.mon SDDS file.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
 import shlex
 import struct
 from dataclasses import dataclass
+from pathlib import Path
 from threading import RLock
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 
 QUERY_STOPWORDS = {
@@ -80,6 +82,260 @@ TIME_KEYWORDS = {
     "tonight",
     "ago",
 }
+
+# ---------------------------------------------------------------------------
+# SR corrector/sextupole/etc. generation from srcorr.json
+# ---------------------------------------------------------------------------
+
+_SRCORR_CACHE = None
+
+# Map human-friendly type keywords to section names in srcorr.json
+SRCORR_TYPE_MAP = {
+    "fast": ("SR Fast Correctors", "Sector ${sector} fast correctors"),
+    "corrector": ("SR Correctors", "Sector ${sector} correctors"),
+    "skew": ("SR Skew Quadrupoles", "Sector ${sector} skew quadrupoles"),
+    "quadrupole": ("SR Quadrupoles", "Sector ${sector} quadrupoles"),
+    "sextupole": ("SR Sextupoles", "Sector ${sector} sextupoles"),
+    "dipole": ("SR Dipoles", "Sector ${sector} dipoles"),
+    "dipole_trim": ("SR Dipole Trim", "Sector ${sector} dipole trim"),
+}
+
+# Simple keyword hints for type detection
+SRCORR_TYPE_KEYWORDS = [
+    ("fast", ("fast", "fh", "fv")),
+    ("dipole_trim", ("trim", "trimmed", "trimmer")),
+    ("dipole", ("dipole", "bending")),
+    ("skew", ("skew", "sq")),
+    ("sextupole", ("sext", "sextupole", "sxt")),
+    ("quadrupole", ("quad", "quadrupole", "qf", "qd", "aq", "bq")),
+    ("corrector", ("corrector", "corr", "h corrector", "v corrector", "hcor", "vcor")),
+]
+
+# Map suffix keyword to exact suffix label in srcorr.json
+SRCORR_SUFFIX_KEYWORDS = {
+    "setpoint": "setpoint",
+    "set": "setpoint",
+    "command": "setpoint",
+    "readback": "setpoint readback",
+    "sp_rb": "setpoint readback",
+    "meas": "current",
+    "current": "current",
+    "dcct": "DCCT output",
+    "voltage": "Output voltage",
+    "heatsink": "Heatsink Temperature",
+    "heat": "Heatsink Temperature",
+    "temp": "Heatsink Temperature",
+    "temperature": "Heatsink Temperature",
+    "capacitor": "Capacitor Temperature",
+    "caps": "Capacitor Temperature",
+    "cap": "Capacitor Temperature",
+    "damp": "Damping Resistor Temperature",
+    "resistor": "Damping Resistor Temperature",
+    "power": "PSID",
+}
+
+def _norm(text: str) -> str:
+    return text.replace(" ", "").replace("_", "").lower()
+
+
+def is_srcorr_query(query: str) -> bool:
+    """Return True if query clearly targets SR magnets/correctors covered by srcorr.json."""
+    q = query.lower()
+    # Check for explicit SR mentions OR sector-based queries
+    has_sr_context = ("sr" in q or "storage ring" in q or "sector" in q or
+                      re.search(r'\bs\d{1,2}[abc]?:', q))  # Matches patterns like S01A:, S5:
+
+    keywords = (
+        "corrector",
+        "fast",
+        "quadrupole",
+        "sextupole",
+        "skew",
+        "dipole",
+        "trim",
+        "fh",
+        "fv",
+        "h corrector",
+        "v corrector",
+        "qf",
+        "qd",
+    )
+    has_device_keyword = any(k in q for k in keywords)
+
+    # Return true if we have device keywords AND (SR context OR it's a specific device pattern)
+    # This allows "sector 5 fast corrector" or "fast horizontal correctors" with sector context
+    return has_device_keyword and (has_sr_context or
+                                    re.search(r'sector\s+\d+', q) or
+                                    ("fast" in q and ("corrector" in q or "fh" in q or "fv" in q)))
+
+
+def _load_srcorr_json() -> Dict:
+    global _SRCORR_CACHE
+    if _SRCORR_CACHE is not None:
+        return _SRCORR_CACHE
+    path = Path(__file__).resolve().parent.parent / "channel_databases" / "srcorr.json"
+    try:
+        with path.open() as f:
+            _SRCORR_CACHE = json.load(f)
+    except Exception:
+        _SRCORR_CACHE = {}
+    return _SRCORR_CACHE
+
+
+def _parse_sectors_from_query(query: str) -> List[int]:
+    numbers = re.findall(r"(?:sector\s*)?(\d+)(?:\s*-\s*(\d+))?", query)
+    sectors: List[int] = []
+    for start_str, end_str in numbers:
+        start = int(start_str)
+        if end_str:
+            end = int(end_str)
+            step = 1 if start <= end else -1
+            sectors.extend(range(start, end + step, step))
+        else:
+            sectors.append(start)
+    if not sectors:
+        sectors = list(range(1, 41))
+    # Deduplicate preserving order
+    dedup = []
+    seen = set()
+    for s in sectors:
+        if s not in seen:
+            seen.add(s)
+            dedup.append(s)
+    return dedup
+
+
+def _detect_types(query: str) -> List[str]:
+    q = query.lower()
+    detected: List[str] = []
+    for type_key, hints in SRCORR_TYPE_KEYWORDS:
+        if any(h in q for h in hints):
+            detected.append(type_key)
+    # Prioritize specific families to avoid mixing in generic correctors
+    if "fast" in detected:
+        detected = ["fast"]
+    elif "dipole_trim" in detected:
+        detected = ["dipole_trim"]
+    elif "dipole" in detected:
+        detected = ["dipole"]
+    if not detected:
+        detected = ["corrector"]
+    # Deduplicate while preserving order
+    out = []
+    seen = set()
+    for t in detected:
+        if t not in seen:
+            seen.add(t)
+            out.append(t)
+    return out
+
+
+def _detect_suffixes(query: str, data_suffixes: Dict[str, str]) -> List[str]:
+    q = query.lower()
+    wanted: List[str] = []
+    # Broad temperature requests: include all temp-like suffixes
+    if "temp" in q or "temperature" in q:
+        for name in data_suffixes:
+            n = _norm(name)
+            if "temp" in n or "temperature" in n:
+                wanted.append(name)
+
+    for key, label in SRCORR_SUFFIX_KEYWORDS.items():
+        if key in q and label in data_suffixes:
+            wanted.append(label)
+    if not wanted:
+        return list(data_suffixes.keys())
+    # Deduplicate preserving order
+    dedup = []
+    seen = set()
+    for w in wanted:
+        if w not in seen:
+            seen.add(w)
+            dedup.append(w)
+    return dedup
+
+
+def _device_matches(device: Dict, filters: List[str]) -> bool:
+    if not filters:
+        return True
+    candidates = [_norm(device.get("channel", ""))]
+    for tag in device.get("tags", []) or []:
+        candidates.append(_norm(tag))
+    for f in filters:
+        nf = _norm(f)
+        for cand in candidates:
+            if nf == cand or nf in cand or cand in nf:
+                return True
+    return False
+
+
+def generate_srcorr_pvs_from_query(query: str) -> List[str]:
+    """
+    Lightweight generator for SR corrector/quad/sextupole/dipole PVs based on srcorr.json.
+    This avoids an LLM call when the query clearly maps to the structured srcorr database.
+    """
+    data = _load_srcorr_json()
+    if not data:
+        return []
+
+    q_lower = query.lower()
+    sectors = _parse_sectors_from_query(query)
+    types = _detect_types(query)
+    # Include suffixes if the query mentions:
+    # 1. PV/channel/address/suffix concepts, OR
+    # 2. Any specific suffix keyword (setpoint, current, temp, etc.)
+    suffix_request_terms = ("pv", "pvs", "channel", "channels", "address", "addresses", "suffix")
+    has_suffix_keyword = any(keyword in q_lower for keyword in SRCORR_SUFFIX_KEYWORDS.keys())
+    include_suffixes = any(term in q_lower for term in suffix_request_terms) or has_suffix_keyword
+    # Only include base devices if no specific suffix is requested
+    # If user asks for "setpoint", don't include base addresses
+    include_base = not has_suffix_keyword
+
+    all_pvs: List[str] = []
+    # Apply device/tag filters when the query includes device-like tokens or axis hints
+    extra_filters: List[str] = []
+    if "horizontal" in q_lower:
+        extra_filters.extend(["h", "fh"])
+    if "vertical" in q_lower:
+        extra_filters.extend(["v", "fv"])
+    filters = [w for w in re.findall(r"[A-Za-z]+\d+[:A-Za-z\d]*", query) if w] + extra_filters
+
+    for t in types:
+        section = SRCORR_TYPE_MAP.get(t)
+        if not section:
+            continue
+        section_key, devices_key = section
+        section_data = data.get(section_key, {})
+        suffix_map = section_data.get("suffix", {})
+        suffix_labels = _detect_suffixes(query, suffix_map) if include_suffixes else []
+        devices = section_data.get(devices_key, [])
+
+        for sector in sectors:
+            sec_str = f"{sector:02d}"
+            for device in devices:
+                if not _device_matches(device, filters):
+                    continue
+                allowed_sectors = device.get("sectors")
+                if allowed_sectors is not None and sector not in allowed_sectors:
+                    continue
+                base = device.get("address_template", "").replace("${sector}", sec_str)
+                if not base:
+                    continue
+                if include_base:
+                    all_pvs.append(base)
+                for suffix_name in suffix_labels:
+                    suffix_val = suffix_map.get(suffix_name)
+                    if suffix_val:
+                        all_pvs.append(base + suffix_val)
+
+    # Deduplicate while preserving order
+    seen = set()
+    deduped = []
+    for pv in all_pvs:
+        if pv not in seen:
+            seen.add(pv)
+            deduped.append(pv)
+    return deduped
 
 @dataclass(frozen=True)
 class PVEntry:
@@ -499,6 +755,7 @@ class PVCatalog:
         Return all catalog entries whose aliases appear in the provided text.
         """
         lowered = text.lower()
+
         tokens = [
             token
             for token in re.findall(r"[a-z0-9:_-]+", lowered)
@@ -540,6 +797,165 @@ class PVCatalog:
             return list(token_matches.values())
 
         return []
+
+    def find_sr_corrector_pvs(self, query: str) -> List[PVEntry]:
+        """
+        Find SR corrector PVs using srcorr.json metadata.
+
+        This method checks if the query is for SR correctors and uses the
+        generate_srcorr_pvs_from_query function to get matching PVs.
+
+        Returns:
+            List of PVEntry objects for matching SR corrector PVs, or empty list if not applicable.
+        """
+        # Check if this is an SR corrector query
+        is_srcorr = is_srcorr_query(query)
+        logging.info(f"🔍 PV_Catalog: Checking if SR corrector query: {is_srcorr}")
+
+        if not is_srcorr:
+            logging.debug(f"   Not an SR corrector query, skipping srcorr.json")
+            return []
+
+        # Generate PVs from srcorr.json using fast-path
+        logging.info(f"✓ PV_Catalog: Using srcorr.json fast-path for SR devices")
+        pv_names = generate_srcorr_pvs_from_query(query)
+        logging.info(f"📊 PV_Catalog: Generated {len(pv_names)} PV names from srcorr.json")
+
+        if not pv_names:
+            logging.warning(f"⚠️  PV_Catalog: SR query detected but no PVs generated")
+            return []
+
+        # Convert to PVEntry objects
+        entries = []
+        for pv_name in pv_names:
+            entry = PVEntry(
+                pv_name=pv_name,
+                label=pv_name,
+                aliases=[pv_name.lower()]
+            )
+            entries.append(entry)
+
+        logging.info(f"✅ PV_Catalog: Returning {len(entries)} SR corrector PV entries")
+        if entries:
+            logging.info(f"   First 5 PVs: {[e.pv_name for e in entries[:5]]}")
+
+        return entries
+
+    def list_all_sr_corrector_pvs(self, include_suffixes: bool = False) -> Dict[str, Any]:
+        """
+        List all SR corrector PV names from srcorr.json.
+
+        Args:
+            include_suffixes: If True, include all suffix variations; if False, only base addresses
+
+        Returns:
+            Dictionary containing:
+                - base_pvs: List of base PV addresses
+                - suffixes: Dictionary of available suffixes (if include_suffixes=True)
+                - total_count: Total number of PVs (base count or base × suffix count)
+        """
+        data = _load_srcorr_json()
+        if not data:
+            return {"base_pvs": [], "suffixes": {}, "total_count": 0}
+
+        base_pvs = []
+        all_suffixes = {}
+
+        # Process all SR device types
+        for type_key, (section_key, devices_key) in SRCORR_TYPE_MAP.items():
+            section_data = data.get(section_key, {})
+            devices = section_data.get(devices_key, [])
+
+            # Collect suffixes from this section
+            suffix_map = section_data.get("suffix", {})
+            all_suffixes.update(suffix_map)
+
+            # Generate base PVs for all sectors (1-40)
+            for sector in range(1, 41):
+                sec_str = f"{sector:02d}"
+                for device in devices:
+                    # Check sector constraints
+                    allowed_sectors = device.get("sectors")
+                    if allowed_sectors is not None and sector not in allowed_sectors:
+                        continue
+
+                    base = device.get("address_template", "").replace("${sector}", sec_str)
+                    if base and base not in base_pvs:
+                        base_pvs.append(base)
+
+        # Sort for consistent ordering
+        base_pvs.sort()
+
+        result = {
+            "base_pvs": base_pvs,
+            "base_count": len(base_pvs),
+        }
+
+        if include_suffixes:
+            result["suffixes"] = all_suffixes
+            result["suffix_count"] = len(all_suffixes)
+            result["total_count"] = len(base_pvs) * len(all_suffixes)
+        else:
+            result["total_count"] = len(base_pvs)
+
+        return result
+
+    def display_sr_corrector_pvs(self, include_suffixes: bool = False, max_display: int = 50):
+        """
+        Display SR corrector PV names to the console.
+
+        Args:
+            include_suffixes: If True, show suffix information
+            max_display: Maximum number of base PVs to display (0 for all)
+        """
+        result = self.list_all_sr_corrector_pvs(include_suffixes=include_suffixes)
+
+        print("\n" + "=" * 70)
+        print("SR CORRECTOR PV NAMES FROM srcorr.json")
+        print("=" * 70)
+
+        base_pvs = result["base_pvs"]
+        base_count = result["base_count"]
+
+        if not base_pvs:
+            print("No SR corrector PVs found in srcorr.json")
+            return
+
+        print(f"\nTotal base PV addresses: {base_count}")
+
+        if include_suffixes:
+            suffixes = result["suffixes"]
+            suffix_count = result["suffix_count"]
+            total_count = result["total_count"]
+            print(f"Available suffixes: {suffix_count}")
+            print(f"Total PVs (base × suffixes): {total_count}")
+
+        # Display base PVs
+        display_count = len(base_pvs) if max_display == 0 else min(max_display, len(base_pvs))
+        print(f"\n{'All' if display_count == len(base_pvs) else f'First {display_count}'} Base PV Addresses:")
+        print("-" * 70)
+
+        for i, pv in enumerate(base_pvs[:display_count], 1):
+            print(f"{i:4d}. {pv}")
+
+        if display_count < len(base_pvs):
+            print(f"\n... and {len(base_pvs) - display_count} more")
+
+        # Display suffixes if requested
+        if include_suffixes and result.get("suffixes"):
+            print(f"\nAvailable Suffixes ({suffix_count} total):")
+            print("-" * 70)
+            for i, (name, suffix) in enumerate(sorted(result["suffixes"].items()), 1):
+                print(f"{i:2d}. {name:30s} -> {suffix}")
+
+            print(f"\nExample full PV names (first base PV with each suffix):")
+            print("-" * 70)
+            first_base = base_pvs[0]
+            for i, (name, suffix) in enumerate(sorted(result["suffixes"].items())[:5], 1):
+                full_pv = f"{first_base}{suffix}"
+                print(f"{i}. {full_pv:50s} ({name})")
+
+        print("\n" + "=" * 70)
 
     def get_default_entry(self) -> Optional[PVEntry]:
         """
