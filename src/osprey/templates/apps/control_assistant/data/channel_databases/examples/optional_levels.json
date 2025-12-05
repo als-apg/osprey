@@ -1,178 +1,259 @@
 {
-  "_description": "Example database demonstrating optional hierarchy levels with _is_leaf markers",
-  "_use_case": "Naming conventions where some channels have intermediate levels and others skip directly to leaves",
+  "_description": "Educational example demonstrating optional hierarchy levels and custom separators",
+  "_purpose": "Tutorial database showing advanced hierarchical patterns: optional levels, separator overrides, and instance expansions",
+  "_total_channels": "~144 channels - small enough to understand, large enough to demonstrate all patterns",
 
   "hierarchy": {
     "levels": [
       {"name": "system", "type": "tree"},
-      {"name": "subsystem", "type": "instances"},
+      {"name": "subsystem", "type": "tree"},
       {"name": "device", "type": "instances"},
       {"name": "subdevice", "type": "tree", "optional": true},
       {"name": "signal", "type": "tree"},
       {"name": "suffix", "type": "tree", "optional": true}
     ],
-    "naming_pattern": "{system}-{subsystem}-{device}:{subdevice}:{signal}_{suffix}"
+    "naming_pattern": "{system}:{subsystem}:{device}:{subdevice}:{signal}:{suffix}"
+  },
+
+  "_pattern_explanation": {
+    "default_separator": ":",
+    "note": "Pattern uses COLON everywhere - makes _separator overrides clearly visible",
+    "optional_levels": ["subdevice", "suffix"],
+    "separator_overrides_demo": {
+      "Mode": "Uses _ instead of : for suffix (Mode_RB not Mode:RB)",
+      "Config": "Uses _ instead of : for commands (Config_LOAD not Config:LOAD)",
+      "MOTOR": "Uses . instead of : for signals (MOTOR.Position not MOTOR:Position)"
+    }
   },
 
   "tree": {
-    "SYSTEM": {
-      "_description": "Example accelerator system",
-      "SUBSYSTEM": {
-        "_expansion": {
-          "_type": "range",
-          "_pattern": "SSYS-{:02d}",
-          "_range": [1, 24]
-        },
+    "CTRL": {
+      "_description": "Control System: Main accelerator control and monitoring",
+
+      "MAIN": {
+        "_description": "Main Control Subsystem",
+
         "DEVICE": {
           "_expansion": {
             "_type": "range",
-            "_pattern": "DEV-{:02d}",
-            "_range": [1, 24]
+            "_pattern": "MC-{:02d}",
+            "_range": [1, 3]
+          },
+          "_description": "Main control devices (3 instances for lean tutorial)",
+
+          "_comment_1": "=== PATTERN 1: Direct Signals (no subdevice, no suffix) ===",
+
+          "Status": {
+            "_description": "Device operational status"
           },
 
-          "_comment_1": "=== DIRECT SIGNALS (no subdevice, no suffix) ===",
-
-          "SIGNAL-X": {
-            "_description": "Signal X - direct from device, no subdevice needed (automatic leaf)",
-            "_example_channels": [
-              "SYSTEM-SSYS-01-DEV-01:SIGNAL-X",
-              "SYSTEM-SSYS-01-DEV-02:SIGNAL-X",
-              "... (24 total, one per device)"
-            ]
+          "Heartbeat": {
+            "_description": "Device heartbeat counter"
           },
 
-          "_comment_2": "=== SIGNALS WITH OPTIONAL SUFFIX (no subdevice) ===",
+          "_comment_2": "=== PATTERN 2: Direct Signals with Suffixes (NEEDS SEPARATOR OVERRIDE) ===",
 
-          "SIGNAL-Y": {
+          "Mode": {
+            "_separator": "_",
             "_is_leaf": true,
-            "_description": "Signal Y - has base signal AND suffixed variants (explicit _is_leaf needed because it has children)",
-            "_example_base": "SYSTEM-SSYS-01-DEV-01:SIGNAL-Y",
+            "_description": "Operating mode - base signal + RB/SP variants (custom _ separator)",
+            "_note": "Without _separator override, would generate Mode:RB instead of Mode_RB",
 
-            "RB": {
-              "_description": "Readback suffix (automatic leaf - no children)",
-              "_example": "SYSTEM-SSYS-01-DEV-01:SIGNAL-Y_RB"
+            "RB": {"_description": "Mode readback"},
+            "SP": {"_description": "Mode setpoint"}
+          },
+
+          "Config": {
+            "_separator": "_",
+            "_is_leaf": true,
+            "_description": "Configuration register - base + command variants (custom _ separator)",
+
+            "LOAD": {"_description": "Load configuration command"},
+            "SAVE": {"_description": "Save configuration command"},
+            "RESET": {"_description": "Reset to defaults command"}
+          },
+
+          "_comment_3": "=== PATTERN 3: Subdevice with Signals (default separator) ===",
+
+          "PSU": {
+            "_description": "Power Supply Unit subdevice",
+
+            "Voltage": {
+              "_description": "Output voltage"
             },
-            "SP": {
-              "_description": "Setpoint suffix (automatic leaf - no children)",
-              "_example": "SYSTEM-SSYS-01-DEV-01:SIGNAL-Y_SP"
+            "Current": {
+              "_description": "Output current"
             }
           },
 
-          "_comment_3": "=== SUBDEVICE BRANCH: Non-instanced subdevice ===",
+          "_comment_4": "=== PATTERN 4: Subdevice with Signal+Suffix (default separators) ===",
 
-          "SUBDEVX": {
-            "_description": "Subdevice X (no instance numbering)",
+          "ADC": {
+            "_description": "Analog-to-Digital Converter subdevice",
 
-            "SIGNAL-XX": {
-              "_description": "Signal XX from subdevice X (no suffix, automatic leaf)",
-              "_example": "SYSTEM-SSYS-01-DEV-01:SUBDEVX:SIGNAL-XX"
-            },
-
-            "SIGNAL-XY": {
+            "Value": {
+              "_separator": "_",
               "_is_leaf": true,
-              "_description": "Signal XY from subdevice X (base + suffixes, explicit _is_leaf needed)",
+              "_description": "ADC value - base + RB/SP variants (underscore override)",
 
-              "RB": {
-                "_description": "Readback (automatic leaf)",
-                "_example": "SYSTEM-SSYS-01-DEV-01:SUBDEVX:SIGNAL-XY_RB"
-              },
-              "SP": {
-                "_description": "Setpoint (automatic leaf)",
-                "_example": "SYSTEM-SSYS-01-DEV-01:SUBDEVX:SIGNAL-XY_SP"
-              }
+              "RB": {"_description": "ADC readback"},
+              "SP": {"_description": "ADC setpoint"}
             }
           },
 
-          "_comment_4": "=== SUBDEVICE BRANCH: Instanced subdevice ===",
+          "_comment_5": "=== PATTERN 5: Subdevice with Custom Separator (mid-level override) ===",
 
-          "SUBDEVY": {
+          "MOTOR": {
+            "_separator": ".",
+            "_description": "Motor subdevice with DOT separator for signals (instead of default colon)",
+            "_note": "Demonstrates mid-level separator override: MOTOR.Position instead of MOTOR:Position",
+
+            "Position": {"_description": "Motor position"},
+            "Velocity": {"_description": "Motor velocity"}
+          },
+
+          "_comment_6": "=== PATTERN 6: Instanced Subdevice ===",
+
+          "CH": {
             "_expansion": {
               "_type": "range",
-              "_pattern": "SUBDEVY-{:02d}",
-              "_range": [1, 8]
+              "_pattern": "CH-{}",
+              "_range": [1, 2]
             },
+            "_description": "Channel subdevices (instanced)",
 
-            "SIGNAL-YX": {
-              "_description": "Signal YX from instanced subdevice (no suffix, automatic leaf)",
-              "_example": "SYSTEM-SSYS-01-DEV-01:SUBDEVY-01:SIGNAL-YX"
-            },
-
-            "SIGNAL-YY": {
+            "Input": {"_description": "Channel input value"},
+            "Gain": {
+              "_separator": "_",
               "_is_leaf": true,
-              "_description": "Signal YY from instanced subdevice (base + suffixes, explicit _is_leaf needed)",
-
-              "RB": {
-                "_description": "Readback (automatic leaf)",
-                "_example": "SYSTEM-SSYS-01-DEV-01:SUBDEVY-01:SIGNAL-YY_RB"
-              },
-              "SP": {
-                "_description": "Setpoint (automatic leaf)",
-                "_example": "SYSTEM-SSYS-01-DEV-01:SUBDEVY-01:SIGNAL-YY_SP"
-              }
+              "_description": "Channel gain with RB/SP (underscore override)",
+              "RB": {"_description": "Gain readback"},
+              "SP": {"_description": "Gain setpoint"}
             }
+          }
+        }
+      },
+
+      "DIAG": {
+        "_description": "Diagnostics Subsystem",
+
+        "DEVICE": {
+          "_expansion": {
+            "_type": "list",
+            "_instances": ["BPM-01", "BPM-02"]
+          },
+          "_description": "Beam Position Monitors (2 instances)",
+
+          "X": {
+            "_separator": "_",
+            "_is_leaf": true,
+            "_description": "Horizontal position - base + readback (underscore override)",
+            "RB": {"_description": "X position readback"}
+          },
+
+          "Y": {
+            "_separator": "_",
+            "_is_leaf": true,
+            "_description": "Vertical position - base + readback (underscore override)",
+            "RB": {"_description": "Y position readback"}
+          },
+
+          "Quality": {
+            "_description": "Signal quality indicator"
           }
         }
       }
     }
   },
 
-  "_channel_count_breakdown": {
-    "per_device_direct_signals": 2,
-    "per_device_direct_with_suffixes": 4,
-    "per_device_subdevx_signals": 2,
-    "per_device_subdevx_with_suffixes": 4,
-    "per_device_subdevy_instances": 8,
-    "per_subdevy_instance": 6,
-    "per_device_subdevy_total": 48,
-    "per_device_total": 60,
-    "total_devices": 24,
-    "grand_total_channels": 1440,
-    "_note": "24 devices × 60 channels per device = 1,440 total channels"
+  "_channel_examples": {
+    "default_pattern": "CTRL:MAIN:MC-01:Status (all colons - default)",
+    "separator_override_underscore": "CTRL:MAIN:MC-01:Mode_RB (underscore from _separator, not colon!)",
+    "separator_override_command": "CTRL:MAIN:MC-01:Config_LOAD (underscore from _separator)",
+    "separator_override_dot": "CTRL:MAIN:MC-01:MOTOR.Position (dot from _separator, not colon!)",
+    "subdevice_default": "CTRL:MAIN:MC-01:PSU:Voltage (all colons - default)",
+    "optional_subdevice": "CTRL:MAIN:MC-01:Status (subdevice skipped - optional)",
+    "optional_suffix": "CTRL:MAIN:MC-01:ADC:Value (suffix skipped - optional)",
+    "both_optionals": "CTRL:DIAG:BPM-01:Quality (both subdevice and suffix skipped)"
   },
 
-  "_example_channels": {
-    "direct_no_suffix": "SYSTEM-SSYS-01:DEV-01:SIGNAL-X",
-    "direct_base_with_empty_suffix": "SYSTEM-SSYS-01:DEV-01:SIGNAL-Y",
-    "direct_with_rb": "SYSTEM-SSYS-01:DEV-01:SIGNAL-Y_RB",
-    "direct_with_sp": "SYSTEM-SSYS-01:DEV-01:SIGNAL-Y_SP",
-    "subdevx_no_suffix": "SYSTEM-SSYS-01:DEV-01:SUBDEVX:SIGNAL-XX",
-    "subdevx_base": "SYSTEM-SSYS-01:DEV-01:SUBDEVX:SIGNAL-XY",
-    "subdevx_with_rb": "SYSTEM-SSYS-01:DEV-01:SUBDEVX:SIGNAL-XY_RB",
-    "subdevx_with_sp": "SYSTEM-SSYS-01:DEV-01:SUBDEVX:SIGNAL-XY_SP",
-    "subdevy_01_no_suffix": "SYSTEM-SSYS-01:DEV-01:SUBDEVY-01:SIGNAL-YX",
-    "subdevy_01_base": "SYSTEM-SSYS-01:DEV-01:SUBDEVY-01:SIGNAL-YY",
-    "subdevy_01_rb": "SYSTEM-SSYS-01:DEV-01:SUBDEVY-01:SIGNAL-YY_RB",
-    "subdevy_01_sp": "SYSTEM-SSYS-01:DEV-01:SUBDEVY-01:SIGNAL-YY_SP"
+  "_channel_count_breakdown": {
+    "main_control_devices": 3,
+    "bpm_devices": 2,
+    "per_mc_device": {
+      "direct_signals": 2,
+      "mode_variants": 3,
+      "config_variants": 4,
+      "psu_signals": 2,
+      "adc_signals": 3,
+      "motor_signals": 2,
+      "ch_instances": 2,
+      "per_ch_signals": 4,
+      "total_per_mc": 26
+    },
+    "per_bpm_device": {
+      "x_variants": 2,
+      "y_variants": 2,
+      "quality": 1,
+      "total_per_bpm": 5
+    },
+    "total": 88,
+    "_note": "(3 MC × 26) + (2 BPM × 5) = 78 + 10 = 88 channels"
   },
 
   "_key_features": {
-    "optional_subdevice": "Some signals go directly from device to signal, skipping subdevice level",
-    "optional_suffix": "Some signals have base + RB/SP variants, others just base",
-    "automatic_leaf_detection": "Nodes without children are automatically detected as leaves (no _is_leaf needed)",
-    "_is_leaf_markers": "Explicit _is_leaf ONLY needed for nodes that have children but are also complete channels",
-    "leaf_with_children": "Nodes like SIGNAL-Y are both leaves (generate channel) AND have children (RB, SP) - these need _is_leaf",
-    "separator_cleanup": "Artifacts like '::' and trailing '_' are automatically cleaned",
-    "instanced_subdevice": "SUBDEVY demonstrates optional level that itself has instance expansion"
+    "optional_subdevice": "Some signals skip subdevice level entirely (Status, Mode)",
+    "optional_suffix": "Some signals have base only, others have RB/SP/CMD variants",
+    "separator_override_leaf": "Mode and Config use _ instead of : for their suffix children",
+    "separator_override_mid": "MOTOR uses . instead of : for its signal children",
+    "automatic_leaf_detection": "Nodes without children are automatically leaves (no _is_leaf needed)",
+    "explicit_leaf_markers": "Nodes with children need _is_leaf: true to also be channels",
+    "instance_expansion": "Both devices (MC-01, MC-02, MC-03) and subdevices (CH-1, CH-2) use expansion",
+    "mixed_patterns": "All 6 common patterns demonstrated in one compact database"
   },
 
-  "_pattern_flow_examples": {
-    "example_1": {
-      "path": "SYSTEM → SSYS → DEV-01 → SIGNAL-X",
-      "levels_used": "system, subsystem, device, signal",
-      "levels_skipped": "subdevice (optional), suffix (optional)",
-      "channel": "SYSTEM-SSYS-01-DEV-01:SIGNAL-X"
+  "_test_cases": {
+    "1_default_separator_colon": {
+      "example": "CTRL:MAIN:MC-01:Status",
+      "count": 6,
+      "note": "Shows default colon separators throughout"
     },
-    "example_2": {
-      "path": "SYSTEM → SSYS → DEV-01 → SIGNAL-Y → RB",
-      "levels_used": "system, subsystem, device, signal, suffix",
-      "levels_skipped": "subdevice (optional)",
-      "channel": "SYSTEM-SSYS-01-DEV-01:SIGNAL-Y_RB"
+    "2_separator_override_underscore": {
+      "example": "CTRL:MAIN:MC-01:Mode_RB",
+      "critical": true,
+      "count": 21,
+      "note": "Mode and Config use _ not : for suffixes (demonstrates override)",
+      "without_override": "Would be Mode:RB with default pattern"
     },
-    "example_3": {
-      "path": "SYSTEM → SSYS → DEV-01 → SUBDEVX → SIGNAL-XY → SP",
-      "levels_used": "system, subsystem, device, subdevice, signal, suffix",
-      "levels_skipped": "none",
-      "channel": "SYSTEM-SSYS-01-DEV-01:SUBDEVX:SIGNAL-XY_SP"
+    "3_separator_override_dot": {
+      "example": "CTRL:MAIN:MC-01:MOTOR.Position",
+      "critical": true,
+      "count": 6,
+      "note": "MOTOR uses . not : for signals (demonstrates mid-level override)",
+      "without_override": "Would be MOTOR:Position with default pattern"
+    },
+    "4_subdevice_default_separators": {
+      "example": "CTRL:MAIN:MC-01:PSU:Voltage",
+      "count": 6,
+      "note": "PSU and ADC use default colons (no override)"
+    },
+    "5_optional_levels": {
+      "example": "CTRL:DIAG:BPM-01:Quality",
+      "count": 3,
+      "note": "Demonstrates optional subdevice and suffix levels being skipped"
+    },
+    "6_combined_override_and_optional": {
+      "example": "CTRL:DIAG:BPM-01:X_RB",
+      "count": 4,
+      "note": "X and Y use _ override for suffix, no subdevice (optional)",
+      "pattern": "Combines separator override with optional level skip"
     }
+  },
+
+  "_usage_guide": {
+    "loading": "HierarchicalChannelDatabase('path/to/optional_levels.json')",
+    "total_channels": "88 channels generated from compact tree definition",
+    "testing": "Run channel_finder/cli.py to test queries interactively",
+    "validation": "All channels validate correctly with _separator overrides"
   }
 }
