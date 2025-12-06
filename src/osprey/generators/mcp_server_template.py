@@ -43,6 +43,7 @@ TEST WITH OSPREY:
     osprey generate capability --from-mcp http://localhost:{port} --name {server_name}
 """
 
+from datetime import datetime, timedelta
 from typing import Optional, Literal
 from fastmcp import FastMCP
 
@@ -176,11 +177,14 @@ def get_current_weather(
     temp_f = 64
     temp = temp_c if units == "celsius" else temp_f
 
+    # Use current UTC timestamp
+    current_time = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
     return {
         "location": location,
         "coordinates": {"lat": 37.7749, "lon": -122.4194},
         "current": {
-            "timestamp": "2025-11-15T14:30:00Z",
+            "timestamp": current_time,
             "temperature": temp,
             "feels_like": temp - 2,
             "conditions": "Partly Cloudy",
@@ -209,6 +213,7 @@ def get_forecast(
     # Mock forecast data
     forecast_data = []
     conditions_cycle = ["Sunny", "Partly Cloudy", "Cloudy", "Light Rain", "Clear"]
+    day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
     for i in range(min(days, 7)):
         temp_high_c = 20 + i
@@ -216,9 +221,14 @@ def get_forecast(
         temp_high_f = 68 + i * 2
         temp_low_f = 54 + i * 2
 
+        # Use current date + i days for forecast
+        forecast_date = datetime.utcnow() + timedelta(days=i)
+        date_str = forecast_date.strftime("%Y-%m-%d")
+        day_of_week = day_names[forecast_date.weekday()]
+
         forecast_data.append({
-            "date": f"2025-11-{15+i:02d}",
-            "day_of_week": ["Saturday", "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday"][i],
+            "date": date_str,
+            "day_of_week": day_of_week,
             "temperature_high": temp_high_c if units == "celsius" else temp_high_f,
             "temperature_low": temp_low_c if units == "celsius" else temp_low_f,
             "conditions": conditions_cycle[i % 5],
@@ -251,8 +261,16 @@ def get_weather_alerts(
     # For demo purposes, locations with "Miami" or "Storm" return alerts
     has_alerts = "miami" in location.lower() or "storm" in location.lower()
 
+    # Use current UTC timestamp
+    current_time = datetime.utcnow()
+    current_time_str = current_time.strftime("%Y-%m-%dT%H:%M:%SZ")
+
     alerts = []
     if has_alerts:
+        # Alert starts now, ends in 2 days
+        start_time = current_time.strftime("%Y-%m-%dT%H:%M:%SZ")
+        end_time = (current_time + timedelta(days=2, hours=6)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
         alerts = [
             {
                 "id": "alert_001",
@@ -260,8 +278,8 @@ def get_weather_alerts(
                 "severity": "severe",
                 "headline": "Hurricane Warning in effect",
                 "description": "Hurricane conditions expected within 36 hours. Prepare for severe weather.",
-                "start_time": "2025-11-15T12:00:00Z",
-                "end_time": "2025-11-17T18:00:00Z",
+                "start_time": start_time,
+                "end_time": end_time,
                 "affected_areas": [f"{location} area"],
                 "issued_by": "National Weather Service",
                 "instructions": "Follow evacuation orders and prepare emergency supplies."
@@ -273,7 +291,7 @@ def get_weather_alerts(
         "coordinates": {"lat": 25.7617, "lon": -80.1918},
         "alert_count": len(alerts),
         "alerts": alerts,
-        "last_updated": "2025-11-15T14:30:00Z",
+        "last_updated": current_time_str,
         "success": True
     }
 '''

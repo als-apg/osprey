@@ -731,59 +731,94 @@ class HierarchicalChannelDatabase(BaseDatabase):
         Build channel name using path components and custom separators.
 
         This method constructs channel names by joining path components with
-        separators, respecting both default separators (from naming pattern)
-        and custom overrides (from _separator metadata in tree nodes).
+        separators, respecting both:
+        - Literal prefixes/suffixes from naming pattern (e.g., S{sector} → S01)
+        - Custom separator overrides from _separator metadata in tree nodes
 
         Args:
             path: Dict mapping level names to values
             separator_overrides: Dict mapping (level, next_level) tuples to custom separators
 
         Returns:
-            Complete channel name with correct separators
+            Complete channel name with correct separators and literals
+
+        Raises:
+            KeyError: If a placeholder in the naming pattern doesn't have a value in path
+                     (except for optional levels with empty string values)
 
         Examples:
-            # Default separators from pattern
-            path = {"system": "SYS", "device": "DEV-01", "signal": "TEMP"}
-            pattern = "{system}-{device}:{signal}"
-            → "SYS-DEV-01:TEMP"
+            # Pattern with literal prefixes
+            path = {"sector": "01", "building": "MAIN", "floor": "1"}
+            pattern = "S{sector}:{building}:F{floor}"
+            → "S01:MAIN:F1"
 
             # With custom separator override
-            path = {"device": "DEV-01", "signal": "Lock", "suffix": "SC"}
-            overrides = {("signal", "suffix"): "_"}  # Lock node has _separator="_"
-            → "DEV-01:Lock_SC"  (uses custom _ instead of default)
+            path = {"device": "DEV-01", "signal": "Mode", "suffix": "RB"}
+            pattern = "{device}:{signal}:{suffix}"
+            overrides = {("signal", "suffix"): "_"}
+            → "DEV-01:Mode_RB"  (uses custom _ instead of default :)
         """
+        import re
+
+        pattern = self.naming_pattern
         pattern_levels = self._get_pattern_levels()
-        parts = []
+
+        # Parse the naming pattern to extract literal text and placeholders
+        # Pattern: "S{sector}:{building}:F{floor}"
+        # → [('S', 'sector'), (':', 'building'), (':F', 'floor')]
+        # where each tuple is (prefix_text, level_name)
+
+        # Find all placeholders and text between them
+        placeholder_pattern = r"\{(\w+)\}"
+        matches = list(re.finditer(placeholder_pattern, pattern))
+
+        # Build a list of (prefix, level_name) pairs
+        pattern_parts = []
+        for i, match in enumerate(matches):
+            level_name = match.group(1)
+
+            # Get the text before this placeholder
+            if i == 0:
+                # First placeholder - get everything before it
+                prefix = pattern[:match.start()]
+            else:
+                # Get text between previous placeholder end and this one's start
+                prefix = pattern[matches[i-1].end():match.start()]
+
+            pattern_parts.append((prefix, level_name))
+
+        # Build the channel name
+        result_parts = []
         last_level_with_value = None
-        last_level_index = None
 
-        # First pass: collect non-empty values
-        for i, level in enumerate(pattern_levels):
-            value = path.get(level, "")
+        for i, (prefix, level_name) in enumerate(pattern_parts):
+            # Check if level exists in path (KeyError if not)
+            if level_name not in path:
+                raise KeyError(level_name)
 
-            if value:  # Only include non-empty values
-                # Add separator before this value (if not first)
+            value = path.get(level_name, "")
+
+            if value:  # Only include if value is non-empty
+                # Check if we need to apply a separator override
                 if last_level_with_value is not None:
-                    # Find the appropriate separator
-                    # Check for custom override first
-                    sep_key = (last_level_with_value, level)
+                    sep_key = (last_level_with_value, level_name)
                     if sep_key in separator_overrides:
-                        separator = separator_overrides[sep_key]
+                        # Replace the separator in the prefix with the override
+                        # The prefix contains the separator from the pattern
+                        result_parts.append(separator_overrides[sep_key])
+                        result_parts.append(value)
                     else:
-                        # Find separator by walking through pattern levels
-                        # Use the first separator we encounter between last and current
-                        separator = self._find_separator_between_levels(
-                            last_level_index, i, pattern_levels
-                        )
+                        # Use the prefix as-is from the pattern
+                        result_parts.append(prefix)
+                        result_parts.append(value)
+                else:
+                    # First value - include prefix and value
+                    result_parts.append(prefix)
+                    result_parts.append(value)
 
-                    parts.append(separator)
+                last_level_with_value = level_name
 
-                parts.append(value)
-                last_level_with_value = level
-                last_level_index = i
-
-        channel = "".join(parts)
-        # Still clean up any artifacts (defensive)
+        channel = "".join(result_parts)
         return self._clean_optional_separators(channel)
 
     def get_options_at_level(
