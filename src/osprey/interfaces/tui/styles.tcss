@@ -244,6 +244,12 @@ ChatMessage.message-assistant.message-type-instant {
     padding: 0;
 }
 
+/* Markdown table - transparent background for seamless integration */
+/* Overrides Textual's default light mode "background: white 30%" */
+MarkdownTable {
+    background: transparent;
+}
+
 /* Processing block base styles */
 ProcessingBlock,
 TaskExtractionBlock,
