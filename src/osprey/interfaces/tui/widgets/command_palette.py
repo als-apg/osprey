@@ -98,9 +98,6 @@ class CommandPalette(ModalScreen[str | None]):
         options_list.styles.max_height = options_max_height
         options_list.styles.overflow_y = "auto"  # Enable scrolling
 
-        # Debug: uncomment to verify values
-        # self.log(f"screen={screen_height}, max_height={max_height}, options_max={options_max_height}")
-
     def _calculate_content_height(self) -> int:
         """Calculate the natural height of the palette content."""
         height = 2  # Container padding (1 top + 1 bottom)

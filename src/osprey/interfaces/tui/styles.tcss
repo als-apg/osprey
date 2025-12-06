@@ -472,7 +472,6 @@ CommandPalette {
 #palette-container {
     width: 60;
     height: auto;
-    # max-height: 50%;
     /* margin-top computed dynamically in Python */
     padding: 1 0 1 0;
     background: $surface;
@@ -507,11 +506,6 @@ CommandPalette {
 #palette-search:focus {
     border: none;
 }
-
-/* Cursor styling - match Textual's default selection/highlight color */
-# #palette-search > .input--cursor {
-#     background: $primary-lighten-1 60%;
-# }
 
 #palette-options {
     width: 100%;
