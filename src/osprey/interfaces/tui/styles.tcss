@@ -508,12 +508,13 @@ CommandPalette {
     border: none;
 }
 
-/* Cursor styling - match highlight color */
-#palette-search > .input--cursor {
-    background: $accent;
-}
+/* Cursor styling - match Textual's default selection/highlight color */
+# #palette-search > .input--cursor {
+#     background: $primary-lighten-1 60%;
+# }
 
-#palette-options {
+/* Scrollable wrapper for option list */
+#palette-scroll {
     width: 100%;
     height: auto;
     max-height: 20;
@@ -521,7 +522,16 @@ CommandPalette {
     padding: 0;
     background: transparent;
     border: none;
-    scrollbar-size: 0 0;
+    # scrollbar-size: 0 0;  /* Hide scrollbar but keep scroll */
+}
+
+#palette-options {
+    width: 100%;
+    height: auto;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
 }
 
 #palette-options > .option-list--option {

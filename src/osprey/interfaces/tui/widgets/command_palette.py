@@ -7,7 +7,7 @@ from typing import ClassVar
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal
+from textual.containers import Container, Horizontal, VerticalScroll
 from textual.content import Content
 from textual.events import Key, Resize
 from textual.screen import ModalScreen
@@ -22,6 +22,7 @@ class CommandPalette(ModalScreen[str | None]):
     BINDINGS = [
         ("escape", "dismiss_palette", "Close"),
         Binding("tab", "noop", "", show=False),  # Block tab from moving focus
+        Binding("shift+tab", "noop", "", show=False),  # Block shift+tab too
     ]
 
     # Command registry: {id: {label, shortcut, category}}
@@ -55,13 +56,17 @@ class CommandPalette(ModalScreen[str | None]):
                 yield Static("Commands", id="palette-title")
                 yield Static("esc", id="palette-dismiss-hint")
             yield Input(placeholder="Search", id="palette-search")
-            yield OptionList(id="palette-options")
+            with VerticalScroll(id="palette-scroll"):
+                yield OptionList(id="palette-options")
 
     def on_mount(self) -> None:
         """Initialize the palette on mount."""
         # Set initial margin based on app size (before first render)
         self._update_position(self.app.size.height)
         self._populate_options()
+        # Disable focus on option list and scroll container - keep focus on search bar
+        self.query_one("#palette-options", OptionList).can_focus = False
+        self.query_one("#palette-scroll", VerticalScroll).can_focus = False
         search_input = self.query_one("#palette-search", Input)
         search_input.cursor_blink = False
         search_input.focus()
@@ -95,9 +100,13 @@ class CommandPalette(ModalScreen[str | None]):
         num_categories = len({cmd["category"] for cmd in self.COMMANDS.values()})
         num_commands = len(self.COMMANDS)
 
-        # Each category has: spacer (1) + header (1)
-        # Each command has: 1 row
-        height += num_categories * 2 + num_commands
+        # First category: just header (1), no spacer
+        # Additional categories: spacer (1) + header (1) each
+        # Each command: 1 row
+        if num_categories > 0:
+            height += num_categories  # Category headers
+            height += max(0, num_categories - 1)  # Spacers (skip first)
+        height += num_commands
 
         return height
 
@@ -129,12 +138,15 @@ class CommandPalette(ModalScreen[str | None]):
             categories[cmd_data["category"]].append((cmd_id, cmd_data))
 
         # Add options grouped by category
+        first_category = True
         for category, cmds in categories.items():
             if not cmds:
                 continue
 
-            # Add spacing before category
-            options_list.add_option(Option("", disabled=True, id=f"spacer_{category}"))
+            # Add spacing before category (except first)
+            if not first_category:
+                options_list.add_option(Option("", disabled=True, id=f"spacer_{category}"))
+            first_category = False
 
             # Add category header with styled content (non-selectable)
             category_content = Content.assemble((category, category_style))
@@ -164,6 +176,10 @@ class CommandPalette(ModalScreen[str | None]):
                     options_list.highlighted = i
                     break
 
+        # Refresh scroll container to recalculate layout for scrollbar
+        scroll = self.query_one("#palette-scroll", VerticalScroll)
+        scroll.refresh(layout=True)
+
     def on_input_changed(self, event: Input.Changed) -> None:
         """Filter options when search input changes."""
         if event.input.id == "palette-search":
@@ -175,9 +191,11 @@ class CommandPalette(ModalScreen[str | None]):
 
         if event.key == "down":
             options.action_cursor_down()
+            options.scroll_to_highlight()
             event.prevent_default()
         elif event.key == "up":
             options.action_cursor_up()
+            options.scroll_to_highlight()
             event.prevent_default()
         elif event.key == "enter":
             if options.highlighted is not None:
@@ -189,6 +207,10 @@ class CommandPalette(ModalScreen[str | None]):
     def action_dismiss_palette(self) -> None:
         """Dismiss the palette without selecting."""
         self.dismiss(None)
+
+    def action_noop(self) -> None:
+        """Do nothing - blocks default tab behavior."""
+        pass
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         """Handle option selection."""
