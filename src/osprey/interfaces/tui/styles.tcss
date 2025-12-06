@@ -29,7 +29,7 @@ Footer {
     width: 100%;
     height: 1fr;
     border: none;
-    padding: 0 2;
+    padding: 1 0 0 0;
     margin: 0;
     background: $background;
     scrollbar-size: 0 0;  /* Hide scrollbar */
@@ -208,9 +208,9 @@ WelcomeBanner > .banner--normal {
 /* Individual chat message - compact card style */
 ChatMessage {
     width: 100%;
-    height: auto;
-    margin: 1 0;
-    padding: 1 2 0 2;
+    # height: auto;
+    margin: 0 0 1 0;
+    padding: 0 2;
     border: tall $surface-lighten-1;
     border-title-color: $text;
     border-title-style: bold;
@@ -218,17 +218,22 @@ ChatMessage {
 
 /* User message styling */
 ChatMessage.message-user {
+    margin: 0 2 1 2;
     background: $surface;
     border-title-background: $primary;
     border-title-align: right;
 }
 
-/* Assistant message - immersive, no visible block (ChatGPT-like) */
+/* Assistant message - base immersive style */
 ChatMessage.message-assistant {
+    padding: 0 4;
     background: transparent;
     border: none;
-    padding: 0 2;
-    # margin: 1 0;
+}
+
+/* Slash command responses - darken bg */
+ChatMessage.message-assistant.message-type-instant {
+    background: $surface-darken-1;
 }
 
 /* Message content - minimal spacing */
@@ -247,7 +252,7 @@ OrchestrationBlock,
 ExecutionStepBlock {
     width: 100%;
     height: auto;
-    margin: 0 0 1 0;
+    margin: 0 2 1 2;
     padding: 0 2;
     border: tall $surface-lighten-1;
     background: transparent;  /* Subtle - blends in, highlight on select */

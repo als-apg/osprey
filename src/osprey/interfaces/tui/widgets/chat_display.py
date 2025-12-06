@@ -60,13 +60,16 @@ class ChatDisplay(ScrollableContainer):
             self.scroll_end(animate=False)
         return self._debug_block
 
-    def add_message(self, content: str, role: str = "user") -> None:
+    def add_message(
+        self, content: str, role: str = "user", message_type: str = ""
+    ) -> None:
         """Add a message to the chat display.
 
         Args:
             content: The message content.
             role: The role (user or assistant).
+            message_type: Type of message (instant, agent) for styling.
         """
-        message = ChatMessage(content, role)
+        message = ChatMessage(content, role, message_type=message_type)
         self.mount(message)
         self.scroll_end(animate=False)

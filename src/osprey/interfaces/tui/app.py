@@ -296,6 +296,7 @@ class OspreyTUI(App):
             chat_display.add_message(
                 f"Unknown command: `{command_line}`\n\nType `/help` to see available commands.",
                 "assistant",
+                message_type="instant",
             )
 
     def _parse_command(self, command_line: str) -> tuple[str, str | None]:
@@ -345,7 +346,7 @@ class OspreyTUI(App):
             # Show all commands
             help_text = self._format_all_commands_help()
 
-        chat_display.add_message(help_text, "assistant")
+        chat_display.add_message(help_text, "assistant", message_type="instant")
 
     def _get_command_help(self, cmd_name: str) -> str:
         """Get help text for a specific command.
@@ -422,7 +423,7 @@ class OspreyTUI(App):
             value = config.get(key, "N/A")
             lines.append(f"- **{label}**: {value}")
 
-        chat_display.add_message("\n".join(lines), "assistant")
+        chat_display.add_message("\n".join(lines), "assistant", message_type="instant")
 
     def _cmd_status(self) -> None:
         """Show system status."""
@@ -440,7 +441,7 @@ class OspreyTUI(App):
             f"- **Gateway**: {'Ready' if self.gateway else 'Not initialized'}",
         ]
 
-        chat_display.add_message("\n".join(lines), "assistant")
+        chat_display.add_message("\n".join(lines), "assistant", message_type="instant")
 
     def _cmd_agent_control(self, cmd: str, value: str | None) -> None:
         """Handle agent control commands (planning, approval, task, caps).
@@ -452,7 +453,9 @@ class OspreyTUI(App):
         chat_display = self.query_one("#chat-display", ChatDisplay)
 
         if value is None:
-            chat_display.add_message(f"Usage: /{cmd}:on or /{cmd}:off", "assistant")
+            chat_display.add_message(
+                f"Usage: /{cmd}:on or /{cmd}:off", "assistant", message_type="instant"
+            )
             return
 
         value = value.lower()
@@ -469,11 +472,14 @@ class OspreyTUI(App):
             mode_map = {"on": "all_capabilities", "off": "disabled", "selective": "selective"}
             if value in mode_map:
                 self.base_config["configurable"]["approval_global_mode"] = mode_map[value]
-                chat_display.add_message(f"Approval mode: **{value}**", "assistant")
+                chat_display.add_message(
+                    f"Approval mode: **{value}**", "assistant", message_type="instant"
+                )
             else:
                 chat_display.add_message(
                     "Invalid option. Use: `/approval:on`, `/approval:off`, or `/approval:selective`",
                     "assistant",
+                    message_type="instant",
                 )
         elif cmd in config_keys:
             enabled = value in ("on", "true", "enabled", "1")
@@ -484,9 +490,13 @@ class OspreyTUI(App):
                 "task": "Task extraction",
                 "caps": "Capability selection",
             }
-            chat_display.add_message(f"{cmd_display[cmd]}: **{status}**", "assistant")
+            chat_display.add_message(
+                f"{cmd_display[cmd]}: **{status}**", "assistant", message_type="instant"
+            )
         else:
-            chat_display.add_message(f"Unknown command: /{cmd}", "assistant")
+            chat_display.add_message(
+                f"Unknown command: /{cmd}", "assistant", message_type="instant"
+            )
 
     async def _consume_events(self, user_query: str, chat_display: ChatDisplay) -> None:
         """Event consumer - single gateway for all TUI block updates.
@@ -865,7 +875,9 @@ class OspreyTUI(App):
             )
 
             if result.error:
-                chat_display.add_message(f"Error: {result.error}", "assistant")
+                chat_display.add_message(
+                    f"Error: {result.error}", "assistant", message_type="agent"
+                )
                 return
 
             # Determine input for streaming
@@ -908,7 +920,9 @@ class OspreyTUI(App):
                 interrupt = state.interrupts[0]
                 user_msg = interrupt.value.get("user_message", "Approval required")
                 chat_display.add_message(
-                    f"⚠️ {user_msg}\n\nRespond with 'yes'/'no' or feedback.", "assistant"
+                    f"⚠️ {user_msg}\n\nRespond with 'yes'/'no' or feedback.",
+                    "assistant",
+                    message_type="agent",
                 )
                 return
 
@@ -916,7 +930,7 @@ class OspreyTUI(App):
             self._show_final_response(state.values, chat_display)
 
         except Exception as e:
-            chat_display.add_message(f"Error: {e}", "assistant")
+            chat_display.add_message(f"Error: {e}", "assistant", message_type="agent")
 
     def _get_current_block(self, component: str, display: ChatDisplay) -> ProcessingBlock | None:
         """Get the current active block for a component."""
@@ -1096,7 +1110,7 @@ class OspreyTUI(App):
                         content = msg.content
                         break
 
-        chat_display.add_message(content, "assistant")
+        chat_display.add_message(content, "assistant", message_type="agent")
 
 
 async def run_tui(config_path: str = "config.yml") -> None:
