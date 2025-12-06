@@ -38,6 +38,31 @@ class CommandPalette(ModalScreen[str | None]):
             "shortcut": "ctrl + t",
             "category": "System",
         },
+        "view_status": {
+            "label": "View status",
+            "shortcut": "",
+            "category": "System",
+        },
+        "help": {
+            "label": "Help",
+            "shortcut": "",
+            "category": "System",
+        },
+        "open_docs": {
+            "label": "Open docs",
+            "shortcut": "",
+            "category": "System",
+        },
+        "exit_app": {
+            "label": "Exit the app",
+            "shortcut": "",
+            "category": "System",
+        },
+        "toggle_console": {
+            "label": "Toggle console",
+            "shortcut": "",
+            "category": "System",
+        },
     }
 
     COMPONENT_CLASSES: ClassVar[set[str]] = {
@@ -197,12 +222,40 @@ class CommandPalette(ModalScreen[str | None]):
         options = self.query_one("#palette-options", OptionList)
 
         if event.key == "down":
+            # Predict if we'll cycle to first selectable (no next selectable exists)
+            if options.highlighted is not None:
+                has_next = any(
+                    options.get_option_at_index(i)
+                    and not options.get_option_at_index(i).disabled
+                    for i in range(options.highlighted + 1, options.option_count)
+                )
+                if not has_next:
+                    # Cycle to first: set highlight + scroll atomically
+                    options.highlighted = 1
+                    options.scroll_to(y=0, animate=False)
+                    event.prevent_default()
+                    return
             options.action_cursor_down()
-            options.scroll_to_highlight()
             event.prevent_default()
         elif event.key == "up":
+            # Predict if we'll land on first selectable (index 1)
+            if options.highlighted is not None and options.highlighted > 1:
+                prev_idx = next(
+                    (
+                        i
+                        for i in range(options.highlighted - 1, -1, -1)
+                        if options.get_option_at_index(i)
+                        and not options.get_option_at_index(i).disabled
+                    ),
+                    None,
+                )
+                if prev_idx == 1:
+                    # Move to first: set highlight + scroll atomically
+                    options.highlighted = 1
+                    options.scroll_to(y=0, animate=False)
+                    event.prevent_default()
+                    return
             options.action_cursor_up()
-            options.scroll_to_highlight()
             event.prevent_default()
         elif event.key == "enter":
             if options.highlighted is not None:
