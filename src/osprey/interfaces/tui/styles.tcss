@@ -472,7 +472,7 @@ CommandPalette {
 #palette-container {
     width: 60;
     height: auto;
-    max-height: 50%;
+    # max-height: 50%;
     /* margin-top computed dynamically in Python */
     padding: 1 0 1 0;
     background: $surface;
@@ -513,25 +513,15 @@ CommandPalette {
 #     background: $primary-lighten-1 60%;
 # }
 
-/* Scrollable wrapper for option list */
-#palette-scroll {
-    width: 100%;
-    height: auto;
-    max-height: 20;
-    margin: 0;
-    padding: 0;
-    background: transparent;
-    border: none;
-    # scrollbar-size: 0 0;  /* Hide scrollbar but keep scroll */
-}
-
 #palette-options {
     width: 100%;
     height: auto;
+    /* max-height set dynamically in Python */
     margin: 0;
     padding: 0;
     background: transparent;
     border: none;
+    scrollbar-size: 0 0;
 }
 
 #palette-options > .option-list--option {

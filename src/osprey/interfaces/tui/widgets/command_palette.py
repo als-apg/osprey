@@ -7,7 +7,7 @@ from typing import ClassVar
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, VerticalScroll
+from textual.containers import Container, Horizontal
 from textual.content import Content
 from textual.events import Key, Resize
 from textual.screen import ModalScreen
@@ -56,17 +56,15 @@ class CommandPalette(ModalScreen[str | None]):
                 yield Static("Commands", id="palette-title")
                 yield Static("esc", id="palette-dismiss-hint")
             yield Input(placeholder="Search", id="palette-search")
-            with VerticalScroll(id="palette-scroll"):
-                yield OptionList(id="palette-options")
+            yield OptionList(id="palette-options")
 
     def on_mount(self) -> None:
         """Initialize the palette on mount."""
         # Set initial margin based on app size (before first render)
         self._update_position(self.app.size.height)
         self._populate_options()
-        # Disable focus on option list and scroll container - keep focus on search bar
+        # Disable focus on option list - keep focus on search bar
         self.query_one("#palette-options", OptionList).can_focus = False
-        self.query_one("#palette-scroll", VerticalScroll).can_focus = False
         search_input = self.query_one("#palette-search", Input)
         search_input.cursor_blink = False
         search_input.focus()
@@ -76,19 +74,32 @@ class CommandPalette(ModalScreen[str | None]):
         self._update_position(event.size.height)
 
     def _update_position(self, screen_height: int) -> None:
-        """Set palette margin to vertically center based on actual content height."""
+        """Set palette margin and option list height based on screen size."""
         container = self.query_one("#palette-container", Container)
+        options_list = self.query_one("#palette-options", OptionList)
 
         # Calculate natural content height
         content_height = self._calculate_content_height()
 
-        # Palette height is min of content height and 50% of screen
+        # Max palette height is 50% of screen
         max_height = screen_height // 2
+
+        # Palette height is min of content and max
         palette_height = min(content_height, max_height)
 
         # Center the palette vertically
         margin_top = (screen_height - palette_height) // 2
         container.styles.margin = (margin_top, 0, 0, 0)
+
+        # Calculate and set OptionList max-height
+        # Overhead: container padding (2) + header+margin (2) + search+margin (2) = 6
+        overhead = 6
+        options_max_height = max(1, max_height - overhead)
+        options_list.styles.max_height = options_max_height
+        options_list.styles.overflow_y = "auto"  # Enable scrolling
+
+        # Debug: uncomment to verify values
+        # self.log(f"screen={screen_height}, max_height={max_height}, options_max={options_max_height}")
 
     def _calculate_content_height(self) -> int:
         """Calculate the natural height of the palette content."""
@@ -176,9 +187,8 @@ class CommandPalette(ModalScreen[str | None]):
                     options_list.highlighted = i
                     break
 
-        # Refresh scroll container to recalculate layout for scrollbar
-        scroll = self.query_one("#palette-scroll", VerticalScroll)
-        scroll.refresh(layout=True)
+        # Refresh option list to recalculate scroll
+        options_list.refresh(layout=True)
 
     def on_input_changed(self, event: Input.Changed) -> None:
         """Filter options when search input changes."""
