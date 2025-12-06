@@ -67,7 +67,8 @@ class TestExampleDatabases:
         floors_lab = db.get_options_at_level("floor", {"sector": "01", "building": "LAB"})
         assert len(floors_lab) == 2
 
-        # Test specific channels exist
+        # Test specific channels exist with literal prefixes
+        # Pattern is "S{sector}:{building}:F{floor}:R{room}:{equipment}"
         assert db.validate_channel("S01:MAIN_BUILDING:F1:R101:HVAC")
         assert db.validate_channel("S04:LAB:F2:RCLEAN_ROOM:PRESSURE")
 
@@ -130,7 +131,8 @@ class TestExampleDatabases:
         )
         assert "PASS_COUNT" in [p["name"] for p in params_inspection]
 
-        # Test specific channels
+        # Test specific channels with literal prefix
+        # Pattern is "LINE{line}:{station}:{parameter}"
         assert db.validate_channel("LINE1:ASSEMBLY:SPEED")
         assert db.validate_channel("LINE5:INSPECTION:FAIL_COUNT")
 

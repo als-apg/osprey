@@ -1,7 +1,7 @@
 {
   "_description": "Educational example demonstrating optional hierarchy levels and custom separators",
   "_purpose": "Tutorial database showing advanced hierarchical patterns: optional levels, separator overrides, and instance expansions",
-  "_total_channels": "~144 channels - small enough to understand, large enough to demonstrate all patterns",
+  "_total_channels": "82 channels - small enough to understand, large enough to demonstrate all patterns",
 
   "hierarchy": {
     "levels": [
@@ -189,7 +189,7 @@
       "motor_signals": 2,
       "ch_instances": 2,
       "per_ch_signals": 4,
-      "total_per_mc": 26
+      "total_per_mc": 24
     },
     "per_bpm_device": {
       "x_variants": 2,
@@ -197,8 +197,8 @@
       "quality": 1,
       "total_per_bpm": 5
     },
-    "total": 88,
-    "_note": "(3 MC × 26) + (2 BPM × 5) = 78 + 10 = 88 channels"
+    "total": 82,
+    "_note": "(3 MC × 24) + (2 BPM × 5) = 72 + 10 = 82 channels"
   },
 
   "_key_features": {
@@ -252,7 +252,7 @@
 
   "_usage_guide": {
     "loading": "HierarchicalChannelDatabase('path/to/optional_levels.json')",
-    "total_channels": "88 channels generated from compact tree definition",
+    "total_channels": "82 channels generated from compact tree definition",
     "testing": "Run channel_finder/cli.py to test queries interactively",
     "validation": "All channels validate correctly with _separator overrides"
   }
