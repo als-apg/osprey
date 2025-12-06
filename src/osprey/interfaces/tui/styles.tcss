@@ -249,9 +249,9 @@ ChatMessage.message-assistant .message-content > *:last-child {
 }
 
 /* No vertical padding for better flow */
-ChatMessage.message-assistant.message-type-agent {
-    padding: 0 4;
-}
+# ChatMessage.message-assistant.message-type-agent {
+#     padding: 0 4;
+# }
 
 /* Slash command responses - subtle background shift */
 /* Dark theme: darker bg, Light theme: lighter bg */
