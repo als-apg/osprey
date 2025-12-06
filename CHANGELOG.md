@@ -7,12 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Channel Finder: Enhanced Database Preview Tool**: Flexible display options for better hierarchy visibility
+  - `--depth N` parameter to control tree depth display (default: 3, -1 for unlimited)
+  - `--max-items N` parameter to limit items shown per level (default: 10, -1 for unlimited)
+  - `--sections` parameter with modular output sections: tree, stats, breakdown, samples, all
+  - `--path PATH` parameter to preview any database file directly without modifying config
+  - `--focus PATH` parameter to zoom into specific hierarchy branches
+  - New `stats` section showing unique value counts at each hierarchy level
+  - New `breakdown` section showing channel count breakdown by path
+  - New `samples` section showing random sample channel names
+  - Backwards compatible `--full` flag support
+  - Comprehensive unit tests covering all preview features and edge cases
+
 ### Changed
-- **Channel Finder: Renamed Database Backend**: Renamed `legacy.py` → `flat.py` to better reflect its purpose
-  - `LegacyChannelDatabase` renamed to `FlatChannelDatabase` (describes flat list structure, not age)
-  - Database type 'legacy' remains supported as alias for 'flat' (backward compatibility)
-  - Updated documentation and config templates to use 'flat' terminology
-  - Template database now correctly described as extending flat database (not legacy)
+- **Channel Finder: Preview Tool Default Depth**: Default tree display depth increased from 2 to 3 levels for better visibility
 
 ### Fixed
 - **MCP Server Template: Dynamic timestamps instead of hardcoded dates**: Fixed MCP server generation template to use current UTC timestamps instead of hardcoded November 15, 2025 dates. Prevents e2e test failures due to stale mock data and ensures demo servers return realistic "current" weather data.

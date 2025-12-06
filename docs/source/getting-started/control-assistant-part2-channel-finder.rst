@@ -709,6 +709,12 @@ That's it—no code changes required. The template includes complete implementat
 
          .. tab-item:: Database Format
 
+            .. note::
+
+               This tab shows the **simplest hierarchical database pattern**—a straightforward 5-level structure with basic naming. This is perfect for getting started.
+
+               For **advanced patterns** (navigation-only levels, friendly names, optional levels, custom separators), see the **Building Your Database** tab which includes detailed examples and use cases for complex naming conventions.
+
             **Nested Hierarchy Structure:**
 
             The hierarchical database organizes channels by physical system structure with rich domain context at each level:
@@ -1164,86 +1170,98 @@ That's it—no code changes required. The template includes complete implementat
 
             The tree follows a nested structure where each level contains:
 
-            - **System level** (root): Top-level systems with ``_description`` fields
+            .. tab-set::
 
-            .. code-block:: json
+               .. tab-item:: System
 
-               "tree": {
-                 "MAG": {
-                   "_description": "Magnet System (MAG): Controls beam trajectory and focusing...",
-                   /* families go here */
-                 },
-                 "VAC": {
-                   "_description": "Vacuum System (VAC): Maintains ultra-high vacuum...",
-                   /* families go here */
-                 }
-               }
+                  Top-level systems with ``_description`` fields:
 
-            - **Family level**: Device families within each system
+                  .. code-block:: json
 
-            .. code-block:: json
+                     "tree": {
+                       "MAG": {
+                         "_description": "Magnet System (MAG): Controls beam trajectory and focusing...",
+                         /* families go here */
+                       },
+                       "VAC": {
+                         "_description": "Vacuum System (VAC): Maintains ultra-high vacuum...",
+                         /* families go here */
+                       }
+                     }
 
-               "QF": {
-                 "_description": "Focusing Quadrupoles (QF): Positive gradient magnets...",
-                 "DEVICE": {
-                   "_expansion": { /* expansion definition */ },
-                   /* fields go here as direct children */
-                 }
-               }
+               .. tab-item:: Family
 
-            - **Device level**: Container with ``_expansion`` definition specifying instances
+                  Device families within each system:
 
-            .. code-block:: json
+                  .. code-block:: json
 
-               "DEVICE": {
-                 "_expansion": {
-                   "_type": "range",
-                   "_pattern": "QF{:02d}",
-                   "_range": [1, 16]
-                 },
-                 /* fields defined here */
-               }
+                     "QF": {
+                       "_description": "Focusing Quadrupoles (QF): Positive gradient magnets...",
+                       "DEVICE": {
+                         "_expansion": { /* expansion definition */ },
+                         /* fields go here as direct children */
+                       }
+                     }
 
-            This generates QF01, QF02, ..., QF16 automatically. For explicit lists:
+               .. tab-item:: Device
 
-            .. code-block:: json
+                  Container with ``_expansion`` definition specifying instances:
 
-               "DEVICE": {
-                 "_expansion": {
-                   "_type": "list",
-                   "_instances": ["MAIN", "BACKUP"]
-                 },
-                 /* fields defined here */
-               }
+                  .. code-block:: json
 
-            - **Field level**: Physical quantities or subsystems (as direct children of DEVICE)
+                     "DEVICE": {
+                       "_expansion": {
+                         "_type": "range",
+                         "_pattern": "QF{:02d}",
+                         "_range": [1, 16]
+                       },
+                       /* fields defined here */
+                     }
 
-            .. code-block:: json
+                  This generates QF01, QF02, ..., QF16 automatically. For explicit lists:
 
-               "DEVICE": {
-                 "_expansion": { /* ... */ },
-                 "CURRENT": {
-                   "_description": "Excitation Current (Amperes): Current through coil windings...",
-                   "SP": {"_description": "Setpoint (read-write): Commanded current"},
-                   "RB": {"_description": "Readback (read-only): Measured current"}
-                 },
-                 "STATUS": {
-                   "_description": "Operational status indicators",
-                   "READY": {"_description": "Ready (read-only): Power supply ready"},
-                   "ON": {"_description": "On (read-only): Power supply energized"}
-                 }
-               }
+                  .. code-block:: json
 
-            - **Subfield level**: Specific measurements or control points (as direct children of each field)
+                     "DEVICE": {
+                       "_expansion": {
+                         "_type": "list",
+                         "_instances": ["MAIN", "BACKUP"]
+                       },
+                       /* fields defined here */
+                     }
 
-            .. code-block:: json
+               .. tab-item:: Field
 
-               "CURRENT": {
-                 "_description": "Excitation Current (Amperes)...",
-                 "SP": {"_description": "Setpoint (read-write): Commanded current"},
-                 "RB": {"_description": "Readback (read-only): Measured current"},
-                 "GOLDEN": {"_description": "Golden reference value for optimal operation"}
-               }
+                  Physical quantities or subsystems (as direct children of DEVICE):
+
+                  .. code-block:: json
+
+                     "DEVICE": {
+                       "_expansion": { /* ... */ },
+                       "CURRENT": {
+                         "_description": "Excitation Current (Amperes): Current through coil windings...",
+                         "SP": {"_description": "Setpoint (read-write): Commanded current"},
+                         "RB": {"_description": "Readback (read-only): Measured current"}
+                       },
+                       "STATUS": {
+                         "_description": "Operational status indicators",
+                         "READY": {"_description": "Ready (read-only): Power supply ready"},
+                         "ON": {"_description": "On (read-only): Power supply energized"}
+                       }
+                     }
+
+               .. tab-item:: Subfield
+
+                  Specific measurements or control points (as direct children of each field):
+
+                  .. code-block:: json
+
+                     "CURRENT": {
+                       "_description": "Excitation Current (Amperes)...",
+                       "SP": {"_description": "Setpoint (read-write): Commanded current"},
+                       "RB": {"_description": "Readback (read-only): Measured current"},
+                       "GOLDEN": {"_description": "Golden reference value for optimal operation"}
+                     }
 
             **Step 3: Write Rich Descriptions**
 
@@ -1255,28 +1273,29 @@ That's it—no code changes required. The template includes complete implementat
             4. **Units and ranges**: "(Amperes)", "Typically 0-200A"
             5. **Access mode**: "(read-write)" or "(read-only)"
 
-            **Example of excellent description depth:**
+            .. dropdown:: Example of excellent description depth
+               :color: info
 
-            .. code-block:: json
+               .. code-block:: json
 
-               "DEVICE": {
-                 "_expansion": {
-                   "_type": "range",
-                   "_pattern": "QF{:02d}",
-                   "_range": [1, 16]
-                 },
-                 "CURRENT": {
-                   "_description": "Quadrupole Excitation Current (Amperes): Current through QF coil windings. Proportional to positive field gradient. Typically 0-200A. Adjusted for tune correction and beam optics optimization.",
-                   "SP": {
-                     "_description": "Setpoint (read-write): Commanded focusing current for tune correction."
-                   },
-                   "RB": {
-                     "_description": "Readback (read-only): Measured focusing current from DCCT sensor."
-                   }
-                 }
-               }
+                  "DEVICE": {
+                    "_expansion": {
+                      "_type": "range",
+                      "_pattern": "QF{:02d}",
+                      "_range": [1, 16]
+                    },
+                    "CURRENT": {
+                      "_description": "Quadrupole Excitation Current (Amperes): Current through QF coil windings. Proportional to positive field gradient. Typically 0-200A. Adjusted for tune correction and beam optics optimization.",
+                      "SP": {
+                        "_description": "Setpoint (read-write): Commanded focusing current for tune correction."
+                      },
+                      "RB": {
+                        "_description": "Readback (read-only): Measured focusing current from DCCT sensor."
+                      }
+                    }
+                  }
 
-            The more context you provide, the better the LLM can match user queries to the correct path.
+               The more context you provide, the better the LLM can match user queries to the correct path.
 
             **Step 4: Validate Your Database**
 
@@ -1292,33 +1311,86 @@ That's it—no code changes required. The template includes complete implementat
 
             For hierarchical databases, validation checks:
 
-            - ✅ **JSON Structure**: Valid syntax, required top-level keys (hierarchy, tree)
-            - ✅ **Schema Validation**: Naming pattern references exactly match level names (prevents typos and out-of-sync errors)
-            - ✅ **Level Configuration**: All levels have valid types (tree or instances), properly configured
-            - ✅ **Hierarchy Consistency**: All levels properly nested, instance expansion definitions valid
-            - ✅ **Database Loading**: Can be successfully loaded by ``HierarchicalChannelDatabase`` class
-            - ✅ **Channel Expansion**: Tree structure expands correctly to generate channel names
+            - **JSON Structure**: Valid syntax, required top-level keys (hierarchy, tree)
+            - **Schema Validation**: Naming pattern references exactly match level names (prevents typos and out-of-sync errors)
+            - **Level Configuration**: All levels have valid types (tree or instances), properly configured
+            - **Hierarchy Consistency**: All levels properly nested, instance expansion definitions valid
+            - **Database Loading**: Can be successfully loaded by ``HierarchicalChannelDatabase`` class
+            - **Channel Expansion**: Tree structure expands correctly to generate channel names
 
             If you encounter issues, the validator will report specific problems with line numbers or key paths to help you debug.
 
             **Step 5: Preview Database Presentation**
 
-            See how your database appears to the LLM during navigation:
+            See how your hierarchical database will be presented to the LLM during navigation:
 
             .. code-block:: bash
 
                # From my-control-assistant directory
+               # Quick overview (default: 3 levels, 10 items per level)
                python src/my_control_assistant/data/tools/preview_database.py
 
-               # Show full tree (not just summary)
-               python src/my_control_assistant/data/tools/preview_database.py --full
+               # Show 4 levels with statistics
+               python src/my_control_assistant/data/tools/preview_database.py --depth 4 --sections tree,stats
 
-            This displays:
+               # Complete view with all sections
+               python src/my_control_assistant/data/tools/preview_database.py --depth -1 --max-items -1 --sections all
 
-            - Tree structure with all levels visible
-            - Rich descriptions at each level
-            - Device instance counts and patterns
-            - Total channel counts by system
+               # Focus on specific subsystem
+               python src/my_control_assistant/data/tools/preview_database.py --focus M:QB --depth 4
+
+            .. dropdown:: Preview Tool Parameters (v0.9.6+)
+               :color: info
+               :icon: versions
+
+               The preview tool supports flexible display options for exploring large hierarchical databases without overwhelming your terminal.
+
+               **Display Control:**
+
+               - ``--depth N``: Maximum hierarchy depth to display (default: 3, use -1 for unlimited)
+               - ``--max-items N``: Maximum items to show per level (default: 10, use -1 for unlimited)
+               - ``--full``: Legacy flag, equivalent to ``--depth -1 --max-items -1``
+
+               **Section Selection:**
+
+               - ``--sections SECTIONS``: Comma-separated list of sections to display (default: tree)
+
+                 - ``tree``: Visual hierarchy tree with channel counts
+                 - ``stats``: Per-level unique value statistics
+                 - ``breakdown``: Channel count breakdown by path
+                 - ``samples``: Random sample channel names
+                 - ``all``: All of the above
+
+               **Focus & Filtering:**
+
+               - ``--focus PATH``: Zoom into specific subtree using colon-separated path (e.g., ``M:QB`` shows only QB family in M system)
+               - ``--path FILE``: Preview a specific database file, auto-detects type (overrides config)
+
+               **Example Workflows:**
+
+               .. code-block:: bash
+
+                  # Quick check of overall structure
+                  python preview_database.py --sections stats
+
+                  # Deep dive into magnet quadrupoles
+                  python preview_database.py --focus M:QF --depth 5 --max-items 15
+
+                  # Compare database files
+                  python preview_database.py --path examples/consecutive_instances.json --depth -1
+                  python preview_database.py --path examples/optional_levels.json --depth -1
+
+                  # Full analysis with all metrics
+                  python preview_database.py --depth -1 --max-items -1 --sections all
+
+               **Why These Parameters Matter:**
+
+               For large databases (1000+ channels), viewing the complete hierarchy can overwhelm your terminal. The preview tool helps you explore incrementally:
+
+               - Start with ``--depth 3`` to understand top-level structure
+               - Use ``--focus`` to zoom into specific subsystems
+               - Add ``--sections stats`` to see level distribution
+               - Finally use ``--depth -1 --max-items -1`` for complete view
 
             **Preview Output Example:**
 

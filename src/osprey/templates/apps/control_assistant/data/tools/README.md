@@ -161,64 +161,109 @@ DATABASE VALIDATION REPORT
 
 ### 3. preview_database.py
 
-**Purpose:** Preview how the in-context database will be presented to the LLM
+**Purpose:** Flexible database preview with customizable depth, display options, and modular sections
 
 **Features:**
-- Prints database presentation directly to terminal
-- Shows first 20 channels in LLM format
-- Database statistics (total channels, template/standalone breakdown)
-- Simple, focused tool for quick inspection
+- Auto-detects database type (hierarchical or in-context)
+- Configurable tree depth and item limits
+- Modular output sections (tree, stats, breakdown, samples)
+- Focus on specific branches
+- Direct path support for previewing any database file
+- Rich console output with color-coded hierarchy
 
 **Usage:**
 
 ```bash
-# From project root (your-control-assistant directory)
+# Quick overview (default: 3 levels, 10 items per level)
 python src/your_assistant_name/data/tools/preview_database.py
 
-# Show all channels (not just first 20)
+# Show 4 levels with statistics (addresses colleague request)
+python src/your_assistant_name/data/tools/preview_database.py --depth 4 --sections tree,stats
+
+# Preview a specific database file directly
+python src/your_assistant_name/data/tools/preview_database.py --path data/channel_databases/examples/optional_levels.json
+
+# Complete view with all sections
+python src/your_assistant_name/data/tools/preview_database.py --depth -1 --max-items -1 --sections all
+
+# Focus on specific system/branch
+python src/your_assistant_name/data/tools/preview_database.py --focus MAG:DIPOLE --depth 4
+
+# Just statistics, no tree
+python src/your_assistant_name/data/tools/preview_database.py --sections stats
+
+# Backwards compatible (legacy)
 python src/your_assistant_name/data/tools/preview_database.py --full
 ```
+
+**Parameters:**
+
+- `--depth N` - Tree depth to display (default: 3, -1 for unlimited)
+- `--max-items N` - Maximum items per level (default: 10, -1 for unlimited)
+- `--sections SECTIONS` - Comma-separated sections: tree, stats, breakdown, samples, all (default: tree)
+- `--path PATH` - Direct path to database file (overrides config, auto-detects type)
+- `--focus PATH` - Focus on specific branch (e.g., "M:QB" for QB family in M system)
+- `--full` - Show complete hierarchy (shorthand for --depth -1 --max-items -1)
+
+**Output Sections:**
+
+1. **tree** (default) - Hierarchy tree visualization showing structure and channel counts
+2. **stats** - Per-level statistics table showing unique value counts at each hierarchy level
+3. **breakdown** - Channel count breakdown by path (top 20 paths)
+4. **samples** - Random sample channel names from the database
 
 **Example output:**
 
 ```
-================================================================================
-IN-CONTEXT DATABASE PREVIEW
-================================================================================
+╭─────────────────────────────────────────────────────────────────╮
+│                                                                 │
+│  Hierarchical Database Preview                                  │
+│  Shows the tree structure of the hierarchical channel database  │
+│                                                                 │
+╰─────────────────────────────────────────────────────────────────╯
 
-Configuration:
-  Database: src/your_assistant_name/data/channel_databases/in_context.json
-  Presentation Mode: template
-  Resolved Path: .../in_context.json
+╭───────────────────────── Configuration ──────────────────────────╮
+│                                                                  │
+│  Database Path      data/channel_databases/hierarchical.json     │
+│  Hierarchy Levels   system → family → sector → device → property│
+│  Display Depth      4                                            │
+│  Max Items/Level    10                                           │
+│                                                                  │
+╰──────────────────────────────────────────────────────────────────╯
 
-✓ Loaded 255 channels
+✓ Successfully loaded 4996 channels
 
-Database Statistics:
-  • Total Channels: 255
-  • Template Entries: 5
-  • Standalone Entries: 53
+╭───────────────────────── Hierarchy Tree ─────────────────────────╮
+│                                                                  │
+│  Channel Database Hierarchy                                      │
+│  ┣━━ M (3916 channels)                                          │
+│  ┃   ┣━━ QB (2376 channels)                                     │
+│  ┃   ┃   ┗━━ SECTOR (0 channels)                                │
+│  ┃   ┃       ┣━━ 0L (396 channels)                              │
+│  ┃   ┃       ┣━━ 1A (396 channels)                              │
+│  ┃   ┃       └━━ ... 4 more sectors                             │
+│  ┃   └━━ ... 2 more families                                    │
+│  └━━ ... 2 more systems                                         │
+│                                                                  │
+╰──────────────────────────────────────────────────────────────────╯
 
-================================================================================
-LLM PRESENTATION (first 20 channels)
-================================================================================
+╭────────────── Hierarchy Level Statistics ────────────────────────╮
+│                                                                  │
+│  ╭───────┬──────────┬───────────────╮                            │
+│  │ Level │ Name     │ Unique Values │                            │
+│  ├───────┼──────────┼───────────────┤                            │
+│  │ 1     │ system   │ 3             │                            │
+│  │ 2     │ family   │ 5             │                            │
+│  │ 3     │ sector   │ 6             │                            │
+│  │ 4     │ device   │ 99            │                            │
+│  │ 5     │ property │ 10            │                            │
+│  ╰───────┴──────────┴───────────────╯                            │
+│                                                                  │
+╰──────────────────────────────────────────────────────────────────╯
 
-1. TerminalVoltageReadBack
-   Description: Actual value of the terminal potential...
-
-2. TerminalVoltageSetPoint
-   Description: Set value of the terminal where electron gun...
-
-3. DipoleMagnet (01-09)
-   Dipole magnets for beam bending
-   - SetPoint: set point for magnet {instance}
-   - ReadBack: readback for magnet {instance}
-
-... (235 more channels not shown)
-    Use --full flag to see all channels
-
-================================================================================
-✓ Preview complete! (255 total channels)
-================================================================================
+╭─────────────────────────────────────────╮
+│ ✓ Preview complete! 4996 total channels │
+╰─────────────────────────────────────────╯
 ```
 
 ### 4. llm_channel_namer.py
