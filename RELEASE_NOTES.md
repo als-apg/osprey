@@ -1,179 +1,148 @@
-# Osprey Framework - Latest Release (v0.9.5)
+# Osprey Framework - Latest Release (v0.9.6)
 
-🎉 **Pluggable Code Generator System & Python Executor Refactoring** - Modular Architecture for Extensible Code Generation
+🎉 **Control Assistant Enhancements & Channel Finder Improvements** - Custom Task Extraction, Enhanced Database Preview, and Flexible Hierarchy Configuration
 
-## What's New in v0.9.5
+## What's New in v0.9.6
 
 ### 🚀 Major New Features
 
-#### Python Executor Service - Complete Modular Refactoring
-- **Modular Subdirectory Structure**: Reorganized python_executor service into focused subdirectories
-  - `analysis/` - Code analysis, pattern detection, and policy enforcement
-  - `approval/` - Human approval workflows
-  - `execution/` - Container management and code execution
-  - `generation/` - Pluggable code generator system
-  - Each subdirectory has proper `__init__.py` and dedicated README documentation
+#### Control Assistant Template - Custom Task Extraction Prompt
+- **Domain-Specific Task Extraction**: Control-system-specific task extraction prompt builder replaces framework defaults
+  - 14 control system examples covering channel references, temporal context, write operations, and visualization requests
+  - Unit test suite verifying custom prompt usage without LLM invocation
+  - Documentation in Part 4 tutorial explaining single-point-of-failure importance
+  - Ensures accurate task decomposition for accelerator control operations
 
-#### Pluggable Code Generator System
-- **Abstract Interface**: `CodeGenerator` protocol defining standard generator contract
-- **Generator Factory**: Dynamic registration and instantiation with `GeneratorFactory`
-- **Multiple Implementations**:
-  * `BasicGenerator` - Simple template-based generation for straightforward tasks
-  * `ClaudeCodeGenerator` - Advanced AI-powered generation with:
-    - Full conversation history management
-    - Result validation and error recovery
-    - Streaming support with callbacks
-    - Tool use integration
-    - Configurable via `execution.code_generator` and `execution.generators` settings
-  * `MockGenerator` - Deterministic generator for testing
-- **Registry Integration**: Generator lifecycle managed through framework registry system
-- **State Model Extensions**: `PythonExecutorState` enhanced to support generator configuration
+#### Channel Finder - Enhanced Database Preview Tool
+- **Flexible Display Options**: Better hierarchy visibility and exploration
+  - `--depth N` parameter to control tree depth display (default: 3, -1 for unlimited)
+  - `--max-items N` parameter to limit items shown per level (default: 10, -1 for unlimited)
+  - `--sections` parameter with modular output: tree, stats, breakdown, samples, all
+  - `--path PATH` parameter to preview any database file directly
+  - `--focus PATH` parameter to zoom into specific hierarchy branches
+  - New `stats` section showing unique value counts at each hierarchy level
+  - New `breakdown` section showing channel count breakdown by path
+  - New `samples` section showing random sample channel names
+  - Backwards compatible `--full` flag support
+  - Comprehensive unit tests covering all preview features and edge cases
 
-#### Generator Configuration
-- **Explicit, flexible configuration structure**:
-  - New `execution.code_generator` setting specifies active generator
-  - Generator-specific config in `execution.generators` with model references or inline config
-  - Deprecation warnings for old `models.python_code_generator` approach (backward compatible)
-  - Updated project templates with examples for all generator types
+#### Hierarchical Channel Finder - Advanced Configuration Features
+- **Custom Separator Overrides**: Per-node control of channel name separators
+  - New `_separator` metadata field overrides default separators
+  - Solves EPICS naming with mixed delimiters (`:` for subdevices, `_` for suffixes, `.` for legacy)
+  - Backward compatible: nodes without `_separator` use pattern defaults
+- **Automatic Leaf Detection**: Eliminates verbose `_is_leaf` markers
+  - Nodes without children automatically detected as leaves
+  - `_is_leaf` now only required for nodes with children that are also complete channels
+  - Reduces verbosity in database definitions
+  - Backward compatible: explicit markers still work
+- **Flexible Naming Configuration**: Navigation-only levels and decoupled naming
+  - Naming pattern can reference subset of hierarchy levels
+  - New `_channel_part` field decouples tree keys from naming components
+  - Enables semantic tree organization with PV names at leaf (JLab CEBAF pattern)
+  - Enables friendly navigation with technical naming ("Magnets" → "MAG")
 
-#### CLI Commands & Templates
-- **New `osprey generate claude-config` command** to generate Claude Code generator configuration files with sensible defaults and auto-detection of provider settings
-- **Interactive Menu Enhancements**: Added 'generate' command to project selection submenu
-- **Template Improvements**:
-  - Generator selection and configuration in interactive menu
-  - Claude generator config template (`claude_generator_config.yml.j2`)
-  - Example plotting scripts for common use cases (time series, multi-subplot, publication-quality)
-  - Improved README templates with generator setup instructions
+#### Channel Finder - Pluggable Pipeline and Database System
+- **Registration Pattern**: Custom implementations without modifying framework
+  - `register_pipeline()` and `register_database()` methods
+  - Discovery API: `list_available_pipelines()` and `list_available_databases()`
+  - Config-driven selection
+  - Examples for RAG pipeline and PostgreSQL database implementations
 
 ### 🧪 Comprehensive Test Suite
 
-#### E2E Test Coverage
-- **Claude Config Generation Tests** (`test_claude_config_generation.py`): Validates `osprey generate claude-config` command, tests configuration file structure, provider auto-detection, and profile customization
-- **Code Generator Workflow Tests** (`test_code_generator_workflows.py`): Tests complete code generation pipeline with basic and Claude Code generators. Validates example script guidance following, instruction adherence, and deterministic assertions for generated code content
-- **MCP Capability Generation Tests** (`test_mcp_capability_generation.py`): End-to-end MCP integration testing including server generation/launch, capability generation from live MCP server, registry integration, and query execution with LLM judge verification
-
-#### Unit Test Coverage
-- Unit tests for all generator implementations (BasicGenerator, ClaudeCodeGenerator, MockGenerator)
-- Integration tests for generator-service interaction
-- Pattern detection integration tests
-- Result validation test suites
-- State reducer tests
-- Shared test fixtures and utilities in `tests/services/python_executor/`
+#### New Test Coverage
+- **Channel Finder Parameterized Tests**: Automated testing for all example databases
+  - 80 tests covering all 6 example databases
+  - Parameterized tests automatically run on new databases
+  - Core functionality: loading, navigation, channel generation, validation
+  - Expected channel count validation (total: 30,908 channels)
+  - Database-specific feature tests
+- **Custom Task Extraction Tests**: Unit tests for control assistant prompt builder
+- **Preview Tool Tests**: Comprehensive coverage of all preview features
+- **Hierarchical Channel Finder Tests**: 18 new tests for flexible naming functionality
 
 ### 🔧 Infrastructure Improvements
 
-#### API Call Logging
-- **Enhanced with caller context tracking** across all LLM-calling components
-- Logging metadata now includes capability/module/operation details for better debugging
-- Improved JSON serialization with Pydantic model support (mode='json')
-- Better error visibility (warnings instead of silent failures)
-
-#### Claude Code Generator Configuration
-- **Major simplification**: Profiles now directly specify phases to run instead of using planning_modes abstraction
-- Default profile changed from 'balanced' to 'fast'
-- Unified prompt building into single data-driven `_build_phase_prompt()` method
-- Reduced codebase by 564 lines through elimination of duplicate prompt builders and dead code
-
-#### Registry Display
-- Filtered infrastructure nodes table to exclude capability nodes (avoid duplication with Capabilities table)
-- Moved context classes to verbose-only mode
-- Improved handling of tuple types in provides/requires fields
-
-#### MCP Generator Error Handling
-- Added pre-flight connectivity checks using httpx
-- Much clearer error messages when server is not running
-- Actionable instructions in error messages
+#### Channel Finder
+- **Default Preview Depth**: Increased from 2 to 3 levels for better visibility
+- **Comprehensive Example Coverage**: All example databases now tested
+  - `hierarchical_legacy.json` and `optional_levels.json` previously untested
 
 ### 🐛 Bug Fixes
 
-#### Registry Import Timing
-- **Fixed module-level `get_registry()` calls** that could cause initialization order issues
-- Moved registry access to runtime (function/method level) in:
-  - python capability
-  - time_range_parsing capability
-  - generate_from_prompt
-  - hello_world_weather template
+#### MCP Server Template
+- **Dynamic Timestamps**: Fixed MCP server generation to use current UTC timestamps instead of hardcoded November 15, 2025 dates
+  - Prevents e2e test failures due to stale mock data
+  - Ensures demo servers return realistic "current" weather data
 
-#### Python Executor Logging
-- Replaced deprecated `get_streamer` with unified `get_logger` API in code generator node for consistent streaming support
+#### Channel Finder Tests
+- **Unit Test Compatibility**: Updated test files for hierarchical database changes (optional levels, custom separators)
 
-#### MCP Generator Configuration
-- Added proper model configuration validation with clear error messages when provider is not configured
-- Improved error handling with unused variable cleanup and better logging integration
+#### Registry & Test Infrastructure
+- **Mock Cleanup**: Fixed 7 registry isolation test failures
+  - Session-level registry mock pollution from capability tests resolved
+  - Renamed conflicting test fixtures to prevent pytest naming collisions
 
-#### Test Infrastructure
-- **Added auto-reset registry fixtures** in both unit and E2E test conftest files to ensure complete test isolation
-- Fixtures now reset registry, clear config caches, and clear CONFIG_FILE env var before/after each test to prevent state leakage
-- Removed manual registry reset calls from individual tests
+#### Python Executor
+- **Context File Creation**: Fixed timing issue where `context.json` was not created until execution
+  - Caused warnings and test failures when approval was required
+  - Context now saved immediately when creating pre-approval notebooks
 
-#### Time Range Parsing Tests
-- Added mock for `store_output_context` to bypass registry validation
-- Allows tests to run independently of registry state
-- Removed obsolete decorator integration tests that were duplicating coverage
+#### Code Quality
+- **Pre-merge Cleanup**: Removed unused imports and applied formatting standards (black + isort)
 
-#### Tutorial E2E Tests
-- Relaxed over-strict plot count assertion (1+ PNG files instead of 2+) to accommodate both single-figure and multi-figure plotting approaches
-
-#### Claude Code Generator Tests
-- Refactored to skip low-level prompt building tests (implementation details now covered by E2E tests)
-- Improved test maintainability by focusing on behavior rather than internal methods
+#### Documentation
+- **RST Docstring Formatting**: Corrected docstring syntax in `BaseInfrastructureNode.get_current_task()`
+  - Eliminates Sphinx warnings
 
 ### 📚 Documentation
 
-#### E2E Test Documentation
-- **Complete rewrite** of `tests/e2e/README.md` with clearer structure, better isolation guidance, and comprehensive examples
-- Added warnings about running E2E tests separately from unit tests
+#### Control Assistant Tutorial
+- **Part 4 Customization**: New section on custom task extraction prompts
+  - Explains single-point-of-failure concept
+  - Provides examples for domain-specific task extraction
 
-#### Generator Documentation
-- Updated all Claude Code generator documentation to reflect simplified configuration model
-- Restructured `generator-claude.rst` with improved UX using collapsible dropdowns and tabbed sections
-- Updated all examples to use 'fast' as default profile
-- New comprehensive documentation for all generator types (basic, claude, mock)
-
-### 🗑️ Removed
-
-#### Claude Code Generator
-- Removed 'balanced' profile (consolidated to 'fast' and 'robust' only)
-- Removed 'workflow_mode' setting (use direct 'phases' list specification)
-- Removed 'planning_modes' abstraction (profiles specify phases directly)
-- Removed dead code (_generate_direct, _generate_phased, _build_phase_options, 7 duplicate prompt builders)
+#### Channel Finder Documentation
+- **Advanced Hierarchy Patterns**: New "Custom Separators" tab
+- **Preview Tool Examples**: Comprehensive examples for all preview options
+- **Pluggable System Guide**: Documentation for custom pipeline/database implementations
 
 ## Migration Guide
 
-### For Users with Custom Generator Configuration
+### For Control Assistant Users
 
-If you have a custom Claude Code generator configuration:
+No breaking changes. The custom task extraction prompt is automatically used in new control assistant projects. Existing projects continue to work with framework defaults.
 
-1. **Update profile references**: If using 'balanced' profile, switch to 'fast' or 'robust'
-2. **Update phase configuration**: Replace `workflow_mode` with direct `phases` list in profiles
-3. **Review configuration**: Use `osprey generate claude-config` to see new configuration format
+### For Channel Finder Database Authors
 
-### For Developers Extending Code Generation
+New features are backward compatible:
+1. **Custom Separators**: Optional `_separator` field (uses pattern defaults if omitted)
+2. **Automatic Leaf Detection**: No action needed (childless nodes automatically detected)
+3. **Flexible Naming**: Optional `_channel_part` field (uses tree keys if omitted)
 
-1. **Use new generator interface**: Implement `CodeGenerator` protocol for custom generators
-2. **Register with factory**: Use `GeneratorFactory.register_generator()` for dynamic loading
-3. **Update tests**: Use new mock generator for deterministic testing
+Existing databases work unchanged.
 
 ## Performance & Quality
 
 - **Test Coverage**: 546 unit tests + 9 e2e tests, all passing
-- **Code Quality**: Reduced code duplication by 564 lines in generator system
-- **API Cost**: E2E test suite runs in ~5 minutes for ~$0.10-$0.25
+- **Example Database Coverage**: 100% (6/6 databases tested)
+- **Channel Count Validation**: 30,908 channels across all examples
 
 ## Installation
 
 ```bash
-pip install osprey-framework==0.9.5
+pip install osprey-framework==0.9.6
 ```
 
 ## What's Next
 
 Stay tuned for upcoming features:
+- Additional control system connectors
 - Enhanced plotting capabilities
-- Additional generator implementations
-- Expanded control system connector support
 - Production deployment guides
+- Multi-agent orchestration patterns
 
 ---
 
-**Full Changelog**: https://github.com/als-apg/osprey/compare/v0.9.4...v0.9.5
+**Full Changelog**: https://github.com/als-apg/osprey/compare/v0.9.5...v0.9.6

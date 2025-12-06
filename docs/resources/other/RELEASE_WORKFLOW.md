@@ -114,7 +114,7 @@ git push origin v0.7.3
 
 # 3. Create GitHub release (optional - can use web interface)
 gh release create v0.7.3 \
-  --title "Alpha Berkeley Framework v0.7.3 - [Brief Description]" \
+  --title "Osprey Framework v0.7.3 - [Brief Description]" \
   --notes-file RELEASE_NOTES.md
 ```
 
