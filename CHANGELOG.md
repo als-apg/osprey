@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **CLI: Model Configuration Command**: New `osprey config set-models` command to update all model configurations at once with interactive or direct mode
 
+### Changed
+- **Channel Finder Service**: Improved configuration validation with clearer error messages when channel_finder model is not configured
+
 ## [0.9.6] - 2025-12-06
 
 ### Added

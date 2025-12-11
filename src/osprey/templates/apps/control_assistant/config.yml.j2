@@ -53,6 +53,10 @@ models:
     provider: {{ default_provider }}
     model_id: {{ default_model }}
     max_tokens: 2048  # For write operation parsing
+  channel_finder:
+    provider: {{ default_provider }}
+    model_id: {{ default_model }}
+    max_tokens: 4096  # For channel finder semantic search
 
 # ============================================================
 # API CONFIGURATION
