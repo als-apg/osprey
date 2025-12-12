@@ -20,7 +20,7 @@ from tqdm import tqdm
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
-from {{ package_name }}.services.channel_finder.llm.completion import get_chat_completion
+from osprey.models.completion import get_chat_completion
 from {{ package_name }}.services.channel_finder.utils.config import get_config
 
 logger = logging.getLogger(__name__)
@@ -295,15 +295,22 @@ RESOLUTION STRATEGY:
 
         # Generate new names
         try:
+            # Build provider config for this call
+            provider_config = {}
+            if self.base_url:
+                provider_config['base_url'] = self.base_url
+            if self.api_key:
+                provider_config['api_key'] = self.api_key
+
             response = get_chat_completion(
-                prompt=prompt,
+                message=prompt,
                 provider=self.provider,
                 model_id=self.model_id,
                 max_tokens=self.max_tokens,
                 temperature=0.3,
                 base_url=self.base_url,
-                api_key=self.api_key,
-                response_model=ChannelNames
+                provider_config=provider_config if provider_config else None,
+                output_model=ChannelNames
             )
 
             new_names = response.names

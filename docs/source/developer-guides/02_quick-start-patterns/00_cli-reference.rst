@@ -755,6 +755,7 @@ Subcommands
 - ``osprey config export`` - Export framework default configuration
 - ``osprey config set-control-system`` - Switch control system connector (mock/epics/tango)
 - ``osprey config set-epics-gateway`` - Configure EPICS gateway settings
+- ``osprey config set-models`` - Configure AI provider and models for all model roles
 
 Syntax
 ------
@@ -789,6 +790,12 @@ Examples
 .. code-block:: bash
 
    osprey config set-control-system epics
+
+**Configure AI models:**
+
+.. code-block:: bash
+
+   osprey config set-models
 
 osprey config show
 -------------------
@@ -913,7 +920,7 @@ Examples
    osprey config set-control-system tango
 
 osprey config set-epics-gateway
----------------------------------
+-------------------------------
 
 Configure EPICS gateway address and port settings.
 
@@ -955,6 +962,52 @@ Examples
    # Set custom gateway
    osprey config set-epics-gateway --facility custom \
        --address gateway.example.com --port 5064
+
+osprey config set-models
+------------------------
+
+Configure AI provider and models for all model roles.
+
+Updates ALL model configurations in config.yml to use the specified provider
+and model. This includes orchestrator, response, classifier, and any custom
+models defined in your project (e.g., channel_write, channel_finder).
+
+The max_tokens settings for each model role will be preserved.
+
+If no options are provided, launches an interactive selection menu.
+
+Syntax
+~~~~~~
+
+.. code-block:: bash
+
+   osprey config set-models [OPTIONS]
+
+Options
+~~~~~~~
+
+``--provider PROVIDER``
+   AI provider: ``anthropic``, ``openai``, ``google``, ``cborg``, or ``ollama``
+
+``--model MODEL``
+   Model identifier (e.g., ``claude-sonnet-4``, ``gpt-4``, ``anthropic/claude-haiku``)
+
+``--project PATH`` / ``-p PATH``
+   Project directory to use. If not specified, uses current directory.
+
+Examples
+~~~~~~~~
+
+.. code-block:: bash
+
+   # Interactive mode (recommended)
+   osprey config set-models
+
+   # Set all models to Anthropic Claude
+   osprey config set-models --provider anthropic --model claude-sonnet-4
+
+   # Set all models to CBORG provider for specific project
+   osprey config set-models --provider cborg --model anthropic/claude-haiku --project ~/my-agent
 
 ============
 

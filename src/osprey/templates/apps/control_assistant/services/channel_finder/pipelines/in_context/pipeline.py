@@ -232,6 +232,16 @@ class InContextPipeline(BasePipeline):
         # Save prompt for inspection
         _save_prompt_to_file(message, "query_split", query)
 
+        # Set caller context for API call logging (propagates through asyncio.to_thread)
+        from osprey.models import set_api_call_context
+
+        set_api_call_context(
+            function="_split_query",
+            module="in_context.pipeline",
+            class_name="InContextPipeline",
+            extra={"stage": "query_split"},
+        )
+
         response = await asyncio.to_thread(
             get_chat_completion,
             message=message,
@@ -315,6 +325,16 @@ class InContextPipeline(BasePipeline):
 
         # Save prompt for inspection
         _save_prompt_to_file(prompt, "channel_match", atomic_query, chunk_num)
+
+        # Set caller context for API call logging (propagates through asyncio.to_thread)
+        from osprey.models import set_api_call_context
+
+        set_api_call_context(
+            function="_match_single_query_in_chunk",
+            module="in_context.pipeline",
+            class_name="InContextPipeline",
+            extra={"stage": "channel_match", "chunk": chunk_num},
+        )
 
         response = await asyncio.to_thread(
             get_chat_completion,
@@ -434,6 +454,16 @@ class InContextPipeline(BasePipeline):
         # Save prompt for inspection
         query_str = ", ".join(atomic_queries[:2])  # First 2 queries for filename
         _save_prompt_to_file(prompt, "correction", query_str, chunk_num)
+
+        # Set caller context for API call logging (propagates through asyncio.to_thread)
+        from osprey.models import set_api_call_context
+
+        set_api_call_context(
+            function="_correct_channels_with_context",
+            module="in_context.pipeline",
+            class_name="InContextPipeline",
+            extra={"stage": "correction", "chunk": chunk_num},
+        )
 
         response = await asyncio.to_thread(
             get_chat_completion,

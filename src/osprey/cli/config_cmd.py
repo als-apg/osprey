@@ -9,6 +9,7 @@ Commands:
     - config export: Export framework default configuration
     - config set-control-system: Switch between Mock/EPICS/Tango connectors
     - config set-epics-gateway: Configure EPICS gateway settings
+    - config set-models: Configure AI provider and models for all model roles
 """
 
 import sys
@@ -57,6 +58,9 @@ def config(ctx, project):
 
       # Configure EPICS gateway (requires project)
       osprey config set-epics-gateway --facility als
+
+      # Configure AI models (requires project)
+      osprey config set-models
     """
     if ctx.invoked_subcommand is None:
         # No subcommand provided - launch interactive menu
@@ -438,6 +442,142 @@ def set_epics_gateway(facility: str, address: str, port: int, project: str):
 
     except Exception as e:
         console.print(f"❌ Failed to update EPICS gateway: {e}", style=Styles.ERROR)
+        raise click.Abort()
+
+
+@config.command(name="set-models")
+@click.option(
+    "--provider",
+    type=click.Choice(["anthropic", "openai", "google", "cborg", "ollama"], case_sensitive=False),
+    help="AI provider (anthropic, openai, google, cborg, ollama)",
+)
+@click.option(
+    "--model",
+    help="Model identifier (e.g., claude-sonnet-4, gpt-4, anthropic/claude-haiku)",
+)
+@click.option(
+    "--project",
+    "-p",
+    type=click.Path(exists=True, file_okay=False, dir_okay=True),
+    help="Project directory (default: current directory or OSPREY_PROJECT env var)",
+)
+def set_models(provider: str, model: str, project: str):
+    """Configure AI provider and models for all model roles.
+
+    Updates ALL model configurations in config.yml to use the specified provider
+    and model. This includes orchestrator, response, classifier, and any custom
+    models defined in your project (e.g., channel_write, channel_finder).
+
+    The max_tokens settings for each model role will be preserved.
+
+    If no options are provided, launches an interactive selection menu.
+
+    Requires: Must be run from a project directory containing config.yml
+
+    Examples:
+
+    \b
+      # Interactive mode (recommended)
+      osprey config set-models
+
+      # Set all models to OpenAI GPT-4
+      osprey config set-models --provider openai --model gpt-4
+
+      # Set all models to Anthropic Claude
+      osprey config set-models --provider anthropic --model claude-sonnet-4
+
+      # Set all models to CBORG provider
+      osprey config set-models --provider cborg --model anthropic/claude-haiku
+    """
+    try:
+        from osprey.generators.config_updater import find_config_file, update_all_models
+
+        from .interactive_menu import (
+            get_provider_metadata,
+            select_model,
+            select_provider,
+        )
+        from .project_utils import resolve_config_path
+
+        # Find config file
+        try:
+            config_path_str = resolve_config_path(project)
+            config_path = Path(config_path_str)
+        except Exception:
+            console.print("❌ No Osprey project found", style=Styles.ERROR)
+            console.print(
+                "\n💡 Create a new project with: [bold cyan]osprey init my-project[/bold cyan]",
+                style=Styles.DIM,
+            )
+            console.print(
+                "   Or run from a project directory containing config.yml", style=Styles.DIM
+            )
+            raise click.Abort()
+
+        if not config_path.exists():
+            console.print(f"❌ Configuration file not found: {config_path}", style=Styles.ERROR)
+            console.print(
+                "\n💡 Create a new project with: [bold cyan]osprey init my-project[/bold cyan]",
+                style=Styles.DIM,
+            )
+            raise click.Abort()
+
+        # If no options provided, launch interactive mode
+        if not provider or not model:
+            # Import interactive menu handler
+            from .interactive_menu import handle_set_models
+
+            handle_set_models(Path(config_path).parent)
+            return
+
+        # Validate provider
+        providers = get_provider_metadata()
+        if provider not in providers:
+            console.print(
+                f"❌ Invalid provider: {provider}",
+                style=Styles.ERROR,
+            )
+            console.print(
+                f"   Available providers: {', '.join(providers.keys())}",
+                style=Styles.DIM,
+            )
+            raise click.Abort()
+
+        # Validate model
+        provider_info = providers[provider]
+        if model not in provider_info["models"]:
+            console.print(
+                f"❌ Invalid model '{model}' for provider '{provider}'",
+                style=Styles.ERROR,
+            )
+            console.print(
+                f"   Available models: {', '.join(provider_info['models'][:5])}...",
+                style=Styles.DIM,
+            )
+            raise click.Abort()
+
+        # Update configuration
+        new_content, preview = update_all_models(config_path, provider, model)
+
+        # Show preview
+        console.print(f"\n{preview}\n")
+
+        # Write configuration
+        config_path.write_text(new_content)
+        console.print(f"✅ All models updated to: [bold]{provider}/{model}[/bold]")
+        console.print(f"   Configuration: {config_path}", style=Styles.DIM)
+
+    except KeyboardInterrupt:
+        console.print("\n⚠️  Operation cancelled", style=Styles.WARNING)
+        raise click.Abort()
+    except Exception as e:
+        console.print(f"❌ Failed to update models: {e}", style=Styles.ERROR)
+        import os
+
+        if os.environ.get("DEBUG"):
+            import traceback
+
+            console.print(traceback.format_exc(), style=Styles.DIM)
         raise click.Abort()
 
 

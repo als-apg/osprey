@@ -415,6 +415,13 @@ async def test_custom_pipeline_initialization(temp_config_file, monkeypatch):
                 }
             },
         },
+        "models": {
+            "channel_finder": {
+                "provider": "mock",
+                "model_id": "mock-model",
+                "max_tokens": 1000,
+            }
+        },
         "facility": {"name": "Test Facility"},
         "project_root": str(Path(temp_config_file).parent),
     }
@@ -424,6 +431,17 @@ async def test_custom_pipeline_initialization(temp_config_file, monkeypatch):
 
     mock_config_builder = Mock()
     mock_config_builder.raw_config = mock_config
+    mock_config_builder.configurable = {
+        "model_configs": {
+            "channel_finder": {
+                "provider": "mock",
+                "model_id": "mock-model",
+                "max_tokens": 1000,
+            }
+        },
+        "provider_configs": {},
+        "project_root": str(Path(temp_config_file).parent),
+    }
     mock_config_builder.get = lambda key, default=None: {
         "channel_finder.pipeline_mode": "mock_custom",
         "model.provider": "mock",
@@ -435,14 +453,19 @@ async def test_custom_pipeline_initialization(temp_config_file, monkeypatch):
     def mock_get_config():
         return mock_config_builder
 
+    def mock_get_configurable(config_path=None, set_as_default=False):
+        return mock_config_builder.configurable
+
     def mock_get_provider_config(provider):
         return {}
 
     # Patch config functions
     import services.channel_finder.service as service_module
+    import osprey.utils.config as config_module
 
     monkeypatch.setattr(service_module, "_get_config", mock_get_config)
     monkeypatch.setattr(service_module, "get_provider_config", mock_get_provider_config)
+    monkeypatch.setattr(config_module, "_get_configurable", mock_get_configurable)
 
     # Mock prompt loader
     mock_prompts = Mock()
@@ -486,6 +509,13 @@ async def test_custom_database_with_builtin_pipeline(temp_config_file, monkeypat
                 }
             },
         },
+        "models": {
+            "channel_finder": {
+                "provider": "mock",
+                "model_id": "mock-model",
+                "max_tokens": 1000,
+            }
+        },
         "facility": {"name": "Test Facility"},
         "project_root": str(Path(temp_config_file).parent),
     }
@@ -495,6 +525,17 @@ async def test_custom_database_with_builtin_pipeline(temp_config_file, monkeypat
 
     mock_config_builder = Mock()
     mock_config_builder.raw_config = mock_config
+    mock_config_builder.configurable = {
+        "model_configs": {
+            "channel_finder": {
+                "provider": "mock",
+                "model_id": "mock-model",
+                "max_tokens": 1000,
+            }
+        },
+        "provider_configs": {},
+        "project_root": str(Path(temp_config_file).parent),
+    }
     mock_config_builder.get = lambda key, default=None: {
         "channel_finder.pipeline_mode": "in_context",
         "model.provider": "mock",
@@ -506,14 +547,19 @@ async def test_custom_database_with_builtin_pipeline(temp_config_file, monkeypat
     def mock_get_config():
         return mock_config_builder
 
+    def mock_get_configurable(config_path=None, set_as_default=False):
+        return mock_config_builder.configurable
+
     def mock_get_provider_config(provider):
         return {}
 
     # Patch config functions at service level
     import services.channel_finder.service as service_module
+    import osprey.utils.config as config_module
 
     monkeypatch.setattr(service_module, "_get_config", mock_get_config)
     monkeypatch.setattr(service_module, "get_provider_config", mock_get_provider_config)
+    monkeypatch.setattr(config_module, "_get_configurable", mock_get_configurable)
 
     # Also patch config at pipeline level (InContextPipeline imports _get_config)
     import services.channel_finder.pipelines.in_context.pipeline as pipeline_module
@@ -568,6 +614,13 @@ def test_unknown_pipeline_error(temp_config_file, monkeypatch):
                 "nonexistent": {"database": {"type": "template", "path": temp_config_file}}
             },
         },
+        "models": {
+            "channel_finder": {
+                "provider": "mock",
+                "model_id": "mock",
+                "max_tokens": 1000,
+            }
+        },
         "facility": {"name": "Test"},
         "project_root": str(Path(temp_config_file).parent),
     }
@@ -576,6 +629,17 @@ def test_unknown_pipeline_error(temp_config_file, monkeypatch):
 
     mock_config_builder = Mock()
     mock_config_builder.raw_config = mock_config
+    mock_config_builder.configurable = {
+        "model_configs": {
+            "channel_finder": {
+                "provider": "mock",
+                "model_id": "mock",
+                "max_tokens": 1000,
+            }
+        },
+        "provider_configs": {},
+        "project_root": str(Path(temp_config_file).parent),
+    }
     mock_config_builder.get = lambda key, default=None: {
         "channel_finder.pipeline_mode": "nonexistent",
         "model.provider": "mock",
@@ -585,9 +649,13 @@ def test_unknown_pipeline_error(temp_config_file, monkeypatch):
     }.get(key, default)
 
     import services.channel_finder.service as service_module
+    import osprey.utils.config as config_module
 
     monkeypatch.setattr(service_module, "_get_config", lambda: mock_config_builder)
     monkeypatch.setattr(service_module, "get_provider_config", lambda p: {})
+    monkeypatch.setattr(
+        config_module, "_get_configurable", lambda config_path=None, set_as_default=False: mock_config_builder.configurable
+    )
 
     from services.channel_finder.core.exceptions import PipelineModeError
 
@@ -608,6 +676,13 @@ def test_unknown_database_error(temp_config_file, monkeypatch):
                 }
             },
         },
+        "models": {
+            "channel_finder": {
+                "provider": "mock",
+                "model_id": "mock",
+                "max_tokens": 1000,
+            }
+        },
         "facility": {"name": "Test"},
         "project_root": str(Path(temp_config_file).parent),
     }
@@ -616,6 +691,17 @@ def test_unknown_database_error(temp_config_file, monkeypatch):
 
     mock_config_builder = Mock()
     mock_config_builder.raw_config = mock_config
+    mock_config_builder.configurable = {
+        "model_configs": {
+            "channel_finder": {
+                "provider": "mock",
+                "model_id": "mock",
+                "max_tokens": 1000,
+            }
+        },
+        "provider_configs": {},
+        "project_root": str(Path(temp_config_file).parent),
+    }
     mock_config_builder.get = lambda key, default=None: {
         "channel_finder.pipeline_mode": "in_context",
         "model.provider": "mock",
@@ -625,10 +711,14 @@ def test_unknown_database_error(temp_config_file, monkeypatch):
     }.get(key, default)
 
     import services.channel_finder.service as service_module
+    import osprey.utils.config as config_module
 
     monkeypatch.setattr(service_module, "_get_config", lambda: mock_config_builder)
     monkeypatch.setattr(service_module, "get_provider_config", lambda p: {})
     monkeypatch.setattr(service_module, "load_prompts", lambda c: Mock())
+    monkeypatch.setattr(
+        config_module, "_get_configurable", lambda config_path=None, set_as_default=False: mock_config_builder.configurable
+    )
 
     from services.channel_finder.core.exceptions import ConfigurationError
 

@@ -236,11 +236,12 @@ class TestHierarchyTraversal:
             assert len(subsystems) == 1
             assert subsystems[0]["name"] == "SUB1"
 
-            # Level 3: Device (optional) - should show DEV and SIG2
+            # Level 3: Device (optional) - should show only DEV (actual device with children)
+            # SIG2 is a leaf node, so it doesn't appear here (it's a signal, not a device)
             devices = db.get_options_at_level("device", {"system": "SYS", "subsystem": "SUB1"})
-            assert len(devices) == 2
+            assert len(devices) == 1
             device_names = {opt["name"] for opt in devices}
-            assert device_names == {"DEV", "SIG2"}
+            assert device_names == {"DEV"}
 
             # Path A: With device (SYS:SUB1:DEV:SIG1)
             signals_with_device = db.get_options_at_level(

@@ -179,6 +179,13 @@ async def _run_benchmark(project, pipeline_mode: str):
         logging.getLogger(f"{package_name}").setLevel(logging.WARNING)
         logging.getLogger("channel_finder").setLevel(logging.WARNING)
 
+        # Initialize registry for this project context
+        # This is required before creating BenchmarkRunner which instantiates ChannelFinderService
+        from osprey.registry import initialize_registry, reset_registry
+
+        reset_registry()
+        initialize_registry(config_path=str(project.config_path))
+
         # Import the benchmark runner
         runner_module = __import__(
             f"{package_name}.services.channel_finder.benchmarks.runner",
@@ -211,6 +218,10 @@ async def _run_benchmark(project, pipeline_mode: str):
         return results
 
     finally:
+        # Reset registry to prevent state pollution between tests
+        from osprey.registry import reset_registry
+        reset_registry()
+
         # Restore original directory
         os.chdir(original_cwd)
 

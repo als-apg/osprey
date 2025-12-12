@@ -235,30 +235,26 @@ class TestE2EWorkflow:
         registry_code = (app_dir / "registry.py").read_text()
         assert "extend_framework_registry" in registry_code
 
-        # Verify hello_world_weather does NOT include services (no containers needed)
-        assert not (project_dir / "services").exists()
+        # Verify hello_world_weather includes services directory (for deployment options)
+        assert (project_dir / "services").exists()
+        # Should have standard service directories
+        assert (project_dir / "services" / "jupyter").exists()
+        assert (project_dir / "services" / "open-webui").exists()
+        assert (project_dir / "services" / "pipelines").exists()
 
-        # Verify config does NOT include production-only sections
+        # Verify config includes standard sections (now includes deployment capabilities)
         config_content = (project_dir / "config.yml").read_text()
 
-        # Check for deployed services and services configuration
-        assert "deployed_services:" not in config_content  # No deployed services list
-        assert "jupyter:" not in config_content  # No Jupyter service
-        assert "open_webui:" not in config_content  # No OpenWebUI service
-        assert "containers:" not in config_content  # No container configurations
-
-        # Check for production-only sections - using unique strings from those sections
-        assert "container_runtime:" not in config_content  # No container runtime config
-        assert (
-            "global_mode:" not in config_content
-        )  # No approval configuration (unique to approval section)
-        assert "execution_control:" not in config_content  # No execution control
-        assert (
-            "execution_method:" not in config_content
-        )  # No execution infrastructure (unique to execution section)
-        assert "max_generation_retries:" not in config_content  # No python executor section
-        assert "gateways:" not in config_content  # No EPICS gateway configuration
-        assert "writes_enabled:" not in config_content  # No EPICS writes configuration
+        # Check that basic configuration sections are present
+        assert "models:" in config_content  # Model configuration
+        assert "deployed_services:" in config_content  # Services configuration
+        assert "container_runtime:" in config_content  # Container runtime
+        
+        # Verify it's valid YAML
+        import yaml
+        config_data = yaml.safe_load(config_content)
+        assert "models" in config_data
+        assert "deployed_services" in config_data
 
 
 if __name__ == "__main__":

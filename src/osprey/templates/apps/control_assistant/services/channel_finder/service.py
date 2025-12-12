@@ -251,23 +251,43 @@ class ChannelFinderService:
             )
 
     def _load_model_config(self, config: dict) -> dict:
-        """Load model configuration using Osprey's config system."""
-        config_builder = _get_config()
+        """Load model configuration using Osprey's config system.
 
-        # Get model configuration from Osprey config
-        provider = config_builder.get("model.provider", "cborg")
-        model_id = config_builder.get("model.model_id", "anthropic/claude-haiku")
-        max_tokens = config_builder.get("model.max_tokens", 4096)
+        Raises:
+            ConfigurationError: If channel_finder model is not configured
+        """
+        from osprey.utils.config import get_model_config
 
-        # Get provider configuration using Osprey's utility
-        provider_config = get_provider_config(provider)
+        # Use Osprey's standard model config utility
+        # This returns the entire config dict with all parameters
+        model_config = get_model_config("channel_finder")
 
-        return {
-            "provider": provider,
-            "model_id": model_id,
-            "max_tokens": max_tokens,
-            **provider_config,
-        }
+        # Validate that configuration exists
+        if not model_config:
+            raise ConfigurationError(
+                "Channel finder model not configured. "
+                "Please add 'channel_finder' to the 'models' section in config.yml:\n\n"
+                "models:\n"
+                "  channel_finder:\n"
+                "    provider: openai  # or anthropic, cborg, etc.\n"
+                "    model_id: gpt-4   # your preferred model\n"
+                "    max_tokens: 4096\n"
+            )
+
+        # Validate required fields
+        if "provider" not in model_config or "model_id" not in model_config:
+            raise ConfigurationError(
+                "Channel finder model configuration incomplete. "
+                f"Missing required fields: provider={model_config.get('provider')}, "
+                f"model_id={model_config.get('model_id')}. "
+                "Please ensure both 'provider' and 'model_id' are set in config.yml"
+            )
+
+        # Get provider configuration and merge
+        provider_config = get_provider_config(model_config["provider"])
+
+        # Return complete config (preserves all parameters from config.yml)
+        return {**model_config, **provider_config}
 
     def _resolve_path(self, path_str: str) -> str:
         """Resolve path relative to project root using Osprey config."""

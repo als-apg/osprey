@@ -16,7 +16,6 @@ project_root: {{ project_root }}
 # Application Registry
 registry_path: ./src/{{ package_name }}/registry.py
 
-{% if template_name != 'hello_world_weather' %}
 # ============================================================
 # CONTAINER RUNTIME
 # ============================================================
@@ -29,7 +28,6 @@ registry_path: ./src/{{ package_name }}/registry.py
 
 container_runtime: auto
 
-{% endif %}
 # ============================================================
 # MODEL CONFIGURATION
 # ============================================================
@@ -109,6 +107,7 @@ services:
     copy_src: true  # Copies user application from src/
     # additional_dirs: []  # Add custom directories to copy if needed
 
+{% endif %}
 # ============================================================
 # DEPLOYED SERVICES
 # ============================================================
@@ -118,8 +117,6 @@ deployed_services:
   - jupyter
   - open_webui
   - pipelines
-
-{% endif %}
 
 {% if template_name != 'hello_world_weather' %}
 # ============================================================
@@ -153,6 +150,7 @@ execution_control:
     max_concurrent_classifications: 5 # Maximum concurrent LLM classification requests
 
 {% endif %}
+
 # ============================================================
 # SYSTEM CONFIGURATION
 # ============================================================
@@ -292,6 +290,7 @@ python_executor:
   execution_timeout_seconds: 600
 
 {% endif %}
+
 # ============================================================
 # APPLICATION METADATA
 # ============================================================

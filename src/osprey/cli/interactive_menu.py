@@ -2388,10 +2388,6 @@ def show_config_menu() -> str | None:
     return questionary.select(
         "What would you like to do?",
         choices=[
-            Choice("[→] show               - Display current configuration", value="show"),
-            Choice(
-                "[→] export             - Export framework default configuration", value="export"
-            ),
             Choice(
                 "[→] set-control-system - Switch between Mock/EPICS connectors",
                 value="set_control_system",
@@ -2399,6 +2395,14 @@ def show_config_menu() -> str | None:
             Choice(
                 "[→] set-epics-gateway  - Configure EPICS gateway (APS, ALS, custom)",
                 value="set_epics_gateway",
+            ),
+            Choice(
+                "[→] set-models         - Change AI provider and models",
+                value="set_models",
+            ),
+            Choice("[→] show               - Display current configuration", value="show"),
+            Choice(
+                "[→] export             - Export framework default configuration", value="export"
             ),
             Choice("─" * 60, value=None, disabled=True),
             Choice("[←] back               - Return to main menu", value="back"),
@@ -2466,6 +2470,8 @@ def handle_config_action(project_path: Path | None = None) -> None:
             handle_set_control_system(project_path)
         elif action == "set_epics_gateway":
             handle_set_epics_gateway(project_path)
+        elif action == "set_models":
+            handle_set_models(project_path)
 
 
 def handle_set_control_system(project_path: Path | None = None) -> None:
@@ -2654,6 +2660,87 @@ def handle_set_epics_gateway(project_path: Path | None = None) -> None:
         console.print(f"\n{Messages.success('✓ EPICS gateway configuration updated!')}")
         console.print(
             "\n[dim]Remember to also set control_system.type to 'epics' for production use[/dim]"
+        )
+    else:
+        console.print(f"\n{Messages.warning('✗ Configuration not changed')}")
+
+    input("\nPress ENTER to continue...")
+
+
+def handle_set_models(project_path: Path | None = None) -> None:
+    """Handle interactive model configuration."""
+    from osprey.generators.config_updater import (
+        find_config_file,
+        get_all_model_configs,
+        update_all_models,
+    )
+
+    console.clear()
+    console.print(f"\n{Messages.header('Configure AI Models')}\n")
+
+    # Find config file
+    if project_path:
+        config_path = project_path / "config.yml"
+    else:
+        config_path = find_config_file()
+
+    if not config_path or not config_path.exists():
+        console.print(f"{Messages.error('No config.yml found in current directory')}")
+        input("\nPress ENTER to continue...")
+        return
+
+    # Show current configuration
+    current_models = get_all_model_configs(config_path)
+    if current_models:
+        # Show first model as example of current config
+        first_model = next(iter(current_models.values()))
+        current_provider = first_model.get("provider", "unknown")
+        current_model_id = first_model.get("model_id", "unknown")
+        console.print(f"[dim]Current: {current_provider}/{current_model_id}[/dim]")
+        console.print(f"[dim]Configured models: {len(current_models)}[/dim]\n")
+    else:
+        console.print("[dim]No model configuration found[/dim]\n")
+
+    # Get provider metadata
+    console.print("[dim]Loading available providers and models...[/dim]")
+    providers = get_provider_metadata()
+
+    if not providers:
+        console.print(f"\n{Messages.error('Could not load provider information')}")
+        input("\nPress ENTER to continue...")
+        return
+
+    # Provider selection
+    console.print("\n[bold]Step 1: Select AI Provider[/bold]\n")
+    provider = select_provider(providers)
+    if provider is None:
+        return
+
+    # Model selection
+    console.print(f"\n[bold]Step 2: Select Model for {provider}[/bold]\n")
+    model_id = select_model(provider, providers)
+    if model_id is None:
+        return
+
+    # Generate update and preview
+    try:
+        new_content, preview = update_all_models(config_path, provider, model_id)
+    except Exception as e:
+        console.print(f"\n{Messages.error(f'Failed to generate update: {e}')}")
+        input("\nPress ENTER to continue...")
+        return
+
+    # Show preview
+    console.print("\n" + preview)
+
+    # Confirm
+    if questionary.confirm(
+        "\nUpdate all models in config.yml?", default=True, style=custom_style
+    ).ask():
+        config_path.write_text(new_content)
+        console.print(f"\n{Messages.success('✓ Model configuration updated!')}")
+        console.print(
+            f"\n[dim]All {len(current_models)} model(s) now use: {provider}/{model_id}[/dim]"
         )
     else:
         console.print(f"\n{Messages.warning('✗ Configuration not changed')}")

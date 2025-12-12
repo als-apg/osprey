@@ -7,7 +7,7 @@ What You'll Learn
 This installation guide covers the complete framework setup process:
 
 * **Installing Container Runtime** - Docker Desktop or Podman for containerized services
-* **Python 3.11 Setup** - Virtual environment configuration
+* **Python 3.11+ Setup** - Virtual environment configuration
 * **Framework Installation** - Installing the pip package with all dependencies
 * **Project Creation** - Generating a new project from templates
 * **Configuration** - Setting up ``config.yml`` and environment variables
@@ -28,7 +28,7 @@ This installation guide covers the complete framework setup process:
    **What You'll Install:**
 
    - Docker Desktop 4.0+ OR Podman 4.0+ (container runtime)
-   - Python 3.11 (programming language)
+   - Python 3.11+ (programming language)
    - Osprey Framework (pip package)
 
    **Time estimate:** 30-60 minutes for complete setup
@@ -101,9 +101,9 @@ If both are installed, Docker is preferred by default.
 
 **Environment Setup**
 
-**Python 3.11 Requirement**
+**Python 3.11+ Requirement**
 
-This framework requires `Python 3.11 <https://www.python.org/downloads/>`_. Verify you have the correct version:
+This framework requires `Python 3.11+ <https://www.python.org/downloads/>`_. Verify you have the correct version:
 
 .. code-block:: bash
 
@@ -111,7 +111,7 @@ This framework requires `Python 3.11 <https://www.python.org/downloads/>`_. Veri
 
 **Virtual Environment Setup**
 
-To avoid conflicts with your system Python packages, create a virtual environment with Python 3.11:
+To avoid conflicts with your system Python packages, create a virtual environment with Python 3.11+:
 
 .. code-block:: bash
 
@@ -717,7 +717,7 @@ Troubleshooting
 
 **Verification Steps:**
 
-1. Check Python version: ``python --version`` (should be 3.11.x)
+1. Check Python version: ``python --version`` (should be 3.11.x or higher)
 2. Check container runtime version: ``docker --version`` or ``podman --version`` (should be 4.0.0+)
 3. Verify virtual environment is active (should see ``(venv)`` in your prompt)
 4. Test core framework imports: ``python -c "import langgraph; print('LangGraph installed successfully')"``
@@ -726,7 +726,7 @@ Troubleshooting
 
 **Common Installation Issues:**
 
-- **Python version mismatch**: Ensure you're using Python 3.11 with ``python3.11 -m venv venv``
+- **Python version mismatch**: Ensure you're using Python 3.11+ with ``python3.11 -m venv venv``
 - **Package conflicts**: If you get dependency conflicts, try creating a fresh virtual environment
 - **Missing dependencies**: The main requirements.txt should install everything needed; avoid mixing with system packages
 

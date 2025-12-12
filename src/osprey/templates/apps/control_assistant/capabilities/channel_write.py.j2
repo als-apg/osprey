@@ -502,11 +502,7 @@ class ChannelWriteCapability(BaseCapability):
                         'operation_count': len(write_operations),
                         'channels': [op.channel_address for op in write_operations],
                         'values': [(op.channel_address, op.value) for op in write_operations],
-                        'safety_level': 'high',
-                        'verification_levels': [
-                            self._get_verification_config(op.channel_address, op.value)[0]
-                            for op in write_operations
-                        ]
+                        'safety_level': 'high'
                     },
                     safety_concerns=[
                         f"Direct hardware write: {op.channel_address} = {op.value}"

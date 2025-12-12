@@ -466,3 +466,119 @@ def get_facility_from_gateway_config(config_path: Path) -> str | None:
             return "Custom"
 
     return None
+
+
+# ============================================================================
+# Model Configuration
+# ============================================================================
+
+
+def get_all_model_configs(config_path: Path) -> dict | None:
+    """Get all model configurations from config.yml.
+
+    Args:
+        config_path: Path to config.yml
+
+    Returns:
+        Dict with all model configurations or None if not found
+    """
+    try:
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+
+        return config.get("models", {})
+    except Exception:
+        pass
+
+    return None
+
+
+def update_all_models(
+    config_path: Path, provider: str, model_id: str
+) -> tuple[str, str]:
+    """Update all model configurations in config.yml with new provider/model.
+
+    This updates ALL model entries in the models section to use the same
+    provider and model_id, while preserving any custom max_tokens settings.
+
+    Args:
+        config_path: Path to config.yml
+        provider: Provider name (e.g., 'openai', 'anthropic', 'cborg')
+        model_id: Model ID (e.g., 'gpt-4', 'claude-sonnet-4')
+
+    Returns:
+        Tuple of (new_content, preview) where preview shows what will be changed
+
+    Example:
+        >>> new_content, preview = update_all_models(config_path, 'openai', 'gpt-4')
+        >>> config_path.write_text(new_content)
+    """
+    content = config_path.read_text()
+
+    # Get current models to show what's changing
+    try:
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+        current_models = config.get("models", {})
+    except Exception:
+        current_models = {}
+
+    # Pattern to match provider and model_id in any model entry
+    # Matches:   provider: <value>
+    #            model_id: <value>
+    # Under the models: section (with 2-space indentation for role names)
+
+    # Update all provider entries under models section
+    provider_pattern = r"(models:(?:\s*\n  \w+:(?:\s*\n    (?:provider|model_id|max_tokens):.*)*)*)"
+
+    def update_models_section(match):
+        section = match.group(0)
+        # Replace provider: <anything>
+        section = re.sub(
+            r"(\n    provider:\s*)\S+",
+            rf"\1{provider}",
+            section
+        )
+        # Replace model_id: <anything>
+        section = re.sub(
+            r"(\n    model_id:\s*)\S+",
+            rf"\1{model_id}",
+            section
+        )
+        return section
+
+    new_content = re.sub(
+        provider_pattern,
+        update_models_section,
+        content,
+        flags=re.MULTILINE
+    )
+
+    # Create preview showing changes
+    model_count = len(current_models)
+
+    preview_lines = [
+        "[bold]Model Configuration Update[/bold]\n",
+        f"Provider: [value]{provider}[/value]",
+        f"Model ID: [value]{model_id}[/value]",
+        f"\nThis will update [bold]{model_count}[/bold] model configuration(s):",
+    ]
+
+    # List the models that will be updated
+    for model_name in sorted(current_models.keys()):
+        current = current_models[model_name]
+        current_provider = current.get("provider", "unknown")
+        current_model = current.get("model_id", "unknown")
+
+        if current_provider != provider or current_model != model_id:
+            preview_lines.append(
+                f"  • {model_name}: {current_provider}/{current_model} → {provider}/{model_id}"
+            )
+        else:
+            preview_lines.append(f"  • {model_name}: [dim](no change)[/dim]")
+
+    preview_lines.append("\n[dim]Note: max_tokens settings will be preserved[/dim]")
+
+    preview = "\n".join(preview_lines)
+
+    return new_content, preview

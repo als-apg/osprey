@@ -843,11 +843,32 @@ class HierarchicalChannelDatabase(BaseDatabase):
         # Get level configuration
         level_config = self.hierarchy_config["levels"][level]
         level_type = level_config["type"]
+        is_optional = level_config.get("optional", False)
 
         # Extract options based on level type
         if level_type == "tree":
             # Direct children of current node
-            return self._extract_tree_options(current_node)
+            options = self._extract_tree_options(current_node)
+
+            # OPTIONAL LEVEL FILTERING: For optional tree levels, filter out leaf nodes
+            # Leaf nodes at this position belong to the NEXT level in the hierarchy,
+            # not this optional level. This prevents direct signals from appearing as
+            # subdevice options, for example.
+            if is_optional and options:
+                # Get level index for leaf detection
+                level_idx = self.hierarchy_levels.index(level)
+                filtered_options = []
+
+                for opt in options:
+                    opt_node = current_node.get(opt["name"])
+                    if opt_node and not self._is_leaf_node(opt_node, level_idx + 1):
+                        # Not a leaf - this is a valid container for this optional level
+                        filtered_options.append(opt)
+                    # Leaf nodes are skipped - they belong to the next level
+
+                return filtered_options
+
+            return options
 
         elif level_type == "instances":
             # Find expansion definition for this level
@@ -1009,6 +1030,7 @@ class HierarchicalChannelDatabase(BaseDatabase):
 
         Works with any number of levels - uses Cartesian product.
         Only includes levels that are referenced in the naming pattern.
+        Handles optional levels by treating missing levels as empty strings.
 
         Args:
             selections: Dict mapping level names to selected values (strings or lists)
@@ -1022,7 +1044,21 @@ class HierarchicalChannelDatabase(BaseDatabase):
         # Convert selections for pattern levels to lists for uniform handling
         selection_lists = []
         for level in pattern_levels:
-            values = self._ensure_list(selections.get(level, []))
+            if level in selections:
+                # Level provided in selections
+                values = self._ensure_list(selections.get(level, []))
+            else:
+                # Level not in selections - check if it's optional
+                level_config = self.hierarchy_config["levels"][level]
+                is_optional = level_config.get("optional", False)
+
+                if is_optional:
+                    # Optional level not provided - use empty string
+                    values = [""]
+                else:
+                    # Required level missing - return empty list (invalid selections)
+                    return []
+
             selection_lists.append(values)
 
         # Generate Cartesian product of all selections
@@ -1031,6 +1067,10 @@ class HierarchicalChannelDatabase(BaseDatabase):
             # Build channel name using naming pattern
             params = dict(zip(pattern_levels, combination))
             channel = self.naming_pattern.format(**params)
+
+            # Apply separator cleanup for optional levels (removes :: and trailing :)
+            channel = self._clean_optional_separators(channel)
+
             channels.append(channel)
 
         return channels
