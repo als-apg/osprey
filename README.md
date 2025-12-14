@@ -1,6 +1,6 @@
 # Osprey Framework
 
-**🎉 Latest Release: v0.9.6** - Control Assistant Enhancements & Channel Finder Improvements
+**🎉 Latest Release: v0.9.7** - Configuration Management & Channel Finder Robustness
 
 > **🚧 Early Access Release**
 > This is an early access version of the Osprey Framework. While the core functionality is stable and ready for experimentation, documentation and APIs may still evolve. We welcome feedback and contributions!

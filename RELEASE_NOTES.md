@@ -1,138 +1,105 @@
-# Osprey Framework - Latest Release (v0.9.6)
+# Osprey Framework - Latest Release (v0.9.7)
 
-🎉 **Control Assistant Enhancements & Channel Finder Improvements** - Custom Task Extraction, Enhanced Database Preview, and Flexible Hierarchy Configuration
+🎉 **Configuration Management & Channel Finder Robustness** - Model Configuration CLI, Enhanced Channel Finder Validation, and Bug Fixes
 
-## What's New in v0.9.6
+## What's New in v0.9.7
 
 ### 🚀 Major New Features
 
-#### Control Assistant Template - Custom Task Extraction Prompt
-- **Domain-Specific Task Extraction**: Control-system-specific task extraction prompt builder replaces framework defaults
-  - 14 control system examples covering channel references, temporal context, write operations, and visualization requests
-  - Unit test suite verifying custom prompt usage without LLM invocation
-  - Documentation in Part 4 tutorial explaining single-point-of-failure importance
-  - Ensures accurate task decomposition for accelerator control operations
+#### CLI - Model Configuration Command
+- **Unified Model Configuration**: New `osprey config set-models` command to update all model configurations at once
+  - Interactive mode: Guided prompts for selecting AI provider and specific models
+  - Direct mode: Pass provider and models as command-line arguments for automation
+  - Updates all relevant model fields: `model`, `channel_finder`, `python_generator`, and `mcp_server_generator`
+  - Comprehensive unit tests covering interactive and direct configuration scenarios
 
-#### Channel Finder - Enhanced Database Preview Tool
-- **Flexible Display Options**: Better hierarchy visibility and exploration
-  - `--depth N` parameter to control tree depth display (default: 3, -1 for unlimited)
-  - `--max-items N` parameter to limit items shown per level (default: 10, -1 for unlimited)
-  - `--sections` parameter with modular output: tree, stats, breakdown, samples, all
-  - `--path PATH` parameter to preview any database file directly
-  - `--focus PATH` parameter to zoom into specific hierarchy branches
-  - New `stats` section showing unique value counts at each hierarchy level
-  - New `breakdown` section showing channel count breakdown by path
-  - New `samples` section showing random sample channel names
-  - Backwards compatible `--full` flag support
-  - Comprehensive unit tests covering all preview features and edge cases
+#### Channel Finder - Enhanced Reliability
+- **API Call Context Tracking**: Added context tracking to channel finder pipeline for better debugging and logging
+  - Improved visibility into LLM API calls during channel finding operations
+  - Better error messages and troubleshooting capabilities
+- **Improved Configuration Validation**: Clearer error messages when channel_finder model is not configured
+  - Prevents silent failures or confusing error messages
+  - Guides users to proper configuration steps
 
-#### Hierarchical Channel Finder - Advanced Configuration Features
-- **Custom Separator Overrides**: Per-node control of channel name separators
-  - New `_separator` metadata field overrides default separators
-  - Solves EPICS naming with mixed delimiters (`:` for subdevices, `_` for suffixes, `.` for legacy)
-  - Backward compatible: nodes without `_separator` use pattern defaults
-- **Automatic Leaf Detection**: Eliminates verbose `_is_leaf` markers
-  - Nodes without children automatically detected as leaves
-  - `_is_leaf` now only required for nodes with children that are also complete channels
-  - Reduces verbosity in database definitions
-  - Backward compatible: explicit markers still work
-- **Flexible Naming Configuration**: Navigation-only levels and decoupled naming
-  - Naming pattern can reference subset of hierarchy levels
-  - New `_channel_part` field decouples tree keys from naming components
-  - Enables semantic tree organization with PV names at leaf (JLab CEBAF pattern)
-  - Enables friendly navigation with technical naming ("Magnets" → "MAG")
+### 📚 Documentation Improvements
 
-#### Channel Finder - Pluggable Pipeline and Database System
-- **Registration Pattern**: Custom implementations without modifying framework
-  - `register_pipeline()` and `register_database()` methods
-  - Discovery API: `list_available_pipelines()` and `list_available_databases()`
-  - Config-driven selection
-  - Examples for RAG pipeline and PostgreSQL database implementations
+#### Python Version Consistency
+- **Unified Python Requirements**: Updated all documentation and templates to consistently specify "Python 3.11+"
+  - Matches the pyproject.toml requirement of `>=3.11`
+  - Eliminates confusion about supported Python versions
+  - Updated files: installation guides, README templates, and documentation
 
-### 🧪 Comprehensive Test Suite
+### 🔧 Infrastructure & Code Quality
 
-#### New Test Coverage
-- **Channel Finder Parameterized Tests**: Automated testing for all example databases
-  - 80 tests covering all 6 example databases
-  - Parameterized tests automatically run on new databases
-  - Core functionality: loading, navigation, channel generation, validation
-  - Expected channel count validation (total: 30,908 channels)
-  - Database-specific feature tests
-- **Custom Task Extraction Tests**: Unit tests for control assistant prompt builder
-- **Preview Tool Tests**: Comprehensive coverage of all preview features
-- **Hierarchical Channel Finder Tests**: 18 new tests for flexible naming functionality
+#### Control Assistant Template Cleanup
+- **Removed Duplicate Code**: Removed duplicate `completion.py` implementation from channel finder service
+  - Now uses `osprey.models.completion` for consistency and maintainability
+  - Reduces code duplication and maintenance burden
+  - Ensures consistent LLM completion behavior across all capabilities
 
-### 🔧 Infrastructure Improvements
-
-#### Channel Finder
-- **Default Preview Depth**: Increased from 2 to 3 levels for better visibility
-- **Comprehensive Example Coverage**: All example databases now tested
-  - `hierarchical_legacy.json` and `optional_levels.json` previously untested
+#### Pre-Merge Code Quality
+- **Code Cleanup**: Removed unused imports and applied formatting standards
+  - Applied black formatting to 13 files
+  - Documented DEBUG and CONFIG_FILE environment variables in `env.example`
+  - Improved overall code quality and consistency
 
 ### 🐛 Bug Fixes
 
-#### MCP Server Template
-- **Dynamic Timestamps**: Fixed MCP server generation to use current UTC timestamps instead of hardcoded November 15, 2025 dates
-  - Prevents e2e test failures due to stale mock data
-  - Ensures demo servers return realistic "current" weather data
+#### Channel Finder - Optional Levels Navigation
+- **Fixed Hierarchy Navigation Bug**: Resolved issue where direct signals incorrectly appeared as subdevice options in optional hierarchy levels
+  - System now correctly distinguishes between container nodes (current optional level) and leaf/terminal nodes (next level)
+  - Fixed `build_channels_from_selections()` to handle missing optional levels
+  - Automatic separator cleanup (removes `::` and trailing separators)
+  - Comprehensive test coverage: 18 new tests in `test_hierarchical_optional_levels_regression.py`
 
-#### Channel Finder Tests
-- **Unit Test Compatibility**: Updated test files for hierarchical database changes (optional levels, custom separators)
+#### Template Fixes
+- **Hello World Weather Template**: Added service configuration to prevent template generation errors
+  - Fixed `'services/docker-compose.yml.j2' not found` error when following installation guide
+  - Template now includes proper container runtime and deployed services configuration
 
-#### Registry & Test Infrastructure
-- **Mock Cleanup**: Fixed 7 registry isolation test failures
-  - Session-level registry mock pollution from capability tests resolved
-  - Renamed conflicting test fixtures to prevent pytest naming collisions
+#### Capability Fixes
+- **Channel Write Capability**: Fixed initialization bug in approval workflow
+  - Removed `verification_levels` field from approval `analysis_details`
+  - Field incorrectly called `_get_verification_config()` method before connector initialization
+  - Added integration test (`test_channel_write_approval_integration.py`) to catch capability-approval interaction bugs
 
-#### Python Executor
-- **Context File Creation**: Fixed timing issue where `context.json` was not created until execution
-  - Caused warnings and test failures when approval was required
-  - Context now saved immediately when creating pre-approval notebooks
-
-#### Code Quality
-- **Pre-merge Cleanup**: Removed unused imports and applied formatting standards (black + isort)
-
-#### Documentation
-- **RST Docstring Formatting**: Corrected docstring syntax in `BaseInfrastructureNode.get_current_task()`
-  - Eliminates Sphinx warnings
-
-### 📚 Documentation
-
-#### Control Assistant Tutorial
-- **Part 4 Customization**: New section on custom task extraction prompts
-  - Explains single-point-of-failure concept
-  - Provides examples for domain-specific task extraction
-
-#### Channel Finder Documentation
-- **Advanced Hierarchy Patterns**: New "Custom Separators" tab
-- **Preview Tool Examples**: Comprehensive examples for all preview options
-- **Pluggable System Guide**: Documentation for custom pipeline/database implementations
+#### Testing Infrastructure
+- **Channel Finder Registration Tests**: Updated test mocks to include `channel_finder` model configuration
+  - Fixed tests broken by stricter validation introduced in commit 5834de3
+  - Ensures proper test coverage of channel finder initialization
+- **E2E Workflow Test**: Updated `test_hello_world_template_generates_correctly`
+  - Now expects services directory and deployment configuration
+  - Matches current template structure
+- **E2E Benchmark Tests**: Fixed registry initialization in `test_channel_finder_benchmarks.py`
+  - Added `initialize_registry()` call before creating `BenchmarkRunner`
+  - Prevents "Registry not initialized" errors
 
 ## Migration Guide
 
-### For Control Assistant Users
+### For Users
 
-No breaking changes. The custom task extraction prompt is automatically used in new control assistant projects. Existing projects continue to work with framework defaults.
+**No breaking changes.** All updates are backward compatible:
+1. **Model Configuration**: New `osprey config set-models` command is optional (existing configuration methods still work)
+2. **Channel Finder**: Stricter validation provides better error messages but doesn't change API
+3. **Templates**: Existing projects continue to work unchanged
 
-### For Channel Finder Database Authors
+### For Developers
 
-New features are backward compatible:
-1. **Custom Separators**: Optional `_separator` field (uses pattern defaults if omitted)
-2. **Automatic Leaf Detection**: No action needed (childless nodes automatically detected)
-3. **Flexible Naming**: Optional `_channel_part` field (uses tree keys if omitted)
-
-Existing databases work unchanged.
+**Test Infrastructure Update**: If you have custom tests that use the channel finder:
+- Ensure mocked `configurable` dicts include `channel_finder` model configuration
+- See updated tests in `tests/services/channel_finder/test_registration.py` for examples
 
 ## Performance & Quality
 
-- **Test Coverage**: 546 unit tests + 9 e2e tests, all passing
-- **Example Database Coverage**: 100% (6/6 databases tested)
-- **Channel Count Validation**: 30,908 channels across all examples
+- **Test Coverage**: 558 unit tests + 12 e2e tests, all passing
+- **Unit Test Runtime**: ~3-5 seconds
+- **E2E Test Runtime**: ~7 minutes
+- **Code Quality**: Consistent formatting and reduced code duplication
 
 ## Installation
 
 ```bash
-pip install osprey-framework==0.9.6
+pip install osprey-framework==0.9.7
 ```
 
 ## What's Next
@@ -145,4 +112,4 @@ Stay tuned for upcoming features:
 
 ---
 
-**Full Changelog**: https://github.com/als-apg/osprey/compare/v0.9.5...v0.9.6
+**Full Changelog**: https://github.com/als-apg/osprey/compare/v0.9.6...v0.9.7
