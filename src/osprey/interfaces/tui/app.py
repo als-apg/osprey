@@ -29,6 +29,7 @@ from osprey.interfaces.tui.widgets import (
     ProcessingBlock,
     StatusPanel,
     TaskExtractionBlock,
+    ThemePicker,
     WelcomeScreen,
 )
 from osprey.registry import get_registry, initialize_registry
@@ -53,6 +54,8 @@ class OspreyTUI(App):
         ("ctrl+shift+p", "show_command_palette", "Command Palette"),
         # Focus input (cross-platform: ctrl+l on Linux, cmd+l on macOS)
         ("ctrl+l", "focus_input", "Focus Input"),
+        # Theme picker
+        ("ctrl+t", "switch_theme", "Theme"),
     ]
 
     def __init__(self, config_path: str = "config.yml"):
@@ -194,6 +197,10 @@ class OspreyTUI(App):
             self.query_one(input_id, ChatInput).focus()
         except Exception:
             pass
+
+    def action_switch_theme(self) -> None:
+        """Show the theme picker modal."""
+        self.push_screen(ThemePicker())
 
     def _get_version(self) -> str:
         """Get the framework version."""

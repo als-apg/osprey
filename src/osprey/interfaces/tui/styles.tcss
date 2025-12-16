@@ -535,3 +535,76 @@ CommandPalette > .palette--category {
     color: $primary;
     text-style: bold;
 }
+
+/* =============================================================================
+   Theme Picker
+   ============================================================================= */
+
+ThemePicker {
+    align: center top;
+    background: $background 60%;
+}
+
+#theme-container {
+    width: 60;
+    height: auto;
+    /* margin-top computed dynamically in Python */
+    padding: 1 0 1 0;
+    background: $surface;
+    border: none;
+}
+
+#theme-header {
+    width: 100%;
+    height: 1;
+    margin-bottom: 1;
+    padding: 0 4;
+}
+
+#theme-title {
+    width: 1fr;
+    color: $text;
+    text-style: bold;
+}
+
+#theme-dismiss-hint {
+    width: auto;
+    color: $text-muted;
+}
+
+#theme-search {
+    width: 100%;
+    height: 1;
+    margin: 0 4 1 4;
+    padding: 0;
+    border: none;
+    background: transparent;
+}
+
+#theme-options {
+    width: 100%;
+    height: auto;
+    /* max-height set dynamically in Python */
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    scrollbar-size: 0 0;
+}
+
+#theme-options > .option-list--option {
+    padding: 0 2;
+}
+
+ThemePicker > .theme--label {
+    color: $text;
+}
+
+ThemePicker > .theme--category {
+    color: $primary;
+    text-style: bold;
+}
+
+ThemePicker > .theme--indicator {
+    color: $success;
+}
