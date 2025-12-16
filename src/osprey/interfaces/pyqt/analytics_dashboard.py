@@ -276,6 +276,10 @@ class AnalyticsDashboard(QWidget):
                 border: 1px solid #3F3F46;
                 gridline-color: #3F3F46;
             }
+            QTableWidget::item {
+                background-color: #1E1E1E;
+                color: #FFFFFF;
+            }
             QHeaderView::section {
                 background-color: #2D2D30;
                 color: #FFFFFF;
@@ -284,7 +288,7 @@ class AnalyticsDashboard(QWidget):
                 font-weight: bold;
             }
         """)
-        self.project_table.setAlternatingRowColors(True)
+        self.project_table.setAlternatingRowColors(False)
         self.project_table.setEditTriggers(QTableWidget.NoEditTriggers)
         
         layout.addWidget(self.project_table)
@@ -358,6 +362,10 @@ class AnalyticsDashboard(QWidget):
                 border: 1px solid #3F3F46;
                 gridline-color: #3F3F46;
             }
+            QTableWidget::item {
+                background-color: #1E1E1E;
+                color: #FFFFFF;
+            }
             QHeaderView::section {
                 background-color: #2D2D30;
                 color: #FFFFFF;
@@ -366,7 +374,7 @@ class AnalyticsDashboard(QWidget):
                 font-weight: bold;
             }
         """)
-        self.patterns_table.setAlternatingRowColors(True)
+        self.patterns_table.setAlternatingRowColors(False)
         self.patterns_table.setEditTriggers(QTableWidget.NoEditTriggers)
         
         layout.addWidget(self.patterns_table)

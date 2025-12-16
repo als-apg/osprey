@@ -3,8 +3,10 @@
 This module handles the display and management of multi-project orchestrated queries.
 """
 
+import re
 from typing import List
 from PyQt5.QtWidgets import QApplication
+from PyQt5.QtGui import QTextCursor, QTextCharFormat, QBrush, QColor, QFont
 from osprey.utils.logger import get_logger
 
 logger = get_logger("orchestration_ui")
@@ -184,7 +186,7 @@ class OrchestrationUIHandler:
             self.gui.update_conversation_list()
             self.gui.save_conversation_history()
         
-        # Display final answer
+        # Display final answer with formatted output
         self.gui._append_colored_message(
             "\n" + "=" * 60,
             "#404040"
@@ -193,12 +195,69 @@ class OrchestrationUIHandler:
             "\n🤖 Combined Answer:",
             "#00FF00"
         )
-        self.gui._append_colored_message(
-            combined_result,
-            "#FFFFFF"
-        )
+        self.gui._append_colored_message("", "#FFFFFF")  # Empty line
+        
+        # Parse and format the combined result
+        self._display_formatted_result(combined_result)
+        
         self.gui._append_colored_message(
             "\n" + "=" * 60,
             "#404040"
         )
         QApplication.processEvents()
+    
+    def _display_formatted_result(self, result: str):
+        """
+        Display formatted result with proper styling for markdown-like formatting.
+        
+        Handles:
+        - Bullet points with better spacing
+        - **Bold text** in different color
+        
+        Args:
+            result: The result text to format and display
+        """
+        lines = result.split('\n')
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Check if this is a bullet point
+            if line.startswith('-') or line.startswith('•'):
+                # Remove bullet and get content
+                content = line[1:].strip()
+                
+                # Get cursor for manual formatting
+                cursor = self.gui.conversation_display.textCursor()
+                cursor.movePosition(QTextCursor.End)
+                
+                # Insert bullet with spacing
+                cursor.insertText("\n  • ")
+                
+                # Parse **bold** sections
+                parts = re.split(r'(\*\*[^*]+\*\*)', content)
+                
+                for part in parts:
+                    if part.startswith('**') and part.endswith('**'):
+                        # Bold text - display in cyan color
+                        bold_text = part[2:-2]  # Remove ** markers
+                        text_format = QTextCharFormat()
+                        text_format.setForeground(QBrush(QColor("#00FFFF")))  # Cyan
+                        text_format.setFontWeight(QFont.Bold)
+                        cursor.insertText(bold_text, text_format)
+                    else:
+                        # Regular text - white
+                        text_format = QTextCharFormat()
+                        text_format.setForeground(QBrush(QColor("#FFFFFF")))
+                        cursor.insertText(part, text_format)
+                
+                # Add spacing after bullet point
+                cursor.insertText("\n")
+                
+                self.gui.conversation_display.setTextCursor(cursor)
+                self.gui.conversation_display.ensureCursorVisible()
+            else:
+                # Regular line - display as-is
+                self.gui._append_colored_message(line, "#FFFFFF")
