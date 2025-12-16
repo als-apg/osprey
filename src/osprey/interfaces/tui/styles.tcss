@@ -465,7 +465,7 @@ TaskExtractionStep {
     color: $error;
 }
 
-/* Logs link - clickable, muted color */
+/* Logs link - clickable, focusable */
 #step-logs-link {
     width: auto;
     text-style: underline;
@@ -473,7 +473,8 @@ TaskExtractionStep {
     margin-left: 2;
 }
 
-#step-logs-link:hover {
+#step-logs-link:hover,
+#step-logs-link:focus {
     color: $accent;
 }
 
@@ -504,10 +505,10 @@ LogViewer {
 
 #log-viewer-container {
     width: 100%;
-    max-width: 120;
     height: auto;
     max-height: 80%;
-    padding: 1 2;
+    margin: 0;
+    padding: 1 4;
     background: $surface;
     border: none;
 }

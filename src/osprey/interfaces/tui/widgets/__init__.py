@@ -3,6 +3,7 @@
 from osprey.interfaces.tui.widgets.blocks import (
     ClassificationBlock,
     ExecutionStepBlock,
+    LogsLink,
     OrchestrationBlock,
     ProcessingBlock,
     ProcessingStep,
@@ -26,6 +27,7 @@ __all__ = [
     "ChatMessage",
     "CommandPalette",
     "DebugBlock",
+    "LogsLink",
     "LogViewer",
     "ProcessingBlock",
     "ProcessingStep",

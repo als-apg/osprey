@@ -4,6 +4,7 @@ import textwrap
 from typing import TYPE_CHECKING, Any
 
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal
 from textual.widgets import Collapsible, Static
 
@@ -381,6 +382,24 @@ class ProcessingBlock(Static):
         content.update(self._format_log_messages())
 
 
+class LogsLink(Static):
+    """Focusable logs link that opens log viewer modal on Enter or click."""
+
+    can_focus = True
+
+    BINDINGS = [
+        Binding("enter", "activate", "Open logs", show=False),
+    ]
+
+    def action_activate(self) -> None:
+        """Handle Enter key press - open logs modal."""
+        # Find parent ProcessingStep and call _show_logs
+        for ancestor in self.ancestors_with_self:
+            if isinstance(ancestor, ProcessingStep):
+                ancestor._show_logs()
+                break
+
+
 class ProcessingStep(Static):
     """Base class for minimal processing steps with indicator and title only.
 
@@ -394,6 +413,9 @@ class ProcessingStep(Static):
     INDICATOR_ACTIVE = "*"
     INDICATOR_SUCCESS = "✓"
     INDICATOR_ERROR = "✗"
+
+    # Visual guide for output line
+    OUTPUT_GUIDE = "╰"
 
     # Breathing animation frames - same as ProcessingBlock
     BREATHING_FRAMES = ["*", "✱", "✳", "✱"]
@@ -424,9 +446,10 @@ class ProcessingStep(Static):
         """Compose the step with title line, logs link, and output line."""
         with Horizontal(id="step-header"):
             yield Static(
-                f"{self.INDICATOR_PENDING} {self.title}", id="step-title"
+                f"[bold]{self.INDICATOR_PENDING} {self.title}[/bold]",
+                id="step-title",
             )
-            yield Static("logs", id="step-logs-link")
+            yield LogsLink("logs", id="step-logs-link")
         yield Static("", id="step-output")
 
     def on_mount(self) -> None:
@@ -436,7 +459,7 @@ class ProcessingStep(Static):
         output = self.query_one("#step-output", Static)
         output.display = False
         # Hide logs link initially (shown when complete)
-        logs_link = self.query_one("#step-logs-link", Static)
+        logs_link = self.query_one("#step-logs-link", LogsLink)
         logs_link.display = False
         # Apply pending state
         if self._status == "active":
@@ -444,8 +467,7 @@ class ProcessingStep(Static):
 
     def on_click(self, event: "Click") -> None:
         """Handle click events on the logs link."""
-        # Check if click was on the logs link
-        logs_link = self.query_one("#step-logs-link", Static)
+        logs_link = self.query_one("#step-logs-link", LogsLink)
         if logs_link in event.widget.ancestors_with_self:
             self._show_logs()
 
@@ -473,7 +495,7 @@ class ProcessingStep(Static):
         self._breathing_index = (self._breathing_index + 1) % len(frames)
         indicator = frames[self._breathing_index]
         title_line = self.query_one("#step-title", Static)
-        title_line.update(f"{indicator} {self.title}")
+        title_line.update(f"[bold]{indicator} {self.title}[/bold]")
 
     def _stop_breathing(self) -> None:
         """Stop the breathing animation."""
@@ -484,7 +506,7 @@ class ProcessingStep(Static):
     def _apply_active(self) -> None:
         """Internal: apply active state and start breathing."""
         title_line = self.query_one("#step-title", Static)
-        title_line.update(f"{self.INDICATOR_ACTIVE} {self.title}")
+        title_line.update(f"[bold]{self.INDICATOR_ACTIVE} {self.title}[/bold]")
         self.add_class("step-active")
         self._start_breathing()
 
@@ -493,6 +515,25 @@ class ProcessingStep(Static):
         self._status = "active"
         if self._mounted:
             self._apply_active()
+
+    def _format_output(self, output_msg: str) -> str:
+        """Format output with visual guide on first line.
+
+        Args:
+            output_msg: The output message to format.
+
+        Returns:
+            Formatted string with ╰ prefix on first line,
+            subsequent lines aligned with text.
+        """
+        if not output_msg:
+            return ""
+        lines = output_msg.split("\n")
+        # First line with visual guide: "  ╰ text"
+        first_line = f"  {self.OUTPUT_GUIDE} {lines[0]}"
+        # Subsequent lines aligned with text (4 spaces to match "  ╰ ")
+        rest_lines = [f"    {line}" for line in lines[1:]]
+        return "\n".join([first_line] + rest_lines)
 
     def set_complete(
         self, status: str = "success", output_msg: str = ""
@@ -511,21 +552,21 @@ class ProcessingStep(Static):
         else:
             indicator = self.INDICATOR_ERROR
         title_line = self.query_one("#step-title", Static)
-        title_line.update(f"{indicator} {self.title}")
+        title_line.update(f"[bold]{indicator} {self.title}[/bold]")
 
         self.remove_class("step-active")
         self.add_class(f"step-{status}")
 
         # Show logs link now that step is complete
         if self._mounted:
-            logs_link = self.query_one("#step-logs-link", Static)
+            logs_link = self.query_one("#step-logs-link", LogsLink)
             logs_link.display = True
 
         # Show output message on second line (for both success and error)
         if output_msg and self._mounted:
             self._output_message = output_msg
             output = self.query_one("#step-output", Static)
-            output.update(f"  {output_msg}")
+            output.update(self._format_output(output_msg))
             output.display = True
 
     def add_log(self, message: str, status: str = "status") -> None:
