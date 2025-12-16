@@ -27,8 +27,9 @@ from osprey.interfaces.tui.widgets import (
     ExecutionStepBlock,
     OrchestrationBlock,
     ProcessingBlock,
+    ProcessingStep,
     StatusPanel,
-    TaskExtractionBlock,
+    TaskExtractionStep,
     ThemePicker,
     WelcomeScreen,
 )
@@ -687,8 +688,8 @@ class OspreyTUI(App):
         user_query: str,
         display: ChatDisplay,
         current_component: str | None,
-        current_block: ProcessingBlock | None,
-    ) -> tuple[str | None, ProcessingBlock | None]:
+        current_block: ProcessingBlock | ProcessingStep | None,
+    ) -> tuple[str | None, ProcessingBlock | ProcessingStep | None]:
         """Handle Task Preparation log events in the consumer.
 
         SINGLE-CHANNEL: All data comes from log events (via QueueLogHandler).
@@ -749,11 +750,13 @@ class OspreyTUI(App):
 
         return current_component, current_block
 
-    def _close_task_prep_block(self, block: ProcessingBlock, component: str | None) -> None:
-        """Close a Task Preparation block by setting its final output.
+    def _close_task_prep_block(
+        self, block: ProcessingBlock | ProcessingStep, component: str | None
+    ) -> None:
+        """Close a Task Preparation block/step by setting its final output.
 
         Args:
-            block: The block to close.
+            block: The block or step to close.
             component: The component name.
         """
         # If block doesn't have output set yet, set a default
@@ -783,10 +786,11 @@ class OspreyTUI(App):
 
     def _create_task_prep_block(
         self, component: str, user_query: str, display: ChatDisplay
-    ) -> ProcessingBlock | None:
-        """Create and mount a Task Preparation block.
+    ) -> ProcessingBlock | ProcessingStep | None:
+        """Create and mount a Task Preparation block or step.
 
         Handles retry numbering by checking existing blocks in display.
+        Task extraction uses minimal step widget, others use full blocks.
 
         Args:
             component: The component name.
@@ -794,7 +798,7 @@ class OspreyTUI(App):
             display: The chat display widget.
 
         Returns:
-            The created block, or None if invalid component.
+            The created block/step, or None if invalid component.
         """
         # Get current attempt index for this component
         attempt_idx = display._component_attempt_index.get(component, 0)
@@ -808,9 +812,10 @@ class OspreyTUI(App):
             display._component_attempt_index[component] = attempt_idx
             block_key = f"{component}_{attempt_idx}"
 
-        # Determine block class and title
+        # Determine block/step class and title
+        # Task extraction uses minimal step widget, others use full blocks
         block_classes = {
-            "task_extraction": (TaskExtractionBlock, "Task Extraction"),
+            "task_extraction": (TaskExtractionStep, "Task Extraction"),
             "classifier": (ClassificationBlock, "Classification"),
             "orchestrator": (OrchestrationBlock, "Orchestration"),
         }
@@ -842,11 +847,15 @@ class OspreyTUI(App):
 
         return block
 
-    def _update_input_from_data(self, block: ProcessingBlock, component: str) -> None:
+    def _update_input_from_data(
+        self, block: ProcessingBlock | ProcessingStep, component: str
+    ) -> None:
         """Update block IN section from _data dict when data is available.
 
+        For ProcessingStep, set_input() is a no-op (steps have no IN section).
+
         Args:
-            block: The processing block.
+            block: The processing block or step.
             component: The component name.
         """
         # Skip if already set from streaming
@@ -874,14 +883,17 @@ class OspreyTUI(App):
                 # Task available but no caps yet - show partial
                 block.set_input(task, mark_set=False)
 
-    def _update_output_from_data(self, block: ProcessingBlock, component: str, chunk: dict) -> None:
+    def _update_output_from_data(
+        self, block: ProcessingBlock | ProcessingStep, component: str, chunk: dict
+    ) -> None:
         """Update block OUT section from _data dict during streaming.
 
         Uses set_partial_output() for real-time updates (keeps block active).
         Also updates _shared_data for passing info to subsequent blocks.
+        For ProcessingStep, set_partial_output() is a no-op.
 
         Args:
-            block: The processing block.
+            block: The processing block or step.
             component: The component name.
             chunk: The completion event chunk.
         """

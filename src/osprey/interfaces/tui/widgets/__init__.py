@@ -5,7 +5,9 @@ from osprey.interfaces.tui.widgets.blocks import (
     ExecutionStepBlock,
     OrchestrationBlock,
     ProcessingBlock,
+    ProcessingStep,
     TaskExtractionBlock,
+    TaskExtractionStep,
 )
 from osprey.interfaces.tui.widgets.chat_display import ChatDisplay
 from osprey.interfaces.tui.widgets.command_palette import CommandPalette
@@ -24,7 +26,9 @@ __all__ = [
     "CommandPalette",
     "DebugBlock",
     "ProcessingBlock",
+    "ProcessingStep",
     "TaskExtractionBlock",
+    "TaskExtractionStep",
     "ClassificationBlock",
     "OrchestrationBlock",
     "ExecutionStepBlock",

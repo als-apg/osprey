@@ -429,6 +429,43 @@ ExecutionStepBlock {
     }
 }
 
+/* =============================================================================
+   Processing Step - minimal single-line widget (no border)
+   ============================================================================= */
+
+ProcessingStep,
+TaskExtractionStep {
+    width: 100%;
+    height: auto;
+    margin: 0 2 1 2;
+    padding: 0 2;
+    background: transparent;
+    border: none;
+}
+
+/* Step title line - normal color while processing */
+#step-title {
+    width: 100%;
+    color: $text;
+}
+
+/* Success state - grayed out text */
+.step-success #step-title {
+    color: $text-muted;
+}
+
+/* Error state - red text */
+.step-error #step-title {
+    color: $error;
+}
+
+/* Step output line (for errors) */
+#step-output {
+    width: 100%;
+    color: $error;
+    padding-left: 2;
+}
+
 /* Debug block for event visualization */
 DebugBlock,
 .debug-block {

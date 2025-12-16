@@ -377,8 +377,180 @@ class ProcessingBlock(Static):
         content.update(self._format_log_messages())
 
 
+class ProcessingStep(Static):
+    """Base class for minimal processing steps with indicator and title only.
+
+    Unlike ProcessingBlock, this displays just a single line with an indicator
+    and title. Used for steps that don't need IN/OUT/LOG sections visible.
+    """
+
+    # Same indicators as ProcessingBlock for consistency
+    INDICATOR_PENDING = "·"
+    INDICATOR_ACTIVE = "*"
+    INDICATOR_SUCCESS = "✓"
+    INDICATOR_ERROR = "✗"
+
+    # Breathing animation frames - same as ProcessingBlock
+    BREATHING_FRAMES = ["*", "✱", "✳", "✱"]
+
+    def __init__(self, title: str, **kwargs):
+        """Initialize a processing step.
+
+        Args:
+            title: The title displayed on the step line.
+        """
+        super().__init__(**kwargs)
+        self.title = title
+        self._status = "pending"
+        self._mounted = False
+        # Breathing animation state
+        self._breathing_timer = None
+        self._breathing_index = 0
+        # Internal log storage (for debugging, not displayed)
+        self._log_messages: list[tuple[str, str]] = []
+        # Data dict for extracted information
+        self._data: dict[str, Any] = {}
+        # Track if input was set (for compatibility)
+        self._input_set: bool = False
+        # Error message for output line
+        self._error_message: str = ""
+
+    def compose(self) -> ComposeResult:
+        """Compose the step with title line and optional output line."""
+        yield Static(f"{self.INDICATOR_PENDING} {self.title}", id="step-title")
+        yield Static("", id="step-output")
+
+    def on_mount(self) -> None:
+        """Apply pending state after widget is mounted."""
+        self._mounted = True
+        # Hide output line initially
+        output = self.query_one("#step-output", Static)
+        output.display = False
+        # Apply pending state
+        if self._status == "active":
+            self._apply_active()
+
+    def _start_breathing(self) -> None:
+        """Start the breathing animation timer."""
+        if self._breathing_timer is None:
+            self._breathing_timer = self.set_interval(
+                0.4, self._breathing_tick
+            )
+
+    def _breathing_tick(self) -> None:
+        """Update breathing animation frame."""
+        if self._status != "active":
+            self._stop_breathing()
+            return
+
+        frames = self.BREATHING_FRAMES
+        self._breathing_index = (self._breathing_index + 1) % len(frames)
+        indicator = frames[self._breathing_index]
+        title_line = self.query_one("#step-title", Static)
+        title_line.update(f"{indicator} {self.title}")
+
+    def _stop_breathing(self) -> None:
+        """Stop the breathing animation."""
+        if self._breathing_timer:
+            self._breathing_timer.stop()
+            self._breathing_timer = None
+
+    def _apply_active(self) -> None:
+        """Internal: apply active state and start breathing."""
+        title_line = self.query_one("#step-title", Static)
+        title_line.update(f"{self.INDICATOR_ACTIVE} {self.title}")
+        self.add_class("step-active")
+        self._start_breathing()
+
+    def set_active(self) -> None:
+        """Mark the step as actively processing."""
+        self._status = "active"
+        if self._mounted:
+            self._apply_active()
+
+    def set_complete(
+        self, status: str = "success", error_msg: str = ""
+    ) -> None:
+        """Mark the step as complete.
+
+        Args:
+            status: The completion status ('success' or 'error').
+            error_msg: Error message to display (only shown for error status).
+        """
+        self._status = status
+        self._stop_breathing()
+
+        if status == "success":
+            indicator = self.INDICATOR_SUCCESS
+        else:
+            indicator = self.INDICATOR_ERROR
+        title_line = self.query_one("#step-title", Static)
+        title_line.update(f"{indicator} {self.title}")
+
+        self.remove_class("step-active")
+        self.add_class(f"step-{status}")
+
+        # Show error message on output line if error
+        if status == "error" and error_msg and self._mounted:
+            self._error_message = error_msg
+            output = self.query_one("#step-output", Static)
+            output.update(f"  {error_msg}")
+            output.display = True
+
+    def add_log(self, message: str, status: str = "status") -> None:
+        """Store log message internally (not displayed).
+
+        Args:
+            message: The message text.
+            status: The message status.
+        """
+        if message:
+            self._log_messages.append((status, message))
+            # Track last error for potential display
+            if status == "error":
+                self._error_message = message
+
+    # Compatibility methods for app.py interface
+    def set_input(self, text: str, mark_set: bool = True) -> None:
+        """No-op for step (no IN section).
+
+        Args:
+            text: The input text (ignored).
+            mark_set: Whether to mark as set (ignored).
+        """
+        if mark_set:
+            self._input_set = True
+
+    def set_output(self, text: str, status: str = "success") -> None:
+        """Mark complete with optional error message.
+
+        Args:
+            text: The output text (used as error message if status is error).
+            status: The completion status ('success' or 'error').
+        """
+        error_msg = text if status == "error" else ""
+        self.set_complete(status, error_msg)
+
+    def set_partial_output(self, text: str, status: str = "pending") -> None:
+        """No-op for step (no streaming output display).
+
+        Args:
+            text: The output text (ignored).
+            status: The status (ignored).
+        """
+        pass
+
+
+class TaskExtractionStep(ProcessingStep):
+    """Step widget for task extraction phase - minimal UI."""
+
+    def __init__(self, **kwargs):
+        """Initialize task extraction step."""
+        super().__init__("Task Extraction", **kwargs)
+
+
 class TaskExtractionBlock(ProcessingBlock):
-    """Block for task extraction phase."""
+    """Block for task extraction phase (deprecated, use TaskExtractionStep)."""
 
     # Expanded header text (overrides base class)
     EXPANDED_HEADER = "Extracted task"
