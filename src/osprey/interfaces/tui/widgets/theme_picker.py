@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-from typing import ClassVar
-
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal
 from textual.content import Content
 from textual.events import Key, Resize
 from textual.screen import ModalScreen
-from textual.style import Style
 from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
+
+from osprey.interfaces.tui.widgets.command_palette import CommandPalette
 
 
 class ThemePicker(ModalScreen[str | None]):
@@ -23,12 +22,6 @@ class ThemePicker(ModalScreen[str | None]):
         Binding("tab", "noop", "", show=False),
         Binding("shift+tab", "noop", "", show=False),
     ]
-
-    COMPONENT_CLASSES: ClassVar[set[str]] = {
-        "theme--label",
-        "theme--category",
-        "theme--indicator",
-    }
 
     def __init__(self) -> None:
         super().__init__()
@@ -83,32 +76,19 @@ class ThemePicker(ModalScreen[str | None]):
         options_list.styles.overflow_y = "auto"
 
     def _calculate_content_height(self) -> int:
-        """Calculate the natural height of the picker content."""
+        """Calculate content height using CommandPalette's COMMANDS for consistency."""
         height = 2  # Container padding (1 top + 1 bottom)
         height += 2  # Header (1) + margin-bottom (1)
         height += 2  # Search (1) + margin-bottom (1)
 
-        # Count themes (exclude textual-ansi)
-        themes = self.app.available_themes
-        dark_count = sum(
-            1 for name, t in themes.items() if t.dark and name != "textual-ansi"
-        )
-        light_count = sum(
-            1 for name, t in themes.items() if not t.dark and name != "textual-ansi"
-        )
+        # Use CommandPalette's COMMANDS for consistent height
+        num_categories = len({cmd["category"] for cmd in CommandPalette.COMMANDS.values()})
+        num_commands = len(CommandPalette.COMMANDS)
 
-        num_categories = 0
-        if dark_count > 0:
-            num_categories += 1
-            height += dark_count
-        if light_count > 0:
-            num_categories += 1
-            height += light_count
-
-        # Category headers + spacers
         if num_categories > 0:
             height += num_categories  # Category headers
             height += max(0, num_categories - 1)  # Spacers (skip first)
+        height += num_commands
 
         return height
 
@@ -121,11 +101,6 @@ class ThemePicker(ModalScreen[str | None]):
         options_list = self.query_one("#theme-options", OptionList)
         options_list.can_focus = False
         options_list.clear_options()
-
-        # Get styles
-        label_style = Style.from_styles(self.get_component_styles("theme--label"))
-        category_style = Style.from_styles(self.get_component_styles("theme--category"))
-        indicator_style = Style.from_styles(self.get_component_styles("theme--indicator"))
 
         # Group themes by dark/light, apply filter (exclude textual-ansi)
         themes = self.app.available_themes
@@ -144,6 +119,7 @@ class ThemePicker(ModalScreen[str | None]):
         current_theme = self._original_theme
         first_category = True
         first_selectable_idx = None
+        current_theme_idx = None
         current_idx = 0
 
         for category, theme_list in [("Dark", dark_themes), ("Light", light_themes)]:
@@ -151,36 +127,34 @@ class ThemePicker(ModalScreen[str | None]):
                 continue
 
             if not first_category:
-                options_list.add_option(
-                    Option("", disabled=True, id=f"spacer_{category}")
-                )
+                options_list.add_option(Option("", disabled=True, id=f"spacer_{category}"))
                 current_idx += 1
             first_category = False
 
-            # Category header (2-space prefix to align with theme text after indicator)
-            cat_content = Content.assemble(("  " + category, category_style))
-            options_list.add_option(
-                Option(cat_content, disabled=True, id=f"cat_{category}")
-            )
+            # Category header - use from_markup for CSS variable resolution
+            cat_content = Content.from_markup(f"[$primary bold]  {category}[/]")
+            options_list.add_option(Option(cat_content, disabled=True, id=f"cat_{category}"))
             current_idx += 1
 
-            # Theme options
+            # Theme options - use from_markup for CSS variable resolution
             for name, theme in sorted(theme_list, key=lambda x: x[0]):
-                # Circle indicator for current theme
-                indicator = "● " if name == current_theme else "  "
-
-                content = Content.assemble(
-                    (indicator, indicator_style),
-                    (name, label_style),
-                )
+                if name == current_theme:
+                    content = Content.from_markup(f"[$accent]● [/]{name}")
+                else:
+                    content = Content.from_markup(f"  {name}")
                 options_list.add_option(Option(content, id=name))
 
+                # Track indices
                 if first_selectable_idx is None:
                     first_selectable_idx = current_idx
+                if name == current_theme:
+                    current_theme_idx = current_idx
                 current_idx += 1
 
-        # Highlight first selectable
-        if first_selectable_idx is not None:
+        # Highlight current theme, or first selectable if not found
+        if current_theme_idx is not None:
+            options_list.highlighted = current_theme_idx
+        elif first_selectable_idx is not None:
             options_list.highlighted = first_selectable_idx
 
         # Refresh option list to recalculate scroll
@@ -194,8 +168,7 @@ class ThemePicker(ModalScreen[str | None]):
             # Predict if we'll cycle to first selectable
             if options.highlighted is not None:
                 has_next = any(
-                    options.get_option_at_index(i)
-                    and not options.get_option_at_index(i).disabled
+                    options.get_option_at_index(i) and not options.get_option_at_index(i).disabled
                     for i in range(options.highlighted + 1, options.option_count)
                 )
                 if not has_next:
@@ -267,6 +240,15 @@ class ThemePicker(ModalScreen[str | None]):
         if not theme_name.startswith("cat_") and not theme_name.startswith("spacer_"):
             self.app.theme = theme_name
 
+    def notify_style_update(self) -> None:
+        """Called when CSS changes (e.g., theme change). Refresh options."""
+        super().notify_style_update()
+        # Force OptionList to re-render with new theme colors
+        try:
+            self.query_one("#theme-options", OptionList).refresh()
+        except Exception:
+            pass  # Widget may not be mounted yet
+
     def action_dismiss_picker(self) -> None:
         """Revert theme and dismiss."""
         self.app.theme = self._original_theme
@@ -276,9 +258,7 @@ class ThemePicker(ModalScreen[str | None]):
         """Do nothing - blocks default tab behavior."""
         pass
 
-    def on_option_list_option_selected(
-        self, event: OptionList.OptionSelected
-    ) -> None:
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         """Handle mouse selection."""
         if event.option.id and not str(event.option.id).startswith("cat_"):
             self.dismiss(str(event.option.id))

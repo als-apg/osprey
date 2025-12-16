@@ -542,7 +542,7 @@ CommandPalette > .palette--category {
 
 ThemePicker {
     align: center top;
-    background: $background 60%;
+    background: $background 80%;
 }
 
 #theme-container {
@@ -594,17 +594,4 @@ ThemePicker {
 
 #theme-options > .option-list--option {
     padding: 0 2;
-}
-
-ThemePicker > .theme--label {
-    color: $text;
-}
-
-ThemePicker > .theme--category {
-    color: $primary;
-    text-style: bold;
-}
-
-ThemePicker > .theme--indicator {
-    color: $success;
 }
