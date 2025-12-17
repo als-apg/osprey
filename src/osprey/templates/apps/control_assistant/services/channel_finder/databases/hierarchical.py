@@ -1019,6 +1019,7 @@ class HierarchicalChannelDatabase(BaseDatabase):
         Works with any number of levels - uses Cartesian product.
         Only includes levels that are referenced in the naming pattern.
         Handles optional levels by treating missing levels as empty strings.
+        Respects _separator overrides from tree nodes.
 
         Args:
             selections: Dict mapping level names to selected values (strings or lists)
@@ -1049,15 +1050,15 @@ class HierarchicalChannelDatabase(BaseDatabase):
 
             selection_lists.append(values)
 
+        # Collect separator overrides by navigating the tree with selections
+        separator_overrides = self._collect_separator_overrides(selections)
+
         # Generate Cartesian product of all selections
         channels = []
         for combination in itertools.product(*selection_lists):
-            # Build channel name using naming pattern
+            # Build channel name with separator overrides
             params = dict(zip(pattern_levels, combination))
-            channel = self.naming_pattern.format(**params)
-
-            # Apply separator cleanup for optional levels (removes :: and trailing :)
-            channel = self._clean_optional_separators(channel)
+            channel = self._build_channel_with_separators(params, separator_overrides)
 
             channels.append(channel)
 
@@ -1332,6 +1333,82 @@ class HierarchicalChannelDatabase(BaseDatabase):
             return []
         else:
             return [value]
+
+    def _collect_separator_overrides(self, selections: dict[str, Any]) -> dict[tuple[str, str], str]:
+        """
+        Collect separator overrides from tree nodes based on selections.
+
+        Navigates through the tree following the provided selections and collects
+        all _separator overrides encountered along the path.
+
+        Args:
+            selections: Dict mapping level names to selected values
+
+        Returns:
+            Dict mapping (current_level, next_level) tuples to separator strings
+        """
+        separator_overrides = {}
+        current_node = self.tree
+
+        # Navigate through each hierarchy level
+        for level_idx, level in enumerate(self.hierarchy_levels):
+            level_config = self.hierarchy_config["levels"][level]
+            is_optional = level_config.get("optional", False)
+
+            # Check if we have a selection at this level
+            if level not in selections:
+                # No selection at this level
+                if is_optional:
+                    # Optional level - skip it and continue
+                    continue
+                else:
+                    # Required level missing - can't navigate further
+                    break
+
+            selection = self._get_single_value(selections[level])
+            if not selection:
+                # Empty selection
+                if is_optional:
+                    # Optional level with empty selection - skip it
+                    continue
+                else:
+                    # Required level with empty selection - can't navigate further
+                    break
+
+            # Handle different level types
+            if level_config["type"] == "tree":
+                # Navigate using the tree key
+                if selection in current_node:
+                    current_node = current_node[selection]
+                else:
+                    # Selection not found in tree - stop navigation
+                    break
+
+            elif level_config["type"] == "instances":
+                # Instance levels don't change tree position, but we navigate INTO the container
+                found_container = False
+                for key, value in current_node.items():
+                    if key.upper() == level.upper() and isinstance(value, dict):
+                        current_node = value
+                        found_container = True
+                        break
+
+                if not found_container:
+                    # No container found - stop navigation
+                    break
+
+            # After navigating to the node, check if it has a separator override for its children
+            if "_separator" in current_node:
+                # This node's separator applies to the connection between current level and next tree level
+                # Find the next tree level
+                for next_idx in range(level_idx + 1, len(self.hierarchy_levels)):
+                    next_config = self.hierarchy_config["levels"][self.hierarchy_levels[next_idx]]
+                    if next_config["type"] == "tree":
+                        next_level = self.hierarchy_levels[next_idx]
+                        separator_overrides[(level, next_level)] = current_node["_separator"]
+                        break
+
+        return separator_overrides
 
     def get_statistics(self) -> dict[str, Any]:
         """Get database statistics."""

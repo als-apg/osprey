@@ -216,6 +216,99 @@ class TestMultipleDirectSignalsFix:
         for channel in all_channels:
             assert optional_levels_db.validate_channel(channel), f"{channel} should be valid"
 
+    def test_device_direct_signal_with_suffix(self, optional_levels_db):
+        """
+        Test direct signal at device level with suffix (Y_RB).
+
+        Tests that direct signals (leaf nodes) at optional levels are
+        correctly presented as options and selected by the LLM and additionally
+        can contain a suffix directly at this level. The query
+        asks for 'BPM position readbacks' which are direct signals at the
+        device level with the _RB suffix skipping the optional 'subdevice'
+        level but keeping the suffix level.
+
+        Example channels: CTRL:DIAG:BPM-01:Y_RB, CTRL:DIAG:BPM-02:Y_RB
+        """
+        # First, let's validate that these channels should exist in the database
+        expected_channels = ["CTRL:DIAG:BPM-01:Y_RB", "CTRL:DIAG:BPM-02:Y_RB"]
+
+        print("\n=== Testing Device Direct Signal With Suffix ===")
+        print(f"Expected channels: {expected_channels}")
+
+        # Test 1: Validate the channels directly
+        print("\nTest 1: Direct channel validation")
+        for channel in expected_channels:
+            is_valid = optional_levels_db.validate_channel(channel)
+            print(f"  {channel}: {'✓ VALID' if is_valid else '✗ INVALID'}")
+            assert is_valid, f"Channel {channel} should be valid in the database"
+
+        # Test 2: Check if Y is available at the device level
+        print("\nTest 2: Check signal options at device level")
+        selections = {"system": "CTRL", "subsystem": "DIAG", "device": "BPM-01"}
+
+        # Navigate to the signal level (which is after the optional subdevice level)
+        signal_options = optional_levels_db.get_options_at_level("signal", selections)
+        signal_names = [opt["name"] for opt in signal_options]
+        print(f"  Available signals at device level: {signal_names}")
+        assert "Y" in signal_names, "Y should be available as a signal option at device level"
+
+        # Test 3: Check if Y is properly identified as a leaf node
+        print("\nTest 3: Check if Y is a leaf node")
+        current_node = optional_levels_db._navigate_to_node("signal", selections)
+        y_node = current_node.get("Y")
+        assert y_node is not None, "Y node should exist"
+
+        level_idx = optional_levels_db.hierarchy_levels.index("signal")
+        is_leaf = optional_levels_db._is_leaf_node(y_node, level_idx + 1)
+        print(f"  Y is leaf node: {is_leaf}")
+        assert is_leaf, "Y should be identified as a leaf node"
+
+        # Test 4: Check suffix options available after selecting Y
+        print("\nTest 4: Check suffix options after Y selection")
+        y_selections = selections.copy()
+        y_selections["signal"] = "Y"
+        suffix_options = optional_levels_db.get_options_at_level("suffix", y_selections)
+        print(f"  Suffix options for Y: {[opt['name'] for opt in suffix_options]}")
+        assert len(suffix_options) > 0, "Y should have suffix options available"
+        assert any(opt['name'] == 'RB' for opt in suffix_options), "RB should be available as a suffix"
+
+        # Test 5: Build channels with both signal and suffix specified
+        print("\nTest 5: Build channels with Y and RB suffix")
+        y_rb_selections = y_selections.copy()
+        y_rb_selections["suffix"] = "RB"
+        built_channels = optional_levels_db.build_channels_from_selections(y_rb_selections)
+        print(f"  Built channels: {built_channels}")
+        assert len(built_channels) == 1, "Should generate exactly one channel for Y_RB"
+        assert built_channels[0] == "CTRL:DIAG:BPM-01:Y_RB", \
+            f"Should build Y_RB with underscore separator, got {built_channels[0]}"
+
+        # Test 6: Verify separator override is applied
+        print("\nTest 6: Verify underscore separator (not colon)")
+        # The channel should have underscore between Y and RB, not colon
+        assert "_" in built_channels[0], "Channel should use underscore separator"
+        assert "Y:RB" not in built_channels[0], "Channel should NOT use colon separator"
+
+        # Test 7: Test with both BPM devices
+        print("\nTest 7: Build Y_RB for both BPM devices")
+        all_built_channels = []
+        for device in ["BPM-01", "BPM-02"]:
+            dev_selections = {
+                "system": "CTRL",
+                "subsystem": "DIAG",
+                "device": device,
+                "signal": "Y",
+                "suffix": "RB"
+            }
+            channels = optional_levels_db.build_channels_from_selections(dev_selections)
+            all_built_channels.extend(channels)
+
+        print(f"  All built Y_RB channels: {all_built_channels}")
+        for expected_channel in expected_channels:
+            assert expected_channel in all_built_channels, \
+                f"Expected channel {expected_channel} should be in built channels"
+
+        print("\n✓ All tests passed!")
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])

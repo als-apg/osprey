@@ -9,7 +9,6 @@ Each test case can use a different database and configuration.
 """
 
 import asyncio
-import json
 import logging
 import os
 import sys
@@ -51,6 +50,24 @@ QUERY_TEST_CASES = [
         "expected_channels": ["CTRL:MAIN:MC-01:PSU:Voltage"],
         "pipeline": "hierarchical",
         "match_type": "exact",
+    },
+    {
+        "id": "device_direct_signal_with_suffix",
+        "name": "Direct signal at device level with suffix (Y_RB)",
+        "description": (
+            "Tests that direct signals (leaf nodes) at optional levels are "
+            "correctly presented as options and selected by the LLM and additionally "
+            "can contain a suffix directly at this level. The query "
+            "asks for 'BPM position readbacks' which are direct signals at the "
+            "device level with the _RB suffix skipping the optional 'subdevice' "
+            "level but keeping the suffix level. This also validates that the "
+            "underscore separator override is correctly applied."
+        ),
+        "database": "optional_levels.json",
+        "query": "Find the channel address for the vertical position readback of the BPM diagnostic devices.",
+        "expected_channels": ["CTRL:DIAG:BPM-01:Y_RB", "CTRL:DIAG:BPM-02:Y_RB"],
+        "pipeline": "hierarchical",
+        "match_type": "exact",  # exact, partial, or any
     },
 ]
 
