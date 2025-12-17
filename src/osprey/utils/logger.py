@@ -194,7 +194,10 @@ class ComponentLogger:
             "log_type": log_type,
         }
         # Include all streaming data fields (for TUI to extract)
-        for key in ["task", "capabilities", "capability_names", "steps", "phase", "step_num", "step_name"]:
+        for key in [
+            "task", "capabilities", "capability_names", "steps", "phase",
+            "step_num", "step_name", "llm_prompt", "llm_response",
+        ]:
             if key in kwargs:
                 extra[key] = kwargs[key]
         # Also include step info from state if available

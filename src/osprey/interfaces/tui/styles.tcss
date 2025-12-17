@@ -478,6 +478,32 @@ TaskExtractionStep {
     color: $accent;
 }
 
+/* Prompt link - clickable, focusable */
+#step-prompt-link {
+    width: auto;
+    text-style: underline;
+    color: $text-muted;
+    margin-left: 2;
+}
+
+#step-prompt-link:hover,
+#step-prompt-link:focus {
+    color: $accent;
+}
+
+/* Response link - clickable, focusable */
+#step-response-link {
+    width: auto;
+    text-style: underline;
+    color: $text-muted;
+    margin-left: 2;
+}
+
+#step-response-link:hover,
+#step-response-link:focus {
+    color: $accent;
+}
+
 /* Step output line - shown for both success and error */
 #step-output {
     width: 100%;
@@ -537,6 +563,53 @@ LogViewer {
 }
 
 #log-viewer-logs {
+    width: 100%;
+    height: auto;
+}
+
+/* =============================================================================
+   Content Viewer Modal (for prompt/response display)
+   ============================================================================= */
+
+ContentViewer {
+    align: center middle;
+    background: $background 80%;
+}
+
+#content-viewer-container {
+    width: 100%;
+    height: auto;
+    max-height: 80%;
+    margin: 0;
+    padding: 1 4;
+    background: $surface;
+    border: none;
+}
+
+#content-viewer-header {
+    width: 100%;
+    height: 1;
+    margin-bottom: 1;
+}
+
+#content-viewer-title {
+    width: 1fr;
+    text-style: bold;
+}
+
+#content-viewer-dismiss-hint {
+    width: auto;
+    color: $text-muted;
+}
+
+#content-viewer-content {
+    width: 100%;
+    height: auto;
+    max-height: 100%;
+    scrollbar-size: 0 0;
+}
+
+#content-viewer-text {
     width: 100%;
     height: auto;
 }

@@ -21,6 +21,8 @@ class QueueLogHandler(logging.Handler):
         "phase",
         "step_num",
         "step_name",
+        "llm_prompt",
+        "llm_response",
     ]
 
     def __init__(self, queue: asyncio.Queue, loop: asyncio.AbstractEventLoop):

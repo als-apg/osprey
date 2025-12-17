@@ -736,6 +736,12 @@ class OspreyTUI(App):
             if key in chunk:
                 current_block._data[key] = chunk[key]
 
+        # 3a. Extract LLM prompt/response if available (for ProcessingStep widgets)
+        if "llm_prompt" in chunk and hasattr(current_block, "set_llm_prompt"):
+            current_block.set_llm_prompt(chunk["llm_prompt"])
+        if "llm_response" in chunk and hasattr(current_block, "set_llm_response"):
+            current_block.set_llm_response(chunk["llm_response"])
+
         # 4. Add to LOG section and update OUT with latest message
         if msg:
             current_block.add_log(msg, status=level)

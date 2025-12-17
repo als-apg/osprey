@@ -400,6 +400,42 @@ class LogsLink(Static):
                 break
 
 
+class PromptLink(Static):
+    """Focusable prompt link that opens content viewer modal on Enter or click."""
+
+    can_focus = True
+
+    BINDINGS = [
+        Binding("enter", "activate", "Open prompt", show=False),
+    ]
+
+    def action_activate(self) -> None:
+        """Handle Enter key press - open prompt modal."""
+        # Find parent ProcessingStep and call _show_prompt
+        for ancestor in self.ancestors_with_self:
+            if isinstance(ancestor, ProcessingStep):
+                ancestor._show_prompt()
+                break
+
+
+class ResponseLink(Static):
+    """Focusable response link that opens content viewer modal on Enter or click."""
+
+    can_focus = True
+
+    BINDINGS = [
+        Binding("enter", "activate", "Open response", show=False),
+    ]
+
+    def action_activate(self) -> None:
+        """Handle Enter key press - open response modal."""
+        # Find parent ProcessingStep and call _show_response
+        for ancestor in self.ancestors_with_self:
+            if isinstance(ancestor, ProcessingStep):
+                ancestor._show_response()
+                break
+
+
 class WrappedStatic(Static):
     """Static widget that wraps text with proper indentation at render time.
 
@@ -511,15 +547,20 @@ class ProcessingStep(Static):
         self._input_set: bool = False
         # Output message for display
         self._output_message: str = ""
+        # LLM prompt and response storage
+        self._llm_prompt: str = ""
+        self._llm_response: str = ""
 
     def compose(self) -> ComposeResult:
-        """Compose the step with title line, logs link, and output line."""
+        """Compose the step with title line, links, and output line."""
         with Horizontal(id="step-header"):
             yield Static(
                 f"[bold]{self.INDICATOR_PENDING} {self.title}[/bold]",
                 id="step-title",
             )
             yield LogsLink("logs", id="step-logs-link")
+            yield PromptLink("prompt", id="step-prompt-link")
+            yield ResponseLink("response", id="step-response-link")
         yield WrappedStatic(
             "",
             initial_indent=f"  {self.OUTPUT_GUIDE} ",
@@ -536,15 +577,35 @@ class ProcessingStep(Static):
         # Hide logs link initially (shown when complete)
         logs_link = self.query_one("#step-logs-link", LogsLink)
         logs_link.display = False
+        # Hide prompt/response links initially (shown when data available)
+        prompt_link = self.query_one("#step-prompt-link", PromptLink)
+        prompt_link.display = False
+        response_link = self.query_one("#step-response-link", ResponseLink)
+        response_link.display = False
+        # Show links if data was set before mounting (race condition fix)
+        if self._llm_prompt:
+            prompt_link.display = True
+        if self._llm_response:
+            response_link.display = True
         # Apply pending state
         if self._status == "active":
             self._apply_active()
 
     def on_click(self, event: "Click") -> None:
-        """Handle click events on the logs link."""
+        """Handle click events on the links."""
         logs_link = self.query_one("#step-logs-link", LogsLink)
         if logs_link in event.widget.ancestors_with_self:
             self._show_logs()
+            return
+
+        prompt_link = self.query_one("#step-prompt-link", PromptLink)
+        if prompt_link in event.widget.ancestors_with_self:
+            self._show_prompt()
+            return
+
+        response_link = self.query_one("#step-response-link", ResponseLink)
+        if response_link in event.widget.ancestors_with_self:
+            self._show_response()
 
     def _show_logs(self) -> None:
         """Open the log viewer modal."""
@@ -552,6 +613,42 @@ class ProcessingStep(Static):
 
         viewer = LogViewer(f"{self.title} - Logs", self._log_messages)
         self.app.push_screen(viewer)
+
+    def _show_prompt(self) -> None:
+        """Open the prompt viewer modal."""
+        from osprey.interfaces.tui.widgets.content_viewer import ContentViewer
+
+        viewer = ContentViewer(f"{self.title} - Prompt", self._llm_prompt)
+        self.app.push_screen(viewer)
+
+    def _show_response(self) -> None:
+        """Open the response viewer modal."""
+        from osprey.interfaces.tui.widgets.content_viewer import ContentViewer
+
+        viewer = ContentViewer(f"{self.title} - Response", self._llm_response)
+        self.app.push_screen(viewer)
+
+    def set_llm_prompt(self, prompt: str) -> None:
+        """Set the LLM prompt and show the prompt link.
+
+        Args:
+            prompt: The raw LLM prompt text.
+        """
+        self._llm_prompt = prompt
+        if self._mounted:
+            prompt_link = self.query_one("#step-prompt-link", PromptLink)
+            prompt_link.display = True
+
+    def set_llm_response(self, response: str) -> None:
+        """Set the LLM response and show the response link.
+
+        Args:
+            response: The raw LLM response text.
+        """
+        self._llm_response = response
+        if self._mounted:
+            response_link = self.query_one("#step-response-link", ResponseLink)
+            response_link.display = True
 
     def _start_breathing(self) -> None:
         """Start the breathing animation timer."""
