@@ -21,6 +21,8 @@ class ContentViewer(ModalScreen[None]):
         ("escape", "dismiss_viewer", "Close"),
     ]
 
+    AUTO_FOCUS = "#content-viewer-content"
+
     def __init__(self, title: str, content: str, language: str | None = None):
         """Initialize the content viewer.
 
@@ -58,11 +60,6 @@ class ContentViewer(ModalScreen[None]):
                 yield Static("enter/esc", id="content-viewer-dismiss-hint")
             with ScrollableContainer(id="content-viewer-content"):
                 yield Static(self.content or "[dim]No content available[/dim]")
-
-    def on_mount(self) -> None:
-        """Focus content area so Enter closes immediately, Tab moves to checkbox."""
-        content = self.query_one("#content-viewer-content", ScrollableContainer)
-        content.focus()
 
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
         """Handle markdown checkbox toggle."""
