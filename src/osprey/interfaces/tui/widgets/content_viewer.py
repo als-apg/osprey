@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, ScrollableContainer
+from textual.events import Key
 from textual.screen import ModalScreen
 from textual.widgets import Checkbox, Markdown, Static
 
@@ -54,7 +55,7 @@ class ContentViewer(ModalScreen[None]):
                 yield Static(self.viewer_title, id="content-viewer-title")
                 yield Checkbox("Markdown", id="markdown-checkbox")
                 yield Static("", id="header-spacer")
-                yield Static("esc", id="content-viewer-dismiss-hint")
+                yield Static("enter/esc", id="content-viewer-dismiss-hint")
             with ScrollableContainer(id="content-viewer-content"):
                 yield Static(self.content or "[dim]No content available[/dim]")
 
@@ -73,6 +74,16 @@ class ContentViewer(ModalScreen[None]):
             container.mount(
                 Static(self.content or "[dim]No content available[/dim]")
             )
+
+    def on_key(self, event: Key) -> None:
+        """Handle key events - Enter to close unless on interactive widget."""
+        if event.key == "enter":
+            # Don't close if focus is on the checkbox (let it toggle)
+            focused = self.app.focused
+            if focused and focused.id == "markdown-checkbox":
+                return  # Let checkbox handle Enter
+            self.dismiss(None)
+            event.stop()
 
     def action_dismiss_viewer(self) -> None:
         """Dismiss the content viewer."""

@@ -24,6 +24,7 @@ class LogViewer(ModalScreen[None]):
 
     BINDINGS = [
         ("escape", "dismiss_viewer", "Close"),
+        ("enter", "dismiss_viewer", "Close"),
     ]
 
     def __init__(
@@ -63,7 +64,7 @@ class LogViewer(ModalScreen[None]):
         with Container(id="log-viewer-container"):
             with Horizontal(id="log-viewer-header"):
                 yield Static(self.log_title, id="log-viewer-title")
-                yield Static("esc", id="log-viewer-dismiss-hint")
+                yield Static("enter/esc", id="log-viewer-dismiss-hint")
             with ScrollableContainer(id="log-viewer-content"):
                 yield Static(self._format_logs(), id="log-viewer-logs")
 
