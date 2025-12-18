@@ -86,7 +86,7 @@ class KeywordSearchPipeline(BasePipeline):
 
         # Build result
         channel_infos = []
-        for score, ch in scored_channels:
+        for _, ch in scored_channels:
             channel_infos.append(
                 ChannelInfo(
                     channel=ch["channel"], address=ch["address"], description=ch.get("description")

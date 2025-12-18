@@ -349,7 +349,9 @@ def suppress_logger_level(logger_name: str | list[str], level: int):
 
     # Get loggers and store original levels
     loggers = [logging.getLogger(name) for name in logger_names]
-    original_levels = {name: logger.level for name, logger in zip(logger_names, loggers)}
+    original_levels = {
+        name: logger.level for name, logger in zip(logger_names, loggers, strict=False)
+    }
 
     # Set new level on all loggers
     for logger in loggers:
@@ -359,7 +361,7 @@ def suppress_logger_level(logger_name: str | list[str], level: int):
         yield original_levels
     finally:
         # Restore original levels
-        for name, logger in zip(logger_names, loggers):
+        for name, logger in zip(logger_names, loggers, strict=False):
             logger.setLevel(original_levels[name])
 
 

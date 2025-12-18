@@ -375,7 +375,7 @@ class ChannelFinderService:
             config.get("channel_finder", {}).get("pipelines", {}).get("hierarchical", {})
         )
         db_config = hierarchical_config.get("database", {})
-        processing_config = hierarchical_config.get("processing", {})
+        hierarchical_config.get("processing", {})
 
         # Determine database path
         if db_path is None:

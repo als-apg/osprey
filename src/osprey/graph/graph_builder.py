@@ -210,7 +210,7 @@ def create_async_postgres_checkpointer(db_uri: str | None = None) -> BaseCheckpo
         raise ImportError(
             f"Required PostgreSQL dependencies not installed: {e}. "
             "Install with: pip install langgraph-checkpoint-postgres psycopg[pool]"
-        )
+        ) from e
 
     # Create sync connection pool for PostgresSaver
     try:

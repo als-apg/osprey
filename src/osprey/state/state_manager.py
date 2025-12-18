@@ -828,7 +828,7 @@ def get_execution_steps_summary(state: AgentState) -> list[str]:
     ordered_results = sorted(step_results.items(), key=lambda x: x[1].get("step_index", 0))
 
     execution_steps = []
-    for step_key, result in ordered_results:
+    for _step_key, result in ordered_results:
         step_num = result.get("step_index", 0) + 1
         task_objective = result.get("task_objective", result.get("capability", "unknown"))
         execution_steps.append(f"Step {step_num}: {task_objective}")

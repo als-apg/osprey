@@ -137,7 +137,7 @@ def test_add_then_remove_model(updater_temp_config):
 
 def test_remove_preserves_structure(updater_temp_config):
     """Test that removal preserves the overall config structure."""
-    original_content = updater_temp_config.read_text()
+    updater_temp_config.read_text()
 
     # Remove one model
     new_content, _, _ = remove_capability_react_from_config(updater_temp_config, "weather_demo")
@@ -254,7 +254,7 @@ def test_update_all_models_preserves_max_tokens(updater_temp_config):
 def test_update_all_models_preview_shows_changes(updater_temp_config):
     """Test that preview shows what will be changed."""
     # Get initial state
-    initial_models = get_all_model_configs(updater_temp_config)
+    get_all_model_configs(updater_temp_config)
 
     # Update to different provider/model
     _, preview = update_all_models(updater_temp_config, "openai", "gpt-4-turbo")

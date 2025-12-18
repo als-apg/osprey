@@ -760,7 +760,7 @@ class HierarchicalChannelDatabase(BaseDatabase):
         import re
 
         pattern = self.naming_pattern
-        pattern_levels = self._get_pattern_levels()
+        self._get_pattern_levels()
 
         # Parse the naming pattern to extract literal text and placeholders
         # Pattern: "S{sector}:{building}:F{floor}"
@@ -790,7 +790,7 @@ class HierarchicalChannelDatabase(BaseDatabase):
         result_parts = []
         last_level_with_value = None
 
-        for i, (prefix, level_name) in enumerate(pattern_parts):
+        for _, (prefix, level_name) in enumerate(pattern_parts):
             # Check if level exists in path (KeyError if not)
             if level_name not in path:
                 raise KeyError(level_name)
@@ -1091,7 +1091,7 @@ class HierarchicalChannelDatabase(BaseDatabase):
         channels = []
         for combination in itertools.product(*selection_lists):
             # Build channel name with separator overrides
-            params = dict(zip(pattern_levels, combination))
+            params = dict(zip(pattern_levels, combination, strict=False))
             channel = self._build_channel_with_separators(params, separator_overrides)
 
             channels.append(channel)

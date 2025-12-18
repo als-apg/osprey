@@ -445,7 +445,7 @@ def get_facility_from_gateway_config(config_path: Path) -> str | None:
         return None
 
     # Check if current config matches any preset
-    for facility_id, preset in FACILITY_PRESETS.items():
+    for _facility_id, preset in FACILITY_PRESETS.items():
         preset_gateways = preset["gateways"]
 
         # Compare read_only gateway

@@ -679,7 +679,7 @@ def test_store_output_context_simple(mock_state, mock_step, mock_registry):
 
     test_context = _TestContext(value="test")
 
-    with mock_registry as mock_reg:
+    with mock_registry:
         updates = instance.store_output_context(test_context)
 
     # Verify returned type

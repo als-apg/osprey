@@ -435,7 +435,7 @@ async def _classify_memory_operation(task_objective: str, logger) -> MemoryOpera
 
     except Exception as e:
         logger.error(f"Failed to classify memory operation: {e}")
-        raise ContentExtractionError(f"Memory operation classification failed: {e}")
+        raise ContentExtractionError(f"Memory operation classification failed: {e}") from e
 
 
 # =============================================================================
@@ -745,7 +745,9 @@ class MemoryOperationsCapability(BaseCapability):
 
                     except Exception as e:
                         logger.error(f"LLM call failed for memory content extraction: {e}")
-                        raise LLMCallError(f"LLM call failed for memory content extraction: {e}")
+                        raise LLMCallError(
+                            f"LLM call failed for memory content extraction: {e}"
+                        ) from e
                 else:
                     logger.debug("No messages found in state for content extraction")
 
@@ -1034,4 +1036,4 @@ async def _perform_memory_retrieve_operation(user_id: str, logger) -> MemoryCont
 
     except Exception as e:
         logger.error(f"Memory retrieve operation failed: {e}")
-        raise MemoryRetrievalError(f"Failed to retrieve memory entries: {e}")
+        raise MemoryRetrievalError(f"Failed to retrieve memory entries: {e}") from e

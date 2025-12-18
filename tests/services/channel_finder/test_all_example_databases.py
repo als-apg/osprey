@@ -31,7 +31,7 @@ EXAMPLES_DIR = (
     Path(__file__).parents[3]
     / "src/osprey/templates/apps/control_assistant/data/channel_databases/examples"
 )
-ALL_EXAMPLE_DBS = sorted([db for db in EXAMPLES_DIR.glob("*.json")])
+ALL_EXAMPLE_DBS = sorted(EXAMPLES_DIR.glob("*.json"))
 
 # Skip if no examples found
 if not ALL_EXAMPLE_DBS:

@@ -55,7 +55,7 @@ class TestExampleDatabases:
 
         buildings = db.get_options_at_level("building", {"sector": "01"})
         assert len(buildings) == 3
-        assert set(b["name"] for b in buildings) == {"MAIN_BUILDING", "ANNEX", "LAB"}
+        assert {b["name"] for b in buildings} == {"MAIN_BUILDING", "ANNEX", "LAB"}
 
         # Test floors for MAIN_BUILDING
         floors_main = db.get_options_at_level(
@@ -115,7 +115,7 @@ class TestExampleDatabases:
 
         stations = db.get_options_at_level("station", {"line": "1"})
         assert len(stations) == 4
-        assert set(s["name"] for s in stations) == {
+        assert {s["name"] for s in stations} == {
             "ASSEMBLY",
             "INSPECTION",
             "PACKAGING",

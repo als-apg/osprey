@@ -117,7 +117,7 @@ def export_config(project: str, output: str, format: str):
 
     except KeyboardInterrupt:
         console.print("\n⚠️  Operation cancelled", style=Styles.WARNING)
-        raise click.Abort()
+        raise click.Abort() from None
     except Exception as e:
         console.print(f"❌ Failed to export configuration: {e}", style=Styles.ERROR)
         import os
@@ -126,7 +126,7 @@ def export_config(project: str, output: str, format: str):
             import traceback
 
             console.print(traceback.format_exc(), style=Styles.DIM)
-        raise click.Abort()
+        raise click.Abort() from None
 
 
 if __name__ == "__main__":

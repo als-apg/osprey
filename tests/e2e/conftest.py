@@ -30,7 +30,7 @@ def pytest_configure(config):
     if config.option.markexpr and "e2e" in config.option.markexpr:
         # Get the invocation directory
         invocation_dir = config.invocation_params.dir
-        e2e_dir = Path(__file__).parent
+        Path(__file__).parent
 
         # If not invoked from tests/e2e/ directory, warn
         if not str(invocation_dir).endswith("tests/e2e"):

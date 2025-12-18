@@ -248,7 +248,7 @@ class MemoryStorageManager:
         try:
             if get_config:
                 config = get_config()
-                configurable = config.get("configurable", {})
+                config.get("configurable", {})
             session_info = get_session_info()
             user_id = session_info.get("user_id")
         except Exception:

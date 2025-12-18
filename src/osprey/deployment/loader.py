@@ -126,7 +126,7 @@ def _deep_update_dict(source_dict, update_dict):
             source_dict[key] = value
 
 
-def _load_yaml(file_path, visited=[]):
+def _load_yaml(file_path, visited=None):
     """Load YAML configuration with recursive import processing and cycle detection.
 
     This function implements the core configuration loading logic that supports
@@ -185,6 +185,8 @@ def _load_yaml(file_path, visited=[]):
        :class:`Params` : Container class for the loaded configuration data
     """
 
+    if visited is None:
+        visited = []
     abs_file_path = os.path.abspath(file_path)
     if abs_file_path in visited:
         raise ValueError(f"Circular import in '{file_path}'")

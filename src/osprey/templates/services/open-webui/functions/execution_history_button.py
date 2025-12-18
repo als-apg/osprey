@@ -75,7 +75,7 @@ class Action:
                     start_time = datetime.fromisoformat(start_time_str.replace("Z", "+00:00"))
                     end_time = datetime.fromisoformat(end_time_str.replace("Z", "+00:00"))
                     step_duration += (end_time - start_time).total_seconds()
-                except:
+                except (ValueError, TypeError):
                     pass  # Skip if datetime parsing fails
 
         html += f"""
@@ -169,7 +169,7 @@ class Action:
                             <td style="padding: 8px 12px; border: 1px solid #cbd5e1; color: #1f2937;">{duration:.2f}s</td>
                         </tr>
                             """
-                    except:
+                    except (ValueError, TypeError):
                         pass  # Skip if datetime parsing fails
 
             html += "</tbody></table></div>"

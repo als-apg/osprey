@@ -433,7 +433,7 @@ def generate_explicit_registry_code(
     )
 
     # Add framework capabilities
-    for i, cap in enumerate(framework.capabilities):
+    for _, cap in enumerate(framework.capabilities):
         code_lines.append(format_capability_registration(cap))
         code_lines[-1] += ","
 
@@ -463,7 +463,7 @@ def generate_explicit_registry_code(
     )
 
     # Add framework context classes
-    for i, ctx in enumerate(framework.context_classes):
+    for _, ctx in enumerate(framework.context_classes):
         code_lines.append(format_context_class_registration(ctx))
         code_lines[-1] += ","
 

@@ -221,7 +221,7 @@ class CommandRegistry:
             if alias.startswith(prefix) and not cmd.hidden:
                 matches.append(f"/{alias}")
 
-        return sorted(list(set(matches)))
+        return sorted(set(matches))
 
     async def execute(
         self, command_line: str, context: CommandContext

@@ -228,7 +228,7 @@ class TestErrorHandling:
             # May succeed after retry or may fail - depends on retry limit
             # The important thing is it tries multiple times
             try:
-                result = await service.ainvoke(request, config)
+                await service.ainvoke(request, config)
                 # If it succeeded, generator was called multiple times
                 assert mock_gen.call_count >= 1
             except Exception:
@@ -307,7 +307,7 @@ class TestAnalysisAndSecurity:
             # This should trigger approval workflow or execute
             # depending on configuration
             try:
-                result = await service.ainvoke(request, config)
+                await service.ainvoke(request, config)
                 # If executed, verify code was analyzed
                 assert mock_gen.call_count >= 1
             except Exception:
@@ -340,7 +340,7 @@ class TestAnalysisAndSecurity:
 
             # Read operations should not require approval
             try:
-                result = await service.ainvoke(request, config)
+                await service.ainvoke(request, config)
                 assert mock_gen.call_count >= 1
             except Exception:
                 # May fail due to missing module, but should attempt execution
@@ -439,7 +439,7 @@ class TestApprovalWorkflow:
             from osprey.services.python_executor.exceptions import CodeRuntimeError
 
             with pytest.raises(CodeRuntimeError) as exc_info:
-                result = await service.ainvoke(request, config)
+                await service.ainvoke(request, config)
 
             # Verify the error message indicates approval was needed
             error_msg = str(exc_info.value)
@@ -621,7 +621,7 @@ class TestApprovalWorkflow:
             # Verify execution completed successfully
             # Note: May fail due to missing epics module, but should attempt execution
             # The key is that it didn't crash with KeyError: 'request'
-            assert final_state.get("approved") == True, "Approval status should be set"
+            assert final_state.get("approved"), "Approval status should be set"
 
             # If execution succeeded, verify results
             if final_state.get("is_successful"):
@@ -704,7 +704,7 @@ class TestApprovalWorkflow:
             final_state = await service.get_compiled_graph().ainvoke(reject_command, config)
 
             # Verify clean termination
-            assert final_state.get("approved") == False, "Approval should be rejected"
+            assert not final_state.get("approved"), "Approval should be rejected"
             assert not final_state.get("is_successful"), (
                 "Execution should not succeed when rejected"
             )
@@ -846,7 +846,7 @@ class TestStateManagement:
             full_config = get_full_configuration()
             config = {"thread_id": "test_preserve", "configurable": full_config}
 
-            result = await service.ainvoke(request, config)
+            await service.ainvoke(request, config)
 
             # Verify request data was passed to generator
             assert mock_gen.last_request.user_query == original_query

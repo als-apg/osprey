@@ -217,7 +217,7 @@ def deploy(action: str, project: str, config: str, detached: bool, dev: bool):
 
     except KeyboardInterrupt:
         console.print("\n⚠️  Operation cancelled by user", style=Styles.WARNING)
-        raise click.Abort()
+        raise click.Abort() from None
     except Exception as e:
         console.print(f"❌ Deployment failed: {e}", style=Styles.ERROR)
         # Show more details in verbose mode
@@ -227,7 +227,7 @@ def deploy(action: str, project: str, config: str, detached: bool, dev: bool):
             import traceback
 
             console.print(traceback.format_exc(), style=Styles.DIM)
-        raise click.Abort()
+        raise click.Abort() from None
 
 
 if __name__ == "__main__":

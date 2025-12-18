@@ -166,7 +166,7 @@ def show(project: str, format: str):
             console.print(
                 "   Or run from a project directory containing config.yml", style=Styles.DIM
             )
-            raise click.Abort()
+            raise click.Abort() from None
 
         if not config_path.exists():
             console.print(f"❌ Configuration file not found: {config_path}", style=Styles.ERROR)
@@ -197,10 +197,10 @@ def show(project: str, format: str):
 
     except KeyboardInterrupt:
         console.print("\n⚠️  Operation cancelled", style=Styles.WARNING)
-        raise click.Abort()
+        raise click.Abort() from None
     except Exception as e:
         console.print(f"❌ Failed to show configuration: {e}", style=Styles.ERROR)
-        raise click.Abort()
+        raise click.Abort() from None
 
 
 @config.command(name="export")
@@ -285,7 +285,7 @@ def export(output: str, format: str):
 
     except KeyboardInterrupt:
         console.print("\n⚠️  Operation cancelled", style=Styles.WARNING)
-        raise click.Abort()
+        raise click.Abort() from None
     except Exception as e:
         console.print(f"❌ Failed to export configuration: {e}", style=Styles.ERROR)
         import os
@@ -294,7 +294,7 @@ def export(output: str, format: str):
             import traceback
 
             console.print(traceback.format_exc(), style=Styles.DIM)
-        raise click.Abort()
+        raise click.Abort() from None
 
 
 @config.command(name="set-control-system")
@@ -347,7 +347,7 @@ def set_control_system(system_type: str, project: str):
             console.print(
                 "   Or run from a project directory containing config.yml", style=Styles.DIM
             )
-            raise click.Abort()
+            raise click.Abort() from None
 
         if not config_path.exists():
             console.print(f"❌ Configuration file not found: {config_path}", style=Styles.ERROR)
@@ -355,7 +355,7 @@ def set_control_system(system_type: str, project: str):
                 "\n💡 Create a new project with: [bold cyan]osprey init my-project[/bold cyan]",
                 style=Styles.DIM,
             )
-            raise click.Abort()
+            raise click.Abort() from None
 
         # Update configuration
         update_control_system_type(config_path, system_type.lower())
@@ -365,7 +365,7 @@ def set_control_system(system_type: str, project: str):
 
     except Exception as e:
         console.print(f"❌ Failed to update control system: {e}", style=Styles.ERROR)
-        raise click.Abort()
+        raise click.Abort() from None
 
 
 @config.command(name="set-epics-gateway")
@@ -420,7 +420,7 @@ def set_epics_gateway(facility: str, address: str, port: int, project: str):
             console.print(
                 "   Or run from a project directory containing config.yml", style=Styles.DIM
             )
-            raise click.Abort()
+            raise click.Abort() from None
 
         if not config_path.exists():
             console.print(f"❌ Configuration file not found: {config_path}", style=Styles.ERROR)
@@ -428,11 +428,11 @@ def set_epics_gateway(facility: str, address: str, port: int, project: str):
                 "\n💡 Create a new project with: [bold cyan]osprey init my-project[/bold cyan]",
                 style=Styles.DIM,
             )
-            raise click.Abort()
+            raise click.Abort() from None
 
         if facility == "custom" and (not address or not port):
             console.print("❌ Custom facility requires --address and --port", style=Styles.ERROR)
-            raise click.Abort()
+            raise click.Abort() from None
 
         # Update configuration
         update_epics_gateway(config_path, facility, address, port)
@@ -442,7 +442,7 @@ def set_epics_gateway(facility: str, address: str, port: int, project: str):
 
     except Exception as e:
         console.print(f"❌ Failed to update EPICS gateway: {e}", style=Styles.ERROR)
-        raise click.Abort()
+        raise click.Abort() from None
 
 
 @config.command(name="set-models")
@@ -508,7 +508,7 @@ def set_models(provider: str, model: str, project: str):
             console.print(
                 "   Or run from a project directory containing config.yml", style=Styles.DIM
             )
-            raise click.Abort()
+            raise click.Abort() from None
 
         if not config_path.exists():
             console.print(f"❌ Configuration file not found: {config_path}", style=Styles.ERROR)
@@ -516,7 +516,7 @@ def set_models(provider: str, model: str, project: str):
                 "\n💡 Create a new project with: [bold cyan]osprey init my-project[/bold cyan]",
                 style=Styles.DIM,
             )
-            raise click.Abort()
+            raise click.Abort() from None
 
         # If no options provided, launch interactive mode
         if not provider or not model:
@@ -537,7 +537,7 @@ def set_models(provider: str, model: str, project: str):
                 f"   Available providers: {', '.join(providers.keys())}",
                 style=Styles.DIM,
             )
-            raise click.Abort()
+            raise click.Abort() from None
 
         # Validate model
         provider_info = providers[provider]
@@ -550,7 +550,7 @@ def set_models(provider: str, model: str, project: str):
                 f"   Available models: {', '.join(provider_info['models'][:5])}...",
                 style=Styles.DIM,
             )
-            raise click.Abort()
+            raise click.Abort() from None
 
         # Update configuration
         new_content, preview = update_all_models(config_path, provider, model)
@@ -565,7 +565,7 @@ def set_models(provider: str, model: str, project: str):
 
     except KeyboardInterrupt:
         console.print("\n⚠️  Operation cancelled", style=Styles.WARNING)
-        raise click.Abort()
+        raise click.Abort() from None
     except Exception as e:
         console.print(f"❌ Failed to update models: {e}", style=Styles.ERROR)
         import os
@@ -574,7 +574,7 @@ def set_models(provider: str, model: str, project: str):
             import traceback
 
             console.print(traceback.format_exc(), style=Styles.DIM)
-        raise click.Abort()
+        raise click.Abort() from None
 
 
 if __name__ == "__main__":

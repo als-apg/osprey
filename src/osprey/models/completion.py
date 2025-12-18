@@ -290,7 +290,6 @@ def get_chat_completion(
     """
 
     # Handle TypedDict to Pydantic conversion automatically
-    original_output_model = output_model
     is_typed_dict_output = False
 
     if output_model is not None and _is_typed_dict(output_model):

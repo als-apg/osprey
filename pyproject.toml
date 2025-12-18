@@ -306,7 +306,14 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # Allow unused imports in __init__.py
-"tests/*" = ["B011"]      # Allow assert False
+"tests/*" = ["B011", "B017", "B018"]  # Allow assert False, useless attribute access, assert blind exception
+"tests/e2e/conftest.py" = ["F811"]  # Allow pytest hook redefinition
+"tests/registry/test_registry_isolation.py" = ["F401"]  # Intentional unused import for testing
+"tests/documentation/test_workflow_autodoc.py" = ["E402"]  # Late imports after path manipulation
+"tests/services/channel_finder/test_registration.py" = ["E402"]  # Late imports after path manipulation
+"src/osprey/templates/apps/control_assistant/_agent_data/example_scripts/**/*.py" = ["E402"]  # Example scripts with late imports
+"src/osprey/templates/services/jupyter/startup_script.py" = ["F401"]  # Intentionally loaded in namespace
+"src/osprey/templates/apps/control_assistant/services/channel_finder/__init__.py" = ["E402"]  # Conditional imports
 
 [tool.ruff.lint.isort]
 known-first-party = ["osprey", "configs", "applications", "interfaces", "deployment"]

@@ -191,7 +191,7 @@ class OllamaProviderAdapter(BaseProvider):
                     f"Failed to connect to Ollama at configured URL '{base_url}' "
                     f"and all fallback URLs {fallback_urls}. Please ensure Ollama is running "
                     f"and accessible, or update your configuration."
-                )
+                ) from None
 
         # Build request
         chat_messages = [{"role": "user", "content": message}]
@@ -218,7 +218,7 @@ class OllamaProviderAdapter(BaseProvider):
             raise ValueError(
                 f"Ollama chat request failed using {current_url}. "
                 f"Error: {e}. Please verify the model '{model_id}' is available."
-            )
+            ) from e
 
         # Extract content from response
         ollama_content_str = response["message"]["content"]

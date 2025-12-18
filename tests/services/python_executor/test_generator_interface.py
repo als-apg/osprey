@@ -388,7 +388,7 @@ async def test_basic_generator_receives_structured_errors(monkeypatch):
         user_query="Calculate something", task_objective="Do math", execution_folder_name="test"
     )
 
-    code = await generator.generate_code(request, error_chain)
+    await generator.generate_code(request, error_chain)
 
     # Verify prompt was built with structured error
     assert len(received_prompts) == 1

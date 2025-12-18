@@ -157,7 +157,7 @@ def test_add_then_remove_capability(temp_registry):
 
 def test_remove_preserves_formatting(temp_registry):
     """Test that removal preserves the overall file structure."""
-    original_content = temp_registry.read_text()
+    temp_registry.read_text()
 
     # Remove one capability
     new_content, _, _ = remove_from_registry(temp_registry, "weather_demo")

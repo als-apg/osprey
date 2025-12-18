@@ -234,7 +234,7 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
             sections.append("# CAPABILITY PLANNING GUIDELINES")
 
         # Build each capability section with clear separators
-        for i, (capability, orchestrator_guide) in enumerate(sorted_prompts):
+        for _i, (capability, orchestrator_guide) in enumerate(sorted_prompts):
             if orchestrator_guide.instructions:  # Only include non-empty prompts
                 # Add capability name header
                 capability_name = capability.__class__.__name__.replace("Capability", "")

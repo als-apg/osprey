@@ -100,7 +100,7 @@ async def clear_runtime_state():
     if runtime._runtime_connector is not None:
         try:
             await cleanup_runtime()
-        except:
+        except Exception:
             pass
     runtime._runtime_connector = None
     runtime._runtime_config = None
@@ -111,7 +111,7 @@ async def clear_runtime_state():
     try:
         if runtime._runtime_connector is not None:
             await cleanup_runtime()
-    except:
+    except Exception:
         pass
     runtime._runtime_connector = None
     runtime._runtime_config = None

@@ -323,7 +323,7 @@ class Action:
             # Check if inputs reference valid context keys
             if step.get("inputs"):
                 for input_item in step["inputs"]:
-                    for context_type, context_key in input_item.items():
+                    for _context_type, context_key in input_item.items():
                         if context_key not in context_key_types:
                             errors.append(
                                 f"{step_id}: Input references unknown context key '{context_key}'"

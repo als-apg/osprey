@@ -476,7 +476,7 @@ def render_kernel_templates(source_dir, config, out_dir):
     kernel_templates = []
 
     # Look for kernel.json.j2 files in subdirectories
-    for root, dirs, files in os.walk(source_dir):
+    for root, _dirs, files in os.walk(source_dir):
         for file in files:
             if file == "kernel.json.j2":
                 template_path = os.path.relpath(os.path.join(root, file), os.getcwd())
@@ -611,7 +611,7 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
 
     # Extract service name from the path for container path resolution
     # e.g., "services/jupyter" -> "jupyter", "src/osprey/templates/services/pipelines" -> "pipelines"
-    service_name = os.path.basename(source_dir)
+    os.path.basename(source_dir)
 
     # Clear the directory if it exists
     build_dir = config.get("build_dir", "./build")
@@ -1082,7 +1082,7 @@ def prepare_compose_files(config_path, dev_mode=False):
             config = ConfigBuilder(config_path)
             config = config.raw_config
     except Exception as e:
-        raise RuntimeError(f"Could not load config file {config_path}: {e}")
+        raise RuntimeError(f"Could not load config file {config_path}: {e}") from e
 
     # Get deployed services list
     deployed_services = config.get("deployed_services", [])
@@ -1177,7 +1177,7 @@ def deploy_down(config_path, dev_mode=False):
             config = ConfigBuilder(config_path)
             config = config.raw_config
     except Exception as e:
-        raise RuntimeError(f"Could not load config file {config_path}: {e}")
+        raise RuntimeError(f"Could not load config file {config_path}: {e}") from e
 
     deployed_services = config.get("deployed_services", [])
     deployed_service_names = (
@@ -1261,7 +1261,7 @@ def show_status(config_path):
             config = ConfigBuilder(config_path)
             config = config.raw_config
     except Exception as e:
-        raise RuntimeError(f"Could not load config file {config_path}: {e}")
+        raise RuntimeError(f"Could not load config file {config_path}: {e}") from e
 
     # Get deployed services and current project name
     deployed_services = config.get("deployed_services", [])

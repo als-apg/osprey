@@ -314,7 +314,7 @@ def _get_capabilities_overview() -> str:
     """Get capabilities overview for conversational mode."""
     try:
         return get_registry().get_capabilities_overview()
-    except:
+    except Exception:
         return "General AI Assistant capabilities available"
 
 

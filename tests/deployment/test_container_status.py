@@ -125,7 +125,7 @@ class TestServiceNameMatching:
 
         expected_shorts = ["jupyter", "pipelines", "jupyter"]
 
-        for service_path, expected in zip(service_paths, expected_shorts):
+        for service_path, expected in zip(service_paths, expected_shorts, strict=False):
             short_name = service_path.split(".")[-1].lower()
             assert short_name == expected
 

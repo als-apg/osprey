@@ -224,7 +224,6 @@ async def test_channel_write_approval_workflow_catches_verification_config_bug(
     ):
         with patch("osprey.utils.config.get_config_value", side_effect=mock_config_value):
             final_state = None
-            error_occurred = False
             approval_interrupt_occurred = False
 
             try:

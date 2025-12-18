@@ -417,7 +417,7 @@ class Pipeline:
         phase = chunk.get("phase", "")
         complete = chunk.get("complete", False)
         error = chunk.get("error", False)
-        warning = chunk.get("warning", False)
+        chunk.get("warning", False)
 
         logger.debug(f"Status event captured: '{message}' from {component}")
 
@@ -1029,8 +1029,8 @@ class Pipeline:
                     # Extract figure information
                     capability = figure_entry.get("capability", "unknown")
                     figure_path = figure_entry["figure_path"]
-                    display_name = figure_entry.get("display_name", f"Figure {i}")
-                    metadata = figure_entry.get("metadata", {})
+                    figure_entry.get("display_name", f"Figure {i}")
+                    figure_entry.get("metadata", {})
                     created_at = figure_entry.get("created_at", "unknown")
 
                     # Convert figure to static URL serving
@@ -1227,7 +1227,7 @@ class Pipeline:
 
         try:
             parts = command.split()
-            cmd = parts[0]  # /logs
+            parts[0]  # /logs
 
             yield self._create_status_event("Fetching container logs...", False)
             # Add log entry directly to buffer for immediate feedback

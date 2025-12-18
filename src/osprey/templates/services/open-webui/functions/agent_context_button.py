@@ -211,7 +211,7 @@ class Action:
             pv_list = context_info.get("pv_list", [])
             if pv_list:
                 markdown += "**PV Addresses:**\n"
-                for i, pv in enumerate(pv_list[: user_valves.max_sample_items]):
+                for _i, pv in enumerate(pv_list[: user_valves.max_sample_items]):
                     markdown += f"- `{pv}`\n"
                 if len(pv_list) > user_valves.max_sample_items:
                     markdown += f"- *(and {len(pv_list) - user_valves.max_sample_items} more)*\n"
@@ -276,7 +276,7 @@ class Action:
             memories = context_info.get("memories", [])
             if memories:
                 markdown += "**Memory Entries:**\n"
-                for i, memory in enumerate(memories[: user_valves.max_sample_items]):
+                for _i, memory in enumerate(memories[: user_valves.max_sample_items]):
                     content = memory.get("content", "N/A")
                     timestamp = memory.get("timestamp", "N/A")
                     markdown += f"- {content} *(@ {timestamp})*\n"
@@ -842,7 +842,7 @@ class Action:
                     <h5 style="margin: 0 0 8px 0; font-size: 14px; font-weight: 600; color: #374151;">PV Addresses:</h5>
                     <div style="background: #f8fafc; padding: 12px; border-radius: 4px; border: 1px solid #e2e8f0; font-family: monospace; font-size: 12px; max-height: 200px; overflow-y: auto;">
                 """
-                for i, pv in enumerate(pv_list[: user_valves.max_sample_items]):
+                for _i, pv in enumerate(pv_list[: user_valves.max_sample_items]):
                     html += f'<div style="margin-bottom: 4px; color: #1f2937;">• {pv}</div>'
                 if len(pv_list) > user_valves.max_sample_items:
                     html += f'<div style="color: #6b7280; font-style: italic;">• (and {len(pv_list) - user_valves.max_sample_items} more)</div>'
@@ -922,7 +922,7 @@ class Action:
                     <h5 style="margin: 0 0 8px 0; font-size: 14px; font-weight: 600; color: #374151;">Memory Entries:</h5>
                     <div style="background: #f8fafc; padding: 12px; border-radius: 4px; border: 1px solid #e2e8f0; font-size: 12px; max-height: 200px; overflow-y: auto;">
                 """
-                for i, memory in enumerate(memories[: user_valves.max_sample_items]):
+                for _i, memory in enumerate(memories[: user_valves.max_sample_items]):
                     content = memory.get("content", "N/A")
                     timestamp = memory.get("timestamp", "N/A")
                     html += f'<div style="margin-bottom: 8px; padding: 8px; background: white; border-radius: 3px; border: 1px solid #e2e8f0;"><div style="color: #1f2937; margin-bottom: 4px;">{content}</div><div style="color: #6b7280; font-size: 11px;">@ {timestamp}</div></div>'

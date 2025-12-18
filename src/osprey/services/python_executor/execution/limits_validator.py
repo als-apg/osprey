@@ -483,7 +483,7 @@ class LimitsValidator:
                     value=value,
                     violation_type="STEP_CHECK_FAILED",
                     violation_reason="pyepics not available for step size verification",
-                )
+                ) from None
             except Exception as e:
                 # FAILSAFE: Any error during read → block write
                 logger.error(
@@ -494,7 +494,7 @@ class LimitsValidator:
                     value=value,
                     violation_type="STEP_CHECK_FAILED",
                     violation_reason=f"Channel read failed: {str(e)}",
-                )
+                ) from e
 
         # All checks passed!
         logger.debug(f"Validated write: {channel_address}={value}")

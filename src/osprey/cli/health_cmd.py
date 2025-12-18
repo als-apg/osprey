@@ -712,7 +712,7 @@ class HealthChecker:
 
             # Extract unique (provider, model_id) pairs
             unique_models = set()
-            for model_name, model_config in models.items():
+            for _model_name, model_config in models.items():
                 if not isinstance(model_config, dict):
                     continue
 
@@ -950,7 +950,7 @@ def health(project: str, verbose: bool, basic: bool):
         full = not basic
 
         checker = HealthChecker(verbose=verbose, full=full, project_path=project_path)
-        success = checker.check_all()
+        checker.check_all()
 
         # Determine exit code
         error_count = sum(1 for r in checker.results if r.status == "error")

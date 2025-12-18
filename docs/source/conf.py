@@ -4,9 +4,8 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
 import os
-import sys
-import warnings
 import subprocess
+import sys
 
 # Keep warnings visible to catch documentation issues
 # Do NOT suppress warnings - we want to see import problems

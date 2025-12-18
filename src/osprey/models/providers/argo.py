@@ -294,9 +294,9 @@ class ArgoProviderAdapter(BaseProvider):
                     logger.error(
                         f"JSON is valid but doesn't match schema. Keys: {list(parsed.keys()) if isinstance(parsed, dict) else 'not a dict'}"
                     )
-                except:
+                except Exception:
                     logger.error("JSON is completely invalid")
-                raise ValueError(f"Invalid JSON from model: {parse_error}")
+                raise ValueError(f"Invalid JSON from model: {parse_error}") from None
         else:
             # Regular text completion
             try:

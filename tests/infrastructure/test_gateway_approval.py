@@ -122,7 +122,7 @@ class TestExplicitApprovalDetection:
         expected_results = [True, True, True, True, False]
 
         with patch("osprey.infrastructure.gateway.get_chat_completion") as mock_llm:
-            for test_input, expected_approved in zip(test_cases, expected_results):
+            for test_input, expected_approved in zip(test_cases, expected_results, strict=False):
                 result = gateway._detect_approval_response(test_input)
 
                 # Should not call LLM for simple variations with whitespace
@@ -137,7 +137,7 @@ class TestExplicitApprovalDetection:
         expected_results = [True, True, True, False, False, False]
 
         with patch("osprey.infrastructure.gateway.get_chat_completion") as mock_llm:
-            for test_input, expected_approved in zip(test_cases, expected_results):
+            for test_input, expected_approved in zip(test_cases, expected_results, strict=False):
                 result = gateway._detect_approval_response(test_input)
 
                 # Should not call LLM for case variations

@@ -61,7 +61,7 @@ class DataRetrievalResult:
             "sources_failed": len(self.failed_sources),
             "success_rate": self.success_rate,
             "context_types_retrieved": list(
-                set(ctx.context_type for ctx in self.context_data.values())
+                {ctx.context_type for ctx in self.context_data.values()}
             ),
             "retrieval_time_sec": self.retrieval_time_sec,
         }
@@ -153,7 +153,7 @@ class DataSourceManager:
         failed_sources = []
         empty_sources = []
 
-        for (provider_name, _), result in zip(tasks, results):
+        for (provider_name, _), result in zip(tasks, results, strict=False):
             if isinstance(result, Exception):
                 logger.warning(f"Data retrieval failed for {provider_name}: {result}")
                 failed_sources.append(provider_name)

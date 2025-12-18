@@ -12,19 +12,18 @@ Usage in RST files:
 
 """
 
-import os
 import re
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Any
+
 import yaml
 from docutils import nodes
-from docutils.parsers.rst import Directive, directives
-from docutils.statemachine import StringList
+from docutils.parsers.rst import directives
 from sphinx.application import Sphinx
 from sphinx.util.docutils import SphinxDirective
 
 
-def format_use_when(applies_when: List[str]) -> str:
+def format_use_when(applies_when: list[str]) -> str:
     """Convert applies_when list to a readable 'use when' sentence.
 
     Args:
@@ -47,7 +46,7 @@ def format_use_when(applies_when: List[str]) -> str:
         return f"{', '.join(readable[:-1]).capitalize()}, or {readable[-1]}"
 
 
-def parse_workflow_file(filepath: Path) -> Dict[str, Any]:
+def parse_workflow_file(filepath: Path) -> dict[str, Any]:
     """Extract YAML frontmatter and metadata from a workflow markdown file.
 
     Args:
@@ -133,7 +132,7 @@ class WorkflowSummaryDirective(SphinxDirective):
     }
     has_content = False
 
-    def run(self) -> List[nodes.Node]:
+    def run(self) -> list[nodes.Node]:
         """Generate RST nodes for the workflow summary."""
         # Resolve file path relative to current document
         env = self.state.document.settings.env
@@ -262,7 +261,7 @@ class WorkflowListDirective(SphinxDirective):
     }
     has_content = False
 
-    def run(self) -> List[nodes.Node]:
+    def run(self) -> list[nodes.Node]:
         """Generate a list of workflows."""
         env = self.state.document.settings.env
         source_dir = Path(env.srcdir)
@@ -345,7 +344,7 @@ class WorkflowListDirective(SphinxDirective):
         return output
 
 
-def setup(app: Sphinx) -> Dict[str, Any]:
+def setup(app: Sphinx) -> dict[str, Any]:
     """Register the workflow autodoc extension with Sphinx."""
     app.add_directive('workflow-summary', WorkflowSummaryDirective)
     app.add_directive('workflow-list', WorkflowListDirective)

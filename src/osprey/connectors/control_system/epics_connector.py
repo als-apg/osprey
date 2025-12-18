@@ -101,7 +101,7 @@ class EPICSConnector(ControlSystemConnector):
         except ImportError:
             raise ImportError(
                 "pyepics is required for EPICS connector. Install with: pip install pyepics"
-            )
+            ) from None
 
         # Extract gateway configuration
         gateway_config = config.get("gateways", {}).get("read_only", {})
@@ -449,7 +449,7 @@ class EPICSConnector(ControlSystemConnector):
 
         return {
             ch_addr: result
-            for ch_addr, result in zip(channel_addresses, results)
+            for ch_addr, result in zip(channel_addresses, results, strict=False)
             if not isinstance(result, Exception)
         }
 

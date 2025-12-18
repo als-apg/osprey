@@ -100,7 +100,7 @@ plt.savefig(plot_path, dpi=300, bbox_inches="tight")
 plt.close(fig)
 
 # Calculate statistics for all channels
-all_positions = np.concatenate([pos for pos in bpm_positions.values()])
+all_positions = np.concatenate(list(bpm_positions.values()))
 
 # Store results for framework
 results = {

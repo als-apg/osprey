@@ -96,7 +96,7 @@ def chat(project: str, config: str):
 
     except KeyboardInterrupt:
         console.print("\n\n👋 Goodbye!", style=Styles.WARNING)
-        raise click.Abort()
+        raise click.Abort() from None
     except Exception as e:
         console.print(f"\n❌ Error: {e}", style=Styles.ERROR)
         # Show more details in verbose mode
@@ -106,7 +106,7 @@ def chat(project: str, config: str):
             import traceback
 
             console.print(traceback.format_exc(), style=Styles.DIM)
-        raise click.Abort()
+        raise click.Abort() from None
 
 
 if __name__ == "__main__":

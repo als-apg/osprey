@@ -229,7 +229,7 @@ llm:
             assert len(guidance) > 0
 
             # Each library should have directories and guidance
-            for library_name, library_config in guidance.items():
+            for _library_name, library_config in guidance.items():
                 assert "directories" in library_config
                 assert "guidance" in library_config
                 assert isinstance(library_config["directories"], list)
