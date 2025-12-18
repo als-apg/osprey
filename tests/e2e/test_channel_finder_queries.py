@@ -195,8 +195,7 @@ async def test_channel_finder_query(e2e_project_factory, test_case):
     elif match_type == "any":
         # Any match - must find at least one channel
         assert len(found_channels) > 0, (
-            f"Query '{test_case['query']}' returned no channels.\n"
-            f"Expected at least one channel."
+            f"Query '{test_case['query']}' returned no channels.\nExpected at least one channel."
         )
         logger.info(f"✓ Found channels: {found_channels}")
 
@@ -291,4 +290,3 @@ if __name__ == "__main__":
             print(f"Expected: {test_case['expected_channels']}")
 
     asyncio.run(run_single_test())
-

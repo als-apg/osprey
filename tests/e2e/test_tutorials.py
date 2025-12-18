@@ -290,9 +290,9 @@ async def test_hello_world_weather_tutorial(e2e_project_factory, llm_judge):
 
     # Verify BOTH capabilities were executed
     trace_lower = result.execution_trace.lower()
-    assert (
-        "weather" in trace_lower or "current_weather" in trace_lower
-    ), "Weather capability not executed"
+    assert "weather" in trace_lower or "current_weather" in trace_lower, (
+        "Weather capability not executed"
+    )
     assert "python" in trace_lower, "Python capability not executed"
 
     # Verify San Francisco was mentioned (either in trace or response)
@@ -333,14 +333,10 @@ async def test_hello_world_weather_tutorial(e2e_project_factory, llm_judge):
     assert "location extraction assistant" in api_log_content.lower(), (
         "API log doesn't contain expected location extraction prompt"
     )
-    assert "Examples:" in api_log_content, (
-        "API log should contain example-based prompt"
-    )
+    assert "Examples:" in api_log_content, "API log should contain example-based prompt"
 
     # Verify the prompt includes the user's query
-    assert "san francisco" in api_log_content.lower(), (
-        "User's query not found in API log"
-    )
+    assert "san francisco" in api_log_content.lower(), "User's query not found in API log"
 
     # Verify structured output model is used
     assert "_ParsedWeatherQuery" in api_log_content or "ParsedWeatherQuery" in api_log_content, (
@@ -350,9 +346,7 @@ async def test_hello_world_weather_tutorial(e2e_project_factory, llm_judge):
     # Verify the output contains San Francisco as the extracted location
     # Look for the OUTPUT RESPONSE section
     output_match = re.search(
-        r"OUTPUT RESPONSE.*?={10,}(.*?)(?:={10,}|$)",
-        api_log_content,
-        re.DOTALL
+        r"OUTPUT RESPONSE.*?={10,}(.*?)(?:={10,}|$)", api_log_content, re.DOTALL
     )
 
     if output_match:

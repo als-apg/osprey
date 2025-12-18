@@ -76,9 +76,9 @@ class TestAllExampleDatabases:
 
         # All path keys should be valid hierarchy levels
         for key in channel_info["path"].keys():
-            assert (
-                key in db.hierarchy_levels
-            ), f"Path key '{key}' not in hierarchy levels: {db.hierarchy_levels}"
+            assert key in db.hierarchy_levels, (
+                f"Path key '{key}' not in hierarchy levels: {db.hierarchy_levels}"
+            )
 
         print(f"✓ {db_path.name}: Channel map structure valid")
 
@@ -261,9 +261,9 @@ class TestExpectedChannelCounts:
         db = HierarchicalChannelDatabase(str(db_path))
         actual_count = len(db.channel_map)
 
-        assert (
-            actual_count == expected_count
-        ), f"{db_name}: Expected {expected_count} channels, got {actual_count}"
+        assert actual_count == expected_count, (
+            f"{db_name}: Expected {expected_count} channels, got {actual_count}"
+        )
 
         print(f"✓ {db_name}: Channel count correct ({actual_count})")
 

@@ -339,9 +339,9 @@ class TestGetFrameworkDefaults:
         }
 
         actual_types = set(framework.initialization_order)
-        assert expected_types.issubset(
-            actual_types
-        ), f"Missing types: {expected_types - actual_types}"
+        assert expected_types.issubset(actual_types), (
+            f"Missing types: {expected_types - actual_types}"
+        )
 
         # Verify context_classes comes before capabilities (dependency)
         ctx_idx = framework.initialization_order.index("context_classes")

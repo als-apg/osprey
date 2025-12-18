@@ -100,7 +100,7 @@ class EPICSConnector(ControlSystemConnector):
             self._epics = epics
         except ImportError:
             raise ImportError(
-                "pyepics is required for EPICS connector. " "Install with: pip install pyepics"
+                "pyepics is required for EPICS connector. Install with: pip install pyepics"
             )
 
         # Extract gateway configuration
@@ -184,7 +184,7 @@ class EPICSConnector(ControlSystemConnector):
 
         if not pv.connected:
             raise ConnectionError(
-                f"Failed to connect to PV '{pv_address}' " f"(timeout after {timeout}s)"
+                f"Failed to connect to PV '{pv_address}' (timeout after {timeout}s)"
             )
 
         value = pv.value

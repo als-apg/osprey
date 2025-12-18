@@ -3,7 +3,7 @@ Abstract base class for all channel finder pipelines.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict
+from typing import Any
 
 from .models import ChannelFinderResult
 
@@ -37,7 +37,7 @@ class BasePipeline(ABC):
         pass
 
     @abstractmethod
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         """
         Return pipeline statistics.
 

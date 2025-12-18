@@ -10,7 +10,7 @@ Supports flexible hierarchy with arbitrary mixing of:
 import itertools
 import json
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from ..core.base_database import BaseDatabase
 
@@ -39,7 +39,7 @@ class HierarchicalChannelDatabase(BaseDatabase):
         """Load hierarchical database from JSON with flexible configuration."""
         import warnings
 
-        with open(self.db_path, "r") as f:
+        with open(self.db_path) as f:
             data = json.load(f)
 
         self.tree = data["tree"]
@@ -345,8 +345,7 @@ class HierarchicalChannelDatabase(BaseDatabase):
         """Validate expansion definition has required fields and valid values."""
         if "_type" not in expansion:
             raise ValueError(
-                f"Expansion for '{level_name}' missing '_type' field.\n"
-                f"Must be 'range' or 'list'."
+                f"Expansion for '{level_name}' missing '_type' field.\nMust be 'range' or 'list'."
             )
 
         exp_type = expansion["_type"]
@@ -413,7 +412,7 @@ class HierarchicalChannelDatabase(BaseDatabase):
                 f"Must be 'range' or 'list'."
             )
 
-    def _find_level_container(self, tree: dict, level_name: str, level_idx: int) -> Optional[dict]:
+    def _find_level_container(self, tree: dict, level_name: str, level_idx: int) -> dict | None:
         """
         Find the container for an instance level in the tree.
 
@@ -872,7 +871,7 @@ class HierarchicalChannelDatabase(BaseDatabase):
 
     def _navigate_to_node(
         self, target_level: str, previous_selections: dict[str, Any]
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """
         Navigate to current node in tree based on previous selections.
 
@@ -1103,7 +1102,7 @@ class HierarchicalChannelDatabase(BaseDatabase):
         """Check if a channel exists in the database."""
         return channel in self.channel_map
 
-    def get_channel(self, channel_name: str) -> Optional[dict]:
+    def get_channel(self, channel_name: str) -> dict | None:
         """Get channel information."""
         channel_data = self.channel_map.get(channel_name)
         if channel_data:
@@ -1136,7 +1135,7 @@ class HierarchicalChannelDatabase(BaseDatabase):
             path: dict[str, str],
             node: dict,
             level_idx: int,
-            separator_overrides: Optional[dict[tuple[str, str], str]] = None,
+            separator_overrides: dict[tuple[str, str], str] | None = None,
         ):
             """Recursively expand tree with flexible level handling and custom separators."""
             if separator_overrides is None:
@@ -1369,7 +1368,9 @@ class HierarchicalChannelDatabase(BaseDatabase):
         else:
             return [value]
 
-    def _collect_separator_overrides(self, selections: dict[str, Any]) -> dict[tuple[str, str], str]:
+    def _collect_separator_overrides(
+        self, selections: dict[str, Any]
+    ) -> dict[tuple[str, str], str]:
         """
         Collect separator overrides from tree nodes based on selections.
 

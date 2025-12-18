@@ -468,7 +468,7 @@ class RegistryManager:
 
         if not path.is_file():
             raise RegistryError(
-                f"Registry path is not a file: {registry_path}\n" f"Resolved path: {path}"
+                f"Registry path is not a file: {registry_path}\nResolved path: {path}"
             )
 
         # ============================================================================
@@ -515,7 +515,7 @@ class RegistryManager:
         search_dir_str = str(search_dir.resolve())
         if search_dir_str not in sys.path:
             sys.path.insert(0, search_dir_str)
-            logger.info(f"Registry: Added {search_dir_str} to sys.path " f"({detection_reason})")
+            logger.info(f"Registry: Added {search_dir_str} to sys.path ({detection_reason})")
             logger.debug(
                 f"Registry: Path detection details:\n"
                 f"  - Registry file: {path}\n"
@@ -524,12 +524,13 @@ class RegistryManager:
                 f"  - Added to sys.path: {search_dir_str}"
             )
         else:
-            logger.debug(f"Registry: {search_dir_str} already in sys.path " f"({detection_reason})")
+            logger.debug(f"Registry: {search_dir_str} already in sys.path ({detection_reason})")
 
         # Load module from file using importlib.util
         try:
             spec = importlib.util.spec_from_file_location(
-                "_dynamic_registry", path  # Module name (not important for our use)
+                "_dynamic_registry",
+                path,  # Module name (not important for our use)
             )
 
             if spec is None or spec.loader is None:
@@ -1678,7 +1679,6 @@ class RegistryManager:
         capabilities = []
 
         for cap_reg in self.config.capabilities:
-
             capability_data = {
                 "name": cap_reg.name,
                 "description": cap_reg.description,

@@ -202,9 +202,9 @@ class TestApprovalWorkflowIntegration:
 
             # All should be approved
             assert result.resume_command is not None, f"Failed for '{test_input}'"
-            assert (
-                result.resume_command.update["approval_approved"] is True
-            ), f"Not approved for '{test_input}'"
+            assert result.resume_command.update["approval_approved"] is True, (
+                f"Not approved for '{test_input}'"
+            )
 
     @pytest.mark.asyncio
     async def test_case_insensitive_rejection(self, gateway, mock_graph):
@@ -221,9 +221,9 @@ class TestApprovalWorkflowIntegration:
 
             # All should be rejected
             assert result.resume_command is not None, f"Failed for '{test_input}'"
-            assert (
-                result.resume_command.update["approval_approved"] is False
-            ), f"Not rejected for '{test_input}'"
+            assert result.resume_command.update["approval_approved"] is False, (
+                f"Not rejected for '{test_input}'"
+            )
 
     @pytest.mark.asyncio
     async def test_whitespace_handling(self, gateway, mock_graph):
@@ -240,6 +240,6 @@ class TestApprovalWorkflowIntegration:
 
             # All should be approved
             assert result.resume_command is not None, f"Failed for '{test_input}'"
-            assert (
-                result.resume_command.update["approval_approved"] is True
-            ), f"Not approved for '{test_input}'"
+            assert result.resume_command.update["approval_approved"] is True, (
+                f"Not approved for '{test_input}'"
+            )

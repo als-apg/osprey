@@ -292,10 +292,10 @@ class BasicLLMCodeGenerator:
 
             # Show last 2 attempts with full structured context
             for error in error_chain[-2:]:
-                prompt_parts.append(f"\n{'='*60}")
+                prompt_parts.append(f"\n{'=' * 60}")
                 prompt_parts.append(error.to_prompt_text())
 
-            prompt_parts.append(f"\n{'='*60}")
+            prompt_parts.append(f"\n{'=' * 60}")
             prompt_parts.append("Generate IMPROVED code that fixes these issues.")
 
         prompt_parts.append("\nGenerate ONLY the Python code.")

@@ -142,17 +142,17 @@ async def test_runtime_utilities_basic_write(e2e_project_factory):
     generated_code = Path(code_files[0]).read_text()
 
     # 4. CRITICAL: Verify LLM used runtime utilities (not direct epics.caput)
-    assert (
-        "from osprey.runtime import" in generated_code
-    ), "Generated code doesn't import osprey.runtime - LLM didn't learn the API"
-    assert (
-        "write_channel" in generated_code
-    ), "Generated code doesn't use write_channel() - LLM didn't follow prompts"
+    assert "from osprey.runtime import" in generated_code, (
+        "Generated code doesn't import osprey.runtime - LLM didn't learn the API"
+    )
+    assert "write_channel" in generated_code, (
+        "Generated code doesn't use write_channel() - LLM didn't follow prompts"
+    )
 
     # 5. Verify code doesn't use deprecated direct EPICS calls
-    assert (
-        "epics.caput" not in generated_code.lower()
-    ), "Generated code uses deprecated epics.caput instead of runtime utilities"
+    assert "epics.caput" not in generated_code.lower(), (
+        "Generated code uses deprecated epics.caput instead of runtime utilities"
+    )
 
     # 6. Verify context snapshot exists
     executed_scripts_dir = project.project_dir / "_agent_data" / "executed_scripts"
@@ -173,9 +173,9 @@ async def test_runtime_utilities_basic_write(e2e_project_factory):
     # 7. Verify context snapshot contains control system config
     context_data = json.loads(context_file.read_text())
     assert "_execution_config" in context_data, "Context doesn't contain execution config snapshot"
-    assert (
-        "control_system" in context_data["_execution_config"]
-    ), "Context snapshot missing control_system config"
+    assert "control_system" in context_data["_execution_config"], (
+        "Context snapshot missing control_system config"
+    )
 
     # 8. Verify notebook includes runtime configuration
     # Notebooks are in the attempts subdirectory
@@ -187,9 +187,9 @@ async def test_runtime_utilities_basic_write(e2e_project_factory):
     notebook = nbformat.read(notebook_files[0], as_version=4)
     notebook_text = "\n".join(cell.source for cell in notebook.cells)
 
-    assert (
-        "from osprey.runtime import configure_from_context" in notebook_text
-    ), "Notebook missing runtime configuration cell"
+    assert "from osprey.runtime import configure_from_context" in notebook_text, (
+        "Notebook missing runtime configuration cell"
+    )
 
     print("✅ Runtime utilities basic write test passed")
     print("   - LLM correctly used osprey.runtime API")
@@ -280,9 +280,9 @@ async def test_runtime_utilities_respects_channel_limits(e2e_project_factory, tm
         generated_code = Path(code_files[0]).read_text()
 
         # Verify LLM used runtime API
-        assert (
-            "from osprey.runtime import" in generated_code
-        ), "Generated code doesn't use runtime utilities"
+        assert "from osprey.runtime import" in generated_code, (
+            "Generated code doesn't use runtime utilities"
+        )
         assert "write_channel" in generated_code, "Generated code doesn't use write_channel()"
 
     # 5. Find execution folder and check for error details
@@ -298,15 +298,15 @@ async def test_runtime_utilities_respects_channel_limits(e2e_project_factory, tm
                 metadata = json.loads(metadata_file.read_text())
 
                 # Verify execution failed (not succeeded)
-                assert (
-                    metadata.get("success") is False
-                ), "Execution metadata shows success despite limits violation!"
+                assert metadata.get("success") is False, (
+                    "Execution metadata shows success despite limits violation!"
+                )
 
                 # Check error mentions limits or violation
                 error_msg = metadata.get("error", "").lower()
-                assert (
-                    "limit" in error_msg or "violation" in error_msg or "exceed" in error_msg
-                ), f"Error message doesn't mention limits violation: {error_msg}"
+                assert "limit" in error_msg or "violation" in error_msg or "exceed" in error_msg, (
+                    f"Error message doesn't mention limits violation: {error_msg}"
+                )
 
     print("✅ Channel limits safety test passed")
     print("   - Runtime utilities correctly blocked violation")
@@ -376,15 +376,15 @@ async def test_runtime_utilities_within_limits_succeeds(e2e_project_factory, tmp
 
     # 3. Should NOT see limits violation
     trace_lower = result.execution_trace.lower()
-    assert (
-        "channellimitsviolationerror" not in trace_lower
-    ), "Valid write was incorrectly blocked by limits checker"
+    assert "channellimitsviolationerror" not in trace_lower, (
+        "Valid write was incorrectly blocked by limits checker"
+    )
 
     # 4. Response should indicate success
     response_lower = result.response.lower()
-    assert any(
-        word in response_lower for word in ["success", "set", "wrote", "completed"]
-    ), f"Response doesn't indicate successful write: {result.response[:300]}"
+    assert any(word in response_lower for word in ["success", "set", "wrote", "completed"]), (
+        f"Response doesn't indicate successful write: {result.response[:300]}"
+    )
 
     # 5. Verify generated code used runtime utilities
     code_files = [a for a in result.artifacts if str(a).endswith(".py")]
@@ -404,9 +404,9 @@ async def test_runtime_utilities_within_limits_succeeds(e2e_project_factory, tmp
 
     if metadata_file.exists():
         metadata = json.loads(metadata_file.read_text())
-        assert (
-            metadata.get("success") is True
-        ), f"Execution failed despite valid write: {metadata.get('error')}"
+        assert metadata.get("success") is True, (
+            f"Execution failed despite valid write: {metadata.get('error')}"
+        )
 
     print("✅ Valid write test passed")
     print("   - Runtime utilities allowed valid 75V write (limit: 100V)")

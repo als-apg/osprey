@@ -667,7 +667,7 @@ class Action:
             <div style="margin-bottom: 28px; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
                 <div style="background: #f1f5f9; padding: 16px; border-bottom: 1px solid #e2e8f0;">
                     <h3 style="margin: 0; color: #1f2937; font-size: 16px; font-weight: 600;">
-                        {category_emoji} {context_type.replace('_', ' ').title()}
+                        {category_emoji} {context_type.replace("_", " ").title()}
                     </h3>
                 </div>
                 <div style="padding: 20px;">

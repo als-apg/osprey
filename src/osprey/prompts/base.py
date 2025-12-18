@@ -562,11 +562,11 @@ def debug_print_prompt(prompt: str, name: str, builder_class: str | None = None)
             builder_info = f" ({builder_class})" if builder_class else ""
 
             # Print with clear separators for readability
-            logger.info(f"\n{'='*80}")
+            logger.info(f"\n{'=' * 80}")
             logger.info(f"🔍 DEBUG PROMPT: {name}{builder_info}")
-            logger.info(f"{'='*80}")
+            logger.info(f"{'=' * 80}")
             logger.info(prompt)
-            logger.info(f"{'='*80}\n")
+            logger.info(f"{'=' * 80}\n")
 
             # Also log at debug level
             logger.debug(f"Generated prompt: {name}{builder_info}")
@@ -593,7 +593,7 @@ def debug_print_prompt(prompt: str, name: str, builder_class: str | None = None)
                 # PROMPT METADATA
                 # Generated: {timestamp_str}
                 # Name: {name}
-                # Builder: {builder_class or 'Unknown'}
+                # Builder: {builder_class or "Unknown"}
                 # File: {prompt_file_path}
                 # Latest Only: {latest_only}
                 """

@@ -2,7 +2,7 @@
 
 import inspect
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, PropertyMock
+from unittest.mock import MagicMock
 
 import pytest
 

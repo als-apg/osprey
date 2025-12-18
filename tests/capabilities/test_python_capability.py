@@ -60,12 +60,12 @@ class TestPythonPromptBuilderIntegration:
 
         # Verify builder instructions are included
         combined = "\n".join(prompts)
-        assert (
-            "CODE GENERATION INSTRUCTIONS" in combined
-        ), "Prompt builder instructions not included in capability_prompts!"
-        assert (
-            "results" in combined.lower()
-        ), "Critical 'results' requirement from prompt builder not included!"
+        assert "CODE GENERATION INSTRUCTIONS" in combined, (
+            "Prompt builder instructions not included in capability_prompts!"
+        )
+        assert "results" in combined.lower(), (
+            "Critical 'results' requirement from prompt builder not included!"
+        )
 
     def test_prompt_builder_instructions_content(self):
         """Verify prompt builder provides proper Python code generation guidance."""

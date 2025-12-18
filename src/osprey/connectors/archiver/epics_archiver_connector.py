@@ -139,9 +139,7 @@ class EPICSArchiverConnector(ArchiverConnector):
             if isinstance(data, pd.DataFrame) and hasattr(data, "index"):
                 data.index = pd.to_datetime(data.index)
 
-                logger.debug(
-                    f"Retrieved archiver data: {len(data)} points " f"for {len(pv_list)} PVs"
-                )
+                logger.debug(f"Retrieved archiver data: {len(data)} points for {len(pv_list)} PVs")
                 return data
             else:
                 raise ValueError(f"Unexpected data format: {type(data)}")

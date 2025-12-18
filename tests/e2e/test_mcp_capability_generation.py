@@ -320,7 +320,7 @@ async def test_mcp_capability_generation_workflow(e2e_project_factory, llm_judge
         # Verify MCP capability was mentioned in trace
         trace_lower = result.execution_trace.lower()
         assert "weather" in trace_lower or "mcp" in trace_lower, (
-            "Weather/MCP capability not executed - check trace:\n" f"{result.execution_trace[:500]}"
+            f"Weather/MCP capability not executed - check trace:\n{result.execution_trace[:500]}"
         )
 
         # Verify San Francisco was mentioned
@@ -333,9 +333,9 @@ async def test_mcp_capability_generation_workflow(e2e_project_factory, llm_judge
             keyword in response_lower
             for keyword in ["temperature", "weather", "sunny", "cloudy", "rain", "degrees", "°"]
         )
-        assert (
-            has_weather_keywords
-        ), f"Response does not contain weather information:\n{result.response}"
+        assert has_weather_keywords, (
+            f"Response does not contain weather information:\n{result.response}"
+        )
 
     finally:
         # =====================================================================

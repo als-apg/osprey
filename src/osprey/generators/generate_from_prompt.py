@@ -400,10 +400,10 @@ class {class_name}(BaseCapability):
                 {classifier_analysis.activation_criteria}
 
                 Activate if the query involves:
-                {chr(10).join('- ' + kw for kw in classifier_analysis.keywords[:10])}
+                {chr(10).join("- " + kw for kw in classifier_analysis.keywords[:10])}
 
                 Edge cases to consider:
-                {chr(10).join('- ' + case for case in classifier_analysis.edge_cases[:5])}
+                {chr(10).join("- " + case for case in classifier_analysis.edge_cases[:5])}
             """).strip(),
             examples=[
 {classifier_examples_code}
@@ -425,10 +425,10 @@ class {class_name}(BaseCapability):
                 - expected_output: "{context_type}"
 
                 **Common Patterns:**
-                {chr(10).join('- ' + pattern for pattern in orchestrator_analysis.common_sequences[:5])}
+                {chr(10).join("- " + pattern for pattern in orchestrator_analysis.common_sequences[:5])}
 
                 **Important Notes:**
-                {chr(10).join('- ' + note for note in orchestrator_analysis.important_notes[:5])}
+                {chr(10).join("- " + note for note in orchestrator_analysis.important_notes[:5])}
 
                 **Output:** {context_type}
                 Contains results from the {capability_name} capability.

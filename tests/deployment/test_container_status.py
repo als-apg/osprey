@@ -5,8 +5,6 @@ show_status() function, which is critical for users understanding
 their deployment state.
 """
 
-import pytest
-
 # Test data structures mimicking podman ps JSON output
 SAMPLE_CONTAINER_PROJECT_A = {
     "Names": ["projecta-jupyter"],

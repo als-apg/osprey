@@ -1107,7 +1107,12 @@ class TestDirectSignalsAtOptionalLevels:
     def test_direct_signal_channels_generated_correctly(self, direct_signals_db):
         """Direct signals should generate channels that skip the optional subdevice level."""
         # Build channels for direct signal
-        selections = {"system": "CTRL", "subsystem": "MAIN", "device": "MC-01", "signal": "Heartbeat"}
+        selections = {
+            "system": "CTRL",
+            "subsystem": "MAIN",
+            "device": "MC-01",
+            "signal": "Heartbeat",
+        }
         channels = direct_signals_db.build_channels_from_selections(selections)
 
         # Should generate channel without subdevice

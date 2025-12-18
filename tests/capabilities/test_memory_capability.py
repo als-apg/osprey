@@ -40,7 +40,7 @@ class TestMemoryCapabilityApprovalPath:
     @pytest.mark.asyncio
     async def test_state_injection_in_approval_path(self, mock_state, mock_step, monkeypatch):
         """Test approved operation path validates state injection works."""
-        from unittest.mock import AsyncMock, MagicMock
+        from unittest.mock import MagicMock
 
         # Mock get_session_info
         monkeypatch.setattr(

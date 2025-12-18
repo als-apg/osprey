@@ -85,15 +85,15 @@ class DefaultResponseGenerationPromptBuilder(FrameworkPromptBuilder):
             return textwrap.dedent(
                 f"""
                 EXECUTION STATUS: Terminated
-                TERMINATION REASON: {getattr(info, 'kill_reason', None) or "Unknown termination reason"}
+                TERMINATION REASON: {getattr(info, "kill_reason", None) or "Unknown termination reason"}
 
                 PARTIAL SUMMARY:
                 {partial_summary}
 
                 EXECUTION STATS:
-                - Total steps executed: {getattr(info, 'total_steps_executed', 0)}
-                - Execution time: {getattr(info, 'execution_start_time', 'Unknown')}
-                - Reclassifications: {getattr(info, 'reclassification_count', 0)}
+                - Total steps executed: {getattr(info, "total_steps_executed", 0)}
+                - Execution time: {getattr(info, "execution_start_time", "Unknown")}
+                - Reclassifications: {getattr(info, "reclassification_count", 0)}
                 """
             ).strip()
         else:
@@ -275,7 +275,7 @@ class DefaultResponseGenerationPromptBuilder(FrameworkPromptBuilder):
                 ]
             )
 
-        return "GUIDELINES:\n" + "\n".join(f"{i+1}. {g}" for i, g in enumerate(guidelines))
+        return "GUIDELINES:\n" + "\n".join(f"{i + 1}. {g}" for i, g in enumerate(guidelines))
 
     def get_orchestrator_guide(self) -> OrchestratorGuide | None:
         """Create generic orchestrator guide for respond capability."""

@@ -9,7 +9,6 @@ Note: These tests require the claude-agent-sdk package to be installed.
 
 import pytest
 
-from osprey.services.python_executor.exceptions import CodeGenerationError
 from osprey.services.python_executor.models import ExecutionError, PythonExecutionRequest
 
 # Check if Claude SDK is available

@@ -302,7 +302,7 @@ class Action:
                 context_key_types[ctx["contextKey"]] = ctx["contextType"]
 
         for i, step in enumerate(plan_steps):
-            step_id = f"Step {i+1} ({step.get('context_key', 'unknown')})"
+            step_id = f"Step {i + 1} ({step.get('context_key', 'unknown')})"
 
             # Check required fields
             required_fields = ["context_key", "capability", "task_objective", "expected_output"]
@@ -525,7 +525,6 @@ Please reload the page after fixing the registry data.`);
             """
 
         try:
-
             # Emit status
             await __event_emitter__(
                 {
@@ -2020,7 +2019,7 @@ Note: Your modifications are preserved in this session until you reload the page
                                         "content": f"# ✅ Execution Plan Saved Successfully\\n\\n**Plan Details:**\\n- Steps: {len(plan_data)}\\n- Saved to: `{save_result['filename']}`\\n- Validation: Passed\\n\\n**Plan Summary:**\\n"
                                         + "\\n".join(
                                             [
-                                                f"{i+1}. {step.get('context_key', 'unknown')}: {step.get('capability', 'unknown')}"
+                                                f"{i + 1}. {step.get('context_key', 'unknown')}: {step.get('capability', 'unknown')}"
                                                 for i, step in enumerate(plan_data)
                                             ]
                                         )

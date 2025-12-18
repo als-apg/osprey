@@ -147,14 +147,13 @@ async def test_basic_generator_simple_code_generation(e2e_project_factory):
     # Step 5: Verify Python capability was executed
     trace_lower = result.execution_trace.lower()
     assert "python" in trace_lower, (
-        "Python capability not executed - check execution trace:\n"
-        f"{result.execution_trace[:500]}"
+        f"Python capability not executed - check execution trace:\n{result.execution_trace[:500]}"
     )
 
     # Step 6: Verify plot artifact was created
-    assert (
-        len(result.artifacts) > 0
-    ), f"Expected at least one artifact (plot), got {len(result.artifacts)}"
+    assert len(result.artifacts) > 0, (
+        f"Expected at least one artifact (plot), got {len(result.artifacts)}"
+    )
 
     # Step 7: Verify at least one PNG file was created
     png_files = [a for a in result.artifacts if str(a).lower().endswith(".png")]
@@ -162,9 +161,9 @@ async def test_basic_generator_simple_code_generation(e2e_project_factory):
 
     # Step 8: Verify response indicates success
     response_lower = result.response.lower()
-    assert any(
-        word in response_lower for word in ["success", "created", "saved", "completed"]
-    ), f"Response does not indicate successful completion:\n{result.response[:300]}"
+    assert any(word in response_lower for word in ["success", "created", "saved", "completed"]), (
+        f"Response does not indicate successful completion:\n{result.response[:300]}"
+    )
 
     print(f"✅ Basic generator test passed - created {len(result.artifacts)} artifact(s)")
 
@@ -260,7 +259,7 @@ async def test_claude_code_generator_with_codebase_guidance(e2e_project_factory,
     results_files = list(executed_scripts_dir.glob("**/results.json"))
 
     assert len(results_files) > 0, (
-        f"No results.json found in executed scripts!\n" f"Searched in: {executed_scripts_dir}"
+        f"No results.json found in executed scripts!\nSearched in: {executed_scripts_dir}"
     )
 
     # Get the most recent results file

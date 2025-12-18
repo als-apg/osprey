@@ -69,9 +69,7 @@ class ClarifyCapability(BaseCapability):
     description = (
         "Ask specific questions when user queries are ambiguous or missing critical details"
     )
-    provides = (
-        []
-    )  # Communication capability - no context output (questions go to user via chat history)
+    provides = []  # Communication capability - no context output (questions go to user via chat history)
     requires = []  # Can work with any execution context
 
     async def execute(self) -> dict[str, Any]:

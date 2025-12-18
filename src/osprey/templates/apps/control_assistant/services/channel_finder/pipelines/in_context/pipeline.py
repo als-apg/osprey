@@ -6,10 +6,9 @@ Implements the async multi-stage processing pipeline with chunking support.
 
 import asyncio
 import logging
-import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # Use Osprey's config system
 from osprey.utils.config import _get_config
@@ -130,7 +129,7 @@ class InContextPipeline(BasePipeline):
         """Return the pipeline name."""
         return "In-Context Semantic Search"
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         """Return pipeline statistics."""
         db_stats = self.database.get_statistics()
         return {
@@ -195,8 +194,8 @@ class InContextPipeline(BasePipeline):
         return result
 
     async def _process_chunk(
-        self, atomic_queries: List[str], chunk: List[Dict], chunk_num: int = 1
-    ) -> List[str]:
+        self, atomic_queries: list[str], chunk: list[dict], chunk_num: int = 1
+    ) -> list[str]:
         """Process all atomic queries against a single chunk.
 
         Args:
@@ -217,7 +216,7 @@ class InContextPipeline(BasePipeline):
 
         return valid_channels
 
-    async def _split_query(self, query: str) -> List[str]:
+    async def _split_query(self, query: str) -> list[str]:
         """Stage 1: Split query into atomic sub-queries.
 
         Args:
@@ -252,8 +251,8 @@ class InContextPipeline(BasePipeline):
         return response.queries
 
     async def _match_queries_in_chunk(
-        self, atomic_queries: List[str], chunk: List[Dict], chunk_num: int = 1
-    ) -> List[str]:
+        self, atomic_queries: list[str], chunk: list[dict], chunk_num: int = 1
+    ) -> list[str]:
         """Stage 2: Match all atomic queries against a single chunk.
 
         Args:
@@ -282,7 +281,7 @@ class InContextPipeline(BasePipeline):
                     )
                     all_channels.extend(result.channels)
                 else:
-                    logger.debug(f"    [dim]No matches[/dim]")
+                    logger.debug("    [dim]No matches[/dim]")
             except Exception as e:
                 # Log error but continue processing other queries
                 logger.warning(f"[yellow]⚠[/yellow] Query failed: {query} - {e}")
@@ -346,8 +345,8 @@ class InContextPipeline(BasePipeline):
         return response
 
     async def _validate_and_correct_chunk(
-        self, atomic_queries: List[str], channels: List[str], chunk: List[Dict], chunk_num: int = 1
-    ) -> List[str]:
+        self, atomic_queries: list[str], channels: list[str], chunk: list[dict], chunk_num: int = 1
+    ) -> list[str]:
         """Stage 3: Validate channels against chunk and correct if needed.
 
         Args:
@@ -382,7 +381,7 @@ class InContextPipeline(BasePipeline):
 
         if not has_invalid:
             # All valid, return immediately
-            logger.debug(f"    [green]✓[/green] All valid")
+            logger.debug("    [green]✓[/green] All valid")
             return channels
 
         logger.info(
@@ -428,9 +427,9 @@ class InContextPipeline(BasePipeline):
 
     async def _correct_channels_with_context(
         self,
-        atomic_queries: List[str],
-        validation_results: List[Dict],
-        chunk: List[Dict],
+        atomic_queries: list[str],
+        validation_results: list[dict],
+        chunk: list[dict],
         chunk_num: int = 1,
     ) -> ChannelCorrectionOutput:
         """Correct channels using full context (queries + validation flags + chunk).
@@ -474,7 +473,7 @@ class InContextPipeline(BasePipeline):
 
         return response
 
-    def _aggregate_results(self, query: str, valid_channels: List[str]) -> ChannelFinderResult:
+    def _aggregate_results(self, query: str, valid_channels: list[str]) -> ChannelFinderResult:
         """Stage 4: Aggregate results and map to addresses.
 
         No deduplication needed - chunks are disjoint, so each channel

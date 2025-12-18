@@ -74,10 +74,10 @@ class TestSimpleWeatherAPI:
         weather = api.get_current_weather("San Francisco")
 
         # Verify all required fields exist
-        assert hasattr(weather, 'location')
-        assert hasattr(weather, 'temperature')
-        assert hasattr(weather, 'conditions')
-        assert hasattr(weather, 'timestamp')
+        assert hasattr(weather, "location")
+        assert hasattr(weather, "temperature")
+        assert hasattr(weather, "conditions")
+        assert hasattr(weather, "timestamp")
 
         # Verify types
         assert isinstance(weather.location, str)
@@ -173,4 +173,3 @@ class TestSimpleWeatherAPI:
         for location in special_locations:
             weather = api.get_current_weather(location)
             assert weather.location == location
-

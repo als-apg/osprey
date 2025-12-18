@@ -341,10 +341,12 @@ def create_analyzer_node():
             if requires_approval:
                 # Create pre-approval notebook for user review
                 # This gives users a clickable Jupyter link to review code before approving
-                execution_folder, notebook_path, notebook_link = (
-                    await _create_pre_approval_notebook(
-                        state, configurable, generated_code, analysis_result
-                    )
+                (
+                    execution_folder,
+                    notebook_path,
+                    notebook_link,
+                ) = await _create_pre_approval_notebook(
+                    state, configurable, generated_code, analysis_result
                 )
 
                 # Create approval interrupt data with REAL notebook paths
@@ -501,7 +503,7 @@ async def _create_analysis_failure_attempt_notebook(
 **Error:** {error_message}
 
 **Issues Found:**
-{chr(10).join(f'- {issue}' for issue in issues)}
+{chr(10).join(f"- {issue}" for issue in issues)}
 
 **Debug Information:**
 - Stage: Static analysis
@@ -676,11 +678,11 @@ async def _create_pre_approval_notebook(
 **Execution Mode:** {execution_mode}
 
 **Analysis Summary:**
-- Safety Assessment: {'PASSED' if analysis_result.passed else 'FAILED'}
+- Safety Assessment: {"PASSED" if analysis_result.passed else "FAILED"}
 - Approval Required: {analysis_result.needs_approval}
 
 **Safety Considerations:**
-{chr(10).join(f'- {issue}' for issue in (analysis_result.issues + analysis_result.recommendations)) if (analysis_result.issues + analysis_result.recommendations) else '- No specific concerns identified'}
+{chr(10).join(f"- {issue}" for issue in (analysis_result.issues + analysis_result.recommendations)) if (analysis_result.issues + analysis_result.recommendations) else "- No specific concerns identified"}
 
 **Next Steps:**
 Review the code below and approve/reject execution accordingly."""

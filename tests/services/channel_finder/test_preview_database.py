@@ -13,7 +13,6 @@ from pathlib import Path
 import pytest
 from jinja2 import Environment, FileSystemLoader
 
-
 # Paths
 TEMPLATE_ROOT = (
     Path(__file__).parent.parent.parent.parent
@@ -164,6 +163,7 @@ class TestDepthParameter:
         """Test that depth=3 actually limits the tree to 3 levels."""
         import io
         import re
+
         from rich.console import Console
 
         # Import Osprey's theme to get proper styles
@@ -207,15 +207,15 @@ class TestDepthParameter:
             output_file = tmp_path / "depth_3_output.txt"
             output_file.write_text(result)
             print(f"\n✓ Output saved to: {output_file}")
-            print(f"\n--- Sample Output (first 500 chars) ---")
+            print("\n--- Sample Output (first 500 chars) ---")
             print(result[:500])
             print("...")
 
             # Validate depth=3 behavior:
             # 1. Configuration section should show Display Depth = 3
-            assert re.search(
-                r"Display Depth\s+3", result
-            ), f"Output should show 'Display Depth' with value 3\nGot: {result[:500]}"
+            assert re.search(r"Display Depth\s+3", result), (
+                f"Output should show 'Display Depth' with value 3\nGot: {result[:500]}"
+            )
 
             # 2. Tree should be present
             assert "Hierarchy Tree" in result, "Tree section header should be present"
@@ -232,21 +232,21 @@ class TestDepthParameter:
             # Check that we don't go beyond the requested depth
             # Each level adds indentation (┃ characters)
             max_indentation = max(line.count("┃") for line in branch_lines) if branch_lines else 0
-            assert (
-                max_indentation <= 3
-            ), f"Tree depth should not exceed 3 levels, but found {max_indentation} levels of indentation"
+            assert max_indentation <= 3, (
+                f"Tree depth should not exceed 3 levels, but found {max_indentation} levels of indentation"
+            )
 
             # 4. Should have the tip about using -1 for complete hierarchy
             # (only shown when depth/max_items are limited)
-            assert (
-                "--depth -1" in result
-            ), "Should show tip about viewing complete hierarchy with --depth -1"
+            assert "--depth -1" in result, (
+                "Should show tip about viewing complete hierarchy with --depth -1"
+            )
 
-            print(f"\n✓ All depth=3 validations passed:")
-            print(f"  - Display Depth parameter shown correctly")
-            print(f"  - Tree structure present")
+            print("\n✓ All depth=3 validations passed:")
+            print("  - Display Depth parameter shown correctly")
+            print("  - Tree structure present")
             print(f"  - Tree limited to {max_indentation} levels (≤3 as expected)")
-            print(f"  - Tip message present")
+            print("  - Tip message present")
 
         finally:
             # Restore original console
@@ -283,6 +283,7 @@ class TestMaxItemsParameter:
         """Test that max_items=3 actually limits branches to 3 per level."""
         import io
         import re
+
         from rich.console import Console
 
         try:
@@ -324,17 +325,17 @@ class TestMaxItemsParameter:
 
             # Validate max_items=3 behavior:
             # 1. Should show Max Items/Level = 3
-            assert re.search(
-                r"Max Items/Level\s+3", result
-            ), "Output should show 'Max Items/Level' with value 3"
+            assert re.search(r"Max Items/Level\s+3", result), (
+                "Output should show 'Max Items/Level' with value 3"
+            )
 
             # 2. Extract tree section
             tree_section = result[result.find("Hierarchy Tree") : result.find("💡 Tip:")]
 
             # 3. Check for truncation message "... X more"
-            assert (
-                "... " in tree_section and " more " in tree_section
-            ), "Tree should show truncation message when items exceed max_items"
+            assert "... " in tree_section and " more " in tree_section, (
+                "Tree should show truncation message when items exceed max_items"
+            )
 
             # 4. Count top-level systems in the tree
             # Top level has pattern: │  ┣━━ or │  ┗━━ (panel border + 2 spaces + branch + capital letter)
@@ -345,14 +346,14 @@ class TestMaxItemsParameter:
             ]
 
             # With max_items=3, should see exactly 3 systems (M, V, D)
-            assert (
-                len(top_level_branches) == 3
-            ), f"Should show exactly 3 top-level items, found {len(top_level_branches)}"
+            assert len(top_level_branches) == 3, (
+                f"Should show exactly 3 top-level items, found {len(top_level_branches)}"
+            )
 
-            print(f"\n✓ All max_items=3 validations passed:")
-            print(f"  - Max Items/Level parameter shown correctly")
-            print(f"  - Truncation message present")
-            print(f"  - Top level limited to 3 items")
+            print("\n✓ All max_items=3 validations passed:")
+            print("  - Max Items/Level parameter shown correctly")
+            print("  - Truncation message present")
+            print("  - Top level limited to 3 items")
 
         finally:
             compiled_preview_module.console = original_console
@@ -383,6 +384,7 @@ class TestSectionsParameter:
     def test_sections_tree_only(self, compiled_preview_module, consecutive_db_path, tmp_path):
         """Test sections='tree' shows only tree, no stats/breakdown."""
         import io
+
         from rich.console import Console
 
         try:
@@ -417,9 +419,9 @@ class TestSectionsParameter:
 
             # Should NOT have stats or breakdown
             assert "Hierarchy Level Statistics" not in result, "Stats section should NOT be present"
-            assert (
-                "Channel Count Breakdown" not in result
-            ), "Breakdown section should NOT be present"
+            assert "Channel Count Breakdown" not in result, (
+                "Breakdown section should NOT be present"
+            )
             assert "Sample Channels" not in result, "Samples section should NOT be present"
 
             print("\n✓ sections='tree' correctly shows only tree")
@@ -430,6 +432,7 @@ class TestSectionsParameter:
     def test_sections_stats_only(self, compiled_preview_module, consecutive_db_path, tmp_path):
         """Test sections='stats' shows only stats, no tree."""
         import io
+
         from rich.console import Console
 
         try:
@@ -464,9 +467,9 @@ class TestSectionsParameter:
 
             # Should NOT have tree or breakdown
             assert "Hierarchy Tree" not in result, "Tree section should NOT be present"
-            assert (
-                "Channel Count Breakdown" not in result
-            ), "Breakdown section should NOT be present"
+            assert "Channel Count Breakdown" not in result, (
+                "Breakdown section should NOT be present"
+            )
 
             print("\n✓ sections='stats' correctly shows only stats")
 
@@ -476,6 +479,7 @@ class TestSectionsParameter:
     def test_sections_all(self, compiled_preview_module, consecutive_db_path, tmp_path):
         """Test sections='all' includes all sections."""
         import io
+
         from rich.console import Console
 
         try:
@@ -597,6 +601,7 @@ class TestFocusParameter:
         """Test that focus='M' only shows M subtree, not V or D."""
         import io
         import re
+
         from rich.console import Console
 
         try:
@@ -637,9 +642,9 @@ class TestFocusParameter:
             assert "M" in result.split("Hierarchy Tree")[0], "Should show M in tree title area"
 
             # Should have M system content
-            assert (
-                "QB" in result or "DP" in result or "CM" in result
-            ), "Should show M subsystems (QB, DP, or CM)"
+            assert "QB" in result or "DP" in result or "CM" in result, (
+                "Should show M subsystems (QB, DP, or CM)"
+            )
 
             # Should NOT have other top-level systems
             tree_section = result[result.find("Hierarchy Tree") :]
@@ -761,7 +766,6 @@ class TestStatisticsCalculation:
 
     def test_level_statistics(self, compiled_preview_module, consecutive_db_path):
         """Test level statistics are calculated correctly."""
-        from unittest.mock import patch
 
         # Load database
         from test_preview.services.channel_finder.databases import HierarchicalChannelDatabase
@@ -817,6 +821,7 @@ class TestCrossDatabaseCompatibility:
         """Test that depth parameter works on all database formats."""
         import io
         import re
+
         from rich.console import Console
 
         # Get the actual fixture value by name
@@ -846,9 +851,9 @@ class TestCrossDatabaseCompatibility:
 
             # Basic validations that should work on all databases
             assert "Hierarchy Tree" in result, f"Tree should render on {db_fixture_name}"
-            assert re.search(
-                r"Display Depth\s+2", result
-            ), f"Depth parameter should show on {db_fixture_name}"
+            assert re.search(r"Display Depth\s+2", result), (
+                f"Depth parameter should show on {db_fixture_name}"
+            )
             assert "channels" in result.lower(), f"Should show channel count on {db_fixture_name}"
 
             print(f"\n✓ depth=2 works on {db_fixture_name}")

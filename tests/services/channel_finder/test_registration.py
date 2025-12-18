@@ -15,7 +15,7 @@ import json
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pytest
 
@@ -33,7 +33,7 @@ sys.path.insert(0, str(template_dir))
 from services.channel_finder import ChannelFinderService
 from services.channel_finder.core.base_database import BaseDatabase
 from services.channel_finder.core.base_pipeline import BasePipeline
-from services.channel_finder.core.models import ChannelFinderResult, ChannelInfo
+from services.channel_finder.core.models import ChannelFinderResult
 
 # ============================================================================
 # Mock Implementations for Testing
@@ -60,7 +60,7 @@ class MockCustomPipeline(BasePipeline):
             processing_notes=f"Mock pipeline processed with param: {self.custom_param}",
         )
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         return {"pipeline_type": "mock_custom", "custom_param": self.custom_param}
 
 
@@ -79,16 +79,16 @@ class MockCustomDatabase(BaseDatabase):
         ]
         self.channel_map = {ch["channel"]: ch for ch in self.channels}
 
-    def get_all_channels(self) -> List[Dict]:
+    def get_all_channels(self) -> list[dict]:
         return self.channels
 
-    def get_channel(self, channel_name: str) -> Optional[Dict]:
+    def get_channel(self, channel_name: str) -> dict | None:
         return self.channel_map.get(channel_name)
 
     def validate_channel(self, channel_name: str) -> bool:
         return channel_name in self.channel_map
 
-    def get_statistics(self) -> Dict:
+    def get_statistics(self) -> dict:
         return {
             "total_channels": len(self.channels),
             "format": "mock_custom",
@@ -96,10 +96,10 @@ class MockCustomDatabase(BaseDatabase):
         }
 
     # InContextPipeline-specific methods
-    def chunk_database(self, chunk_size: int = 50) -> List[List[Dict]]:
+    def chunk_database(self, chunk_size: int = 50) -> list[list[dict]]:
         return [self.channels]
 
-    def format_chunk_for_prompt(self, chunk: List[Dict], include_addresses: bool = False) -> str:
+    def format_chunk_for_prompt(self, chunk: list[dict], include_addresses: bool = False) -> str:
         formatted = []
         for ch in chunk:
             if include_addresses:
@@ -181,7 +181,7 @@ def test_register_multiple_pipelines():
                 query=query, channels=[], total_channels=0, processing_notes=""
             )
 
-        def get_statistics(self) -> Dict[str, Any]:
+        def get_statistics(self) -> dict[str, Any]:
             return {}
 
     # Register multiple
@@ -213,7 +213,7 @@ def test_register_pipeline_overwrites():
                 query=query, channels=[], total_channels=0, processing_notes=""
             )
 
-        def get_statistics(self) -> Dict[str, Any]:
+        def get_statistics(self) -> dict[str, Any]:
             return {}
 
     class SecondPipeline(BasePipeline):
@@ -226,7 +226,7 @@ def test_register_pipeline_overwrites():
                 query=query, channels=[], total_channels=0, processing_notes=""
             )
 
-        def get_statistics(self) -> Dict[str, Any]:
+        def get_statistics(self) -> dict[str, Any]:
             return {}
 
     # Register first
@@ -260,16 +260,16 @@ def test_register_multiple_databases():
         def load_database(self):
             pass
 
-        def get_all_channels(self) -> List[Dict]:
+        def get_all_channels(self) -> list[dict]:
             return []
 
-        def get_channel(self, channel_name: str) -> Optional[Dict]:
+        def get_channel(self, channel_name: str) -> dict | None:
             return None
 
         def validate_channel(self, channel_name: str) -> bool:
             return False
 
-        def get_statistics(self) -> Dict:
+        def get_statistics(self) -> dict:
             return {}
 
     # Register multiple
@@ -295,32 +295,32 @@ def test_register_database_overwrites():
         def load_database(self):
             pass
 
-        def get_all_channels(self) -> List[Dict]:
+        def get_all_channels(self) -> list[dict]:
             return []
 
-        def get_channel(self, channel_name: str) -> Optional[Dict]:
+        def get_channel(self, channel_name: str) -> dict | None:
             return None
 
         def validate_channel(self, channel_name: str) -> bool:
             return False
 
-        def get_statistics(self) -> Dict:
+        def get_statistics(self) -> dict:
             return {}
 
     class SecondDatabase(BaseDatabase):
         def load_database(self):
             pass
 
-        def get_all_channels(self) -> List[Dict]:
+        def get_all_channels(self) -> list[dict]:
             return []
 
-        def get_channel(self, channel_name: str) -> Optional[Dict]:
+        def get_channel(self, channel_name: str) -> dict | None:
             return None
 
         def validate_channel(self, channel_name: str) -> bool:
             return False
 
-        def get_statistics(self) -> Dict:
+        def get_statistics(self) -> dict:
             return {}
 
     # Register first
@@ -461,6 +461,7 @@ async def test_custom_pipeline_initialization(temp_config_file, monkeypatch):
 
     # Patch config functions
     import services.channel_finder.service as service_module
+
     import osprey.utils.config as config_module
 
     monkeypatch.setattr(service_module, "_get_config", mock_get_config)
@@ -555,6 +556,7 @@ async def test_custom_database_with_builtin_pipeline(temp_config_file, monkeypat
 
     # Patch config functions at service level
     import services.channel_finder.service as service_module
+
     import osprey.utils.config as config_module
 
     monkeypatch.setattr(service_module, "_get_config", mock_get_config)
@@ -567,11 +569,6 @@ async def test_custom_database_with_builtin_pipeline(temp_config_file, monkeypat
     monkeypatch.setattr(pipeline_module, "_get_config", mock_get_config)
 
     # Mock prompt loader
-    from services.channel_finder.core.models import (
-        ChannelCorrectionOutput,
-        ChannelMatchOutput,
-        QuerySplitterOutput,
-    )
 
     mock_prompts = Mock()
     mock_prompts.query_splitter = Mock()
@@ -649,6 +646,7 @@ def test_unknown_pipeline_error(temp_config_file, monkeypatch):
     }.get(key, default)
 
     import services.channel_finder.service as service_module
+
     import osprey.utils.config as config_module
 
     monkeypatch.setattr(service_module, "_get_config", lambda: mock_config_builder)
@@ -713,6 +711,7 @@ def test_unknown_database_error(temp_config_file, monkeypatch):
     }.get(key, default)
 
     import services.channel_finder.service as service_module
+
     import osprey.utils.config as config_module
 
     monkeypatch.setattr(service_module, "_get_config", lambda: mock_config_builder)

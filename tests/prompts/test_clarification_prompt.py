@@ -10,10 +10,10 @@ This test suite validates that the clarification prompt builder correctly:
 """
 
 import pytest
-from tests.conftest import PromptTestHelpers, create_test_state
 
 from osprey.prompts.defaults.clarification import DefaultClarificationPromptBuilder
 from osprey.state import AgentState, StateManager
+from tests.conftest import PromptTestHelpers, create_test_state
 
 # ===================================================================
 # Test Fixtures

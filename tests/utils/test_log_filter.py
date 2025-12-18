@@ -5,9 +5,6 @@ functionality that is used throughout the codebase to suppress verbose output.
 """
 
 import logging
-from io import StringIO
-
-import pytest
 
 from osprey.utils.log_filter import LoggerFilter, quiet_logger
 

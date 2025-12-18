@@ -186,7 +186,7 @@ class MockCodeGenerator:
 
         if behavior not in behaviors:
             raise ValueError(
-                f"Unknown behavior: {behavior}. " f"Available: {', '.join(behaviors.keys())}"
+                f"Unknown behavior: {behavior}. Available: {', '.join(behaviors.keys())}"
             )
 
         # Apply behavior if it has a generator function

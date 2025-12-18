@@ -329,7 +329,7 @@ def create_channel_write_approval_interrupt(
 
 Channel write operation requires human approval
 
-**Channels to write ({analysis_details.get('operation_count', 0)} total):**
+**Channels to write ({analysis_details.get("operation_count", 0)} total):**
 {operations_text}{safety_section}
 
 **To proceed, respond with:**

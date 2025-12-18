@@ -8,13 +8,13 @@ For backward compatibility, we provide minimal stubs that redirect to Osprey's c
 """
 
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 # Use Osprey's config system
 from osprey.utils.config import _get_config as get_osprey_config
 
 
-def get_config() -> Dict[str, Any]:
+def get_config() -> dict[str, Any]:
     """
     Get configuration dictionary.
 

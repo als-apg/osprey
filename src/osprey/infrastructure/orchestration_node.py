@@ -91,13 +91,13 @@ def _validate_and_fix_execution_plan(
     for i, step in enumerate(steps):
         capability_name = step.get("capability", "")
         if not capability_name:
-            logger.warning(f"Step {i+1} has no capability specified")
+            logger.warning(f"Step {i + 1} has no capability specified")
             continue
 
         # Check if capability exists in registry
         if not registry.get_node(capability_name):
             hallucinated_capabilities.append(capability_name)
-            logger.error(f"Step {i+1}: Capability '{capability_name}' not found in registry")
+            logger.error(f"Step {i + 1}: Capability '{capability_name}' not found in registry")
 
     # If hallucinated capabilities found, trigger re-planning
     if hallucinated_capabilities:

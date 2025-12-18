@@ -3,7 +3,6 @@ Abstract base class for all database implementations.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional
 
 
 class BaseDatabase(ABC):
@@ -25,7 +24,7 @@ class BaseDatabase(ABC):
         pass
 
     @abstractmethod
-    def get_channel(self, channel_name: str) -> Optional[Dict]:
+    def get_channel(self, channel_name: str) -> dict | None:
         """
         Get channel information by name.
 
@@ -38,7 +37,7 @@ class BaseDatabase(ABC):
         pass
 
     @abstractmethod
-    def get_all_channels(self) -> List[Dict]:
+    def get_all_channels(self) -> list[dict]:
         """
         Get all channels in the database.
 
@@ -61,7 +60,7 @@ class BaseDatabase(ABC):
         pass
 
     @abstractmethod
-    def get_statistics(self) -> Dict:
+    def get_statistics(self) -> dict:
         """
         Get database statistics.
 

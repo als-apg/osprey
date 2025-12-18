@@ -92,7 +92,9 @@ def test_set_control_system_only(tmp_path, sample_config_content):
     config_path.write_text(sample_config_content)
 
     new_content, preview = set_control_system_type(
-        config_path, "epics", None  # Don't update archiver
+        config_path,
+        "epics",
+        None,  # Don't update archiver
     )
 
     # Control system should be updated

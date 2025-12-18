@@ -6,7 +6,6 @@ Dynamic model generation constrains LLM to valid options at each level.
 """
 
 from enum import Enum
-from typing import List
 
 from pydantic import BaseModel, Field, create_model
 
@@ -15,7 +14,7 @@ NOTHING_FOUND_MARKER = "NOTHING_FOUND"
 
 
 def create_selection_model(
-    level_name: str, available_options: List[str], allow_multiple: bool = True
+    level_name: str, available_options: list[str], allow_multiple: bool = True
 ) -> type[BaseModel]:
     """
     Dynamically create a Pydantic model for a specific hierarchy level.
@@ -54,7 +53,7 @@ def create_selection_model(
         )
 
         return create_model(
-            model_name, selections=(List[OptionEnum], Field(description=field_description))
+            model_name, selections=(list[OptionEnum], Field(description=field_description))
         )
     else:
         # Single selection only

@@ -967,7 +967,6 @@ async def _perform_memory_save_operation(content: str, user_id: str, logger) -> 
         success = memory_manager.add_memory_entry(user_id, memory_entry)
 
         if success:
-
             logger.success(f"Memory save completed for user {user_id}")
 
             # Return MemoryContext with save operation results

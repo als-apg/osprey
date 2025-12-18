@@ -5,7 +5,6 @@ This example shows how to create a custom database that fetches channels from a 
 """
 
 import logging
-from typing import Dict, List, Optional
 
 import requests
 
@@ -56,7 +55,7 @@ class RESTAPIChannelDatabase(BaseDatabase):
         import json
 
         # Load config file
-        with open(self.db_path, "r") as f:
+        with open(self.db_path) as f:
             config = json.load(f)
 
         # Get API configuration
@@ -93,7 +92,7 @@ class RESTAPIChannelDatabase(BaseDatabase):
         response.raise_for_status()
         return response.json()
 
-    def get_all_channels(self) -> List[Dict]:
+    def get_all_channels(self) -> list[dict]:
         """Fetch all channels from API (with caching)."""
         # Return cached if available
         if self.channels_cache is not None:
@@ -125,7 +124,7 @@ class RESTAPIChannelDatabase(BaseDatabase):
 
         return channels
 
-    def get_channel(self, channel_name: str) -> Optional[Dict]:
+    def get_channel(self, channel_name: str) -> dict | None:
         """Get single channel (uses cache or API)."""
         # Try cache first
         if self.channel_map_cache:
@@ -156,7 +155,7 @@ class RESTAPIChannelDatabase(BaseDatabase):
         except Exception:
             return False
 
-    def get_statistics(self) -> Dict:
+    def get_statistics(self) -> dict:
         """Return database statistics."""
         all_channels = self.get_all_channels()
 
@@ -170,7 +169,7 @@ class RESTAPIChannelDatabase(BaseDatabase):
 
     # ===== InContextPipeline-specific methods =====
 
-    def chunk_database(self, chunk_size: int = 50) -> List[List[Dict]]:
+    def chunk_database(self, chunk_size: int = 50) -> list[list[dict]]:
         """Split into chunks (required by InContextPipeline if chunking enabled)."""
         all_channels = self.get_all_channels()
 
@@ -180,7 +179,7 @@ class RESTAPIChannelDatabase(BaseDatabase):
 
         return chunks
 
-    def format_chunk_for_prompt(self, chunk: List[Dict], include_addresses: bool = False) -> str:
+    def format_chunk_for_prompt(self, chunk: list[dict], include_addresses: bool = False) -> str:
         """Format chunk for LLM prompt (required by InContextPipeline)."""
         formatted = []
 

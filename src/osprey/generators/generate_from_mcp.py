@@ -151,7 +151,7 @@ class MCPCapabilityGenerator(BaseCapabilityGenerator):
         else:
             if not MCP_AVAILABLE:
                 raise RuntimeError(
-                    "MCP client not installed. Use simulated mode or install: " "pip install mcp"
+                    "MCP client not installed. Use simulated mode or install: pip install mcp"
                 )
 
             if self.verbose:
@@ -735,7 +735,7 @@ class {class_name}(BaseCapability):
                 {classifier_analysis.activation_criteria}
 
                 Activate if the query involves:
-                {chr(10).join('- ' + kw for kw in classifier_analysis.keywords[:10])}
+                {chr(10).join("- " + kw for kw in classifier_analysis.keywords[:10])}
 
                 Do NOT activate for purely informational queries about {self.server_name}.
             """).strip(),

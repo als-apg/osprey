@@ -7,7 +7,6 @@ Supports pluggable custom pipelines and databases via registration.
 
 import logging
 from pathlib import Path
-from typing import Optional, Type
 
 # Use Osprey's config system
 from osprey.utils.config import _get_config, get_provider_config
@@ -63,11 +62,11 @@ class ChannelFinderService:
     """
 
     # Class-level registries for custom implementations
-    _custom_pipelines: dict[str, Type[BasePipeline]] = {}
-    _custom_databases: dict[str, Type[BaseDatabase]] = {}
+    _custom_pipelines: dict[str, type[BasePipeline]] = {}
+    _custom_databases: dict[str, type[BaseDatabase]] = {}
 
     @classmethod
-    def register_pipeline(cls, name: str, pipeline_class: Type[BasePipeline]) -> None:
+    def register_pipeline(cls, name: str, pipeline_class: type[BasePipeline]) -> None:
         """
         Register a custom pipeline implementation.
 
@@ -102,14 +101,14 @@ class ChannelFinderService:
         """
         if not issubclass(pipeline_class, BasePipeline):
             raise TypeError(
-                f"Pipeline class must inherit from BasePipeline. " f"Got: {pipeline_class.__name__}"
+                f"Pipeline class must inherit from BasePipeline. Got: {pipeline_class.__name__}"
             )
 
         cls._custom_pipelines[name] = pipeline_class
         logger.info(f"Registered custom pipeline: {name} ({pipeline_class.__name__})")
 
     @classmethod
-    def register_database(cls, name: str, database_class: Type[BaseDatabase]) -> None:
+    def register_database(cls, name: str, database_class: type[BaseDatabase]) -> None:
         """
         Register a custom database implementation.
 
@@ -144,7 +143,7 @@ class ChannelFinderService:
         """
         if not issubclass(database_class, BaseDatabase):
             raise TypeError(
-                f"Database class must inherit from BaseDatabase. " f"Got: {database_class.__name__}"
+                f"Database class must inherit from BaseDatabase. Got: {database_class.__name__}"
             )
 
         cls._custom_databases[name] = database_class

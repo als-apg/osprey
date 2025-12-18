@@ -200,7 +200,7 @@ class BaseExample(ABC):
             content = ex.format_for_prompt()
 
             if add_numbering:
-                content = f"**Example {i+1}:**\n{content}"
+                content = f"**Example {i + 1}:**\n{content}"
 
             formatted.append(content)
 

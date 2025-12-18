@@ -1,12 +1,11 @@
 """Correction Prompt for Stage 3."""
 
 import textwrap
-from typing import Dict, List
 
 
 def get_prompt(
-    original_queries: List[str],
-    validation_results: List[Dict[str, any]],
+    original_queries: list[str],
+    validation_results: list[dict[str, any]],
     chunk_database: str,
     facility_name: str = "UCSB FEL",
 ) -> str:

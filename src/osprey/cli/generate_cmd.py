@@ -660,8 +660,7 @@ async def _offer_config_integration(generator):
             )
         else:
             console.print(
-                "\n  "
-                + Messages.info("Changes not applied. " "Add manually to config.yml if needed.")
+                "\n  " + Messages.info("Changes not applied. Add manually to config.yml if needed.")
             )
 
     except ImportError:
@@ -791,10 +790,10 @@ async def _offer_registry_integration(generator, classifier_analysis, orchestrat
             console.print(f"  [{Styles.DIM}]Backup saved to: {backup_path}[/{Styles.DIM}]")
             console.print()
             console.print(
-                "  " + Messages.info("Capability is now registered! " "Test with: osprey chat")
+                "  " + Messages.info("Capability is now registered! Test with: osprey chat")
             )
         else:
-            console.print("\n  " + Messages.info("Changes not applied. " "Add manually if needed."))
+            console.print("\n  " + Messages.info("Changes not applied. Add manually if needed."))
 
     except ImportError:
         # questionary not available
@@ -1068,7 +1067,7 @@ def claude_config(output_file: str, force: bool):
         console.print(f"\n{Messages.error(f'File already exists: {output_path}')}")
         console.print()
         console.print("  Use [accent]--force[/accent] to overwrite:")
-        console.print(f"    {Messages.command(f'osprey generate claude-config --force')}")
+        console.print(f"    {Messages.command('osprey generate claude-config --force')}")
         console.print()
         raise click.Abort()
 
@@ -1130,7 +1129,7 @@ def claude_config(output_file: str, force: bool):
         console.print('     [dim]      profile: "fast"  # or "robust"[/dim]')
         console.print(f'     [dim]      claude_config_path: "{output_path.name}"[/dim]')
         console.print()
-        console.print(f"  3. Set API key in [accent].env[/accent]:")
+        console.print("  3. Set API key in [accent].env[/accent]:")
         if default_provider == "cborg":
             console.print("     [dim]CBORG_API_KEY=your-key-here[/dim]")
         else:

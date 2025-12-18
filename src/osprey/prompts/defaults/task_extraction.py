@@ -334,7 +334,7 @@ Core requirements:
         """
         examples_text = "\n\n".join(
             [
-                f"## Example {i+1}:\n{example.format_for_prompt()}"
+                f"## Example {i + 1}:\n{example.format_for_prompt()}"
                 for i, example in enumerate(self.examples)
             ]
         )

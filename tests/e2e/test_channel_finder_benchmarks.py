@@ -4,7 +4,6 @@ These tests validate that both channel finder pipelines (in_context and hierarch
 meet the performance benchmarks with >90% accuracy on their respective datasets.
 """
 
-import asyncio
 import json
 import logging
 import os

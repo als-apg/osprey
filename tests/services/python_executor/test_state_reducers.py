@@ -5,8 +5,6 @@ particularly the preserve_once_set reducer that prevents critical fields
 from being lost during LangGraph state updates and checkpoint resumption.
 """
 
-import pytest
-
 from osprey.services.python_executor.models import (
     PythonExecutionRequest,
     preserve_once_set,
@@ -145,9 +143,9 @@ class TestStatePreservationIntegration:
 
             # The second argument should be the reducer function
             metadata = args[1:]
-            assert (
-                preserve_once_set in metadata
-            ), "request field should have preserve_once_set reducer in metadata"
+            assert preserve_once_set in metadata, (
+                "request field should have preserve_once_set reducer in metadata"
+            )
 
     def test_state_creation_includes_request(self):
         """Test that _create_internal_state includes request field.
@@ -193,7 +191,8 @@ class TestStatePreservationIntegration:
         # Simulate a state update that doesn't include request (like Command.resume)
         # The reducer would preserve the request field
         preserved_request = preserve_once_set(
-            existing=state["request"], new=None  # What comes from Command.resume
+            existing=state["request"],
+            new=None,  # What comes from Command.resume
         )
 
         assert preserved_request == request

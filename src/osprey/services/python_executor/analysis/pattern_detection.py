@@ -278,7 +278,7 @@ def get_default_patterns() -> dict[str, dict[str, list[str]]]:
         This function will be removed in a future version.
     """
     logger.warning(
-        "get_default_patterns() is deprecated. " "Use get_framework_standard_patterns() instead."
+        "get_default_patterns() is deprecated. Use get_framework_standard_patterns() instead."
     )
 
     # Return framework standard patterns in old nested format for backward compatibility

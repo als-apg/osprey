@@ -100,12 +100,12 @@ class Action:
 
             html += f"""
             <div style="margin-bottom: 24px; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
-                <div style="background: {'#f0f9ff' if success else '#fef2f2'}; padding: 16px; border-bottom: 1px solid #e2e8f0;">
+                <div style="background: {"#f0f9ff" if success else "#fef2f2"}; padding: 16px; border-bottom: 1px solid #e2e8f0;">
                     <h3 style="margin: 0; color: #1f2937; font-size: 16px; font-weight: 600;">
                         {status_emoji} Step {i}: {description}
                     </h3>
                     <div style="margin-top: 8px; font-size: 14px; font-weight: 500; color: {status_color};">
-                        {'✓ Success' if success else '✗ Failed'}
+                        {"✓ Success" if success else "✗ Failed"}
                     </div>
                 </div>
                 <div style="padding: 20px;">
@@ -128,11 +128,11 @@ class Action:
             html += f"""
                         <tr>
                             <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 500; color: #374151;">Node Type</td>
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; color: #1f2937; font-family: monospace;">{step.get('node_type', 'unknown')}</td>
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; color: #1f2937; font-family: monospace;">{step.get("node_type", "unknown")}</td>
                         </tr>
                         <tr>
                             <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 500; color: #374151;">Status</td>
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; color: {status_color}; font-weight: 600;">{status_emoji} {'Success' if success else 'Failed'}</td>
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; color: {status_color}; font-weight: 600;">{status_emoji} {"Success" if success else "Failed"}</td>
                         </tr>
             """
 
@@ -155,7 +155,7 @@ class Action:
                         html += f"""
                         <tr>
                             <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 500; color: #374151;">Start Time</td>
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; color: #1f2937;">{start_time.strftime('%H:%M:%S')}</td>
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; color: #1f2937;">{start_time.strftime("%H:%M:%S")}</td>
                         </tr>
                         """
 
@@ -181,7 +181,7 @@ class Action:
                 <div style="margin-bottom: 16px;">
                     <h5 style="margin: 0 0 8px 0; font-size: 14px; font-weight: 600; color: #374151;">📝 Input Requirements:</h5>
                     <div style="background: #f8fafc; padding: 12px; border-radius: 4px; border: 1px solid #e2e8f0; font-size: 13px; color: #1f2937;">
-                        {', '.join(input_requirements)}
+                        {", ".join(input_requirements)}
                     </div>
                 </div>
                 """
@@ -206,8 +206,8 @@ class Action:
                     <div style="margin-bottom: 16px; padding: 12px; background: #fef2f2; border-radius: 4px; border: 1px solid #fecaca;">
                         <h5 style="margin: 0 0 8px 0; font-size: 14px; font-weight: 600; color: #dc2626;">🚨 Error Details:</h5>
                         <div style="font-size: 13px; color: #7f1d1d; line-height: 1.4;">
-                            <div style="margin-bottom: 4px;"><strong>Message:</strong> {error.get('message', 'No error message')}</div>
-                            <div><strong>Severity:</strong> {error.get('severity', 'unknown')}</div>
+                            <div style="margin-bottom: 4px;"><strong>Message:</strong> {error.get("message", "No error message")}</div>
+                            <div><strong>Severity:</strong> {error.get("severity", "unknown")}</div>
                         </div>
                     </div>
                     """

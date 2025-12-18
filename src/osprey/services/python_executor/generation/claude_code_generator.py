@@ -1171,7 +1171,7 @@ class ClaudeCodeGenerator:
                     # Compact summary logging
                     summary_parts = [
                         f"{message.num_turns} turns",
-                        f"{message.duration_ms/1000:.1f}s",
+                        f"{message.duration_ms / 1000:.1f}s",
                     ]
                     if total_cost:
                         summary_parts.append(f"${total_cost:.4f}")

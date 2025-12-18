@@ -199,7 +199,7 @@ class BaseCapabilityGenerator:
         for i, ex in enumerate(orchestrator_analysis.example_steps):
             # Use LLM-generated context_key (descriptive), fallback to generic if missing
             context_key = (
-                ex.context_key if ex.context_key else f"{self.capability_name}_result_{i+1}"
+                ex.context_key if ex.context_key else f"{self.capability_name}_result_{i + 1}"
             )
             examples.append(
                 f"{indent}OrchestratorExample(\n"
@@ -212,7 +212,7 @@ class BaseCapabilityGenerator:
                 f"{indent}        inputs=[]\n"
                 f"{indent}    ),\n"
                 f'{indent}    scenario_description="{ex.scenario}",\n'
-                f"{indent}    notes=\"{ex.tool_name if ex.tool_name else 'Implementation-specific notes'}\"\n"
+                f'{indent}    notes="{ex.tool_name if ex.tool_name else "Implementation-specific notes"}"\n'
                 f"{indent})"
             )
 

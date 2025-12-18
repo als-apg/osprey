@@ -5,8 +5,6 @@ including validation that generated projects use the new
 registry helper pattern correctly.
 """
 
-from pathlib import Path
-
 import pytest
 from click.testing import CliRunner
 

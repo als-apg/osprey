@@ -2,7 +2,7 @@
 
 import logging
 import os
-from typing import Any, List, Optional, Union
+from typing import Any
 
 import httpx
 import openai
@@ -47,7 +47,7 @@ class ArgoProviderAdapter(BaseProvider):
         "gpt5",
         "gpt5mini",
     ]
-    _models_cache: Optional[List[str]] = None
+    _models_cache: list[str] | None = None
 
     # API key acquisition information
     api_key_url = None
@@ -59,10 +59,10 @@ class ArgoProviderAdapter(BaseProvider):
     @classmethod
     def get_available_models(
         cls,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
+        api_key: str | None = None,
+        base_url: str | None = None,
         force_refresh: bool = False,
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Dynamically fetch available models from the Argo /models endpoint.
 
@@ -86,7 +86,7 @@ class ArgoProviderAdapter(BaseProvider):
                 resp.raise_for_status()
                 data = resp.json()
 
-            models: List[str] = []
+            models: list[str] = []
             if isinstance(data, dict):
                 raw_models = data.get("data", [])
                 if isinstance(raw_models, list):
@@ -111,10 +111,10 @@ class ArgoProviderAdapter(BaseProvider):
     def create_model(
         self,
         model_id: str,
-        api_key: Optional[str],
-        base_url: Optional[str],
-        timeout: Optional[float],
-        http_client: Optional[httpx.AsyncClient],
+        api_key: str | None,
+        base_url: str | None,
+        timeout: float | None,
+        http_client: httpx.AsyncClient | None,
     ) -> OpenAIModel:
         """Create ARGO model instance for PydanticAI."""
         if http_client:
@@ -136,15 +136,15 @@ class ArgoProviderAdapter(BaseProvider):
         self,
         message: str,
         model_id: str,
-        api_key: Optional[str],
-        base_url: Optional[str],
+        api_key: str | None,
+        base_url: str | None,
         max_tokens: int = 1024,
         temperature: float = 0.0,
-        thinking: Optional[dict] = None,
-        system_prompt: Optional[str] = None,
-        output_format: Optional[Any] = None,
+        thinking: dict | None = None,
+        system_prompt: str | None = None,
+        output_format: Any | None = None,
         **kwargs,
-    ) -> Union[str, Any]:
+    ) -> str | Any:
         """Execute ARGO chat completion."""
         logger.debug(
             f"ARGO execute_completion called with output_format={output_format is not None}"
@@ -315,10 +315,10 @@ class ArgoProviderAdapter(BaseProvider):
 
     def check_health(
         self,
-        api_key: Optional[str],
-        base_url: Optional[str],
+        api_key: str | None,
+        base_url: str | None,
         timeout: float = 5.0,
-        model_id: Optional[str] = None,
+        model_id: str | None = None,
     ) -> tuple[bool, str]:
         """Check ARGO API health.
 

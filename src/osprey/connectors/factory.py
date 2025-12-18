@@ -111,7 +111,7 @@ class ConnectorFactory:
         if not connector_class:
             available = list(cls._control_system_connectors.keys())
             raise ValueError(
-                f"Unknown control system type: '{connector_type}'. " f"Available types: {available}"
+                f"Unknown control system type: '{connector_type}'. Available types: {available}"
             )
 
         # Create connector instance
@@ -171,7 +171,7 @@ class ConnectorFactory:
         if not connector_class:
             available = list(cls._archiver_connectors.keys())
             raise ValueError(
-                f"Unknown archiver type: '{connector_type}'. " f"Available types: {available}"
+                f"Unknown archiver type: '{connector_type}'. Available types: {available}"
             )
 
         # Create connector instance

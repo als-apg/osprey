@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Status Badges**: README.md badges for CI status, documentation, code coverage, PyPI version, Python version support, and license
 
 ### Changed
+- **Code Formatting**: Applied automated Ruff formatting across codebase - modernized type hints to Python 3.10+ style (`Optional[T]` → `T | None`, `List[T]` → `list[T]`), normalized quotes, cleaned whitespace, and removed unused imports; no functional changes
 - **Documentation Workflows**: Migrated workflow files from `docs/resources/other/` to `docs/workflows/` with updated references throughout; workflows now feature consistent YAML frontmatter for machine parsing and AI integration
 - **Documentation Structure**: Reorganized contributing documentation from placeholder to comprehensive guide with 6 dedicated sections (Getting Started, Git & GitHub, Code Standards, Developer Workflows, AI-Assisted Development, Community Guidelines) using sphinx-design cards and grids
 - **Contributing Guide**: Restructured `docs/source/contributing/index.rst` from placeholder to comprehensive 400+ line guide with learning paths, AI integration examples, workflow categories, and automation tools documentation

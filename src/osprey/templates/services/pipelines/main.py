@@ -802,7 +802,6 @@ class Pipeline:
             asyncio.set_event_loop(loop)
 
             try:
-
                 # Gateway handles all preprocessing
                 result = loop.run_until_complete(
                     self._gateway.process_message(user_message, self._graph, config)
@@ -1254,10 +1253,20 @@ class Pipeline:
 
                 else:
                     yield self._create_status_event("", True)
-                    yield "**Log Commands:**\n\n" "• `/logs` - Show last 100 lines\n" "• `/logs 50` - Show last 50 lines\n" "• `/logs help` - Show this help"
+                    yield (
+                        "**Log Commands:**\n\n"
+                        "• `/logs` - Show last 100 lines\n"
+                        "• `/logs 50` - Show last 50 lines\n"
+                        "• `/logs help` - Show this help"
+                    )
             else:
                 yield self._create_status_event("", True)
-                yield "**Log Commands:**\n\n" "• `/logs` - Show last 100 lines\n" "• `/logs 50` - Show last 50 lines\n" "• `/logs help` - Show this help"
+                yield (
+                    "**Log Commands:**\n\n"
+                    "• `/logs` - Show last 100 lines\n"
+                    "• `/logs 50` - Show last 50 lines\n"
+                    "• `/logs help` - Show this help"
+                )
 
         except Exception as e:
             logger.exception(f"Error handling log command: {e}")

@@ -57,10 +57,10 @@ class DefaultErrorAnalysisPromptBuilder(FrameworkPromptBuilder):
             error_info = textwrap.dedent(
                 f"""
                 ERROR CONTEXT:
-                - Current task: {getattr(error_context, 'current_task', 'Unknown')}
-                - Error type: {getattr(error_context, 'error_type', {}).value if hasattr(getattr(error_context, 'error_type', {}), 'value') else 'Unknown'}
-                - Capability: {getattr(error_context, 'capability_name', None) or 'Unknown'}
-                - Error message: {getattr(error_context, 'error_message', 'Unknown')}
+                - Current task: {getattr(error_context, "current_task", "Unknown")}
+                - Error type: {getattr(error_context, "error_type", {}).value if hasattr(getattr(error_context, "error_type", {}), "value") else "Unknown"}
+                - Capability: {getattr(error_context, "capability_name", None) or "Unknown"}
+                - Error message: {getattr(error_context, "error_message", "Unknown")}
                 """
             ).strip()
             sections.append(error_info)

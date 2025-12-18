@@ -3,7 +3,7 @@
 import logging
 import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 # Use Osprey's config system for path resolution
 from osprey.utils.config import _get_config
@@ -56,7 +56,7 @@ def load_prompts(config: dict) -> Any:
             )
             return prompts
         else:
-            logger.warning(f"⚠ Facility prompts not found or incomplete, falling back to generic")
+            logger.warning("⚠ Facility prompts not found or incomplete, falling back to generic")
     elif prompt_source == "facility":
         logger.warning("⚠ Prompts: facility requested but no facility.path configured")
 
@@ -70,9 +70,7 @@ def load_prompts(config: dict) -> Any:
     )
 
 
-def _try_load_prompts_directly(
-    prompts_path: str, pipeline_mode: str = "in_context"
-) -> Optional[Any]:
+def _try_load_prompts_directly(prompts_path: str, pipeline_mode: str = "in_context") -> Any | None:
     """Try to load prompts module directly from specified path.
 
     Args:
@@ -146,9 +144,7 @@ def _try_load_prompts_directly(
         return None
 
 
-def _try_load_facility_prompts(
-    facility_path: str, pipeline_mode: str = "in_context"
-) -> Optional[Any]:
+def _try_load_facility_prompts(facility_path: str, pipeline_mode: str = "in_context") -> Any | None:
     """Try to load facility-specific prompts module.
 
     Args:

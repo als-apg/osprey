@@ -5,7 +5,6 @@ ensuring all components work together correctly.
 """
 
 import sys
-from pathlib import Path
 
 import pytest
 from click.testing import CliRunner

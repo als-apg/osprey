@@ -47,9 +47,9 @@ results = {'status': 'success'}
         assert result.domain_data["control_system_type"] in ["epics", "mock"]
 
         # Should detect write operations
-        assert any(
-            "_writes" in op for op in result.detected_operations
-        ), f"Expected write operations in {result.detected_operations}"
+        assert any("_writes" in op for op in result.detected_operations), (
+            f"Expected write operations in {result.detected_operations}"
+        )
 
         # Should store detected patterns
         assert "detected_write_patterns" in result.domain_data
@@ -142,12 +142,12 @@ results = {}
 
         # For EPICS control system, should also set legacy flags
         if result.domain_data.get("control_system_type") == "epics":
-            assert (
-                "epics_writes" in result.detected_operations
-            ), "Should set epics_writes for backward compatibility"
-            assert (
-                "epics_reads" in result.detected_operations
-            ), "Should set epics_reads for backward compatibility"
+            assert "epics_writes" in result.detected_operations, (
+                "Should set epics_writes for backward compatibility"
+            )
+            assert "epics_reads" in result.detected_operations, (
+                "Should set epics_reads for backward compatibility"
+            )
             assert result.domain_data.get("epics_write_operations") is True
             assert result.domain_data.get("epics_read_operations") is True
 
@@ -241,9 +241,9 @@ results = {}
         result = await analyzer.analyze_domain(basic_analysis)
 
         # Should set risk category for writes
-        assert (
-            len(result.risk_categories) > 0
-        ), "Risk categories should be set for control system writes"
+        assert len(result.risk_categories) > 0, (
+            "Risk categories should be set for control system writes"
+        )
         assert (
             "control_system_write" in result.risk_categories
             or "accelerator_control" in result.risk_categories

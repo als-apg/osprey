@@ -68,7 +68,7 @@ class TemplateManager:
             return fallback_path
 
         raise RuntimeError(
-            "Could not locate osprey templates directory. " "Ensure osprey is properly installed."
+            "Could not locate osprey templates directory. Ensure osprey is properly installed."
         )
 
     def _detect_environment_variables(self) -> dict[str, str]:

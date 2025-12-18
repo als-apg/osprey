@@ -8,7 +8,7 @@ import asyncio
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 # Use Osprey's config system
 from osprey.utils.config import _get_config
@@ -159,7 +159,7 @@ class HierarchicalPipeline(BasePipeline):
         for i, atomic_query in enumerate(atomic_queries, 1):
             # For single query, keep it concise since we already know the task from capability logs
             if len(atomic_queries) == 1:
-                logger.info(f"[bold cyan]Stage 2:[/bold cyan] Navigating hierarchy...")
+                logger.info("[bold cyan]Stage 2:[/bold cyan] Navigating hierarchy...")
             else:
                 logger.info(
                     f"[bold cyan]Stage 2 - Query {i}/{len(atomic_queries)}:[/bold cyan] {atomic_query}"
@@ -289,7 +289,9 @@ class HierarchicalPipeline(BasePipeline):
             # NO OPTIONS AT THIS LEVEL
             # If this is an optional level, skip it and continue
             if is_optional:
-                logger.info(f"{indent}[yellow]No options available at level {level} - skipping optional level[/yellow]")
+                logger.info(
+                    f"{indent}[yellow]No options available at level {level} - skipping optional level[/yellow]"
+                )
                 # If no more levels, build channels from current selections
                 if not next_levels:
                     return self.database.build_channels_from_selections(selections)
@@ -397,7 +399,9 @@ class HierarchicalPipeline(BasePipeline):
                     if current_node:
                         selected_node = current_node.get(single_selection)
                         level_idx = self.database.hierarchy_levels.index(level)
-                        if selected_node and self.database._is_leaf_node(selected_node, level_idx + 1):
+                        if selected_node and self.database._is_leaf_node(
+                            selected_node, level_idx + 1
+                        ):
                             # This branch is a direct signal! Skip optional level
                             logger.info(
                                 f"{indent}    [cyan]→ '{single_selection}' is a direct signal - skipping optional level '{level}'[/cyan]"
@@ -659,7 +663,7 @@ If no options are relevant, use '{NOTHING_FOUND_MARKER}'."""
 
         return prompt
 
-    def _get_single_selection(self, selections: dict, key: str) -> Optional[str]:
+    def _get_single_selection(self, selections: dict, key: str) -> str | None:
         """Get single selection value (handle lists by taking first element)."""
         value = selections.get(key)
         if isinstance(value, list):
@@ -683,8 +687,7 @@ If no options are relevant, use '{NOTHING_FOUND_MARKER}'."""
                 )
 
         notes = (
-            f"Processed query using hierarchical navigation. "
-            f"Found {len(channel_infos)} channels."
+            f"Processed query using hierarchical navigation. Found {len(channel_infos)} channels."
         )
 
         return ChannelFinderResult(

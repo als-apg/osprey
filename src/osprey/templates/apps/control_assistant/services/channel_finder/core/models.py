@@ -5,8 +5,6 @@ Defines all Pydantic models used throughout the multi-stage processing pipeline.
 These models are shared across all pipeline implementations.
 """
 
-from typing import List, Optional
-
 from pydantic import BaseModel, Field
 
 
@@ -14,7 +12,7 @@ from pydantic import BaseModel, Field
 class QuerySplitterOutput(BaseModel):
     """Output model for query splitting stage."""
 
-    queries: List[str] = Field(
+    queries: list[str] = Field(
         description="List of atomic queries, each requesting a single channel or group"
     )
 
@@ -24,7 +22,7 @@ class ChannelMatchOutput(BaseModel):
     """Output model for channel matching stage."""
 
     channels_found: bool = Field(description="True if any matching channels were found")
-    channels: List[str] = Field(description="List of channel names that match the query")
+    channels: list[str] = Field(description="List of channel names that match the query")
 
 
 # Stage 3: Validation and Correction (In-Context Pipeline)
@@ -38,7 +36,7 @@ class ChannelValidationEntry(BaseModel):
 class ChannelCorrectionOutput(BaseModel):
     """Output model for channel correction stage."""
 
-    corrected_channels: List[str] = Field(description="Full corrected list of valid channels only")
+    corrected_channels: list[str] = Field(description="Full corrected list of valid channels only")
 
 
 # Final Output (Shared by all pipelines)
@@ -47,13 +45,13 @@ class ChannelInfo(BaseModel):
 
     channel: str = Field(description="Channel name")
     address: str = Field(description="Channel address")
-    description: Optional[str] = Field(default=None, description="Channel description if available")
+    description: str | None = Field(default=None, description="Channel description if available")
 
 
 class ChannelFinderResult(BaseModel):
     """Final result from the channel finder pipeline."""
 
     query: str = Field(description="Original user query")
-    channels: List[ChannelInfo] = Field(description="Found channels with addresses")
+    channels: list[ChannelInfo] = Field(description="Found channels with addresses")
     total_channels: int = Field(description="Total number of unique channels found")
     processing_notes: str = Field(description="Notes about query processing and results")

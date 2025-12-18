@@ -8,8 +8,6 @@ Extends the flat ChannelDatabase to support:
 """
 
 import json
-from pathlib import Path
-from typing import Dict, List, Optional
 
 from .flat import ChannelDatabase as FlatChannelDatabase
 
@@ -30,7 +28,7 @@ class ChannelDatabase(FlatChannelDatabase):
 
     def load_database(self):
         """Load database and expand any template entries into explicit channels."""
-        with open(self.db_path, "r") as f:
+        with open(self.db_path) as f:
             raw_data = json.load(f)
 
         # Handle both list format and dict format with metadata
@@ -65,7 +63,7 @@ class ChannelDatabase(FlatChannelDatabase):
         # Create lookup map for O(1) access
         self.channel_map = {ch["channel"]: ch for ch in self.channels}
 
-    def _expand_template(self, tmpl: dict) -> List[dict]:
+    def _expand_template(self, tmpl: dict) -> list[dict]:
         """
         Expand a template entry into multiple explicit channel dictionaries.
 
@@ -145,7 +143,7 @@ class ChannelDatabase(FlatChannelDatabase):
 
         return expanded
 
-    def format_chunk_for_prompt(self, chunk: List[Dict], include_addresses: bool = False) -> str:
+    def format_chunk_for_prompt(self, chunk: list[dict], include_addresses: bool = False) -> str:
         """
         Format chunk using selected presentation mode.
 
@@ -161,7 +159,7 @@ class ChannelDatabase(FlatChannelDatabase):
         else:
             return self._format_explicit(chunk, include_addresses)
 
-    def _format_explicit(self, chunk: List[Dict], include_addresses: bool = False) -> str:
+    def _format_explicit(self, chunk: list[dict], include_addresses: bool = False) -> str:
         """
         Format with explicit names, grouped by device family.
 
@@ -242,7 +240,7 @@ class ChannelDatabase(FlatChannelDatabase):
 
         return "\n".join(formatted)
 
-    def _format_template(self, chunk: List[Dict], include_addresses: bool = False) -> str:
+    def _format_template(self, chunk: list[dict], include_addresses: bool = False) -> str:
         """
         Format using pattern notation with examples.
 
@@ -300,7 +298,7 @@ class ChannelDatabase(FlatChannelDatabase):
 
         return "\n".join(formatted)
 
-    def _detect_pattern(self, channels: List[Dict]) -> Dict:
+    def _detect_pattern(self, channels: list[dict]) -> dict:
         """
         Detect pattern structure from a group of channels.
 
@@ -345,7 +343,7 @@ class ChannelDatabase(FlatChannelDatabase):
 
         return {"pattern": pattern}
 
-    def get_statistics(self) -> Dict:
+    def get_statistics(self) -> dict:
         """Get database statistics."""
         base_stats = super().get_statistics()
         base_stats["format"] = "template"

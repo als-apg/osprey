@@ -15,10 +15,8 @@ that an LLM or user would experience.
 import json
 import tempfile
 from pathlib import Path
-from typing import Any
 
 import pytest
-
 from src.osprey.templates.apps.control_assistant.services.channel_finder.databases.hierarchical import (
     HierarchicalChannelDatabase,
 )

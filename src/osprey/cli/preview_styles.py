@@ -184,8 +184,7 @@ def show_inline_styles():
     """Show inline text styling."""
     console.print(
         Panel.fit(
-            "[bold]INLINE TEXT STYLES[/bold]\n\n"
-            "[dim]How colors appear in regular text flow:[/dim]",
+            "[bold]INLINE TEXT STYLES[/bold]\n\n[dim]How colors appear in regular text flow:[/dim]",
             border_style=Styles.BORDER,
         )
     )
@@ -241,7 +240,7 @@ def show_panel_examples():
     """Show panels with different border styles."""
     console.print(
         Panel.fit(
-            "[bold]PANELS & BORDERS[/bold]\n\n" "[dim]How panels and borders appear:[/dim]",
+            "[bold]PANELS & BORDERS[/bold]\n\n[dim]How panels and borders appear:[/dim]",
             border_style=Styles.BORDER,
         )
     )
@@ -265,7 +264,7 @@ def show_table_example():
     """Show a table with styled content."""
     console.print(
         Panel.fit(
-            "[bold]TABLES[/bold]\n\n" "[dim]Configuration and data display:[/dim]",
+            "[bold]TABLES[/bold]\n\n[dim]Configuration and data display:[/dim]",
             border_style=Styles.BORDER,
         )
     )
