@@ -547,9 +547,9 @@ class ProcessingStep(Static):
         self._input_set: bool = False
         # Output message for display
         self._output_message: str = ""
-        # LLM prompt and response storage
-        self._llm_prompt: str = ""
-        self._llm_response: str = ""
+        # LLM prompt and response storage (dict for multi-capability support)
+        self._llm_prompts: dict[str, str] = {}
+        self._llm_responses: dict[str, str] = {}
 
     def compose(self) -> ComposeResult:
         """Compose the step with title line, links, and output line."""
@@ -585,9 +585,9 @@ class ProcessingStep(Static):
         # Show links if data was set before mounting (race condition fix)
         if self._log_messages:
             logs_link.display = True
-        if self._llm_prompt:
+        if self._llm_prompts:
             prompt_link.display = True
-        if self._llm_response:
+        if self._llm_responses:
             response_link.display = True
         # Apply pending state
         if self._status == "active":
@@ -620,40 +620,52 @@ class ProcessingStep(Static):
         """Open the prompt viewer modal."""
         from osprey.interfaces.tui.widgets.content_viewer import ContentViewer
 
-        viewer = ContentViewer(
-            f"{self.title} - Prompt", self._llm_prompt, language="markdown"
-        )
+        # Single prompt with empty key -> pass as string; else pass dict for tabs
+        if len(self._llm_prompts) == 1 and "" in self._llm_prompts:
+            content: str | dict[str, str] = self._llm_prompts[""]
+        else:
+            content = self._llm_prompts
+
+        viewer = ContentViewer(f"{self.title} - Prompt", content, language="markdown")
         self.app.push_screen(viewer)
 
     def _show_response(self) -> None:
         """Open the response viewer modal with JSON syntax highlighting."""
         from osprey.interfaces.tui.widgets.content_viewer import ContentViewer
 
-        viewer = ContentViewer(
-            f"{self.title} - Response",
-            self._llm_response,
-            language="json",
-        )
+        # Single response with empty key -> pass as string; else pass dict for tabs
+        if len(self._llm_responses) == 1 and "" in self._llm_responses:
+            content: str | dict[str, str] = self._llm_responses[""]
+        else:
+            content = self._llm_responses
+
+        viewer = ContentViewer(f"{self.title} - Response", content, language="json")
         self.app.push_screen(viewer)
 
-    def set_llm_prompt(self, prompt: str) -> None:
-        """Set the LLM prompt and show the prompt link.
+    def set_llm_prompt(self, prompt: str | dict[str, str]) -> None:
+        """Set the LLM prompt(s) and show the prompt link.
 
         Args:
-            prompt: The raw LLM prompt text.
+            prompt: The LLM prompt text (str) or dict of {capability_name: prompt_text}.
         """
-        self._llm_prompt = prompt
+        if isinstance(prompt, str):
+            self._llm_prompts[""] = prompt
+        else:
+            self._llm_prompts.update(prompt)
         if self._mounted:
             prompt_link = self.query_one("#step-prompt-link", PromptLink)
             prompt_link.display = True
 
-    def set_llm_response(self, response: str) -> None:
-        """Set the LLM response and show the response link.
+    def set_llm_response(self, response: str | dict[str, str]) -> None:
+        """Set the LLM response(s) and show the response link.
 
         Args:
-            response: The raw LLM response text.
+            response: The LLM response text (str) or dict of {capability_name: response_json}.
         """
-        self._llm_response = response
+        if isinstance(response, str):
+            self._llm_responses[""] = response
+        else:
+            self._llm_responses.update(response)
         if self._mounted:
             response_link = self.query_one("#step-response-link", ResponseLink)
             response_link.display = True
