@@ -85,6 +85,15 @@ class ContentViewer(ModalScreen[None]):
             return f"```{self.language}\n{content}\n```"
         return content
 
+    def _get_max_content_lines(self) -> int:
+        """Get the maximum line count across all tab contents."""
+        max_lines = 0
+        for content in self._content_dict.values():
+            if content:
+                lines = content.count("\n") + 1
+                max_lines = max(max_lines, lines)
+        return max_lines
+
     def _compose_footer(self) -> Static:
         """Compose footer with appropriate hints."""
         hints = [
@@ -121,6 +130,15 @@ class ContentViewer(ModalScreen[None]):
                 )
 
             yield self._compose_footer()
+
+    def on_mount(self) -> None:
+        """Set fixed height for tabbed content to prevent jumping."""
+        if self._is_tabbed:
+            container = self.query_one("#content-viewer-content", ScrollableContainer)
+            max_lines = self._get_max_content_lines()
+            # Set height to max lines - no artificial cap needed
+            # CSS max-height: 80% on parent container naturally limits overall height
+            container.styles.height = max_lines
 
     def _refresh_content(self) -> None:
         """Refresh content based on current markdown mode."""
