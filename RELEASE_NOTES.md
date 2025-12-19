@@ -1,105 +1,157 @@
-# Osprey Framework - Latest Release (v0.9.7)
+# Osprey Framework - Latest Release (v0.9.8)
 
-🎉 **Configuration Management & Channel Finder Robustness** - Model Configuration CLI, Enhanced Channel Finder Validation, and Bug Fixes
+🎉 **Developer Experience & Infrastructure Improvements** - CI/CD Pipeline, Documentation Versioning, Workflow Guides, and Code Quality Enhancements
 
-## What's New in v0.9.7
+## What's New in v0.9.8
 
 ### 🚀 Major New Features
 
-#### CLI - Model Configuration Command
-- **Unified Model Configuration**: New `osprey config set-models` command to update all model configurations at once
-  - Interactive mode: Guided prompts for selecting AI provider and specific models
-  - Direct mode: Pass provider and models as command-line arguments for automation
-  - Updates all relevant model fields: `model`, `channel_finder`, `python_generator`, and `mcp_server_generator`
-  - Comprehensive unit tests covering interactive and direct configuration scenarios
+#### CI/CD Infrastructure
+- **Comprehensive GitHub Actions Pipeline**: Full CI/CD automation with parallel test jobs
+  - Multi-version testing: Python 3.11 & 3.12 on Ubuntu & macOS
+  - Automated linting (Ruff), type checking (mypy), and package validation
+  - Code coverage reporting with Codecov integration
+  - Documentation builds with PR preview artifacts (7-day retention)
+- **Release Automation**: `.github/workflows/release.yml` for automated PyPI publishing
+  - Trusted publishing using OIDC (no manual credentials needed)
+  - Version verification and optional TestPyPI deployment
+- **Pre-commit Hooks**: `.pre-commit-config.yaml` with automated quality checks
+  - Ruff linting and formatting
+  - File quality checks (trailing whitespace, merge conflicts, large files)
+  - Optional mypy type checking
+- **Dependabot**: Automated weekly dependency updates with intelligent grouping
 
-#### Channel Finder - Enhanced Reliability
-- **API Call Context Tracking**: Added context tracking to channel finder pipeline for better debugging and logging
-  - Improved visibility into LLM API calls during channel finding operations
-  - Better error messages and troubleshooting capabilities
-- **Improved Configuration Validation**: Clearer error messages when channel_finder model is not configured
-  - Prevents silent failures or confusing error messages
-  - Guides users to proper configuration steps
+#### Documentation Version Switcher
+- **Multi-Version Documentation**: PyData Sphinx Theme version switcher for GitHub Pages
+  - Dynamic `versions.json` generation from git tags
+  - Historical versions preserved in separate directories (e.g., `/v0.9.7/`, `/latest/`)
+  - Seamless navigation between documentation versions
+- **Custom Sphinx Extension**: `workflow_autodoc.py` for auto-documenting workflow files
+  - New directives: `.. workflow-summary::` and `.. workflow-list::`
+  - Parses YAML frontmatter from markdown workflow files
+  - Custom CSS styling for workflow documentation
 
-### 📚 Documentation Improvements
+#### Developer Workflows System
+- **10 Comprehensive Workflow Guides**: New `docs/workflows/` directory
+  - Pre-merge cleanup, commit organization, release process
+  - Testing strategy, AI code review, docstrings, comments
+  - Documentation updates and quality standards
+  - YAML frontmatter metadata for machine parsing
+  - AI assistant integration prompts for automated workflows
+- **Professional Contributing Guide**: `CONTRIBUTING.md` with quick start
+  - Branch naming conventions and code standards summary
+  - Links to comprehensive documentation
+  - Learning paths for new contributors
 
-#### Python Version Consistency
-- **Unified Python Requirements**: Updated all documentation and templates to consistently specify "Python 3.11+"
-  - Matches the pyproject.toml requirement of `>=3.11`
-  - Eliminates confusion about supported Python versions
-  - Updated files: installation guides, README templates, and documentation
+#### Testing & Quality
+- **Pre-merge Check Script**: `scripts/premerge_check.sh` automated scanning
+  - Debug code, commented code, hardcoded secrets detection
+  - Missing CHANGELOG entries and incomplete docstrings
+  - Unlinked TODOs and code quality issues
+- **Enhanced Test Coverage**: Comprehensive test suites for new features
+  - Hello World Weather template: Mock API validation, response formatting, error handling
+  - Workflow autodoc extension: Frontmatter parsing, directive rendering, integration tests
+  - All changes verified with 976 unit tests + 16 e2e tests
+- **Status Badges**: README.md badges for CI, docs, coverage, PyPI, Python, license
 
-### 🔧 Infrastructure & Code Quality
+### 🔧 Improvements & Changes
 
-#### Control Assistant Template Cleanup
-- **Removed Duplicate Code**: Removed duplicate `completion.py` implementation from channel finder service
-  - Now uses `osprey.models.completion` for consistency and maintainability
-  - Reduces code duplication and maintenance burden
-  - Ensures consistent LLM completion behavior across all capabilities
+#### Code Quality
+- **Comprehensive Linting Cleanup**: Fixed issues across 47 files
+  - B904 exception chaining (30 instances)
+  - E722 bare except clauses (5 instances)
+  - B007 unused loop variables (4 instances)
+  - Removed B904 from ruff ignore list; added intentional per-file ignores
+- **Code Formatting**: Applied automated Ruff formatting across codebase
+  - Modernized type hints to Python 3.10+ style (`Optional[T]` → `T | None`)
+  - Normalized quotes, cleaned whitespace, removed unused imports
+  - No functional changes
 
-#### Pre-Merge Code Quality
-- **Code Cleanup**: Removed unused imports and applied formatting standards
-  - Applied black formatting to 13 files
-  - Documented DEBUG and CONFIG_FILE environment variables in `env.example`
-  - Improved overall code quality and consistency
+#### Documentation
+- **Workflow Migration**: Moved workflows from `docs/resources/other/` to `docs/workflows/`
+  - Consistent YAML frontmatter for machine parsing
+  - Updated references throughout documentation
+- **Contributing Guide**: Restructured to 400+ line comprehensive guide
+  - 6 dedicated sections: Getting Started, Git & GitHub, Code Standards
+  - Developer Workflows, AI-Assisted Development, Community Guidelines
+  - Sphinx-design cards and grids for better organization
+- **Citation Update**: Updated paper citation to "Osprey: Production-Ready Agentic AI for Safety-Critical Control Systems"
+- **Framework Name Cleanup**: Replaced all remaining "Alpha Berkeley Framework" references with "Osprey Framework"
+
+#### Hello World Weather Template
+- **LLM-based Location Extraction**: Intelligent parsing of natural language queries
+  - Handles nicknames, abbreviations, and defaults to "local"
+  - Replaces simple string matching with structured output parser
+- **Mock API Simplification**: Accepts any location string with random weather data
+  - Removed hardcoded city list for flexible tutorial demonstrations
+  - Improved error handling and response formatting
+- **Enhanced E2E Testing**: Exercises both weather AND Python capabilities
+  - Multi-step query validation
+  - Configuration defaults and context passing
+  - Code generation and execution workflows
 
 ### 🐛 Bug Fixes
 
-#### Channel Finder - Optional Levels Navigation
-- **Fixed Hierarchy Navigation Bug**: Resolved issue where direct signals incorrectly appeared as subdevice options in optional hierarchy levels
-  - System now correctly distinguishes between container nodes (current optional level) and leaf/terminal nodes (next level)
-  - Fixed `build_channels_from_selections()` to handle missing optional levels
-  - Automatic separator cleanup (removes `::` and trailing separators)
-  - Comprehensive test coverage: 18 new tests in `test_hierarchical_optional_levels_regression.py`
+#### Configuration & Templates
+- **Python Code Generation Defaults**: Added missing code generator configuration
+  - Fixed "Unknown provider: None" errors in minimal configurations
+  - Now includes `code_generator: "basic"` in `ConfigBuilder._get_execution_defaults()`
+- **Hello World Weather Template**: Fixed conditional to include execution infrastructure
+  - Ensures Python code generation works out-of-the-box
+  - Excludes only EPICS-specific settings
 
-#### Template Fixes
-- **Hello World Weather Template**: Added service configuration to prevent template generation errors
-  - Fixed `'services/docker-compose.yml.j2' not found` error when following installation guide
-  - Template now includes proper container runtime and deployed services configuration
+#### Channel Finder
+- **Multiple Direct Signal Selection**: Fixed leaf node detection
+  - Properly handles selections like "status and heartbeat" at optional levels
+- **Optional Levels LLM Awareness**: Enhanced database descriptions and prompts
+  - Better distinction between direct signals and subdevice-specific signals
+- **Separator Overrides**: Respect `_separator` metadata from tree nodes
+  - New `_collect_separator_overrides()` method
+  - Proper navigation through expanded instance names
+- **Navigation Through Expanded Instances**: Fixed at optional levels
+  - Base containers with `_expansion` no longer appear as selectable options
+  - Correct handling in `_navigate_to_node()` and `_extract_tree_options()`
 
-#### Capability Fixes
-- **Channel Write Capability**: Fixed initialization bug in approval workflow
-  - Removed `verification_levels` field from approval `analysis_details`
-  - Field incorrectly called `_get_verification_config()` method before connector initialization
-  - Added integration test (`test_channel_write_approval_integration.py`) to catch capability-approval interaction bugs
+#### Testing
+- **Channel Finder Test Path**: Fixed incorrect database path in `test_multiple_direct_signals_fix.py`
+- **CI Workflow Autodoc**: Fixed `ModuleNotFoundError: No module named 'sphinx'`
+  - Added `pytest.importorskip` for graceful skipping when Sphinx unavailable
+  - Sphinx only required for documentation builds, not `[dev]` dependencies
 
-#### Testing Infrastructure
-- **Channel Finder Registration Tests**: Updated test mocks to include `channel_finder` model configuration
-  - Fixed tests broken by stricter validation introduced in commit 5834de3
-  - Ensures proper test coverage of channel finder initialization
-- **E2E Workflow Test**: Updated `test_hello_world_template_generates_correctly`
-  - Now expects services directory and deployment configuration
-  - Matches current template structure
-- **E2E Benchmark Tests**: Fixed registry initialization in `test_channel_finder_benchmarks.py`
-  - Added `initialize_registry()` call before creating `BenchmarkRunner`
-  - Prevents "Registry not initialized" errors
+### 🗑️ Removed
+- **Documentation Local Server**: Removed `docs/launch_docs.py` script
+  - Use standard Sphinx commands: `make html` and `python -m http.server`
 
 ## Migration Guide
 
 ### For Users
 
 **No breaking changes.** All updates are backward compatible:
-1. **Model Configuration**: New `osprey config set-models` command is optional (existing configuration methods still work)
-2. **Channel Finder**: Stricter validation provides better error messages but doesn't change API
+1. **CI/CD**: New automation is optional (existing workflows continue to work)
+2. **Documentation**: Version switcher enhances navigation but doesn't affect existing docs
 3. **Templates**: Existing projects continue to work unchanged
+4. **Configuration**: New defaults improve out-of-box experience without breaking existing configs
 
 ### For Developers
 
-**Test Infrastructure Update**: If you have custom tests that use the channel finder:
-- Ensure mocked `configurable` dicts include `channel_finder` model configuration
-- See updated tests in `tests/services/channel_finder/test_registration.py` for examples
+**Workflow Improvements**: Take advantage of new developer tools:
+1. **Pre-commit hooks**: Run `.pre-commit install` to enable automated quality checks
+2. **Pre-merge script**: Use `scripts/premerge_check.sh` before creating PRs
+3. **Workflow guides**: Consult `docs/workflows/` for best practices and AI integration
+4. **CI pipeline**: All PRs automatically tested across Python 3.11 & 3.12, Ubuntu & macOS
 
 ## Performance & Quality
 
-- **Test Coverage**: 558 unit tests + 12 e2e tests, all passing
-- **Unit Test Runtime**: ~3-5 seconds
+- **Test Coverage**: 976 unit tests + 16 e2e tests, all passing
+- **Unit Test Runtime**: ~45 seconds
 - **E2E Test Runtime**: ~7 minutes
-- **Code Quality**: Consistent formatting and reduced code duplication
+- **Code Quality**: Comprehensive linting cleanup across 47 files
+- **CI/CD**: Parallel testing across 4 environments (2 Python versions × 2 OS)
 
 ## Installation
 
 ```bash
-pip install osprey-framework==0.9.7
+pip install osprey-framework==0.9.8
 ```
 
 ## What's Next
@@ -112,4 +164,4 @@ Stay tuned for upcoming features:
 
 ---
 
-**Full Changelog**: https://github.com/als-apg/osprey/compare/v0.9.6...v0.9.7
+**Full Changelog**: https://github.com/als-apg/osprey/compare/v0.9.7...v0.9.8
