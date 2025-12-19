@@ -42,7 +42,7 @@ jobs:
         pytest tests/ --ignore=tests/e2e -v --tb=short --cov=src/osprey --cov-report=xml --cov-report=term
 
     - name: Upload coverage reports to Codecov
-      uses: codecov/codecov-action@v4
+      uses: codecov/codecov-action@v5
       if: matrix.python-version == '3.11' && matrix.os == 'ubuntu-latest'
       with:
         file: ./coverage.xml
