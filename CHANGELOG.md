@@ -37,6 +37,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Status Badges**: README.md badges for CI status, documentation, code coverage, PyPI version, Python version support, and license
 
 ### Changed
+- **CLI - Project Initialization**: Enhanced channel finder selection
+  - Added middle_layer option to interactive menu
+  - Changed default from "both" to "all" (now includes all three pipelines)
+  - Updated descriptions for clarity: in_context (<200 channels), hierarchical (pattern-based), middle_layer (functional)
 - **Channel Finder - Middle Layer Pipeline**: Migrated from Pydantic-AI to LangGraph
   - Now uses LangGraph's create_react_agent for improved agent behavior
   - Converted tools from Pydantic-AI format to LangChain StructuredTool

@@ -240,15 +240,16 @@ class TemplateManager:
 
         # Derive channel finder configuration if control_assistant template
         if template_name == "control_assistant":
-            channel_finder_mode = ctx.get("channel_finder_mode", "both")
+            channel_finder_mode = ctx.get("channel_finder_mode", "all")
 
             # Derive boolean flags for conditional templates
-            enable_in_context = channel_finder_mode in ["in_context", "both"]
-            enable_hierarchical = channel_finder_mode in ["hierarchical", "both"]
+            enable_in_context = channel_finder_mode in ["in_context", "all"]
+            enable_hierarchical = channel_finder_mode in ["hierarchical", "all"]
+            enable_middle_layer = channel_finder_mode in ["middle_layer", "all"]
 
             # Determine default pipeline (for config.yml)
-            if channel_finder_mode == "both":
-                default_pipeline = "hierarchical"  # Default to more scalable option
+            if channel_finder_mode == "all":
+                default_pipeline = "hierarchical"  # Default to most scalable option
             else:
                 default_pipeline = channel_finder_mode
 
@@ -258,9 +259,11 @@ class TemplateManager:
                     "channel_finder_mode": channel_finder_mode,
                     "enable_in_context": enable_in_context,
                     "enable_hierarchical": enable_hierarchical,
+                    "enable_middle_layer": enable_middle_layer,
                     "default_pipeline": default_pipeline,
                     "in_context_db_path": "data/channel_databases/in_context.json",
                     "hierarchical_db_path": "data/channel_databases/hierarchical.json",
+                    "middle_layer_db_path": "data/channel_databases/middle_layer.json",
                 }
             )
 

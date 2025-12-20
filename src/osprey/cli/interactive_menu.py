@@ -830,22 +830,26 @@ def select_channel_finder_mode() -> str | None:
     """Interactive channel finder mode selection for control_assistant template.
 
     Returns:
-        Selected mode ('in_context', 'hierarchical', 'both'), or None if cancelled
+        Selected mode ('in_context', 'hierarchical', 'middle_layer', 'all'), or None if cancelled
     """
     console.print("[dim]Select the channel finding approach for your control system:[/dim]\n")
 
     choices = [
         Choice(
-            "in_context       - Semantic search (best for few hundred channels, faster)",
+            "in_context       - Semantic search (flat database, best for <200 channels)",
             value="in_context",
         ),
         Choice(
-            "hierarchical     - Structured navigation (best for >1,000 channels, scalable)",
+            "hierarchical     - Pattern navigation (builds channel address from naming rules, scalable)",
             value="hierarchical",
         ),
         Choice(
-            "both             - Include both pipelines (maximum flexibility, comparison)",
-            value="both",
+            "middle_layer     - Functional exploration (retrieves channel address by function, scalable)",
+            value="middle_layer",
+        ),
+        Choice(
+            "all              - Include all three pipelines (maximum flexibility, comparison)",
+            value="all",
         ),
     ]
 
