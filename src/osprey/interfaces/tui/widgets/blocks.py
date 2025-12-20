@@ -517,8 +517,8 @@ class ProcessingStep(Static):
     # Same indicators as ProcessingBlock for consistency
     INDICATOR_PENDING = "·"
     INDICATOR_ACTIVE = "*"
-    INDICATOR_SUCCESS = "✓"
-    INDICATOR_ERROR = "✗"
+    INDICATOR_SUCCESS = "●"  # Filled circle (color differentiates)
+    INDICATOR_ERROR = "●"  # Filled circle (color differentiates)
 
     # Visual guide for output line
     OUTPUT_GUIDE = "╰"
@@ -673,9 +673,7 @@ class ProcessingStep(Static):
     def _start_breathing(self) -> None:
         """Start the breathing animation timer."""
         if self._breathing_timer is None:
-            self._breathing_timer = self.set_interval(
-                0.4, self._breathing_tick
-            )
+            self._breathing_timer = self.set_interval(0.4, self._breathing_tick)
 
     def _breathing_tick(self) -> None:
         """Update breathing animation frame."""
@@ -708,9 +706,7 @@ class ProcessingStep(Static):
         if self._mounted:
             self._apply_active()
 
-    def set_complete(
-        self, status: str = "success", output_msg: str = ""
-    ) -> None:
+    def set_complete(self, status: str = "success", output_msg: str = "") -> None:
         """Mark the step as complete.
 
         Args:
@@ -720,12 +716,17 @@ class ProcessingStep(Static):
         self._status = status
         self._stop_breathing()
 
+        indicator = self.INDICATOR_SUCCESS if status == "success" else self.INDICATOR_ERROR
+
+        # Only color the indicator, keep title bold
+        # Framework steps: dim indicator on success, error indicator on failure
         if status == "success":
-            indicator = self.INDICATOR_SUCCESS
+            title_markup = f"{indicator} [bold]{self.title}[/bold]"
         else:
-            indicator = self.INDICATOR_ERROR
+            title_markup = f"[$error]{indicator}[/$error] [bold]{self.title}[/bold]"
+
         title_line = self.query_one("#step-title", Static)
-        title_line.update(f"[bold]{indicator} {self.title}[/bold]")
+        title_line.update(title_markup)
 
         self.remove_class("step-active")
         self.add_class(f"step-{status}")
@@ -856,9 +857,7 @@ def _apply_strike_preserving_indent(text: str) -> str:
     return "\n".join(result_lines)
 
 
-def create_plan_progress_content(
-    steps: list[dict], step_states: list[str], width: int = 70
-) -> str:
+def create_plan_progress_content(steps: list[dict], step_states: list[str], width: int = 70) -> str:
     """Generate todo list content for plan progress with proper wrap alignment.
 
     Creates Rich-formatted content for the plan progress display with
@@ -890,9 +889,7 @@ def create_plan_progress_content(
             bullet = BULLET_DONE
 
         # Pre-wrap objective with 2-space continuation indent (to align after "☐ ")
-        wrapped = textwrap.fill(
-            objective, width=width, initial_indent="", subsequent_indent="  "
-        )
+        wrapped = textwrap.fill(objective, width=width, initial_indent="", subsequent_indent="  ")
         full_line = f"{bullet} {wrapped}"
 
         # Styling: pending/current = normal text, done = dim + strikethrough
@@ -987,6 +984,43 @@ class TodoUpdateStep(ProcessingStep):
         else:
             # Store for later application in on_mount
             self._pending_todos = (steps, step_states)
+
+    def set_complete(self, status: str = "success", output_msg: str = "") -> None:
+        """Mark the step as complete with success color styling.
+
+        Semi-steps use success color (not dim) and don't show logs link
+        since they don't involve tool or LLM calling.
+
+        Args:
+            status: The completion status ('success' or 'error').
+            output_msg: Output message to display on the second line.
+        """
+        self._status = status
+        self._stop_breathing()
+
+        indicator = self.INDICATOR_SUCCESS if status == "success" else self.INDICATOR_ERROR
+
+        # Only color the indicator, keep title bold
+        # Semi-steps: success color indicator on complete (more visible than framework steps)
+        if status == "success":
+            title_markup = f"[$success]{indicator}[/$success] [bold]{self.title}[/bold]"
+        else:
+            title_markup = f"[$error]{indicator}[/$error] [bold]{self.title}[/bold]"
+
+        title_line = self.query_one("#step-title", Static)
+        title_line.update(title_markup)
+
+        self.remove_class("step-active")
+        self.add_class(f"step-{status}")
+
+        # NO logs link for semi-steps (no tool/LLM calling)
+
+        # Show output message on second line (for both success and error)
+        if output_msg and self._mounted:
+            self._output_message = output_msg
+            output = self.query_one("#step-output", WrappedStatic)
+            output.set_content(output_msg)
+            output.display = True
 
 
 class TaskExtractionBlock(ProcessingBlock):
