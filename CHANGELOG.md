@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.9.8] - 2025-12-19
 
 ### Added
+- **Registry Manager**: Silent initialization mode for clean CLI output
+  - Suppress INFO/DEBUG logging during initialization when `silent=True`
+  - Useful for CLI tools that need clean output without verbose registry logs
 - **Channel Finder: Middle Layer Pipeline**: Complete React agent-based channel finder pipeline for MATLAB Middle Layer (MML) databases with System→Family→Field hierarchy; includes MiddleLayerDatabase with O(1) validation and device/sector filtering, MiddleLayerPipeline with 5 database query tools (list_systems, list_families, inspect_fields, list_channel_names, get_common_names), MMLConverter utility for converting Python MML exports to JSON, optional _description fields at all levels for enhanced LLM guidance, comprehensive test suite (14 tests), sample database, and complete documentation
 - **Testing: Hello World Weather template coverage**: Added comprehensive unit test suite for hello_world_weather template including mock weather API validation, response formatting, and error handling scenarios
 - **Hello World Weather: LLM-based location extraction**: Added structured output parser using LLM to extract locations from natural language queries, replacing simple string matching with intelligent parsing that handles nicknames, abbreviations, and defaults to "local" when no location is specified

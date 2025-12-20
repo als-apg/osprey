@@ -100,6 +100,7 @@ Examples:
 import importlib
 import inspect
 import json
+import logging
 import os
 from datetime import datetime
 from pathlib import Path
@@ -892,7 +893,7 @@ class RegistryManager:
                 f"Standalone registry '{app_name}' validation passed - all required components present"
             )
 
-    def initialize(self) -> None:
+    def initialize(self, silent: bool = False) -> None:
         """Initialize all component registries in dependency order.
 
         Performs complete initialization of the registry system by loading all
@@ -925,6 +926,9 @@ class RegistryManager:
             - **Services**: Service graphs compiled and made available
             - **Analyzers**: Policy and domain analyzers prepared for use
 
+        :param silent: If True, suppress INFO and DEBUG logging during initialization.
+            Only ERROR and WARNING messages will be shown. Useful for clean CLI output.
+        :type silent: bool
         :raises RegistryError: If any component fails to load, import, or initialize.
             This includes missing modules, invalid class names, or instantiation failures
         :raises ConfigurationError: If configuration is invalid, has circular dependencies,
@@ -972,9 +976,23 @@ class RegistryManager:
             logger.debug("Registry already initialized")
             return
 
-        logger.info("Initializing registry system...")
+        # Handle silent mode - temporarily suppress verbose logging
+        original_levels = {}
+        if silent:
+            # Suppress INFO and DEBUG output from registry-related loggers
+            loggers_to_silence = [
+                'REGISTRY',  # Main registry logger
+                'connector_factory',  # Control system connector factory
+                'memory_storage',  # Memory storage system
+            ]
+            for logger_name in loggers_to_silence:
+                log = logging.getLogger(logger_name)
+                original_levels[logger_name] = log.level
+                log.setLevel(logging.WARNING)
 
         try:
+            logger.info("Initializing registry system...")
+
             for component_type in self.config.initialization_order:
                 self._initialize_component_type(component_type)
 
@@ -987,6 +1005,11 @@ class RegistryManager:
         except Exception as e:
             logger.error(f"Registry initialization failed with unexpected error: {e}")
             raise RegistryError(f"Unexpected error during registry initialization: {e}") from e
+        finally:
+            # Restore original logging levels
+            if silent:
+                for logger_name, level in original_levels.items():
+                    logging.getLogger(logger_name).setLevel(level)
 
     def _initialize_component_type(self, component_type: str) -> None:
         """Initialize components of a specific type.
@@ -2513,7 +2536,7 @@ def _create_registry_from_config(config_path: str | None = None) -> RegistryMana
         raise RuntimeError(f"Registry creation failed: {e}") from e
 
 
-def initialize_registry(auto_export: bool = True, config_path: str | None = None) -> None:
+def initialize_registry(auto_export: bool = True, config_path: str | None = None, silent: bool = False) -> None:
     """Initialize the global registry system with all components.
 
     Performs complete initialization of the global registry system, including
@@ -2550,6 +2573,10 @@ def initialize_registry(auto_export: bool = True, config_path: str | None = None
     :param config_path: Optional explicit path to configuration file. Used when
         creating the registry if it doesn't already exist.
     :type config_path: Optional[str]
+    :param silent: If True, suppress INFO and DEBUG logging output during initialization.
+        Only ERROR and WARNING messages will be shown. Useful for CLI tools that want
+        clean output without verbose registry initialization logs.
+    :type silent: bool
     :raises RegistryError: If registry initialization fails due to component loading
         errors, missing modules, or invalid component definitions
     :raises ConfigurationError: If global configuration is invalid, application
@@ -2589,6 +2616,11 @@ def initialize_registry(auto_export: bool = True, config_path: str | None = None
             >>> # Skip JSON export for faster initialization
             >>> initialize_registry(auto_export=False)
 
+        Silent initialization for clean CLI output::
+
+            >>> # Suppress verbose logging during initialization
+            >>> initialize_registry(silent=True)
+
         Handle initialization errors::
 
             >>> try:
@@ -2612,7 +2644,7 @@ def initialize_registry(auto_export: bool = True, config_path: str | None = None
        :meth:`RegistryManager.export_registry_to_json` : Export functionality used when auto_export=True
     """
     registry = get_registry(config_path=config_path)
-    registry.initialize()
+    registry.initialize(silent=silent)
 
     # Eagerly initialize subsystems that should fail-fast on startup
     # This validates configuration early and groups initialization logs at startup
