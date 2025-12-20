@@ -28,7 +28,8 @@ jobs:
     - name: Verify version matches tag
       run: |
         TAG_VERSION="${GITHUB_REF#refs/tags/v}"
-        PACKAGE_VERSION=$(python -c "from osprey import __version__; print(__version__)")
+        # Extract version from __init__.py without importing
+        PACKAGE_VERSION=$(grep '__version__ = ' src/osprey/__init__.py | cut -d'"' -f2)
         echo "Tag version: $TAG_VERSION"
         echo "Package version: $PACKAGE_VERSION"
         if [ "$TAG_VERSION" != "$PACKAGE_VERSION" ]; then
