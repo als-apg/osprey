@@ -143,6 +143,84 @@ async def test_hierarchical_pipeline_benchmark(e2e_project_factory):
     )
 
 
+@pytest.mark.e2e
+@pytest.mark.requires_cborg
+@pytest.mark.asyncio
+async def test_middle_layer_pipeline_sample(e2e_project_factory):
+    """Test middle layer pipeline on first 5 benchmark queries (quick validation).
+
+    The middle layer pipeline uses a React agent with database query tools to navigate
+    a functional hierarchy (System → Family → Field) mimicking MATLAB Middle Layer (MML)
+    style databases used in production accelerator facilities.
+
+    This is a quick smoke test using the first 5 queries from the full benchmark
+    to validate basic functionality without the cost of running all 19 queries.
+
+    Success criteria:
+    - ≥80% perfect matches (4 out of 5 queries)
+    - No critical errors or failures
+    - Completion rate 100% (all 5 queries should execute)
+    """
+    # Create control-assistant project
+    project = await e2e_project_factory(
+        name="sample-middle-layer", template="control_assistant", registry_style="extend"
+    )
+
+    # Modify config to set middle_layer pipeline and limit to first 5 queries
+    config_path = project.config_path
+    with open(config_path) as f:
+        config = yaml.safe_load(f)
+
+    config["channel_finder"]["pipeline_mode"] = "middle_layer"
+
+    # Limit to first 5 queries for faster execution
+    if "channel_finder" not in config:
+        config["channel_finder"] = {}
+    if "benchmark" not in config["channel_finder"]:
+        config["channel_finder"]["benchmark"] = {}
+    if "execution" not in config["channel_finder"]["benchmark"]:
+        config["channel_finder"]["benchmark"]["execution"] = {}
+
+    config["channel_finder"]["benchmark"]["execution"]["query_selection"] = {"start": 0, "end": 5}
+
+    with open(config_path, "w") as f:
+        yaml.dump(config, f)
+
+    # Run the benchmark programmatically
+    benchmark_results = await _run_benchmark(project, "middle_layer")
+
+    # Validate benchmark results
+    total_queries = benchmark_results["total_queries"]
+    perfect_matches = benchmark_results["perfect_matches"]
+    partial_matches = benchmark_results["partial_matches"]
+    no_matches = benchmark_results["no_matches"]
+    overall_f1 = benchmark_results["overall_f1_score"]
+
+    # Should have exactly 5 queries
+    assert total_queries == 5, f"Expected 5 queries, got {total_queries}"
+
+    # Calculate success rate
+    success_rate = (perfect_matches / total_queries) * 100 if total_queries > 0 else 0
+
+    # Assert ≥80% perfect match rate (4 out of 5 queries)
+    assert success_rate >= 80.0, (
+        f"Middle layer pipeline sample failed: {success_rate:.1f}% success rate "
+        f"({perfect_matches}/{total_queries} perfect matches). Expected ≥80% (4/5).\n"
+        f"Perfect: {perfect_matches}, Partial: {partial_matches}, Failed: {no_matches}"
+    )
+
+    # Assert high overall F1 score
+    assert overall_f1 >= 0.80, f"Overall F1 score too low: {overall_f1:.3f}. Expected ≥0.80"
+
+    # Assert 100% completion rate (all queries should execute)
+    queries_evaluated = benchmark_results["queries_evaluated"]
+    completion_rate = (queries_evaluated / total_queries) * 100 if total_queries > 0 else 0
+    assert completion_rate == 100.0, (
+        f"Not all queries completed: {completion_rate:.1f}% "
+        f"({queries_evaluated}/{total_queries} queries). Expected 100%"
+    )
+
+
 # Helper functions
 
 

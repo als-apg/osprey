@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.9.8] - 2025-12-19
 
 ### Added
+- **Documentation**: Comprehensive middle layer pipeline guide in Sphinx docs
+  - Complete tutorial with architecture comparison and usage examples
+  - CLI screenshots and integration examples
+  - End-to-end benchmark tests validating complete integration
 - **Channel Finder - Sample Data**: Middle layer database and benchmarks
   - 174-channel sample database covering 4 systems (SR, VAC, BR, BTS)
   - 15 device families with full metadata
@@ -87,6 +91,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Testing: CI workflow autodoc test collection**: Fixed `ModuleNotFoundError: No module named 'sphinx'` in CI by adding `pytest.importorskip` to `tests/documentation/test_workflow_autodoc.py`; Sphinx is only required for documentation builds and is not part of `[dev]` dependencies, so workflow autodoc tests now gracefully skip when Sphinx is unavailable
 
 ### Removed
+- **Documentation**: Obsolete markdown tutorials for middle layer
+  - Content migrated to Sphinx documentation (control-assistant-part2-channel-finder.rst)
 - **Documentation: Local server launcher**: Removed `docs/launch_docs.py` script; users should use standard Sphinx commands (`make html` and `python -m http.server`) for local documentation builds and serving
 
 ## [0.9.7] - 2025-12-14
