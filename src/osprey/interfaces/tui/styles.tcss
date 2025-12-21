@@ -558,6 +558,47 @@ TodoUpdateStep.step-success #step-output {
 }
 
 /* =============================================================================
+   TodoList / TodoItem - CSS-styled todo list widgets
+   ============================================================================= */
+
+/* TodoList container - hidden until populated, indented to align with "╰ " */
+TodoList {
+    height: auto;
+    width: 100%;
+    display: none;
+    padding-left: 4;  /* Align with text after "  ╰ " prefix */
+}
+
+/* TodoItem layout - horizontal with fixed bullet + flexible text */
+TodoItem {
+    height: auto;
+    width: 100%;
+    layout: horizontal;
+}
+
+TodoItem .todo-bullet {
+    width: 2;
+    min-width: 2;
+    max-width: 2;
+}
+
+TodoItem .todo-text {
+    width: 1fr;
+}
+
+/* State-based styling */
+TodoItem.todo-done {
+    text-style: strike;
+    text-opacity: 20%;
+}
+
+TodoItem.todo-current .todo-bullet {
+    color: $accent;
+}
+
+/* Pending items use default text color - no special styling needed */
+
+/* =============================================================================
    Log Viewer Modal
    ============================================================================= */
 

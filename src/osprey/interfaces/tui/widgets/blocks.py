@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal
+from textual.containers import Horizontal, Vertical
 from textual.widgets import Collapsible, Static
 
 if TYPE_CHECKING:
@@ -571,43 +571,64 @@ class ProcessingStep(Static):
     def on_mount(self) -> None:
         """Apply pending state after widget is mounted."""
         self._mounted = True
-        # Hide output line initially
-        output = self.query_one("#step-output", WrappedStatic)
-        output.display = False
+        # Hide output line initially (if present - subclasses may use different output widgets)
+        try:
+            output = self.query_one("#step-output", WrappedStatic)
+            output.display = False
+        except Exception:
+            pass  # Subclass uses different output widget (e.g., TodoList)
         # Hide logs link initially (shown when logs available)
-        logs_link = self.query_one("#step-logs-link", LogsLink)
-        logs_link.display = False
+        try:
+            logs_link = self.query_one("#step-logs-link", LogsLink)
+            logs_link.display = False
+            # Show logs link if data was set before mounting (race condition fix)
+            if self._log_messages:
+                logs_link.display = True
+        except Exception:
+            pass  # Subclass doesn't have logs link
         # Hide prompt/response links initially (shown when data available)
-        prompt_link = self.query_one("#step-prompt-link", PromptLink)
-        prompt_link.display = False
-        response_link = self.query_one("#step-response-link", ResponseLink)
-        response_link.display = False
-        # Show links if data was set before mounting (race condition fix)
-        if self._log_messages:
-            logs_link.display = True
-        if self._llm_prompts:
-            prompt_link.display = True
-        if self._llm_responses:
-            response_link.display = True
+        try:
+            prompt_link = self.query_one("#step-prompt-link", PromptLink)
+            prompt_link.display = False
+            if self._llm_prompts:
+                prompt_link.display = True
+        except Exception:
+            pass  # Subclass doesn't have prompt link
+        try:
+            response_link = self.query_one("#step-response-link", ResponseLink)
+            response_link.display = False
+            if self._llm_responses:
+                response_link.display = True
+        except Exception:
+            pass  # Subclass doesn't have response link
         # Apply pending state
         if self._status == "active":
             self._apply_active()
 
     def on_click(self, event: "Click") -> None:
         """Handle click events on the links."""
-        logs_link = self.query_one("#step-logs-link", LogsLink)
-        if logs_link in event.widget.ancestors_with_self:
-            self._show_logs()
-            return
+        try:
+            logs_link = self.query_one("#step-logs-link", LogsLink)
+            if logs_link in event.widget.ancestors_with_self:
+                self._show_logs()
+                return
+        except Exception:
+            pass  # Subclass doesn't have logs link
 
-        prompt_link = self.query_one("#step-prompt-link", PromptLink)
-        if prompt_link in event.widget.ancestors_with_self:
-            self._show_prompt()
-            return
+        try:
+            prompt_link = self.query_one("#step-prompt-link", PromptLink)
+            if prompt_link in event.widget.ancestors_with_self:
+                self._show_prompt()
+                return
+        except Exception:
+            pass  # Subclass doesn't have prompt link
 
-        response_link = self.query_one("#step-response-link", ResponseLink)
-        if response_link in event.widget.ancestors_with_self:
-            self._show_response()
+        try:
+            response_link = self.query_one("#step-response-link", ResponseLink)
+            if response_link in event.widget.ancestors_with_self:
+                self._show_response()
+        except Exception:
+            pass  # Subclass doesn't have response link
 
     def _show_logs(self) -> None:
         """Open the log viewer modal with live updates."""
@@ -760,6 +781,28 @@ class ProcessingStep(Static):
             if status == "error":
                 self._output_message = message
 
+    def _get_output_width(self) -> int:
+        """Get the actual width available for output text wrapping.
+
+        Uses the step widget's own size (which is available even when
+        output is hidden) and accounts for padding and prefix.
+        Falls back to 80 if widget dimensions aren't available yet.
+        """
+        try:
+            # Use step's own width (available even when output is hidden)
+            width = self.size.width
+            if width <= 0:
+                width = self.content_size.width
+            if width <= 0:
+                width = 80
+        except Exception:
+            width = 80
+
+        # Account for:
+        # - padding: 0 2 (4 chars horizontal)
+        # - "╰ " prefix (2 chars)
+        return max(width - 4 - 2, 40)
+
     # Compatibility methods for app.py interface
     def set_input(self, text: str, mark_set: bool = True) -> None:
         """No-op for step (no IN section).
@@ -828,80 +871,143 @@ class ClassificationStep(ProcessingStep):
         self.set_complete("success", output_text)
 
 
-# Unicode ballot box characters for todo list
-BULLET_PENDING = "☐"  # U+2610 BALLOT BOX
-BULLET_CURRENT = "▣"  # U+25A3 WHITE SQUARE CONTAINING BLACK SMALL SQUARE
-BULLET_DONE = "☑"  # U+2611 BALLOT BOX WITH CHECK
+class WrappedLabel(Static):
+    """A label that wraps text dynamically and re-wraps on resize.
 
-
-def _apply_strike_preserving_indent(text: str) -> str:
-    """Apply strikethrough markup while preserving leading whitespace.
-
-    For soft-wrapped text, this ensures strikethrough only applies to
-    the text content, not the leading indent on continuation lines.
-
-    Args:
-        text: Text that may contain multiple lines with leading indentation.
-
-    Returns:
-        Text with [strike] markup applied per-line, preserving indents.
+    Unlike WrappedStatic, this widget is simpler and doesn't use
+    initial_indent/subsequent_indent - it just wraps the raw text
+    to fit the available width. Used inside TodoItem where the bullet
+    is in a separate widget.
     """
-    result_lines = []
-    for line in text.split("\n"):
-        stripped = line.lstrip()
-        indent = line[: len(line) - len(stripped)]
-        if stripped:
-            result_lines.append(f"{indent}[strike]{stripped}[/strike]")
-        else:
-            result_lines.append(line)
-    return "\n".join(result_lines)
+
+    def __init__(self, text: str = "", **kwargs):
+        """Initialize the wrapped label.
+
+        Args:
+            text: The text content to display and wrap.
+            **kwargs: Additional arguments passed to Static.
+        """
+        super().__init__(**kwargs)
+        self._raw_text = text
+        self._mounted = False
+
+    def on_mount(self) -> None:
+        """Handle mount by scheduling initial wrap after layout."""
+        self._mounted = True
+        self.call_after_refresh(self._wrap_and_update)
+
+    def on_resize(self) -> None:
+        """Re-wrap text when widget is resized."""
+        if self._mounted:
+            self._wrap_and_update()
+
+    def _wrap_and_update(self) -> None:
+        """Wrap text to current width and update display."""
+        width = self.size.width or self.content_size.width or 40
+        if width > 0 and self._raw_text:
+            wrapped = textwrap.fill(self._raw_text, width=width)
+            self.update(wrapped)
+        elif not self._raw_text:
+            self.update("")
+
+    def set_text(self, text: str) -> None:
+        """Update the text content.
+
+        Args:
+            text: New text to display.
+        """
+        self._raw_text = text
+        if self._mounted:
+            self._wrap_and_update()
 
 
-def create_plan_progress_content(steps: list[dict], step_states: list[str], width: int = 70) -> str:
-    """Generate todo list content for plan progress with proper wrap alignment.
+class TodoItem(Horizontal):
+    """A single todo item with bullet and wrapping text.
 
-    Creates Rich-formatted content for the plan progress display with
-    proper styling for each state:
-    - Pending: dim text with empty ballot box (☐)
-    - Current: normal text with filled box (▣)
-    - Done: dim text with strikethrough and checked box (☑)
+    Uses CSS classes for state-based styling:
+    - .todo-pending: Normal styling
+    - .todo-current: Accent-colored bullet
+    - .todo-done: Strikethrough + dimmed opacity
 
-    Each item is pre-wrapped so continuation lines align with text after bullet.
-
-    Args:
-        steps: List of step dicts with 'task_objective'.
-        step_states: List of states ("pending", "current", "done").
-        width: Maximum width for text wrapping.
-
-    Returns:
-        Formatted string with Rich markup for each step.
+    The bullet is in a fixed-width Static, and the text is in a
+    flexible WrappedLabel that handles its own wrapping. This ensures
+    continuation lines align with the first line text, not the bullet.
     """
-    lines = []
-    for step, state in zip(steps, step_states):
-        objective = step.get("task_objective", "")
 
-        # Select bullet based on state
-        if state == "pending":
-            bullet = BULLET_PENDING
-        elif state == "current":
-            bullet = BULLET_CURRENT
-        else:  # done
-            bullet = BULLET_DONE
+    BULLETS = {
+        "pending": "☐",  # U+2610 BALLOT BOX
+        "current": "▣",  # U+25A3 WHITE SQUARE CONTAINING BLACK SMALL SQUARE
+        "done": "☑",  # U+2611 BALLOT BOX WITH CHECK
+    }
 
-        # Pre-wrap objective with 2-space continuation indent (to align after "☐ ")
-        wrapped = textwrap.fill(objective, width=width, initial_indent="", subsequent_indent="  ")
-        full_line = f"{bullet} {wrapped}"
+    def __init__(self, text: str, state: str = "pending", **kwargs):
+        """Initialize the todo item.
 
-        # Styling: pending/current = normal text, done = $text-disabled + strikethrough
-        if state == "done":
-            # Apply strikethrough per-line to preserve indent on wrapped lines
-            struck_line = _apply_strike_preserving_indent(full_line)
-            # Use [$text-disabled]...[/] syntax (generic close for CSS variables)
-            lines.append(f"[$text 20%]{struck_line}[/]")
-        else:
-            lines.append(full_line)
+        Args:
+            text: The todo item text.
+            state: One of "pending", "current", or "done".
+            **kwargs: Additional arguments passed to Horizontal.
+        """
+        super().__init__(**kwargs)
+        self._text = text
+        self._state = state
+        self.add_class(f"todo-{state}")
 
-    return "\n".join(lines) if lines else " "
+    def compose(self) -> ComposeResult:
+        """Compose the todo item with bullet and text."""
+        yield Static(self.BULLETS[self._state], classes="todo-bullet")
+        yield WrappedLabel(self._text, classes="todo-text")
+
+    def set_state(self, state: str) -> None:
+        """Update the todo item state.
+
+        Args:
+            state: New state - one of "pending", "current", or "done".
+        """
+        self.remove_class(f"todo-{self._state}")
+        self._state = state
+        self.add_class(f"todo-{state}")
+        bullet = self.query_one(".todo-bullet", Static)
+        bullet.update(self.BULLETS[state])
+
+
+class TodoList(Vertical):
+    """A list of todo items with CSS-based state styling.
+
+    Manages a collection of TodoItem widgets, replacing them when
+    set_todos() is called with new data.
+    """
+
+    def __init__(self, **kwargs):
+        """Initialize the todo list.
+
+        Args:
+            **kwargs: Additional arguments passed to Vertical.
+        """
+        super().__init__(**kwargs)
+        self._items: list[TodoItem] = []
+
+    def set_todos(self, todos: list[dict], states: list[str]) -> None:
+        """Set all todos, replacing existing items.
+
+        Args:
+            todos: List of todo dicts with 'task_objective' key.
+            states: List of states ("pending", "current", "done").
+        """
+        # Clear existing items
+        for item in self._items:
+            item.remove()
+        self._items.clear()
+
+        # Add new items
+        for todo, state in zip(todos, states, strict=True):
+            text = todo.get("task_objective", "")
+            item = TodoItem(text, state)
+            self._items.append(item)
+            self.mount(item)
+
+        # Show the list now that it has content
+        self.display = True
 
 
 class OrchestrationStep(ProcessingStep):
@@ -909,12 +1015,58 @@ class OrchestrationStep(ProcessingStep):
 
     Shows "Planning" title with breathing indicator while active,
     and the todo list (initial plan) on completion.
+
+    Uses TodoList widget for proper CSS-based styling of todo items.
     """
 
     def __init__(self, **kwargs):
         """Initialize orchestration step."""
         super().__init__("Planning", **kwargs)
         self._plan_steps: list[dict] = []
+
+    def compose(self) -> ComposeResult:
+        """Compose the step with title line, links, output, and todo list."""
+        with Horizontal(id="step-header"):
+            yield Static(
+                f"[bold]{self.INDICATOR_PENDING} {self.title}[/bold]",
+                id="step-title",
+            )
+            yield LogsLink("logs", id="step-logs-link")
+            yield PromptLink("prompt", id="step-prompt-link")
+            yield ResponseLink("response", id="step-response-link")
+        # Summary line with "╰" prefix (like other steps)
+        yield WrappedStatic(
+            "",
+            initial_indent=f"  {self.OUTPUT_GUIDE} ",
+            subsequent_indent="    ",
+            id="step-output",
+        )
+        # TodoList with indent to align with text after "╰ "
+        yield TodoList(id="todo-list")
+
+    def on_mount(self) -> None:
+        """Apply pending state after widget is mounted."""
+        self._mounted = True
+        # Hide output line initially
+        output = self.query_one("#step-output", WrappedStatic)
+        output.display = False
+        # Hide logs link initially (shown when logs available)
+        logs_link = self.query_one("#step-logs-link", LogsLink)
+        logs_link.display = False
+        # Hide prompt/response links initially (shown when data available)
+        prompt_link = self.query_one("#step-prompt-link", PromptLink)
+        prompt_link.display = False
+        response_link = self.query_one("#step-response-link", ResponseLink)
+        response_link.display = False
+        # Show links if data was set before mounting (race condition fix)
+        if self._log_messages:
+            logs_link.display = True
+        if self._llm_prompts:
+            prompt_link.display = True
+        if self._llm_responses:
+            response_link.display = True
+        # Start breathing animation
+        self._start_breathing()
 
     def set_plan(self, steps: list[dict]) -> None:
         """Store execution plan steps and show initial todo list.
@@ -926,10 +1078,32 @@ class OrchestrationStep(ProcessingStep):
         self._plan_steps = steps
         count = len(steps)
         plural = "s" if count != 1 else ""
-        # Build output: count header + todo list with all pending
-        header = f"{count} step{plural} planned"
-        todos = create_plan_progress_content(steps, ["pending"] * count)
-        self.set_complete("success", f"{header}\n{todos}")
+
+        # Stop breathing animation
+        self._stop_breathing()
+
+        # Update title - keep as "Planning", just change indicator
+        title_markup = f"{self.INDICATOR_SUCCESS} [bold]{self.title}[/bold]"
+        title_line = self.query_one("#step-title", Static)
+        title_line.update(title_markup)
+
+        # Show summary in output line with "╰" prefix
+        output = self.query_one("#step-output", WrappedStatic)
+        output.set_content(f"{count} step{plural} planned")
+        output.display = True
+
+        # Update todo list with all pending
+        todo_list = self.query_one("#todo-list", TodoList)
+        todo_list.set_todos(steps, ["pending"] * count)
+
+        # Update styling
+        self.remove_class("step-active")
+        self.add_class("step-success")
+
+        # Show logs link if we have logs
+        if self._mounted and self._log_messages:
+            logs_link = self.query_one("#step-logs-link", LogsLink)
+            logs_link.display = True
 
 
 class TodoUpdateStep(ProcessingStep):
@@ -939,9 +1113,8 @@ class TodoUpdateStep(ProcessingStep):
     minimal step with "Update Todos" title and the formatted todo list
     as output. Can be styled separately from "real" processing steps later.
 
-    Handles deferred initialization - if set_todos() is called before mount,
-    the todos are stored and applied after the first layout pass using
-    call_after_refresh() to ensure WrappedStatic has valid dimensions.
+    Uses TodoList widget for proper CSS-based styling of todo items.
+    Handles deferred initialization if set_todos() is called before mount.
     """
 
     def __init__(self, **kwargs):
@@ -949,14 +1122,36 @@ class TodoUpdateStep(ProcessingStep):
         super().__init__("Update Todos", **kwargs)
         self._pending_todos: tuple[list[dict], list[str]] | None = None
 
+    def compose(self) -> ComposeResult:
+        """Compose the step with title line, output, and todo list."""
+        with Horizontal(id="step-header"):
+            yield Static(
+                f"[bold]{self.INDICATOR_PENDING} {self.title}[/bold]",
+                id="step-title",
+            )
+            # No logs/prompt/response links for semi-steps
+        # Summary line with "╰" prefix (like other steps)
+        yield WrappedStatic(
+            "",
+            initial_indent=f"  {self.OUTPUT_GUIDE} ",
+            subsequent_indent="    ",
+            id="step-output",
+        )
+        # TodoList with indent to align with text after "╰ "
+        yield TodoList(id="todo-list")
+
     def on_mount(self) -> None:
         """Apply pending state and schedule deferred todos."""
-        super().on_mount()
-        # Apply pending todos AFTER first layout pass (so WrappedStatic has valid size)
+        self._mounted = True
+        # Hide output line initially
+        output = self.query_one("#step-output", WrappedStatic)
+        output.display = False
+        # Start breathing animation
+        self._start_breathing()
+        # Apply pending todos AFTER first layout pass
         if self._pending_todos:
             steps, states = self._pending_todos
             self._pending_todos = None
-            # Defer until widget is fully laid out
             self.call_after_refresh(self._apply_todos, steps, states)
 
     def _apply_todos(self, steps: list[dict], states: list[str]) -> None:
@@ -966,11 +1161,34 @@ class TodoUpdateStep(ProcessingStep):
             steps: List of step dicts with 'task_objective'.
             states: List of states ("pending", "current", "done").
         """
-        content = create_plan_progress_content(steps, states)
-        self.set_complete("success", content)
+        # Stop breathing animation
+        self._stop_breathing()
+
+        # Update title with success styling
+        indicator = self.INDICATOR_SUCCESS
+        title_markup = f"[$success]{indicator}[/$success] [bold]{self.title}[/bold]"
+        title_line = self.query_one("#step-title", Static)
+        title_line.update(title_markup)
+
+        # Count progress for summary
+        done_count = states.count("done")
+        total_count = len(states)
+
+        # Show summary in output line with "╰" prefix
+        output = self.query_one("#step-output", WrappedStatic)
+        output.set_content(f"{done_count}/{total_count} complete")
+        output.display = True
+
+        # Update todo list
+        todo_list = self.query_one("#todo-list", TodoList)
+        todo_list.set_todos(steps, states)
+
+        # Update styling
+        self.remove_class("step-active")
+        self.add_class("step-success")
 
     def set_todos(self, steps: list[dict], step_states: list[str]) -> None:
-        """Set the todo list content as the step output.
+        """Set the todo list content.
 
         If called before widget is mounted, stores todos for deferred
         application after the first layout pass.
@@ -980,48 +1198,10 @@ class TodoUpdateStep(ProcessingStep):
             step_states: List of states ("pending", "current", "done").
         """
         if self._mounted:
-            content = create_plan_progress_content(steps, step_states)
-            self.set_complete("success", content)
+            self._apply_todos(steps, step_states)
         else:
             # Store for later application in on_mount
             self._pending_todos = (steps, step_states)
-
-    def set_complete(self, status: str = "success", output_msg: str = "") -> None:
-        """Mark the step as complete with success color styling.
-
-        Semi-steps use success color (not dim) and don't show logs link
-        since they don't involve tool or LLM calling.
-
-        Args:
-            status: The completion status ('success' or 'error').
-            output_msg: Output message to display on the second line.
-        """
-        self._status = status
-        self._stop_breathing()
-
-        indicator = self.INDICATOR_SUCCESS if status == "success" else self.INDICATOR_ERROR
-
-        # Only color the indicator, keep title bold
-        # Semi-steps: $success indicator for prominence, bold title with normal text color
-        if status == "success":
-            title_markup = f"[$success]{indicator}[/$success] [bold]{self.title}[/bold]"
-        else:
-            title_markup = f"[$error]{indicator}[/$error] [bold]{self.title}[/bold]"
-
-        title_line = self.query_one("#step-title", Static)
-        title_line.update(title_markup)
-
-        self.remove_class("step-active")
-        self.add_class(f"step-{status}")
-
-        # NO logs link for semi-steps (no tool/LLM calling)
-
-        # Show output message on second line (for both success and error)
-        if output_msg and self._mounted:
-            self._output_message = output_msg
-            output = self.query_one("#step-output", WrappedStatic)
-            output.set_content(output_msg)
-            output.display = True
 
 
 class TaskExtractionBlock(ProcessingBlock):
