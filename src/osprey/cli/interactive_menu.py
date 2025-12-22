@@ -618,6 +618,7 @@ def get_project_menu_choices(exit_action: str = "exit") -> list[Choice]:
         Choice("[>] generate    - Generate components", value="generate"),
         Choice("[>] config      - Configuration settings", value="config"),
         Choice("[>] registry    - Show registry contents", value="registry"),
+        Choice("[>] workflows   - Export AI workflow files", value="workflows"),
         Choice("─" * 60, value=None, disabled=True),
         Choice("[+] init        - Create new project", value="init_interactive"),
         Choice("[?] help        - Show all commands", value="help"),
@@ -830,22 +831,26 @@ def select_channel_finder_mode() -> str | None:
     """Interactive channel finder mode selection for control_assistant template.
 
     Returns:
-        Selected mode ('in_context', 'hierarchical', 'both'), or None if cancelled
+        Selected mode ('in_context', 'hierarchical', 'middle_layer', 'all'), or None if cancelled
     """
     console.print("[dim]Select the channel finding approach for your control system:[/dim]\n")
 
     choices = [
         Choice(
-            "in_context       - Semantic search (best for few hundred channels, faster)",
+            "in_context       - Semantic search (flat database, best for <200 channels)",
             value="in_context",
         ),
         Choice(
-            "hierarchical     - Structured navigation (best for >1,000 channels, scalable)",
+            "hierarchical     - Pattern navigation (builds channel address from naming rules, scalable)",
             value="hierarchical",
         ),
         Choice(
-            "both             - Include both pipelines (maximum flexibility, comparison)",
-            value="both",
+            "middle_layer     - Functional exploration (retrieves channel address by function, scalable)",
+            value="middle_layer",
+        ),
+        Choice(
+            "all              - Include all three pipelines (maximum flexibility, comparison)",
+            value="all",
         ),
     ]
 
@@ -1642,6 +1647,8 @@ def handle_project_selection(project_path: Path):
             from osprey.cli.registry_cmd import handle_registry_action
 
             handle_registry_action(project_path=project_path)
+        elif action == "workflows":
+            handle_workflows_action()
         elif action == "init_interactive":
             # Save current directory before init flow
             original_dir = Path.cwd()
@@ -2091,6 +2098,83 @@ def handle_health_action(project_path: Path | None = None):
                 os.chdir(original_dir)
             except (OSError, PermissionError) as e:
                 console.print(f"\n{Messages.warning(f'Could not restore directory: {e}')}")
+
+    input("\nPress ENTER to continue...")
+
+
+def handle_workflows_action():
+    """Handle workflows export action from interactive menu.
+
+    Exports AI workflow markdown files to a local directory for easy
+    access by AI coding assistants.
+    """
+    from osprey.cli.workflows_cmd import get_workflows_source_path
+
+    console.print(f"\n{Messages.header('Export AI Workflow Files')}")
+    console.print(
+        f"[{Styles.DIM}]These markdown files guide AI coding assistants through common tasks[/{Styles.DIM}]\n"
+    )
+
+    # Check if workflows are available
+    source = get_workflows_source_path()
+    if not source or not source.exists():
+        console.print(Messages.error("Workflow files not found in installed package"))
+        console.print(
+            f"[{Styles.DIM}]This might indicate a packaging issue. "
+            f"Try reinstalling: pip install --force-reinstall osprey-framework[/{Styles.DIM}]"
+        )
+        input("\nPress ENTER to continue...")
+        return
+
+    # Simple: export to default location in current directory
+    target = Path.cwd() / "osprey-workflows"
+
+    # Check if already exists
+    if target.exists():
+        console.print(f"{Messages.info('Target directory already exists:')} {target}\n")
+        overwrite = questionary.confirm(
+            "Overwrite existing files?", default=False, style=custom_style
+        ).ask()
+
+        if not overwrite:
+            console.print(f"[{Styles.DIM}]Export cancelled[/{Styles.DIM}]")
+            input("\nPress ENTER to continue...")
+            return
+
+    try:
+        # Call the export function programmatically
+        import shutil
+
+        # Create target directory
+        target.mkdir(parents=True, exist_ok=True)
+
+        # Copy workflow files
+        console.print(f"{Messages.header('Exporting workflows to:')} {target}\n")
+
+        copied = 0
+        for wf_file in source.iterdir():
+            if wf_file.suffix == ".md":
+                dest_file = target / wf_file.name
+                shutil.copy2(wf_file, dest_file)
+                console.print(f"  [{Styles.SUCCESS}]✓[/{Styles.SUCCESS}] {wf_file.name}")
+                copied += 1
+
+        console.print(f"\n{Messages.success(f'✓ Exported {copied} workflow files')}")
+
+        # Usage instructions
+        console.print(f"\n{Messages.header('Usage in AI coding assistants:')}")
+        console.print(
+            f"  {Messages.command('@osprey-workflows/testing-workflow.md What type of test?')}"
+        )
+        console.print(
+            f"  {Messages.command('@osprey-workflows/pre-merge-cleanup.md Scan changes')}"
+        )
+        console.print(
+            f"\n[{Styles.DIM}]Learn more: https://als-apg.github.io/osprey/contributing/03_ai-assisted-development.html[/{Styles.DIM}]"
+        )
+
+    except Exception as e:
+        console.print(f"\n{Messages.error(f'Export failed: {e}')}")
 
     input("\nPress ENTER to continue...")
 
@@ -3173,6 +3257,8 @@ def navigation_loop():
             from osprey.cli.registry_cmd import handle_registry_action
 
             handle_registry_action()
+        elif action == "workflows":
+            handle_workflows_action()
         elif action == "help":
             # Show contextual help based on whether we're in a project or not
             if is_project_initialized():

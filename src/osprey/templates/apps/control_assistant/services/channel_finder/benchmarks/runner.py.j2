@@ -319,18 +319,17 @@ class BenchmarkRunner:
         async with semaphore:  # Limit concurrent queries
             query_start = time.time()
 
+            # Print compact progress indicator when starting (non-blocking)
             async with self.progress_lock:
-                console.print()
-                console.print(f"[{Styles.HEADER}]{'─'*80}[/{Styles.HEADER}]")
-                console.print(f"[{Styles.LABEL}][{idx+1}/{len(selected_entries)}][/{Styles.LABEL}] Query: [{Styles.VALUE}]{entry.user_query}[/{Styles.VALUE}]")
-                console.print(f"[{Styles.LABEL}]Expected:[/{Styles.LABEL}] [{Styles.INFO}]{', '.join(entry.targeted_pv)}[/{Styles.INFO}]")
-                console.print(f"[{Styles.HEADER}]{'─'*80}[/{Styles.HEADER}]")
+                # Truncate query for compact display
+                query_preview = entry.user_query[:60] + "..." if len(entry.user_query) > 60 else entry.user_query
+                console.print(f"[{Styles.DIM}]⏳ [{idx+1}/{len(selected_entries)}] Starting: {query_preview}[/{Styles.DIM}]")
 
             try:
                 runs = await self.run_query_multiple_times(entry.user_query, self.runs_per_query)
                 evaluation = self.evaluate_query(idx, entry, runs)
 
-                # Thread-safe update of results
+                # Thread-safe update of results - print header AND results together atomically
                 async with self.results_lock:
                     evaluations.append(evaluation)
                     query_times.append(time.time() - query_start)
@@ -345,6 +344,13 @@ class BenchmarkRunner:
                     else:
                         status_icon = f"[{Styles.ERROR}]✗ FAILED[/{Styles.ERROR}]"
                         stats['failed'] += 1
+
+                    # Print full header and results together (atomic)
+                    console.print()
+                    console.print(f"[{Styles.HEADER}]{'─'*80}[/{Styles.HEADER}]")
+                    console.print(f"[{Styles.LABEL}][{idx+1}/{len(selected_entries)}][/{Styles.LABEL}] Query: [{Styles.VALUE}]{entry.user_query}[/{Styles.VALUE}]")
+                    console.print(f"[{Styles.LABEL}]Expected:[/{Styles.LABEL}] [{Styles.INFO}]{', '.join(entry.targeted_pv)}[/{Styles.INFO}]")
+                    console.print(f"[{Styles.HEADER}]{'─'*80}[/{Styles.HEADER}]")
 
                     # Print results
                     console.print(f"\n  {status_icon} MATCH")

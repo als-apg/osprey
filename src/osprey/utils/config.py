@@ -272,9 +272,7 @@ class ConfigBuilder:
             "python_env_path": sys.executable,  # Use current Python interpreter
             "code_generator": "basic",  # Use basic LLM code generator
             "generators": {
-                "basic": {
-                    "model_config_name": "python_code_generator"  # Reference models section
-                }
+                "basic": {"model_config_name": "python_code_generator"}  # Reference models section
             },
             "modes": {
                 "read_only": {

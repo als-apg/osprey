@@ -7,6 +7,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Testing**: Fixed middle layer benchmark test to properly limit to first 5 queries via query_selection config
+
+### Changed
+- **Workflows**: Moved AI workflow files from `docs/workflows/` to `src/osprey/workflows/` for package bundling
+  - Workflows now distributed with installed package
+  - Enables version-locked workflow documentation
+- **Documentation**: Updated workflow references to use `@osprey-workflows/` path
+  - Added workflow export instructions to AI-assisted development guide
+  - Updated all @-mention examples across documentation
+
+### Added
+- **CLI**: New `osprey workflows` command to export AI workflow files
+  - `osprey workflows export` - Export workflows to local directory (default: ./osprey-workflows/)
+  - `osprey workflows list` - List all available workflow files
+  - Interactive menu integration for easy access
+- **Documentation - AI Workflows**: Channel Finder workflow guides for AI-assisted development
+  - New workflow files: pipeline selection guide and database builder guide with AI prompts and code references
+  - Workflow cards in AI-assisted development guide linking to pipeline selection and database building workflows
+  - AI-assisted workflow dropdowns in tutorial "Build Your Database" sections for all three pipelines (in-context, hierarchical, middle layer)
+  - AI-assisted pipeline selection dropdown before pipeline tab-set in tutorial
+  - Enhanced workflows with guidance for AI assistants to read database format code and examples before giving advice
+  - Code reference sections showing AI how to use source files for evidence-based recommendations
+- **Documentation**: Comprehensive middle layer pipeline guide in Sphinx docs
+  - Complete tutorial with architecture comparison and usage examples
+  - CLI screenshots and integration examples
+  - End-to-end benchmark tests validating complete integration
+- **Channel Finder - Sample Data**: Middle layer database and benchmarks
+  - 174-channel sample database covering 4 systems (SR, VAC, BR, BTS)
+  - 15 device families with full metadata
+  - 35-query benchmark dataset (20% coverage ratio - best of all pipelines)
+  - Realistic accelerator physics context
+- **Channel Finder - Tools**: Middle layer support across all CLI tools
+  - Database preview tool with tree visualization for functional hierarchy
+  - CLI query interface with middle_layer pipeline support
+  - Benchmark runner with middle_layer dataset support
+- **Templates - Channel Finder**: Middle layer configuration support
+  - Conditional config generation for middle_layer pipeline
+  - Dynamic AVAILABLE_PIPELINES list based on enabled pipelines
+  - Database and benchmark paths auto-configured
+- **Channel Finder - Middle Layer Testing**: Comprehensive tool and utility tests
+  - 480 lines of tests covering all database query tools
+  - Tests for prompt loader with middle_layer support
+  - Tests for MML converter utility enhancements
+- **Channel Finder - Middle Layer**: React agent prompts for functional navigation
+  - Query splitter prompt for decomposing complex queries
+  - System prompt with database exploration tools
+- **Registry Manager**: Silent initialization mode for clean CLI output
+  - Suppress INFO/DEBUG logging during initialization when `silent=True`
+  - Useful for CLI tools that need clean output without verbose registry logs
+- **Channel Finder: Middle Layer Pipeline**: Complete React agent-based channel finder pipeline for MATLAB Middle Layer (MML) databases with System→Family→Field hierarchy; includes MiddleLayerDatabase with O(1) validation and device/sector filtering, MiddleLayerPipeline with 5 database query tools (list_systems, list_families, inspect_fields, list_channel_names, get_common_names), MMLConverter utility for converting Python MML exports to JSON, optional _description fields at all levels for enhanced LLM guidance, comprehensive test suite (14 tests), sample database, and complete documentation
+
+### Changed
+- **CLI - Project Initialization**: Enhanced channel finder selection
+  - Added middle_layer option to interactive menu
+  - Changed default from "both" to "all" (now includes all three pipelines)
+  - Updated descriptions for clarity: in_context (<200 channels), hierarchical (pattern-based), middle_layer (functional)
+- **Channel Finder - Middle Layer Pipeline**: Migrated from Pydantic-AI to LangGraph
+  - Now uses LangGraph's create_react_agent for improved agent behavior
+  - Converted tools from Pydantic-AI format to LangChain StructuredTool
+  - Enhanced structured output with ChannelSearchResult model
+  - Better error handling and agent state management
+
+### Fixed
+- **Build Scripts**: Removed trailing whitespace from configuration and script files
+- **Testing: Channel Finder test path correction**: Fixed incorrect database path in `test_multiple_direct_signals_fix.py` to point to correct example database location
+- **Channel Finder: Multiple direct signal selection**: Fixed leaf node detection to properly handle multiple direct signals (e.g., "status and heartbeat") selected together at optional levels
+- **Channel Finder: Optional levels LLM awareness**: Enhanced database descriptions and prompts to better distinguish direct signals from subdevice-specific signals
+- **Channel Finder: Separator overrides**: Fixed `build_channels_from_selections()` to respect `_separator` metadata from tree nodes via new `_collect_separator_overrides()` method
+- **Channel Finder: Separator overrides with expanded instances**: Fixed `_collect_separator_overrides()` navigation through expanded instance names (e.g., `CH-1`) by checking `_expansion` definitions to find container nodes
+- **Channel Finder: Navigation through expanded instances**: Fixed `_navigate_to_node()` and `_extract_tree_options()` to properly handle expanded instances at optional levels - base containers with `_expansion` no longer appear as selectable options, and navigation through expanded instance names works correctly
+
+### Removed
+- **Documentation**: Obsolete markdown tutorials for middle layer
+  - Content migrated to Sphinx documentation (control-assistant-part2-channel-finder.rst)
+
 ## [0.9.8] - 2025-12-19
 
 ### Added
@@ -42,14 +118,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **Configuration: Execution defaults for Python code generation**: Added missing code generator configuration defaults to `ConfigBuilder._get_execution_defaults()`. Now includes `code_generator: "basic"` and corresponding generators configuration, preventing "Unknown provider: None" errors when using Python capabilities in projects with minimal configuration
 - **Hello World Weather Template**: Fixed template conditional to include execution infrastructure configuration while excluding only EPICS-specific settings, ensuring Python code generation works out-of-the-box
-- **Testing: Channel Finder test path correction**: Fixed incorrect database path in `test_multiple_direct_signals_fix.py` to point to correct example database location
-- **Channel Finder: Multiple direct signal selection**: Fixed leaf node detection to properly handle multiple direct signals (e.g., "status and heartbeat") selected together at optional levels
-- **Channel Finder: Optional levels LLM awareness**: Enhanced database descriptions and prompts to better distinguish direct signals from subdevice-specific signals
-- **Channel Finder: Separator overrides**: Fixed `build_channels_from_selections()` to respect `_separator` metadata from tree nodes via new `_collect_separator_overrides()` method
-- **Channel Finder: Separator overrides with expanded instances**: Fixed `_collect_separator_overrides()` navigation through expanded instance names (e.g., `CH-1`) by checking `_expansion` definitions to find container nodes
-- **Channel Finder: Navigation through expanded instances**: Fixed `_navigate_to_node()` and `_extract_tree_options()` to properly handle expanded instances at optional levels - base containers with `_expansion` no longer appear as selectable options, and navigation through expanded instance names works correctly
-
-### Fixed
 - **Testing: CI workflow autodoc test collection**: Fixed `ModuleNotFoundError: No module named 'sphinx'` in CI by adding `pytest.importorskip` to `tests/documentation/test_workflow_autodoc.py`; Sphinx is only required for documentation builds and is not part of `[dev]` dependencies, so workflow autodoc tests now gracefully skip when Sphinx is unavailable
 
 ### Removed

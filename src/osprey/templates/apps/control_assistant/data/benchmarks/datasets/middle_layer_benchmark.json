@@ -1,0 +1,139 @@
+[
+    {
+        "user_query": "What is the beam current in the storage ring?",
+        "targeted_pv": ["SR:DCCT:Current"],
+        "details": "Testing basic system/family navigation to DCCT Monitor field"
+    },
+    {
+        "user_query": "Show me BPM horizontal positions in sectors 1 and 2, first three devices",
+        "targeted_pv": [
+            "SR01C:BPM1:X", "SR01C:BPM2:X", "SR01C:BPM3:X",
+            "SR02C:BPM1:X", "SR02C:BPM2:X", "SR02C:BPM3:X"
+        ],
+        "details": "Testing SR BPM family with X field and SECTOR filtering with device limit (sectors 1-2, devices 1-3)"
+    },
+    {
+        "user_query": "Get vertical beam positions in sector 1 only, first three devices",
+        "targeted_pv": [
+            "SR01C:BPM1:Y", "SR01C:BPM2:Y", "SR01C:BPM3:Y"
+        ],
+        "details": "Testing SR BPM family with Y field and single SECTOR filter with device limit (devices 1-3)"
+    },
+    {
+        "user_query": "Show me horizontal corrector current readbacks for sector 2, first two devices",
+        "targeted_pv": [
+            "SR02C:HCM1:Current", "SR02C:HCM2:Current"
+        ],
+        "details": "Testing HCM family with Monitor field, semantic 'readback' matching, precise filtering"
+    },
+    {
+        "user_query": "What are the RF voltage setpoints?",
+        "targeted_pv": ["SR:RF1:VoltSet", "SR:RF2:VoltSet"],
+        "details": "Testing RF family with VoltageSetpoint field - distinguishing Monitor vs Setpoint"
+    },
+    {
+        "user_query": "Show me vertical corrector magnets in sector 1, devices 1-2",
+        "targeted_pv": [
+            "SR01C:VCM1:Current", "SR01C:VCM1:SetCurrent",
+            "SR01C:VCM2:Current", "SR01C:VCM2:SetCurrent"
+        ],
+        "details": "Testing VCM family - should return both Monitor and Setpoint fields with filtering"
+    },
+    {
+        "user_query": "Get BPM positions for sector 1, device 1 only",
+        "targeted_pv": [
+            "SR01C:BPM1:X", "SR01C:BPM1:Y"
+        ],
+        "details": "Testing precise single device filtering - both X and Y for one BPM"
+    },
+    {
+        "user_query": "What are the focusing quadrupole currents in sector 1?",
+        "targeted_pv": [
+            "SR01C:QF1:Current", "SR01C:QF2:Current"
+        ],
+        "details": "Testing QF family Monitor field with sector filter - semantic 'currents' to Monitor"
+    },
+    {
+        "user_query": "Get defocusing quadrupole readbacks in sector 1",
+        "targeted_pv": [
+            "SR01C:QD1:Current", "SR01C:QD2:Current"
+        ],
+        "details": "Testing QD family Monitor field with sector filter - semantic 'readbacks' → Monitor"
+    },
+    {
+        "user_query": "What are the focusing sextupole currents in sectors 1 and 2?",
+        "targeted_pv": [
+            "SR01C:SF1:Current", "SR01C:SF2:Current",
+            "SR02C:SF1:Current", "SR02C:SF2:Current"
+        ],
+        "details": "Testing SF sextupole family Monitor field with multi-sector filter"
+    },
+    {
+        "user_query": "Show me defocusing sextupole setpoints for sector 1",
+        "targeted_pv": [
+            "SR01C:SD1:SetCurrent", "SR01C:SD2:SetCurrent"
+        ],
+        "details": "Testing SD sextupole family Setpoint field with sector filtering"
+    },
+    {
+        "user_query": "Get ion pump pressures in sector 1, first two pumps",
+        "targeted_pv": [
+            "SR01C:VAC:IP1:Pressure", "SR01C:VAC:IP2:Pressure"
+        ],
+        "details": "Testing VAC IonPump family Pressure field with sector and device filtering"
+    },
+    {
+        "user_query": "What are the ion pump voltages for sector 2, pump 1?",
+        "targeted_pv": [
+            "SR02C:VAC:IP1:HV"
+        ],
+        "details": "Testing VAC IonPump HV field - semantic matching 'voltages', precise single device filter"
+    },
+    {
+        "user_query": "Show me vacuum gauge pressures in sector 1",
+        "targeted_pv": [
+            "SR01C:VAC:Gauge1", "SR01C:VAC:Gauge2"
+        ],
+        "details": "Testing VAC Gauge family with sector filtering"
+    },
+    {
+        "user_query": "What is the booster ring beam current?",
+        "targeted_pv": ["BR:DCCT:Current"],
+        "details": "Testing BR system navigation to DCCT Monitor"
+    },
+    {
+        "user_query": "Get booster dipole magnet currents for devices 1-3",
+        "targeted_pv": [
+            "BR:B1:Current", "BR:B2:Current", "BR:B3:Current"
+        ],
+        "details": "Testing BR Dipole family Monitor field with device filtering"
+    },
+    {
+        "user_query": "Show me the injection kicker voltage readback",
+        "targeted_pv": ["BTS:KICKER:Voltage"],
+        "details": "Testing BTS system with Kicker family Monitor field - explicitly request readback"
+    },
+    {
+        "user_query": "Get RF forward power",
+        "targeted_pv": ["SR:RF1:PowerFwd", "SR:RF2:PowerFwd"],
+        "details": "Testing RF PowerMonitor Forward subfield navigation"
+    },
+    {
+        "user_query": "What are all the corrector magnet setpoints in sector 2, devices 1-2?",
+        "targeted_pv": [
+            "SR02C:HCM1:SetCurrent", "SR02C:HCM2:SetCurrent",
+            "SR02C:VCM1:SetCurrent", "SR02C:VCM2:SetCurrent"
+        ],
+        "details": "Testing multiple families (HCM + VCM) with sector and device filtering, Setpoint field only"
+    },
+    {
+        "user_query": "Show me horizontal BPM positions for first device in sector 1 of SR, and first device of BR and BTS",
+        "targeted_pv": [
+            "SR01C:BPM1:X",
+            "BR:BPM1:X",
+            "BTS:BPM1:X"
+        ],
+        "details": "Testing BPM family across all three systems (SR, BR, BTS) with X field - one sector from SR, single device from each non-sectored system"
+    }
+]
+

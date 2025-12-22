@@ -41,6 +41,7 @@ class LazyGroup(click.Group):
             "health": "osprey.cli.health_cmd",
             "generate": "osprey.cli.generate_cmd",
             "remove": "osprey.cli.remove_cmd",
+            "workflows": "osprey.cli.workflows_cmd",
         }
 
         if cmd_name not in commands:
@@ -65,7 +66,7 @@ class LazyGroup(click.Group):
 
     def list_commands(self, ctx):
         """Return list of available commands (for --help)."""
-        return ["init", "config", "deploy", "chat", "generate", "remove", "health"]
+        return ["init", "config", "deploy", "chat", "generate", "remove", "health", "workflows"]
 
 
 @click.group(cls=LazyGroup, invoke_without_command=True)
@@ -91,6 +92,7 @@ def cli(ctx):
       osprey deploy up                Start services
       osprey chat                     Interactive conversation
       osprey health                   Check system health
+      osprey workflows export         Export AI workflow files
     """
     # Initialize theme from config if available (best-effort, silent failure)
     try:

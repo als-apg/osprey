@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 from {{ package_name }}.services.channel_finder.utils.config import get_config, resolve_path
-from {{ package_name }}.services.channel_finder.databases import TemplateChannelDatabase, HierarchicalChannelDatabase
+from {{ package_name }}.services.channel_finder.databases import TemplateChannelDatabase, HierarchicalChannelDatabase, MiddleLayerDatabase
 
 from rich.console import Console
 from rich.table import Table
@@ -32,11 +32,11 @@ except ImportError:
     Messages = None
 
 
-def detect_pipeline_config(config):
+def detect_pipeline_config(config) -> tuple[str | None, dict | None]:
     """Detect which pipeline is configured.
 
     Returns:
-        tuple: (pipeline_type, db_config) where pipeline_type is 'hierarchical' or 'in_context'
+        tuple: (pipeline_type, db_config) where pipeline_type is 'hierarchical', 'in_context', or 'middle_layer'
     """
     cf_config = config.get('channel_finder', {})
     pipelines = cf_config.get('pipelines', {})
@@ -47,15 +47,20 @@ def detect_pipeline_config(config):
     # Get pipeline configurations
     hierarchical_config = pipelines.get('hierarchical', {})
     in_context_config = pipelines.get('in_context', {})
+    middle_layer_config = pipelines.get('middle_layer', {})
 
     # If pipeline_mode is explicitly set, use that
     if pipeline_mode == 'in_context' and in_context_config.get('database', {}).get('path'):
         return 'in_context', in_context_config.get('database', {})
     elif pipeline_mode == 'hierarchical' and hierarchical_config.get('database', {}).get('path'):
         return 'hierarchical', hierarchical_config.get('database', {})
+    elif pipeline_mode == 'middle_layer' and middle_layer_config.get('database', {}).get('path'):
+        return 'middle_layer', middle_layer_config.get('database', {})
 
-    # Otherwise, fall back to checking which database exists (prefer hierarchical)
-    if hierarchical_config.get('database', {}).get('path'):
+    # Otherwise, fall back to checking which database exists (prefer middle_layer > hierarchical > in_context)
+    if middle_layer_config.get('database', {}).get('path'):
+        return 'middle_layer', middle_layer_config.get('database', {})
+    elif hierarchical_config.get('database', {}).get('path'):
         return 'hierarchical', hierarchical_config.get('database', {})
     elif in_context_config.get('database', {}).get('path'):
         return 'in_context', in_context_config.get('database', {})
@@ -63,14 +68,280 @@ def detect_pipeline_config(config):
         return None, None
 
 
-def preview_hierarchical(db_path: str, depth: int = 3, max_items: int = 10,
-                        sections: list = None, focus: str = None):
+def preview_middle_layer(db_path: str, depth: int = 3, max_items: int = 3,
+                         sections: list = None, focus: str = None, show_full: bool = False) -> None:
+    """Preview middle layer database with tree structure.
+
+    Args:
+        db_path: Path to database file
+        depth: Maximum depth to display in tree (default: 3, -1 for unlimited)
+        max_items: Maximum items per level (default: 3, -1 for unlimited)
+        sections: List of sections to display (tree, stats, samples)
+        focus: Path to focus on (e.g., "SR:BPM" to show only BPM family in SR system)
+        show_full: Show complete tree (overrides depth/max_items)
+    """
+    if sections is None:
+        sections = ['tree']
+
+    # Header
+    console.print()
+    console.print(
+        Panel.fit(
+            "[bold primary]Middle Layer Database Preview[/bold primary]\n"
+            "[dim]Shows the functional hierarchy (System → Family → Field → Channels)[/dim]",
+            border_style="primary",
+            padding=(1, 2)
+        )
+    )
+
+    # Configuration table
+    config_table = Table(show_header=False, box=box.SIMPLE, padding=(0, 2))
+    config_table.add_column("Property", style="label")
+    config_table.add_column("Value", style="value")
+
+    resolved_path = resolve_path(db_path)
+    config_table.add_row("Database Path", db_path)
+    config_table.add_row("Database Type", "middle_layer")
+    config_table.add_row("Resolved Path", str(resolved_path))
+
+    console.print()
+    console.print(Panel(config_table, title="[bold]Configuration[/bold]", border_style="info"))
+
+    # Load database
+    with console.status("[bold info]Loading database...", spinner="dots"):
+        database = MiddleLayerDatabase(str(resolved_path))
+        all_channels = database.get_all_channels()
+
+    total_channels = len(all_channels)
+    console.print(f"\n[success]✓ Successfully loaded [bold]{total_channels:,}[/bold] channels[/success]\n")
+
+    # Calculate statistics
+    if 'stats' in sections or 'tree' in sections:
+        systems = set()
+        families = set()
+        fields = set()
+
+        for channel in all_channels:
+            # Middle layer channels have system/family/field as direct keys
+            if 'system' in channel:
+                systems.add(channel['system'])
+            if 'family' in channel:
+                families.add(channel['family'])
+            if 'field' in channel:
+                fields.add(channel['field'])
+
+        # Build statistics table
+        stats_table = Table(show_header=True, box=box.ROUNDED, padding=(0, 2))
+        stats_table.add_column("Metric", style="label", no_wrap=True)
+        stats_table.add_column("Count", justify="right", style="value")
+
+        stats_table.add_row("Total Channels", f"{total_channels:,}")
+        stats_table.add_row("Systems", f"{len(systems)}")
+        stats_table.add_row("Families", f"{len(families)}")
+        stats_table.add_row("Fields", f"{len(fields)}")
+
+        console.print(Panel(stats_table, title="[bold]Database Statistics[/bold]",
+                           border_style="accent", padding=(1, 2)))
+
+    # Render tree if requested
+    if 'tree' in sections:
+        _render_middle_layer_tree(database, depth if not show_full else -1,
+                                 max_items if not show_full else -1, focus)
+
+    # Render samples if requested
+    if 'samples' in sections:
+        _render_samples_section(database)
+
+    # Footer
+    console.print()
+    console.print(Panel.fit(
+        f"[success]✓ Preview complete! [bold]{total_channels:,}[/bold] total channels[/success]",
+        border_style="success"
+    ))
+    console.print()
+
+
+def _render_middle_layer_tree(database, depth, max_items, focus) -> None:
+    """Render the middle layer hierarchy tree."""
+    console.print()
+
+    # Build tree from database structure
+    tree_data = _build_middle_layer_tree(database)
+
+    # Handle focus if specified
+    if focus:
+        focus_parts = focus.split(':')
+        tree_root, tree_title = _navigate_middle_layer_focus(tree_data, focus_parts)
+        if tree_root is None:
+            console.print(f"[error]✗ Focus path '{focus}' not found in database[/error]\n")
+            return
+    else:
+        tree_root = tree_data
+        tree_title = "[bold primary]Middle Layer Hierarchy[/bold primary]"
+
+    tree = Tree(tree_title, guide_style="info")
+
+    # Add systems to tree
+    max_depth = depth if depth > 0 else 10
+    max_items_val = None if max_items == -1 else max_items
+
+    _add_middle_layer_nodes(tree, tree_root, 0, max_depth, max_items_val)
+
+    console.print(Panel(tree, title="[bold]Hierarchy Tree[/bold]",
+                       border_style="primary", padding=(1, 2)))
+
+    if depth > 0 or max_items > 0:
+        console.print()
+        console.print(
+            f"[info]💡 Tip:[/info] Use [bold]--full[/bold] flag to see complete hierarchy"
+        )
+
+
+def _build_middle_layer_tree(database) -> dict:
+    """Build a hierarchical tree structure from middle layer database."""
+    tree = {}
+
+    # First, extract descriptions from the original JSON structure
+    descriptions = {}
+    for system_name, system_data in database.data.items():
+        if not isinstance(system_data, dict):
+            continue
+
+        system_desc = system_data.get('_description', '')
+        descriptions[system_name] = {'_description': system_desc, 'families': {}}
+
+        for family_name, family_data in system_data.items():
+            if not isinstance(family_data, dict) or family_name.startswith('_'):
+                continue
+
+            family_desc = family_data.get('_description', '')
+            descriptions[system_name]['families'][family_name] = family_desc
+
+    # Build channel count tree
+    for channel in database.get_all_channels():
+        # Middle layer channels have system/family/field as direct keys
+        system = channel.get('system', 'Unknown')
+        family = channel.get('family', 'Unknown')
+        field = channel.get('field', 'Unknown')
+
+        # Build nested structure
+        if system not in tree:
+            tree[system] = {
+                '_channels': 0,
+                '_families': {},
+                '_description': descriptions.get(system, {}).get('_description', '')
+            }
+
+        tree[system]['_channels'] += 1
+
+        if family not in tree[system]['_families']:
+            tree[system]['_families'][family] = {
+                '_channels': 0,
+                '_fields': {},
+                '_description': descriptions.get(system, {}).get('families', {}).get(family, '')
+            }
+
+        tree[system]['_families'][family]['_channels'] += 1
+
+        if field not in tree[system]['_families'][family]['_fields']:
+            tree[system]['_families'][family]['_fields'][field] = 0
+
+        tree[system]['_families'][family]['_fields'][field] += 1
+
+    return tree
+
+
+def _navigate_middle_layer_focus(tree, focus_parts) -> tuple[dict | None, str | None]:
+    """Navigate to focus in middle layer tree."""
+    current = tree
+    title_parts = []
+
+    for i, part in enumerate(focus_parts):
+        title_parts.append(part)
+        if i == 0:  # System level
+            if part not in current:
+                return None, None
+            current = {'_families': current[part].get('_families', {})}
+        elif i == 1:  # Family level
+            if part not in current.get('_families', {}):
+                return None, None
+            current = {'_fields': current['_families'][part].get('_fields', {})}
+        else:
+            return None, None
+
+    title = f"[bold primary]{':'.join(title_parts)}[/bold primary]"
+    return current, title
+
+
+def _add_middle_layer_nodes(parent, data, level, max_depth, max_items) -> None:
+    """Recursively add middle layer nodes to tree."""
+    if level >= max_depth:
+        return
+
+    # Determine what to show based on current level
+    if level == 0:  # System level
+        items = {k: v for k, v in data.items() if not k.startswith('_')}
+        item_type = "system"
+    elif '_families' in data:  # Family level
+        items = data['_families']
+        item_type = "family"
+    elif '_fields' in data:  # Field level
+        items = data['_fields']
+        item_type = "field"
+    else:
+        return
+
+    # Add items
+    count = 0
+    for name, node_data in sorted(items.items()):
+        if max_items and count >= max_items:
+            remaining = len(items) - max_items
+            parent.add(f"[dim]... {remaining} more {item_type}s[/dim]")
+            break
+
+        count += 1
+
+        # Get channel count
+        if isinstance(node_data, dict):
+            ch_count = node_data.get('_channels', 0)
+        else:
+            ch_count = node_data
+
+        # Determine style and add description if available
+        if level == 0:  # System level
+            style = "cyan bold"
+            desc_text = node_data.get('_description', '') if isinstance(node_data, dict) else ''
+            # Truncate long descriptions for better display
+            if len(desc_text) > 80:
+                desc_text = desc_text[:77] + "..."
+            desc = f" [dim]-[/dim] {desc_text}" if desc_text else ""
+        elif level == 1:  # Family level
+            style = "yellow"
+            desc_text = node_data.get('_description', '') if isinstance(node_data, dict) else ''
+            if len(desc_text) > 80:
+                desc_text = desc_text[:77] + "..."
+            desc = f" [dim]-[/dim] {desc_text}" if desc_text else ""
+        else:  # Field level
+            style = "green"
+            desc = ""
+
+        # Add node
+        label = f"[{style}]{name}[/{style}] [dim]({ch_count} channels)[/dim]{desc}"
+        branch = parent.add(label)
+
+        # Recurse to next level
+        if isinstance(node_data, dict) and level + 1 < max_depth:
+            _add_middle_layer_nodes(branch, node_data, level + 1, max_depth, max_items)
+
+
+def preview_hierarchical(db_path: str, depth: int = 3, max_items: int = 3,
+                        sections: list = None, focus: str = None) -> None:
     """Preview hierarchical database with tree structure.
 
     Args:
         db_path: Path to database file
-        depth: Maximum depth to display in tree (-1 for unlimited)
-        max_items: Maximum items per level (-1 for unlimited)
+        depth: Maximum depth to display in tree (default: 3, -1 for unlimited)
+        max_items: Maximum items per level (default: 3, -1 for unlimited)
         sections: List of sections to display (tree, stats, breakdown, samples)
         focus: Path to focus on (e.g., "M:QB" to show only QB family)
     """
@@ -709,16 +980,16 @@ def preview_in_context(db_path: str, presentation_mode: str, show_full: bool = F
     console.print()
 
 
-def preview_database(depth: int = 3, max_items: int = 10, sections: str = 'tree',
-                     focus: str = None, show_full: bool = False, db_path: str = None):
+def preview_database(depth: int = 3, max_items: int = 3, sections: str = 'tree',
+                     focus: str = None, show_full: bool = False, db_path: str = None) -> None:
     """Preview database based on configured pipeline type.
 
     Args:
-        depth: Maximum depth to display (-1 for unlimited)
-        max_items: Maximum items per level (-1 for unlimited)
+        depth: Maximum depth to display (default: 3, -1 for unlimited)
+        max_items: Maximum items per level (default: 3, -1 for unlimited)
         sections: Comma-separated list of sections to display
-        focus: Path to focus on (hierarchical only)
-        show_full: Legacy parameter - sets depth and max_items to -1
+        focus: Path to focus on (hierarchical/middle_layer only)
+        show_full: Sets depth and max_items to -1 for complete view
         db_path: Direct path to database file (overrides config)
     """
 
@@ -732,12 +1003,20 @@ def preview_database(depth: int = 3, max_items: int = 10, sections: str = 'tree'
             with open(resolved_path, 'r') as f:
                 data = json.load(f)
 
-            # Check for hierarchical database markers
+            # Check for database type markers
             if 'hierarchy' in data or 'tree' in data:
                 pipeline_type = 'hierarchical'
+                db_config = {}  # Empty config for direct path usage
+            elif isinstance(data, dict) and any(
+                key in data for key in ['SR', 'BR', 'BTS', 'VAC', 'Scraper']
+            ):
+                # Middle layer databases have system-level keys like SR, BR, BTS, etc.
+                pipeline_type = 'middle_layer'
+                db_config = {}  # Empty config for direct path usage
             else:
                 # Assume in_context/template format
                 pipeline_type = 'in_context'
+                db_config = {}  # Empty config for direct path usage
         except Exception as e:
             console.print(f"[error]✗ Error loading database from {db_path}: {e}[/error]")
             sys.exit(1)
@@ -751,6 +1030,7 @@ def preview_database(depth: int = 3, max_items: int = 10, sections: str = 'tree'
             console.print(Panel(
                 "[bold error]Error:[/bold error] No database configured\n\n"
                 "[warning]Check config.yml:[/warning] Configure either:\n"
+                "  • channel_finder.pipelines.middle_layer.database.path\n"
                 "  • channel_finder.pipelines.hierarchical.database.path\n"
                 "  • channel_finder.pipelines.in_context.database.path\n\n"
                 "Or use [bold]--path[/bold] to specify a database file directly",
@@ -774,6 +1054,9 @@ def preview_database(depth: int = 3, max_items: int = 10, sections: str = 'tree'
     if pipeline_type == 'hierarchical':
         preview_hierarchical(db_path=db_path, depth=depth, max_items=max_items,
                            sections=section_list, focus=focus)
+    elif pipeline_type == 'middle_layer':
+        preview_middle_layer(db_path=db_path, depth=depth, max_items=max_items,
+                            sections=section_list, focus=focus, show_full=show_full)
     else:  # in_context
         presentation_mode = db_config.get('presentation_mode', 'template')
         # For in_context, only show_full is used (no depth/sections yet)
@@ -786,8 +1069,11 @@ if __name__ == '__main__':
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Quick overview (default: 3 levels, 10 items per level)
+  # Quick overview (default: 3 levels, 3 items per level)
   python preview_database.py
+
+  # Show more items per level
+  python preview_database.py --max-items 10
 
   # Show 4 levels with statistics
   python preview_database.py --depth 4 --sections tree,stats
@@ -826,8 +1112,8 @@ Sections:
     parser.add_argument(
         '--max-items',
         type=int,
-        default=10,
-        help='Maximum items per level (default: 10, use -1 for unlimited)'
+        default=3,
+        help='Maximum items per level (default: 3, use -1 for unlimited)'
     )
 
     parser.add_argument(

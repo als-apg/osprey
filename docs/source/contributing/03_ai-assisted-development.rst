@@ -96,6 +96,67 @@ Osprey workflows work with AI coding assistants. Choose the tool that fits your 
 
 ----
 
+Accessing Workflow Files
+------------------------
+
+Osprey's AI workflow files are bundled with the installed package and can be exported to your project for easy access by AI coding assistants.
+
+**First Time Setup**
+
+Export workflows to your project directory:
+
+.. code-block:: bash
+
+   # From your project directory or anywhere
+   osprey workflows export
+
+This creates an ``osprey-workflows/`` directory containing all workflow files.
+
+.. dropdown:: Command Reference and Advanced Usage
+   :color: info
+   :icon: terminal
+
+   **Available Commands**
+
+   .. code-block:: bash
+
+      # Export workflows to current directory (default: ./osprey-workflows/)
+      osprey workflows export
+
+      # Export to custom location
+      osprey workflows export --output ~/my-workflows
+
+      # List all available workflows
+      osprey workflows list
+
+      # Overwrite existing files without prompting
+      osprey workflows export --force
+
+   **Interactive Menu**
+
+   You can also export workflows from the interactive menu:
+
+   .. code-block:: bash
+
+      # Launch interactive menu
+      osprey
+
+      # Select: [>] workflows - Export AI workflow files
+
+   **Version Updates**
+
+   Workflow files are version-locked with your installed Osprey version. After upgrading Osprey, re-export to get updated workflows:
+
+   .. code-block:: bash
+
+      # After upgrading Osprey
+      pip install --upgrade osprey-framework
+
+      # Re-export workflows
+      osprey workflows export --force
+
+----
+
 Workflow Catalog
 ----------------
 
@@ -159,6 +220,18 @@ Workflow Catalog
 
             Review AI-generated code for quality and correctness.
 
+         .. grid-item-card:: 🔍 Channel Finder Pipeline Selection
+            :link: channel-finder-pipeline
+            :link-type: ref
+
+            Choose the right pipeline for your control system.
+
+         .. grid-item-card:: 🗄️ Channel Finder Database Builder
+            :link: channel-finder-database
+            :link-type: ref
+
+            Build high-quality channel databases with AI assistance.
+
    .. tab-item:: 🎯 Release Workflows
       :sync: release
 
@@ -183,8 +256,7 @@ Detailed Workflow Guides
 🔍 Pre-Merge Cleanup
 ^^^^^^^^^^^^^^^^^^^^
 
-.. workflow-summary:: ../../workflows/pre-merge-cleanup.md
-   :show-use-when:
+`View workflow file <https://github.com/als-apg/osprey/blob/main/src/osprey/workflows/pre-merge-cleanup.md>`_
 
 **Command Line:**
 
@@ -196,7 +268,7 @@ Detailed Workflow Guides
 
 .. code-block:: text
 
-   @docs/workflows/pre-merge-cleanup.md Scan my uncommitted changes
+   @osprey-workflows/pre-merge-cleanup.md Scan my uncommitted changes
 
 **What it checks:**
 
@@ -213,14 +285,13 @@ Detailed Workflow Guides
 📦 Commit Organization
 ^^^^^^^^^^^^^^^^^^^^^^
 
-.. workflow-summary:: ../../workflows/commit-organization.md
-   :show-use-when:
+`View workflow file <https://github.com/als-apg/osprey/blob/main/src/osprey/workflows/commit-organization.md>`_
 
 **Example:**
 
 .. code-block:: text
 
-   @docs/workflows/commit-organization.md Help me organize my commits
+   @osprey-workflows/commit-organization.md Help me organize my commits
 
 **Best for:**
 
@@ -239,14 +310,13 @@ Detailed Workflow Guides
 🧪 Testing Strategy
 ^^^^^^^^^^^^^^^^^^^
 
-.. workflow-summary:: ../../workflows/testing-workflow.md
-   :show-use-when:
+`View workflow file <https://github.com/als-apg/osprey/blob/main/src/osprey/workflows/testing-workflow.md>`_
 
 **Example:**
 
 .. code-block:: text
 
-   @docs/workflows/testing-workflow.md What type of test should I write?
+   @osprey-workflows/testing-workflow.md What type of test should I write?
 
 **Decision Framework:**
 
@@ -274,14 +344,13 @@ Detailed Workflow Guides
 📚 Documentation Updates
 ^^^^^^^^^^^^^^^^^^^^^^^^
 
-.. workflow-summary:: ../../workflows/update-documentation.md
-   :show-use-when:
+`View workflow file <https://github.com/als-apg/osprey/blob/main/src/osprey/workflows/update-documentation.md>`_
 
 **Example:**
 
 .. code-block:: text
 
-   @docs/workflows/update-documentation.md What docs need updating?
+   @osprey-workflows/update-documentation.md What docs need updating?
 
 ----
 
@@ -290,14 +359,13 @@ Detailed Workflow Guides
 📝 Docstrings
 ^^^^^^^^^^^^^
 
-.. workflow-summary:: ../../workflows/docstrings.md
-   :show-use-when:
+`View workflow file <https://github.com/als-apg/osprey/blob/main/src/osprey/workflows/docstrings.md>`_
 
 **Example:**
 
 .. code-block:: text
 
-   @docs/workflows/docstrings.md Write a docstring for this function
+   @osprey-workflows/docstrings.md Write a docstring for this function
 
 ----
 
@@ -306,14 +374,13 @@ Detailed Workflow Guides
 💬 Comments
 ^^^^^^^^^^^
 
-.. workflow-summary:: ../../workflows/comments.md
-   :show-use-when:
+`View workflow file <https://github.com/als-apg/osprey/blob/main/src/osprey/workflows/comments.md>`_
 
 **Example:**
 
 .. code-block:: text
 
-   @docs/workflows/comments.md Add comments to explain this logic
+   @osprey-workflows/comments.md Add comments to explain this logic
 
 ----
 
@@ -322,14 +389,44 @@ Detailed Workflow Guides
 🤖 AI Code Review
 ^^^^^^^^^^^^^^^^^
 
-.. workflow-summary:: ../../workflows/ai-code-review.md
-   :show-use-when:
+`View workflow file <https://github.com/als-apg/osprey/blob/main/src/osprey/workflows/ai-code-review.md>`_
 
 **Example:**
 
 .. code-block:: text
 
-   @docs/workflows/ai-code-review.md Review this AI-generated code
+   @osprey-workflows/ai-code-review.md Review this AI-generated code
+
+----
+
+.. _channel-finder-pipeline:
+
+🔍 Channel Finder Pipeline Selection
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+`View workflow file <https://github.com/als-apg/osprey/blob/main/src/osprey/workflows/channel-finder-pipeline-selection.md>`_
+
+**Example:**
+
+.. code-block:: text
+
+   @osprey-workflows/channel-finder-pipeline-selection.md Help me select the right Channel Finder pipeline.
+
+----
+
+.. _channel-finder-database:
+
+🗄️ Channel Finder Database Builder
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+`View workflow file <https://github.com/als-apg/osprey/blob/main/src/osprey/workflows/channel-finder-database-builder.md>`_
+
+**Example:**
+
+.. code-block:: text
+
+   @osprey-workflows/channel-finder-database-builder.md Help me build my Channel Finder database.
+
 
 ----
 
@@ -338,14 +435,13 @@ Detailed Workflow Guides
 🚢 Release Workflow
 ^^^^^^^^^^^^^^^^^^^
 
-.. workflow-summary:: ../../workflows/release-workflow.md
-   :show-use-when:
+`View workflow file <https://github.com/als-apg/osprey/blob/main/src/osprey/workflows/release-workflow.md>`_
 
 **Example:**
 
 .. code-block:: text
 
-   @docs/workflows/release-workflow.md Guide me through releasing v0.9.8
+   @osprey-workflows/release-workflow.md Guide me through releasing v0.9.8
 
 ----
 
@@ -378,42 +474,42 @@ Example: Adding a Capability with AI
 
 .. code-block:: text
 
-   @docs/workflows/ + @docs/source/developer-guides/
+   @osprey-workflows/ + @docs/source/developer-guides/
    I want to add a capability for archiver data. Help me plan the implementation.
 
 **2. Write the code and docstrings:**
 
 .. code-block:: text
 
-   @docs/workflows/docstrings.md
+   @osprey-workflows/docstrings.md
    Write a docstring for my new capability class
 
 **3. Add appropriate tests:**
 
 .. code-block:: text
 
-   @docs/workflows/testing-workflow.md
+   @osprey-workflows/testing-workflow.md
    My capability calls an external API. Should I write unit or integration tests?
 
 **4. Update documentation:**
 
 .. code-block:: text
 
-   @docs/workflows/update-documentation.md
+   @osprey-workflows/update-documentation.md
    I added a new archiver capability. What documentation needs updating?
 
 **5. Pre-commit cleanup:**
 
 .. code-block:: text
 
-   @docs/workflows/pre-merge-cleanup.md
+   @osprey-workflows/pre-merge-cleanup.md
    Scan my uncommitted changes for issues
 
 **6. Organize commits:**
 
 .. code-block:: text
 
-   @docs/workflows/commit-organization.md
+   @osprey-workflows/commit-organization.md
    Help me organize these changes into atomic commits with CHANGELOG entries
 
 ----
@@ -422,11 +518,11 @@ Example: Adding a Capability with AI
 
    **Explore More:**
 
-   - Browse all workflow files in ``docs/workflows/``
+   - List available workflows: ``osprey workflows list``
    - :doc:`02_code-standards` for coding conventions
    - :doc:`index` for environment setup
    - :doc:`../developer-guides/index` for technical guides
 
    **Get Started:**
 
-   Pick a workflow card above and try it with your next change!
+   Export workflows (``osprey workflows export``) and pick one to try with your next change!

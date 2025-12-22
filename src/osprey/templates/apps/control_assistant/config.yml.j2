@@ -323,7 +323,7 @@ archiver:
 
 channel_finder:
   # Active pipeline mode
-  pipeline_mode: {{ default_pipeline }}  # "in_context" or "hierarchical"
+  pipeline_mode: {{ default_pipeline }}  # "in_context", "hierarchical", or "middle_layer"
 
   # Pipeline-specific configurations
   pipelines:
@@ -373,6 +373,26 @@ channel_finder:
       benchmark:
         dataset_path: src/{{ package_name }}/data/benchmarks/datasets/hierarchical_benchmark.json
         # Hierarchical pipeline benchmark with multi-level channel structure (47 queries)
+{% endif %}
+{% if enable_middle_layer %}
+    # Middle Layer Pipeline (React Agent with MML Database)
+    # Best for: MATLAB Middle Layer (MML) style databases, functional hierarchy (System→Family→Field), device/sector filtering
+    middle_layer:
+      database:
+        type: middle_layer            # Always "middle_layer" for this pipeline mode
+        path: src/{{ package_name }}/data/channel_databases/middle_layer.json
+                                      # Database must follow MML structure: System → Family → Field → ChannelNames
+                                      # Supports optional _description fields and device/sector filtering via DeviceList
+
+      # Example prompts for middle_layer pipeline
+      prompts:
+        path: src/{{ package_name }}/services/channel_finder/prompts/middle_layer
+        # Example accelerator prompts for React agent with database query tools
+
+      # Benchmark dataset for this pipeline
+      benchmark:
+        dataset_path: src/{{ package_name }}/data/benchmarks/datasets/middle_layer_benchmark.json
+        # Middle layer pipeline benchmark with functional hierarchy (35 queries, 174 channels)
 {% endif %}
 
   # Benchmarking configuration

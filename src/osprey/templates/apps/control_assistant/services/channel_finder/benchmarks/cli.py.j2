@@ -143,6 +143,15 @@ async def run_benchmarks(
         console.print(f"  {Messages.error(f'Failed to load configuration: {e}')}")
         return 1
 
+    # Initialize registry (required for LLM providers)
+    try:
+        from osprey.registry import initialize_registry
+        initialize_registry()
+        console.print(f"  {Messages.success('Registry initialized')}")
+    except Exception as e:
+        console.print(f"  {Messages.error(f'Failed to initialize registry: {e}')}")
+        return 1
+
     # Initialize benchmark runner (reads from config)
     try:
         runner = BenchmarkRunner()

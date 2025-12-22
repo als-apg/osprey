@@ -22,14 +22,15 @@ Control systems at scientific facilities present a fundamental communication gap
 
 ---------
 
-**Two Pipeline Implementations**
+**Three Pipeline Implementations**
 
-This template provides two semantic channel finding implementations, each suited to different facility scales:
+This template provides three semantic channel finding implementations, each suited to different facility architectures:
 
 - **In-Context Search**: Direct semantic matching—best for small to medium systems (few hundred channels)
-- **Hierarchical Navigation**: Structured navigation through system hierarchy—scales to large systems (thousands+ channels)
+- **Hierarchical Navigation**: Structured navigation through system hierarchy—scales to large systems with strict naming patterns (thousands+ channels)
+- **Middle Layer Exploration**: React agent with database query tools—scales to large systems organized by function rather than naming patterns (thousands+ channels)
 
-Both pipelines share the same interface and capabilities, differing only in their matching strategy. Choose based on your system size, or try both and benchmark which performs better for your facility.
+All three pipelines share the same interface and capabilities, differing only in their matching strategy and database organization. Choose based on your system architecture, or try multiple and benchmark which performs better for your facility.
 
 **Switching Between Pipelines**
 
@@ -38,9 +39,32 @@ To switch pipelines, edit ``config.yml`` and change the ``pipeline_mode`` settin
 .. code-block:: yaml
 
    channel_finder:
-     pipeline_mode: in_context  # or "hierarchical"
+     pipeline_mode: in_context  # or "hierarchical" or "middle_layer"
 
-That's it—no code changes required. The template includes complete implementations of both pipelines with example databases, CLI tools, and benchmark datasets. The tabs below detail each pipeline's workflow, database format, and testing tools.
+That's it—no code changes required. The template includes complete implementations of all three pipelines with example databases, CLI tools, and benchmark datasets. The tabs below detail each pipeline's workflow, database format, and testing tools.
+
+.. dropdown:: AI-Assisted Pipeline Selection
+   :color: info
+   :icon: workflow
+
+   **Not sure which pipeline to use?** Let a coding assistant help you choose based on your channel naming patterns.
+
+   **When to use this workflow:**
+
+   - Setting up Channel Finder for the first time
+   - You have channel examples but aren't sure which pipeline fits best
+   - You want to have a discussion with a coding assistant to help you choose the right pipeline
+
+   **Copy this prompt to your AI assistant:**
+
+   .. code-block:: text
+
+      @osprey-workflows/channel-finder-pipeline-selection.md Help me select the right Channel Finder pipeline.
+
+   .. note::
+      First export workflows to your project: ``osprey workflows export``
+
+   For more information about AI-assisted development workflows, see :doc:`../contributing/03_ai-assisted-development`.
 
 .. _channel-finder-benchmarking:
 
@@ -119,13 +143,34 @@ That's it—no code changes required. The template includes complete implementat
 
 
 
-      .. figure:: /_static/screenshots/channel_finder_in_context_cli.png
+      .. figure:: //_static/screenshots/channel_finder_in_context_cli.png
          :alt: In-Context Channel Finder CLI in action
          :align: center
          :width: 100%
 
          **Live Example**: In-context pipeline processing "What are the grading resistor currents and the terminal voltage?" — Shows query splitting into 2 atomic queries, full database mode with 255 channels, matching 4 results (2 grading resistor currents + 2 terminal voltages), and validation confirming all channels are valid.
 
+
+      **Try It Now: Interactive Channel Finder**
+
+      The template includes a working example database (UCSB FEL accelerator, 255 channels). Try the channel finder immediately—no database setup required:
+
+      .. code-block:: bash
+
+         # From my-control-assistant directory
+         cd my-control-assistant
+
+         # Switch to in-context pipeline
+         # python config.yml: set pipeline_mode to "in_context"
+
+         python src/my_control_assistant/services/channel_finder/cli.py
+
+      **Example queries to try:**
+
+      .. code-block:: text
+
+         🔍 Query: What is the terminal voltage?
+         🔍 Query: Get me the grading resistor currents and beam current
 
       **How It Works:**
 
@@ -216,6 +261,34 @@ That's it—no code changes required. The template includes complete implementat
             **From CSV to Template Database**
 
             The in-context pipeline provides tools to build template-based databases from simple CSV files. This workflow streamlines database creation, especially for facilities with device families.
+
+            .. dropdown:: AI-Assisted Database Building
+               :color: info
+               :icon: workflow
+
+               **Need help writing effective channel descriptions?** Let an AI coding assistant guide you through building a high-quality database.
+
+               **When to use this workflow:**
+
+               - Writing channel descriptions that enable effective LLM matching
+               - Extracting information from existing documentation or source code files
+               - Improving database quality based on test query results
+               - Understanding what makes descriptions helpful vs. just complete
+
+               **Example query to your AI assistant:**
+
+               .. code-block:: text
+
+                  @osprey-workflows/channel-finder-database-builder.md Help me build my Channel Finder database.
+
+                  I'm using the in-context pipeline with ~250 channels from a CSV export.
+                  I have EPICS .db files with DESC fields and access to wiki page about out control system.
+                  Guide me on writing descriptions that help the LLM distinguish between channels.
+
+               .. note::
+                  First export workflows to your project: ``osprey workflows export``
+
+               For more information about AI-assisted development workflows, see :doc:`../contributing/03_ai-assisted-development`.
 
             **Workflow Overview:**
 
@@ -648,12 +721,34 @@ That's it—no code changes required. The template includes complete implementat
 
       **Best for:** Large systems (thousands+ channels), facilities with well-defined hierarchical organization, systems where context window size becomes a constraint.
 
-      .. figure:: /_static/screenshots/channel_finder_hierachical_cli.png
+      .. figure:: //_static/screenshots/channel_finder_hierachical_cli.png
          :alt: Hierarchical Channel Finder CLI in action
          :align: center
          :width: 100%
 
          **Live Example**: Hierarchical pipeline processing "whats the beam current?" through 5 navigation levels (system → family → device → field → subfield) to find ``DIAG:DCCT[MAIN]:CURRENT:RB`` from 1,050 channels. Shows the recursive branching at each level.
+
+
+      **Try It Now: Interactive Channel Finder**
+
+      The template includes a working example database (accelerator with magnets, vacuum, RF, and diagnostics—1,050 channels). Try the hierarchical channel finder immediately:
+
+      .. code-block:: bash
+
+         # From my-control-assistant directory
+         cd my-control-assistant
+
+         # Switch to hierarchical pipeline
+         # Edit config.yml: set pipeline_mode to "hierarchical"
+
+         python src/my_control_assistant/services/channel_finder/cli.py
+
+      **Example queries to try:**
+
+      .. code-block:: text
+
+         🔍 Query: Whats the beam current?
+         🔍 Query: Get me all focusing quadrupole currents
 
       .. admonition:: Database Format (v0.9.4+)
          :class: tip
@@ -833,6 +928,34 @@ That's it—no code changes required. The template includes complete implementat
             **Manual JSON Creation: A Structured Approach**
 
             Unlike the in-context pipeline (which has automated CSV-to-JSON builders), hierarchical databases require manual JSON creation. This reflects their purpose: representing well-organized control systems with existing hierarchical structures.
+
+            .. dropdown:: AI-Assisted Database Building
+               :color: info
+               :icon: workflow
+
+               **Need help structuring your hierarchy and writing descriptions?** Let an AI coding assistant guide you through the process.
+
+               **When to use this workflow:**
+
+               - Organizing your control system into a hierarchical structure
+               - Writing distinguishing descriptions at branching points
+               - Understanding which hierarchy levels need the most detailed descriptions
+               - Extracting hierarchy information from existing documentation
+
+               **Example query to your AI assistant:**
+
+               .. code-block:: text
+
+                  @osprey-workflows/channel-finder-database-builder.md Help me build my Channel Finder database.
+
+                  I'm using the hierarchical pipeline for an accelerator with ~1,050 channels.
+                  My naming follows SYSTEM:FAMILY[DEVICE]:FIELD:SUBFIELD pattern.
+                  Guide me on writing descriptions that help the LLM navigate the hierarchy correctly.
+
+               .. note::
+                  First export workflows to your project: ``osprey workflows export``
+
+               For more information about AI-assisted development workflows, see :doc:`../contributing/03_ai-assisted-development`.
 
             **When to Use This Workflow:**
 
@@ -1584,6 +1707,480 @@ That's it—no code changes required. The template includes complete implementat
             5. **Regular Benchmarking**: Re-run benchmarks after database changes to catch regressions
             6. **CLI First**: Use interactive CLI for rapid iteration before running full benchmarks
             7. **Document Patterns**: Keep notes on navigation patterns that work well for your facility
+
+   .. tab-item:: Middle Layer Pipeline
+
+      **Concept:** Agent explores database using query tools to find channels by function.
+
+      **Best for:** Large systems organized by function (Monitor, Setpoint) rather than naming patterns, facilities using MATLAB Middle Layer (MML) style organization, systems requiring device/sector filtering.
+
+      .. figure:: /_static/screenshots/channel_finder_middlelayer_cli.png
+         :alt: Middle Layer Channel Finder CLI in action
+         :align: center
+         :width: 100%
+
+         **Live Example**: Middle layer pipeline processing "What's the beam current?" using React agent with database query tools. Shows the agent calling list_systems(), list_families(), inspect_fields(), and list_channel_names() to explore the functional hierarchy (SR → DCCT → Monitor) and find ``SR:DCCT:Current``.
+
+
+      **Try It Now: Interactive Channel Finder**
+
+      The template includes a working example database (accelerator with Storage Ring, Booster, and Transfer Line).
+
+      .. code-block:: bash
+
+         # From my-control-assistant directory
+         cd my-control-assistant
+
+         # Switch to middle_layer pipeline
+         # Edit config.yml: set pipeline_mode to "middle_layer"
+
+         python src/my_control_assistant/services/channel_finder/cli.py
+
+      **Example queries to try:**
+
+      .. code-block:: text
+
+         🔍 Query: What's the beam current?
+         🔍 Query: Get me BPM X positions in sector 1
+
+      **How It Works:**
+
+      .. tab-set::
+
+         .. tab-item:: Pipeline Stages
+
+            The middle layer pipeline uses a React agent with database query tools to find channels through functional exploration.
+
+            **Stage 1: Query Splitting**
+
+            Identical to the other pipelines' query splitting stage, complex queries are decomposed into atomic sub-queries. Each atomic query then explores the database independently using the agent.
+
+            **Stage 2: Agent-Based Database Exploration**
+
+            The pipeline uses a LangGraph React agent with five database query tools. The agent autonomously explores the functional hierarchy (System → Family → Field → Subfield) to find matching channels.
+
+            **Available Tools:**
+
+            1. **list_systems()** - Get all available systems with descriptions
+            2. **list_families(system)** - Get device families within a system
+            3. **inspect_fields(system, family, field)** - Examine field structure and subfields
+            4. **list_channel_names(...)** - Retrieve actual PV addresses with optional filtering
+            5. **get_common_names(system, family)** - Get friendly device names
+
+            The agent follows this typical workflow:
+
+            Query: "What's the beam current?"
+
+            1. **Explore systems** → Calls ``list_systems()`` → Finds SR, VAC, BR, BTS
+            2. **Select relevant system** → Chooses SR (Storage Ring) based on description
+            3. **Explore families** → Calls ``list_families('SR')`` → Finds BPM, HCM, DCCT, etc.
+            4. **Identify beam current family** → Chooses DCCT (DC Current Transformer)
+            5. **Inspect fields** → Calls ``inspect_fields('SR', 'DCCT')`` → Finds Monitor, FastMonitor, Lifetime
+            6. **Retrieve channels** → Calls ``list_channel_names('SR', 'DCCT', 'Monitor')``
+            7. **Report results** → Returns ``SR:DCCT:Current``
+
+            **Key Features:**
+
+            - **Autonomous exploration**: Agent decides which tools to call and in what order
+            - **Description-aware**: Uses optional ``_description`` fields when available for better matching
+            - **Subfield navigation**: Automatically discovers nested structures (e.g., X/Y under BPM)
+            - **Device filtering**: Supports optional sector/device filtering when ``DeviceList`` metadata present
+
+            **Stage 3: Result Aggregation & Deduplication**
+
+            Results from all atomic queries are combined and deduplicated to provide a clean final result.
+
+         .. tab-item:: Database Format
+
+            **Functional Hierarchy Structure:**
+
+            The middle layer database organizes channels by function rather than naming pattern, following the MATLAB Middle Layer (MML) convention used at accelerator facilities:
+
+            .. code-block:: json
+
+               {
+                 "SR": {
+                   "_description": "Storage Ring: Main synchrotron light source...",
+                   "BPM": {
+                     "_description": "Beam Position Monitors: Non-invasive electrostatic pickups...",
+                     "X": {
+                       "_description": "Horizontal position readback in millimeters.",
+                       "ChannelNames": ["SR01C:BPM1:X", "SR01C:BPM2:X", "SR01C:BPM3:X", ...],
+                       "DataType": "Scalar",
+                       "Mode": "Online",
+                       "Units": "Hardware",
+                       "HWUnits": "mm",
+                       "PhysicsUnits": "Meters",
+                       "MemberOf": ["BPM", "Monitor", "PlotFamily", "Save", "Archive"]
+                     },
+                     "Y": {
+                       "_description": "Vertical position readback in millimeters.",
+                       "ChannelNames": ["SR01C:BPM1:Y", "SR01C:BPM2:Y", "SR01C:BPM3:Y", ...]
+                     },
+                     "setup": {
+                       "CommonNames": ["BPM 1-1", "BPM 1-2", "BPM 1-3", ...],
+                       "DeviceList": [[1, 1], [1, 2], [1, 3], ...]
+                     }
+                   },
+                   "HCM": {
+                     "_description": "Horizontal Corrector Magnets...",
+                     "Monitor": {
+                       "_description": "Current readback in Amperes.",
+                       "ChannelNames": ["SR01C:HCM1:Current", ...]
+                     },
+                     "Setpoint": {
+                       "_description": "Current setpoint in Amperes.",
+                       "ChannelNames": ["SR01C:HCM1:SetCurrent", ...]
+                     },
+                     "OnControl": {
+                       "_description": "Enable/disable control...",
+                       "ChannelNames": ["SR01C:HCM1:Enable", ...]
+                     }
+                   },
+                   "DCCT": {
+                     "_description": "DC Current Transformer: Measures beam current...",
+                     "Monitor": {
+                       "_description": "Beam current in milliamperes.",
+                       "ChannelNames": ["SR:DCCT:Current"]
+                     }
+                   }
+                 },
+                 "VAC": {
+                   "_description": "Vacuum System...",
+                   "IonPump": {
+                     "_description": "Ion Pumps for UHV pumping...",
+                     "Pressure": {
+                       "_description": "Vacuum Pressure readback (Torr).",
+                       "ChannelNames": ["SR01C:VAC:IP1:Pressure", ...]
+                     }
+                   }
+                 }
+               }
+
+            **Key features:**
+
+            - **Functional organization**: Systems → Families → Fields → ChannelNames
+            - **Retrieved addresses**: PV addresses stored in database (not built from patterns)
+            - **Optional descriptions**: ``_description`` fields at all levels provide semantic context
+            - **Optional metadata**: Preserve MML metadata (DataType, Mode, Units, MemberOf, etc.)
+            - **Device filtering**: Optional ``DeviceList`` enables sector/device number filtering
+            - **Common names**: Optional ``CommonNames`` for friendly device identifiers
+            - **Nested subfields**: Fields can have subfields (e.g., RF PowerMonitor has Forward/Reflected)
+
+            **Hierarchy Levels:**
+
+            - **System**: Top-level accelerator systems (SR=Storage Ring, BR=Booster, BTS=Transfer Line, VAC=Vacuum)
+            - **Family**: Device families within systems (BPM, HCM, VCM, DCCT, IonPump, etc.)
+            - **Field**: Functional categories (Monitor, Setpoint, X, Y, Pressure, Voltage, etc.)
+            - **Subfield** (optional): Nested functional organization (e.g., PowerMonitor → Forward/Reflected)
+            - **ChannelNames**: List of actual EPICS PV addresses
+
+         .. tab-item:: Build Your Database
+
+            **From MATLAB Middle Layer Exports**
+
+            If your facility already uses MATLAB Middle Layer (MML), you can convert existing MML data structures directly to the middle layer JSON format using the included converter utility.
+
+            .. dropdown:: AI-Assisted Database Building
+               :color: info
+               :icon: workflow
+
+               **Need help organizing functional hierarchy and writing descriptions?** Let an AI coding assistant guide you through the process.
+
+               **When to use this workflow:**
+
+               - Organizing channels by function (System → Family → Field)
+               - Writing descriptions that help the agent explore the database
+               - Converting from MATLAB Middle Layer or other middle layer formats
+               - Understanding what metadata to include for effective matching
+
+               **Example query to your AI assistant:**
+
+               .. code-block:: text
+
+                  @osprey-workflows/channel-finder-database-builder.md Help me build my Channel Finder database.
+
+                  I'm using the middle layer pipeline for an accelerator with functional organization.
+                  I have MATLAB Middle Layer exports and want to ensure rich descriptions at all levels.
+                  Guide me on writing descriptions that help the agent explore the database effectively.
+
+               .. note::
+                  First export workflows to your project: ``osprey workflows export``
+
+               For more information about AI-assisted development workflows, see :doc:`../contributing/03_ai-assisted-development`.
+
+            **Workflow Overview:**
+
+            .. code-block:: text
+
+               MML Python Export  →  mml_converter.py  →  Middle Layer JSON Database
+               (MML_ao_SR.py)        (conversion tool)     (optimized format)
+                                           ↓
+                                   validate_database.py
+                                   preview_database.py
+                                   (verify structure & presentation)
+
+            **Step 1: Export Your MML Data**
+
+            If you have MATLAB Middle Layer data, export the ``ao`` (accelerator object) structure to Python format. The structure typically contains system/family hierarchies with channel information.
+
+            **Step 2: Use the MML Converter**
+
+            The template includes a conversion utility that transforms MML Python exports into middle layer JSON format:
+
+            .. code-block:: bash
+
+               cd my-control-assistant
+
+               # Convert MML exports to JSON
+               python src/my_control_assistant/services/channel_finder/utils/mml_converter.py \
+                  --input path/to/mml_exports.py \
+                  --output src/my_control_assistant/data/channel_databases/middle_layer.json
+
+            **Using the Converter Programmatically:**
+
+            .. code-block:: python
+
+               from mml_converter import MMLConverter
+
+               # Import your MML exports
+               from my_facility_mml import MML_ao_SR, MML_ao_BR, MML_ao_VAC
+
+               # Create converter and add systems
+               converter = MMLConverter()
+               converter.add_system("SR", MML_ao_SR)
+               converter.add_system("BR", MML_ao_BR)
+               converter.add_system("VAC", MML_ao_VAC)
+
+               # Save to JSON
+               converter.save_json("my_facility.json")
+
+            **What the Converter Does:**
+
+            1. **Extracts hierarchy**: Preserves System → Family → Field → ChannelNames structure
+            2. **Preserves metadata**: Keeps DataType, Mode, Units, HWUnits, PhysicsUnits, MemberOf
+            3. **Handles subfields**: Detects nested field structures automatically
+            4. **Includes setup data**: Transfers CommonNames and DeviceList for filtering
+            5. **Validates structure**: Ensures all required fields present
+            6. **Reports statistics**: Shows channel counts and organization
+
+            .. admonition:: Collaboration Welcome
+               :class: outreach
+
+               The MML converter was developed and tested with the Advanced Light Source (ALS) MATLAB Middle Layer format. If your facility uses MATLAB Middle Layer or another middle layer solution with a different structure or export format, we'd love to add native support for it! Please open an issue on GitHub describing your middle layer system and we can work together to implement a converter for your facility's format.
+
+            **Alternative: Manual JSON Creation**
+
+            For facilities not using MML, create the JSON database manually following the structure shown in the "Database Format" tab:
+
+            1. **Define systems**: Top-level dictionary with system keys (SR, BR, VAC, etc.)
+            2. **Add families**: Device families within each system
+            3. **Specify fields**: Functional categories with ChannelNames lists
+            4. **Add descriptions** (optional): Include ``_description`` fields for better semantic matching
+            5. **Include metadata** (optional): Add setup information for filtering
+
+            **Step 3: Validate Your Database**
+
+            Check for structural issues and verify the database can be loaded:
+
+            .. code-block:: bash
+
+               # From my-control-assistant directory
+               python src/my_control_assistant/data/tools/validate_database.py \
+                  --database src/my_control_assistant/data/channel_databases/middle_layer.json
+
+               # Show detailed statistics
+               python src/my_control_assistant/data/tools/validate_database.py --verbose
+
+            **Validation Checks:**
+
+            - **Structure**: Valid JSON format, correct hierarchy levels
+            - **ChannelNames**: All terminal fields have ChannelNames lists
+            - **Metadata**: Optional fields properly formatted
+            - **Database Loading**: Can be loaded by ``MiddleLayerDatabase`` class
+            - **Statistics**: System/family/channel counts
+
+            **Step 4: Preview Database Presentation**
+
+            See how your database will be presented to the LLM agent during exploration:
+
+            .. code-block:: bash
+
+               # From my-control-assistant directory
+               python src/my_control_assistant/data/tools/preview_database.py
+
+            This shows you what information the agent sees at each level of exploration, helping you verify descriptions are clear and helpful.
+
+            **Preview Output Example:**
+
+            .. image:: ../_static/screenshots/channel_finder_db_preview_middlelayer.png
+               :alt: Middle Layer Database Preview
+               :align: center
+               :width: 90%
+
+            **Best Practices:**
+
+            1. **Rich Descriptions**: Write clear descriptions at all levels—these are the primary guide for the LLM agent
+            2. **Functional Organization**: Group channels by what they do (Monitor, Setpoint) not by location
+            3. **Complete Metadata**: Include Units, DataType, and other metadata from your control system
+            4. **Device Lists**: Add DeviceList metadata if you need sector/device filtering
+            5. **Common Names**: Include friendly device names for better user experience
+            6. **Consistent Structure**: Use same field names across families (e.g., always "Monitor" not "Readback")
+            7. **Test Incrementally**: Build one system at a time, test it, then add the next
+
+         .. tab-item:: Test Your Database
+
+            **Interactive Testing & Benchmarking**
+
+            Once your database is built and validated, test its functionality with the CLI for rapid iteration, then benchmark it for statistical evaluation.
+
+            **Interactive CLI: Rapid Development Testing**
+
+            Query your database interactively without running the full agent:
+
+            .. code-block:: bash
+
+               # From my-control-assistant directory
+               python src/my_control_assistant/services/channel_finder/cli.py
+
+            This launches an interactive terminal where you can:
+
+            - Test queries against your channel database in real-time
+            - Watch the agent explore the database with tool calls
+            - Verify which channels are matched and why
+            - Measure query execution time to optimize performance
+            - Iterate on your database and see results immediately
+
+            **Example queries to try:**
+
+            - **Simple lookups**: "What's the beam current?" → ``SR:DCCT:Current``
+            - **Functional queries**: "All BPM X positions" → All horizontal BPM readbacks
+            - **Filtered queries**: "BPM positions in sector 1" → Sector-filtered results
+            - **Multi-system**: "Vacuum pressure in booster" → ``BR`` system vacuum channels
+
+            The CLI shows the agent's tool calls and reasoning, making it easy to spot issues with descriptions or database organization.
+
+            **Benchmarking: Critical Validation Before Production**
+
+            Benchmark datasets are **essential** for validating your channel finder before deployment. A benchmark that performs well during development with developer-created queries may completely fail in production when users with different mental models start querying the system.
+
+            .. dropdown:: ⚠️ Critical Best Practice: Domain Expert Involvement
+               :color: warning
+
+               **DO NOT** rely solely on developer-created test queries. This is one of the most common failure modes in production systems:
+
+               - **The Problem**: Developers unconsciously create queries that match their mental model of the system and the database structure they built
+               - **The Result**: 95%+ accuracy in development, <60% accuracy in production when real users start querying
+               - **The Solution**: Gather test queries from multiple domain experts and operators **before** finalizing your database
+
+               **Why diverse queries matter:**
+
+               - Different users have different mental models of the control system
+               - Operators use different terminology than developers
+               - Production queries often target edge cases not obvious to developers
+               - Users query based on operational workflows, not database structure
+
+               **Best practices for building benchmark datasets:**
+
+               1. **Interview Domain Experts**: Talk to at least 3-5 different operators, physicists, or engineers who will use the system
+               2. **Capture Real Workflows**: Ask them to describe their typical queries in their own words
+               3. **Include Edge Cases**: Specifically ask about unusual or complex queries they might need
+               4. **Diverse Terminology**: Look for variations in how different experts refer to the same equipment
+               5. **Regular Updates**: Periodically add new queries from production usage to catch evolving patterns
+
+            Once your database is ready and you have a diverse benchmark dataset from domain experts, run systematic benchmarks to measure accuracy:
+
+            .. code-block:: bash
+
+               # Run all benchmark queries
+               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py
+
+               # Test specific queries (useful during development)
+               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py --queries 0,1
+
+               # Compare model performance
+               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py --model anthropic/claude-sonnet
+
+            **Benchmark Capabilities:**
+
+            - **Statistical metrics**: Precision (accuracy of matches), recall (completeness), and F1 scores (harmonic mean)
+            - **Success categorization**: Perfect matches (100% correct), partial matches (some correct), and failures
+            - **Parallel execution**: Runs 5 queries concurrently by default to speed up large benchmark sets
+            - **Incremental saves**: Results are saved after each query, so interruptions don't lose progress
+            - **Consistency tracking**: Measures whether repeated queries produce the same results
+
+            **Configuring Benchmarks:**
+
+            The benchmark system is configured in ``config.yml`` with both global settings and pipeline-specific datasets:
+
+            .. code-block:: yaml
+
+               channel_finder:
+                 # Active pipeline determines which benchmark dataset is used by default
+                 pipeline_mode: middle_layer
+
+                 pipelines:
+                   middle_layer:
+                     database:
+                       type: middle_layer
+                       path: src/my_control_assistant/data/channel_databases/middle_layer.json
+
+                  # Benchmark dataset for this pipeline
+                  benchmark:
+                    dataset_path: src/my_control_assistant/data/benchmarks/datasets/middle_layer_benchmark.json
+                    # Middle layer pipeline benchmark (35 queries)
+
+               # Global benchmarking configuration
+               benchmark:
+                 # Execution settings
+                 execution:
+                   runs_per_query: 1                 # Number of times to run each query
+                   delay_between_runs: 0             # Delay in seconds between runs
+                   continue_on_error: true           # Continue even if some queries fail
+                   max_concurrent_queries: 5         # Maximum parallel queries
+                   query_selection: all              # "all" or specific queries like [0,1,2]
+
+                 # Output settings
+                 output:
+                   results_dir: src/my_control_assistant/data/benchmarks/results
+                   save_incremental: true            # Save results after each query
+                   include_detailed_metrics: true    # Include detailed timing/cost metrics
+
+                 # Evaluation thresholds
+                 evaluation:
+                   exact_match_weight: 1.0
+                   partial_match_weight: 0.5
+
+            You can override the dataset and other settings via CLI:
+
+            .. code-block:: bash
+
+               # Use a different dataset
+               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py \
+                  --dataset src/my_control_assistant/data/benchmarks/datasets/custom_dataset.json
+
+               # Run specific queries
+               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py --queries 0,1,5,10
+
+               # Show detailed logs
+               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py --verbose
+
+            **When to use these tools:**
+
+            - **During development**: Use the CLI to rapidly test queries as you build your database
+            - **Before deployment**: Run full benchmarks with domain expert queries to validate accuracy meets production requirements (aim for >90% F1 score)
+            - **Model selection**: Compare different LLM models to balance cost, speed, and accuracy for your specific use case
+            - **Continuous validation**: Re-run benchmarks after database updates to ensure no regression in accuracy
+
+            **Best Practices:**
+
+            1. **Rich Descriptions**: Write detailed, semantic descriptions at all levels—they guide the agent
+            2. **Functional Grouping**: Organize by function (Monitor, Setpoint) not location
+            3. **Consistent Naming**: Use same field names across families for predictability
+            4. **Iterative Testing**: Test incrementally as you build each system
+            5. **Domain Expert Queries**: Gather test queries from multiple operators and experts
+            6. **Regular Benchmarking**: Re-run benchmarks after database changes to catch regressions
+            7. **CLI First**: Use interactive CLI for rapid iteration before running full benchmarks
 
 2.1: OSPREY Framework Integration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

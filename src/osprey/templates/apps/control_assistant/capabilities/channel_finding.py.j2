@@ -35,13 +35,17 @@ from ..services.channel_finder.service import ChannelFinderService
 
 
 # Available pipelines based on template configuration
-{% if enable_in_context and enable_hierarchical %}
-AVAILABLE_PIPELINES = ['in_context', 'hierarchical']
-{% elif enable_in_context %}
-AVAILABLE_PIPELINES = ['in_context']
-{% else %}
-AVAILABLE_PIPELINES = ['hierarchical']
-{% endif %}
+AVAILABLE_PIPELINES = [
+{%- if enable_in_context %}
+    'in_context',
+{%- endif %}
+{%- if enable_hierarchical %}
+    'hierarchical',
+{%- endif %}
+{%- if enable_middle_layer %}
+    'middle_layer',
+{%- endif %}
+]
 DEFAULT_PIPELINE = '{{ default_pipeline }}'
 
 

@@ -174,7 +174,8 @@ class TestWorkflowSummaryDirective:
         workflows_dir = fake_docs / "workflows"
         workflows_dir.mkdir()
         workflow_file = workflows_dir / "test.md"
-        workflow_file.write_text("""---
+        workflow_file.write_text(
+            """---
 workflow: test
 category: code-quality
 estimated_time: 5 minutes
@@ -183,7 +184,8 @@ estimated_time: 5 minutes
 # Test Workflow
 
 A simple test workflow.
-""")
+"""
+        )
 
         # Update mock to use consistent paths
         mock_directive.state.document.settings.env.srcdir = str(fake_docs / "source")
@@ -240,7 +242,8 @@ class TestWorkflowListDirective:
         workflows_dir = tmp_path / "workflows"
         workflows_dir.mkdir()
 
-        (workflows_dir / "workflow1.md").write_text("""---
+        (workflows_dir / "workflow1.md").write_text(
+            """---
 workflow: workflow1
 category: code-quality
 ---
@@ -248,9 +251,11 @@ category: code-quality
 # Workflow One
 
 Description one.
-""")
+"""
+        )
 
-        (workflows_dir / "workflow2.md").write_text("""---
+        (workflows_dir / "workflow2.md").write_text(
+            """---
 workflow: workflow2
 category: documentation
 ---
@@ -258,7 +263,8 @@ category: documentation
 # Workflow Two
 
 Description two.
-""")
+"""
+        )
 
         (workflows_dir / "README.md").write_text("This should be ignored")
 

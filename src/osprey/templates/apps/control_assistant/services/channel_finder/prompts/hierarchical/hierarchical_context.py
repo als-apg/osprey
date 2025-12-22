@@ -10,7 +10,6 @@ Architecture:
 This maintains clean separation between data and prompt logic.
 """
 
-
 # =============================================================================
 # HIERARCHICAL NAVIGATION INSTRUCTIONS
 # =============================================================================
