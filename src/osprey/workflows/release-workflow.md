@@ -21,7 +21,13 @@ guide me through the complete release process for version X.X.X.
 
 Walk me through each step and verify completion before moving to the next:
 
-STEP 0 - Pre-Release Testing:
+STEP 0A - Review CHANGELOG (CRITICAL - DO THIS FIRST):
+1. Read the ## [Unreleased] section in CHANGELOG.md
+2. Summarize what this release is about (major features, theme)
+3. Verify the changelog accurately reflects all changes
+4. Confirm the release theme and title with me before proceeding
+
+STEP 0B - Pre-Release Testing:
 1. Check that venv is activated
 2. Run unit tests: pytest tests/ --ignore=tests/e2e -v
 3. Run e2e tests: pytest tests/e2e/ -v
@@ -65,7 +71,35 @@ If any step fails, help me troubleshoot before continuing.
 
 ## 📋 Correct Release Workflow
 
-### **Step 0: Pre-Release Testing (CRITICAL)**
+### **Step 0A: Review CHANGELOG (CRITICAL - DO THIS FIRST!)**
+
+**⚠️ CRITICAL**: Before doing ANYTHING else, understand what you're releasing!
+
+1. **Read the `## [Unreleased]` section in `CHANGELOG.md`**
+   - What are the major features?
+   - What's the theme/focus of this release?
+   - Are there breaking changes?
+
+2. **Determine Release Theme and Title**
+   - Create a descriptive title based on the main features
+   - Examples:
+     - "Middle Layer Pipeline for Channel Finder"
+     - "Developer Experience & CI/CD Improvements"
+     - "Performance Optimizations & Bug Fixes"
+
+3. **Verify Completeness**
+   - All merged PRs documented?
+   - All breaking changes noted?
+   - Migration steps included if needed?
+
+4. **Plan Release Notes**
+   - Identify the top 3-5 features to highlight
+   - Note any important upgrade instructions
+   - Prepare user-facing descriptions
+
+**DO NOT PROCEED** until you clearly understand what this release contains!
+
+### **Step 0B: Pre-Release Testing (CRITICAL)**
 
 **⚠️ IMPORTANT**: Always run tests before starting the release process.
 
