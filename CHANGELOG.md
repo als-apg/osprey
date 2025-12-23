@@ -14,14 +14,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Updated function calls to handle return values correctly (both functions return tuple of new_content, preview)
 
 ### Added
-- **Tests**: Added comprehensive tests for CLI commands (coverage expansion iteration 1)
-  - `test_health_cmd.py`: 38 tests for health checks, configuration validation, and environment diagnostics (0% → 69.6% coverage)
-  - `test_chat_cmd.py`: 15 tests for command execution, error handling, and output formatting
-  - `test_export_config_cmd.py`: 16 tests for deprecation warnings, format options, and error handling
-  - `test_deploy_cmd.py`: 23 tests for all deployment actions (up/down/restart/status/build/clean/rebuild)
-  - `test_registry_cmd.py`: 22 tests for registry display functions and table formatting
-  - `test_config_cmd.py`: 23 tests for all config subcommands (show/export/set-control-system/set-epics-gateway/set-models)
-  - `test_remove_cmd.py`: 16 tests for capability removal, backups, and error handling
+- **Tests**: Added comprehensive tests for CLI and deployment modules (coverage expansion)
+  - `test_health_cmd.py`: 38 tests for health checks and environment diagnostics (0% → 69.6% coverage)
+  - `test_loader.py`: 55 tests for YAML loading, imports, and parameter management (0% → 86.6% coverage)
+  - `test_chat_cmd.py`: 15 tests for command execution and output formatting
+  - `test_export_config_cmd.py`: 16 tests for deprecation warnings and format options
+  - `test_deploy_cmd.py`: 23 tests for deployment actions (up/down/restart/status/build/clean/rebuild)
+  - `test_registry_cmd.py`: 22 tests for registry display functions
+  - `test_config_cmd.py`: 23 tests for config subcommands (show/export/set-control-system/set-epics-gateway/set-models)
+  - `test_remove_cmd.py`: 16 tests for capability removal and backups
   - Fixed missing `Dict` import in `scripts/analyze_test_coverage.py`
   - Renamed `analyze_coverage.py` → `analyze_test_coverage.py` for clarity
 
