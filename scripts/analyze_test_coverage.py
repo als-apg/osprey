@@ -163,10 +163,14 @@ def print_module_summary(coverage_data: Dict):
 
 
 def print_worst_files(coverage_data: Dict, limit: int = 10):
-    """Print files with worst coverage."""
+    """Print files with worst coverage as testing candidates."""
     print("\n" + "="*70)
-    print(f"🔴 TOP {limit} FILES NEEDING TESTS")
+    print(f"🔍 TOP {limit} FILES - TESTING CANDIDATES")
     print("="*70)
+    print("NOTE: These are candidates for testing, not a mandate.")
+    print("      Some files may be better suited for integration tests,")
+    print("      or may be genuinely hard to test in isolation. Use judgment.")
+    print("-" * 70)
     print(f"{'File':<45} {'Coverage':<12} {'Missing Lines'}")
     print("-" * 70)
 
@@ -351,8 +355,13 @@ def main():
     print_worst_files(coverage_data, limit=args.worst)
 
     print("\n" + "="*70)
-    print("💡 TIP: Use --module <name> for detailed module analysis")
-    print("   Example: python scripts/analyze_coverage.py --module cli")
+    print("💡 TIPS:")
+    print("   • Use --module <name> for detailed module analysis")
+    print("     Example: python scripts/analyze_coverage.py --module cli")
+    print("   • The 'worst files' list shows candidates, not requirements")
+    print("   • Some files are hard to test in isolation - that's okay!")
+    print("   • Consider integration tests for complex subsystems")
+    print("   • Focus on high-value, testable code first")
     print("="*70 + "\n")
 
 

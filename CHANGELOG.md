@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Updated function calls to handle return values correctly (both functions return tuple of new_content, preview)
 
 ### Added
+- **Tests**: Expanded infrastructure and models tests - 40 new tests for error classification, retry policies, and helper functions (infrastructure module 37.2% → 45.2%, overall 45.8% → 46.4%)
 - **Tests**: Added comprehensive tests for CLI and deployment modules (coverage expansion)
   - `test_preview_styles.py`: 23 tests for theme preview and color display functionality (0% → 88.1% coverage)
   - `test_main.py`: 23 tests for CLI entry point and lazy command loading (28.6% → 95.2% coverage)
@@ -2109,3 +2110,4 @@ This release represents the framework's first complete domain-specific applicati
 ---
 
 *This is an early access release. We welcome feedback and contributions!*
+

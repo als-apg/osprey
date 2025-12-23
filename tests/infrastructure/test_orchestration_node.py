@@ -11,7 +11,6 @@ from osprey.infrastructure.orchestration_node import (
     _validate_and_fix_execution_plan,
 )
 
-
 # =============================================================================
 # Test Plan Validation (Helper Function)
 # =============================================================================
@@ -91,9 +90,7 @@ class TestPlanValidation:
             mock_reg.get_node.return_value = Mock()
             mock_registry.return_value = mock_reg
 
-            result = _validate_and_fix_execution_plan(
-                plan_without_respond, "test task", logger
-            )
+            result = _validate_and_fix_execution_plan(plan_without_respond, "test task", logger)
 
             # Should have original step plus respond
             assert len(result["steps"]) == 2
@@ -148,9 +145,7 @@ class TestPlanValidation:
             mock_reg.get_node.return_value = Mock()
             mock_registry.return_value = mock_reg
 
-            result = _validate_and_fix_execution_plan(
-                plan_with_clarify, "test task", logger
-            )
+            result = _validate_and_fix_execution_plan(plan_with_clarify, "test task", logger)
 
             # Should not append respond since it ends with clarify
             assert len(result["steps"]) == 1
@@ -189,7 +184,6 @@ class TestOrchestrationNode:
         assert callable(OrchestrationNode.classify_error)
 
 
-
 # =============================================================================
 # Test Error Classification
 # =============================================================================
@@ -206,7 +200,10 @@ class TestOrchestrationErrorClassification:
         classification = OrchestrationNode.classify_error(exc, context)
 
         assert classification.severity.value == "retriable"
-        assert "retry" in classification.user_message.lower() or "timeout" in classification.user_message.lower()
+        assert (
+            "retry" in classification.user_message.lower()
+            or "timeout" in classification.user_message.lower()
+        )
 
     def test_classify_value_error(self):
         """Test ValueError is classified as critical."""
@@ -226,5 +223,219 @@ class TestOrchestrationErrorClassification:
 
         assert classification.severity.value == "retriable"
 
+    def test_classify_pydantic_validation_error(self):
+        """Test Pydantic validation errors are retriable."""
+        exc = ValueError("validation error for ExecutionPlan")
+        context = {"operation": "llm_call"}
+
+        classification = OrchestrationNode.classify_error(exc, context)
+
+        assert classification.severity.value == "retriable"
+        assert "valid execution plan" in classification.user_message.lower()
+
+    def test_classify_json_parsing_error(self):
+        """Test JSON parsing errors are retriable."""
+        exc = ValueError("JSON parsing failed")
+        context = {"operation": "llm_call"}
+
+        classification = OrchestrationNode.classify_error(exc, context)
+
+        assert classification.severity.value == "retriable"
+
+    def test_classify_import_error(self):
+        """Test ImportError is classified as critical."""
+        exc = ImportError("No module named 'missing_module'")
+        context = {"operation": "initialization"}
+
+        classification = OrchestrationNode.classify_error(exc, context)
+
+        assert classification.severity.value == "critical"
+        assert "infrastructure dependency" in classification.user_message.lower()
+
+    def test_classify_module_not_found_error(self):
+        """Test ModuleNotFoundError is classified as critical."""
+        exc = ModuleNotFoundError("No module named 'xyz'")
+        context = {"operation": "initialization"}
+
+        classification = OrchestrationNode.classify_error(exc, context)
+
+        assert classification.severity.value == "critical"
+
+    def test_classify_reclassification_required_error(self):
+        """Test ReclassificationRequiredError is handled correctly."""
+        from osprey.base.errors import ReclassificationRequiredError
+
+        exc = ReclassificationRequiredError("Need to reclassify task")
+        context = {"operation": "planning"}
+
+        classification = OrchestrationNode.classify_error(exc, context)
+
+        assert classification.severity.value == "reclassification"
+        assert "reclassification" in classification.user_message.lower()
+
+    def test_classify_unknown_error(self):
+        """Test unknown errors default to critical."""
+        exc = RuntimeError("Something unexpected happened")
+        context = {"operation": "unknown"}
+
+        classification = OrchestrationNode.classify_error(exc, context)
+
+        assert classification.severity.value == "critical"
+        assert "unknown" in classification.user_message.lower()
 
 
+# =============================================================================
+# Test Helper Functions
+# =============================================================================
+
+
+class TestHelperFunctions:
+    """Test helper functions used by orchestration node."""
+
+    def test_is_planning_mode_enabled_true(self):
+        """Test planning mode detection when enabled."""
+        from osprey.infrastructure.orchestration_node import _is_planning_mode_enabled
+
+        state = {"agent_control": {"planning_mode_enabled": True}}
+
+        assert _is_planning_mode_enabled(state) is True
+
+    def test_is_planning_mode_enabled_false(self):
+        """Test planning mode detection when disabled."""
+        from osprey.infrastructure.orchestration_node import _is_planning_mode_enabled
+
+        state = {"agent_control": {"planning_mode_enabled": False}}
+
+        assert _is_planning_mode_enabled(state) is False
+
+    def test_is_planning_mode_enabled_missing_key(self):
+        """Test planning mode detection with missing keys."""
+        from osprey.infrastructure.orchestration_node import _is_planning_mode_enabled
+
+        state = {}
+
+        assert _is_planning_mode_enabled(state) is False
+
+    def test_clear_error_state(self):
+        """Test error state clearing."""
+        from osprey.infrastructure.orchestration_node import _clear_error_state
+
+        result = _clear_error_state()
+
+        assert result["control_has_error"] is False
+        assert result["control_error_info"] is None
+        assert result["control_last_error"] is None
+        assert result["control_retry_count"] == 0
+        assert result["control_current_step_retry_count"] == 0
+
+    def test_log_execution_plan(self):
+        """Test execution plan logging."""
+        from osprey.infrastructure.orchestration_node import _log_execution_plan
+
+        plan = {
+            "steps": [
+                {
+                    "context_key": "step1",
+                    "capability": "python",
+                    "task_objective": "Run code",
+                    "inputs": ["input1"],
+                }
+            ]
+        }
+        logger = Mock()
+
+        _log_execution_plan(plan, logger)
+
+        # Verify logger was called
+        assert logger.key_info.called
+        assert logger.info.called
+
+    def test_save_execution_plan_to_file_success(self, tmp_path):
+        """Test saving execution plan to file."""
+        from osprey.infrastructure.orchestration_node import _save_execution_plan_to_file
+
+        plan = {"steps": [{"capability": "python", "task_objective": "test"}]}
+        current_task = "Test task"
+        state = {"messages": [{"role": "user", "content": "Original query"}]}
+        logger = Mock()
+
+        with patch("osprey.infrastructure.orchestration_node.get_agent_dir") as mock_get_dir:
+            mock_get_dir.return_value = str(tmp_path)
+
+            result = _save_execution_plan_to_file(plan, current_task, state, logger)
+
+            assert result["success"] is True
+            assert "file_path" in result
+            assert "pending_plans_dir" in result
+
+    def test_load_execution_plan_from_file_not_found(self):
+        """Test loading execution plan when file doesn't exist."""
+        from osprey.infrastructure.orchestration_node import _load_execution_plan_from_file
+
+        logger = Mock()
+
+        with patch("osprey.infrastructure.orchestration_node.get_agent_dir") as mock_get_dir:
+            mock_get_dir.return_value = "/nonexistent/path"
+
+            result = _load_execution_plan_from_file(logger)
+
+            assert result["success"] is False
+            assert "error" in result
+
+    def test_cleanup_processed_plan_files(self, tmp_path):
+        """Test cleanup of processed plan files."""
+        from osprey.infrastructure.orchestration_node import _cleanup_processed_plan_files
+
+        # Create dummy plan files
+        pending_dir = tmp_path / "pending_plans"
+        pending_dir.mkdir()
+        pending_file = pending_dir / "pending_execution_plan.json"
+        pending_file.write_text("{}")
+        modified_file = pending_dir / "modified_execution_plan.json"
+        modified_file.write_text("{}")
+
+        logger = Mock()
+
+        with patch("osprey.infrastructure.orchestration_node.get_agent_dir") as mock_get_dir:
+            mock_get_dir.return_value = str(tmp_path)
+
+            _cleanup_processed_plan_files(logger)
+
+            # Files should be removed
+            assert not pending_file.exists()
+            assert not modified_file.exists()
+
+    def test_create_state_updates(self):
+        """Test state updates creation."""
+        from osprey.infrastructure.orchestration_node import _create_state_updates
+
+        state = {"control_plans_created_count": 5}
+        plan = {"steps": [{"capability": "python"}]}
+        approach = "llm_based"
+
+        updates = _create_state_updates(state, plan, approach)
+
+        assert updates["planning_execution_plan"] == plan
+        assert updates["planning_current_step_index"] == 0
+        assert updates["control_plans_created_count"] == 6
+        assert updates["control_has_error"] is False
+
+
+# =============================================================================
+# Test Retry Policy
+# =============================================================================
+
+
+class TestRetryPolicy:
+    """Test custom retry policy for orchestration."""
+
+    def test_get_retry_policy(self):
+        """Test retry policy returns correct values."""
+        policy = OrchestrationNode.get_retry_policy()
+
+        assert "max_attempts" in policy
+        assert "delay_seconds" in policy
+        assert "backoff_factor" in policy
+        assert policy["max_attempts"] >= 3
+        assert policy["delay_seconds"] > 0
+        assert policy["backoff_factor"] > 1
