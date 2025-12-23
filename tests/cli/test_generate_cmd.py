@@ -1,8 +1,4 @@
-"""Tests for generate CLI command.
-
-This test module verifies the code generation functionality.
-Coverage target: 21.6% → 60%+
-"""
+"""Tests for generate CLI command."""
 
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
