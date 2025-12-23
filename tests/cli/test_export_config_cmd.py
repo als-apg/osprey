@@ -2,8 +2,6 @@
 
 This test module verifies the export-config command functionality.
 This is a deprecated command that displays osprey's default configuration.
-
-Current coverage: 0% → Target: 60%+
 """
 
 from pathlib import Path

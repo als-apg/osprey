@@ -2,8 +2,6 @@
 
 This test module verifies the deploy command wrapper functionality.
 The command wraps the existing container_manager interface.
-
-Current coverage: 0% → Target: 60%+
 """
 
 from pathlib import Path

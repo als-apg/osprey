@@ -1,8 +1,6 @@
 """Tests for registry CLI command display functionality.
 
 This test module verifies the registry display functions.
-
-Current coverage: 0% → Target: 60%+
 """
 
 from pathlib import Path

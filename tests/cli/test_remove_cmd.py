@@ -1,8 +1,6 @@
 """Tests for remove CLI command.
 
 This test module verifies the remove command functionality.
-
-Current coverage: 0% → Target: 60%+
 """
 
 from pathlib import Path

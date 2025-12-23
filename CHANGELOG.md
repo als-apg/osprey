@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Tests**: Added comprehensive tests for CLI and deployment modules (coverage expansion)
+  - `test_preview_styles.py`: 23 tests for theme preview and color display functionality (0% → 88.1% coverage)
+  - `test_main.py`: 23 tests for CLI entry point and lazy command loading (28.6% → 95.2% coverage)
   - `test_health_cmd.py`: 38 tests for health checks and environment diagnostics (0% → 69.6% coverage)
   - `test_loader.py`: 55 tests for YAML loading, imports, and parameter management (0% → 86.6% coverage)
   - `test_chat_cmd.py`: 15 tests for command execution and output formatting

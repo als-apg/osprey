@@ -2,8 +2,6 @@
 
 This test module verifies the chat command wrapper functionality.
 The command wraps the existing direct_conversation interface.
-
-Current coverage: 0% → Target: 60%+
 """
 
 from pathlib import Path
