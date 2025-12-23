@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Updated function calls to handle return values correctly (both functions return tuple of new_content, preview)
 
 ### Added
+- **Tests**: `test_storage_manager.py`: 22 tests for memory persistence, file operations, and entry management (24.1% → 72.4% coverage)
+- **Tests**: `test_memory_provider.py`: 23 tests for memory data source integration and prompt formatting (32.2% → 94.9% coverage)
 - **Tests**: `test_providers_argo.py`: 27 tests for ARGO provider adapter (18.6% → 54.8% coverage)
 - **Tests**: `test_providers_ollama.py`: 31 tests for Ollama provider with fallback logic (24.2% → 96.0% coverage)
 - **Tests**: `test_providers_anthropic.py`: 27 tests for Anthropic provider metadata, model creation, and health checks (23.5% → 50.0% coverage)
