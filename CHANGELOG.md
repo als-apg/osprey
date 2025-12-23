@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Updated function calls to handle return values correctly (both functions return tuple of new_content, preview)
 
 ### Added
+- **Tests**: `test_providers_argo.py`: 27 tests for ARGO provider adapter (18.6% → 54.8% coverage)
+- **Tests**: `test_providers_ollama.py`: 31 tests for Ollama provider with fallback logic (24.2% → 96.0% coverage)
 - **Tests**: `test_providers_anthropic.py`: 27 tests for Anthropic provider metadata, model creation, and health checks (23.5% → 50.0% coverage)
 - **Tests**: `test_completion.py`: 28 tests for TypedDict conversion and proxy validation (30.9% → 58.0% coverage)
 - **Tests**: `test_logging.py`: 19 tests for API call context and result sanitization (13.3% → 29.1% coverage)
