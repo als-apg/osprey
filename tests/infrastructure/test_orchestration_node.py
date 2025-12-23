@@ -24,13 +24,13 @@ class TestPlanValidation:
         """Test that empty plan gets a default respond step."""
         empty_plan: ExecutionPlan = {"steps": []}
         logger = Mock()
-        
+
         with patch("osprey.infrastructure.orchestration_node.get_registry") as mock_registry:
             mock_reg = Mock()
             mock_registry.return_value = mock_reg
-            
+
             result = _validate_and_fix_execution_plan(empty_plan, "test task", logger)
-            
+
             assert len(result["steps"]) == 1
             assert result["steps"][0]["capability"] == "respond"
             assert logger.warning.called
@@ -58,14 +58,14 @@ class TestPlanValidation:
             ]
         }
         logger = Mock()
-        
+
         with patch("osprey.infrastructure.orchestration_node.get_registry") as mock_registry:
             mock_reg = Mock()
             mock_reg.get_node.return_value = Mock()  # All capabilities exist
             mock_registry.return_value = mock_reg
-            
+
             result = _validate_and_fix_execution_plan(valid_plan, "test task", logger)
-            
+
             # Should keep both steps
             assert len(result["steps"]) == 2
             assert result["steps"][1]["capability"] == "respond"
@@ -85,16 +85,16 @@ class TestPlanValidation:
             ]
         }
         logger = Mock()
-        
+
         with patch("osprey.infrastructure.orchestration_node.get_registry") as mock_registry:
             mock_reg = Mock()
             mock_reg.get_node.return_value = Mock()
             mock_registry.return_value = mock_reg
-            
+
             result = _validate_and_fix_execution_plan(
                 plan_without_respond, "test task", logger
             )
-            
+
             # Should have original step plus respond
             assert len(result["steps"]) == 2
             assert result["steps"][0]["capability"] == "python"
@@ -115,16 +115,16 @@ class TestPlanValidation:
             ]
         }
         logger = Mock()
-        
+
         with patch("osprey.infrastructure.orchestration_node.get_registry") as mock_registry:
             mock_reg = Mock()
             mock_reg.get_node.return_value = None  # Capability doesn't exist
             mock_reg.get_stats.return_value = {"capability_names": ["python", "respond"]}
             mock_registry.return_value = mock_reg
-            
+
             with pytest.raises(ValueError) as exc_info:
                 _validate_and_fix_execution_plan(bad_plan, "test task", logger)
-            
+
             assert "hallucinated" in str(exc_info.value).lower()
 
     def test_plan_ending_with_clarify_not_modified(self):
@@ -142,16 +142,16 @@ class TestPlanValidation:
             ]
         }
         logger = Mock()
-        
+
         with patch("osprey.infrastructure.orchestration_node.get_registry") as mock_registry:
             mock_reg = Mock()
             mock_reg.get_node.return_value = Mock()
             mock_registry.return_value = mock_reg
-            
+
             result = _validate_and_fix_execution_plan(
                 plan_with_clarify, "test task", logger
             )
-            
+
             # Should not append respond since it ends with clarify
             assert len(result["steps"]) == 1
             assert result["steps"][0]["capability"] == "clarify"
@@ -170,7 +170,7 @@ class TestOrchestrationNode:
         node = OrchestrationNode()
         assert node is not None
         assert hasattr(node, "execute")
-    
+
     def test_execute_is_instance_method(self):
         """Test execute() is an instance method, not static."""
         execute_method = inspect.getattr_static(OrchestrationNode, "execute")
@@ -202,9 +202,9 @@ class TestOrchestrationErrorClassification:
         """Test timeout errors are classified as retriable."""
         exc = TimeoutError("LLM request timeout")
         context = {"operation": "planning"}
-        
+
         classification = OrchestrationNode.classify_error(exc, context)
-        
+
         assert classification.severity.value == "retriable"
         assert "retry" in classification.user_message.lower() or "timeout" in classification.user_message.lower()
 
@@ -212,18 +212,18 @@ class TestOrchestrationErrorClassification:
         """Test ValueError is classified as critical."""
         exc = ValueError("Invalid plan format")
         context = {"operation": "validation"}
-        
+
         classification = OrchestrationNode.classify_error(exc, context)
-        
+
         assert classification.severity.value in ["critical", "moderate"]
 
     def test_classify_connection_error(self):
         """Test connection errors are classified as retriable."""
         exc = ConnectionError("Network error")
         context = {"operation": "llm_call"}
-        
+
         classification = OrchestrationNode.classify_error(exc, context)
-        
+
         assert classification.severity.value == "retriable"
 
 

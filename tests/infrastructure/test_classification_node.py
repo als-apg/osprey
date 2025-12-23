@@ -58,9 +58,9 @@ class TestClassificationErrorClassification:
         """Test timeout errors are classified as retriable."""
         exc = TimeoutError("LLM timeout")
         context = {"operation": "classification"}
-        
+
         classification = ClassificationNode.classify_error(exc, context)
-        
+
         assert classification.severity.value == "retriable"
         assert "retry" in classification.user_message.lower() or "timeout" in classification.user_message.lower()
 
@@ -68,9 +68,9 @@ class TestClassificationErrorClassification:
         """Test connection errors are classified as retriable."""
         exc = ConnectionError("Network error")
         context = {"operation": "llm_call"}
-        
+
         classification = ClassificationNode.classify_error(exc, context)
-        
+
         assert classification.severity.value == "retriable"
         assert "retry" in classification.user_message.lower() or "network" in classification.user_message.lower()
 
@@ -78,27 +78,27 @@ class TestClassificationErrorClassification:
         """Test ValueError is classified as critical."""
         exc = ValueError("Invalid configuration")
         context = {"operation": "classification"}
-        
+
         classification = ClassificationNode.classify_error(exc, context)
-        
+
         assert classification.severity.value == "critical"
 
     def test_classify_type_error(self):
         """Test TypeError is classified as critical."""
         exc = TypeError("Invalid type")
         context = {"operation": "classification"}
-        
+
         classification = ClassificationNode.classify_error(exc, context)
-        
+
         assert classification.severity.value == "critical"
 
     def test_classify_import_error(self):
         """Test ImportError is classified as critical."""
         exc = ImportError("Missing dependency")
         context = {"operation": "classification"}
-        
+
         classification = ClassificationNode.classify_error(exc, context)
-        
+
         assert classification.severity.value == "critical"
         assert "dependencies" in classification.user_message.lower()
 
@@ -106,27 +106,27 @@ class TestClassificationErrorClassification:
         """Test ModuleNotFoundError is classified as critical."""
         exc = ModuleNotFoundError("Module not found")
         context = {"operation": "classification"}
-        
+
         classification = ClassificationNode.classify_error(exc, context)
-        
+
         assert classification.severity.value == "critical"
 
     def test_classify_name_error(self):
         """Test NameError is classified as critical."""
         exc = NameError("Name not defined")
         context = {"operation": "classification"}
-        
+
         classification = ClassificationNode.classify_error(exc, context)
-        
+
         assert classification.severity.value == "critical"
 
     def test_classify_generic_exception(self):
         """Test generic exceptions have appropriate classification."""
         exc = Exception("Generic error")
         context = {"operation": "classification"}
-        
+
         classification = ClassificationNode.classify_error(exc, context)
-        
+
         # Should have some classification
         assert classification is not None
         assert classification.severity is not None
