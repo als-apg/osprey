@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **Documentation**: Fixed double slash typos in image paths causing 404 errors on GitHub Pages for in-context and hierarchical channel finder CLI screenshots
 
+### Changed
+- **Documentation**: Added "Viewing Exported Workflows" section to AI-assisted development guide showing example output of exported workflow files
+
 ## [0.9.9] - 2025-12-22
 
 ### Fixed

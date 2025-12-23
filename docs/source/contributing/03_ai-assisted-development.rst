@@ -132,6 +132,31 @@ This creates an ``osprey-workflows/`` directory containing all workflow files.
       # Overwrite existing files without prompting
       osprey workflows export --force
 
+   **Viewing Exported Workflows**
+
+   After exporting, you can see all available workflow files:
+
+   .. code-block:: bash
+
+      # List exported workflows
+      ls osprey-workflows/
+
+   This will show files like:
+
+   .. code-block:: text
+
+      README.md
+      ai-code-review.md
+      channel-finder-database-builder.md
+      channel-finder-pipeline-selection.md
+      comments.md
+      commit-organization.md
+      docstrings.md
+      pre-merge-cleanup.md
+      release-workflow.md
+      testing-workflow.md
+      update-documentation.md
+
    **Interactive Menu**
 
    You can also export workflows from the interactive menu:
