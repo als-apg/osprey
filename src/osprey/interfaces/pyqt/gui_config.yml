@@ -1,4 +1,4 @@
-project_root: /home/phoebus/MLS/gitstuff/osprey-framework/osprey-96/osprey
+project_root: .
 build_dir: ./_agent_data
 models:
   classifier:

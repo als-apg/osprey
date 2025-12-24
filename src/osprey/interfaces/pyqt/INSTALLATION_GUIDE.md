@@ -234,8 +234,8 @@ conda create -n osprey-gui-test python=3.11
 # Activate it
 conda activate osprey-gui-test
 
-# Install osprey framework
-cd /home/phoebus/MLS/gitstuff/osprey-framework/osprey
+# Install osprey framework (from the osprey project root)
+cd /path/to/osprey
 pip install -e .
 
 # Install GUI dependencies
