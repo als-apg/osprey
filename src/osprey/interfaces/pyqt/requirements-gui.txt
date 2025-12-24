@@ -1,0 +1,11 @@
+# Requirements for Osprey Framework PyQt GUI
+# Install with: pip install -r requirements-gui.txt
+
+# PyQt5 for GUI framework
+PyQt5>=5.15.0
+
+# Environment variable management
+python-dotenv>=1.0.0
+
+# Note: The osprey-framework package should already be installed
+# If not, install it with: pip install -e . (from the project root)

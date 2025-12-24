@@ -1,0 +1,125 @@
+project_root: /home/phoebus/MLS/gitstuff/osprey-framework/osprey-96/osprey
+build_dir: ./_agent_data
+models:
+  classifier:
+    provider: argo
+    model_id: gpt41
+  orchestrator:
+    provider: argo
+    model_id: gpt41
+    max_tokens: 4096
+  task_extraction:
+    provider: argo
+    model_id: gpt5
+  response:
+    provider: argo
+    model_id: gpt5
+  approval:
+    provider: argo
+    model_id: gpt5
+  memory:
+    provider: argo
+    model_id: gpt5
+  python_code_generator:
+    provider: argo
+    model_id: gpt5
+  time_parsing:
+    provider: argo
+    model_id: gpt5
+execution_control:
+  limits:
+    graph_recursion_limit: 100
+    max_step_retries: 0
+    max_reclassifications: 1
+    max_planning_attempts: 2
+    max_execution_time_seconds: 300
+    max_concurrent_classifications: 5
+  epics:
+    writes_enabled: false
+  agent_control:
+    task_extraction_bypass_enabled: false
+    capability_selection_bypass_enabled: false
+approval:
+  global_mode: selective
+  capabilities:
+    python_execution:
+      enabled: true
+      mode: all_code
+    memory:
+      enabled: true
+development:
+  debug: false
+  verbose_logging: false
+  raise_raw_errors: true
+  prompts:
+    print_all: true
+    show_all: true
+    latest_only: true
+routing:
+  cache:
+    enabled: true
+    max_size: 100
+    ttl_seconds: 3600.0
+    similarity_threshold: 0.85
+  advanced_invalidation:
+    enabled: true
+    adaptive_ttl: true
+    probabilistic_expiration: true
+    event_driven: true
+  enable_semantic_context: true
+  semantic_similarity_threshold: 0.5
+  semantic_topic_threshold: 0.6
+  max_context_history: 20
+  orchestration:
+    max_parallel: 3
+  analytics:
+    max_history: 1000
+  feedback:
+    enabled: true
+  semantic_analysis:
+    enabled: true
+    similarity_threshold: 0.5
+    topic_similarity_threshold: 0.6
+    max_context_history: 20
+gui:
+  use_persistent_conversations: true
+  conversation_storage_mode: json
+  redirect_output_to_gui: true
+  group_system_messages: true
+  suppress_terminal_output: false
+api:
+  providers:
+    argo:
+      api_key: ${ARGO_API_KEY}
+      base_url: https://argo-bridge.cels.anl.gov
+    cborg:
+      api_key: ${CBORG_API_KEY}
+      base_url: https://api.cborg.lbl.gov/v1
+    stanford:
+      api_key: ${STANFORD_API_KEY}
+      base_url: https://aiapi-prod.stanford.edu/v1
+    openai:
+      api_key: ${OPENAI_API_KEY}
+      base_url: https://api.openai.com/v1
+    anthropic:
+      api_key: ${ANTHROPIC_API_KEY}
+      base_url: https://api.anthropic.com
+    google:
+      api_key: ${GOOGLE_API_KEY}
+      base_url: https://generativelanguage.googleapis.com/v1beta
+    ollama:
+      api_key: ollama
+      base_url: http://localhost:11434
+      host: localhost
+      port: 11434
+file_paths:
+  agent_data_dir: _agent_data
+  user_memory_dir: user_memory
+  execution_plans_dir: execution_plans
+  conversations: conversations
+  registry_exports_dir: registry_exports
+memory_monitoring:
+  enabled: true
+  warning_threshold_mb: 500
+  critical_threshold_mb: 2000
+  check_interval_seconds: 5

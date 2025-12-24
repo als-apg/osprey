@@ -1,0 +1,24 @@
+# Unified configuration files (auto-generated)
+unified_config.yml
+unified_registry.py
+
+# Documentation and planning markdown files from pyqt directory only
+ALTERNATIVE_APPROACH.md
+CODE_REVIEW_REPORT.md
+FINAL_STATUS.md
+INTEGRATION_COMPLETE.md
+INTEGRATION_GUIDE.md
+PATH_FIXES_SUMMARY.md
+REFACTORING_CHANGES.md
+REFACTORING_PLAN.md
+REFACTORING_SUMMARY.md
+UNIFIED_REFACTORING_PLAN.md
+
+# Backup files
+*.backup
+*.py.backup
+*.save
+*~
+
+# Test and cleanup scripts
+cleanup_after_testing.sh

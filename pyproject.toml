@@ -87,6 +87,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# PyQt GUI interface
+gui = [
+    "PyQt5>=5.15.0",
+]
+
 # Documentation dependencies
 docs = [
     "sphinx>=8.0.0",
@@ -158,7 +163,7 @@ utils = [
 
 # All optional dependencies for complete installation
 all = [
-    "osprey-framework[docs,scientific,databases,postgres,memory,dev,nlp,utils]"
+    "osprey-framework[gui,docs,scientific,databases,postgres,memory,dev,nlp,utils]"
 ]
 
 [project.urls]
@@ -173,6 +178,8 @@ Changelog = "https://github.com/als-apg/osprey/blob/main/CHANGELOG.md"
 [project.scripts]
 # Main CLI entry point (Click group with subcommands)
 osprey = "osprey.cli.main:cli"
+# PyQt GUI entry point
+osprey-gui = "osprey.interfaces.pyqt.launcher:main"
 
 # Legacy entry points (maintained for backward compatibility)
 alpha-berkeley = "osprey.interfaces.cli.direct_conversation:main"
@@ -185,7 +192,7 @@ include = ["osprey*"]
 
 # Include package data files
 [tool.setuptools.package-data]
-"*" = ["*.yml", "*.yaml", "*.json", "*.j2", "*.md", "*.txt", "*.cfg", "*.ini"]
+"*" = ["*.yml", "*.yaml", "*.json", "*.j2", "*.txt", "*.cfg", "*.ini"]
 "osprey" = [
     "config.yml",
     "templates/**/*",
@@ -200,6 +207,14 @@ include = ["osprey*"]
     "templates/**/*.js",
     "templates/**/*.json",
     "workflows/*.md",  # AI workflow documentation files
+]
+"osprey.interfaces.pyqt" = [
+    "*.py",
+    "*.yml",
+    "*.yaml",
+    "gui_components/**/*.py",
+    "gui_components/tabs/*.py",
+    "gui_components/widgets/*.py",
 ]
 
 # Development tool configurations
