@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- 12/24/2025 Updated the Osprey Framework Components to version 0.9.9 and added the PyQt5 GUI
 - **License**: Added explicit "BSD 3-Clause License" header to LICENSE.txt for clarity
 
 ### Documentation
