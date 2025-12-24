@@ -5,13 +5,9 @@ Tests the simplified _build_result implementations in hierarchical and middle_la
 pipelines to ensure they correctly handle channel/address/description fields.
 """
 
+from unittest.mock import MagicMock
+
 import pytest
-from unittest.mock import MagicMock, patch
-
-from osprey.templates.apps.control_assistant.services.channel_finder.core.base_pipeline import (
-    BasePipeline,
-)
-
 
 # ============================================================
 # Fixtures

@@ -10,17 +10,16 @@ Covers:
 - Validation modes (strict, lenient, skip)
 - Integration with all three pipelines
 """
+from unittest.mock import MagicMock, patch
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
-from osprey.templates.apps.control_assistant.services.channel_finder.core.models import (
-    ExplicitChannelDetectionOutput,
-)
 from osprey.templates.apps.control_assistant.services.channel_finder.core.base_pipeline import (
     BasePipeline,
 )
-
+from osprey.templates.apps.control_assistant.services.channel_finder.core.models import (
+    ExplicitChannelDetectionOutput,
+)
 
 # ============================================================
 # Fixtures
