@@ -157,6 +157,49 @@ class InContextPipeline(BasePipeline):
                 query=query, channels=[], total_channels=0, processing_notes="Empty query provided"
             )
 
+        # Stage 0: Check for explicit channel addresses (optimization)
+        logger.info("[bold cyan]Pre-check:[/bold cyan] Detecting explicit channel addresses...")
+        detection_result = await self._detect_explicit_channels(query)
+
+        # Track explicit channels separately
+        explicit_channels = []
+
+        if detection_result.has_explicit_addresses:
+            logger.info(
+                f"  → Detected {len(detection_result.channel_addresses)} explicit address(es)"
+            )
+            logger.info(f"  → [dim]{detection_result.reasoning}[/dim]")
+
+            # Validate detected addresses (mode: strict/lenient/skip)
+            valid_channels, invalid_channels = self._validate_explicit_channels(
+                detection_result.channel_addresses
+            )
+
+            explicit_channels = valid_channels
+
+            # Check if we need additional search
+            if valid_channels and not detection_result.needs_additional_search:
+                # Found valid explicit addresses and no additional search needed - done!
+                logger.info(
+                    f"[green]✓[/green] Found {len(valid_channels)} channel(s) from explicit addresses "
+                    f"(skipped semantic search)"
+                )
+                return self._build_result(query, valid_channels)
+            elif valid_channels and detection_result.needs_additional_search:
+                # Have some explicit channels but need to search for more
+                logger.info(
+                    f"  → Found {len(valid_channels)} explicit channel(s), but query requires additional search"
+                )
+                logger.info("  → Proceeding with semantic search for additional channels")
+            elif invalid_channels:
+                # Had explicit addresses but none were valid - fall back to semantic search
+                logger.info(
+                    "  → Explicit addresses not found in database, falling back to semantic search"
+                )
+        else:
+            logger.info(f"  → [dim]{detection_result.reasoning}[/dim]")
+            logger.info("  → Proceeding with semantic search")
+
         # Stage 1: Split query into atomic queries
         atomic_queries = await self._split_query(query)
         logger.info(
@@ -187,7 +230,11 @@ class InContextPipeline(BasePipeline):
                 f"  → Found {len(chunk_valid_channels)} valid channel(s) in chunk {chunk_idx}"
             )
 
-        # Stage 4: Aggregate and format (no deduplication - chunks are disjoint)
+        # Stage 4: Merge explicit channels with search results and aggregate
+        all_valid_channels.extend(explicit_channels)
+        # Deduplicate in case explicit channels overlap with search results
+        all_valid_channels = list(set(all_valid_channels))
+
         result = self._aggregate_results(query, all_valid_channels)
         logger.info(f"[bold green]Result:[/bold green] {result.total_channels} channel(s) found")
 

@@ -450,6 +450,7 @@ Example workflow:
         Execute middle layer pipeline.
 
         Stages:
+        0. Detect explicit channel addresses (optimization)
         1. Split query (if needed)
         2. For each sub-query, run React agent with tools
         3. Aggregate results
@@ -465,6 +466,49 @@ Example workflow:
             return ChannelFinderResult(
                 query=query, channels=[], total_channels=0, processing_notes="Empty query provided"
             )
+
+        # Stage 0: Check for explicit channel addresses (optimization)
+        logger.info("[bold cyan]Pre-check:[/bold cyan] Detecting explicit channel addresses...")
+        detection_result = await self._detect_explicit_channels(query)
+
+        # Track explicit channels separately
+        explicit_channels = []
+
+        if detection_result.has_explicit_addresses:
+            logger.info(
+                f"  → Detected {len(detection_result.channel_addresses)} explicit address(es)"
+            )
+            logger.info(f"  → [dim]{detection_result.reasoning}[/dim]")
+
+            # Validate detected addresses (mode: strict/lenient/skip)
+            valid_channels, invalid_channels = self._validate_explicit_channels(
+                detection_result.channel_addresses
+            )
+
+            explicit_channels = valid_channels
+
+            # Check if we need additional search
+            if valid_channels and not detection_result.needs_additional_search:
+                # Found valid explicit addresses and no additional search needed - done!
+                logger.info(
+                    f"[green]✓[/green] Found {len(valid_channels)} channel(s) from explicit addresses "
+                    f"(skipped agent search)"
+                )
+                return self._build_result(query, valid_channels)
+            elif valid_channels and detection_result.needs_additional_search:
+                # Have some explicit channels but need to search for more
+                logger.info(
+                    f"  → Found {len(valid_channels)} explicit channel(s), but query requires additional search"
+                )
+                logger.info("  → Proceeding with agent search for additional channels")
+            elif invalid_channels:
+                # Had explicit addresses but none were valid - fall back to agent search
+                logger.info(
+                    "  → Explicit addresses not found in database, falling back to agent search"
+                )
+        else:
+            logger.info(f"  → [dim]{detection_result.reasoning}[/dim]")
+            logger.info("  → Proceeding with agent search")
 
         # Stage 1: Split query into atomic queries
         atomic_queries = await self._split_query(query)
@@ -495,7 +539,8 @@ Example workflow:
                 logger.error(f"  [red]✗[/red] Error processing query: {e}")
                 continue
 
-        # Stage 3: Deduplicate and build result
+        # Stage 3: Merge explicit channels with search results and deduplicate
+        all_channels.extend(explicit_channels)
         unique_channels = list(dict.fromkeys(all_channels))  # Preserve order while deduplicating
 
         return self._build_result(query, unique_channels)
@@ -583,19 +628,23 @@ Example workflow:
         }
 
     def _build_result(self, query: str, channels_list: list[str]) -> ChannelFinderResult:
-        """Build final result object."""
-        channel_infos = []
+        """
+        Build final result object.
 
-        for channel_address in channels_list:
-            channel_data = self.database.get_channel(channel_address)
-            if channel_data:
-                channel_infos.append(
-                    ChannelInfo(
-                        channel=channel_address,
-                        address=channel_data.get("address", channel_address),
-                        description=channel_data.get("description"),
-                    )
-                )
+        Note: Channels passed here have already been validated according to
+        explicit_validation_mode config. No additional validation needed.
+
+        For middle layer database: channel name = address, descriptions are at
+        hierarchy branch points (system/family/field), not individual PVs.
+        """
+        channel_infos = [
+            ChannelInfo(
+                channel=channel_address,
+                address=channel_address,
+                description=None,
+            )
+            for channel_address in channels_list
+        ]
 
         notes = (
             f"Processed query using React agent with database tools. "

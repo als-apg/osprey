@@ -132,6 +132,7 @@ class HierarchicalPipeline(BasePipeline):
         Execute hierarchical pipeline.
 
         Stages:
+        0. Detect explicit channel addresses (optimization)
         1. Split query (if needed)
         2. For each sub-query, navigate hierarchy
         3. Build channel names from selections
@@ -142,6 +143,49 @@ class HierarchicalPipeline(BasePipeline):
             return ChannelFinderResult(
                 query=query, channels=[], total_channels=0, processing_notes="Empty query provided"
             )
+
+        # Stage 0: Check for explicit channel addresses (optimization)
+        logger.info("[bold cyan]Pre-check:[/bold cyan] Detecting explicit channel addresses...")
+        detection_result = await self._detect_explicit_channels(query)
+
+        # Track explicit channels separately
+        explicit_channels = []
+
+        if detection_result.has_explicit_addresses:
+            logger.info(
+                f"  → Detected {len(detection_result.channel_addresses)} explicit address(es)"
+            )
+            logger.info(f"  → [dim]{detection_result.reasoning}[/dim]")
+
+            # Validate detected addresses (mode: strict/lenient/skip)
+            valid_channels, invalid_channels = self._validate_explicit_channels(
+                detection_result.channel_addresses
+            )
+
+            explicit_channels = valid_channels
+
+            # Check if we need additional search
+            if valid_channels and not detection_result.needs_additional_search:
+                # Found valid explicit addresses and no additional search needed - done!
+                logger.info(
+                    f"[green]✓[/green] Found {len(valid_channels)} channel(s) from explicit addresses "
+                    f"(skipped hierarchical navigation)"
+                )
+                return self._build_result(query, valid_channels)
+            elif valid_channels and detection_result.needs_additional_search:
+                # Have some explicit channels but need to search for more
+                logger.info(
+                    f"  → Found {len(valid_channels)} explicit channel(s), but query requires additional search"
+                )
+                logger.info("  → Proceeding with hierarchical navigation for additional channels")
+            elif invalid_channels:
+                # Had explicit addresses but none were valid - fall back to hierarchical search
+                logger.info(
+                    "  → Explicit addresses not found in database, falling back to hierarchical search"
+                )
+        else:
+            logger.info(f"  → [dim]{detection_result.reasoning}[/dim]")
+            logger.info("  → Proceeding with hierarchical navigation")
 
         # Stage 1: Split query into atomic queries
         atomic_queries = await self._split_query(query)
@@ -175,7 +219,8 @@ class HierarchicalPipeline(BasePipeline):
                 logger.error(f"  [red]✗[/red] Error processing query: {e}")
                 continue
 
-        # Deduplicate
+        # Merge explicit channels with search results and deduplicate
+        all_channels.extend(explicit_channels)
         unique_channels = list(set(all_channels))
 
         # Build result (detailed display happens in capability layer)
@@ -671,20 +716,22 @@ If no options are relevant, use '{NOTHING_FOUND_MARKER}'."""
         return value
 
     def _build_result(self, query: str, channels: list[str]) -> ChannelFinderResult:
-        """Build final result object."""
-        channel_infos = []
+        """
+        Build final result object.
 
-        for channel_name in channels:
-            channel_data = self.database.get_channel(channel_name)
-            if channel_data:
-                # Hierarchical database might not have description
-                channel_infos.append(
-                    ChannelInfo(
-                        channel=channel_name,
-                        address=channel_data.get("address", channel_name),
-                        description=channel_data.get("description"),
-                    )
-                )
+        Note: Channels passed here have already been validated according to
+        explicit_validation_mode config. No additional validation needed.
+
+        For hierarchical database: channel name = address, no descriptions stored.
+        """
+        channel_infos = [
+            ChannelInfo(
+                channel=channel_name,
+                address=channel_name,
+                description=None,
+            )
+            for channel_name in channels
+        ]
 
         notes = (
             f"Processed query using hierarchical navigation. Found {len(channel_infos)} channels."

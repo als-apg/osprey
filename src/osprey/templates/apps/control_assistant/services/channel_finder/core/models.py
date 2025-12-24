@@ -39,6 +39,30 @@ class ChannelCorrectionOutput(BaseModel):
     corrected_channels: list[str] = Field(description="Full corrected list of valid channels only")
 
 
+# Stage 0: Explicit Channel Detection (Optimization - shared by all pipelines)
+class ExplicitChannelDetectionOutput(BaseModel):
+    """
+    Output model for detecting explicit channel addresses in queries.
+
+    Used to identify when users provide specific PV/channel addresses directly
+    in their query, allowing pipelines to skip search/navigation for efficiency.
+    """
+
+    has_explicit_addresses: bool = Field(
+        description="True if the query contains explicit channel/PV addresses"
+    )
+    channel_addresses: list[str] = Field(
+        default_factory=list,
+        description="List of explicit channel addresses found in the query (empty if none)",
+    )
+    needs_additional_search: bool = Field(
+        description="True if channel finding pipeline should also be invoked (query contains search terms beyond explicit addresses)"
+    )
+    reasoning: str = Field(
+        description="Brief explanation of what was detected and why additional search is/isn't needed"
+    )
+
+
 # Final Output (Shared by all pipelines)
 class ChannelInfo(BaseModel):
     """Information about a single channel."""
