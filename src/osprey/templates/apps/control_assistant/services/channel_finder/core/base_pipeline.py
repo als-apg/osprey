@@ -29,9 +29,10 @@ class BasePipeline(ABC):
 
         # Get explicit channel validation mode from config
         from osprey.utils.config import get_config_value
+
         self.explicit_validation_mode = get_config_value(
-            'channel_finder.explicit_validation_mode',
-            'lenient'  # Default to lenient mode
+            "channel_finder.explicit_validation_mode",
+            "lenient",  # Default to lenient mode
         )
 
     @abstractmethod
@@ -123,9 +124,11 @@ class BasePipeline(ABC):
             - In 'lenient' or 'skip' mode, all channels go to valid_channels
             - In 'strict' mode, only database channels go to valid_channels
         """
-        if self.explicit_validation_mode == 'skip':
+        if self.explicit_validation_mode == "skip":
             # Skip validation entirely - trust all explicit addresses
-            logger.info(f"  → Validation mode: skip (trusting all {len(channel_addresses)} explicit addresses)")
+            logger.info(
+                f"  → Validation mode: skip (trusting all {len(channel_addresses)} explicit addresses)"
+            )
             return (channel_addresses, [])
 
         # Validate against database
@@ -138,7 +141,7 @@ class BasePipeline(ABC):
                 logger.info(f"  ✓ Validated: {address}")
             else:
                 invalid_channels.append(address)
-                if self.explicit_validation_mode == 'lenient':
+                if self.explicit_validation_mode == "lenient":
                     # Lenient mode: include anyway but warn
                     logger.warning(
                         f"  ⚠  {address} not in database, but including anyway (lenient mode)"
@@ -148,7 +151,7 @@ class BasePipeline(ABC):
                     logger.warning(f"  ✗ Not found in database: {address}")
 
         # In lenient mode, include all channels (valid + invalid)
-        if self.explicit_validation_mode == 'lenient':
+        if self.explicit_validation_mode == "lenient":
             all_channels = valid_channels + invalid_channels
             return (all_channels, [])
         else:

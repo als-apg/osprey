@@ -53,7 +53,7 @@ class ExplicitChannelDetectionOutput(BaseModel):
     )
     channel_addresses: list[str] = Field(
         default_factory=list,
-        description="List of explicit channel addresses found in the query (empty if none)"
+        description="List of explicit channel addresses found in the query (empty if none)",
     )
     needs_additional_search: bool = Field(
         description="True if channel finding pipeline should also be invoked (query contains search terms beyond explicit addresses)"

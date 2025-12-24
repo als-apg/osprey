@@ -52,11 +52,21 @@ QUERY_TEST_CASES = [
         "expected_channels": [
             "MAG:DIPOLE[B01]:CURRENT:SP",
             # All QF readbacks - 16 quadrupoles
-            "MAG:QF[QF01]:CURRENT:RB", "MAG:QF[QF02]:CURRENT:RB", "MAG:QF[QF03]:CURRENT:RB",
-            "MAG:QF[QF04]:CURRENT:RB", "MAG:QF[QF05]:CURRENT:RB", "MAG:QF[QF06]:CURRENT:RB",
-            "MAG:QF[QF07]:CURRENT:RB", "MAG:QF[QF08]:CURRENT:RB", "MAG:QF[QF09]:CURRENT:RB",
-            "MAG:QF[QF10]:CURRENT:RB", "MAG:QF[QF11]:CURRENT:RB", "MAG:QF[QF12]:CURRENT:RB",
-            "MAG:QF[QF13]:CURRENT:RB", "MAG:QF[QF14]:CURRENT:RB", "MAG:QF[QF15]:CURRENT:RB",
+            "MAG:QF[QF01]:CURRENT:RB",
+            "MAG:QF[QF02]:CURRENT:RB",
+            "MAG:QF[QF03]:CURRENT:RB",
+            "MAG:QF[QF04]:CURRENT:RB",
+            "MAG:QF[QF05]:CURRENT:RB",
+            "MAG:QF[QF06]:CURRENT:RB",
+            "MAG:QF[QF07]:CURRENT:RB",
+            "MAG:QF[QF08]:CURRENT:RB",
+            "MAG:QF[QF09]:CURRENT:RB",
+            "MAG:QF[QF10]:CURRENT:RB",
+            "MAG:QF[QF11]:CURRENT:RB",
+            "MAG:QF[QF12]:CURRENT:RB",
+            "MAG:QF[QF13]:CURRENT:RB",
+            "MAG:QF[QF14]:CURRENT:RB",
+            "MAG:QF[QF15]:CURRENT:RB",
             "MAG:QF[QF16]:CURRENT:RB",
         ],
         "pipeline": "hierarchical",
@@ -90,8 +100,14 @@ QUERY_TEST_CASES = [
         "expected_channels": [
             "SR01C:BPM1:X",
             # All sector 12 BPM Y positions
-            "SR12C:BPM1:Y", "SR12C:BPM2:Y", "SR12C:BPM3:Y", "SR12C:BPM4:Y",
-            "SR12C:BPM5:Y", "SR12C:BPM6:Y", "SR12C:BPM7:Y", "SR12C:BPM8:Y",
+            "SR12C:BPM1:Y",
+            "SR12C:BPM2:Y",
+            "SR12C:BPM3:Y",
+            "SR12C:BPM4:Y",
+            "SR12C:BPM5:Y",
+            "SR12C:BPM6:Y",
+            "SR12C:BPM7:Y",
+            "SR12C:BPM8:Y",
         ],
         "pipeline": "middle_layer",
         "match_type": "exact",
@@ -106,7 +122,10 @@ QUERY_TEST_CASES = [
         ),
         "database": "in_context.json",
         "query": "Get TerminalVoltageSetPoint and AcceleratingTubeBeginningGunPressureReadBack",
-        "expected_channels": ["TerminalVoltageSetPoint", "AcceleratingTubeBeginningGunPressureReadBack"],
+        "expected_channels": [
+            "TerminalVoltageSetPoint",
+            "AcceleratingTubeBeginningGunPressureReadBack",
+        ],
         "pipeline": "in_context",
         "match_type": "exact",
     },
@@ -253,7 +272,10 @@ async def test_channel_finder_query(e2e_project_factory, test_case):
 
     # Set database path in the correct location for the pipeline
     # Check if database is in examples/ subdirectory or root channel_databases/
-    db_base = Path(__file__).parent.parent.parent / "src/osprey/templates/apps/control_assistant/data/channel_databases"
+    db_base = (
+        Path(__file__).parent.parent.parent
+        / "src/osprey/templates/apps/control_assistant/data/channel_databases"
+    )
     db_file = test_case["database"]
 
     # Main databases are in root, examples are in examples/

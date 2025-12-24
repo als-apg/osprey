@@ -218,9 +218,7 @@ class TestMiddleLayerBuildResult:
 class TestPipelineConsistency:
     """Test that both pipelines handle similar cases consistently."""
 
-    def test_both_set_address_equal_to_channel(
-        self, hierarchical_pipeline, middle_layer_pipeline
-    ):
+    def test_both_set_address_equal_to_channel(self, hierarchical_pipeline, middle_layer_pipeline):
         """Both pipelines should set address = channel."""
         h_result = hierarchical_pipeline._build_result("test", ["CHANNEL1"])
         m_result = middle_layer_pipeline._build_result("test", ["CHANNEL2"])
@@ -228,9 +226,7 @@ class TestPipelineConsistency:
         assert h_result.channels[0].channel == h_result.channels[0].address
         assert m_result.channels[0].channel == m_result.channels[0].address
 
-    def test_both_set_description_to_none(
-        self, hierarchical_pipeline, middle_layer_pipeline
-    ):
+    def test_both_set_description_to_none(self, hierarchical_pipeline, middle_layer_pipeline):
         """Both pipelines should set description = None."""
         h_result = hierarchical_pipeline._build_result("test", ["CHANNEL1"])
         m_result = middle_layer_pipeline._build_result("test", ["CHANNEL2"])
@@ -238,9 +234,7 @@ class TestPipelineConsistency:
         assert h_result.channels[0].description is None
         assert m_result.channels[0].description is None
 
-    def test_both_handle_empty_list(
-        self, hierarchical_pipeline, middle_layer_pipeline
-    ):
+    def test_both_handle_empty_list(self, hierarchical_pipeline, middle_layer_pipeline):
         """Both pipelines should handle empty channel lists."""
         h_result = hierarchical_pipeline._build_result("test", [])
         m_result = middle_layer_pipeline._build_result("test", [])
@@ -253,4 +247,3 @@ class TestPipelineConsistency:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-

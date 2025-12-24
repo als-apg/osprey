@@ -79,4 +79,3 @@ def get_prompt(query: str) -> str:
         - reasoning: brief explanation of what you detected and why additional search is/isn't needed
         """
     ).strip()
-

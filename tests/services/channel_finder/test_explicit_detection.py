@@ -10,6 +10,7 @@ Covers:
 - Validation modes (strict, lenient, skip)
 - Integration with all three pipelines
 """
+
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -44,6 +45,7 @@ def mock_database():
 @pytest.fixture
 def mock_pipeline(mock_database):
     """Create a mock pipeline instance for testing."""
+
     # Create a concrete implementation for testing
     class TestPipeline(BasePipeline):
         def pipeline_name(self):
@@ -56,7 +58,7 @@ def mock_pipeline(mock_database):
             return {}
 
     # Mock the config loading to avoid needing config.yml
-    with patch('osprey.utils.config.get_config_value', return_value='lenient'):
+    with patch("osprey.utils.config.get_config_value", return_value="lenient"):
         pipeline = TestPipeline(mock_database, {"provider": "test", "model_id": "test"})
     return pipeline
 
@@ -77,10 +79,13 @@ class TestExplicitChannelDetection:
             has_explicit_addresses=True,
             channel_addresses=["SC:HCM1:SP"],
             needs_additional_search=False,
-            reasoning="Detected explicit PV address 'SC:HCM1:SP'"
+            reasoning="Detected explicit PV address 'SC:HCM1:SP'",
         )
 
-        with patch('osprey.templates.apps.control_assistant.services.channel_finder.llm.get_chat_completion', return_value=mock_response):
+        with patch(
+            "osprey.templates.apps.control_assistant.services.channel_finder.llm.get_chat_completion",
+            return_value=mock_response,
+        ):
             result = await mock_pipeline._detect_explicit_channels("Set the SC:HCM1:SP pv to 4.6")
 
         assert result.has_explicit_addresses is True
@@ -95,10 +100,13 @@ class TestExplicitChannelDetection:
             has_explicit_addresses=True,
             channel_addresses=["MAG:VCM:V01:CURRENT:SP", "MAG:HCM:H02:CURRENT:SP"],
             needs_additional_search=False,
-            reasoning="Detected 2 explicit PV addresses"
+            reasoning="Detected 2 explicit PV addresses",
         )
 
-        with patch('osprey.templates.apps.control_assistant.services.channel_finder.llm.get_chat_completion', return_value=mock_response):
+        with patch(
+            "osprey.templates.apps.control_assistant.services.channel_finder.llm.get_chat_completion",
+            return_value=mock_response,
+        ):
             result = await mock_pipeline._detect_explicit_channels(
                 "Get MAG:VCM:V01:CURRENT:SP and MAG:HCM:H02:CURRENT:SP"
             )
@@ -114,10 +122,13 @@ class TestExplicitChannelDetection:
             has_explicit_addresses=False,
             channel_addresses=[],
             needs_additional_search=True,
-            reasoning="No explicit channel addresses detected"
+            reasoning="No explicit channel addresses detected",
         )
 
-        with patch('osprey.templates.apps.control_assistant.services.channel_finder.llm.get_chat_completion', return_value=mock_response):
+        with patch(
+            "osprey.templates.apps.control_assistant.services.channel_finder.llm.get_chat_completion",
+            return_value=mock_response,
+        ):
             result = await mock_pipeline._detect_explicit_channels(
                 "Find the horizontal corrector magnet setpoint"
             )
@@ -133,10 +144,13 @@ class TestExplicitChannelDetection:
             has_explicit_addresses=True,
             channel_addresses=["BR:HCM1"],
             needs_additional_search=True,
-            reasoning="Has explicit 'BR:HCM1' but also needs search for 'all vertical corrector setpoints'"
+            reasoning="Has explicit 'BR:HCM1' but also needs search for 'all vertical corrector setpoints'",
         )
 
-        with patch('osprey.templates.apps.control_assistant.services.channel_finder.llm.get_chat_completion', return_value=mock_response):
+        with patch(
+            "osprey.templates.apps.control_assistant.services.channel_finder.llm.get_chat_completion",
+            return_value=mock_response,
+        ):
             result = await mock_pipeline._detect_explicit_channels(
                 "Get BR:HCM1 and all vertical corrector setpoints"
             )
@@ -156,12 +170,11 @@ class TestValidationModes:
 
     def test_validation_strict_mode_all_valid(self, mock_pipeline):
         """Test strict mode with all channels in database."""
-        mock_pipeline.explicit_validation_mode = 'strict'
+        mock_pipeline.explicit_validation_mode = "strict"
 
-        valid, invalid = mock_pipeline._validate_explicit_channels([
-            "MAG:HCM:H01:CURRENT:SP",
-            "MAG:VCM:V01:CURRENT:SP"
-        ])
+        valid, invalid = mock_pipeline._validate_explicit_channels(
+            ["MAG:HCM:H01:CURRENT:SP", "MAG:VCM:V01:CURRENT:SP"]
+        )
 
         assert len(valid) == 2
         assert len(invalid) == 0
@@ -170,13 +183,15 @@ class TestValidationModes:
 
     def test_validation_strict_mode_some_invalid(self, mock_pipeline):
         """Test strict mode with some channels not in database."""
-        mock_pipeline.explicit_validation_mode = 'strict'
+        mock_pipeline.explicit_validation_mode = "strict"
 
-        valid, invalid = mock_pipeline._validate_explicit_channels([
-            "MAG:HCM:H01:CURRENT:SP",  # in database
-            "SC:CUSTOM:PV1:SP",        # NOT in database
-            "MAG:VCM:V01:CURRENT:SP"   # in database
-        ])
+        valid, invalid = mock_pipeline._validate_explicit_channels(
+            [
+                "MAG:HCM:H01:CURRENT:SP",  # in database
+                "SC:CUSTOM:PV1:SP",  # NOT in database
+                "MAG:VCM:V01:CURRENT:SP",  # in database
+            ]
+        )
 
         assert len(valid) == 2
         assert len(invalid) == 1
@@ -186,13 +201,15 @@ class TestValidationModes:
 
     def test_validation_lenient_mode_includes_all(self, mock_pipeline):
         """Test lenient mode includes all channels (warns for unknown)."""
-        mock_pipeline.explicit_validation_mode = 'lenient'
+        mock_pipeline.explicit_validation_mode = "lenient"
 
-        valid, invalid = mock_pipeline._validate_explicit_channels([
-            "MAG:HCM:H01:CURRENT:SP",  # in database
-            "SC:CUSTOM:PV1:SP",        # NOT in database
-            "UNKNOWN:PV:ADDR"          # NOT in database
-        ])
+        valid, invalid = mock_pipeline._validate_explicit_channels(
+            [
+                "MAG:HCM:H01:CURRENT:SP",  # in database
+                "SC:CUSTOM:PV1:SP",  # NOT in database
+                "UNKNOWN:PV:ADDR",  # NOT in database
+            ]
+        )
 
         # Lenient mode: all go to valid list, invalid is empty
         assert len(valid) == 3
@@ -203,14 +220,12 @@ class TestValidationModes:
 
     def test_validation_skip_mode_no_validation(self, mock_pipeline):
         """Test skip mode accepts all without validation."""
-        mock_pipeline.explicit_validation_mode = 'skip'
+        mock_pipeline.explicit_validation_mode = "skip"
 
         # Even with obviously fake addresses, skip mode accepts all
-        valid, invalid = mock_pipeline._validate_explicit_channels([
-            "FAKE:ADDRESS:1",
-            "ANOTHER:FAKE:2",
-            "NOT:REAL:3"
-        ])
+        valid, invalid = mock_pipeline._validate_explicit_channels(
+            ["FAKE:ADDRESS:1", "ANOTHER:FAKE:2", "NOT:REAL:3"]
+        )
 
         assert len(valid) == 3
         assert len(invalid) == 0
@@ -218,20 +233,25 @@ class TestValidationModes:
 
     def test_validation_default_mode_is_lenient(self, mock_database):
         """Test that default validation mode is lenient."""
+
         # Create pipeline without setting explicit_validation_mode
         class TestPipeline(BasePipeline):
             def pipeline_name(self):
                 return "Test"
+
             async def process_query(self, query):
                 pass
+
             def get_statistics(self):
                 return {}
 
-        with patch('osprey.utils.config.get_config_value', return_value='lenient') as mock_config:
+        with patch("osprey.utils.config.get_config_value", return_value="lenient") as mock_config:
             pipeline = TestPipeline(mock_database, {"provider": "test", "model_id": "test"})
-            assert pipeline.explicit_validation_mode == 'lenient'
+            assert pipeline.explicit_validation_mode == "lenient"
             # Verify get_config_value was called with the right parameter
-            mock_config.assert_called_once_with('channel_finder.explicit_validation_mode', 'lenient')
+            mock_config.assert_called_once_with(
+                "channel_finder.explicit_validation_mode", "lenient"
+            )
 
 
 # ============================================================
@@ -244,40 +264,45 @@ class TestConfigurationIntegration:
 
     def test_loads_validation_mode_from_config(self, mock_database):
         """Test that explicit_validation_mode is loaded from config."""
+
         class TestPipeline(BasePipeline):
             def pipeline_name(self):
                 return "Test"
+
             async def process_query(self, query):
                 pass
+
             def get_statistics(self):
                 return {}
 
         # Test each mode
-        for mode in ['strict', 'lenient', 'skip']:
-            with patch('osprey.utils.config.get_config_value', return_value=mode) as mock_config:
+        for mode in ["strict", "lenient", "skip"]:
+            with patch("osprey.utils.config.get_config_value", return_value=mode) as mock_config:
                 pipeline = TestPipeline(mock_database, {"provider": "test", "model_id": "test"})
                 assert pipeline.explicit_validation_mode == mode
                 # Verify config was loaded with correct key and default
-                mock_config.assert_called_once_with('channel_finder.explicit_validation_mode', 'lenient')
+                mock_config.assert_called_once_with(
+                    "channel_finder.explicit_validation_mode", "lenient"
+                )
 
     def test_validation_mode_affects_behavior(self, mock_pipeline):
         """Test that changing validation mode changes behavior."""
         test_addresses = ["MAG:HCM:H01:CURRENT:SP", "UNKNOWN:PV"]
 
         # Strict mode: rejects unknown
-        mock_pipeline.explicit_validation_mode = 'strict'
+        mock_pipeline.explicit_validation_mode = "strict"
         valid, invalid = mock_pipeline._validate_explicit_channels(test_addresses)
         assert len(valid) == 1
         assert len(invalid) == 1
 
         # Lenient mode: includes all
-        mock_pipeline.explicit_validation_mode = 'lenient'
+        mock_pipeline.explicit_validation_mode = "lenient"
         valid, invalid = mock_pipeline._validate_explicit_channels(test_addresses)
         assert len(valid) == 2
         assert len(invalid) == 0
 
         # Skip mode: includes all without validation
-        mock_pipeline.explicit_validation_mode = 'skip'
+        mock_pipeline.explicit_validation_mode = "skip"
         valid, invalid = mock_pipeline._validate_explicit_channels(test_addresses)
         assert len(valid) == 2
         assert len(invalid) == 0
@@ -293,7 +318,7 @@ class TestEdgeCases:
 
     def test_empty_channel_list(self, mock_pipeline):
         """Test validation with empty channel list."""
-        mock_pipeline.explicit_validation_mode = 'lenient'
+        mock_pipeline.explicit_validation_mode = "lenient"
         valid, invalid = mock_pipeline._validate_explicit_channels([])
 
         assert len(valid) == 0
@@ -306,20 +331,21 @@ class TestEdgeCases:
             has_explicit_addresses=True,
             channel_addresses=["SR01C:BPM-1:X-POSITION"],
             needs_additional_search=False,
-            reasoning="Detected PV with hyphens and colons"
+            reasoning="Detected PV with hyphens and colons",
         )
 
-        with patch('osprey.templates.apps.control_assistant.services.channel_finder.llm.get_chat_completion', return_value=mock_response):
-            result = await mock_pipeline._detect_explicit_channels(
-                "Read SR01C:BPM-1:X-POSITION"
-            )
+        with patch(
+            "osprey.templates.apps.control_assistant.services.channel_finder.llm.get_chat_completion",
+            return_value=mock_response,
+        ):
+            result = await mock_pipeline._detect_explicit_channels("Read SR01C:BPM-1:X-POSITION")
 
         assert result.has_explicit_addresses is True
         assert "SR01C:BPM-1:X-POSITION" in result.channel_addresses
 
     def test_validation_preserves_order(self, mock_pipeline):
         """Test that validation preserves channel order."""
-        mock_pipeline.explicit_validation_mode = 'skip'
+        mock_pipeline.explicit_validation_mode = "skip"
         channels = ["FIRST:PV", "SECOND:PV", "THIRD:PV"]
 
         valid, _ = mock_pipeline._validate_explicit_channels(channels)
@@ -338,8 +364,7 @@ class TestBuildResultHelper:
     def test_build_result_with_known_channels(self, mock_pipeline):
         """Test building result with channels in database."""
         result = mock_pipeline._build_result(
-            "test query",
-            ["MAG:HCM:H01:CURRENT:SP", "BR:DCCT:CURRENT:RB"]
+            "test query", ["MAG:HCM:H01:CURRENT:SP", "BR:DCCT:CURRENT:RB"]
         )
 
         assert result.query == "test query"
@@ -350,10 +375,7 @@ class TestBuildResultHelper:
 
     def test_build_result_with_unknown_channels(self, mock_pipeline):
         """Test building result with channels not in database (lenient mode)."""
-        result = mock_pipeline._build_result(
-            "test query",
-            ["UNKNOWN:PV:1", "FAKE:PV:2"]
-        )
+        result = mock_pipeline._build_result("test query", ["UNKNOWN:PV:1", "FAKE:PV:2"])
 
         assert result.total_channels == 2
         # Channels not in database still included (used as-is for explicit addresses)
@@ -372,4 +394,3 @@ class TestBuildResultHelper:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-

@@ -475,7 +475,9 @@ Example workflow:
         explicit_channels = []
 
         if detection_result.has_explicit_addresses:
-            logger.info(f"  → Detected {len(detection_result.channel_addresses)} explicit address(es)")
+            logger.info(
+                f"  → Detected {len(detection_result.channel_addresses)} explicit address(es)"
+            )
             logger.info(f"  → [dim]{detection_result.reasoning}[/dim]")
 
             # Validate detected addresses (mode: strict/lenient/skip)
