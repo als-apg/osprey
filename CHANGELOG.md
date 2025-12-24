@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Configuration updates to include explicit detection in pipeline workflows
 
 ### Changed
+- **Control Assistant**: Write access now enabled by default in control assistant template (`writes_enabled: true` for mock connector)
+  - Simplifies tutorial experience - users can test write operations immediately with mock connector
+  - Production deployments should carefully review hardware implications before enabling writes
 - **License**: Added explicit "BSD 3-Clause License" header to LICENSE.txt for clarity
 
 ### Documentation
