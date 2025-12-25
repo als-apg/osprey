@@ -10,7 +10,7 @@ from PyQt5.QtGui import QTextCursor, QTextCharFormat, QBrush, QColor, QFont
 
 class MessageFormatter:
     """Handles message formatting and Rich markup parsing for GUI display."""
-    
+
     # Rich color mapping to Qt colors
     RICH_COLOR_MAP = {
         'white': '#FFFFFF',
@@ -32,26 +32,26 @@ class MessageFormatter:
         'sky_blue2': '#87CEEB',
         'bold': None,  # Style modifier, not a color
     }
-    
+
     @staticmethod
     def extract_message_type(message: str) -> str:
         """
         Extract the message type (log level) from a message.
-        
+
         Args:
             message: The message text
-        
+
         Returns:
             str: Message type (INFO, WARNING, ERROR, DEBUG, etc.)
         """
         # Extract log level from the formatted message
         # Format: [MM/DD/YYYY HH:MM:SS AM/PM] LEVEL     component: message
         # We need to match the LEVEL part specifically, not just any occurrence
-        
+
         # First, try to extract from the standard logging format
         # Match pattern: [timestamp] LEVEL (with padding) component:
         level_match = re.search(r'\]\s+(ERROR|CRITICAL|WARNING|WARN|INFO|DEBUG)\s+', message)
-        
+
         if level_match:
             level = level_match.group(1).upper()
             if level in ('ERROR', 'CRITICAL'):
@@ -62,48 +62,48 @@ class MessageFormatter:
                 return 'DEBUG'
             elif level == 'INFO':
                 return 'INFO'
-        
+
         # Fallback: Check for error/warning indicators in the message content
         # Only check AFTER the component name to avoid false positives
         message_upper = message.upper()
-        
+
         # Check for error emoji (strong indicator)
         if '❌' in message:
             return 'ERROR'
-        
+
         # Check for warning emoji (strong indicator)
         if '⚠️' in message:
             return 'WARNING'
-        
+
         # Check for success emoji (treat as INFO)
         if '✅' in message:
             return 'INFO'
-        
+
         # Default to INFO for any unrecognized format
         return 'INFO'
-    
+
     @staticmethod
     def strip_rich_markup(text: str) -> str:
         """
         Strip Rich markup tags from text.
-        
+
         Args:
             text: Text with Rich markup
-        
+
         Returns:
             str: Text without markup tags
         """
         # Remove Rich markup tags like [white], [bold green], etc.
         return re.sub(r'\[([^\]]+)\]', '', text)
-    
+
     @staticmethod
     def insert_rich_text(cursor: QTextCursor, text: str):
         """
         Parse Rich markup and insert colored text.
-        
+
         Supports Rich color tags like [white], [bold green], [sky_blue2], etc.
         Preserves timestamps in format [MM/DD/YYYY HH:MM:SS AM/PM]
-        
+
         Args:
             cursor: QTextCursor to insert text at
             text: Text with Rich markup tags
@@ -112,15 +112,15 @@ class MessageFormatter:
         # But NOT timestamps like [12/03/2025 09:28:08 AM]
         # Timestamps contain digits, slashes, colons, and spaces
         pattern = r'\[([^\]]+)\](.*?)(?=\[|$)'
-        
+
         pos = 0
         for match in re.finditer(pattern, text):
             style_spec = match.group(1)
-            
+
             # Check if this looks like a timestamp (contains digits and slashes/colons)
             # Timestamp pattern: contains digits, slashes, colons, spaces, AM/PM
             is_timestamp = bool(re.search(r'\d+[/:]', style_spec))
-            
+
             if is_timestamp:
                 # This is a timestamp, not a Rich markup tag - keep it as-is
                 if match.start() > pos:
@@ -129,40 +129,40 @@ class MessageFormatter:
                 cursor.insertText(f"[{style_spec}]")
                 pos = match.start() + len(f"[{style_spec}]")
                 continue
-            
+
             # Insert any text before the match
             if match.start() > pos:
                 cursor.insertText(text[pos:match.start()])
-            
+
             content = match.group(2)
-            
+
             # Parse style specification (e.g., "bold green", "white", "sky_blue2")
             parts = style_spec.split()
             color = '#FFFFFF'  # Default white
             bold = False
-            
+
             for part in parts:
                 if part == 'bold':
                     bold = True
                 elif part in MessageFormatter.RICH_COLOR_MAP:
                     if MessageFormatter.RICH_COLOR_MAP[part] is not None:
                         color = MessageFormatter.RICH_COLOR_MAP[part]
-            
+
             # Create text format with color and style
             text_format = QTextCharFormat()
             text_format.setForeground(QBrush(QColor(color)))
             if bold:
                 text_format.setFontWeight(QFont.Bold)
-            
+
             # Insert formatted text
             cursor.insertText(content, text_format)
-            
+
             pos = match.end()
-        
+
         # Insert any remaining text
         if pos < len(text):
             cursor.insertText(text[pos:])
-    
+
     @staticmethod
     def append_formatted_text(
         text: str,
@@ -173,7 +173,7 @@ class MessageFormatter:
     ):
         """
         Unified method to append formatted text to a text widget.
-        
+
         Args:
             text: Text to append
             color: Color hex code (e.g., "#FFFFFF")
@@ -183,11 +183,11 @@ class MessageFormatter:
         """
         cursor = widget.textCursor()
         cursor.movePosition(QTextCursor.End)
-        
+
         text_format = QTextCharFormat()
         text_format.setForeground(QBrush(QColor(color)))
-        
+
         cursor.insertText(f"{prefix}{text}{suffix}", text_format)
-        
+
         widget.setTextCursor(cursor)
         widget.ensureCursorVisible()

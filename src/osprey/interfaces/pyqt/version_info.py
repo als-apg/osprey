@@ -11,7 +11,7 @@ from typing import Any, Dict
 
 def get_osprey_version() -> str:
     """Get the Osprey framework version.
-    
+
     Returns:
         Version string from osprey.__version__ or 'Unknown'
     """
@@ -24,10 +24,10 @@ def get_osprey_version() -> str:
 
 def get_package_version(package_name: str) -> str:
     """Get version of an installed package.
-    
+
     Args:
         package_name: Name of the package (e.g., 'langgraph', 'langchain-core')
-        
+
     Returns:
         Version string or 'Not installed' if package is not found
     """
@@ -39,7 +39,7 @@ def get_package_version(package_name: str) -> str:
 
 def get_core_dependencies() -> Dict[str, str]:
     """Get versions of core framework dependencies.
-    
+
     Returns:
         Dictionary mapping package names to version strings
     """
@@ -52,13 +52,13 @@ def get_core_dependencies() -> Dict[str, str]:
         'click',
         'PyYAML',
     ]
-    
+
     return {pkg: get_package_version(pkg) for pkg in core_packages}
 
 
 def get_optional_dependencies() -> Dict[str, str]:
     """Get versions of optional framework dependencies.
-    
+
     Returns:
         Dictionary mapping package names to version strings
     """
@@ -74,13 +74,13 @@ def get_optional_dependencies() -> Dict[str, str]:
         'pymongo',
         'neo4j',
     ]
-    
+
     return {pkg: get_package_version(pkg) for pkg in optional_packages}
 
 
 def get_python_version() -> str:
     """Get Python version string.
-    
+
     Returns:
         Python version (e.g., '3.11.5')
     """
@@ -89,7 +89,7 @@ def get_python_version() -> str:
 
 def get_all_versions() -> Dict[str, Any]:
     """Get comprehensive version information.
-    
+
     Returns:
         Dictionary with version information for:
         - osprey: Osprey framework version
@@ -107,25 +107,25 @@ def get_all_versions() -> Dict[str, Any]:
 
 def format_version_info(include_optional: bool = False) -> str:
     """Format version information as a readable string.
-    
+
     Args:
         include_optional: Whether to include optional dependencies
-        
+
     Returns:
         Formatted version information string
     """
     versions = get_all_versions()
-    
+
     lines = [
         f"Osprey Framework: {versions['osprey']}",
         f"Python: {versions['python']}",
         "",
         "Core Dependencies:",
     ]
-    
+
     for pkg, ver in versions['core'].items():
         lines.append(f"  {pkg}: {ver}")
-    
+
     if include_optional:
         lines.extend([
             "",
@@ -134,13 +134,13 @@ def format_version_info(include_optional: bool = False) -> str:
         for pkg, ver in versions['optional'].items():
             if ver != "Not installed":
                 lines.append(f"  {pkg}: {ver}")
-    
+
     return "\n".join(lines)
 
 
 def print_version_info(include_optional: bool = False):
     """Print version information to console.
-    
+
     Args:
         include_optional: Whether to include optional dependencies
     """
