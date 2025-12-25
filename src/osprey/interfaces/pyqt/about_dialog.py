@@ -6,8 +6,9 @@ and system details for the Osprey Framework.
 """
 
 import platform
-from PyQt5.QtWidgets import QDialog, QVBoxLayout, QPushButton, QTextBrowser
-from PyQt5.QtCore import QT_VERSION_STR, PYQT_VERSION_STR
+
+from PyQt5.QtCore import PYQT_VERSION_STR, QT_VERSION_STR
+from PyQt5.QtWidgets import QDialog, QPushButton, QTextBrowser, QVBoxLayout
 
 
 def show_about_dialog(parent, gui_version: str):
