@@ -17,32 +17,32 @@ logger = get_logger("checkpointer_manager")
 
 class CheckpointerManager:
     """Manages checkpointer creation and PostgreSQL setup for conversation storage."""
-    
+
     @staticmethod
     def create_checkpointer(settings_manager, parent_widget=None):
         """
         Create checkpointer based on settings.
-        
+
         Args:
             settings_manager: SettingsManager instance with conversation storage settings
             parent_widget: Parent QWidget for showing dialogs (optional)
-            
+
         Returns:
             Checkpointer instance (MemorySaver or PostgreSQL checkpointer)
         """
         storage_mode = settings_manager.get('conversation_storage_mode', 'json')
-        
+
         # If using JSON storage mode, use in-memory checkpointer (messages saved to JSON)
         if storage_mode == 'json':
             logger.info("📝 Using JSON file storage for conversations (in-memory checkpointer)")
             logger.info("💡 Conversation messages will be saved to conversations.json")
             return MemorySaver()
-        
+
         # If using PostgreSQL storage mode
         if storage_mode == 'postgresql' and settings_manager.get('use_persistent_conversations', True):
             # Check if PostgreSQL URI is configured
             postgres_uri = os.getenv('POSTGRESQL_URI')
-            
+
             if postgres_uri:
                 try:
                     # Use PostgreSQL checkpointer if URI is configured
@@ -82,12 +82,12 @@ class CheckpointerManager:
         else:
             logger.info("📝 Using in-memory checkpointer (persistence disabled in settings)")
             return MemorySaver()
-    
+
     @staticmethod
     def show_postgresql_setup_guidance(parent_widget=None):
         """
         Show guidance for setting up PostgreSQL for conversation storage.
-        
+
         Args:
             parent_widget: Parent QWidget for showing dialog (optional)
         """
@@ -114,16 +114,16 @@ class CheckpointerManager:
         logger.info("")
         logger.info("5. Restart the GUI to use PostgreSQL storage")
         logger.info("=" * 80)
-        
+
         # Also show a GUI dialog if parent widget is provided
         if parent_widget:
             QTimer.singleShot(1000, lambda: CheckpointerManager._show_postgresql_setup_dialog(parent_widget))
-    
+
     @staticmethod
     def _show_postgresql_setup_dialog(parent_widget):
         """
         Show a GUI dialog with PostgreSQL setup instructions.
-        
+
         Args:
             parent_widget: Parent QWidget for the dialog
         """
@@ -142,17 +142,17 @@ class CheckpointerManager:
         )
         msg.setStandardButtons(QMessageBox.Ok)
         msg.exec_()
-    
+
     @staticmethod
     def is_postgres_running(host='localhost', port=5432, timeout=1):
         """
         Check if PostgreSQL is running by attempting a socket connection.
-        
+
         Args:
             host: PostgreSQL host (default: localhost)
             port: PostgreSQL port (default: 5432)
             timeout: Connection timeout in seconds (default: 1)
-            
+
         Returns:
             bool: True if PostgreSQL is running, False otherwise
         """
@@ -164,15 +164,15 @@ class CheckpointerManager:
             return result == 0
         except Exception:
             return False
-    
+
     @staticmethod
     def acquire_conversation_lock(db_path):
         """
         Acquire a lock file to prevent conflicts with other GUI instances.
-        
+
         Args:
             db_path: Path to the database file
-            
+
         Returns:
             File handle for the lock file, or None if locking failed
         """
@@ -182,7 +182,7 @@ class CheckpointerManager:
             # Windows doesn't have fcntl, skip locking
             logger.debug("File locking not available on this platform")
             return None
-        
+
         lock_file_path = db_path.parent / f".{db_path.name}.lock"
         try:
             lock_file = open(lock_file_path, 'w')
@@ -197,12 +197,12 @@ class CheckpointerManager:
             if lock_file:
                 lock_file.close()
             return None
-    
+
     @staticmethod
     def release_conversation_lock(lock_file):
         """
         Release the conversation lock file.
-        
+
         Args:
             lock_file: File handle for the lock file
         """

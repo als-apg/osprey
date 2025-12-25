@@ -76,14 +76,14 @@ class OrchestrationResult:
 class MultiProjectOrchestrator:
     """
     Orchestrates execution of queries spanning multiple projects.
-    
+
     Handles:
     - Query analysis and decomposition
     - Dependency detection between sub-queries
     - Parallel execution planning
     - Result aggregation and synthesis
     """
-    
+
     def __init__(
         self,
         llm_config: Optional[Dict[str, Any]] = None,
@@ -91,7 +91,7 @@ class MultiProjectOrchestrator:
         enable_dependency_detection: bool = True
     ):
         """Initialize orchestrator.
-        
+
         Args:
             llm_config: Optional LLM configuration for orchestration.
             max_parallel_executions: Maximum parallel sub-query executions.
@@ -101,7 +101,7 @@ class MultiProjectOrchestrator:
         self.llm_config = llm_config or {}
         self.max_parallel_executions = max_parallel_executions
         self.enable_dependency_detection = enable_dependency_detection
-        
+
         # Initialize SimpleLLMClient for orchestration (NO SINGLETON DEPENDENCY!)
         if llm_config:
             # Use provided LLM config
@@ -129,46 +129,46 @@ class MultiProjectOrchestrator:
                     f"Orchestration will fail until LLM client is properly configured."
                 )
                 self.llm_client = None
-        
+
         self.logger.info(
             f"Initialized MultiProjectOrchestrator "
             f"(max_parallel={max_parallel_executions}, "
             f"dependency_detection={enable_dependency_detection})"
         )
-    
+
     def analyze_query(
         self,
         query: str,
         available_projects: List['ProjectContext']
     ) -> OrchestrationPlan:
         """Analyze query to determine if orchestration is needed.
-        
+
         Args:
             query: User's query.
             available_projects: List of available projects.
-            
+
         Returns:
             OrchestrationPlan with decomposition if needed.
         """
         try:
             # Create analysis prompt
             analysis_prompt = self._create_analysis_prompt(query, available_projects)
-            
+
             # Call LLM for analysis
             analysis_result = self._call_llm_for_analysis(analysis_prompt)
-            
+
             # Parse analysis result
             plan = self._parse_analysis_result(analysis_result, query, available_projects)
-            
+
             if plan.is_multi_project:
                 self.logger.info(
                     f"Multi-project query detected: {len(plan.sub_queries)} sub-queries"
                 )
             else:
                 self.logger.debug("Single-project query - no orchestration needed")
-            
+
             return plan
-            
+
         except Exception as e:
             self.logger.error(f"Query analysis failed: {e}")
             # Return single-project plan as fallback
@@ -178,7 +178,7 @@ class MultiProjectOrchestrator:
                 is_multi_project=False,
                 reasoning=f"Analysis failed: {e}"
             )
-    
+
     def execute_plan(
         self,
         plan: OrchestrationPlan,
@@ -186,17 +186,17 @@ class MultiProjectOrchestrator:
         progress_callback: Optional[callable] = None
     ) -> OrchestrationResult:
         """Execute an orchestration plan.
-        
+
         Args:
             plan: OrchestrationPlan to execute.
             project_contexts: Dictionary mapping project names to ProjectContext.
             progress_callback: Optional callback for progress updates.
-            
+
         Returns:
             OrchestrationResult with combined results.
         """
         start_time = time.time()
-        
+
         try:
             if not plan.is_multi_project or not plan.sub_queries:
                 # Single project - no orchestration needed
@@ -207,29 +207,29 @@ class MultiProjectOrchestrator:
                     success=False,
                     error="Not a multi-project query"
                 )
-            
+
             # Detect dependencies if enabled
             if self.enable_dependency_detection:
                 self._detect_dependencies(plan)
-            
+
             # Create execution order based on dependencies
             self._create_execution_order(plan)
-            
+
             # Execute sub-queries in order
             individual_results = self._execute_sub_queries(
                 plan,
                 project_contexts,
                 progress_callback
             )
-            
+
             # Combine results
             combined_result = self._combine_results(
                 plan,
                 individual_results
             )
-            
+
             execution_time = time.time() - start_time
-            
+
             return OrchestrationResult(
                 original_query=plan.original_query,
                 plan=plan,
@@ -238,11 +238,11 @@ class MultiProjectOrchestrator:
                 total_execution_time=execution_time,
                 success=True
             )
-            
+
         except Exception as e:
             self.logger.error(f"Plan execution failed: {e}")
             execution_time = time.time() - start_time
-            
+
             return OrchestrationResult(
                 original_query=plan.original_query,
                 plan=plan,
@@ -251,20 +251,20 @@ class MultiProjectOrchestrator:
                 success=False,
                 error=str(e)
             )
-    
+
     # Private methods
-    
+
     def _create_analysis_prompt(
         self,
         query: str,
         projects: List['ProjectContext']
     ) -> str:
         """Create prompt for query analysis.
-        
+
         Args:
             query: User's query.
             projects: Available projects.
-            
+
         Returns:
             Formatted prompt for LLM.
         """
@@ -273,7 +273,7 @@ class MultiProjectOrchestrator:
             project_descriptions.append(
                 f"- {project.metadata.name}: {project.metadata.description}"
             )
-        
+
         prompt = f"""You are a query analyzer for a multi-project system. Analyze the user's query to determine if it requires capabilities from multiple projects.
 
 Available Projects:
@@ -310,21 +310,21 @@ Guidelines:
    - Each question should map to exactly one project
 
 Respond now:"""
-        
+
         return prompt
-    
+
     def _call_llm_for_analysis(self, prompt: str) -> str:
         """Call LLM for query analysis - NO SINGLETON DEPENDENCY!
-        
+
         Uses SimpleLLMClient which reads configuration from gui_config.yml
         or explicit config, avoiding the "Registry not initialized" error.
-        
+
         Args:
             prompt: Analysis prompt.
-            
+
         Returns:
             LLM response.
-            
+
         Raises:
             Exception: If LLM call fails.
         """
@@ -333,7 +333,7 @@ Respond now:"""
                 "LLM client not initialized. Please ensure gui_config.yml has a "
                 "'classifier' model configured, or provide llm_config during orchestrator initialization."
             )
-        
+
         try:
             # Direct LLM call - no registry needed!
             response = self.llm_client.call(
@@ -341,12 +341,12 @@ Respond now:"""
                 max_tokens=1000,
                 temperature=0.0
             )
-            
+
             return response
-            
+
         except Exception as e:
             raise Exception(f"Failed to call LLM for analysis: {e}") from e
-    
+
     def _parse_analysis_result(
         self,
         result: str,
@@ -354,44 +354,44 @@ Respond now:"""
         projects: List['ProjectContext']
     ) -> OrchestrationPlan:
         """Parse LLM analysis result.
-        
+
         Args:
             result: LLM response.
             original_query: Original user query.
             projects: Available projects.
-            
+
         Returns:
             OrchestrationPlan.
         """
         lines = result.strip().split('\n')
         data = {}
-        
+
         for line in lines:
             if ':' in line:
                 key, value = line.split(':', 1)
                 data[key.strip()] = value.strip()
-        
+
         is_multi_project = data.get('MULTI_PROJECT', 'no').lower() == 'yes'
         reasoning = data.get('REASONING', '')
-        
+
         sub_queries = []
-        
+
         if is_multi_project:
             # Parse sub-queries
             in_sub_queries = False
             index = 0
-            
+
             for line in lines:
                 if line.strip().startswith('SUB_QUERIES:'):
                     in_sub_queries = True
                     continue
-                
+
                 if in_sub_queries and ':' in line and not line.strip().startswith(('MULTI_PROJECT:', 'REASONING:')):
                     parts = line.split(':', 1)
                     if len(parts) == 2:
                         project_name = parts[0].strip()
                         query_text = parts[1].strip()
-                        
+
                         # Validate project exists
                         project_names = [p.metadata.name for p in projects]
                         if project_name in project_names:
@@ -401,23 +401,23 @@ Respond now:"""
                                 index=index
                             ))
                             index += 1
-        
+
         return OrchestrationPlan(
             original_query=original_query,
             sub_queries=sub_queries,
             is_multi_project=is_multi_project and len(sub_queries) > 1,
             reasoning=reasoning
         )
-    
+
     def _detect_dependencies(self, plan: OrchestrationPlan):
         """Detect dependencies between sub-queries.
-        
+
         Args:
             plan: OrchestrationPlan to analyze.
         """
         # Simple dependency detection based on query content
         # More sophisticated detection could use LLM or semantic analysis
-        
+
         for i, sub_query in enumerate(plan.sub_queries):
             for j, other_query in enumerate(plan.sub_queries):
                 if i != j and i > j:
@@ -428,70 +428,70 @@ Respond now:"""
                         self.logger.debug(
                             f"Detected dependency: sub-query {i} depends on {j}"
                         )
-    
+
     def _queries_related(self, query1: str, query2: str) -> bool:
         """Check if two queries are related (simple heuristic).
-        
+
         Args:
             query1: First query.
             query2: Second query.
-            
+
         Returns:
             True if queries appear related.
         """
         # Simple keyword-based relation detection
         # Could be enhanced with semantic similarity
-        
+
         keywords1 = set(query1.lower().split())
         keywords2 = set(query2.lower().split())
-        
+
         # Remove common words
         common_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'is', 'are', 'was', 'were'}
         keywords1 -= common_words
         keywords2 -= common_words
-        
+
         # Check for overlap
         overlap = keywords1 & keywords2
-        
+
         return len(overlap) >= 2
-    
+
     def _create_execution_order(self, plan: OrchestrationPlan):
         """Create execution order based on dependencies.
-        
+
         Args:
             plan: OrchestrationPlan to order.
         """
         # Topological sort to determine execution order
         # Group independent queries for parallel execution
-        
+
         executed = set()
         execution_order = []
-        
+
         while len(executed) < len(plan.sub_queries):
             # Find queries that can be executed (all dependencies met)
             ready = []
-            
+
             for i, sub_query in enumerate(plan.sub_queries):
                 if i not in executed:
                     deps_met = all(dep in executed for dep in sub_query.dependencies)
                     if deps_met:
                         ready.append(i)
-            
+
             if not ready:
                 # Circular dependency or error
                 self.logger.warning("Circular dependency detected, executing remaining in order")
                 ready = [i for i in range(len(plan.sub_queries)) if i not in executed]
-            
+
             execution_order.append(ready)
             executed.update(ready)
-        
+
         plan.execution_order = execution_order
-        
+
         self.logger.info(
             f"Execution order created: {len(execution_order)} stages, "
             f"max parallel: {max(len(stage) for stage in execution_order)}"
         )
-    
+
     def _execute_sub_queries(
         self,
         plan: OrchestrationPlan,
@@ -499,20 +499,20 @@ Respond now:"""
         progress_callback: Optional[callable] = None
     ) -> Dict[int, str]:
         """Execute sub-queries according to plan.
-        
+
         Args:
             plan: OrchestrationPlan to execute.
             project_contexts: Available project contexts.
             progress_callback: Optional progress callback.
-            
+
         Returns:
             Dictionary mapping sub-query index to result.
         """
         results = {}
-        
+
         for stage_idx, stage in enumerate(plan.execution_order):
             self.logger.info(f"Executing stage {stage_idx + 1}/{len(plan.execution_order)}")
-            
+
             # Execute queries in this stage in parallel
             stage_results = self._execute_stage(
                 stage,
@@ -520,11 +520,11 @@ Respond now:"""
                 project_contexts,
                 progress_callback
             )
-            
+
             results.update(stage_results)
-        
+
         return results
-    
+
     def _execute_stage(
         self,
         stage_indices: List[int],
@@ -533,25 +533,25 @@ Respond now:"""
         progress_callback: Optional[callable] = None
     ) -> Dict[int, str]:
         """Execute a stage of sub-queries in parallel.
-        
+
         Args:
             stage_indices: Indices of sub-queries to execute.
             sub_queries: All sub-queries.
             project_contexts: Available project contexts.
             progress_callback: Optional progress callback.
-            
+
         Returns:
             Dictionary mapping sub-query index to result.
         """
         results = {}
-        
+
         # Limit parallelism
         max_workers = min(self.max_parallel_executions, len(stage_indices))
-        
+
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # Submit all sub-queries in this stage
             futures = {}
-            
+
             for idx in stage_indices:
                 sub_query = sub_queries[idx]
                 future = executor.submit(
@@ -561,7 +561,7 @@ Respond now:"""
                     progress_callback
                 )
                 futures[future] = idx
-            
+
             # Collect results as they complete
             for future in as_completed(futures):
                 idx = futures[future]
@@ -575,9 +575,9 @@ Respond now:"""
                     results[idx] = f"Error: {e}"
                     sub_queries[idx].status = SubQueryStatus.FAILED
                     sub_queries[idx].error = str(e)
-        
+
         return results
-    
+
     def _execute_single_query(
         self,
         sub_query: SubQuery,
@@ -585,54 +585,54 @@ Respond now:"""
         progress_callback: Optional[callable] = None
     ) -> str:
         """Execute a single sub-query.
-        
+
         Args:
             sub_query: SubQuery to execute.
             project_contexts: Available project contexts.
             progress_callback: Optional progress callback.
-            
+
         Returns:
             Query result.
         """
         start_time = time.time()
         sub_query.status = SubQueryStatus.IN_PROGRESS
-        
+
         if progress_callback:
             progress_callback(
                 f"Executing: {sub_query.query[:50]}...",
                 sub_query.project_name
             )
-        
+
         try:
             # Get project context
             project = project_contexts.get(sub_query.project_name)
             if not project:
                 raise Exception(f"Project not found: {sub_query.project_name}")
-            
+
             # Execute query using project's gateway
             # This is a simplified version - actual implementation would use
             # the full gateway.process_message flow
             result = f"[Result from {sub_query.project_name}]"
-            
+
             sub_query.execution_time = time.time() - start_time
-            
+
             return result
-            
+
         except Exception as e:
             sub_query.execution_time = time.time() - start_time
             raise
-    
+
     def _combine_results(
         self,
         plan: OrchestrationPlan,
         individual_results: Dict[int, str]
     ) -> str:
         """Combine individual results into a coherent response.
-        
+
         Args:
             plan: OrchestrationPlan.
             individual_results: Individual sub-query results.
-            
+
         Returns:
             Combined result string.
         """
@@ -643,17 +643,17 @@ Respond now:"""
                 plan.sub_queries,
                 individual_results
             )
-            
+
             # Call LLM for synthesis
             combined = self._call_llm_for_synthesis(synthesis_prompt)
-            
+
             return combined
-            
+
         except Exception as e:
             self.logger.error(f"Result synthesis failed: {e}")
             # Fallback: simple concatenation
             return self._simple_combine(plan.sub_queries, individual_results)
-    
+
     def _create_synthesis_prompt(
         self,
         original_query: str,
@@ -661,12 +661,12 @@ Respond now:"""
         results: Dict[int, str]
     ) -> str:
         """Create prompt for result synthesis.
-        
+
         Args:
             original_query: Original user query.
             sub_queries: List of sub-queries.
             results: Individual results.
-            
+
         Returns:
             Synthesis prompt.
         """
@@ -677,7 +677,7 @@ Respond now:"""
                 f"Sub-query {idx + 1} ({sub_query.project_name}): {sub_query.query}\n"
                 f"Result: {result}\n"
             )
-        
+
         prompt = f"""You are synthesizing results from multiple specialized systems to answer a user's question.
 
 Original Question: {original_query}
@@ -693,21 +693,21 @@ Synthesize these results into a single, coherent response that:
 5. Acknowledges if any sub-queries failed
 
 Provide your synthesized response:"""
-        
+
         return prompt
-    
+
     def _call_llm_for_synthesis(self, prompt: str) -> str:
         """Call LLM for result synthesis - NO SINGLETON DEPENDENCY!
-        
+
         Uses SimpleLLMClient which reads configuration from gui_config.yml
         or explicit config, avoiding the "Registry not initialized" error.
-        
+
         Args:
             prompt: Synthesis prompt.
-            
+
         Returns:
             Synthesized result.
-            
+
         Raises:
             Exception: If LLM call fails.
         """
@@ -716,7 +716,7 @@ Provide your synthesized response:"""
                 "LLM client not initialized. Please ensure gui_config.yml has a "
                 "'classifier' model configured, or provide llm_config during orchestrator initialization."
             )
-        
+
         try:
             # Direct LLM call - no registry needed!
             response = self.llm_client.call(
@@ -724,32 +724,32 @@ Provide your synthesized response:"""
                 max_tokens=1500,
                 temperature=0.0
             )
-            
+
             return response
-            
+
         except Exception as e:
             raise Exception(f"Failed to call LLM for synthesis: {e}") from e
-    
+
     def _simple_combine(
         self,
         sub_queries: List[SubQuery],
         results: Dict[int, str]
     ) -> str:
         """Simple result combination (fallback).
-        
+
         Args:
             sub_queries: List of sub-queries.
             results: Individual results.
-            
+
         Returns:
             Combined result string.
         """
         combined_parts = []
-        
+
         for idx, sub_query in enumerate(sub_queries):
             result = results.get(idx, "No result available")
             combined_parts.append(
                 f"**{sub_query.project_name}**: {result}"
             )
-        
+
         return "\n\n".join(combined_parts)

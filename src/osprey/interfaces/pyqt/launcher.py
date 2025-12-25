@@ -14,22 +14,22 @@ from pathlib import Path
 def check_dependencies():
     """Check if required dependencies are available."""
     missing_deps = []
-    
+
     try:
         import PyQt5
     except ImportError:
         missing_deps.append("PyQt5")
-    
+
     try:
         import dotenv
     except ImportError:
         missing_deps.append("python-dotenv")
-    
+
     try:
         import osprey
     except ImportError:
         missing_deps.append("osprey-framework")
-    
+
     if missing_deps:
         print("❌ Missing dependencies:")
         for dep in missing_deps:
@@ -42,7 +42,7 @@ def check_dependencies():
         if "osprey-framework" in missing_deps:
             print("  pip install -e .")
         return False
-    
+
     return True
 
 
@@ -62,29 +62,29 @@ def main():
     # Check dependencies
     if not check_dependencies():
         sys.exit(1)
-    
+
     # Check display for GUI (warning only, not fatal)
     check_display()
-    
+
     # Import and run the GUI
     # The GUI will set up output redirection immediately in its __init__
     try:
         from osprey.interfaces.pyqt.gui import main as gui_main
-        
+
         # Check for config path argument
         config_path = None
         if len(sys.argv) > 1:
             config_path = sys.argv[1]
-            
+
             # Verify the config file exists
             if not Path(config_path).exists():
                 print(f"❌ Error: Config file not found: {config_path}")
                 print(f"   Please provide a valid config file path")
                 sys.exit(1)
-        
+
         # Launch GUI - it sets up output redirection in __init__ before any logging
         gui_main(config_path=config_path)
-        
+
     except Exception as e:
         print(f"❌ Failed to launch GUI: {e}")
         import traceback
