@@ -55,6 +55,8 @@ from osprey.interfaces.pyqt.capability_registry import CapabilityRegistry
 from osprey.interfaces.pyqt.multi_project_router import MultiProjectRouter
 from osprey.interfaces.pyqt.conversation_manager import ConversationManager
 from osprey.interfaces.pyqt.settings_manager import SettingsManager
+from osprey.interfaces.pyqt.gui_preferences import GUIPreferences
+from osprey.interfaces.pyqt.runtime_overrides import RuntimeOverrideManager
 from osprey.interfaces.pyqt.worker_thread import AgentWorker
 from osprey.interfaces.pyqt.settings_dialog import SettingsDialog
 from osprey.interfaces.pyqt.message_formatter import MessageFormatter
@@ -161,10 +163,17 @@ class OspreyGUI(QMainWindow):
         self._agent_processing = False  # Track if agent is currently processing
         self._queued_message = None  # Store one queued message to process after completion
 
-        # Settings Manager (must be initialized FIRST, before GUI output redirection)
+        # NEW: Separate GUI preferences and runtime overrides
+        self.gui_preferences = GUIPreferences()  # User UI settings (saved to ~/.osprey/gui_preferences.yml)
+        self.runtime_overrides = RuntimeOverrideManager()  # Execution behavior (in-memory only)
+
+        # Settings Manager (for backward compatibility during transition)
         # Will load from config file if available
         gui_config_path = Path(__file__).parent / "gui_config.yml" if not self.config_path else Path(self.config_path)
         self.settings_manager = SettingsManager(config_path=gui_config_path if gui_config_path.exists() else None)
+
+        # Initialize runtime overrides from settings manager
+        self.runtime_overrides.set_overrides(self.settings_manager.get_all_settings())
 
         # Backward compatibility: provide dict-like interface
         self.settings = self.settings_manager.get_all_settings()
@@ -1489,9 +1498,8 @@ class OspreyGUI(QMainWindow):
                 if isinstance(handler, GUIHandler):
                     handler.setLevel(desired_level)
 
-            # Apply settings to config for framework use
-            agent_control_defaults = configurable.get("agent_control_defaults", {})
-            agent_control_defaults.update(self.settings)
+            # Apply runtime overrides to config for framework use
+            agent_control_defaults = self.runtime_overrides.create_agent_control_defaults()
             configurable["agent_control_defaults"] = agent_control_defaults
 
             recursion_limit = get_config_value("execution_limits.graph_recursion_limit")
@@ -1977,10 +1985,9 @@ class OspreyGUI(QMainWindow):
             new_routing_settings = self.settings_manager.routing.__dict__.copy()
             routing_settings_changed = old_routing_settings != new_routing_settings
 
-            # Update base config with new settings
+            # Update base config with new runtime overrides
             if self.base_config:
-                agent_control_defaults = self.base_config["configurable"].get("agent_control_defaults", {})
-                agent_control_defaults.update(self.settings)
+                agent_control_defaults = self.runtime_overrides.create_agent_control_defaults()
                 self.base_config["configurable"]["agent_control_defaults"] = agent_control_defaults
 
                 # Apply development/debug settings to the configuration
@@ -2024,8 +2031,11 @@ class OspreyGUI(QMainWindow):
                     handler.setLevel(new_level)
                     logger.debug(f"Updated GUI handler level to {logging.getLevelName(new_level)}")
 
-            # Save settings to config.yml file for persistence
-            self._save_settings_to_config()
+            # Save GUI preferences to user's home directory
+            self._save_gui_preferences()
+
+            # Update runtime overrides (in-memory only, NOT written to disk)
+            self.runtime_overrides.set_overrides(self.settings)
 
             self.update_session_info()
             level_name = "DEBUG" if debug_mode else "INFO"
@@ -2063,31 +2073,41 @@ class OspreyGUI(QMainWindow):
         dialog.accepted.connect(on_settings_accepted)
         dialog.show()  # Show modeless dialog
 
-    def _save_settings_to_config(self):
-        """Save current settings back to the config.yml file for persistence."""
+    def _save_gui_preferences(self):
+        """Save GUI preferences to user's home directory.
+        
+        This saves ONLY user interface preferences (NOT execution behavior).
+        Execution behavior is handled by runtime overrides (in-memory only).
+        """
         try:
-            if not self.config_path:
-                logger.warning("No config path available, settings not saved to file")
-                return
-
-            from pathlib import Path
-            config_file = Path(self.config_path)
-
-            # Use SettingsManager's save method
-            if self.settings_manager.save_to_config(config_file):
-                logger.info(f"Settings saved to {config_file}")
+            # Extract GUI-specific preferences
+            gui_prefs = {
+                'use_persistent_conversations': self.settings_manager.gui.use_persistent_conversations,
+                'conversation_storage_mode': self.settings_manager.gui.conversation_storage_mode,
+                'redirect_output_to_gui': self.settings_manager.gui.redirect_output_to_gui,
+                'suppress_terminal_output': self.settings_manager.gui.suppress_terminal_output,
+                'group_system_messages': self.settings_manager.gui.group_system_messages,
+                'enable_routing_feedback': self.settings_manager.gui.enable_routing_feedback,
+                'memory_monitor_enabled': self.settings_manager.memory_monitor_enabled,
+                'memory_warning_threshold_mb': self.settings_manager.memory_warning_threshold_mb,
+                'memory_critical_threshold_mb': self.settings_manager.memory_critical_threshold_mb,
+                'memory_check_interval_seconds': self.settings_manager.memory_check_interval_seconds,
+            }
+            
+            # Update and save GUI preferences
+            self.gui_preferences.update(gui_prefs)
+            if self.gui_preferences.save_preferences():
+                logger.info(f"GUI preferences saved to {self.gui_preferences.preferences_path}")
             else:
-                logger.warning(f"Failed to save settings to {config_file}")
-                return
-
+                logger.warning("Failed to save GUI preferences")
 
         except Exception as e:
-            logger.error(f"Failed to save settings to config file: {e}")
+            logger.error(f"Failed to save GUI preferences: {e}")
             QMessageBox.warning(
                 self,
                 "Save Warning",
-                f"Settings applied but could not be saved to config file:\n{e}\n\n"
-                "Settings will be lost when GUI is restarted."
+                f"GUI preferences could not be saved:\n{e}\n\n"
+                "Preferences will be lost when GUI is restarted."
             )
 
     def show_help_dialog(self):

@@ -2,13 +2,17 @@
 Settings Manager for Osprey GUI
 
 Handles all GUI settings including:
-- Agent control settings
-- Approval settings
-- Execution limits
-- GUI preferences
-- Development/debug settings
-- Routing settings
-- Loading from and saving to config files
+- Agent control settings (runtime overrides)
+- Approval settings (runtime overrides)
+- Execution limits (runtime overrides)
+- GUI preferences (saved to ~/.osprey/gui_preferences.yml)
+- Development/debug settings (runtime overrides)
+- Routing settings (runtime overrides)
+
+IMPORTANT: This manager NO LONGER writes to project config.yml files.
+Instead, it uses:
+- GUIPreferences for user interface settings
+- RuntimeOverrideManager for execution behavior overrides
 """
 
 from dataclasses import dataclass
@@ -28,6 +32,7 @@ class AgentControlSettings:
     epics_writes_enabled: bool = False
     task_extraction_bypass_enabled: bool = False
     capability_selection_bypass_enabled: bool = False
+    parallel_execution_enabled: bool = False
 
 
 @dataclass
@@ -152,6 +157,7 @@ class SettingsManager:
             'epics_writes_enabled': self.agent_control.epics_writes_enabled,
             'task_extraction_bypass_enabled': self.agent_control.task_extraction_bypass_enabled,
             'capability_selection_bypass_enabled': self.agent_control.capability_selection_bypass_enabled,
+            'parallel_execution_enabled': self.agent_control.parallel_execution_enabled,
         })
 
         # Approval
@@ -235,6 +241,8 @@ class SettingsManager:
             self.agent_control.task_extraction_bypass_enabled = settings_dict['task_extraction_bypass_enabled']
         if 'capability_selection_bypass_enabled' in settings_dict:
             self.agent_control.capability_selection_bypass_enabled = settings_dict['capability_selection_bypass_enabled']
+        if 'parallel_execution_enabled' in settings_dict:
+            self.agent_control.parallel_execution_enabled = settings_dict['parallel_execution_enabled']
 
         # Approval
         if 'approval_global_mode' in settings_dict:
@@ -349,6 +357,7 @@ class SettingsManager:
             agent_control = config_data.get('execution_control', {}).get('agent_control', {})
             self.agent_control.task_extraction_bypass_enabled = agent_control.get('task_extraction_bypass_enabled', False)
             self.agent_control.capability_selection_bypass_enabled = agent_control.get('capability_selection_bypass_enabled', False)
+            self.agent_control.parallel_execution_enabled = agent_control.get('parallel_execution_enabled', False)
 
             epics = config_data.get('execution_control', {}).get('epics', {})
             self.agent_control.epics_writes_enabled = epics.get('writes_enabled', False)
@@ -434,157 +443,12 @@ class SettingsManager:
             logger.error(f"Failed to load settings from config: {e}")
             return False
 
-    def save_to_config(self, config_path: str) -> bool:
-        """
-        Save settings to a YAML config file.
-
-        Args:
-            config_path: Path to the config file
-
-        Returns:
-            True if successful, False otherwise
-        """
-        try:
-            config_file = Path(config_path)
-
-            # Read existing config
-            if config_file.exists():
-                with open(config_file, 'r') as f:
-                    config_data = yaml.safe_load(f) or {}
-            else:
-                config_data = {}
-
-            # Update execution_control section
-            if 'execution_control' not in config_data:
-                config_data['execution_control'] = {}
-
-            if 'agent_control' not in config_data['execution_control']:
-                config_data['execution_control']['agent_control'] = {}
-
-            config_data['execution_control']['agent_control']['task_extraction_bypass_enabled'] = self.agent_control.task_extraction_bypass_enabled
-            config_data['execution_control']['agent_control']['capability_selection_bypass_enabled'] = self.agent_control.capability_selection_bypass_enabled
-
-            if 'epics' not in config_data['execution_control']:
-                config_data['execution_control']['epics'] = {}
-
-            config_data['execution_control']['epics']['writes_enabled'] = self.agent_control.epics_writes_enabled
-
-            # Update approval section
-            if 'approval' not in config_data:
-                config_data['approval'] = {}
-
-            config_data['approval']['global_mode'] = self.approval.approval_global_mode
-
-            if 'capabilities' not in config_data['approval']:
-                config_data['approval']['capabilities'] = {}
-
-            if 'python_execution' not in config_data['approval']['capabilities']:
-                config_data['approval']['capabilities']['python_execution'] = {}
-
-            config_data['approval']['capabilities']['python_execution']['enabled'] = self.approval.python_execution_approval_enabled
-            config_data['approval']['capabilities']['python_execution']['mode'] = self.approval.python_execution_approval_mode
-
-            if 'memory' not in config_data['approval']['capabilities']:
-                config_data['approval']['capabilities']['memory'] = {}
-
-            config_data['approval']['capabilities']['memory']['enabled'] = self.approval.memory_approval_enabled
-
-            # Update execution limits
-            if 'limits' not in config_data['execution_control']:
-                config_data['execution_control']['limits'] = {}
-
-            config_data['execution_control']['limits']['max_reclassifications'] = self.execution_limits.max_reclassifications
-            config_data['execution_control']['limits']['max_planning_attempts'] = self.execution_limits.max_planning_attempts
-            config_data['execution_control']['limits']['max_step_retries'] = self.execution_limits.max_step_retries
-            config_data['execution_control']['limits']['max_execution_time_seconds'] = self.execution_limits.max_execution_time_seconds
-            config_data['execution_control']['limits']['max_concurrent_classifications'] = self.execution_limits.max_concurrent_classifications
-
-            # Update GUI section
-            if 'gui' not in config_data:
-                config_data['gui'] = {}
-
-            config_data['gui']['use_persistent_conversations'] = self.gui.use_persistent_conversations
-            config_data['gui']['conversation_storage_mode'] = self.gui.conversation_storage_mode
-            config_data['gui']['redirect_output_to_gui'] = self.gui.redirect_output_to_gui
-            config_data['gui']['group_system_messages'] = self.gui.group_system_messages
-            config_data['gui']['suppress_terminal_output'] = self.gui.suppress_terminal_output
-
-            # Update development section
-            if 'development' not in config_data:
-                config_data['development'] = {}
-
-            config_data['development']['debug'] = self.development.debug_mode
-            config_data['development']['raise_raw_errors'] = self.development.raise_raw_errors
-
-            if 'prompts' not in config_data['development']:
-                config_data['development']['prompts'] = {}
-
-            config_data['development']['prompts']['print_all'] = self.development.print_prompts
-            config_data['development']['prompts']['show_all'] = self.development.show_prompts
-            config_data['development']['prompts']['latest_only'] = self.development.prompts_latest_only
-
-            # Update routing section
-            if 'routing' not in config_data:
-                config_data['routing'] = {}
-
-            if 'cache' not in config_data['routing']:
-                config_data['routing']['cache'] = {}
-
-            config_data['routing']['cache']['enabled'] = self.routing.enable_routing_cache
-            config_data['routing']['cache']['max_size'] = self.routing.cache_max_size
-            config_data['routing']['cache']['ttl_seconds'] = self.routing.cache_ttl_seconds
-            config_data['routing']['cache']['similarity_threshold'] = self.routing.cache_similarity_threshold
-
-            if 'advanced_invalidation' not in config_data['routing']:
-                config_data['routing']['advanced_invalidation'] = {}
-
-            config_data['routing']['advanced_invalidation']['enabled'] = self.routing.enable_advanced_invalidation
-            config_data['routing']['advanced_invalidation']['adaptive_ttl'] = self.routing.enable_adaptive_ttl
-            config_data['routing']['advanced_invalidation']['probabilistic_expiration'] = self.routing.enable_probabilistic_expiration
-            config_data['routing']['advanced_invalidation']['event_driven'] = self.routing.enable_event_driven_invalidation
-
-            if 'semantic_analysis' not in config_data['routing']:
-                config_data['routing']['semantic_analysis'] = {}
-
-            config_data['routing']['semantic_analysis']['enabled'] = self.routing.enable_semantic_analysis
-            config_data['routing']['semantic_analysis']['similarity_threshold'] = self.routing.semantic_similarity_threshold
-            config_data['routing']['semantic_analysis']['topic_similarity_threshold'] = self.routing.topic_similarity_threshold
-            config_data['routing']['semantic_analysis']['max_context_history'] = self.routing.max_context_history
-
-            if 'orchestration' not in config_data['routing']:
-                config_data['routing']['orchestration'] = {}
-
-            config_data['routing']['orchestration']['max_parallel'] = self.routing.orchestration_max_parallel
-
-            if 'analytics' not in config_data['routing']:
-                config_data['routing']['analytics'] = {}
-
-            config_data['routing']['analytics']['max_history'] = self.routing.analytics_max_history
-
-            if 'feedback' not in config_data['routing']:
-                config_data['routing']['feedback'] = {}
-
-            config_data['routing']['feedback']['enabled'] = self.gui.enable_routing_feedback
-
-            # Update memory monitoring section
-            if 'memory_monitoring' not in config_data:
-                config_data['memory_monitoring'] = {}
-
-            config_data['memory_monitoring']['enabled'] = self.memory_monitor_enabled
-            config_data['memory_monitoring']['warning_threshold_mb'] = self.memory_warning_threshold_mb
-            config_data['memory_monitoring']['critical_threshold_mb'] = self.memory_critical_threshold_mb
-            config_data['memory_monitoring']['check_interval_seconds'] = self.memory_check_interval_seconds
-
-            # Write back to file
-            with open(config_file, 'w') as f:
-                yaml.dump(config_data, f, default_flow_style=False, sort_keys=False, indent=2)
-
-            logger.info(f"Saved settings to {config_file}")
-            return True
-
-        except Exception as e:
-            logger.error(f"Failed to save settings to config: {e}")
-            return False
+    # REMOVED: save_to_config() method
+    # Settings are NO LONGER written to project config.yml files.
+    # Instead:
+    # - GUI preferences are saved to ~/.osprey/gui_preferences.yml via GUIPreferences
+    # - Runtime overrides are stored in memory via RuntimeOverrideManager
+    # This prevents version control pollution and multi-project conflicts.
 
     def get(self, key: str, default: Any = None) -> Any:
         """
