@@ -367,12 +367,14 @@ class ProjectContextManager:
         """Ensure project_root in config matches actual project location.
 
         This fixes issues when projects are moved on the filesystem.
+        
+        IMPORTANT: This method NO LONGER writes to config.yml files.
+        Instead, it only updates the in-memory configuration to use the
+        correct runtime project path.
 
         Args:
             context: Project context to validate
         """
-        import yaml
-
         runtime_project_root = str(context.project_path.resolve())
         config_project_root = context.config_builder.raw_config.get('project_root')
 
@@ -383,36 +385,27 @@ class ProjectContextManager:
             else None
         )
 
-        # Update if missing or incorrect
+        # Update in-memory config if missing or incorrect
         if not config_project_root or config_project_root_normalized != runtime_project_root:
             if config_project_root:
                 self.logger.info(
-                    f"Updating project_root for {context.project_name}:\n"
-                    f"  Old: {config_project_root}\n"
-                    f"  New: {runtime_project_root}"
+                    f"Runtime override for {context.project_name} project_root:\n"
+                    f"  Config: {config_project_root}\n"
+                    f"  Runtime: {runtime_project_root}"
                 )
             else:
                 self.logger.info(
-                    f"Adding missing project_root for {context.project_name}: "
+                    f"Setting runtime project_root for {context.project_name}: "
                     f"{runtime_project_root}"
                 )
 
-            # Update in-memory config
+            # Update ONLY in-memory config (DO NOT write to file)
             context.config_builder.raw_config['project_root'] = runtime_project_root
 
             # Rebuild configurable with corrected project_root
             context.config_builder.configurable = context.config_builder._build_configurable()
 
-            # Write back to file
-            try:
-                with open(context.config_path, 'w') as f:
-                    yaml.dump(
-                        context.config_builder.raw_config,
-                        f,
-                        default_flow_style=False,
-                        sort_keys=False
-                    )
-                self.logger.debug(f"Updated config file: {context.config_path}")
-            except Exception as e:
-                self.logger.warning(f"Failed to update config file: {e}")
-                # Continue - in-memory config is correct
+            self.logger.debug(
+                f"Updated in-memory project_root for {context.project_name} "
+                f"(config.yml NOT modified)"
+            )
