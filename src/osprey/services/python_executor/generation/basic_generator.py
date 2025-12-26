@@ -115,7 +115,21 @@ class BasicLLMCodeGenerator:
             else:
                 # No config provided - use default
                 logger.info("No model config provided, using default 'python_code_generator'")
-                self._model_config = get_model_config("python_code_generator")
+                cfg = get_model_config("python_code_generator")
+                if not cfg or not cfg.get("provider"):
+                    logger.warning("models.python_code_generator missing or incomplete; falling back to response/orchestrator config")
+                    for fallback_name in ("response", "orchestrator"):
+                        fallback_cfg = get_model_config(fallback_name)
+                        if fallback_cfg and fallback_cfg.get("provider"):
+                            cfg = fallback_cfg
+                            logger.info(f"Using fallback model config: {fallback_name}")
+                            break
+                if not cfg or not cfg.get("provider"):
+                    raise ValueError(
+                        "No valid model configuration found for python code generation. "
+                        "Please set models.python_code_generator in config.yml."
+                    )
+                self._model_config = cfg
         return self._model_config
 
     async def generate_code(

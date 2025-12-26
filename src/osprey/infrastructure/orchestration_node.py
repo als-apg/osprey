@@ -101,8 +101,18 @@ def _validate_and_fix_execution_plan(
 
     # If hallucinated capabilities found, trigger re-planning
     if hallucinated_capabilities:
-        error_msg = f"Orchestrator hallucinated non-existent capabilities: {hallucinated_capabilities}. Available capabilities: {registry.get_stats()['capability_names']}"
+        available_caps = registry.get_stats()['capability_names']
+        error_msg = (
+            f"Orchestrator hallucinated non-existent capabilities: {hallucinated_capabilities}. "
+            f"Available capabilities: {available_caps}. "
+            f"This typically occurs when the LLM tries to use capabilities that don't exist in the current project. "
+            f"The system will automatically retry with reclassification."
+        )
         logger.error(error_msg)
+        logger.warning(
+            f"Hallucinated capabilities detected. The orchestrator attempted to use {hallucinated_capabilities} "
+            f"which are not registered in this project. This will trigger automatic reclassification."
+        )
         raise ValueError(error_msg)
 
     logger.debug("✅ All capabilities in execution plan exist in registry")

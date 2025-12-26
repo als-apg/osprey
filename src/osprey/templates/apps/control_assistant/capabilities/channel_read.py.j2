@@ -102,7 +102,18 @@ class ChannelReadCapability(BaseCapability):
 
         # Get unified logger with automatic streaming
         logger = self.get_logger()
+<<<<<<<< HEAD:src/osprey/templates/apps/control_assistant/capabilities/channel_read.py.j2
         logger.status("Starting channel read operation...")
+========
+
+        # Some logger implementations support `status()`, but a standard logging.Logger does not.
+        # Use a safe fallback to INFO when `status` is unavailable.
+        status_message = "Starting channel value retrieval..."
+        if hasattr(logger, "status"):
+            logger.status(status_message)
+        else:
+            logger.info(status_message)
+>>>>>>>> aps/main:aps-control-assistant/src/aps_control_assistant/capabilities/channel_value_retrieval.py
 
         # Extract channel addresses from execution context
         try:
@@ -110,7 +121,11 @@ class ChannelReadCapability(BaseCapability):
         except ValueError as e:
             raise ChannelDependencyError(str(e))
 
-        logger.status(f"Reading {len(channels_to_read)} channel values...")
+        status_message = f"Reading {len(channels_to_read)} channel values..."
+        if hasattr(logger, "status"):
+            logger.status(status_message)
+        else:
+            logger.info(status_message)
 
         # Create control system connector from configuration
         # This will use 'mock' for development or 'epics' for production
@@ -123,7 +138,11 @@ class ChannelReadCapability(BaseCapability):
             total_channels = len(channels_to_read)
 
             for i, channel_address in enumerate(channels_to_read):
-                logger.status(f"Reading channel {i+1}/{total_channels}: {channel_address}")
+                status_message = f"Reading channel {i+1}/{total_channels}: {channel_address}"
+                if hasattr(logger, "status"):
+                    logger.status(status_message)
+                else:
+                    logger.info(status_message)
 
                 try:
                     # Read channel using connector (returns ChannelValue with metadata)
@@ -147,7 +166,15 @@ class ChannelReadCapability(BaseCapability):
         # Create structured result
         result = ChannelValuesContext(channel_values=channel_values)
 
+<<<<<<<< HEAD:src/osprey/templates/apps/control_assistant/capabilities/channel_read.py.j2
         logger.status(f"Successfully read {result.channel_count} channel values")
+========
+        status_message = f"Successfully retrieved {result.channel_count} channel values"
+        if hasattr(logger, "status"):
+            logger.status(status_message)
+        else:
+            logger.info(status_message)
+>>>>>>>> aps/main:aps-control-assistant/src/aps_control_assistant/capabilities/channel_value_retrieval.py
 
         logger.info(f"Channel read result: {result.channel_count} channels read")
 

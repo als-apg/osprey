@@ -114,6 +114,9 @@ valves.json
 # Agent data directories
 _agent_data/*
 
+# GUI runtime data (auto-generated)
+src/osprey/_gui_data/
+
 # Auto-generated documentation
 _autosummary/
 
@@ -129,3 +132,7 @@ CLAUDE.md
 weather-agent/
 my-control-assistant/
 my-agent/
+
+# Agent application directories (development/example projects)
+aps-control-assistant/
+mps-agent/
