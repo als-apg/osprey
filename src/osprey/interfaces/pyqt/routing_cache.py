@@ -13,11 +13,11 @@ Key Features:
 - Advanced invalidation strategies (event-driven, probabilistic)
 """
 
-from dataclasses import dataclass
-from typing import List, Optional, Tuple
+import re
 import time
 from collections import OrderedDict
-import re
+from dataclasses import dataclass
+from typing import List, Tuple
 
 from osprey.utils.logger import get_logger
 from osprey.interfaces.pyqt.advanced_cache_invalidation import (
@@ -120,7 +120,7 @@ class RoutingCache:
         self,
         query: str,
         enabled_projects: List[str]
-    ) -> Optional[CachedRoutingDecision]:
+    ) -> CachedRoutingDecision | None:
         """Get cached routing decision for query.
 
         Args:
@@ -432,7 +432,7 @@ class RoutingCache:
         normalized_query: str,
         projects_key: str,
         enabled_projects: List[str]
-    ) -> Optional[Tuple[CachedRoutingDecision, float]]:
+    ) -> tuple[CachedRoutingDecision, float] | None:
         """Find similar cache entry using text similarity.
 
         Args:

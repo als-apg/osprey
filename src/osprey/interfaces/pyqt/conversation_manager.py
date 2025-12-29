@@ -9,10 +9,10 @@ Handles conversation history management including:
 
 import json
 import uuid
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Any
-from dataclasses import dataclass, field
+from typing import Any, Dict, List
 
 from osprey.utils.logger import get_logger
 
@@ -25,7 +25,7 @@ class ConversationMessage:
     type: str  # 'user' or 'agent'
     content: str
     timestamp: datetime = field(default_factory=datetime.now)
-    formatting: Optional[str] = None  # 'orchestrated' or None for special formatting
+    formatting: str | None = None  # 'orchestrated' or None for special formatting
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -119,9 +119,9 @@ class ConversationManager:
         """
         self.storage_mode = storage_mode
         self.conversations: Dict[str, Conversation] = {}
-        self.current_conversation_id: Optional[str] = None
+        self.current_conversation_id: str | None = None
 
-    def create_conversation(self, name: Optional[str] = None) -> str:
+    def create_conversation(self, name: str | None = None) -> str:
         """
         Create a new conversation.
 
@@ -150,11 +150,11 @@ class ConversationManager:
         logger.info(f"Created new conversation: {name} ({thread_id})")
         return thread_id
 
-    def get_conversation(self, thread_id: str) -> Optional[Conversation]:
+    def get_conversation(self, thread_id: str) -> Conversation | None:
         """Get a conversation by thread ID."""
         return self.conversations.get(thread_id)
 
-    def get_current_conversation(self) -> Optional[Conversation]:
+    def get_current_conversation(self) -> Conversation | None:
         """Get the current active conversation."""
         if self.current_conversation_id:
             return self.conversations.get(self.current_conversation_id)
@@ -230,7 +230,7 @@ class ConversationManager:
         logger.info(f"Renamed conversation: '{old_name}' → '{new_name}'")
         return True
 
-    def add_message(self, thread_id: str, message_type: str, content: str, formatting: Optional[str] = None) -> bool:
+    def add_message(self, thread_id: str, message_type: str, content: str, formatting: str | None = None) -> bool:
         """
         Add a message to a conversation.
 

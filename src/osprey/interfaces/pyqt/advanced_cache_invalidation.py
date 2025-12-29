@@ -247,7 +247,7 @@ class EventDrivenInvalidator:
             metadata.access_count += 1
             metadata.last_access = time.time()
 
-    def get_metadata(self, cache_key: str) -> Optional[CacheEntryMetadata]:
+    def get_metadata(self, cache_key: str) -> CacheEntryMetadata | None:
         """Get metadata for a cache entry.
 
         Args:
@@ -432,8 +432,8 @@ class AdvancedCacheInvalidationManager:
         self,
         cache_key: str,
         access_count: int = 0,
-        last_access: Optional[float] = None,
-        created_at: Optional[float] = None
+        last_access: float | None = None,
+        created_at: float | None = None
     ) -> float:
         """Calculate TTL for a cache entry.
 
@@ -459,7 +459,7 @@ class AdvancedCacheInvalidationManager:
         self,
         cache_key: str,
         expiry_time: float,
-        last_access: Optional[float] = None
+        last_access: float | None = None
     ) -> bool:
         """Determine if cache entry should be refreshed.
 

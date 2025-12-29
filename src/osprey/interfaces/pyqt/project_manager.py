@@ -14,7 +14,8 @@ Key Features:
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Set
+
 import yaml
 
 from osprey.utils.logger import get_logger
@@ -34,7 +35,7 @@ class ProjectMetadata:
     config_path: Path
     description: str
     version: str
-    author: Optional[str] = None
+    author: str | None = None
     tags: List[str] = field(default_factory=list)
 
 
@@ -207,7 +208,7 @@ class ProjectManager:
             self.logger.error(f"Failed to load project {project_name}: {e}")
             raise ProjectLoadError(f"Failed to load project {project_name}") from e
 
-    def get_project(self, project_name: str) -> Optional[IsolatedProjectContext]:
+    def get_project(self, project_name: str) -> IsolatedProjectContext | None:
         """Get a loaded project context.
 
         Args:
