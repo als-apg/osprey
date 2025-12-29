@@ -13,13 +13,13 @@ Key Features:
 - Query similarity matching
 """
 
-from dataclasses import dataclass
-from typing import List, Dict, Optional, Tuple
-from datetime import datetime
-from collections import defaultdict, Counter
-from pathlib import Path
-import time
 import json
+import time
+from collections import Counter, defaultdict
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Tuple
 
 from osprey.utils.logger import get_logger
 from osprey.interfaces.pyqt.gui_utils import get_gui_data_dir
@@ -35,9 +35,9 @@ class FeedbackRecord:
     selected_project: str
     confidence: float
     user_feedback: str  # "correct" or "incorrect"
-    correct_project: Optional[str] = None  # If incorrect, what should it be
+    correct_project: str | None = None  # If incorrect, what should it be
     reasoning: str = ""
-    session_id: Optional[str] = None
+    session_id: str | None = None
 
 
 @dataclass
@@ -66,7 +66,7 @@ class RoutingFeedback:
         self,
         max_history: int = 1000,
         enable_persistence: bool = True,
-        persistence_path: Optional[Path] = None,
+        persistence_path: Path | None = None,
         learning_threshold: int = 2  # Min feedback count to establish pattern
     ):
         """Initialize routing feedback system.
@@ -127,9 +127,9 @@ class RoutingFeedback:
         selected_project: str,
         confidence: float,
         user_feedback: str,
-        correct_project: Optional[str] = None,
+        correct_project: str | None = None,
         reasoning: str = "",
-        session_id: Optional[str] = None
+        session_id: str | None = None
     ):
         """Record user feedback on a routing decision.
 
@@ -415,7 +415,7 @@ class RoutingFeedback:
     def _find_similar_query_adjustment(
         self,
         query: str
-    ) -> Optional[Tuple[str, float, str]]:
+    ) -> tuple[str, float, str] | None:
         """Find adjustment based on similar queries.
 
         Args:

@@ -14,9 +14,9 @@ Key Features:
 - Conversation-aware routing with topic detection
 """
 
-from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any, TYPE_CHECKING
 import time
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Dict, List
 
 from osprey.utils.logger import get_logger
 from osprey.interfaces.pyqt.llm_client import SimpleLLMClient
@@ -42,7 +42,7 @@ logger = get_logger("multi_project_router")
 class RoutingDecision:
     """Result of routing decision."""
     project_name: str
-    capability_name: Optional[str] = None
+    capability_name: str | None = None
     confidence: float = 0.0
     reasoning: str = ""
     alternative_projects: List[str] = field(default_factory=list)
@@ -498,7 +498,7 @@ class MultiProjectRouter:
         """Check if router is in automatic mode."""
         return self.routing_mode == "automatic"
 
-    def get_cache_statistics(self) -> Optional[CacheStatistics]:
+    def get_cache_statistics(self) -> CacheStatistics | None:
         """Get cache statistics.
 
         Returns:
@@ -598,7 +598,7 @@ class MultiProjectRouter:
 
         return self.orchestrator.analyze_query(query, available_projects)
 
-    def get_analytics(self) -> Optional['RoutingAnalytics']:
+    def get_analytics(self) -> 'RoutingAnalytics' | None:
         """Get routing analytics instance.
 
         Returns:
@@ -626,7 +626,7 @@ class MultiProjectRouter:
         selected_project: str,
         confidence: float,
         user_feedback: str,
-        correct_project: Optional[str] = None,
+        correct_project: str | None = None,
         reasoning: str = ""
     ):
         """Record user feedback on a routing decision.

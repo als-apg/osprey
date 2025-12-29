@@ -15,9 +15,10 @@ Key Features:
 import math
 import random
 import time
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Callable
 from collections import defaultdict
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Optional
 
 from osprey.utils.logger import get_logger
 
@@ -34,7 +35,7 @@ class CacheEntryMetadata:
     created_at: float = field(default_factory=time.time)
     base_ttl: float = 3600.0
     adaptive_ttl: float = 3600.0
-    dependencies: Set[str] = field(default_factory=set)  # Capability names, config keys, etc.
+    dependencies: set[str] = field(default_factory=set)  # Capability names, config keys, etc.
 
 
 class AdaptiveTTLStrategy:
@@ -192,12 +193,12 @@ class EventDrivenInvalidator:
 
     def __init__(self):
         """Initialize event-driven invalidator."""
-        self.metadata: Dict[str, CacheEntryMetadata] = {}
-        self.project_entries: Dict[str, Set[str]] = defaultdict(set)
-        self.capability_entries: Dict[str, Set[str]] = defaultdict(set)
+        self.metadata: dict[str, CacheEntryMetadata] = {}
+        self.project_entries: dict[str, set[str]] = defaultdict(set)
+        self.capability_entries: dict[str, set[str]] = defaultdict(set)
 
         # Event listeners
-        self.invalidation_listeners: List[Callable[[str], None]] = []
+        self.invalidation_listeners: list[Callable[[str], None]] = []
 
         logger.info("Initialized EventDrivenInvalidator")
 
@@ -205,7 +206,7 @@ class EventDrivenInvalidator:
         self,
         cache_key: str,
         project_id: str,
-        capabilities: List[str],
+        capabilities: list[str],
         base_ttl: float = 3600.0
     ):
         """Register a cache entry for event-driven invalidation.
@@ -246,7 +247,7 @@ class EventDrivenInvalidator:
             metadata.access_count += 1
             metadata.last_access = time.time()
 
-    def get_metadata(self, cache_key: str) -> Optional[CacheEntryMetadata]:
+    def get_metadata(self, cache_key: str) -> CacheEntryMetadata | None:
         """Get metadata for a cache entry.
 
         Args:
@@ -257,7 +258,7 @@ class EventDrivenInvalidator:
         """
         return self.metadata.get(cache_key)
 
-    def on_config_change(self, project_id: str) -> Set[str]:
+    def on_config_change(self, project_id: str) -> set[str]:
         """Invalidate cache entries when project configuration changes.
 
         Args:
@@ -283,7 +284,7 @@ class EventDrivenInvalidator:
 
         return keys_to_invalidate
 
-    def on_capability_update(self, capability_name: str) -> Set[str]:
+    def on_capability_update(self, capability_name: str) -> set[str]:
         """Invalidate cache entries when a capability is updated.
 
         Args:
@@ -309,7 +310,7 @@ class EventDrivenInvalidator:
 
         return keys_to_invalidate
 
-    def invalidate_pattern(self, pattern: str) -> Set[str]:
+    def invalidate_pattern(self, pattern: str) -> set[str]:
         """Invalidate cache entries matching a pattern.
 
         Args:
@@ -431,8 +432,8 @@ class AdvancedCacheInvalidationManager:
         self,
         cache_key: str,
         access_count: int = 0,
-        last_access: Optional[float] = None,
-        created_at: Optional[float] = None
+        last_access: float | None = None,
+        created_at: float | None = None
     ) -> float:
         """Calculate TTL for a cache entry.
 
@@ -458,7 +459,7 @@ class AdvancedCacheInvalidationManager:
         self,
         cache_key: str,
         expiry_time: float,
-        last_access: Optional[float] = None
+        last_access: float | None = None
     ) -> bool:
         """Determine if cache entry should be refreshed.
 
@@ -487,7 +488,7 @@ class AdvancedCacheInvalidationManager:
         self,
         cache_key: str,
         project_id: str,
-        capabilities: List[str]
+        capabilities: list[str]
     ):
         """Register a cache entry for event-driven invalidation.
 
@@ -513,7 +514,7 @@ class AdvancedCacheInvalidationManager:
         if self.event_driven:
             self.event_driven.update_access(cache_key)
 
-    def invalidate_project(self, project_id: str) -> Set[str]:
+    def invalidate_project(self, project_id: str) -> set[str]:
         """Invalidate all cache entries for a project.
 
         Args:
@@ -526,7 +527,7 @@ class AdvancedCacheInvalidationManager:
             return self.event_driven.on_config_change(project_id)
         return set()
 
-    def invalidate_capability(self, capability_name: str) -> Set[str]:
+    def invalidate_capability(self, capability_name: str) -> set[str]:
         """Invalidate cache entries using a specific capability.
 
         Args:
@@ -539,7 +540,7 @@ class AdvancedCacheInvalidationManager:
             return self.event_driven.on_capability_update(capability_name)
         return set()
 
-    def invalidate_pattern(self, pattern: str) -> Set[str]:
+    def invalidate_pattern(self, pattern: str) -> set[str]:
         """Invalidate cache entries matching a pattern.
 
         Args:

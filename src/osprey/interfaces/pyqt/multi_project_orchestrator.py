@@ -12,11 +12,11 @@ Key Features:
 - Progress tracking and status updates
 """
 
-from dataclasses import dataclass, field
-from enum import Enum
-from typing import List, Dict, Optional, Any, TYPE_CHECKING
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import TYPE_CHECKING, Any, Dict, List
 
 from osprey.utils.logger import get_logger
 from osprey.interfaces.pyqt.llm_client import SimpleLLMClient
@@ -44,8 +44,8 @@ class SubQuery:
     index: int
     dependencies: List[int] = field(default_factory=list)
     status: SubQueryStatus = SubQueryStatus.PENDING
-    result: Optional[str] = None
-    error: Optional[str] = None
+    result: str | None = None
+    error: str | None = None
     execution_time: float = 0.0
     confidence: float = 0.0
 
@@ -70,7 +70,7 @@ class OrchestrationResult:
     individual_results: Dict[int, str] = field(default_factory=dict)
     total_execution_time: float = 0.0
     success: bool = True
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class MultiProjectOrchestrator:
@@ -86,7 +86,7 @@ class MultiProjectOrchestrator:
 
     def __init__(
         self,
-        llm_config: Optional[Dict[str, Any]] = None,
+        llm_config: Dict[str, Any] | None = None,
         max_parallel_executions: int = 3,
         enable_dependency_detection: bool = True
     ):
@@ -183,7 +183,7 @@ class MultiProjectOrchestrator:
         self,
         plan: OrchestrationPlan,
         project_contexts: Dict[str, 'ProjectContext'],
-        progress_callback: Optional[callable] = None
+        progress_callback: callable | None = None
     ) -> OrchestrationResult:
         """Execute an orchestration plan.
 
@@ -496,7 +496,7 @@ Respond now:"""
         self,
         plan: OrchestrationPlan,
         project_contexts: Dict[str, 'ProjectContext'],
-        progress_callback: Optional[callable] = None
+        progress_callback: callable | None = None
     ) -> Dict[int, str]:
         """Execute sub-queries according to plan.
 
@@ -530,7 +530,7 @@ Respond now:"""
         stage_indices: List[int],
         sub_queries: List[SubQuery],
         project_contexts: Dict[str, 'ProjectContext'],
-        progress_callback: Optional[callable] = None
+        progress_callback: callable | None = None
     ) -> Dict[int, str]:
         """Execute a stage of sub-queries in parallel.
 
@@ -582,7 +582,7 @@ Respond now:"""
         self,
         sub_query: SubQuery,
         project_contexts: Dict[str, 'ProjectContext'],
-        progress_callback: Optional[callable] = None
+        progress_callback: callable | None = None
     ) -> str:
         """Execute a single sub-query.
 

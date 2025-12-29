@@ -12,15 +12,23 @@ Key Features:
 - Real-time updates
 """
 
-from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget,
-    QTableWidgetItem, QPushButton, QGroupBox, QScrollArea,
-    QHeaderView, QComboBox
-)
-from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QFont, QColor
+from typing import TYPE_CHECKING, Optional
 
-from typing import Optional, TYPE_CHECKING
+from PyQt5.QtCore import QTimer, Qt
+from PyQt5.QtGui import QColor, QFont
+from PyQt5.QtWidgets import (
+    QComboBox,
+    QGroupBox,
+    QHeaderView,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 if TYPE_CHECKING:
     from osprey.interfaces.pyqt.routing_analytics import RoutingAnalytics
@@ -219,7 +227,7 @@ class AnalyticsDashboard(QWidget):
     def _create_metric_card(self, title: str, value: str, color: str) -> QWidget:
         """Create a metric card widget."""
         card = QWidget()
-        card.setStyleSheet(f"""
+        card.setStyleSheet("""
             QWidget {{
                 background-color: #2D2D30;
                 border: 1px solid #3F3F46;
@@ -406,7 +414,7 @@ class AnalyticsDashboard(QWidget):
         except Exception as e:
             self.logger.error(f"Failed to refresh dashboard: {e}")
 
-    def _get_time_range_hours(self) -> Optional[float]:
+    def _get_time_range_hours(self) -> float | None:
         """Get selected time range in hours."""
         index = self.time_range_combo.currentIndex()
 
@@ -554,8 +562,9 @@ class AnalyticsDashboard(QWidget):
 
     def export_metrics(self):
         """Export metrics to file."""
-        from PyQt5.QtWidgets import QFileDialog
         from pathlib import Path
+
+        from PyQt5.QtWidgets import QFileDialog
 
         filepath, _ = QFileDialog.getSaveFileName(
             self,

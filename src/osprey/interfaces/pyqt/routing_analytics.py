@@ -13,13 +13,13 @@ Key Features:
 - Dashboard data generation
 """
 
-from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Any, Tuple
-from collections import Counter, defaultdict
-from datetime import datetime
-import time
 import json
+import time
+from collections import Counter, defaultdict
+from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
+from typing import Any, Dict, List, Tuple
 
 from osprey.utils.logger import get_logger
 from osprey.interfaces.pyqt.gui_utils import get_gui_data_dir
@@ -74,7 +74,7 @@ class RoutingAnalytics:
         self,
         max_history: int = 1000,
         enable_persistence: bool = True,
-        persistence_path: Optional[Path] = None
+        persistence_path: Path | None = None
     ):
         """Initialize routing analytics.
 
@@ -135,7 +135,7 @@ class RoutingAnalytics:
         reasoning: str = "",
         alternative_projects: List[str] = None,
         success: bool = True,
-        error: Optional[str] = None
+        error: str | None = None
     ):
         """Record a routing decision.
 
@@ -197,7 +197,7 @@ class RoutingAnalytics:
 
     def get_summary(
         self,
-        time_range_hours: Optional[float] = None
+        time_range_hours: float | None = None
     ) -> AnalyticsSummary:
         """Get analytics summary.
 

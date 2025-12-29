@@ -12,11 +12,12 @@ Key Features:
 - Context relevance scoring
 """
 
-import numpy as np
-from dataclasses import dataclass, field
-from typing import Optional, List, Tuple
-from collections import defaultdict
 import time
+from collections import defaultdict
+from dataclasses import dataclass, field
+from typing import List, Tuple
+
+import numpy as np
 
 from osprey.utils.logger import get_logger
 
@@ -38,10 +39,10 @@ except ImportError:
 class SemanticQuery:
     """Query with semantic embedding."""
     text: str
-    embedding: Optional[np.ndarray] = None
+    embedding: np.ndarray | None = None
     timestamp: float = field(default_factory=time.time)
-    project: Optional[str] = None
-    intent: Optional[str] = None
+    project: str | None = None
+    intent: str | None = None
 
 
 @dataclass
@@ -163,7 +164,7 @@ class IntentRecognizer:
         """Initialize intent recognizer."""
         logger.info("Initialized IntentRecognizer")
 
-    def recognize_intent(self, query: str, context: Optional[List[str]] = None) -> str:
+    def recognize_intent(self, query: str, context: List[str] | None = None) -> str:
         """Recognize intent from query.
 
         Args:
@@ -335,7 +336,7 @@ class SemanticContextAnalyzer:
 
         return relevant
 
-    def get_current_topic(self) -> Optional[TopicCluster]:
+    def get_current_topic(self) -> TopicCluster | None:
         """Get current active topic cluster.
 
         Returns:
