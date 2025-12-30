@@ -32,7 +32,7 @@ Usage:
 """
 
 import logging
-from typing import Optional, Callable
+from collections.abc import Callable
 from typing import Any
 
 from rich.console import Console
@@ -41,46 +41,46 @@ from rich.logging import RichHandler
 from osprey.utils.config import get_config_value
 
 # Global GUI output callback - set by GUI when it starts
-_gui_output_callback: Optional[Callable[[str], None]] = None
+_gui_output_callback: Callable[[str], None] | None = None
 
 
-def set_gui_output_callback(callback: Optional[Callable[[str], None]], suppress_terminal: bool = True) -> None:
+def set_gui_output_callback(callback: Callable[[str], None] | None, suppress_terminal: bool = True) -> None:
     """
     Set a callback function to redirect logging output to GUI.
-    
+
     This allows the PyQt GUI to capture all logging output and display it
     in the System Information tab instead of (or in addition to) the terminal.
-    
+
     Args:
         callback: Function that takes a string and displays it in the GUI.
                  Set to None to disable GUI output redirection.
         suppress_terminal: If True, disable terminal output when GUI is active.
                           If False, output to both GUI and terminal.
-    
+
     Example:
         # In GUI initialization:
         set_gui_output_callback(lambda msg: gui.append_to_system_info(msg))
-        
+
         # To disable:
         set_gui_output_callback(None)
     """
     global _gui_output_callback
     _gui_output_callback = callback
-    
+
     # Dynamically add or remove GUI handler from root logger
     root_logger = logging.getLogger()
-    
+
     # Remove any existing GUI handlers
     for handler in root_logger.handlers[:]:  # Use slice to avoid modification during iteration
         if isinstance(handler, GUIHandler):
             root_logger.removeHandler(handler)
-    
+
     # Add new GUI handler if callback is provided
     if callback is not None:
         # Get the current root logger level to respect existing configuration
         # The GUI handler will match whatever level is configured
         current_level = root_logger.level if root_logger.level != logging.NOTSET else logging.INFO
-        
+
         # Create GUI handler at the same level as root logger
         gui_handler = GUIHandler(callback, level=current_level)
         # Use a formatter that matches terminal output format
@@ -89,10 +89,10 @@ def set_gui_output_callback(callback: Optional[Callable[[str], None]], suppress_
                                      datefmt='%m/%d/%Y %I:%M:%S %p')
         gui_handler.setFormatter(formatter)
         root_logger.addHandler(gui_handler)
-        
+
         # Don't force DEBUG level - respect the configured level from config file
         # The level should be set by _setup_rich_logging based on development.debug config
-        
+
         # Optionally suppress terminal output when GUI is active
         if suppress_terminal:
             # Remove ALL handlers except the GUI handler to completely suppress terminal output
@@ -100,7 +100,7 @@ def set_gui_output_callback(callback: Optional[Callable[[str], None]], suppress_
             for handler in root_logger.handlers[:]:
                 if not isinstance(handler, GUIHandler):
                     handlers_to_remove.append(handler)
-            
+
             for handler in handlers_to_remove:
                 root_logger.removeHandler(handler)
     else:
@@ -115,26 +115,26 @@ def set_gui_output_callback(callback: Optional[Callable[[str], None]], suppress_
 class GUIHandler(logging.Handler):
     """
     Custom logging handler that redirects output to GUI System Information tab.
-    
+
     This handler captures all log messages and sends them to the GUI via a callback
     function, allowing the GUI to display terminal output in its interface.
     """
-    
+
     def __init__(self, callback: Callable[[str], None], level=logging.NOTSET):
         """
         Initialize GUI handler.
-        
+
         Args:
             callback: Function to call with formatted log messages
             level: Minimum logging level to handle
         """
         super().__init__(level)
         self.callback = callback
-        
+
     def emit(self, record: logging.LogRecord) -> None:
         """
         Emit a log record to the GUI.
-        
+
         Args:
             record: The log record to emit
         """
@@ -488,13 +488,13 @@ def _setup_rich_logging(level: int = logging.INFO) -> None:
     # Prevent duplicate handler registration for consistent logging behavior
     has_rich_handler = False
     has_gui_handler = False
-    
+
     for handler in root_logger.handlers:
         if isinstance(handler, RichHandler):
             has_rich_handler = True
         if isinstance(handler, GUIHandler):
             has_gui_handler = True
-    
+
     # If we already have a RichHandler, don't reconfigure
     if has_rich_handler:
         return
