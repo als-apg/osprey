@@ -6,10 +6,10 @@ in the conversation display, with support for agent-specific plot directories.
 
 import re
 from pathlib import Path
-from typing import Optional
-from PyQt5.QtWidgets import QLabel, QVBoxLayout, QWidget, QPushButton, QDialog
-from PyQt5.QtGui import QPixmap, QCursor
+
 from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtGui import QCursor, QPixmap
+from PyQt5.QtWidgets import QDialog, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from osprey.utils.logger import get_logger
 
@@ -36,7 +36,9 @@ class ImageViewerDialog(QDialog):
         max_width = 1200
         max_height = 900
         if pixmap.width() > max_width or pixmap.height() > max_height:
-            pixmap = pixmap.scaled(max_width, max_height, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            pixmap = pixmap.scaled(
+                max_width, max_height, Qt.KeepAspectRatio, Qt.SmoothTransformation
+            )
 
         image_label.setPixmap(pixmap)
         image_label.setAlignment(Qt.AlignCenter)
@@ -71,14 +73,14 @@ class ImageDisplayHandler:
 
     # Patterns to detect image references in messages
     IMAGE_PATH_PATTERNS = [
-        r'(?:at|File|Plot|Image|path|saved at):\s*([^\s]+\.(?:png|jpg|jpeg|gif|svg))',  # "at path/to/image.png" or "File: path/to/image.png"
-        r'([^\s]*_agent_data/plots/[^\s]+\.(?:png|jpg|jpeg|gif))',  # Direct path to plots (with or without prefix)
-        r'`([^`]+\.(?:png|jpg|jpeg|gif|svg))`',  # Backtick-wrapped paths
-        r'saved (?:at|to)\s+([^\s]+\.(?:png|jpg|jpeg|gif|svg))',  # "saved at path/to/image.png"
+        r"(?:at|File|Plot|Image|path|saved at):\s*([^\s]+\.(?:png|jpg|jpeg|gif|svg))",  # "at path/to/image.png" or "File: path/to/image.png"
+        r"([^\s]*_agent_data/plots/[^\s]+\.(?:png|jpg|jpeg|gif))",  # Direct path to plots (with or without prefix)
+        r"`([^`]+\.(?:png|jpg|jpeg|gif|svg))`",  # Backtick-wrapped paths
+        r"saved (?:at|to)\s+([^\s]+\.(?:png|jpg|jpeg|gif|svg))",  # "saved at path/to/image.png"
     ]
 
     @staticmethod
-    def extract_image_paths(message: str, agent_name: Optional[str] = None) -> list[Path]:
+    def extract_image_paths(message: str, agent_name: str | None = None) -> list[Path]:
         """
         Extract image paths from a message.
 
@@ -113,7 +115,11 @@ class ImageDisplayHandler:
                             continue
 
                     # Try common locations
-                    for base_dir in [Path.cwd(), Path.cwd() / "aps-control-assistant", Path.cwd() / "its-control-assistant"]:
+                    for base_dir in [
+                        Path.cwd(),
+                        Path.cwd() / "aps-control-assistant",
+                        Path.cwd() / "its-control-assistant",
+                    ]:
                         full_path = base_dir / path_str
                         if full_path.exists():
                             image_paths.append(full_path.resolve())
@@ -124,7 +130,9 @@ class ImageDisplayHandler:
         return image_paths
 
     @staticmethod
-    def create_image_widget(image_path: Path, max_width: int = 600, max_height: int = 400) -> Optional[QWidget]:
+    def create_image_widget(
+        image_path: Path, max_width: int = 600, max_height: int = 400
+    ) -> QWidget | None:
         """
         Create a widget displaying an image with click-to-enlarge functionality.
 
@@ -157,7 +165,9 @@ class ImageDisplayHandler:
 
             # Scale image to fit max dimensions while maintaining aspect ratio
             if pixmap.width() > max_width or pixmap.height() > max_height:
-                scaled_pixmap = pixmap.scaled(max_width, max_height, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                scaled_pixmap = pixmap.scaled(
+                    max_width, max_height, Qt.KeepAspectRatio, Qt.SmoothTransformation
+                )
             else:
                 scaled_pixmap = pixmap
 
@@ -216,7 +226,7 @@ class ImageDisplayHandler:
             True if message appears to reference images
         """
         # Check for common image-related keywords
-        image_keywords = ['plot', 'image', 'chart', 'graph', 'figure', '.png', '.jpg', '.jpeg']
+        image_keywords = ["plot", "image", "chart", "graph", "figure", ".png", ".jpg", ".jpeg"]
         message_lower = message.lower()
 
         return any(keyword in message_lower for keyword in image_keywords)

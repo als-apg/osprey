@@ -5,16 +5,21 @@ in the conversation, with support for multiple images and click-to-enlarge.
 """
 
 from pathlib import Path
-from typing import List
-from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QScrollArea, QFrame
-)
-from PyQt5.QtGui import QPixmap
-from PyQt5.QtCore import Qt
 
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QPixmap
+from PyQt5.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
+
+from osprey.interfaces.pyqt.image_display import ClickableImageLabel, ImageViewerDialog
 from osprey.utils.logger import get_logger
-from osprey.interfaces.pyqt.image_display import ImageViewerDialog, ClickableImageLabel
 
 logger = get_logger("plot_viewer")
 
@@ -22,7 +27,7 @@ logger = get_logger("plot_viewer")
 class PlotViewerWidget(QWidget):
     """Widget for displaying one or more plots inline in the conversation."""
 
-    def __init__(self, image_paths: List[Path], parent=None):
+    def __init__(self, image_paths: list[Path], parent=None):
         super().__init__(parent)
         self.image_paths = image_paths
         self.setup_ui()
@@ -44,8 +49,12 @@ class PlotViewerWidget(QWidget):
         """)
 
         # Header
-        header = QLabel(f"📊 Plot{'s' if len(self.image_paths) > 1 else ''} ({len(self.image_paths)})")
-        header.setStyleSheet("color: #00FFFF; font-weight: bold; font-size: 12px; background: transparent; border: none;")
+        header = QLabel(
+            f"📊 Plot{'s' if len(self.image_paths) > 1 else ''} ({len(self.image_paths)})"
+        )
+        header.setStyleSheet(
+            "color: #00FFFF; font-weight: bold; font-size: 12px; background: transparent; border: none;"
+        )
         layout.addWidget(header)
 
         # Scroll area for images
@@ -105,7 +114,9 @@ class PlotViewerWidget(QWidget):
             max_width = 550
             max_height = 350
             if pixmap.width() > max_width or pixmap.height() > max_height:
-                scaled_pixmap = pixmap.scaled(max_width, max_height, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                scaled_pixmap = pixmap.scaled(
+                    max_width, max_height, Qt.KeepAspectRatio, Qt.SmoothTransformation
+                )
             else:
                 scaled_pixmap = pixmap
 
@@ -148,26 +159,31 @@ class PlotViewerWidget(QWidget):
 
             # View button
             view_btn = QPushButton("🔍 Full Size")
-            view_btn.setStyleSheet("background-color: #4A5568; color: #FFFFFF; font-size: 9px; padding: 3px 8px;")
+            view_btn.setStyleSheet(
+                "background-color: #4A5568; color: #FFFFFF; font-size: 9px; padding: 3px 8px;"
+            )
             view_btn.setMaximumWidth(100)
             view_btn.clicked.connect(open_full_size)
             info_layout.addWidget(view_btn)
 
             # Open file button
             open_btn = QPushButton("📂 Open")
-            open_btn.setStyleSheet("background-color: #4A5568; color: #FFFFFF; font-size: 9px; padding: 3px 8px;")
+            open_btn.setStyleSheet(
+                "background-color: #4A5568; color: #FFFFFF; font-size: 9px; padding: 3px 8px;"
+            )
             open_btn.setMaximumWidth(80)
 
             def open_file():
-                import subprocess
                 import platform
+                import subprocess
+
                 try:
-                    if platform.system() == 'Darwin':  # macOS
-                        subprocess.run(['open', str(image_path)])
-                    elif platform.system() == 'Windows':
-                        subprocess.run(['start', str(image_path)], shell=True)
+                    if platform.system() == "Darwin":  # macOS
+                        subprocess.run(["open", str(image_path)])
+                    elif platform.system() == "Windows":
+                        subprocess.run(["start", str(image_path)], shell=True)
                     else:  # Linux
-                        subprocess.run(['xdg-open', str(image_path)])
+                        subprocess.run(["xdg-open", str(image_path)])
                 except Exception as e:
                     logger.error(f"Failed to open file: {e}")
 

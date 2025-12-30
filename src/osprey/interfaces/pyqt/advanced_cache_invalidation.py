@@ -18,7 +18,6 @@ import time
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Optional
 
 from osprey.utils.logger import get_logger
 
@@ -28,6 +27,7 @@ logger = get_logger("advanced_cache_invalidation")
 @dataclass
 class CacheEntryMetadata:
     """Metadata for cache entry to support advanced invalidation."""
+
     key: str
     project_id: str
     access_count: int = 0
@@ -52,7 +52,7 @@ class AdaptiveTTLStrategy:
         hot_threshold: int = 100,
         warm_threshold: int = 10,
         hot_multiplier: float = 4.0,
-        warm_multiplier: float = 2.0
+        warm_multiplier: float = 2.0,
     ):
         """Initialize adaptive TTL strategy.
 
@@ -74,12 +74,7 @@ class AdaptiveTTLStrategy:
             f"hot_threshold={hot_threshold}, warm_threshold={warm_threshold}"
         )
 
-    def calculate_ttl(
-        self,
-        access_count: int,
-        last_access: float,
-        created_at: float
-    ) -> float:
+    def calculate_ttl(self, access_count: int, last_access: float, created_at: float) -> float:
         """Calculate adaptive TTL based on usage patterns.
 
         Args:
@@ -134,10 +129,7 @@ class ProbabilisticEarlyExpiration:
         logger.info(f"Initialized ProbabilisticEarlyExpiration: beta={beta}")
 
     def should_refresh_early(
-        self,
-        current_time: float,
-        expiry_time: float,
-        last_access: float
+        self, current_time: float, expiry_time: float, last_access: float
     ) -> bool:
         """Determine if entry should be refreshed before expiration.
 
@@ -203,11 +195,7 @@ class EventDrivenInvalidator:
         logger.info("Initialized EventDrivenInvalidator")
 
     def register_entry(
-        self,
-        cache_key: str,
-        project_id: str,
-        capabilities: list[str],
-        base_ttl: float = 3600.0
+        self, cache_key: str, project_id: str, capabilities: list[str], base_ttl: float = 3600.0
     ):
         """Register a cache entry for event-driven invalidation.
 
@@ -222,7 +210,7 @@ class EventDrivenInvalidator:
             project_id=project_id,
             base_ttl=base_ttl,
             adaptive_ttl=base_ttl,
-            dependencies=set(capabilities)
+            dependencies=set(capabilities),
         )
 
         self.metadata[cache_key] = metadata
@@ -322,12 +310,9 @@ class EventDrivenInvalidator:
         keys_to_invalidate = set()
 
         # Simple pattern matching (could be enhanced with regex)
-        if pattern.endswith('*'):
+        if pattern.endswith("*"):
             prefix = pattern[:-1]
-            keys_to_invalidate = {
-                key for key in self.metadata.keys()
-                if key.startswith(prefix)
-            }
+            keys_to_invalidate = {key for key in self.metadata.keys() if key.startswith(prefix)}
         else:
             # Exact match
             if pattern in self.metadata:
@@ -404,7 +389,7 @@ class AdvancedCacheInvalidationManager:
         base_ttl: float = 3600.0,
         enable_adaptive_ttl: bool = True,
         enable_probabilistic_expiration: bool = True,
-        enable_event_driven: bool = True
+        enable_event_driven: bool = True,
     ):
         """Initialize advanced cache invalidation manager.
 
@@ -418,7 +403,9 @@ class AdvancedCacheInvalidationManager:
 
         # Initialize strategies
         self.adaptive_ttl = AdaptiveTTLStrategy(base_ttl=base_ttl) if enable_adaptive_ttl else None
-        self.probabilistic = ProbabilisticEarlyExpiration() if enable_probabilistic_expiration else None
+        self.probabilistic = (
+            ProbabilisticEarlyExpiration() if enable_probabilistic_expiration else None
+        )
         self.event_driven = EventDrivenInvalidator() if enable_event_driven else None
 
         logger.info(
@@ -433,7 +420,7 @@ class AdvancedCacheInvalidationManager:
         cache_key: str,
         access_count: int = 0,
         last_access: float | None = None,
-        created_at: float | None = None
+        created_at: float | None = None,
     ) -> float:
         """Calculate TTL for a cache entry.
 
@@ -456,10 +443,7 @@ class AdvancedCacheInvalidationManager:
         return self.adaptive_ttl.calculate_ttl(access_count, last_access, created_at)
 
     def should_refresh(
-        self,
-        cache_key: str,
-        expiry_time: float,
-        last_access: float | None = None
+        self, cache_key: str, expiry_time: float, last_access: float | None = None
     ) -> bool:
         """Determine if cache entry should be refreshed.
 
@@ -484,12 +468,7 @@ class AdvancedCacheInvalidationManager:
 
         return False
 
-    def register_cache_entry(
-        self,
-        cache_key: str,
-        project_id: str,
-        capabilities: list[str]
-    ):
+    def register_cache_entry(self, cache_key: str, project_id: str, capabilities: list[str]):
         """Register a cache entry for event-driven invalidation.
 
         Args:
@@ -498,12 +477,7 @@ class AdvancedCacheInvalidationManager:
             capabilities: List of capabilities used.
         """
         if self.event_driven:
-            self.event_driven.register_entry(
-                cache_key,
-                project_id,
-                capabilities,
-                self.base_ttl
-            )
+            self.event_driven.register_entry(cache_key, project_id, capabilities, self.base_ttl)
 
     def update_access(self, cache_key: str):
         """Update access metadata for a cache entry.

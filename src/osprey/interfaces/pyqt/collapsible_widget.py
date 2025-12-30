@@ -7,11 +7,9 @@ improving readability when there are many similar messages.
 """
 
 from PyQt5 import QtCore, QtWidgets
-from PyQt5.QtCore import Qt, QPropertyAnimation, QParallelAnimationGroup
-from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QScrollArea, QToolButton, QFrame, QTextEdit
-)
-from PyQt5.QtGui import QFont, QTextCursor, QTextCharFormat, QBrush, QColor
+from PyQt5.QtCore import QParallelAnimationGroup, QPropertyAnimation, Qt
+from PyQt5.QtGui import QBrush, QColor, QFont, QTextCharFormat, QTextCursor
+from PyQt5.QtWidgets import QFrame, QScrollArea, QTextEdit, QToolButton, QVBoxLayout, QWidget
 
 
 class CollapsibleBox(QWidget):
@@ -34,11 +32,9 @@ class CollapsibleBox(QWidget):
             parent: Parent widget
             start_collapsed: Whether to start in collapsed state (default: True)
         """
-        super(CollapsibleBox, self).__init__(parent)
+        super().__init__(parent)
 
-        self.toggle_button = QToolButton(
-            text=title, checkable=True, checked=not start_collapsed
-        )
+        self.toggle_button = QToolButton(text=title, checkable=True, checked=not start_collapsed)
         self.toggle_button.setStyleSheet("""
             QToolButton {
                 border: none;
@@ -59,8 +55,7 @@ class CollapsibleBox(QWidget):
         self.toggle_animation = QParallelAnimationGroup(self)
 
         self.content_area = QScrollArea(
-            maximumHeight=0 if start_collapsed else 16777215,
-            minimumHeight=0
+            maximumHeight=0 if start_collapsed else 16777215, minimumHeight=0
         )
         self.content_area.setSizePolicy(
             QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed
@@ -79,15 +74,9 @@ class CollapsibleBox(QWidget):
         lay.addWidget(self.toggle_button)
         lay.addWidget(self.content_area)
 
-        self.toggle_animation.addAnimation(
-            QPropertyAnimation(self, b"minimumHeight")
-        )
-        self.toggle_animation.addAnimation(
-            QPropertyAnimation(self, b"maximumHeight")
-        )
-        self.toggle_animation.addAnimation(
-            QPropertyAnimation(self.content_area, b"maximumHeight")
-        )
+        self.toggle_animation.addAnimation(QPropertyAnimation(self, b"minimumHeight"))
+        self.toggle_animation.addAnimation(QPropertyAnimation(self, b"maximumHeight"))
+        self.toggle_animation.addAnimation(QPropertyAnimation(self.content_area, b"maximumHeight"))
 
         # Set initial state
         if not start_collapsed:
@@ -99,13 +88,9 @@ class CollapsibleBox(QWidget):
     def on_pressed(self):
         """Handle toggle button press to expand/collapse the content."""
         checked = self.toggle_button.isChecked()
-        self.toggle_button.setArrowType(
-            Qt.DownArrow if not checked else Qt.RightArrow
-        )
+        self.toggle_button.setArrowType(Qt.DownArrow if not checked else Qt.RightArrow)
         self.toggle_animation.setDirection(
-            QParallelAnimationGroup.Forward
-            if not checked
-            else QParallelAnimationGroup.Backward
+            QParallelAnimationGroup.Forward if not checked else QParallelAnimationGroup.Backward
         )
         self.toggle_animation.start()
 
@@ -203,7 +188,7 @@ class MessageGroupWidget(QWidget):
         Args:
             parent: Parent widget
         """
-        super(MessageGroupWidget, self).__init__(parent)
+        super().__init__(parent)
 
         self.layout = QVBoxLayout(self)
         self.layout.setSpacing(2)
@@ -245,7 +230,7 @@ class MessageGroupWidget(QWidget):
             cursor = text_edit.textCursor()
             cursor.movePosition(QTextCursor.End)
             self._insert_rich_text(cursor, rich_markup)
-            cursor.insertText('\n')
+            cursor.insertText("\n")
             text_edit.setTextCursor(cursor)
         else:
             # For plain text, use append which is thread-safe
@@ -272,29 +257,29 @@ class MessageGroupWidget(QWidget):
 
         # Rich color mapping to Qt colors
         rich_color_map = {
-            'white': '#FFFFFF',
-            'black': '#000000',
-            'red': '#FF0000',
-            'green': '#00FF00',
-            'yellow': '#FFFF00',
-            'blue': '#0000FF',
-            'magenta': '#FF00FF',
-            'cyan': '#00FFFF',
-            'bright_white': '#FFFFFF',
-            'bright_black': '#808080',
-            'bright_red': '#FF6B6B',
-            'bright_green': '#00FF00',
-            'bright_yellow': '#FFFF00',
-            'bright_blue': '#6B9EFF',
-            'bright_magenta': '#FF6BFF',
-            'bright_cyan': '#00FFFF',
-            'sky_blue2': '#87CEEB',
-            'bold': None,  # Style modifier, not a color
+            "white": "#FFFFFF",
+            "black": "#000000",
+            "red": "#FF0000",
+            "green": "#00FF00",
+            "yellow": "#FFFF00",
+            "blue": "#0000FF",
+            "magenta": "#FF00FF",
+            "cyan": "#00FFFF",
+            "bright_white": "#FFFFFF",
+            "bright_black": "#808080",
+            "bright_red": "#FF6B6B",
+            "bright_green": "#00FF00",
+            "bright_yellow": "#FFFF00",
+            "bright_blue": "#6B9EFF",
+            "bright_magenta": "#FF6BFF",
+            "bright_cyan": "#00FFFF",
+            "sky_blue2": "#87CEEB",
+            "bold": None,  # Style modifier, not a color
         }
 
         # Pattern to match Rich markup: [color] or [style color]
         # But NOT timestamps like [12/03/2025 09:28:08 AM]
-        pattern = r'\[([^\]]+)\](.*?)(?=\[|$)'
+        pattern = r"\[([^\]]+)\](.*?)(?=\[|$)"
 
         pos = 0
         for match in re.finditer(pattern, text):
@@ -302,12 +287,12 @@ class MessageGroupWidget(QWidget):
 
             # Check if this looks like a timestamp (contains digits and slashes/colons)
             # Timestamp pattern: contains digits, slashes, colons, spaces, AM/PM
-            is_timestamp = bool(re.search(r'\d+[/:]', style_spec))
+            is_timestamp = bool(re.search(r"\d+[/:]", style_spec))
 
             if is_timestamp:
                 # This is a timestamp, not a Rich markup tag - keep it as-is
                 if match.start() > pos:
-                    cursor.insertText(text[pos:match.start()])
+                    cursor.insertText(text[pos : match.start()])
                 # Insert the timestamp with brackets
                 cursor.insertText(f"[{style_spec}]")
                 pos = match.start() + len(f"[{style_spec}]")
@@ -315,17 +300,17 @@ class MessageGroupWidget(QWidget):
 
             # Insert any text before the match
             if match.start() > pos:
-                cursor.insertText(text[pos:match.start()])
+                cursor.insertText(text[pos : match.start()])
 
             content = match.group(2)
 
             # Parse style specification (e.g., "bold green", "white", "sky_blue2")
             parts = style_spec.split()
-            color = '#FFFFFF'  # Default white
+            color = "#FFFFFF"  # Default white
             bold = False
 
             for part in parts:
-                if part == 'bold':
+                if part == "bold":
                     bold = True
                 elif part in rich_color_map:
                     if rich_color_map[part] is not None:
@@ -358,10 +343,7 @@ class MessageGroupWidget(QWidget):
         start_collapsed = message_type not in ["ERROR", "WARNING"]
 
         # Create collapsible box
-        box = CollapsibleBox(
-            title=f"{message_type} (0 messages)",
-            start_collapsed=start_collapsed
-        )
+        box = CollapsibleBox(title=f"{message_type} (0 messages)", start_collapsed=start_collapsed)
 
         # Create text edit for messages
         text_edit = QTextEdit()
@@ -405,12 +387,12 @@ class MessageGroupWidget(QWidget):
 
             # Color code the title based on message type
             color_map = {
-                'ERROR': '🔴',
-                'WARNING': '🟡',
-                'INFO': '🔵',
-                'DEBUG': '⚪',
+                "ERROR": "🔴",
+                "WARNING": "🟡",
+                "INFO": "🔵",
+                "DEBUG": "⚪",
             }
-            icon = color_map.get(message_type, '⚪')
+            icon = color_map.get(message_type, "⚪")
 
             self.message_groups[message_type].setTitle(
                 f"{icon} {message_type} ({message_count} messages)"

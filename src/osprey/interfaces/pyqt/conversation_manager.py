@@ -12,7 +12,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 from osprey.utils.logger import get_logger
 
@@ -22,81 +22,77 @@ logger = get_logger("conversation_manager")
 @dataclass
 class ConversationMessage:
     """A single message in a conversation."""
+
     type: str  # 'user' or 'agent'
     content: str
     timestamp: datetime = field(default_factory=datetime.now)
     formatting: str | None = None  # 'orchestrated' or None for special formatting
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result = {
-            'type': self.type,
-            'content': self.content,
-            'timestamp': self.timestamp.isoformat()
+            "type": self.type,
+            "content": self.content,
+            "timestamp": self.timestamp.isoformat(),
         }
         if self.formatting:
-            result['formatting'] = self.formatting
+            result["formatting"] = self.formatting
         return result
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'ConversationMessage':
+    def from_dict(cls, data: dict[str, Any]) -> "ConversationMessage":
         """Create from dictionary."""
-        timestamp = data.get('timestamp')
+        timestamp = data.get("timestamp")
         if isinstance(timestamp, str):
             try:
                 timestamp = datetime.fromisoformat(timestamp)
-            except:
+            except (ValueError, TypeError):
                 timestamp = datetime.now()
         elif not isinstance(timestamp, datetime):
             timestamp = datetime.now()
 
         return cls(
-            type=data['type'],
-            content=data['content'],
+            type=data["type"],
+            content=data["content"],
             timestamp=timestamp,
-            formatting=data.get('formatting')
+            formatting=data.get("formatting"),
         )
 
 
 @dataclass
 class Conversation:
     """A conversation with its metadata and messages."""
+
     thread_id: str
     name: str
-    messages: List[ConversationMessage] = field(default_factory=list)
+    messages: list[ConversationMessage] = field(default_factory=list)
     timestamp: datetime = field(default_factory=datetime.now)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
-            'thread_id': self.thread_id,
-            'name': self.name,
-            'messages': [msg.to_dict() for msg in self.messages],
-            'timestamp': self.timestamp.isoformat()
+            "thread_id": self.thread_id,
+            "name": self.name,
+            "messages": [msg.to_dict() for msg in self.messages],
+            "timestamp": self.timestamp.isoformat(),
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'Conversation':
+    def from_dict(cls, data: dict[str, Any]) -> "Conversation":
         """Create from dictionary."""
-        timestamp = data.get('timestamp')
+        timestamp = data.get("timestamp")
         if isinstance(timestamp, str):
             try:
                 timestamp = datetime.fromisoformat(timestamp)
-            except:
+            except (ValueError, TypeError):
                 timestamp = datetime.now()
         elif not isinstance(timestamp, datetime):
             timestamp = datetime.now()
 
-        messages = [
-            ConversationMessage.from_dict(msg)
-            for msg in data.get('messages', [])
-        ]
+        messages = [ConversationMessage.from_dict(msg) for msg in data.get("messages", [])]
 
         return cls(
-            thread_id=data['thread_id'],
-            name=data['name'],
-            messages=messages,
-            timestamp=timestamp
+            thread_id=data["thread_id"], name=data["name"], messages=messages, timestamp=timestamp
         )
 
 
@@ -110,7 +106,7 @@ class ConversationManager:
     - Conversation metadata and messages
     """
 
-    def __init__(self, storage_mode: str = 'json'):
+    def __init__(self, storage_mode: str = "json"):
         """
         Initialize conversation manager.
 
@@ -118,7 +114,7 @@ class ConversationManager:
             storage_mode: 'json' or 'postgresql'
         """
         self.storage_mode = storage_mode
-        self.conversations: Dict[str, Conversation] = {}
+        self.conversations: dict[str, Conversation] = {}
         self.current_conversation_id: str | None = None
 
     def create_conversation(self, name: str | None = None) -> str:
@@ -135,13 +131,10 @@ class ConversationManager:
 
         if name is None:
             conv_number = len(self.conversations) + 1
-            name = f'Conversation {conv_number}'
+            name = f"Conversation {conv_number}"
 
         conversation = Conversation(
-            thread_id=thread_id,
-            name=name,
-            messages=[],
-            timestamp=datetime.now()
+            thread_id=thread_id, name=name, messages=[], timestamp=datetime.now()
         )
 
         self.conversations[thread_id] = conversation
@@ -230,7 +223,9 @@ class ConversationManager:
         logger.info(f"Renamed conversation: '{old_name}' → '{new_name}'")
         return True
 
-    def add_message(self, thread_id: str, message_type: str, content: str, formatting: str | None = None) -> bool:
+    def add_message(
+        self, thread_id: str, message_type: str, content: str, formatting: str | None = None
+    ) -> bool:
         """
         Add a message to a conversation.
 
@@ -248,24 +243,21 @@ class ConversationManager:
             return False
 
         message = ConversationMessage(
-            type=message_type,
-            content=content,
-            timestamp=datetime.now(),
-            formatting=formatting
+            type=message_type, content=content, timestamp=datetime.now(), formatting=formatting
         )
 
         self.conversations[thread_id].messages.append(message)
         self.conversations[thread_id].timestamp = datetime.now()
         return True
 
-    def get_messages(self, thread_id: str) -> List[ConversationMessage]:
+    def get_messages(self, thread_id: str) -> list[ConversationMessage]:
         """Get all messages from a conversation."""
         conversation = self.conversations.get(thread_id)
         if conversation:
             return conversation.messages
         return []
 
-    def list_conversations(self, sort_by_timestamp: bool = True) -> List[Conversation]:
+    def list_conversations(self, sort_by_timestamp: bool = True) -> list[Conversation]:
         """
         List all conversations.
 
@@ -296,12 +288,9 @@ class ConversationManager:
             file_path.parent.mkdir(parents=True, exist_ok=True)
 
             # Convert all conversations to dictionaries
-            data = {
-                thread_id: conv.to_dict()
-                for thread_id, conv in self.conversations.items()
-            }
+            data = {thread_id: conv.to_dict() for thread_id, conv in self.conversations.items()}
 
-            with open(file_path, 'w') as f:
+            with open(file_path, "w") as f:
                 json.dump(data, f, indent=2)
 
             logger.debug(f"Saved {len(self.conversations)} conversation(s) to {file_path}")
@@ -326,7 +315,7 @@ class ConversationManager:
                 logger.debug(f"No conversation history file found at {file_path}")
                 return False
 
-            with open(file_path, 'r') as f:
+            with open(file_path) as f:
                 data = json.load(f)
 
             # Convert dictionaries to Conversation objects

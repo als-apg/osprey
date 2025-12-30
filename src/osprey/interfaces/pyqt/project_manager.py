@@ -14,15 +14,14 @@ Key Features:
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Set
 
 import yaml
 
-from osprey.utils.logger import get_logger
 from osprey.interfaces.pyqt.project_context_manager import (
+    IsolatedProjectContext,
     ProjectContextManager,
-    IsolatedProjectContext
 )
+from osprey.utils.logger import get_logger
 
 logger = get_logger("project_manager")
 
@@ -30,27 +29,27 @@ logger = get_logger("project_manager")
 @dataclass
 class ProjectMetadata:
     """Metadata about a discovered project."""
+
     name: str
     path: Path
     config_path: Path
     description: str
     version: str
     author: str | None = None
-    tags: List[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
 
 
 @dataclass
 class CapabilityMetadata:
     """Metadata about a capability."""
+
     name: str
     project: str
     description: str
-    input_schema: Dict
-    output_schema: Dict
-    tags: List[str] = field(default_factory=list)
-    examples: List[str] = field(default_factory=list)
-
-
+    input_schema: dict
+    output_schema: dict
+    tags: list[str] = field(default_factory=list)
+    examples: list[str] = field(default_factory=list)
 
 
 class ProjectManager:
@@ -65,7 +64,7 @@ class ProjectManager:
     All projects remain loaded in memory; disabling only affects routing.
     """
 
-    def __init__(self, project_search_paths: List[Path] = None):
+    def __init__(self, project_search_paths: list[Path] = None):
         """Initialize ProjectManager.
 
         Args:
@@ -75,12 +74,14 @@ class ProjectManager:
         self.logger = logger
         self.project_search_paths = project_search_paths or self._get_default_search_paths()
         self._context_manager = ProjectContextManager()  # Manages isolated contexts
-        self._metadata_cache: Dict[str, ProjectMetadata] = {}
-        self._enabled_projects: Set[str] = set()  # Track enabled/disabled state
+        self._metadata_cache: dict[str, ProjectMetadata] = {}
+        self._enabled_projects: set[str] = set()  # Track enabled/disabled state
 
-        self.logger.info(f"Initialized ProjectManager with search paths: {self.project_search_paths}")
+        self.logger.info(
+            f"Initialized ProjectManager with search paths: {self.project_search_paths}"
+        )
 
-    def discover_projects(self) -> List[ProjectMetadata]:
+    def discover_projects(self) -> list[ProjectMetadata]:
         """Discover all available projects.
 
         Scans configured directories for config.yml files and extracts
@@ -96,11 +97,26 @@ class ProjectManager:
 
         # Directories to ignore (same as CLI's discover_nearby_projects)
         ignore_dirs = {
-            'node_modules', 'venv', '.venv', 'env', '.env',
-            '__pycache__', '.git', '.svn', '.hg',
-            'build', 'dist', '.egg-info', 'site-packages',
-            '.pytest_cache', '.mypy_cache', '.tox',
-            'docs', '_agent_data', '.cache', 'temp_configs'
+            "node_modules",
+            "venv",
+            ".venv",
+            "env",
+            ".env",
+            "__pycache__",
+            ".git",
+            ".svn",
+            ".hg",
+            "build",
+            "dist",
+            ".egg-info",
+            "site-packages",
+            ".pytest_cache",
+            ".mypy_cache",
+            ".tox",
+            "docs",
+            "_agent_data",
+            ".cache",
+            "temp_configs",
         }
 
         for search_path in self.project_search_paths:
@@ -115,7 +131,7 @@ class ProjectManager:
                     continue
 
                 # Skip hidden directories (start with .)
-                if project_dir.name.startswith('.'):
+                if project_dir.name.startswith("."):
                     continue
 
                 # Skip common non-project directories (same as CLI)
@@ -189,7 +205,7 @@ class ProjectManager:
             context = self._context_manager.create_project_context(
                 project_name=project_name,
                 project_path=metadata.path,
-                config_path=metadata.config_path
+                config_path=metadata.config_path,
             )
 
             # Set metadata for GUI compatibility
@@ -219,17 +235,17 @@ class ProjectManager:
         """
         return self._context_manager.get_context(project_name)
 
-    def list_loaded_projects(self) -> List[str]:
+    def list_loaded_projects(self) -> list[str]:
         """Get names of all loaded projects."""
         return self._context_manager.list_projects()
 
-    def list_available_projects(self) -> List[ProjectMetadata]:
+    def list_available_projects(self) -> list[ProjectMetadata]:
         """Get metadata for all available projects."""
         if not self._metadata_cache:
             self.discover_projects()
         return list(self._metadata_cache.values())
 
-    def get_project_capabilities(self, project_name: str) -> Dict[str, CapabilityMetadata]:
+    def get_project_capabilities(self, project_name: str) -> dict[str, CapabilityMetadata]:
         """Get capabilities for a project from its isolated registry.
 
         Args:
@@ -253,8 +269,8 @@ class ProjectManager:
 
             # Get all capabilities from the registry
             for capability in registry.get_all_capabilities():
-                cap_name = getattr(capability, 'name', None)
-                cap_desc = getattr(capability, 'description', '')
+                cap_name = getattr(capability, "name", None)
+                cap_desc = getattr(capability, "description", "")
 
                 if cap_name:
                     capabilities[cap_name] = CapabilityMetadata(
@@ -264,14 +280,17 @@ class ProjectManager:
                         input_schema={},
                         output_schema={},
                         tags=[],
-                        examples=[]
+                        examples=[],
                     )
 
             self.logger.info(f"Extracted {len(capabilities)} capabilities from {project_name}")
 
         except Exception as e:
-            self.logger.warning(f"Could not extract capabilities from registry for {project_name}: {e}")
+            self.logger.warning(
+                f"Could not extract capabilities from registry for {project_name}: {e}"
+            )
             import traceback
+
             self.logger.debug(f"Traceback: {traceback.format_exc()}")
 
         return capabilities
@@ -321,7 +340,7 @@ class ProjectManager:
         """
         return project_name in self._enabled_projects
 
-    def get_enabled_projects(self) -> List[IsolatedProjectContext]:
+    def get_enabled_projects(self) -> list[IsolatedProjectContext]:
         """Get list of currently enabled projects for routing.
 
         Returns only the subset of loaded projects that are currently
@@ -338,7 +357,7 @@ class ProjectManager:
                 enabled.append(context)
         return enabled
 
-    def get_disabled_projects(self) -> List[str]:
+    def get_disabled_projects(self) -> list[str]:
         """Get list of currently disabled project names.
 
         Returns:
@@ -376,7 +395,7 @@ class ProjectManager:
 
     # Private methods
 
-    def _get_default_search_paths(self) -> List[Path]:
+    def _get_default_search_paths(self) -> list[Path]:
         """Get default project search paths."""
         import os
 
@@ -386,8 +405,8 @@ class ProjectManager:
         paths.append(Path.cwd())
 
         # OSPREY_PROJECTS environment variable
-        if 'OSPREY_PROJECTS' in os.environ:
-            for path_str in os.environ['OSPREY_PROJECTS'].split(':'):
+        if "OSPREY_PROJECTS" in os.environ:
+            for path_str in os.environ["OSPREY_PROJECTS"].split(":"):
                 paths.append(Path(path_str))
 
         # Parent directory (for monorepo structure)
@@ -405,34 +424,38 @@ class ProjectManager:
         Returns:
             ProjectMetadata instance.
         """
-        with open(config_path, 'r') as f:
+        with open(config_path) as f:
             config_data = yaml.safe_load(f)
 
-        project_info = config_data.get('project', {})
+        project_info = config_data.get("project", {})
 
         return ProjectMetadata(
-            name=project_info.get('name', project_dir.name),
+            name=project_info.get("name", project_dir.name),
             path=project_dir,
             config_path=config_path,
-            description=project_info.get('description', ''),
-            version=project_info.get('version', '0.0.0'),
-            author=project_info.get('author'),
-            tags=project_info.get('tags', [])
+            description=project_info.get("description", ""),
+            version=project_info.get("version", "0.0.0"),
+            author=project_info.get("author"),
+            tags=project_info.get("tags", []),
         )
 
 
 # Custom Exceptions
 
+
 class ProjectDiscoveryError(Exception):
     """Raised when project discovery fails."""
+
     pass
 
 
 class ProjectNotFoundError(Exception):
     """Raised when project is not found."""
+
     pass
 
 
 class ProjectLoadError(Exception):
     """Raised when project loading fails."""
+
     pass

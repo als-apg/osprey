@@ -17,12 +17,9 @@ import re
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import List, Tuple
 
+from osprey.interfaces.pyqt.advanced_cache_invalidation import AdvancedCacheInvalidationManager
 from osprey.utils.logger import get_logger
-from osprey.interfaces.pyqt.advanced_cache_invalidation import (
-    AdvancedCacheInvalidationManager
-)
 
 logger = get_logger("routing_cache")
 
@@ -30,10 +27,11 @@ logger = get_logger("routing_cache")
 @dataclass
 class CachedRoutingDecision:
     """Cached routing decision with metadata."""
+
     project_name: str
     confidence: float
     reasoning: str
-    alternative_projects: List[str]
+    alternative_projects: list[str]
     timestamp: float
     hit_count: int = 0
     original_query: str = ""
@@ -42,6 +40,7 @@ class CachedRoutingDecision:
 @dataclass
 class CacheStatistics:
     """Statistics about cache performance."""
+
     total_queries: int = 0
     cache_hits: int = 0
     cache_misses: int = 0
@@ -76,7 +75,7 @@ class RoutingCache:
         max_size: int = 100,
         ttl_seconds: float = 3600.0,  # 1 hour default
         similarity_threshold: float = 0.85,
-        enable_advanced_invalidation: bool = True
+        enable_advanced_invalidation: bool = True,
     ):
         """Initialize routing cache.
 
@@ -103,7 +102,7 @@ class RoutingCache:
                 base_ttl=ttl_seconds,
                 enable_adaptive_ttl=True,
                 enable_probabilistic_expiration=True,
-                enable_event_driven=True
+                enable_event_driven=True,
             )
             # Register invalidation listener
             self.invalidation_manager.add_invalidation_listener(self._on_invalidation)
@@ -116,11 +115,7 @@ class RoutingCache:
             f"advanced_invalidation={enable_advanced_invalidation}"
         )
 
-    def get(
-        self,
-        query: str,
-        enabled_projects: List[str]
-    ) -> CachedRoutingDecision | None:
+    def get(self, query: str, enabled_projects: list[str]) -> CachedRoutingDecision | None:
         """Get cached routing decision for query.
 
         Args:
@@ -166,11 +161,7 @@ class RoutingCache:
             return cached
 
         # Try similarity matching
-        similar_entry = self._find_similar_entry(
-            normalized_query,
-            projects_key,
-            enabled_projects
-        )
+        similar_entry = self._find_similar_entry(normalized_query, projects_key, enabled_projects)
 
         if similar_entry:
             cached, similarity = similar_entry
@@ -191,12 +182,12 @@ class RoutingCache:
     def put(
         self,
         query: str,
-        enabled_projects: List[str],
+        enabled_projects: list[str],
         project_name: str,
         confidence: float,
         reasoning: str,
-        alternative_projects: List[str],
-        capabilities: List[str] = None
+        alternative_projects: list[str],
+        capabilities: list[str] = None,
     ):
         """Store routing decision in cache.
 
@@ -222,7 +213,7 @@ class RoutingCache:
             alternative_projects=alternative_projects,
             timestamp=time.time(),
             hit_count=0,
-            original_query=query
+            original_query=query,
         )
 
         # Check if we need to evict
@@ -242,9 +233,7 @@ class RoutingCache:
         # Register with advanced invalidation manager
         if self.advanced_invalidation_enabled and self.invalidation_manager:
             self.invalidation_manager.register_cache_entry(
-                cache_key,
-                project_name,
-                capabilities or []
+                cache_key, project_name, capabilities or []
             )
 
         logger.debug(
@@ -372,10 +361,10 @@ class RoutingCache:
         normalized = query.lower()
 
         # Remove extra whitespace
-        normalized = re.sub(r'\s+', ' ', normalized)
+        normalized = re.sub(r"\s+", " ", normalized)
 
         # Remove punctuation at end
-        normalized = normalized.strip().rstrip('?!.,;:')
+        normalized = normalized.strip().rstrip("?!.,;:")
 
         return normalized
 
@@ -406,7 +395,11 @@ class RoutingCache:
         # Use advanced invalidation if enabled
         if self.advanced_invalidation_enabled and self.invalidation_manager and cache_key:
             # Get adaptive TTL
-            metadata = self.invalidation_manager.event_driven.get_metadata(cache_key) if self.invalidation_manager.event_driven else None
+            metadata = (
+                self.invalidation_manager.event_driven.get_metadata(cache_key)
+                if self.invalidation_manager.event_driven
+                else None
+            )
             if metadata:
                 ttl = metadata.adaptive_ttl
             else:
@@ -414,7 +407,9 @@ class RoutingCache:
 
             # Check probabilistic early expiration
             expiry_time = cached.timestamp + ttl
-            return self.invalidation_manager.should_refresh(cache_key, expiry_time, cached.timestamp)
+            return self.invalidation_manager.should_refresh(
+                cache_key, expiry_time, cached.timestamp
+            )
 
         # Fallback to simple TTL
         return age > self.ttl_seconds
@@ -428,10 +423,7 @@ class RoutingCache:
         logger.debug(f"Invalidation event for key: {cache_key}")
 
     def _find_similar_entry(
-        self,
-        normalized_query: str,
-        projects_key: str,
-        enabled_projects: List[str]
+        self, normalized_query: str, projects_key: str, enabled_projects: list[str]
     ) -> tuple[CachedRoutingDecision, float] | None:
         """Find similar cache entry using text similarity.
 
@@ -453,7 +445,7 @@ class RoutingCache:
                 continue
 
             # Extract query and projects from key
-            cached_query, cached_projects = key.split('|', 1)
+            cached_query, cached_projects = key.split("|", 1)
 
             # Must have same enabled projects context
             if cached_projects != projects_key:

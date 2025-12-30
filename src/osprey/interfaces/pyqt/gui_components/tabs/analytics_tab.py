@@ -1,7 +1,7 @@
 """Analytics Dashboard Tab for Osprey GUI."""
 
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel
 from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 
 class AnalyticsTab(QWidget):
@@ -50,11 +50,14 @@ class AnalyticsTab(QWidget):
 
         if analytics:
             from osprey.interfaces.pyqt.analytics_dashboard import AnalyticsDashboard
+
             self.analytics_dashboard = AnalyticsDashboard(analytics, self.parent_gui)
             self.layout.addWidget(self.analytics_dashboard)
         else:
             # Analytics disabled message
-            label = QLabel("Analytics is currently disabled.\n\nEnable analytics in router configuration to view metrics.")
+            label = QLabel(
+                "Analytics is currently disabled.\n\nEnable analytics in router configuration to view metrics."
+            )
             label.setStyleSheet("color: #FFA500; font-size: 14px;")
             label.setAlignment(Qt.AlignCenter)
             self.layout.addWidget(label)

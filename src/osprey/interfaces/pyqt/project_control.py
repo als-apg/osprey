@@ -10,6 +10,7 @@ This module handles all project control panel operations including:
 """
 
 from PyQt5.QtWidgets import QMessageBox
+
 from osprey.utils.logger import get_logger
 
 logger = get_logger("project_control")
@@ -61,15 +62,21 @@ class ProjectControlManager:
             # Switch to automatic mode
             self.gui.router.set_automatic_mode()
             self.gui.routing_mode_label.setText("Mode: Automatic")
-            self.gui.routing_mode_label.setStyleSheet("color: #00FF00; font-size: 10px; font-weight: bold;")
-            self.gui.routing_explanation_label.setText("Queries will be automatically routed to the best project")
+            self.gui.routing_mode_label.setStyleSheet(
+                "color: #00FF00; font-size: 10px; font-weight: bold;"
+            )
+            self.gui.routing_explanation_label.setText(
+                "Queries will be automatically routed to the best project"
+            )
             self.gui.routing_explanation_label.setVisible(True)
             self.gui.add_status("Switched to automatic routing mode", "base")
         else:
             # Switch to manual mode
             self.gui.router.set_manual_mode(project_data)
-            self.gui.routing_mode_label.setText(f"Mode: Manual")
-            self.gui.routing_mode_label.setStyleSheet("color: #FFD700; font-size: 10px; font-weight: bold;")
+            self.gui.routing_mode_label.setText("Mode: Manual")
+            self.gui.routing_mode_label.setStyleSheet(
+                "color: #FFD700; font-size: 10px; font-weight: bold;"
+            )
             self.gui.routing_explanation_label.setText(f"All queries will use: {project_data}")
             self.gui.routing_explanation_label.setVisible(True)
             self.gui.add_status(f"Switched to manual mode: {project_data}", "base")
@@ -83,7 +90,7 @@ class ProjectControlManager:
             QMessageBox.information(
                 self.gui,
                 "Cache Cleared",
-                "Routing cache has been cleared.\nNext queries will use fresh routing decisions."
+                "Routing cache has been cleared.\nNext queries will use fresh routing decisions.",
             )
         except Exception as e:
             logger.error(f"Failed to clear cache: {e}")
@@ -137,7 +144,7 @@ class ProjectControlManager:
             QMessageBox.information(
                 self.gui,
                 "Context Cleared",
-                "Conversation context has been cleared.\nTopic detection will start fresh."
+                "Conversation context has been cleared.\nTopic detection will start fresh.",
             )
         except Exception as e:
             logger.error(f"Failed to clear conversation context: {e}")

@@ -12,15 +12,15 @@ Key Features:
 - Real-time updates
 """
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
-from PyQt5.QtCore import QTimer, Qt
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QColor, QFont
 from PyQt5.QtWidgets import (
     QComboBox,
     QGroupBox,
-    QHeaderView,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QPushButton,
     QScrollArea,
@@ -50,7 +50,7 @@ class AnalyticsDashboard(QWidget):
     - Time-series data
     """
 
-    def __init__(self, analytics: 'RoutingAnalytics', parent=None):
+    def __init__(self, analytics: "RoutingAnalytics", parent=None):
         """Initialize analytics dashboard.
 
         Args:
@@ -90,13 +90,9 @@ class AnalyticsDashboard(QWidget):
         header_layout.addWidget(time_range_label)
 
         self.time_range_combo = QComboBox()
-        self.time_range_combo.addItems([
-            "Last Hour",
-            "Last 6 Hours",
-            "Last 24 Hours",
-            "Last 7 Days",
-            "All Time"
-        ])
+        self.time_range_combo.addItems(
+            ["Last Hour", "Last 6 Hours", "Last 24 Hours", "Last 7 Days", "All Time"]
+        )
         self.time_range_combo.setCurrentIndex(2)  # Default: Last 24 Hours
         self.time_range_combo.currentIndexChanged.connect(self.refresh_data)
         self.time_range_combo.setStyleSheet("""
@@ -272,9 +268,9 @@ class AnalyticsDashboard(QWidget):
         # Table for project statistics
         self.project_table = QTableWidget()
         self.project_table.setColumnCount(6)
-        self.project_table.setHorizontalHeaderLabels([
-            'Project', 'Queries', 'Percentage', 'Avg Confidence', 'Cache Hit Rate', 'Failures'
-        ])
+        self.project_table.setHorizontalHeaderLabels(
+            ["Project", "Queries", "Percentage", "Avg Confidence", "Cache Hit Rate", "Failures"]
+        )
         self.project_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.project_table.setStyleSheet("""
             QTableWidget {
@@ -358,9 +354,9 @@ class AnalyticsDashboard(QWidget):
         # Table for query patterns
         self.patterns_table = QTableWidget()
         self.patterns_table.setColumnCount(4)
-        self.patterns_table.setHorizontalHeaderLabels([
-            'Pattern', 'Count', 'Most Common Project', 'Avg Confidence'
-        ])
+        self.patterns_table.setHorizontalHeaderLabels(
+            ["Pattern", "Count", "Most Common Project", "Avg Confidence"]
+        )
         self.patterns_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.patterns_table.setStyleSheet("""
             QTableWidget {
@@ -419,11 +415,11 @@ class AnalyticsDashboard(QWidget):
         index = self.time_range_combo.currentIndex()
 
         time_ranges = {
-            0: 1.0,      # Last Hour
-            1: 6.0,      # Last 6 Hours
-            2: 24.0,     # Last 24 Hours
-            3: 168.0,    # Last 7 Days
-            4: None      # All Time
+            0: 1.0,  # Last Hour
+            1: 6.0,  # Last 6 Hours
+            2: 24.0,  # Last 24 Hours
+            3: 168.0,  # Last 7 Days
+            4: None,  # All Time
         }
 
         return time_ranges.get(index)
@@ -458,11 +454,7 @@ class AnalyticsDashboard(QWidget):
         total_queries = summary.total_queries
 
         # Sort by usage (descending)
-        sorted_projects = sorted(
-            summary.project_usage.items(),
-            key=lambda x: x[1],
-            reverse=True
-        )
+        sorted_projects = sorted(summary.project_usage.items(), key=lambda x: x[1], reverse=True)
 
         for row, (project, count) in enumerate(sorted_projects):
             self.project_table.insertRow(row)
@@ -497,7 +489,7 @@ class AnalyticsDashboard(QWidget):
             self.project_table.setItem(row, 4, item)
 
             # Failures
-            failures = int(stats['failure_rate'] * count)
+            failures = int(stats["failure_rate"] * count)
             item = QTableWidgetItem(str(failures))
             item.setForeground(QColor("#FF6B6B") if failures > 0 else QColor("#00FF00"))
             self.project_table.setItem(row, 5, item)
@@ -508,15 +500,11 @@ class AnalyticsDashboard(QWidget):
             f"Avg Routing Time: {summary.avg_routing_time_ms:.0f}ms"
         )
 
-        self.failed_routings_label.setText(
-            f"Failed Routings: {summary.failed_routings}"
-        )
+        self.failed_routings_label.setText(f"Failed Routings: {summary.failed_routings}")
 
-        manual = summary.manual_vs_automatic.get('manual', 0)
-        automatic = summary.manual_vs_automatic.get('automatic', 0)
-        self.manual_vs_auto_label.setText(
-            f"Manual: {manual} | Automatic: {automatic}"
-        )
+        manual = summary.manual_vs_automatic.get("manual", 0)
+        automatic = summary.manual_vs_automatic.get("automatic", 0)
+        self.manual_vs_auto_label.setText(f"Manual: {manual} | Automatic: {automatic}")
 
     def _update_query_patterns(self):
         """Update query patterns table."""
@@ -570,17 +558,16 @@ class AnalyticsDashboard(QWidget):
             self,
             "Export Metrics",
             str(Path.home() / "routing_analytics.json"),
-            "JSON Files (*.json)"
+            "JSON Files (*.json)",
         )
 
         if filepath:
             success = self.analytics.export_metrics(Path(filepath))
             if success:
                 from PyQt5.QtWidgets import QMessageBox
+
                 QMessageBox.information(
-                    self,
-                    "Export Successful",
-                    f"Metrics exported to:\n{filepath}"
+                    self, "Export Successful", f"Metrics exported to:\n{filepath}"
                 )
 
     def clear_metrics(self):
@@ -592,14 +579,12 @@ class AnalyticsDashboard(QWidget):
             "Clear Metrics",
             "Are you sure you want to clear all routing metrics?\nThis cannot be undone.",
             QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
+            QMessageBox.No,
         )
 
         if reply == QMessageBox.Yes:
             self.analytics.clear_metrics()
             self.refresh_data()
             QMessageBox.information(
-                self,
-                "Metrics Cleared",
-                "All routing metrics have been cleared."
+                self, "Metrics Cleared", "All routing metrics have been cleared."
             )

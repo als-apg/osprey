@@ -19,10 +19,10 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
-from osprey.utils.logger import get_logger
 from osprey.interfaces.pyqt.gui_utils import get_gui_data_dir
+from osprey.utils.logger import get_logger
 
 logger = get_logger("routing_analytics")
 
@@ -30,6 +30,7 @@ logger = get_logger("routing_analytics")
 @dataclass
 class RoutingMetric:
     """Single routing decision metric."""
+
     timestamp: float
     query: str
     project_selected: str
@@ -38,24 +39,25 @@ class RoutingMetric:
     cache_hit: bool
     mode: str  # "automatic" or "manual"
     reasoning: str = ""
-    alternative_projects: List[str] = field(default_factory=list)
+    alternative_projects: list[str] = field(default_factory=list)
     success: bool = True
-    error: Optional[str] = None
+    error: str | None = None
 
 
 @dataclass
 class AnalyticsSummary:
     """Summary statistics for analytics dashboard."""
+
     total_queries: int
     unique_queries: int
-    project_usage: Dict[str, int]
+    project_usage: dict[str, int]
     avg_confidence: float
     cache_hit_rate: float
     avg_routing_time_ms: float
     failed_routings: int
-    manual_vs_automatic: Dict[str, int]
-    top_query_patterns: List[Tuple[str, str, float]]  # (pattern, project, confidence)
-    time_range: Tuple[datetime, datetime]
+    manual_vs_automatic: dict[str, int]
+    top_query_patterns: list[tuple[str, str, float]]  # (pattern, project, confidence)
+    time_range: tuple[datetime, datetime]
 
 
 class RoutingAnalytics:
@@ -74,7 +76,7 @@ class RoutingAnalytics:
         self,
         max_history: int = 1000,
         enable_persistence: bool = True,
-        persistence_path: Path | None = None
+        persistence_path: Path | None = None,
     ):
         """Initialize routing analytics.
 
@@ -95,25 +97,28 @@ class RoutingAnalytics:
             # This avoids requiring a config.yml when running from the framework directory
             try:
                 from osprey.utils.config import get_agent_dir
-                agent_data_dir = Path(get_agent_dir('routing_analytics'))
-                self.persistence_path = agent_data_dir.parent / 'routing_analytics.json'
+
+                agent_data_dir = Path(get_agent_dir("routing_analytics"))
+                self.persistence_path = agent_data_dir.parent / "routing_analytics.json"
             except FileNotFoundError:
                 # Fallback: use framework-relative GUI data directory
                 # This works regardless of CWD, user, or host
-                self.persistence_path = get_gui_data_dir() / 'routing_analytics.json'
+                self.persistence_path = get_gui_data_dir() / "routing_analytics.json"
 
         # Metrics storage
-        self._metrics: List[RoutingMetric] = []
-        self._project_stats: Dict[str, Dict[str, Any]] = defaultdict(lambda: {
-            'count': 0,
-            'total_confidence': 0.0,
-            'total_time_ms': 0.0,
-            'cache_hits': 0,
-            'failures': 0
-        })
+        self._metrics: list[RoutingMetric] = []
+        self._project_stats: dict[str, dict[str, Any]] = defaultdict(
+            lambda: {
+                "count": 0,
+                "total_confidence": 0.0,
+                "total_time_ms": 0.0,
+                "cache_hits": 0,
+                "failures": 0,
+            }
+        )
 
         # Query pattern tracking
-        self._query_patterns: Dict[str, List[Tuple[str, float]]] = defaultdict(list)
+        self._query_patterns: dict[str, list[tuple[str, float]]] = defaultdict(list)
 
         # Load persisted data if available
         if self.enable_persistence:
@@ -133,9 +138,9 @@ class RoutingAnalytics:
         cache_hit: bool = False,
         mode: str = "automatic",
         reasoning: str = "",
-        alternative_projects: List[str] = None,
+        alternative_projects: list[str] = None,
         success: bool = True,
-        error: str | None = None
+        error: str | None = None,
     ):
         """Record a routing decision.
 
@@ -162,7 +167,7 @@ class RoutingAnalytics:
             reasoning=reasoning,
             alternative_projects=alternative_projects or [],
             success=success,
-            error=error
+            error=error,
         )
 
         # Add to metrics
@@ -174,13 +179,13 @@ class RoutingAnalytics:
 
         # Update project stats
         stats = self._project_stats[project_selected]
-        stats['count'] += 1
-        stats['total_confidence'] += confidence
-        stats['total_time_ms'] += routing_time_ms
+        stats["count"] += 1
+        stats["total_confidence"] += confidence
+        stats["total_time_ms"] += routing_time_ms
         if cache_hit:
-            stats['cache_hits'] += 1
+            stats["cache_hits"] += 1
         if not success:
-            stats['failures'] += 1
+            stats["failures"] += 1
 
         # Track query pattern
         pattern = self._extract_pattern(query)
@@ -195,10 +200,7 @@ class RoutingAnalytics:
             f"(confidence: {confidence:.2f}, time: {routing_time_ms:.0f}ms)"
         )
 
-    def get_summary(
-        self,
-        time_range_hours: float | None = None
-    ) -> AnalyticsSummary:
+    def get_summary(self, time_range_hours: float | None = None) -> AnalyticsSummary:
         """Get analytics summary.
 
         Args:
@@ -223,14 +225,14 @@ class RoutingAnalytics:
                 cache_hit_rate=0.0,
                 avg_routing_time_ms=0.0,
                 failed_routings=0,
-                manual_vs_automatic={'automatic': 0, 'manual': 0},
+                manual_vs_automatic={"automatic": 0, "manual": 0},
                 top_query_patterns=[],
-                time_range=(datetime.now(), datetime.now())
+                time_range=(datetime.now(), datetime.now()),
             )
 
         # Calculate statistics
         total_queries = len(metrics)
-        unique_queries = len(set(m.query for m in metrics))
+        unique_queries = len({m.query for m in metrics})
 
         # Project usage
         project_usage = Counter(m.project_selected for m in metrics)
@@ -251,8 +253,8 @@ class RoutingAnalytics:
         # Manual vs automatic
         mode_counts = Counter(m.mode for m in metrics)
         manual_vs_automatic = {
-            'automatic': mode_counts.get('automatic', 0),
-            'manual': mode_counts.get('manual', 0)
+            "automatic": mode_counts.get("automatic", 0),
+            "manual": mode_counts.get("manual", 0),
         }
 
         # Top query patterns
@@ -262,7 +264,7 @@ class RoutingAnalytics:
         timestamps = [m.timestamp for m in metrics]
         time_range = (
             datetime.fromtimestamp(min(timestamps)),
-            datetime.fromtimestamp(max(timestamps))
+            datetime.fromtimestamp(max(timestamps)),
         )
 
         return AnalyticsSummary(
@@ -275,10 +277,10 @@ class RoutingAnalytics:
             failed_routings=failed_routings,
             manual_vs_automatic=manual_vs_automatic,
             top_query_patterns=top_patterns,
-            time_range=time_range
+            time_range=time_range,
         )
 
-    def get_project_stats(self, project_name: str) -> Dict[str, Any]:
+    def get_project_stats(self, project_name: str) -> dict[str, Any]:
         """Get statistics for a specific project.
 
         Args:
@@ -288,29 +290,26 @@ class RoutingAnalytics:
             Dictionary with project statistics.
         """
         stats = self._project_stats.get(project_name)
-        if not stats or stats['count'] == 0:
+        if not stats or stats["count"] == 0:
             return {
-                'count': 0,
-                'avg_confidence': 0.0,
-                'avg_routing_time_ms': 0.0,
-                'cache_hit_rate': 0.0,
-                'failure_rate': 0.0
+                "count": 0,
+                "avg_confidence": 0.0,
+                "avg_routing_time_ms": 0.0,
+                "cache_hit_rate": 0.0,
+                "failure_rate": 0.0,
             }
 
         return {
-            'count': stats['count'],
-            'avg_confidence': stats['total_confidence'] / stats['count'],
-            'avg_routing_time_ms': stats['total_time_ms'] / stats['count'],
-            'cache_hit_rate': stats['cache_hits'] / stats['count'],
-            'failure_rate': stats['failures'] / stats['count']
+            "count": stats["count"],
+            "avg_confidence": stats["total_confidence"] / stats["count"],
+            "avg_routing_time_ms": stats["total_time_ms"] / stats["count"],
+            "cache_hit_rate": stats["cache_hits"] / stats["count"],
+            "failure_rate": stats["failures"] / stats["count"],
         }
 
     def get_time_series_data(
-        self,
-        metric_name: str,
-        time_range_hours: float = 24.0,
-        bucket_size_minutes: int = 60
-    ) -> List[Tuple[datetime, float]]:
+        self, metric_name: str, time_range_hours: float = 24.0, bucket_size_minutes: int = 60
+    ) -> list[tuple[datetime, float]]:
         """Get time-series data for a metric.
 
         Args:
@@ -330,7 +329,7 @@ class RoutingAnalytics:
         # Create time buckets
         bucket_size_seconds = bucket_size_minutes * 60
         min_time = min(m.timestamp for m in metrics)
-        max_time = max(m.timestamp for m in metrics)
+        max(m.timestamp for m in metrics)
 
         buckets = defaultdict(list)
 
@@ -343,17 +342,15 @@ class RoutingAnalytics:
         time_series = []
         for bucket_key in sorted(buckets.keys()):
             bucket_metrics = buckets[bucket_key]
-            bucket_time = datetime.fromtimestamp(
-                min_time + (bucket_key * bucket_size_seconds)
-            )
+            bucket_time = datetime.fromtimestamp(min_time + (bucket_key * bucket_size_seconds))
 
-            if metric_name == 'queries':
+            if metric_name == "queries":
                 value = len(bucket_metrics)
-            elif metric_name == 'confidence':
+            elif metric_name == "confidence":
                 value = sum(m.confidence for m in bucket_metrics) / len(bucket_metrics)
-            elif metric_name == 'routing_time':
+            elif metric_name == "routing_time":
                 value = sum(m.routing_time_ms for m in bucket_metrics) / len(bucket_metrics)
-            elif metric_name == 'cache_hits':
+            elif metric_name == "cache_hits":
                 value = sum(1 for m in bucket_metrics if m.cache_hit) / len(bucket_metrics)
             else:
                 value = 0.0
@@ -362,7 +359,7 @@ class RoutingAnalytics:
 
         return time_series
 
-    def get_query_patterns(self, limit: int = 20) -> List[Tuple[str, int, str, float]]:
+    def get_query_patterns(self, limit: int = 20) -> list[tuple[str, int, str, float]]:
         """Get common query patterns.
 
         Args:
@@ -413,28 +410,28 @@ class RoutingAnalytics:
         """
         try:
             data = {
-                'metrics': [
+                "metrics": [
                     {
-                        'timestamp': m.timestamp,
-                        'query': m.query,
-                        'project_selected': m.project_selected,
-                        'confidence': m.confidence,
-                        'routing_time_ms': m.routing_time_ms,
-                        'cache_hit': m.cache_hit,
-                        'mode': m.mode,
-                        'reasoning': m.reasoning,
-                        'alternative_projects': m.alternative_projects,
-                        'success': m.success,
-                        'error': m.error
+                        "timestamp": m.timestamp,
+                        "query": m.query,
+                        "project_selected": m.project_selected,
+                        "confidence": m.confidence,
+                        "routing_time_ms": m.routing_time_ms,
+                        "cache_hit": m.cache_hit,
+                        "mode": m.mode,
+                        "reasoning": m.reasoning,
+                        "alternative_projects": m.alternative_projects,
+                        "success": m.success,
+                        "error": m.error,
                     }
                     for m in self._metrics
                 ],
-                'project_stats': dict(self._project_stats),
-                'exported_at': datetime.now().isoformat()
+                "project_stats": dict(self._project_stats),
+                "exported_at": datetime.now().isoformat(),
             }
 
             filepath.parent.mkdir(parents=True, exist_ok=True)
-            with open(filepath, 'w') as f:
+            with open(filepath, "w") as f:
                 json.dump(data, f, indent=2)
 
             self.logger.info(f"Exported {len(self._metrics)} metrics to {filepath}")
@@ -459,22 +456,22 @@ class RoutingAnalytics:
         query_lower = query.lower()
 
         # Common patterns
-        if 'weather' in query_lower:
+        if "weather" in query_lower:
             return "weather query"
-        elif 'mps' in query_lower or 'machine protection' in query_lower:
+        elif "mps" in query_lower or "machine protection" in query_lower:
             return "mps query"
-        elif 'status' in query_lower:
+        elif "status" in query_lower:
             return "status query"
-        elif 'show' in query_lower or 'display' in query_lower:
+        elif "show" in query_lower or "display" in query_lower:
             return "display query"
-        elif 'get' in query_lower or 'fetch' in query_lower:
+        elif "get" in query_lower or "fetch" in query_lower:
             return "data retrieval"
         else:
             # Use first few words as pattern
             words = query_lower.split()[:3]
-            return ' '.join(words) if words else "other"
+            return " ".join(words) if words else "other"
 
-    def _get_top_query_patterns(self, limit: int = 10) -> List[Tuple[str, str, float]]:
+    def _get_top_query_patterns(self, limit: int = 10) -> list[tuple[str, str, float]]:
         """Get top query patterns with their most common project and confidence.
 
         Args:
@@ -501,8 +498,7 @@ class RoutingAnalytics:
 
         # Sort by frequency (number of occurrences)
         pattern_counts = {
-            pattern: len(self._query_patterns[pattern])
-            for pattern in self._query_patterns
+            pattern: len(self._query_patterns[pattern]) for pattern in self._query_patterns
         }
         pattern_stats.sort(key=lambda x: pattern_counts[x[0]], reverse=True)
 
@@ -514,29 +510,29 @@ class RoutingAnalytics:
             self.persistence_path.parent.mkdir(parents=True, exist_ok=True)
 
             # Save only recent metrics to avoid large files
-            recent_metrics = self._metrics[-self.max_history:]
+            recent_metrics = self._metrics[-self.max_history :]
 
             data = {
-                'metrics': [
+                "metrics": [
                     {
-                        'timestamp': m.timestamp,
-                        'query': m.query,
-                        'project_selected': m.project_selected,
-                        'confidence': m.confidence,
-                        'routing_time_ms': m.routing_time_ms,
-                        'cache_hit': m.cache_hit,
-                        'mode': m.mode,
-                        'reasoning': m.reasoning,
-                        'alternative_projects': m.alternative_projects,
-                        'success': m.success,
-                        'error': m.error
+                        "timestamp": m.timestamp,
+                        "query": m.query,
+                        "project_selected": m.project_selected,
+                        "confidence": m.confidence,
+                        "routing_time_ms": m.routing_time_ms,
+                        "cache_hit": m.cache_hit,
+                        "mode": m.mode,
+                        "reasoning": m.reasoning,
+                        "alternative_projects": m.alternative_projects,
+                        "success": m.success,
+                        "error": m.error,
                     }
                     for m in recent_metrics
                 ],
-                'saved_at': datetime.now().isoformat()
+                "saved_at": datetime.now().isoformat(),
             }
 
-            with open(self.persistence_path, 'w') as f:
+            with open(self.persistence_path, "w") as f:
                 json.dump(data, f, indent=2)
 
         except Exception as e:
@@ -548,41 +544,39 @@ class RoutingAnalytics:
             if not self.persistence_path.exists():
                 return
 
-            with open(self.persistence_path, 'r') as f:
+            with open(self.persistence_path) as f:
                 data = json.load(f)
 
             # Load metrics
-            for m_data in data.get('metrics', []):
+            for m_data in data.get("metrics", []):
                 metric = RoutingMetric(
-                    timestamp=m_data['timestamp'],
-                    query=m_data['query'],
-                    project_selected=m_data['project_selected'],
-                    confidence=m_data['confidence'],
-                    routing_time_ms=m_data['routing_time_ms'],
-                    cache_hit=m_data['cache_hit'],
-                    mode=m_data['mode'],
-                    reasoning=m_data.get('reasoning', ''),
-                    alternative_projects=m_data.get('alternative_projects', []),
-                    success=m_data.get('success', True),
-                    error=m_data.get('error')
+                    timestamp=m_data["timestamp"],
+                    query=m_data["query"],
+                    project_selected=m_data["project_selected"],
+                    confidence=m_data["confidence"],
+                    routing_time_ms=m_data["routing_time_ms"],
+                    cache_hit=m_data["cache_hit"],
+                    mode=m_data["mode"],
+                    reasoning=m_data.get("reasoning", ""),
+                    alternative_projects=m_data.get("alternative_projects", []),
+                    success=m_data.get("success", True),
+                    error=m_data.get("error"),
                 )
                 self._metrics.append(metric)
 
                 # Rebuild project stats
                 stats = self._project_stats[metric.project_selected]
-                stats['count'] += 1
-                stats['total_confidence'] += metric.confidence
-                stats['total_time_ms'] += metric.routing_time_ms
+                stats["count"] += 1
+                stats["total_confidence"] += metric.confidence
+                stats["total_time_ms"] += metric.routing_time_ms
                 if metric.cache_hit:
-                    stats['cache_hits'] += 1
+                    stats["cache_hits"] += 1
                 if not metric.success:
-                    stats['failures'] += 1
+                    stats["failures"] += 1
 
                 # Rebuild query patterns
                 pattern = self._extract_pattern(metric.query)
-                self._query_patterns[pattern].append(
-                    (metric.project_selected, metric.confidence)
-                )
+                self._query_patterns[pattern].append((metric.project_selected, metric.confidence))
 
             self.logger.info(f"Loaded {len(self._metrics)} metrics from {self.persistence_path}")
 

@@ -12,7 +12,7 @@ Key Features:
 - Generates capability descriptions for LLM routing
 """
 
-from typing import Dict, List, Tuple, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional
 
 from osprey.utils.logger import get_logger
 
@@ -44,17 +44,17 @@ class CapabilityRegistry:
         """Initialize capability registry."""
         self.logger = logger
         # Structure: {capability_name: {project_name: capability}}
-        self._capabilities: Dict[str, Dict[str, 'Capability']] = {}
+        self._capabilities: dict[str, dict[str, Capability]] = {}
         # Structure: {project_name: {capability_name: metadata}}
-        self._metadata: Dict[str, Dict[str, 'CapabilityMetadata']] = {}
+        self._metadata: dict[str, dict[str, Any]] = {}
 
         self.logger.info("Initialized CapabilityRegistry")
 
     def register_project_capabilities(
         self,
         project_name: str,
-        capabilities: Dict[str, 'Capability'],
-        metadata: Dict[str, 'CapabilityMetadata'] = None
+        capabilities: dict[str, "Capability"],
+        metadata: dict[str, Any] = None,
     ) -> None:
         """Register all capabilities from a project.
 
@@ -88,11 +88,7 @@ class CapabilityRegistry:
             f"Registered {len(capabilities)} capabilities from project: {project_name}"
         )
 
-    def get_capability(
-        self,
-        name: str,
-        project: str = None
-    ) -> Optional['Capability']:
+    def get_capability(self, name: str, project: str = None) -> Optional["Capability"]:
         """Get a capability by name, optionally filtered by project.
 
         Args:
@@ -123,10 +119,8 @@ class CapabilityRegistry:
         return list(projects_with_cap.values())[0]
 
     def get_capability_with_project(
-        self,
-        name: str,
-        project: str = None
-    ) -> Optional[Tuple[str, 'Capability']]:
+        self, name: str, project: str = None
+    ) -> tuple[str, "Capability"] | None:
         """Get capability with its project name.
 
         Args:
@@ -158,7 +152,7 @@ class CapabilityRegistry:
         project_name = list(projects_with_cap.keys())[0]
         return (project_name, projects_with_cap[project_name])
 
-    def find_capabilities_by_tag(self, tag: str) -> List[Tuple[str, str, 'Capability']]:
+    def find_capabilities_by_tag(self, tag: str) -> list[tuple[str, str, "Capability"]]:
         """Find all capabilities with a specific tag.
 
         Args:
@@ -178,7 +172,7 @@ class CapabilityRegistry:
         self.logger.debug(f"Found {len(results)} capabilities with tag: {tag}")
         return results
 
-    def get_all_capabilities(self) -> Dict[str, List[Tuple[str, 'Capability']]]:
+    def get_all_capabilities(self) -> dict[str, list[tuple[str, "Capability"]]]:
         """Get all capabilities organized by name.
 
         Returns:
@@ -188,13 +182,12 @@ class CapabilityRegistry:
 
         for cap_name, projects_dict in self._capabilities.items():
             result[cap_name] = [
-                (project_name, capability)
-                for project_name, capability in projects_dict.items()
+                (project_name, capability) for project_name, capability in projects_dict.items()
             ]
 
         return result
 
-    def get_capabilities_by_project(self, project_name: str) -> Dict[str, 'Capability']:
+    def get_capabilities_by_project(self, project_name: str) -> dict[str, "Capability"]:
         """Get all capabilities for a specific project.
 
         Args:
@@ -211,11 +204,7 @@ class CapabilityRegistry:
 
         return result
 
-    def get_capability_description(
-        self,
-        name: str,
-        project: str = None
-    ) -> str:
+    def get_capability_description(self, name: str, project: str = None) -> str:
         """Get human-readable description of a capability.
 
         Args:
@@ -296,7 +285,7 @@ class CapabilityRegistry:
         """Get total number of projects with capabilities."""
         return len(self._metadata)
 
-    def get_capability_projects(self, name: str) -> List[str]:
+    def get_capability_projects(self, name: str) -> list[str]:
         """Get list of projects that have a specific capability.
 
         Args:
@@ -346,6 +335,8 @@ class CapabilityRegistry:
 
 # Custom Exceptions
 
+
 class AmbiguousCapabilityError(Exception):
     """Raised when capability name is ambiguous across projects."""
+
     pass

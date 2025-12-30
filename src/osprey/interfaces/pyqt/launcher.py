@@ -6,8 +6,9 @@ This script provides a simple entry point for launching the GUI with
 proper environment setup and dependency checking.
 """
 
-import sys
+import importlib.util
 import os
+import sys
 from pathlib import Path
 
 
@@ -15,19 +16,13 @@ def check_dependencies():
     """Check if required dependencies are available."""
     missing_deps = []
 
-    try:
-        import PyQt5
-    except ImportError:
+    if importlib.util.find_spec("PyQt5") is None:
         missing_deps.append("PyQt5")
 
-    try:
-        import dotenv
-    except ImportError:
+    if importlib.util.find_spec("dotenv") is None:
         missing_deps.append("python-dotenv")
 
-    try:
-        import osprey
-    except ImportError:
+    if importlib.util.find_spec("osprey") is None:
         missing_deps.append("osprey-framework")
 
     if missing_deps:
@@ -48,8 +43,8 @@ def check_dependencies():
 
 def check_display():
     """Check if DISPLAY is set for GUI applications (Unix-like systems)."""
-    if sys.platform.startswith('linux') or sys.platform == 'darwin':
-        if "DISPLAY" not in os.environ and sys.platform.startswith('linux'):
+    if sys.platform.startswith("linux") or sys.platform == "darwin":
+        if "DISPLAY" not in os.environ and sys.platform.startswith("linux"):
             print("⚠️  Warning: DISPLAY environment variable not set.")
             print("   If you're using SSH, try: ssh -X username@hostname")
             print("   Or set DISPLAY manually: export DISPLAY=:0")
@@ -79,7 +74,7 @@ def main():
             # Verify the config file exists
             if not Path(config_path).exists():
                 print(f"❌ Error: Config file not found: {config_path}")
-                print(f"   Please provide a valid config file path")
+                print("   Please provide a valid config file path")
                 sys.exit(1)
 
         # Launch GUI - it sets up output redirection in __init__ before any logging
@@ -88,6 +83,7 @@ def main():
     except Exception as e:
         print(f"❌ Failed to launch GUI: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
     finally:

@@ -6,7 +6,7 @@ for the Osprey framework and its key dependencies.
 
 import importlib.metadata as metadata
 import sys
-from typing import Any, Dict
+from typing import Any
 
 
 def get_osprey_version() -> str:
@@ -17,6 +17,7 @@ def get_osprey_version() -> str:
     """
     try:
         import osprey
+
         return osprey.__version__
     except (ImportError, AttributeError):
         return "Unknown"
@@ -37,42 +38,42 @@ def get_package_version(package_name: str) -> str:
         return "Not installed"
 
 
-def get_core_dependencies() -> Dict[str, str]:
+def get_core_dependencies() -> dict[str, str]:
     """Get versions of core framework dependencies.
 
     Returns:
         Dictionary mapping package names to version strings
     """
     core_packages = [
-        'langgraph',
-        'langchain-core',
-        'langgraph-sdk',
-        'pydantic-ai',
-        'rich',
-        'click',
-        'PyYAML',
+        "langgraph",
+        "langchain-core",
+        "langgraph-sdk",
+        "pydantic-ai",
+        "rich",
+        "click",
+        "PyYAML",
     ]
 
     return {pkg: get_package_version(pkg) for pkg in core_packages}
 
 
-def get_optional_dependencies() -> Dict[str, str]:
+def get_optional_dependencies() -> dict[str, str]:
     """Get versions of optional framework dependencies.
 
     Returns:
         Dictionary mapping package names to version strings
     """
     optional_packages = [
-        'openai',
-        'anthropic',
-        'google-generativeai',
-        'ollama',
-        'pandas',
-        'numpy',
-        'matplotlib',
-        'mem0ai',
-        'pymongo',
-        'neo4j',
+        "openai",
+        "anthropic",
+        "google-generativeai",
+        "ollama",
+        "pandas",
+        "numpy",
+        "matplotlib",
+        "mem0ai",
+        "pymongo",
+        "neo4j",
     ]
 
     return {pkg: get_package_version(pkg) for pkg in optional_packages}
@@ -87,7 +88,7 @@ def get_python_version() -> str:
     return f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
 
 
-def get_all_versions() -> Dict[str, Any]:
+def get_all_versions() -> dict[str, Any]:
     """Get comprehensive version information.
 
     Returns:
@@ -98,10 +99,10 @@ def get_all_versions() -> Dict[str, Any]:
         - optional: Optional dependencies
     """
     return {
-        'osprey': get_osprey_version(),
-        'python': get_python_version(),
-        'core': get_core_dependencies(),
-        'optional': get_optional_dependencies(),
+        "osprey": get_osprey_version(),
+        "python": get_python_version(),
+        "core": get_core_dependencies(),
+        "optional": get_optional_dependencies(),
     }
 
 
@@ -123,15 +124,17 @@ def format_version_info(include_optional: bool = False) -> str:
         "Core Dependencies:",
     ]
 
-    for pkg, ver in versions['core'].items():
+    for pkg, ver in versions["core"].items():
         lines.append(f"  {pkg}: {ver}")
 
     if include_optional:
-        lines.extend([
-            "",
-            "Optional Dependencies:",
-        ])
-        for pkg, ver in versions['optional'].items():
+        lines.extend(
+            [
+                "",
+                "Optional Dependencies:",
+            ]
+        )
+        for pkg, ver in versions["optional"].items():
             if ver != "Not installed":
                 lines.append(f"  {pkg}: {ver}")
 

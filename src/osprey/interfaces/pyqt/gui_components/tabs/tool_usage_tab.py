@@ -1,7 +1,7 @@
 """Tool Usage Tab for Osprey GUI."""
 
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton, QTextEdit
 from PyQt5.QtGui import QFont
+from PyQt5.QtWidgets import QLabel, QPushButton, QTextEdit, QVBoxLayout, QWidget
 
 
 class ToolUsageTab(QWidget):
@@ -29,7 +29,9 @@ class ToolUsageTab(QWidget):
         self.tool_usage_display = QTextEdit()
         self.tool_usage_display.setReadOnly(True)
         self.tool_usage_display.setFont(QFont("Monospace", 9))
-        self.tool_usage_display.setStyleSheet("background-color: #1E1E1E; color: #FFFFFF; border: 1px solid #3F3F46;")
+        self.tool_usage_display.setStyleSheet(
+            "background-color: #1E1E1E; color: #FFFFFF; border: 1px solid #3F3F46;"
+        )
         layout.addWidget(self.tool_usage_display)
 
         clear_btn = QPushButton("Clear Tool Usage")

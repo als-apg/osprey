@@ -4,9 +4,10 @@ This module handles the display and management of multi-project orchestrated que
 """
 
 import re
-from typing import List
+
+from PyQt5.QtGui import QBrush, QColor, QFont, QTextCharFormat, QTextCursor
 from PyQt5.QtWidgets import QApplication
-from PyQt5.QtGui import QTextCursor, QTextCharFormat, QBrush, QColor, QFont
+
 from osprey.utils.logger import get_logger
 
 logger = get_logger("orchestration_ui")
@@ -32,28 +33,21 @@ class OrchestrationUIHandler:
             plan: OrchestrationPlan to display
         """
         # Display header
-        self.gui._append_colored_message(
-            "\n🎯 Multi-Project Query Detected",
-            "#00FFFF"
-        )
+        self.gui._append_colored_message("\n🎯 Multi-Project Query Detected", "#00FFFF")
 
         # Display reasoning
         if plan.reasoning:
-            self.gui._append_colored_message(
-                f"   Reason: {plan.reasoning}",
-                "#808080"
-            )
+            self.gui._append_colored_message(f"   Reason: {plan.reasoning}", "#808080")
 
         # Display sub-queries
         self.gui._append_colored_message(
-            f"   Decomposed into {len(plan.sub_queries)} sub-queries:",
-            "#FFFFFF"
+            f"   Decomposed into {len(plan.sub_queries)} sub-queries:", "#FFFFFF"
         )
 
         # Add separator
         self.gui._append_colored_message("─" * 60, "#404040")
 
-    def handle_orchestrated_query(self, query: str, plan, enabled_projects: List):
+    def handle_orchestrated_query(self, query: str, plan, enabled_projects: list):
         """
         Handle a multi-project orchestrated query using background worker.
 
@@ -67,14 +61,11 @@ class OrchestrationUIHandler:
             self.display_orchestration_plan(plan)
 
             # Create project contexts dictionary
-            project_contexts = {
-                p.metadata.name: p for p in enabled_projects
-            }
+            project_contexts = {p.metadata.name: p for p in enabled_projects}
 
             # Display start message
             self.gui._append_colored_message(
-                "🔄 Executing multi-project orchestration...",
-                "#00FFFF"
+                "🔄 Executing multi-project orchestration...", "#00FFFF"
             )
 
             # Import here to avoid circular dependency
@@ -82,10 +73,7 @@ class OrchestrationUIHandler:
 
             # Create and configure orchestration worker
             self.gui.orchestration_worker = OrchestrationWorker(
-                plan,
-                project_contexts,
-                self.gui.base_config,
-                self.gui.router
+                plan, project_contexts, self.gui.base_config, self.gui.router
             )
 
             # Connect signals
@@ -94,7 +82,9 @@ class OrchestrationUIHandler:
             self.gui.orchestration_worker.sub_query_error.connect(self.on_sub_query_error)
             self.gui.orchestration_worker.synthesis_start.connect(self.on_synthesis_start)
             self.gui.orchestration_worker.final_result.connect(self.on_orchestration_result)
-            self.gui.orchestration_worker.processing_complete.connect(self.gui.on_processing_complete)
+            self.gui.orchestration_worker.processing_complete.connect(
+                self.gui.on_processing_complete
+            )
             self.gui.orchestration_worker.error_occurred.connect(self.gui.on_error)
 
             # Start worker thread - runs asynchronously without blocking GUI
@@ -105,10 +95,7 @@ class OrchestrationUIHandler:
 
         except Exception as e:
             logger.error(f"Orchestration setup failed: {e}")
-            self.gui._append_colored_message(
-                f"⚠️ Orchestration error: {e}",
-                "#FF0000"
-            )
+            self.gui._append_colored_message(f"⚠️ Orchestration error: {e}", "#FF0000")
             self.gui.add_status(f"Orchestration error: {e}", "error")
 
             # Mark agent as no longer processing
@@ -131,11 +118,8 @@ class OrchestrationUIHandler:
         if index > 0:
             self.gui._append_colored_message("", "#FFFFFF")
 
-        self.gui._append_colored_message(
-            f"  {index + 1}. [{project_name}] {query}",
-            "#FFD700"
-        )
-        self.gui._append_colored_message(f"     ⏳ Processing...", "#808080")
+        self.gui._append_colored_message(f"  {index + 1}. [{project_name}] {query}", "#FFD700")
+        self.gui._append_colored_message("     ⏳ Processing...", "#808080")
         QApplication.processEvents()
 
     def on_sub_query_complete(self, index: int, result: str):
@@ -146,7 +130,7 @@ class OrchestrationUIHandler:
             index: Index of the completed sub-query
             result: Result of the sub-query
         """
-        self.gui._append_colored_message(f"     ✅ Complete", "#00FF00")
+        self.gui._append_colored_message("     ✅ Complete", "#00FF00")
         QApplication.processEvents()
 
     def on_sub_query_error(self, index: int, error_msg: str):
@@ -162,10 +146,7 @@ class OrchestrationUIHandler:
 
     def on_synthesis_start(self):
         """Handle synthesis start event."""
-        self.gui._append_colored_message(
-            "\n🔗 Synthesizing results...",
-            "#00FFFF"
-        )
+        self.gui._append_colored_message("\n🔗 Synthesizing results...", "#00FFFF")
         QApplication.processEvents()
 
     def on_orchestration_result(self, combined_result: str):
@@ -180,31 +161,22 @@ class OrchestrationUIHandler:
             # Use ConversationManager to add message with 'orchestrated' formatting
             self.gui.conversation_manager.add_message(
                 self.gui.current_conversation_id,
-                'agent',
+                "agent",
                 combined_result,
-                formatting='orchestrated'
+                formatting="orchestrated",
             )
             self.gui.update_conversation_list()
             self.gui.save_conversation_history()
 
         # Display final answer with formatted output
-        self.gui._append_colored_message(
-            "\n" + "=" * 60,
-            "#404040"
-        )
-        self.gui._append_colored_message(
-            "\n🤖 Combined Answer:",
-            "#00FF00"
-        )
+        self.gui._append_colored_message("\n" + "=" * 60, "#404040")
+        self.gui._append_colored_message("\n🤖 Combined Answer:", "#00FF00")
         self.gui._append_colored_message("", "#FFFFFF")  # Empty line
 
         # Parse and format the combined result
         self._display_formatted_result(combined_result)
 
-        self.gui._append_colored_message(
-            "\n" + "=" * 60,
-            "#404040"
-        )
+        self.gui._append_colored_message("\n" + "=" * 60, "#404040")
         QApplication.processEvents()
 
     def _display_formatted_result(self, result: str):
@@ -218,7 +190,7 @@ class OrchestrationUIHandler:
         Args:
             result: The result text to format and display
         """
-        lines = result.split('\n')
+        lines = result.split("\n")
 
         for line in lines:
             line = line.strip()
@@ -226,7 +198,7 @@ class OrchestrationUIHandler:
                 continue
 
             # Check if this is a bullet point
-            if line.startswith('-') or line.startswith('•'):
+            if line.startswith("-") or line.startswith("•"):
                 # Remove bullet and get content
                 content = line[1:].strip()
 
@@ -238,10 +210,10 @@ class OrchestrationUIHandler:
                 cursor.insertText("\n  • ")
 
                 # Parse **bold** sections
-                parts = re.split(r'(\*\*[^*]+\*\*)', content)
+                parts = re.split(r"(\*\*[^*]+\*\*)", content)
 
                 for part in parts:
-                    if part.startswith('**') and part.endswith('**'):
+                    if part.startswith("**") and part.endswith("**"):
                         # Bold text - display in cyan color
                         bold_text = part[2:-2]  # Remove ** markers
                         text_format = QTextCharFormat()
