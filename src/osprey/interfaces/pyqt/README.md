@@ -19,21 +19,31 @@ A graphical user interface for the Osprey Framework built with PyQt5, providing 
 
 - Python 3.11 or higher
 - Osprey Framework installed
-- PyQt5
 
-### Install GUI Dependencies
+### Install with GUI Support
 
-From the project root directory:
+The recommended way to install the GUI is using the optional `[gui]` extra when installing the Osprey Framework:
 
 ```bash
-# Install PyQt5 and other GUI dependencies
+# Install Osprey Framework with GUI support
+pip install osprey-framework[gui]
+```
+
+This will automatically install all required GUI dependencies including PyQt5 and psutil.
+
+### Alternative: Install GUI Dependencies Separately
+
+If you already have the Osprey Framework installed and want to add GUI support:
+
+```bash
+# From the project root directory
 pip install -r src/osprey/interfaces/pyqt/requirements-gui.txt
 ```
 
-Or install PyQt5 directly:
+Or install the dependencies directly:
 
 ```bash
-pip install PyQt5 python-dotenv
+pip install PyQt5>=5.15.0 psutil>=5.9.0
 ```
 
 ### Verify Installation
@@ -44,7 +54,21 @@ python -c "import PyQt5; print('PyQt5 installed successfully')"
 
 ## Usage
 
-### Method 1: Using the Launcher Script (Recommended)
+### Method 1: Using the Command Line Tool (Recommended)
+
+After installing with `pip install osprey-framework[gui]`, you can launch the GUI using the `osprey-gui` command:
+
+```bash
+# Using default config discovery (searches for config.yml in current directory)
+osprey-gui
+
+# Using a specific Osprey project config file
+osprey-gui path/to/your/project/config.yml
+```
+
+**Note**: The config file should be your Osprey Framework project's main configuration file (typically `config.yml`), which contains your project settings, model configurations, and capabilities. The GUI will also check for an optional `gui_config.yml` file in the PyQt directory for GUI-specific settings. See the [Configuration](#configuration) section below for important details about GUI-specific requirements.
+
+### Method 2: Using the Launcher Module
 
 From the project root directory:
 
@@ -56,7 +80,7 @@ python -m osprey.interfaces.pyqt.launcher
 python -m osprey.interfaces.pyqt.launcher path/to/your/config.yml
 ```
 
-### Method 2: Direct Python Import
+### Method 3: Direct Python Import
 
 ```python
 from osprey.interfaces.pyqt.gui import main
@@ -68,7 +92,7 @@ main()
 main(config_path="path/to/your/config.yml")
 ```
 
-### Method 3: Using the GUI Module Directly
+### Method 4: Using the GUI Module Directly
 
 ```bash
 # From project root
@@ -118,7 +142,33 @@ python src/osprey/interfaces/pyqt/launcher.py path/to/config.yml
 
 ## Configuration
 
-The GUI uses the same configuration system as the rest of the Osprey Framework. By default, it looks for `config.yml` in the current directory.
+The GUI uses the same configuration system as the rest of the Osprey Framework, but requires additional GUI-specific settings.
+
+### Configuration File Priority
+
+1. **Explicit config path**: If you provide a path via command line argument
+2. **GUI-specific config**: `src/osprey/interfaces/pyqt/gui_config.yml` (if it exists)
+3. **Default discovery**: Searches for `config.yml` in the current working directory
+
+### Important: GUI Configuration Requirements
+
+⚠️ **The GUI requires additional configuration sections** beyond a standard Osprey project config:
+
+**Required GUI-specific sections:**
+- `routing` - Multi-project routing, caching, and semantic analysis settings
+- `gui` - GUI behavior settings (conversation persistence, output redirection)
+- `memory_monitoring` - Memory threshold and monitoring settings
+
+**Recommended approach:**
+1. **Use the provided `gui_config.yml`** in the PyQt directory (already configured with all required sections)
+2. **Or copy `gui_config.yml.example`** to create your own GUI config with all necessary sections
+3. **Or add the GUI sections** to your existing project config (see `gui_config.yml.example` for reference)
+
+If you use a standard project config file that's missing these sections, the GUI will use default values, but some features (like routing analytics, conversation persistence settings, and memory monitoring) may not work as expected.
+
+**For complete configuration documentation**, see:
+- [Configuration System API Reference](https://als-apg.github.io/osprey/api_reference/01_core_framework/04_configuration_system.html) - Complete reference for all configuration sections
+- [Configuration Architecture Guide](https://als-apg.github.io/osprey/developer-guides/03_core-framework-systems/06_configuration-architecture.html) - Understanding the configuration system design
 
 ### Framework Settings
 

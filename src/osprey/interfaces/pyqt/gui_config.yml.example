@@ -1,7 +1,7 @@
 # ============================================================================
 # Osprey GUI Configuration Template
 # ============================================================================
-# 
+#
 # This is an example configuration file for the Osprey PyQt GUI.
 # Copy this file to 'gui_config.yml' in the same directory and update
 # the values below for your facility's setup.
@@ -15,27 +15,62 @@
 # ============================================================================
 
 # ----------------------------------------------------------------------------
+# Project Configuration
+# ----------------------------------------------------------------------------
+# Basic project settings
+#
+project_root: .
+
+# Build directory for container deployments (not used by GUI directly)
+# The GUI uses _agent_data for runtime data (conversations, checkpoints, etc.)
+build_dir: ./build
+
+# ----------------------------------------------------------------------------
 # LLM Model Configuration (REQUIRED)
 # ----------------------------------------------------------------------------
 # Configure which models to use for different GUI operations.
 # The 'classifier' model is REQUIRED for multi-project routing and orchestration.
 #
-# Recommended: Claude Haiku 4.5 for best performance
+# Recommended: Claude Haiku 3.5 for best performance
 # Supported providers: anthropic, openai, argo, cborg, stanford, google, ollama
+#
+# IMPORTANT: Replace 'your_provider' and 'your_model' below with your actual
+# provider and model configuration.
 #
 models:
   # REQUIRED: Model used for routing queries between projects
   classifier:
-    provider: anthropic  # Change to your facility's provider (anthropic, openai, argo, cborg, stanford, google, ollama)
-    model_id: claude-3-5-haiku-20241022  # Change to your preferred model
+    provider: your_provider  # e.g., anthropic, openai, argo, cborg, stanford, google, ollama
+    model_id: your_model     # e.g., claude-3-5-haiku-20241022, gpt-4o-mini
     max_tokens: 4096
 
   # OPTIONAL: Model used for orchestrating multi-project queries
   # If not specified, will use the classifier model
   orchestrator:
-    provider: anthropic
-    model_id: claude-3-5-haiku-20241022
+    provider: your_provider
+    model_id: your_model
     max_tokens: 4096
+  
+  # Framework infrastructure models (optional - will use classifier if not specified)
+  task_extraction:
+    provider: your_provider
+    model_id: your_model
+  response:
+    provider: your_provider
+    model_id: your_model
+  approval:
+    provider: your_provider
+    model_id: your_model
+  memory:
+    provider: your_provider
+    model_id: your_model
+  python_code_generator:
+    provider: your_provider
+    model_id: your_model
+    max_tokens: 8192
+  time_parsing:
+    provider: your_provider
+    model_id: your_model
 
 
 # ----------------------------------------------------------------------------
@@ -232,3 +267,28 @@ development:
     warning_threshold_mb: 500
     critical_threshold_mb: 1000
     check_interval_seconds: 5
+
+
+# ----------------------------------------------------------------------------
+# Memory Monitoring (Top-level)
+# ----------------------------------------------------------------------------
+# System memory monitoring thresholds
+#
+memory_monitoring:
+  enabled: true
+  warning_threshold_mb: 500
+  critical_threshold_mb: 2000
+  check_interval_seconds: 5
+
+
+# ----------------------------------------------------------------------------
+# File Paths
+# ----------------------------------------------------------------------------
+# Data storage organization
+#
+file_paths:
+  agent_data_dir: _agent_data
+  user_memory_dir: user_memory
+  execution_plans_dir: execution_plans
+  conversations: conversations
+  registry_exports_dir: registry_exports
