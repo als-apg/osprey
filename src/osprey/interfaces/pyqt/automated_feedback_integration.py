@@ -14,9 +14,9 @@ Key Features:
 """
 
 import time
+from collections import Counter, defaultdict
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple, Any
-from collections import defaultdict, Counter
+from typing import Any
 
 from osprey.utils.logger import get_logger
 
@@ -26,6 +26,7 @@ logger = get_logger("automated_feedback_integration")
 @dataclass
 class FeedbackAdjustment:
     """Feedback-based routing adjustment."""
+
     original_project: str
     adjusted_project: str
     confidence_adjustment: float
@@ -37,6 +38,7 @@ class FeedbackAdjustment:
 @dataclass
 class FeedbackPattern:
     """Learned pattern from user feedback."""
+
     pattern_id: str
     query_pattern: str
     correct_project: str
@@ -49,6 +51,7 @@ class FeedbackPattern:
 @dataclass
 class SentimentTrend:
     """Sentiment trend for a project."""
+
     project_id: str
     positive_count: int
     negative_count: int
@@ -72,7 +75,7 @@ class FeedbackBasedRouteAdjuster:
         self,
         min_feedback_threshold: int = 3,
         confidence_boost_factor: float = 0.15,
-        confidence_penalty_factor: float = 0.10
+        confidence_penalty_factor: float = 0.10,
     ):
         """Initialize route adjuster.
 
@@ -86,23 +89,20 @@ class FeedbackBasedRouteAdjuster:
         self.confidence_penalty_factor = confidence_penalty_factor
 
         # Learned adjustments
-        self.adjustments: Dict[str, FeedbackAdjustment] = {}
+        self.adjustments: dict[str, FeedbackAdjustment] = {}
 
         # Query-to-correction mapping
-        self.corrections: Dict[str, List[Tuple[str, str, float]]] = defaultdict(list)
+        self.corrections: dict[str, list[tuple[str, str, float]]] = defaultdict(list)
         # query -> [(correct_project, timestamp, confidence)]
 
-        logger.info(
-            f"Initialized FeedbackBasedRouteAdjuster: "
-            f"threshold={min_feedback_threshold}"
-        )
+        logger.info(f"Initialized FeedbackBasedRouteAdjuster: threshold={min_feedback_threshold}")
 
     def record_feedback(
         self,
         query: str,
         selected_project: str,
         user_feedback: str,
-        correct_project: Optional[str] = None
+        correct_project: str | None = None,
     ):
         """Record user feedback for a routing decision.
 
@@ -114,27 +114,25 @@ class FeedbackBasedRouteAdjuster:
         """
         if user_feedback == "incorrect" and correct_project:
             # Record correction
-            self.corrections[query].append((
-                correct_project,
-                time.time(),
-                1.0  # Initial confidence
-            ))
+            self.corrections[query].append(
+                (
+                    correct_project,
+                    time.time(),
+                    1.0,  # Initial confidence
+                )
+            )
 
             # Update adjustment if threshold met
             if len(self.corrections[query]) >= self.min_feedback_threshold:
                 self._update_adjustment(query, selected_project, correct_project)
 
             logger.info(
-                f"Recorded correction: {query[:50]}... "
-                f"{selected_project} → {correct_project}"
+                f"Recorded correction: {query[:50]}... {selected_project} → {correct_project}"
             )
 
     def get_adjustment(
-        self,
-        query: str,
-        base_project: str,
-        base_confidence: float
-    ) -> Tuple[str, float, str]:
+        self, query: str, base_project: str, base_confidence: float
+    ) -> tuple[str, float, str]:
         """Get routing adjustment based on feedback.
 
         Args:
@@ -153,7 +151,7 @@ class FeedbackBasedRouteAdjuster:
                 return (
                     adjustment.adjusted_project,
                     min(0.95, base_confidence + adjustment.confidence_adjustment),
-                    adjustment.reasoning
+                    adjustment.reasoning,
                 )
 
         # Check for similar query corrections
@@ -165,10 +163,7 @@ class FeedbackBasedRouteAdjuster:
         return (base_project, base_confidence, "")
 
     def get_confidence_calibration(
-        self,
-        project: str,
-        base_confidence: float,
-        feedback_history: List[str]
+        self, project: str, base_confidence: float, feedback_history: list[str]
     ) -> float:
         """Calibrate confidence based on feedback history.
 
@@ -211,12 +206,7 @@ class FeedbackBasedRouteAdjuster:
 
     # Private methods
 
-    def _update_adjustment(
-        self,
-        query: str,
-        wrong_project: str,
-        correct_project: str
-    ):
+    def _update_adjustment(self, query: str, wrong_project: str, correct_project: str):
         """Update routing adjustment for a query.
 
         Args:
@@ -238,19 +228,16 @@ class FeedbackBasedRouteAdjuster:
                 confidence_adjustment=0.20,
                 reasoning=f"Learned from {len(corrections)} user correction(s)",
                 feedback_count=len(corrections),
-                last_updated=time.time()
+                last_updated=time.time(),
             )
 
             logger.info(
-                f"Updated adjustment for '{query[:50]}...': "
-                f"{wrong_project} → {correct_project}"
+                f"Updated adjustment for '{query[:50]}...': {wrong_project} → {correct_project}"
             )
 
     def _find_similar_adjustment(
-        self,
-        query: str,
-        base_project: str
-    ) -> Optional[Tuple[str, float, str]]:
+        self, query: str, base_project: str
+    ) -> tuple[str, float, str] | None:
         """Find adjustment from similar queries.
 
         Args:
@@ -279,7 +266,7 @@ class FeedbackBasedRouteAdjuster:
                 best_match = (
                     adjustment.adjusted_project,
                     0.85 * similarity,
-                    f"Similar to corrected query (similarity: {similarity:.0%})"
+                    f"Similar to corrected query (similarity: {similarity:.0%})",
                 )
 
         return best_match
@@ -295,28 +282,21 @@ class RootCauseAnalyzer:
 
     # Issue categories
     CATEGORIES = {
-        'incorrect_routing': ['wrong', 'incorrect', 'mistake', 'error'],
-        'performance': ['slow', 'timeout', 'wait', 'delay'],
-        'incomplete_response': ['missing', 'incomplete', 'partial'],
-        'capability_mismatch': ['cannot', 'unable', 'not supported'],
-        'other': []
+        "incorrect_routing": ["wrong", "incorrect", "mistake", "error"],
+        "performance": ["slow", "timeout", "wait", "delay"],
+        "incomplete_response": ["missing", "incomplete", "partial"],
+        "capability_mismatch": ["cannot", "unable", "not supported"],
+        "other": [],
     }
 
     def __init__(self):
         """Initialize root cause analyzer."""
-        self.issue_counts: Dict[str, int] = defaultdict(int)
-        self.project_issues: Dict[str, Dict[str, int]] = defaultdict(
-            lambda: defaultdict(int)
-        )
+        self.issue_counts: dict[str, int] = defaultdict(int)
+        self.project_issues: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
 
         logger.info("Initialized RootCauseAnalyzer")
 
-    def analyze_feedback(
-        self,
-        query: str,
-        project: str,
-        feedback_comment: str
-    ) -> str:
+    def analyze_feedback(self, query: str, project: str, feedback_comment: str) -> str:
         """Analyze negative feedback to determine root cause.
 
         Args:
@@ -335,18 +315,16 @@ class RootCauseAnalyzer:
                 self.issue_counts[category] += 1
                 self.project_issues[project][category] += 1
 
-                logger.info(
-                    f"Categorized feedback as '{category}' for project {project}"
-                )
+                logger.info(f"Categorized feedback as '{category}' for project {project}")
 
                 return category
 
         # Default to 'other'
-        self.issue_counts['other'] += 1
-        self.project_issues[project]['other'] += 1
-        return 'other'
+        self.issue_counts["other"] += 1
+        self.project_issues[project]["other"] += 1
+        return "other"
 
-    def get_top_issues(self, limit: int = 5) -> List[Tuple[str, int]]:
+    def get_top_issues(self, limit: int = 5) -> list[tuple[str, int]]:
         """Get top issues across all projects.
 
         Args:
@@ -357,7 +335,7 @@ class RootCauseAnalyzer:
         """
         return Counter(self.issue_counts).most_common(limit)
 
-    def get_project_issues(self, project: str) -> Dict[str, int]:
+    def get_project_issues(self, project: str) -> dict[str, int]:
         """Get issues for a specific project.
 
         Args:
@@ -384,13 +362,10 @@ class SentimentTrendAnalyzer:
             trend_window_days: Number of days for trend analysis.
         """
         self.trend_window_days = trend_window_days
-        self.feedback_history: Dict[str, List[Tuple[str, float]]] = defaultdict(list)
+        self.feedback_history: dict[str, list[tuple[str, float]]] = defaultdict(list)
         # project -> [(feedback_type, timestamp)]
 
-        logger.info(
-            f"Initialized SentimentTrendAnalyzer: "
-            f"window={trend_window_days} days"
-        )
+        logger.info(f"Initialized SentimentTrendAnalyzer: window={trend_window_days} days")
 
     def record_feedback(self, project: str, feedback_type: str):
         """Record feedback for trend analysis.
@@ -404,8 +379,7 @@ class SentimentTrendAnalyzer:
         # Prune old feedback
         cutoff = time.time() - (self.trend_window_days * 86400)
         self.feedback_history[project] = [
-            (f, t) for f, t in self.feedback_history[project]
-            if t >= cutoff
+            (f, t) for f, t in self.feedback_history[project] if t >= cutoff
         ]
 
     def get_trend(self, project: str) -> SentimentTrend:
@@ -427,7 +401,7 @@ class SentimentTrendAnalyzer:
                 trend_direction="stable",
                 confidence=0.0,
                 period_start=time.time(),
-                period_end=time.time()
+                period_end=time.time(),
             )
 
         # Count positive/negative
@@ -469,7 +443,7 @@ class SentimentTrendAnalyzer:
             trend_direction=direction,
             confidence=confidence,
             period_start=period_start,
-            period_end=period_end
+            period_end=period_end,
         )
 
 
@@ -486,7 +460,7 @@ class AutomatedFeedbackIntegration:
         enable_route_adjustment: bool = True,
         enable_confidence_calibration: bool = True,
         enable_root_cause_analysis: bool = True,
-        enable_sentiment_trends: bool = True
+        enable_sentiment_trends: bool = True,
     ):
         """Initialize automated feedback integration.
 
@@ -520,8 +494,8 @@ class AutomatedFeedbackIntegration:
         selected_project: str,
         confidence: float,
         user_feedback: str,
-        correct_project: Optional[str] = None,
-        feedback_comment: Optional[str] = None
+        correct_project: str | None = None,
+        feedback_comment: str | None = None,
     ):
         """Process user feedback through all enabled components.
 
@@ -536,30 +510,20 @@ class AutomatedFeedbackIntegration:
         # Route adjustment
         if self.route_adjuster:
             self.route_adjuster.record_feedback(
-                query,
-                selected_project,
-                user_feedback,
-                correct_project
+                query, selected_project, user_feedback, correct_project
             )
 
         # Root cause analysis
         if self.root_cause_analyzer and user_feedback == "incorrect" and feedback_comment:
-            self.root_cause_analyzer.analyze_feedback(
-                query,
-                selected_project,
-                feedback_comment
-            )
+            self.root_cause_analyzer.analyze_feedback(query, selected_project, feedback_comment)
 
         # Sentiment trends
         if self.sentiment_analyzer:
             self.sentiment_analyzer.record_feedback(selected_project, user_feedback)
 
     def get_routing_adjustment(
-        self,
-        query: str,
-        base_project: str,
-        base_confidence: float
-    ) -> Tuple[str, float, str]:
+        self, query: str, base_project: str, base_confidence: float
+    ) -> tuple[str, float, str]:
         """Get routing adjustment based on feedback.
 
         Args:
@@ -571,15 +535,11 @@ class AutomatedFeedbackIntegration:
             Tuple of (adjusted_project, adjusted_confidence, reasoning).
         """
         if self.route_adjuster:
-            return self.route_adjuster.get_adjustment(
-                query,
-                base_project,
-                base_confidence
-            )
+            return self.route_adjuster.get_adjustment(query, base_project, base_confidence)
 
         return (base_project, base_confidence, "")
 
-    def get_insights(self) -> Dict[str, Any]:
+    def get_insights(self) -> dict[str, Any]:
         """Get comprehensive feedback insights.
 
         Returns:
@@ -589,13 +549,13 @@ class AutomatedFeedbackIntegration:
 
         # Top issues
         if self.root_cause_analyzer:
-            insights['top_issues'] = self.root_cause_analyzer.get_top_issues()
+            insights["top_issues"] = self.root_cause_analyzer.get_top_issues()
 
         # Sentiment trends (for all projects with feedback)
         if self.sentiment_analyzer:
             trends = {}
             for project in self.sentiment_analyzer.feedback_history.keys():
                 trends[project] = self.sentiment_analyzer.get_trend(project)
-            insights['sentiment_trends'] = trends
+            insights["sentiment_trends"] = trends
 
         return insights

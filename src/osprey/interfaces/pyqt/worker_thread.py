@@ -5,7 +5,8 @@ This module provides the AgentWorker class which handles agent processing
 in a background thread to keep the GUI responsive.
 """
 
-from typing import Dict, Any
+from typing import Any
+
 from PyQt5.QtCore import pyqtSignal
 
 from osprey.interfaces.pyqt.base_worker import BaseWorker
@@ -36,13 +37,7 @@ class AgentWorker(BaseWorker):
     llm_detail = pyqtSignal(str, str)  # (detail, event_type)
     tool_usage = pyqtSignal(str, str)  # (tool_name, reasoning)
 
-    def __init__(
-        self,
-        gateway,
-        graph,
-        config: Dict[str, Any],
-        user_message: str
-    ):
+    def __init__(self, gateway, graph, config: dict[str, Any], user_message: str):
         """
         Initialize the worker thread.
 
@@ -69,11 +64,7 @@ class AgentWorker(BaseWorker):
 
             # Process message through gateway
             result = self.run_async(
-                self.gateway.process_message(
-                    self.user_message,
-                    self.graph,
-                    self.config
-                )
+                self.gateway.process_message(self.user_message, self.graph, self.config)
             )
 
             if result.error:
@@ -101,12 +92,11 @@ class AgentWorker(BaseWorker):
             input_data: Input data for graph execution (agent state or resume command)
         """
         try:
+
             async def stream_execution():
                 """Stream graph execution and emit status updates."""
                 async for chunk in self.graph.astream(
-                    input_data,
-                    config=self.config,
-                    stream_mode="custom"
+                    input_data, config=self.config, stream_mode="custom"
                 ):
                     # Check if we should stop
                     if self.should_stop():
@@ -145,15 +135,15 @@ class AgentWorker(BaseWorker):
             # Handle interrupts or final messages
             if state.interrupts:
                 interrupt = state.interrupts[0]
-                user_msg = interrupt.value.get('user_message', 'Input required')
+                user_msg = interrupt.value.get("user_message", "Input required")
                 self.message_received.emit(f"\n⚠️ {user_msg}\n")
             else:
                 messages = state.values.get("messages", [])
                 if messages:
                     # Find and emit the last AI message
                     for msg in reversed(messages):
-                        if hasattr(msg, 'content') and msg.content:
-                            if not hasattr(msg, 'type') or msg.type != 'human':
+                        if hasattr(msg, "content") and msg.content:
+                            if not hasattr(msg, "type") or msg.type != "human":
                                 self.message_received.emit(f"\n🤖 {msg.content}\n")
                                 break
                 else:
@@ -162,7 +152,7 @@ class AgentWorker(BaseWorker):
         except Exception as e:
             self.handle_error(e, "Graph execution")
 
-    def _extract_and_emit_execution_info(self, state_values: Dict[str, Any]):
+    def _extract_and_emit_execution_info(self, state_values: dict[str, Any]):
         """
         Extract execution step results and emit as tool usage events.
 
@@ -177,16 +167,15 @@ class AgentWorker(BaseWorker):
 
             # Sort by step_index to maintain execution order
             ordered_results = sorted(
-                execution_step_results.items(),
-                key=lambda x: x[1].get('step_index', 0)
+                execution_step_results.items(), key=lambda x: x[1].get("step_index", 0)
             )
 
             # Emit tool usage for each executed step
-            for step_key, step_data in ordered_results:
-                capability = step_data.get('capability', 'unknown')
-                task_objective = step_data.get('task_objective', 'No objective specified')
-                success = step_data.get('success', False)
-                execution_time = step_data.get('execution_time', 0)
+            for _step_key, step_data in ordered_results:
+                capability = step_data.get("capability", "unknown")
+                task_objective = step_data.get("task_objective", "No objective specified")
+                success = step_data.get("success", False)
+                execution_time = step_data.get("execution_time", 0)
 
                 # Build detailed information
                 info_parts = []
@@ -206,5 +195,3 @@ class AgentWorker(BaseWorker):
 
         except Exception as e:
             logger.warning(f"Failed to extract execution info: {e}")
-
-

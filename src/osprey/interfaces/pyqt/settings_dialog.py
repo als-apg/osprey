@@ -6,9 +6,19 @@ development/debug options, and advanced routing configuration.
 """
 
 from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QFormLayout,
-    QCheckBox, QSpinBox, QComboBox, QTabWidget, QWidget, QLabel,
-    QGroupBox, QDoubleSpinBox
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDoubleSpinBox,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSpinBox,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
 )
 
 from osprey.interfaces.pyqt.gui_utils import create_dark_palette
@@ -51,20 +61,24 @@ class SettingsDialog(QDialog):
 
         # Planning Mode
         self.planning_mode_checkbox = QCheckBox()
-        self.planning_mode_checkbox.setChecked(self.current_settings.get('planning_mode_enabled', False))
+        self.planning_mode_checkbox.setChecked(
+            self.current_settings.get("planning_mode_enabled", False)
+        )
         self.planning_mode_checkbox.setToolTip("Enable multi-step planning and orchestration")
         agent_form.addRow("Planning Mode:", self.planning_mode_checkbox)
 
         # EPICS Writes
         self.epics_writes_checkbox = QCheckBox()
-        self.epics_writes_checkbox.setChecked(self.current_settings.get('epics_writes_enabled', False))
+        self.epics_writes_checkbox.setChecked(
+            self.current_settings.get("epics_writes_enabled", False)
+        )
         self.epics_writes_checkbox.setToolTip("Allow EPICS write operations (requires approval)")
         agent_form.addRow("EPICS Writes:", self.epics_writes_checkbox)
 
         # Task Extraction Bypass
         self.task_extraction_bypass_checkbox = QCheckBox()
         self.task_extraction_bypass_checkbox.setChecked(
-            self.current_settings.get('task_extraction_bypass_enabled', False)
+            self.current_settings.get("task_extraction_bypass_enabled", False)
         )
         self.task_extraction_bypass_checkbox.setToolTip(
             "Skip task extraction step for performance (use full context)"
@@ -74,12 +88,24 @@ class SettingsDialog(QDialog):
         # Capability Selection Bypass
         self.capability_selection_bypass_checkbox = QCheckBox()
         self.capability_selection_bypass_checkbox.setChecked(
-            self.current_settings.get('capability_selection_bypass_enabled', False)
+            self.current_settings.get("capability_selection_bypass_enabled", False)
         )
         self.capability_selection_bypass_checkbox.setToolTip(
             "Skip capability selection (activate all capabilities)"
         )
         agent_form.addRow("Capability Selection Bypass:", self.capability_selection_bypass_checkbox)
+
+        # Parallel Execution
+        self.parallel_execution_checkbox = QCheckBox()
+        self.parallel_execution_checkbox.setChecked(
+            self.current_settings.get("parallel_execution_enabled", False)
+        )
+        self.parallel_execution_checkbox.setToolTip(
+            "Enable parallel execution of independent steps\n"
+            "When enabled: Independent steps execute simultaneously for faster performance\n"
+            "When disabled: All steps execute sequentially"
+        )
+        agent_form.addRow("Parallel Execution:", self.parallel_execution_checkbox)
 
         agent_control_layout.addLayout(agent_form)
         agent_control_layout.addStretch()
@@ -94,8 +120,8 @@ class SettingsDialog(QDialog):
 
         # Global Approval Mode
         self.approval_global_mode_combo = QComboBox()
-        self.approval_global_mode_combo.addItems(['disabled', 'selective', 'all_capabilities'])
-        current_global_mode = self.current_settings.get('approval_global_mode', 'selective')
+        self.approval_global_mode_combo.addItems(["disabled", "selective", "all_capabilities"])
+        current_global_mode = self.current_settings.get("approval_global_mode", "selective")
         index = self.approval_global_mode_combo.findText(current_global_mode)
         if index >= 0:
             self.approval_global_mode_combo.setCurrentIndex(index)
@@ -110,15 +136,17 @@ class SettingsDialog(QDialog):
         # Python Execution Approval
         self.python_execution_approval_checkbox = QCheckBox()
         self.python_execution_approval_checkbox.setChecked(
-            self.current_settings.get('python_execution_approval_enabled', True)
+            self.current_settings.get("python_execution_approval_enabled", True)
         )
-        self.python_execution_approval_checkbox.setToolTip("Require approval for Python code execution")
+        self.python_execution_approval_checkbox.setToolTip(
+            "Require approval for Python code execution"
+        )
         approval_form.addRow("Python Execution Approval:", self.python_execution_approval_checkbox)
 
         # Python Execution Approval Mode
         self.python_execution_approval_mode_combo = QComboBox()
-        self.python_execution_approval_mode_combo.addItems(['disabled', 'epics_writes', 'all_code'])
-        current_py_mode = self.current_settings.get('python_execution_approval_mode', 'all_code')
+        self.python_execution_approval_mode_combo.addItems(["disabled", "epics_writes", "all_code"])
+        current_py_mode = self.current_settings.get("python_execution_approval_mode", "all_code")
         index = self.python_execution_approval_mode_combo.findText(current_py_mode)
         if index >= 0:
             self.python_execution_approval_mode_combo.setCurrentIndex(index)
@@ -133,7 +161,7 @@ class SettingsDialog(QDialog):
         # Memory Approval
         self.memory_approval_checkbox = QCheckBox()
         self.memory_approval_checkbox.setChecked(
-            self.current_settings.get('memory_approval_enabled', True)
+            self.current_settings.get("memory_approval_enabled", True)
         )
         self.memory_approval_checkbox.setToolTip("Require approval for memory operations")
         approval_form.addRow("Memory Approval:", self.memory_approval_checkbox)
@@ -153,7 +181,7 @@ class SettingsDialog(QDialog):
         self.max_reclassifications_spin = QSpinBox()
         self.max_reclassifications_spin.setRange(0, 10)
         self.max_reclassifications_spin.setValue(
-            self.current_settings.get('max_reclassifications', 1)
+            self.current_settings.get("max_reclassifications", 1)
         )
         self.max_reclassifications_spin.setToolTip("Maximum task reclassification attempts")
         limits_form.addRow("Max Reclassifications:", self.max_reclassifications_spin)
@@ -162,7 +190,7 @@ class SettingsDialog(QDialog):
         self.max_planning_attempts_spin = QSpinBox()
         self.max_planning_attempts_spin.setRange(1, 10)
         self.max_planning_attempts_spin.setValue(
-            self.current_settings.get('max_planning_attempts', 2)
+            self.current_settings.get("max_planning_attempts", 2)
         )
         self.max_planning_attempts_spin.setToolTip("Maximum planning attempts before giving up")
         limits_form.addRow("Max Planning Attempts:", self.max_planning_attempts_spin)
@@ -170,9 +198,7 @@ class SettingsDialog(QDialog):
         # Max Step Retries
         self.max_step_retries_spin = QSpinBox()
         self.max_step_retries_spin.setRange(0, 10)
-        self.max_step_retries_spin.setValue(
-            self.current_settings.get('max_step_retries', 0)
-        )
+        self.max_step_retries_spin.setValue(self.current_settings.get("max_step_retries", 0))
         self.max_step_retries_spin.setToolTip("Maximum retries per execution step")
         limits_form.addRow("Max Step Retries:", self.max_step_retries_spin)
 
@@ -180,7 +206,7 @@ class SettingsDialog(QDialog):
         self.max_execution_time_spin = QSpinBox()
         self.max_execution_time_spin.setRange(10, 7200)
         self.max_execution_time_spin.setValue(
-            self.current_settings.get('max_execution_time_seconds', 300)
+            self.current_settings.get("max_execution_time_seconds", 300)
         )
         self.max_execution_time_spin.setSuffix(" seconds")
         self.max_execution_time_spin.setToolTip("Maximum total execution time")
@@ -190,10 +216,14 @@ class SettingsDialog(QDialog):
         self.max_concurrent_classifications_spin = QSpinBox()
         self.max_concurrent_classifications_spin.setRange(1, 20)
         self.max_concurrent_classifications_spin.setValue(
-            self.current_settings.get('max_concurrent_classifications', 5)
+            self.current_settings.get("max_concurrent_classifications", 5)
         )
-        self.max_concurrent_classifications_spin.setToolTip("Maximum parallel LLM classification requests")
-        limits_form.addRow("Max Concurrent Classifications:", self.max_concurrent_classifications_spin)
+        self.max_concurrent_classifications_spin.setToolTip(
+            "Maximum parallel LLM classification requests"
+        )
+        limits_form.addRow(
+            "Max Concurrent Classifications:", self.max_concurrent_classifications_spin
+        )
 
         limits_layout.addLayout(limits_form)
         limits_layout.addStretch()
@@ -209,15 +239,17 @@ class SettingsDialog(QDialog):
         # Conversation Persistence
         self.use_persistent_conversations_checkbox = QCheckBox()
         self.use_persistent_conversations_checkbox.setChecked(
-            self.current_settings.get('use_persistent_conversations', True)
+            self.current_settings.get("use_persistent_conversations", True)
         )
-        self.use_persistent_conversations_checkbox.setToolTip("Save conversation history to database")
+        self.use_persistent_conversations_checkbox.setToolTip(
+            "Save conversation history to database"
+        )
         gui_form.addRow("Save Conversation History:", self.use_persistent_conversations_checkbox)
 
         # Conversation Storage Mode
         self.conversation_storage_mode_combo = QComboBox()
-        self.conversation_storage_mode_combo.addItems(['json', 'postgresql'])
-        current_storage_mode = self.current_settings.get('conversation_storage_mode', 'json')
+        self.conversation_storage_mode_combo.addItems(["json", "postgresql"])
+        current_storage_mode = self.current_settings.get("conversation_storage_mode", "json")
         index = self.conversation_storage_mode_combo.findText(current_storage_mode)
         if index >= 0:
             self.conversation_storage_mode_combo.setCurrentIndex(index)
@@ -231,7 +263,7 @@ class SettingsDialog(QDialog):
         # GUI Output Redirection
         self.redirect_output_to_gui_checkbox = QCheckBox()
         self.redirect_output_to_gui_checkbox.setChecked(
-            self.current_settings.get('redirect_output_to_gui', True)
+            self.current_settings.get("redirect_output_to_gui", True)
         )
         self.redirect_output_to_gui_checkbox.setToolTip(
             "Redirect terminal output to System Information tab (requires restart)"
@@ -241,7 +273,7 @@ class SettingsDialog(QDialog):
         # Group System Messages
         self.group_system_messages_checkbox = QCheckBox()
         self.group_system_messages_checkbox.setChecked(
-            self.current_settings.get('group_system_messages', True)
+            self.current_settings.get("group_system_messages", True)
         )
         self.group_system_messages_checkbox.setToolTip(
             "Group system messages by type in collapsible sections"
@@ -251,7 +283,7 @@ class SettingsDialog(QDialog):
         # Suppress Terminal Output
         self.suppress_terminal_output_checkbox = QCheckBox()
         self.suppress_terminal_output_checkbox.setChecked(
-            self.current_settings.get('suppress_terminal_output', False)
+            self.current_settings.get("suppress_terminal_output", False)
         )
         self.suppress_terminal_output_checkbox.setToolTip(
             "Suppress terminal output (show only in GUI)\n"
@@ -263,7 +295,7 @@ class SettingsDialog(QDialog):
         # Enable Routing Feedback
         self.enable_routing_feedback_checkbox = QCheckBox()
         self.enable_routing_feedback_checkbox.setChecked(
-            self.current_settings.get('enable_routing_feedback', True)
+            self.current_settings.get("enable_routing_feedback", True)
         )
         self.enable_routing_feedback_checkbox.setToolTip(
             "Enable user feedback collection for routing decisions\n"
@@ -286,9 +318,7 @@ class SettingsDialog(QDialog):
 
         # Debug Mode
         self.debug_mode_checkbox = QCheckBox()
-        self.debug_mode_checkbox.setChecked(
-            self.current_settings.get('debug_mode', False)
-        )
+        self.debug_mode_checkbox.setChecked(self.current_settings.get("debug_mode", False))
         self.debug_mode_checkbox.setToolTip(
             "Enable DEBUG logging level (shows all framework debug messages)\n"
             "When unchecked: INFO level (shows only important messages)\n"
@@ -299,7 +329,7 @@ class SettingsDialog(QDialog):
         # Verbose Logging
         self.verbose_logging_checkbox = QCheckBox()
         self.verbose_logging_checkbox.setChecked(
-            self.current_settings.get('verbose_logging', False)
+            self.current_settings.get("verbose_logging", False)
         )
         self.verbose_logging_checkbox.setToolTip(
             "Enable verbose logging output (development.verbose_logging)\n"
@@ -310,7 +340,7 @@ class SettingsDialog(QDialog):
         # Raise Raw Errors
         self.raise_raw_errors_checkbox = QCheckBox()
         self.raise_raw_errors_checkbox.setChecked(
-            self.current_settings.get('raise_raw_errors', False)
+            self.current_settings.get("raise_raw_errors", False)
         )
         self.raise_raw_errors_checkbox.setToolTip(
             "Show full error stack traces (development.raise_raw_errors)\n"
@@ -320,9 +350,7 @@ class SettingsDialog(QDialog):
 
         # Print Prompts to Files
         self.print_prompts_checkbox = QCheckBox()
-        self.print_prompts_checkbox.setChecked(
-            self.current_settings.get('print_prompts', False)
-        )
+        self.print_prompts_checkbox.setChecked(self.current_settings.get("print_prompts", False))
         self.print_prompts_checkbox.setToolTip(
             "Save all prompts to files (development.prompts.print_all)\n"
             "Prompts are saved to prompts/ directory for inspection"
@@ -331,9 +359,7 @@ class SettingsDialog(QDialog):
 
         # Show Prompts in Console
         self.show_prompts_checkbox = QCheckBox()
-        self.show_prompts_checkbox.setChecked(
-            self.current_settings.get('show_prompts', False)
-        )
+        self.show_prompts_checkbox.setChecked(self.current_settings.get("show_prompts", False))
         self.show_prompts_checkbox.setToolTip(
             "Display prompts in console (development.prompts.show_all)\n"
             "Shows prompts in System Information tab with detailed formatting"
@@ -343,7 +369,7 @@ class SettingsDialog(QDialog):
         # Latest Only (for prompt files)
         self.prompts_latest_only_checkbox = QCheckBox()
         self.prompts_latest_only_checkbox.setChecked(
-            self.current_settings.get('prompts_latest_only', True)
+            self.current_settings.get("prompts_latest_only", True)
         )
         self.prompts_latest_only_checkbox.setToolTip(
             "Use latest.md filename instead of timestamped files for prompts"
@@ -358,7 +384,7 @@ class SettingsDialog(QDialog):
 
         self.memory_monitor_enabled_checkbox = QCheckBox()
         self.memory_monitor_enabled_checkbox.setChecked(
-            self.current_settings.get('memory_monitor_enabled', True)
+            self.current_settings.get("memory_monitor_enabled", True)
         )
         self.memory_monitor_enabled_checkbox.setToolTip(
             "Enable automatic memory monitoring in Memory tab"
@@ -368,25 +394,29 @@ class SettingsDialog(QDialog):
         self.memory_warning_threshold_spin = QSpinBox()
         self.memory_warning_threshold_spin.setRange(100, 10000)
         self.memory_warning_threshold_spin.setValue(
-            self.current_settings.get('memory_warning_threshold_mb', 500)
+            self.current_settings.get("memory_warning_threshold_mb", 500)
         )
         self.memory_warning_threshold_spin.setSuffix(" MB")
-        self.memory_warning_threshold_spin.setToolTip("Warning threshold for framework memory usage")
+        self.memory_warning_threshold_spin.setToolTip(
+            "Warning threshold for framework memory usage"
+        )
         memory_layout.addRow("Warning Threshold:", self.memory_warning_threshold_spin)
 
         self.memory_critical_threshold_spin = QSpinBox()
         self.memory_critical_threshold_spin.setRange(200, 20000)
         self.memory_critical_threshold_spin.setValue(
-            self.current_settings.get('memory_critical_threshold_mb', 1000)
+            self.current_settings.get("memory_critical_threshold_mb", 1000)
         )
         self.memory_critical_threshold_spin.setSuffix(" MB")
-        self.memory_critical_threshold_spin.setToolTip("Critical threshold for framework memory usage")
+        self.memory_critical_threshold_spin.setToolTip(
+            "Critical threshold for framework memory usage"
+        )
         memory_layout.addRow("Critical Threshold:", self.memory_critical_threshold_spin)
 
         self.memory_check_interval_spin = QSpinBox()
         self.memory_check_interval_spin.setRange(1, 60)
         self.memory_check_interval_spin.setValue(
-            self.current_settings.get('memory_check_interval_seconds', 5)
+            self.current_settings.get("memory_check_interval_seconds", 5)
         )
         self.memory_check_interval_spin.setSuffix(" seconds")
         self.memory_check_interval_spin.setToolTip("How often to update memory statistics")
@@ -412,7 +442,7 @@ class SettingsDialog(QDialog):
         routing_layout = QVBoxLayout()
         routing_tab.setLayout(routing_layout)
 
-        routing_form = QFormLayout()
+        QFormLayout()
 
         # === Cache Configuration ===
         cache_group = QGroupBox("Cache Configuration")
@@ -420,24 +450,20 @@ class SettingsDialog(QDialog):
 
         self.enable_routing_cache_checkbox = QCheckBox()
         self.enable_routing_cache_checkbox.setChecked(
-            self.current_settings.get('enable_routing_cache', True)
+            self.current_settings.get("enable_routing_cache", True)
         )
         self.enable_routing_cache_checkbox.setToolTip("Enable routing decision caching")
         cache_layout.addRow("Enable Routing Cache:", self.enable_routing_cache_checkbox)
 
         self.cache_max_size_spin = QSpinBox()
         self.cache_max_size_spin.setRange(10, 1000)
-        self.cache_max_size_spin.setValue(
-            self.current_settings.get('cache_max_size', 100)
-        )
+        self.cache_max_size_spin.setValue(self.current_settings.get("cache_max_size", 100))
         self.cache_max_size_spin.setToolTip("Maximum number of cached routing decisions")
         cache_layout.addRow("Cache Size:", self.cache_max_size_spin)
 
         self.cache_ttl_spin = QSpinBox()
         self.cache_ttl_spin.setRange(60, 86400)
-        self.cache_ttl_spin.setValue(
-            int(self.current_settings.get('cache_ttl_seconds', 3600))
-        )
+        self.cache_ttl_spin.setValue(int(self.current_settings.get("cache_ttl_seconds", 3600)))
         self.cache_ttl_spin.setSuffix(" seconds")
         self.cache_ttl_spin.setToolTip("Time-to-live for cache entries (1 hour = 3600s)")
         cache_layout.addRow("Cache TTL:", self.cache_ttl_spin)
@@ -446,7 +472,7 @@ class SettingsDialog(QDialog):
         self.cache_similarity_spin.setRange(0.5, 1.0)
         self.cache_similarity_spin.setSingleStep(0.05)
         self.cache_similarity_spin.setValue(
-            self.current_settings.get('cache_similarity_threshold', 0.85)
+            self.current_settings.get("cache_similarity_threshold", 0.85)
         )
         self.cache_similarity_spin.setToolTip("Minimum similarity score for cache hit (0.5-1.0)")
         cache_layout.addRow("Similarity Threshold:", self.cache_similarity_spin)
@@ -460,16 +486,18 @@ class SettingsDialog(QDialog):
 
         self.enable_advanced_invalidation_checkbox = QCheckBox()
         self.enable_advanced_invalidation_checkbox.setChecked(
-            self.current_settings.get('enable_advanced_invalidation', True)
+            self.current_settings.get("enable_advanced_invalidation", True)
         )
         self.enable_advanced_invalidation_checkbox.setToolTip(
             "Enable intelligent cache invalidation strategies"
         )
-        invalidation_layout.addRow("Enable Advanced Invalidation:", self.enable_advanced_invalidation_checkbox)
+        invalidation_layout.addRow(
+            "Enable Advanced Invalidation:", self.enable_advanced_invalidation_checkbox
+        )
 
         self.enable_adaptive_ttl_checkbox = QCheckBox()
         self.enable_adaptive_ttl_checkbox.setChecked(
-            self.current_settings.get('enable_adaptive_ttl', True)
+            self.current_settings.get("enable_adaptive_ttl", True)
         )
         self.enable_adaptive_ttl_checkbox.setToolTip(
             "Hot entries cached longer, cold entries expire faster"
@@ -478,21 +506,25 @@ class SettingsDialog(QDialog):
 
         self.enable_probabilistic_expiration_checkbox = QCheckBox()
         self.enable_probabilistic_expiration_checkbox.setChecked(
-            self.current_settings.get('enable_probabilistic_expiration', True)
+            self.current_settings.get("enable_probabilistic_expiration", True)
         )
         self.enable_probabilistic_expiration_checkbox.setToolTip(
             "XFetch algorithm prevents cache stampede"
         )
-        invalidation_layout.addRow("  Probabilistic Expiration:", self.enable_probabilistic_expiration_checkbox)
+        invalidation_layout.addRow(
+            "  Probabilistic Expiration:", self.enable_probabilistic_expiration_checkbox
+        )
 
         self.enable_event_driven_invalidation_checkbox = QCheckBox()
         self.enable_event_driven_invalidation_checkbox.setChecked(
-            self.current_settings.get('enable_event_driven_invalidation', True)
+            self.current_settings.get("enable_event_driven_invalidation", True)
         )
         self.enable_event_driven_invalidation_checkbox.setToolTip(
             "Auto-invalidate on config/capability changes"
         )
-        invalidation_layout.addRow("  Event-Driven Invalidation:", self.enable_event_driven_invalidation_checkbox)
+        invalidation_layout.addRow(
+            "  Event-Driven Invalidation:", self.enable_event_driven_invalidation_checkbox
+        )
 
         invalidation_group.setLayout(invalidation_layout)
         routing_layout.addWidget(invalidation_group)
@@ -503,7 +535,7 @@ class SettingsDialog(QDialog):
 
         self.enable_semantic_analysis_checkbox = QCheckBox()
         self.enable_semantic_analysis_checkbox.setChecked(
-            self.current_settings.get('enable_semantic_analysis', True)
+            self.current_settings.get("enable_semantic_analysis", True)
         )
         self.enable_semantic_analysis_checkbox.setToolTip(
             "Enable semantic understanding of conversation context"
@@ -514,7 +546,7 @@ class SettingsDialog(QDialog):
         self.semantic_similarity_spin.setRange(0.3, 0.9)
         self.semantic_similarity_spin.setSingleStep(0.05)
         self.semantic_similarity_spin.setValue(
-            self.current_settings.get('semantic_similarity_threshold', 0.5)
+            self.current_settings.get("semantic_similarity_threshold", 0.5)
         )
         self.semantic_similarity_spin.setToolTip("Minimum similarity for context relevance")
         semantic_layout.addRow("  Similarity Threshold:", self.semantic_similarity_spin)
@@ -523,16 +555,14 @@ class SettingsDialog(QDialog):
         self.topic_similarity_spin.setRange(0.3, 0.9)
         self.topic_similarity_spin.setSingleStep(0.05)
         self.topic_similarity_spin.setValue(
-            self.current_settings.get('topic_similarity_threshold', 0.6)
+            self.current_settings.get("topic_similarity_threshold", 0.6)
         )
         self.topic_similarity_spin.setToolTip("Minimum similarity for same topic detection")
         semantic_layout.addRow("  Topic Similarity:", self.topic_similarity_spin)
 
         self.max_context_history_spin = QSpinBox()
         self.max_context_history_spin.setRange(5, 100)
-        self.max_context_history_spin.setValue(
-            self.current_settings.get('max_context_history', 20)
-        )
+        self.max_context_history_spin.setValue(self.current_settings.get("max_context_history", 20))
         self.max_context_history_spin.setToolTip("Maximum conversation queries to track")
         semantic_layout.addRow("  Max Context History:", self.max_context_history_spin)
 
@@ -546,16 +576,18 @@ class SettingsDialog(QDialog):
         self.orchestration_max_parallel_spin = QSpinBox()
         self.orchestration_max_parallel_spin.setRange(1, 10)
         self.orchestration_max_parallel_spin.setValue(
-            self.current_settings.get('orchestration_max_parallel', 3)
+            self.current_settings.get("orchestration_max_parallel", 3)
         )
-        self.orchestration_max_parallel_spin.setToolTip("Maximum parallel sub-queries for orchestration")
+        self.orchestration_max_parallel_spin.setToolTip(
+            "Maximum parallel sub-queries for orchestration"
+        )
         other_layout.addRow("Max Parallel Queries:", self.orchestration_max_parallel_spin)
 
         self.analytics_max_history_spin = QSpinBox()
         self.analytics_max_history_spin.setRange(100, 10000)
         self.analytics_max_history_spin.setSingleStep(100)
         self.analytics_max_history_spin.setValue(
-            self.current_settings.get('analytics_max_history', 1000)
+            self.current_settings.get("analytics_max_history", 1000)
         )
         self.analytics_max_history_spin.setToolTip("Maximum analytics records to keep")
         other_layout.addRow("Analytics Max History:", self.analytics_max_history_spin)
@@ -585,59 +617,54 @@ class SettingsDialog(QDialog):
         """Get the current settings from the dialog."""
         return {
             # Agent Control
-            'planning_mode_enabled': self.planning_mode_checkbox.isChecked(),
-            'epics_writes_enabled': self.epics_writes_checkbox.isChecked(),
-            'task_extraction_bypass_enabled': self.task_extraction_bypass_checkbox.isChecked(),
-            'capability_selection_bypass_enabled': self.capability_selection_bypass_checkbox.isChecked(),
-
+            "planning_mode_enabled": self.planning_mode_checkbox.isChecked(),
+            "epics_writes_enabled": self.epics_writes_checkbox.isChecked(),
+            "task_extraction_bypass_enabled": self.task_extraction_bypass_checkbox.isChecked(),
+            "capability_selection_bypass_enabled": self.capability_selection_bypass_checkbox.isChecked(),
+            "parallel_execution_enabled": self.parallel_execution_checkbox.isChecked(),
             # Approval Settings
-            'approval_global_mode': self.approval_global_mode_combo.currentText(),
-            'python_execution_approval_enabled': self.python_execution_approval_checkbox.isChecked(),
-            'python_execution_approval_mode': self.python_execution_approval_mode_combo.currentText(),
-            'memory_approval_enabled': self.memory_approval_checkbox.isChecked(),
-
+            "approval_global_mode": self.approval_global_mode_combo.currentText(),
+            "python_execution_approval_enabled": self.python_execution_approval_checkbox.isChecked(),
+            "python_execution_approval_mode": self.python_execution_approval_mode_combo.currentText(),
+            "memory_approval_enabled": self.memory_approval_checkbox.isChecked(),
             # Execution Limits
-            'max_reclassifications': self.max_reclassifications_spin.value(),
-            'max_planning_attempts': self.max_planning_attempts_spin.value(),
-            'max_step_retries': self.max_step_retries_spin.value(),
-            'max_execution_time_seconds': self.max_execution_time_spin.value(),
-            'max_concurrent_classifications': self.max_concurrent_classifications_spin.value(),
-
+            "max_reclassifications": self.max_reclassifications_spin.value(),
+            "max_planning_attempts": self.max_planning_attempts_spin.value(),
+            "max_step_retries": self.max_step_retries_spin.value(),
+            "max_execution_time_seconds": self.max_execution_time_spin.value(),
+            "max_concurrent_classifications": self.max_concurrent_classifications_spin.value(),
             # GUI Settings
-            'use_persistent_conversations': self.use_persistent_conversations_checkbox.isChecked(),
-            'conversation_storage_mode': self.conversation_storage_mode_combo.currentText(),
-            'redirect_output_to_gui': self.redirect_output_to_gui_checkbox.isChecked(),
-            'group_system_messages': self.group_system_messages_checkbox.isChecked(),
-            'suppress_terminal_output': self.suppress_terminal_output_checkbox.isChecked(),
-            'enable_routing_feedback': self.enable_routing_feedback_checkbox.isChecked(),
-
+            "use_persistent_conversations": self.use_persistent_conversations_checkbox.isChecked(),
+            "conversation_storage_mode": self.conversation_storage_mode_combo.currentText(),
+            "redirect_output_to_gui": self.redirect_output_to_gui_checkbox.isChecked(),
+            "group_system_messages": self.group_system_messages_checkbox.isChecked(),
+            "suppress_terminal_output": self.suppress_terminal_output_checkbox.isChecked(),
+            "enable_routing_feedback": self.enable_routing_feedback_checkbox.isChecked(),
             # Development/Debug Settings
-            'debug_mode': self.debug_mode_checkbox.isChecked(),
-            'verbose_logging': self.verbose_logging_checkbox.isChecked(),
-            'raise_raw_errors': self.raise_raw_errors_checkbox.isChecked(),
-            'print_prompts': self.print_prompts_checkbox.isChecked(),
-            'show_prompts': self.show_prompts_checkbox.isChecked(),
-            'prompts_latest_only': self.prompts_latest_only_checkbox.isChecked(),
-
+            "debug_mode": self.debug_mode_checkbox.isChecked(),
+            "verbose_logging": self.verbose_logging_checkbox.isChecked(),
+            "raise_raw_errors": self.raise_raw_errors_checkbox.isChecked(),
+            "print_prompts": self.print_prompts_checkbox.isChecked(),
+            "show_prompts": self.show_prompts_checkbox.isChecked(),
+            "prompts_latest_only": self.prompts_latest_only_checkbox.isChecked(),
             # Memory Monitoring Settings
-            'memory_monitor_enabled': self.memory_monitor_enabled_checkbox.isChecked(),
-            'memory_warning_threshold_mb': self.memory_warning_threshold_spin.value(),
-            'memory_critical_threshold_mb': self.memory_critical_threshold_spin.value(),
-            'memory_check_interval_seconds': self.memory_check_interval_spin.value(),
-
+            "memory_monitor_enabled": self.memory_monitor_enabled_checkbox.isChecked(),
+            "memory_warning_threshold_mb": self.memory_warning_threshold_spin.value(),
+            "memory_critical_threshold_mb": self.memory_critical_threshold_spin.value(),
+            "memory_check_interval_seconds": self.memory_check_interval_spin.value(),
             # Advanced Routing Settings (Phase 2.4)
-            'enable_routing_cache': self.enable_routing_cache_checkbox.isChecked(),
-            'cache_max_size': self.cache_max_size_spin.value(),
-            'cache_ttl_seconds': float(self.cache_ttl_spin.value()),
-            'cache_similarity_threshold': self.cache_similarity_spin.value(),
-            'enable_advanced_invalidation': self.enable_advanced_invalidation_checkbox.isChecked(),
-            'enable_adaptive_ttl': self.enable_adaptive_ttl_checkbox.isChecked(),
-            'enable_probabilistic_expiration': self.enable_probabilistic_expiration_checkbox.isChecked(),
-            'enable_event_driven_invalidation': self.enable_event_driven_invalidation_checkbox.isChecked(),
-            'enable_semantic_analysis': self.enable_semantic_analysis_checkbox.isChecked(),
-            'semantic_similarity_threshold': self.semantic_similarity_spin.value(),
-            'topic_similarity_threshold': self.topic_similarity_spin.value(),
-            'max_context_history': self.max_context_history_spin.value(),
-            'orchestration_max_parallel': self.orchestration_max_parallel_spin.value(),
-            'analytics_max_history': self.analytics_max_history_spin.value(),
+            "enable_routing_cache": self.enable_routing_cache_checkbox.isChecked(),
+            "cache_max_size": self.cache_max_size_spin.value(),
+            "cache_ttl_seconds": float(self.cache_ttl_spin.value()),
+            "cache_similarity_threshold": self.cache_similarity_spin.value(),
+            "enable_advanced_invalidation": self.enable_advanced_invalidation_checkbox.isChecked(),
+            "enable_adaptive_ttl": self.enable_adaptive_ttl_checkbox.isChecked(),
+            "enable_probabilistic_expiration": self.enable_probabilistic_expiration_checkbox.isChecked(),
+            "enable_event_driven_invalidation": self.enable_event_driven_invalidation_checkbox.isChecked(),
+            "enable_semantic_analysis": self.enable_semantic_analysis_checkbox.isChecked(),
+            "semantic_similarity_threshold": self.semantic_similarity_spin.value(),
+            "topic_similarity_threshold": self.topic_similarity_spin.value(),
+            "max_context_history": self.max_context_history_spin.value(),
+            "orchestration_max_parallel": self.orchestration_max_parallel_spin.value(),
+            "analytics_max_history": self.analytics_max_history_spin.value(),
         }

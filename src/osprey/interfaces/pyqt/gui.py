@@ -18,70 +18,83 @@ Features:
 __version__ = "0.1.0"
 
 import sys
-import os
-
-from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QTextEdit, QPushButton, QLabel, QSplitter, QStatusBar,
-    QMenuBar, QAction, QMessageBox, QDialog, QFormLayout, QCheckBox,
-    QSpinBox, QComboBox, QListWidget, QTabWidget, QListWidgetItem,
-    QInputDialog, QTableWidget, QTableWidgetItem, QHeaderView, QScrollArea,
-    QGroupBox, QDoubleSpinBox
-)
-from PyQt5.QtCore import QThread, pyqtSignal, pyqtSlot, Qt, QTimer, QEvent
-from PyQt5.QtGui import QFont, QTextCursor, QColor, QPalette, QTextOption
-
-# Import event bus and enums for refactored architecture
-from osprey.interfaces.pyqt.event_bus import EventBus
-from osprey.interfaces.pyqt.enums import EventTypes, LLMEventType, Colors
-from osprey.interfaces.pyqt.gui_utils import create_dark_palette
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
-# Load environment variables
 from dotenv import load_dotenv
-load_dotenv()
+from PyQt5.QtCore import QEvent, Qt, QThread, QTimer, pyqtSignal, pyqtSlot
+from PyQt5.QtGui import QColor, QFont, QTextCursor, QTextOption
+from PyQt5.QtWidgets import (
+    QAction,
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QListWidget,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QSplitter,
+    QStatusBar,
+    QTableWidget,
+    QTableWidgetItem,
+    QTabWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
-
-from osprey.utils.logger import get_logger
-from osprey.utils.config import get_full_configuration, get_config_value
-from osprey.registry.manager import get_registry
-from osprey.interfaces.pyqt.model_preferences import ModelPreferencesStore
-from osprey.interfaces.pyqt.help_dialog import show_help_dialog
 from osprey.interfaces.pyqt.about_dialog import show_about_dialog
-from osprey.interfaces.pyqt.collapsible_widget import MessageGroupWidget
-from osprey.interfaces.pyqt.project_manager import ProjectManager
 from osprey.interfaces.pyqt.capability_registry import CapabilityRegistry
-from osprey.interfaces.pyqt.multi_project_router import MultiProjectRouter
-from osprey.interfaces.pyqt.conversation_manager import ConversationManager
-from osprey.interfaces.pyqt.settings_manager import SettingsManager
-from osprey.interfaces.pyqt.gui_preferences import GUIPreferences
-from osprey.interfaces.pyqt.runtime_overrides import RuntimeOverrideManager
-from osprey.interfaces.pyqt.worker_thread import AgentWorker
-from osprey.interfaces.pyqt.settings_dialog import SettingsDialog
-from osprey.interfaces.pyqt.message_formatter import MessageFormatter
-from osprey.interfaces.pyqt.routing_ui import RoutingUIHandler
-from osprey.interfaces.pyqt.orchestration_ui import OrchestrationUIHandler
+from osprey.interfaces.pyqt.collapsible_widget import MessageGroupWidget
 from osprey.interfaces.pyqt.conversation_display import ConversationDisplayManager
-from osprey.interfaces.pyqt.project_control import ProjectControlManager
-from osprey.interfaces.pyqt.message_handlers import MessageHandlers
-from osprey.interfaces.pyqt.conversation_management import ConversationManagement
 from osprey.interfaces.pyqt.conversation_history import ConversationHistory
-from osprey.interfaces.pyqt.model_preferences_manager import ModelPreferencesUIHandler as ModelPrefMgr
+from osprey.interfaces.pyqt.conversation_management import ConversationManagement
+from osprey.interfaces.pyqt.conversation_manager import ConversationManager
+from osprey.interfaces.pyqt.enums import Colors, EventTypes, LLMEventType
+from osprey.interfaces.pyqt.event_bus import EventBus
 from osprey.interfaces.pyqt.gui_components.tabs import (
-    SystemInfoTab,
     AnalyticsTab,
     LLMDetailsTab,
-    ToolUsageTab,
+    MemoryTab,
     ProjectsTab,
-    MemoryTab
+    SystemInfoTab,
+    ToolUsageTab,
 )
+from osprey.interfaces.pyqt.gui_preferences import GUIPreferences
+from osprey.interfaces.pyqt.gui_utils import create_dark_palette
+from osprey.interfaces.pyqt.help_dialog import show_help_dialog
+from osprey.interfaces.pyqt.message_formatter import MessageFormatter
+from osprey.interfaces.pyqt.message_handlers import MessageHandlers
+from osprey.interfaces.pyqt.model_preferences import ModelPreferencesStore
+from osprey.interfaces.pyqt.model_preferences_manager import (
+    ModelPreferencesUIHandler as ModelPrefMgr,
+)
+from osprey.interfaces.pyqt.multi_project_router import MultiProjectRouter
+from osprey.interfaces.pyqt.orchestration_ui import OrchestrationUIHandler
+from osprey.interfaces.pyqt.project_control import ProjectControlManager
+from osprey.interfaces.pyqt.project_manager import ProjectManager
+from osprey.interfaces.pyqt.routing_ui import RoutingUIHandler
+from osprey.interfaces.pyqt.runtime_overrides import RuntimeOverrideManager
+from osprey.interfaces.pyqt.settings_dialog import SettingsDialog
+from osprey.interfaces.pyqt.settings_manager import SettingsManager
+from osprey.interfaces.pyqt.worker_thread import AgentWorker
+from osprey.registry.manager import get_registry
+from osprey.utils.config import get_config_value, get_full_configuration
+from osprey.utils.logger import get_logger
+
+# Load environment variables after imports
+load_dotenv()
 
 logger = get_logger("pyqt_gui")
 
 
 class GUIOutputSignal(QThread):
     """Helper class to emit GUI output signals from any thread."""
+
     output_signal = pyqtSignal(str)
 
     def __init__(self):
@@ -121,10 +134,11 @@ class OspreyGUI(QMainWindow):
         if config_path:
             try:
                 import yaml
-                with open(config_path, 'r') as f:
+
+                with open(config_path) as f:
                     config_data = yaml.safe_load(f)
-                    if 'project_root' in config_data:
-                        project_root = Path(config_data['project_root'])
+                    if "project_root" in config_data:
+                        project_root = Path(config_data["project_root"])
                         if project_root.exists():
                             project_search_paths = [project_root]
                             logger.info(f"Using project_root from config: {project_root}")
@@ -164,13 +178,21 @@ class OspreyGUI(QMainWindow):
         self._queued_message = None  # Store one queued message to process after completion
 
         # NEW: Separate GUI preferences and runtime overrides
-        self.gui_preferences = GUIPreferences()  # User UI settings (saved to ~/.osprey/gui_preferences.yml)
+        self.gui_preferences = (
+            GUIPreferences()
+        )  # User UI settings (saved to ~/.osprey/gui_preferences.yml)
         self.runtime_overrides = RuntimeOverrideManager()  # Execution behavior (in-memory only)
 
         # Settings Manager (for backward compatibility during transition)
         # Will load from config file if available
-        gui_config_path = Path(__file__).parent / "gui_config.yml" if not self.config_path else Path(self.config_path)
-        self.settings_manager = SettingsManager(config_path=gui_config_path if gui_config_path.exists() else None)
+        gui_config_path = (
+            Path(__file__).parent / "gui_config.yml"
+            if not self.config_path
+            else Path(self.config_path)
+        )
+        self.settings_manager = SettingsManager(
+            config_path=gui_config_path if gui_config_path.exists() else None
+        )
 
         # Initialize runtime overrides from settings manager
         self.runtime_overrides.set_overrides(self.settings_manager.get_all_settings())
@@ -185,6 +207,7 @@ class OspreyGUI(QMainWindow):
         # CRITICAL: Set up GUI output redirection AFTER settings are loaded
         # This must happen BEFORE setup_ui() to capture all logging from the start
         from osprey.utils.logger import set_gui_output_callback
+
         # Use the signal emitter's method for thread-safe GUI updates
         # Start with suppress_terminal=False to show messages in both places initially
         set_gui_output_callback(self.gui_output_signal.emit_output, suppress_terminal=False)
@@ -192,27 +215,27 @@ class OspreyGUI(QMainWindow):
         # Conversation history management using ConversationManager
         # Initialize AFTER settings are defined
         self.conversation_manager = ConversationManager(
-            storage_mode=self.settings_manager.get('conversation_storage_mode', 'json')
+            storage_mode=self.settings_manager.get("conversation_storage_mode", "json")
         )
         self.conversation_lock_file = None  # For multi-instance locking
 
         # Color mapping for components
         self.component_colors = {
-            'base': '#FFFFFF',
-            'context': '#AFD7FF',
-            'router': '#FF00FF',
-            'orchestrator': '#00FFFF',
-            'monitor': '#CD8500',
-            'classifier': '#FFA07A',
-            'task_extraction': '#D8BFD8',
-            'error': '#FF0000',
-            'gateway': '#FFA07A',
-            'approval': '#FFA07A',
-            'time_range_parsing': '#1E90FF',
-            'memory': '#FFA07A',
-            'python': '#FFA07A',
-            'respond': '#D8BFD8',
-            'clarify': '#D8BFD8',
+            "base": "#FFFFFF",
+            "context": "#AFD7FF",
+            "router": "#FF00FF",
+            "orchestrator": "#00FFFF",
+            "monitor": "#CD8500",
+            "classifier": "#FFA07A",
+            "task_extraction": "#D8BFD8",
+            "error": "#FF0000",
+            "gateway": "#FFA07A",
+            "approval": "#FFA07A",
+            "time_range_parsing": "#1E90FF",
+            "memory": "#FFA07A",
+            "python": "#FFA07A",
+            "respond": "#D8BFD8",
+            "clarify": "#D8BFD8",
         }
 
         try:
@@ -241,7 +264,7 @@ class OspreyGUI(QMainWindow):
             # Initialize message handlers with event bus after UI setup
             self.message_handlers = MessageHandlers(
                 event_bus=self.event_bus,
-                conversation_id_provider=lambda: self.current_conversation_id
+                conversation_id_provider=lambda: self.current_conversation_id,
             )
 
             # Setup event subscriptions
@@ -281,34 +304,28 @@ class OspreyGUI(QMainWindow):
         self.event_bus.subscribe(EventTypes.CONVERSATION_UPDATED, self._handle_conversation_updated)
 
         # Custom display events
-        self.event_bus.subscribe('display_message', self._handle_display_message)
-        self.event_bus.subscribe('display_error', self._handle_display_error)
-        self.event_bus.subscribe('update_status_bar', self._handle_update_status_bar)
-        self.event_bus.subscribe('save_conversation_history', self._handle_save_conversation_history)
+        self.event_bus.subscribe("display_message", self._handle_display_message)
+        self.event_bus.subscribe("display_error", self._handle_display_error)
+        self.event_bus.subscribe("update_status_bar", self._handle_update_status_bar)
+        self.event_bus.subscribe(
+            "save_conversation_history", self._handle_save_conversation_history
+        )
 
     def _handle_message_received(self, data: dict):
         """Handle message received event from event bus."""
-        conversation_id = data['conversation_id']
-        message_type = data['message_type']
-        content = data['content']
+        conversation_id = data["conversation_id"]
+        message_type = data["message_type"]
+        content = data["content"]
 
-        self.conversation_manager.add_message(
-            conversation_id,
-            message_type,
-            content
-        )
+        self.conversation_manager.add_message(conversation_id, message_type, content)
 
     def _handle_status_update(self, data: dict):
         """Handle status update event from event bus."""
-        self.add_status(
-            data['status'],
-            data['component'],
-            model_info=data.get('model_info', {})
-        )
+        self.add_status(data["status"], data["component"], model_info=data.get("model_info", {}))
 
     def _handle_error(self, data: dict):
         """Handle error event from event bus."""
-        error = data['error']
+        error = data["error"]
         self.conversation_display.append(f"\n❌ Error: {error}\n")
         self.add_status(f"Error: {error}", "error")
         QMessageBox.warning(self, "Processing Error", f"An error occurred:\n{error}")
@@ -323,10 +340,7 @@ class OspreyGUI(QMainWindow):
             queued = self._queued_message
             self._queued_message = None
 
-            self._append_colored_message(
-                f"▶️ Processing queued message...",
-                "#00FFFF"
-            )
+            self._append_colored_message("▶️ Processing queued message...", "#00FFFF")
 
             self.input_field.setPlainText(queued)
             QTimer.singleShot(100, self.send_message)
@@ -336,9 +350,9 @@ class OspreyGUI(QMainWindow):
 
     def _handle_llm_detail(self, data: dict):
         """Handle LLM detail event from event bus."""
-        detail = data['detail']
-        event_type = data['event_type']
-        timestamp = data['timestamp']
+        detail = data["detail"]
+        event_type = data["event_type"]
+        timestamp = data["timestamp"]
 
         # Get color for event type
         try:
@@ -353,7 +367,7 @@ class OspreyGUI(QMainWindow):
             "#808080",
             self.llm_details_tab.llm_details_display,
             prefix="",
-            suffix=""
+            suffix="",
         )
         # Add event type tag
         self._append_formatted_text(
@@ -361,30 +375,22 @@ class OspreyGUI(QMainWindow):
             color,
             self.llm_details_tab.llm_details_display,
             prefix="",
-            suffix=""
+            suffix="",
         )
         # Add detail
         self._append_formatted_text(
-            detail,
-            "#FFFFFF",
-            self.llm_details_tab.llm_details_display,
-            prefix="",
-            suffix="\n"
+            detail, "#FFFFFF", self.llm_details_tab.llm_details_display, prefix="", suffix="\n"
         )
 
     def _handle_tool_usage(self, data: dict):
         """Handle tool usage event from event bus."""
-        tool_name = data['tool_name']
-        reasoning = data['reasoning']
-        timestamp = data['timestamp']
+        tool_name = data["tool_name"]
+        reasoning = data["reasoning"]
+        timestamp = data["timestamp"]
 
         # Add newline separator
         self._append_formatted_text(
-            "",
-            "#FFFFFF",
-            self.tool_usage_tab.tool_usage_display,
-            prefix="\n",
-            suffix=""
+            "", "#FFFFFF", self.tool_usage_tab.tool_usage_display, prefix="\n", suffix=""
         )
 
         # Add timestamp
@@ -393,7 +399,7 @@ class OspreyGUI(QMainWindow):
             Colors.TIMESTAMP,
             self.tool_usage_tab.tool_usage_display,
             prefix="",
-            suffix=""
+            suffix="",
         )
 
         # Add capability label and name
@@ -402,40 +408,36 @@ class OspreyGUI(QMainWindow):
             Colors.TOOL_LABEL,
             self.tool_usage_tab.tool_usage_display,
             prefix="",
-            suffix=""
+            suffix="",
         )
         self._append_formatted_text(
             tool_name,
             Colors.TOOL_CAPABILITY,
             self.tool_usage_tab.tool_usage_display,
             prefix="",
-            suffix="\n"
+            suffix="\n",
         )
 
         # Add reasoning lines with appropriate colors
         line_colors = {
-            '✅': Colors.TOOL_SUCCESS,
-            '❌': Colors.TOOL_FAILURE,
-            '⏱️': Colors.TOOL_TIMING,
+            "✅": Colors.TOOL_SUCCESS,
+            "❌": Colors.TOOL_FAILURE,
+            "⏱️": Colors.TOOL_TIMING,
         }
 
-        for line in reasoning.split('\n'):
+        for line in reasoning.split("\n"):
             if not line.strip():
                 continue
 
             # Determine color based on line prefix
-            color = '#FFFFFF'  # Default white
+            color = "#FFFFFF"  # Default white
             for prefix, prefix_color in line_colors.items():
                 if line.startswith(prefix):
                     color = prefix_color
                     break
 
             self._append_formatted_text(
-                line,
-                color,
-                self.tool_usage_tab.tool_usage_display,
-                prefix="",
-                suffix="\n"
+                line, color, self.tool_usage_tab.tool_usage_display, prefix="", suffix="\n"
             )
 
         # Add separator
@@ -444,7 +446,7 @@ class OspreyGUI(QMainWindow):
             Colors.SEPARATOR,
             self.tool_usage_tab.tool_usage_display,
             prefix="",
-            suffix="\n"
+            suffix="\n",
         )
 
     def _handle_conversation_updated(self, data: dict):
@@ -454,18 +456,18 @@ class OspreyGUI(QMainWindow):
     def _handle_display_message(self, data: dict):
         """Handle display message event from event bus."""
         # Auto-open plots for new agent messages (not historical ones)
-        auto_open = data.get('auto_open_plots', True)  # Default to True for new messages
-        self._append_colored_message(data['message'], data['color'], auto_open_plots=auto_open)
+        auto_open = data.get("auto_open_plots", True)  # Default to True for new messages
+        self._append_colored_message(data["message"], data["color"], auto_open_plots=auto_open)
 
     def _handle_display_error(self, data: dict):
         """Handle display error event from event bus."""
-        error = data['error']
+        error = data["error"]
         self.conversation_display.append(f"\n❌ Error: {error}\n")
         QMessageBox.warning(self, "Processing Error", f"An error occurred:\n{error}")
 
     def _handle_update_status_bar(self, data: dict):
         """Handle update status bar event from event bus."""
-        self.status_bar.showMessage(data['message'])
+        self.status_bar.showMessage(data["message"])
 
     def _handle_save_conversation_history(self, data: dict):
         """Handle save conversation history event from event bus."""
@@ -476,6 +478,7 @@ class OspreyGUI(QMainWindow):
         try:
             # Disable GUI output redirection when closing and re-enable terminal output
             from osprey.utils.logger import set_gui_output_callback
+
             set_gui_output_callback(None)  # This will re-enable terminal output
             logger.info("GUI output redirection disabled")
         except Exception as e:
@@ -483,6 +486,7 @@ class OspreyGUI(QMainWindow):
 
         # Call parent close event
         super().closeEvent(event)
+
     def _initialize_router(self):
         """Initialize or reinitialize router with current settings."""
         try:
@@ -491,30 +495,42 @@ class OspreyGUI(QMainWindow):
             self.router = MultiProjectRouter(
                 self.capability_registry,
                 # Cache settings
-                enable_cache=self.settings_manager.get('enable_routing_cache', True),
-                cache_max_size=self.settings_manager.get('cache_max_size', 100),
-                cache_ttl_seconds=self.settings_manager.get('cache_ttl_seconds', 3600.0),
-                cache_similarity_threshold=self.settings_manager.get('cache_similarity_threshold', 0.85),
+                enable_cache=self.settings_manager.get("enable_routing_cache", True),
+                cache_max_size=self.settings_manager.get("cache_max_size", 100),
+                cache_ttl_seconds=self.settings_manager.get("cache_ttl_seconds", 3600.0),
+                cache_similarity_threshold=self.settings_manager.get(
+                    "cache_similarity_threshold", 0.85
+                ),
                 # Advanced invalidation settings
-                enable_advanced_invalidation=self.settings_manager.get('enable_advanced_invalidation', True),
-                enable_adaptive_ttl=self.settings_manager.get('enable_adaptive_ttl', True),
-                enable_probabilistic_expiration=self.settings_manager.get('enable_probabilistic_expiration', True),
-                enable_event_driven_invalidation=self.settings_manager.get('enable_event_driven_invalidation', True),
+                enable_advanced_invalidation=self.settings_manager.get(
+                    "enable_advanced_invalidation", True
+                ),
+                enable_adaptive_ttl=self.settings_manager.get("enable_adaptive_ttl", True),
+                enable_probabilistic_expiration=self.settings_manager.get(
+                    "enable_probabilistic_expiration", True
+                ),
+                enable_event_driven_invalidation=self.settings_manager.get(
+                    "enable_event_driven_invalidation", True
+                ),
                 # Conversation context settings
                 enable_conversation_context=True,
-                enable_semantic_context=self.settings_manager.get('enable_semantic_context', False),
-                context_max_history=self.settings_manager.get('max_context_history', 20),
-                semantic_similarity_threshold=self.settings_manager.get('semantic_similarity_threshold', 0.5),
-                semantic_topic_threshold=self.settings_manager.get('semantic_topic_threshold', 0.6),
+                enable_semantic_context=self.settings_manager.get("enable_semantic_context", False),
+                context_max_history=self.settings_manager.get("max_context_history", 20),
+                semantic_similarity_threshold=self.settings_manager.get(
+                    "semantic_similarity_threshold", 0.5
+                ),
+                semantic_topic_threshold=self.settings_manager.get("semantic_topic_threshold", 0.6),
                 # Orchestration settings
                 enable_orchestration=True,
-                orchestration_max_parallel=self.settings_manager.get('orchestration_max_parallel', 3),
+                orchestration_max_parallel=self.settings_manager.get(
+                    "orchestration_max_parallel", 3
+                ),
                 # Analytics settings
-                enable_analytics=self.settings_manager.get('enable_analytics', True),
-                analytics_max_history=self.settings_manager.get('analytics_max_history', 1000),
+                enable_analytics=self.settings_manager.get("enable_analytics", True),
+                analytics_max_history=self.settings_manager.get("analytics_max_history", 1000),
                 # Feedback settings
-                enable_feedback=self.settings_manager.get('enable_routing_feedback', True),
-                feedback_max_history=1000
+                enable_feedback=self.settings_manager.get("enable_routing_feedback", True),
+                feedback_max_history=1000,
             )
 
             logger.info("MultiProjectRouter initialized successfully with all Phase 2.4 settings")
@@ -524,10 +540,8 @@ class OspreyGUI(QMainWindow):
             # Create a basic router as fallback
             self.router = MultiProjectRouter(self.capability_registry)
 
-
     def eventFilter(self, obj, event):
         """Event filter to handle Enter/Shift+Enter in input field."""
-        from PyQt5.QtCore import QEvent
 
         if obj == self.input_field and event.type() == QEvent.KeyPress:
             key_event = event
@@ -627,8 +641,12 @@ class OspreyGUI(QMainWindow):
         history_layout.addWidget(history_label)
 
         self.conversation_list = QListWidget()
-        self.conversation_list.setStyleSheet("background-color: #1E1E1E; color: #FFFFFF; border: 1px solid #3F3F46;")
-        self.conversation_list.setSelectionMode(QListWidget.ExtendedSelection)  # Enable multi-selection
+        self.conversation_list.setStyleSheet(
+            "background-color: #1E1E1E; color: #FFFFFF; border: 1px solid #3F3F46;"
+        )
+        self.conversation_list.setSelectionMode(
+            QListWidget.ExtendedSelection
+        )  # Enable multi-selection
         self.conversation_list.itemClicked.connect(self.switch_conversation)
         history_layout.addWidget(self.conversation_list)
 
@@ -668,14 +686,20 @@ class OspreyGUI(QMainWindow):
         self.conversation_display = QTextEdit()
         self.conversation_display.setReadOnly(True)
         self.conversation_display.setFont(QFont("Monospace", 10))
-        self.conversation_display.setStyleSheet("background-color: #1E1E1E; color: #FFFFFF; border: 1px solid #3F3F46;")
-        self.conversation_display.setHtml('<span style="color: #00FFFF;">Welcome to Osprey Framework</span><br><span style="color: #FFFFFF;">Initializing system...</span>')
+        self.conversation_display.setStyleSheet(
+            "background-color: #1E1E1E; color: #FFFFFF; border: 1px solid #3F3F46;"
+        )
+        self.conversation_display.setHtml(
+            '<span style="color: #00FFFF;">Welcome to Osprey Framework</span><br><span style="color: #FFFFFF;">Initializing system...</span>'
+        )
         conversation_layout.addWidget(self.conversation_display)
 
         # Input area
         input_layout = QHBoxLayout()
         self.input_field = QTextEdit()
-        self.input_field.setPlaceholderText("Ask anything... (Press Enter to send, Shift+Enter for new line)")
+        self.input_field.setPlaceholderText(
+            "Ask anything... (Press Enter to send, Shift+Enter for new line)"
+        )
         self.input_field.setWordWrapMode(QTextOption.WordWrap)
         self.input_field.setAcceptRichText(False)
 
@@ -763,21 +787,27 @@ class OspreyGUI(QMainWindow):
 
         # Routing explanation (initially hidden)
         self.routing_explanation_label = QLabel("")
-        self.routing_explanation_label.setStyleSheet("color: #808080; font-size: 9px; font-style: italic;")
+        self.routing_explanation_label.setStyleSheet(
+            "color: #808080; font-size: 9px; font-style: italic;"
+        )
         self.routing_explanation_label.setWordWrap(True)
         self.routing_explanation_label.setVisible(False)
         layout.addWidget(self.routing_explanation_label)
 
         # Cache statistics (initially hidden)
         self.cache_stats_label = QLabel("")
-        self.cache_stats_label.setStyleSheet("color: #00FF00; font-size: 9px; font-family: monospace;")
+        self.cache_stats_label.setStyleSheet(
+            "color: #00FF00; font-size: 9px; font-family: monospace;"
+        )
         self.cache_stats_label.setWordWrap(True)
         self.cache_stats_label.setVisible(False)
         layout.addWidget(self.cache_stats_label)
 
         # Conversation context summary (initially hidden)
         self.context_summary_label = QLabel("")
-        self.context_summary_label.setStyleSheet("color: #87CEEB; font-size: 9px; font-family: monospace;")
+        self.context_summary_label.setStyleSheet(
+            "color: #87CEEB; font-size: 9px; font-family: monospace;"
+        )
         self.context_summary_label.setWordWrap(True)
         self.context_summary_label.setVisible(False)
         layout.addWidget(self.context_summary_label)
@@ -786,14 +816,18 @@ class OspreyGUI(QMainWindow):
         cache_button_layout = QHBoxLayout()
 
         self.clear_cache_button = QPushButton("🗑️ Clear Cache")
-        self.clear_cache_button.setStyleSheet("background-color: #4A5568; color: #FFFFFF; font-size: 9px;")
+        self.clear_cache_button.setStyleSheet(
+            "background-color: #4A5568; color: #FFFFFF; font-size: 9px;"
+        )
         self.clear_cache_button.setMaximumHeight(25)
         self.clear_cache_button.clicked.connect(self.clear_routing_cache)
         self.clear_cache_button.setToolTip("Clear routing cache to force fresh routing decisions")
         cache_button_layout.addWidget(self.clear_cache_button)
 
         self.show_cache_stats_button = QPushButton("📊 Stats")
-        self.show_cache_stats_button.setStyleSheet("background-color: #4A5568; color: #FFFFFF; font-size: 9px;")
+        self.show_cache_stats_button.setStyleSheet(
+            "background-color: #4A5568; color: #FFFFFF; font-size: 9px;"
+        )
         self.show_cache_stats_button.setMaximumHeight(25)
         self.show_cache_stats_button.setCheckable(True)
         self.show_cache_stats_button.clicked.connect(self.toggle_cache_stats)
@@ -806,14 +840,20 @@ class OspreyGUI(QMainWindow):
         context_button_layout = QHBoxLayout()
 
         self.clear_context_button = QPushButton("🔄 Clear Context")
-        self.clear_context_button.setStyleSheet("background-color: #4A5568; color: #FFFFFF; font-size: 9px;")
+        self.clear_context_button.setStyleSheet(
+            "background-color: #4A5568; color: #FFFFFF; font-size: 9px;"
+        )
         self.clear_context_button.setMaximumHeight(25)
         self.clear_context_button.clicked.connect(self.clear_conversation_context)
-        self.clear_context_button.setToolTip("Clear conversation context to start fresh topic detection")
+        self.clear_context_button.setToolTip(
+            "Clear conversation context to start fresh topic detection"
+        )
         context_button_layout.addWidget(self.clear_context_button)
 
         self.show_context_button = QPushButton("💬 Context")
-        self.show_context_button.setStyleSheet("background-color: #4A5568; color: #FFFFFF; font-size: 9px;")
+        self.show_context_button.setStyleSheet(
+            "background-color: #4A5568; color: #FFFFFF; font-size: 9px;"
+        )
         self.show_context_button.setMaximumHeight(25)
         self.show_context_button.setCheckable(True)
         self.show_context_button.clicked.connect(self.toggle_context_display)
@@ -873,7 +913,9 @@ class OspreyGUI(QMainWindow):
         self.status_log = QTextEdit()
         self.status_log.setReadOnly(True)
         self.status_log.setFont(QFont("Monospace", 9))
-        self.status_log.setStyleSheet("background-color: #1E1E1E; color: #FFFFFF; border: 1px solid #3F3F46;")
+        self.status_log.setStyleSheet(
+            "background-color: #1E1E1E; color: #FFFFFF; border: 1px solid #3F3F46;"
+        )
         self.status_log.setHtml('<span style="color: #00FF00;">System starting...</span>')
         info_layout.addWidget(self.status_log)
 
@@ -899,7 +941,9 @@ class OspreyGUI(QMainWindow):
         # Toggle button to switch between grouped and ungrouped view
         self.group_messages_toggle = QPushButton("📋 Grouped View")
         self.group_messages_toggle.setCheckable(True)
-        self.group_messages_toggle.setChecked(self.settings_manager.get('group_system_messages', True))
+        self.group_messages_toggle.setChecked(
+            self.settings_manager.get("group_system_messages", True)
+        )
         self.group_messages_toggle.setStyleSheet("background-color: #4A5568; color: #FFFFFF;")
         self.group_messages_toggle.clicked.connect(self.toggle_message_grouping)
         header_layout.addWidget(self.group_messages_toggle)
@@ -918,21 +962,27 @@ class OspreyGUI(QMainWindow):
         # Create traditional text edit (hidden by default if grouping is enabled)
         self.session_info = QTextEdit()
         self.session_info.setReadOnly(True)
-        self.session_info.setStyleSheet("background-color: #1E1E1E; color: #FFFFFF; border: 1px solid #3F3F46;")
+        self.session_info.setStyleSheet(
+            "background-color: #1E1E1E; color: #FFFFFF; border: 1px solid #3F3F46;"
+        )
         self.session_info.setAcceptRichText(False)  # Use plain text for better performance
         self.session_info.setFont(QFont("Monospace", 9))
-        self.session_info.setPlainText('Initializing Osprey Framework...\n\nPlease wait while the system initializes.')
+        self.session_info.setPlainText(
+            "Initializing Osprey Framework...\n\nPlease wait while the system initializes."
+        )
 
         # Add both widgets to layout (we'll show/hide based on setting)
         layout.addWidget(scroll_area)
         layout.addWidget(self.session_info)
 
         # Show/hide based on initial setting
-        if self.settings_manager.get('group_system_messages', True):
+        if self.settings_manager.get("group_system_messages", True):
             scroll_area.setVisible(True)
             self.session_info.setVisible(False)
-            self.message_group_widget.add_message('Initializing Osprey Framework...', 'INFO')
-            self.message_group_widget.add_message('Please wait while the system initializes.', 'INFO')
+            self.message_group_widget.add_message("Initializing Osprey Framework...", "INFO")
+            self.message_group_widget.add_message(
+                "Please wait while the system initializes.", "INFO"
+            )
         else:
             scroll_area.setVisible(False)
             self.session_info.setVisible(True)
@@ -958,11 +1008,14 @@ class OspreyGUI(QMainWindow):
 
         if analytics:
             from osprey.interfaces.pyqt.analytics_dashboard import AnalyticsDashboard
+
             self.analytics_dashboard = AnalyticsDashboard(analytics, self)
             layout.addWidget(self.analytics_dashboard)
         else:
             # Analytics disabled message
-            label = QLabel("Analytics is currently disabled.\n\nEnable analytics in router configuration to view metrics.")
+            label = QLabel(
+                "Analytics is currently disabled.\n\nEnable analytics in router configuration to view metrics."
+            )
             label.setStyleSheet("color: #FFA500; font-size: 14px;")
             label.setAlignment(Qt.AlignCenter)
             layout.addWidget(label)
@@ -989,9 +1042,11 @@ class OspreyGUI(QMainWindow):
         message_type = MessageFormatter.extract_message_type(message)
 
         # If grouping is enabled, add to grouped widget WITH color formatting
-        if self.settings_manager.get('group_system_messages', True):
+        if self.settings_manager.get("group_system_messages", True):
             # Pass the original message with Rich markup for color formatting
-            self.system_info_tab.message_group_widget.add_message(message, message_type, rich_markup=message)
+            self.system_info_tab.message_group_widget.add_message(
+                message, message_type, rich_markup=message
+            )
 
         # Always add to traditional text edit (for when user switches view)
         cursor = self.system_info_tab.session_info.textCursor()
@@ -1001,16 +1056,15 @@ class OspreyGUI(QMainWindow):
         MessageFormatter.insert_rich_text(cursor, message)
 
         # Add newline
-        cursor.insertText('\n')
+        cursor.insertText("\n")
         self.system_info_tab.session_info.setTextCursor(cursor)
         self.system_info_tab.session_info.ensureCursorVisible()
-
 
     def toggle_message_grouping(self):
         """Toggle between grouped and ungrouped message view."""
         is_grouped = self.system_info_tab.group_messages_toggle.isChecked()
         # Update via update_from_dict to ensure proper handling
-        self.settings_manager.update_from_dict({'group_system_messages': is_grouped})
+        self.settings_manager.update_from_dict({"group_system_messages": is_grouped})
         self.settings = self.settings_manager.get_all_settings()  # Update backward compat dict
 
         # Update button text
@@ -1022,7 +1076,6 @@ class OspreyGUI(QMainWindow):
         # Show/hide appropriate widget
         self.system_info_tab.message_group_scroll.setVisible(is_grouped)
         self.system_info_tab.session_info.setVisible(not is_grouped)
-
 
     def clear_system_info(self):
         """Clear the System Information tab."""
@@ -1042,7 +1095,9 @@ class OspreyGUI(QMainWindow):
         self.llm_details_display = QTextEdit()
         self.llm_details_display.setReadOnly(True)
         self.llm_details_display.setFont(QFont("Monospace", 9))
-        self.llm_details_display.setStyleSheet("background-color: #1E1E1E; color: #FFFFFF; border: 1px solid #3F3F46;")
+        self.llm_details_display.setStyleSheet(
+            "background-color: #1E1E1E; color: #FFFFFF; border: 1px solid #3F3F46;"
+        )
         layout.addWidget(self.llm_details_display)
 
         clear_btn = QPushButton("Clear Details")
@@ -1063,7 +1118,9 @@ class OspreyGUI(QMainWindow):
         self.tool_usage_display = QTextEdit()
         self.tool_usage_display.setReadOnly(True)
         self.tool_usage_display.setFont(QFont("Monospace", 9))
-        self.tool_usage_display.setStyleSheet("background-color: #1E1E1E; color: #FFFFFF; border: 1px solid #3F3F46;")
+        self.tool_usage_display.setStyleSheet(
+            "background-color: #1E1E1E; color: #FFFFFF; border: 1px solid #3F3F46;"
+        )
         layout.addWidget(self.tool_usage_display)
 
         clear_btn = QPushButton("Clear Tool Usage")
@@ -1096,7 +1153,17 @@ class OspreyGUI(QMainWindow):
         # Projects table
         self.projects_table = QTableWidget()
         self.projects_table.setColumnCount(7)
-        self.projects_table.setHorizontalHeaderLabels(['Status', 'Project Name', 'Capabilities', 'Models', 'Path', 'Config File', 'Model Config'])
+        self.projects_table.setHorizontalHeaderLabels(
+            [
+                "Status",
+                "Project Name",
+                "Capabilities",
+                "Models",
+                "Path",
+                "Config File",
+                "Model Config",
+            ]
+        )
         self.projects_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.projects_table.setStyleSheet("""
             QTableWidget {
@@ -1137,7 +1204,9 @@ class OspreyGUI(QMainWindow):
         layout.addWidget(self.projects_table)
 
         # Info label
-        self.projects_info_label = QLabel("No projects discovered yet. Click Refresh to scan for projects.")
+        self.projects_info_label = QLabel(
+            "No projects discovered yet. Click Refresh to scan for projects."
+        )
         self.projects_info_label.setStyleSheet("color: #808080; font-style: italic; padding: 10px;")
         layout.addWidget(self.projects_info_label)
 
@@ -1168,17 +1237,19 @@ class OspreyGUI(QMainWindow):
                 capability_names = list(capabilities.keys())
 
                 # Get models from project config
-                models = context.config.raw_config.get('models', {})
+                models = context.config.raw_config.get("models", {})
 
-                display_projects.append({
-                    'name': context.metadata.name,
-                    'path': str(context.metadata.path),
-                    'config_path': str(context.metadata.config_path),
-                    'description': context.metadata.description,
-                    'version': context.metadata.version,
-                    'capabilities': capability_names,
-                    'models': models
-                })
+                display_projects.append(
+                    {
+                        "name": context.metadata.name,
+                        "path": str(context.metadata.path),
+                        "config_path": str(context.metadata.config_path),
+                        "description": context.metadata.description,
+                        "version": context.metadata.version,
+                        "capabilities": capability_names,
+                        "models": models,
+                    }
+                )
 
             # Update the cached list for backward compatibility
             self.discovered_projects = display_projects
@@ -1198,62 +1269,73 @@ class OspreyGUI(QMainWindow):
 
                 enabled_checkbox = QCheckBox()
                 # Check if project is enabled in ProjectManager
-                is_enabled = self.project_manager.is_project_enabled(project['name'])
+                is_enabled = self.project_manager.is_project_enabled(project["name"])
                 enabled_checkbox.setChecked(is_enabled)
                 enabled_checkbox.stateChanged.connect(
-                    lambda state, p=project['name']:
-                        self.toggle_project_enabled(p, state == Qt.Checked)
+                    lambda state, p=project["name"]: self.toggle_project_enabled(
+                        p, state == Qt.Checked
+                    )
                 )
                 status_layout.addWidget(enabled_checkbox)
 
                 status_label = QLabel("Enabled" if is_enabled else "Disabled")
-                status_label.setStyleSheet(
-                    "color: #00FF00;" if is_enabled else "color: #808080;"
-                )
+                status_label.setStyleSheet("color: #00FF00;" if is_enabled else "color: #808080;")
                 status_layout.addWidget(status_label)
 
                 self.projects_tab.projects_table.setCellWidget(row, 0, status_widget)
 
                 # Project name
-                name_item = QTableWidgetItem(project['name'])
+                name_item = QTableWidgetItem(project["name"])
                 name_item.setForeground(QColor("#00FFFF"))
                 self.projects_tab.projects_table.setItem(row, 1, name_item)
 
                 # Capabilities column - show count and list
-                capabilities = project.get('capabilities', [])
+                capabilities = project.get("capabilities", [])
                 cap_count = len(capabilities)
                 if cap_count > 0:
-                    cap_text = f"{cap_count} capabilities:\n" + "\n".join(f"  • {cap}" for cap in capabilities[:5])
+                    cap_text = f"{cap_count} capabilities:\n" + "\n".join(
+                        f"  • {cap}" for cap in capabilities[:5]
+                    )
                     if cap_count > 5:
                         cap_text += f"\n  ... and {cap_count - 5} more"
                 else:
                     cap_text = "No capabilities"
                 cap_item = QTableWidgetItem(cap_text)
                 cap_item.setForeground(QColor("#00FF00") if cap_count > 0 else QColor("#808080"))
-                cap_item.setToolTip("\n".join(capabilities) if capabilities else "No capabilities found")
+                cap_item.setToolTip(
+                    "\n".join(capabilities) if capabilities else "No capabilities found"
+                )
                 self.projects_tab.projects_table.setItem(row, 2, cap_item)
 
                 # Models column - show configured models
-                models = project.get('models', {})
+                models = project.get("models", {})
                 model_count = len(models)
                 if model_count > 0:
-                    model_text = f"{model_count} models:\n" + "\n".join(f"  • {step}: {model}" for step, model in list(models.items())[:5])
+                    model_text = f"{model_count} models:\n" + "\n".join(
+                        f"  • {step}: {model}" for step, model in list(models.items())[:5]
+                    )
                     if model_count > 5:
                         model_text += f"\n  ... and {model_count - 5} more"
                 else:
                     model_text = "No models"
                 model_item = QTableWidgetItem(model_text)
-                model_item.setForeground(QColor("#FFD700") if model_count > 0 else QColor("#808080"))
-                model_item.setToolTip("\n".join(f"{step}: {model}" for step, model in models.items()) if models else "No models configured")
+                model_item.setForeground(
+                    QColor("#FFD700") if model_count > 0 else QColor("#808080")
+                )
+                model_item.setToolTip(
+                    "\n".join(f"{step}: {model}" for step, model in models.items())
+                    if models
+                    else "No models configured"
+                )
                 self.projects_tab.projects_table.setItem(row, 3, model_item)
 
                 # Project path
-                path_item = QTableWidgetItem(project['path'])
+                path_item = QTableWidgetItem(project["path"])
                 path_item.setForeground(QColor("#FFFFFF"))
                 self.projects_tab.projects_table.setItem(row, 4, path_item)
 
                 # Config path
-                config_path = Path(project['config_path']).name
+                config_path = Path(project["config_path"]).name
                 config_item = QTableWidgetItem(config_path)
                 config_item.setForeground(QColor("#00FF00"))
                 self.projects_tab.projects_table.setItem(row, 5, config_item)
@@ -1265,11 +1347,13 @@ class OspreyGUI(QMainWindow):
 
                 config_btn = QPushButton("Configure")
                 config_btn.setToolTip("Configure runtime model overrides for infrastructure steps")
-                config_btn.clicked.connect(lambda checked, p=project: self.configure_project_models(p))
+                config_btn.clicked.connect(
+                    lambda checked, p=project: self.configure_project_models(p)
+                )
                 models_layout.addWidget(config_btn)
 
                 # Show indicator if runtime overrides are configured
-                pref_count = self.model_preferences.get_preference_count(project['name'])
+                pref_count = self.model_preferences.get_preference_count(project["name"])
                 if pref_count > 0:
                     indicator = QLabel(f"✓ ({pref_count})")
                     indicator.setToolTip(f"{pref_count} runtime override(s) configured")
@@ -1287,19 +1371,28 @@ class OspreyGUI(QMainWindow):
 
             # Update info label
             if self.discovered_projects:
-                enabled_count = len([p for p in self.discovered_projects
-                                    if self.project_manager.is_project_enabled(p['name'])])
+                enabled_count = len(
+                    [
+                        p
+                        for p in self.discovered_projects
+                        if self.project_manager.is_project_enabled(p["name"])
+                    ]
+                )
                 self.projects_tab.projects_info_label.setText(
                     f"Found {len(self.discovered_projects)} project(s) • "
                     f"{enabled_count} enabled • "
                     f"Use checkboxes to enable/disable projects for routing"
                 )
-                self.projects_tab.projects_info_label.setStyleSheet("color: #00FF00; padding: 10px;")
+                self.projects_tab.projects_info_label.setStyleSheet(
+                    "color: #00FF00; padding: 10px;"
+                )
             else:
                 self.projects_tab.projects_info_label.setText(
                     "No projects found. Projects must have a config.yml file in their root directory."
                 )
-                self.projects_tab.projects_info_label.setStyleSheet("color: #FFA500; padding: 10px;")
+                self.projects_tab.projects_info_label.setStyleSheet(
+                    "color: #FFA500; padding: 10px;"
+                )
 
             self.add_status(f"Found {len(self.discovered_projects)} project(s)", "base")
 
@@ -1375,13 +1468,13 @@ class OspreyGUI(QMainWindow):
             # Update old discovered_projects for backward compatibility with projects tab
             self.discovered_projects = [
                 {
-                    'name': metadata.name,
-                    'path': str(metadata.path),
-                    'config_path': str(metadata.config_path),
-                    'description': metadata.description,
-                    'version': metadata.version,
-                    'capabilities': [],  # Will be populated after loading
-                    'models': {}  # Will be populated after loading
+                    "name": metadata.name,
+                    "path": str(metadata.path),
+                    "config_path": str(metadata.config_path),
+                    "description": metadata.description,
+                    "version": metadata.version,
+                    "capabilities": [],  # Will be populated after loading
+                    "models": {},  # Will be populated after loading
                 }
                 for metadata in discovered
             ]
@@ -1397,13 +1490,12 @@ class OspreyGUI(QMainWindow):
                 for metadata in discovered:
                     try:
                         self.add_status(f"Loading project: {metadata.name}", "base")
-                        context = self.project_manager.load_project(metadata.name)
+                        self.project_manager.load_project(metadata.name)
 
                         # 3. Register capabilities in CapabilityRegistry
                         capabilities = self.project_manager.get_project_capabilities(metadata.name)
                         self.capability_registry.register_project_capabilities(
-                            metadata.name,
-                            capabilities
+                            metadata.name, capabilities
                         )
 
                         self.add_status(f"✓ Loaded: {metadata.name}", "base")
@@ -1421,7 +1513,9 @@ class OspreyGUI(QMainWindow):
                     # Only set config_path if it wasn't already set (e.g., from gui_config.yml)
                     if not self.config_path:
                         self.config_path = str(first_project.metadata.config_path)
-                    self.add_status(f"Using {first_project.metadata.name} as primary project", "base")
+                    self.add_status(
+                        f"Using {first_project.metadata.name} as primary project", "base"
+                    )
 
                     # Update project selector with loaded projects (Phase 2.2)
                     QTimer.singleShot(300, self._update_project_selector)
@@ -1432,7 +1526,7 @@ class OspreyGUI(QMainWindow):
                         self._initialize_router()
 
                         # Initialize analytics tab now that router is ready
-                        if hasattr(self, 'analytics_tab'):
+                        if hasattr(self, "analytics_tab"):
                             self.analytics_tab.initialize_analytics()
                 else:
                     self.add_status("⚠️ No projects enabled", "error")
@@ -1456,20 +1550,24 @@ class OspreyGUI(QMainWindow):
 
             # Create initial conversation if none exist (after loading history)
             if not self.conversation_manager.conversations:
-                self.thread_id = self.conversation_manager.create_conversation("Initial Conversation")
+                self.thread_id = self.conversation_manager.create_conversation(
+                    "Initial Conversation"
+                )
                 self.current_conversation_id = self.thread_id
             else:
                 # Use the conversation manager's current conversation
                 self.current_conversation_id = self.conversation_manager.current_conversation_id
                 self.thread_id = self.current_conversation_id
 
-            configurable.update({
-                "user_id": "gui_user",
-                "thread_id": self.thread_id,
-                "chat_id": "gui_chat",
-                "session_id": self.thread_id,
-                "interface_context": "pyqt_gui"
-            })
+            configurable.update(
+                {
+                    "user_id": "gui_user",
+                    "thread_id": self.thread_id,
+                    "chat_id": "gui_chat",
+                    "session_id": self.thread_id,
+                    "interface_context": "pyqt_gui",
+                }
+            )
 
             # Load settings from config file into SettingsManager
             if self.config_path:
@@ -1480,7 +1578,8 @@ class OspreyGUI(QMainWindow):
 
             # Apply debug mode from settings to logging
             import logging
-            debug_mode = self.settings_manager.get('debug_mode', False)
+
+            debug_mode = self.settings_manager.get("debug_mode", False)
 
             root_logger = logging.getLogger()
             desired_level = logging.DEBUG if debug_mode else logging.INFO
@@ -1495,6 +1594,7 @@ class OspreyGUI(QMainWindow):
             # Update GUI handler level if it exists
             for handler in root_logger.handlers:
                 from osprey.utils.logger import GUIHandler
+
                 if isinstance(handler, GUIHandler):
                     handler.setLevel(desired_level)
 
@@ -1504,10 +1604,7 @@ class OspreyGUI(QMainWindow):
 
             recursion_limit = get_config_value("execution_limits.graph_recursion_limit")
 
-            self.base_config = {
-                "configurable": configurable,
-                "recursion_limit": recursion_limit
-            }
+            self.base_config = {"configurable": configurable, "recursion_limit": recursion_limit}
 
             # NOTE: We do NOT create a unified graph here anymore!
             # Each project has its own isolated graph with its own capabilities.
@@ -1536,8 +1633,9 @@ class OspreyGUI(QMainWindow):
         except Exception as e:
             logger.exception(f"Failed to initialize framework: {e}")
             self.add_status(f"❌ Framework initialization failed: {e}", "error")
-            QMessageBox.critical(self, "Initialization Error",
-                               f"Failed to initialize framework:\n{e}")
+            QMessageBox.critical(
+                self, "Initialization Error", f"Failed to initialize framework:\n{e}"
+            )
 
     def update_session_info(self):
         """Update the session information display by appending session header."""
@@ -1557,7 +1655,7 @@ class OspreyGUI(QMainWindow):
         # Append to system info (don't overwrite)
         cursor = self.system_info_tab.session_info.textCursor()
         cursor.movePosition(QTextCursor.End)
-        cursor.insertText('\n'.join(session_text) + '\n')
+        cursor.insertText("\n".join(session_text) + "\n")
         self.system_info_tab.session_info.setTextCursor(cursor)
         self.system_info_tab.session_info.ensureCursorVisible()
 
@@ -1570,17 +1668,21 @@ class OspreyGUI(QMainWindow):
             model_info: Optional dict with 'model_provider' and 'model_id' keys
         """
         timestamp = datetime.now().strftime("%H:%M:%S")
-        color = self.component_colors.get(component, self.component_colors['base'])
+        color = self.component_colors.get(component, self.component_colors["base"])
 
         # Add timestamp
-        self._append_formatted_text(f"[{timestamp}] ", "#808080", self.status_log, prefix="", suffix="")
+        self._append_formatted_text(
+            f"[{timestamp}] ", "#808080", self.status_log, prefix="", suffix=""
+        )
 
         # Add model info if available
         if model_info and isinstance(model_info, dict):
-            provider = model_info.get('model_provider', '')
-            model_id = model_info.get('model_id', '')
+            provider = model_info.get("model_provider", "")
+            model_id = model_info.get("model_id", "")
             if provider and model_id:
-                self._append_formatted_text(f"[{provider}/{model_id}] ", "#FFD700", self.status_log, prefix="", suffix="")
+                self._append_formatted_text(
+                    f"[{provider}/{model_id}] ", "#FFD700", self.status_log, prefix="", suffix=""
+                )
 
         # Add message
         self._append_formatted_text(message, color, self.status_log, prefix="", suffix="\n")
@@ -1592,16 +1694,23 @@ class OspreyGUI(QMainWindow):
             return
 
         # Check if waiting for correction input (only if feedback enabled)
-        if self.settings_manager.get('enable_routing_feedback', True) and self.routing_ui.is_waiting_for_correction():
+        if (
+            self.settings_manager.get("enable_routing_feedback", True)
+            and self.routing_ui.is_waiting_for_correction()
+        ):
             self.routing_ui.handle_correction_input(user_message)
             self.input_field.clear()
             return
 
         # Check if this is feedback for previous routing (y/n) (only if feedback enabled)
-        if (self.settings_manager.get('enable_routing_feedback', True) and
-            self.routing_ui.has_pending_feedback() and
-            user_message.lower() in ['y', 'n', 'yes', 'no']):
-            self.routing_ui.handle_routing_feedback(user_message.lower(), self.routing_ui.current_query)
+        if (
+            self.settings_manager.get("enable_routing_feedback", True)
+            and self.routing_ui.has_pending_feedback()
+            and user_message.lower() in ["y", "n", "yes", "no"]
+        ):
+            self.routing_ui.handle_routing_feedback(
+                user_message.lower(), self.routing_ui.current_query
+            )
             self.input_field.clear()
             # Don't process queued message here - user answered feedback separately
             return
@@ -1620,12 +1729,11 @@ class OspreyGUI(QMainWindow):
                 self._append_colored_message(
                     f"📝 Queued: {user_message}\n"
                     "   (Will be processed after current query completes)",
-                    "#FFD700"
+                    "#FFD700",
                 )
             else:
                 self._append_colored_message(
-                    "⚠️ A message is already queued. Please wait for it to be processed.",
-                    "#FFA500"
+                    "⚠️ A message is already queued. Please wait for it to be processed.", "#FFA500"
                 )
             return
 
@@ -1654,9 +1762,7 @@ class OspreyGUI(QMainWindow):
         if self.current_conversation_id:
             # Use ConversationManager to add message
             self.conversation_manager.add_message(
-                self.current_conversation_id,
-                'user',
-                user_message
+                self.current_conversation_id, "user", user_message
             )
             self.conversation_display_mgr.update_conversation_list()
             self.save_conversation_history()
@@ -1670,7 +1776,7 @@ class OspreyGUI(QMainWindow):
         if not enabled_projects:
             self._append_colored_message(
                 "⚠️ No projects enabled. Please enable at least one project in the Projects tab.",
-                "#FFA500"
+                "#FFA500",
             )
             self.add_status("No enabled projects available", "error")
             return
@@ -1678,16 +1784,13 @@ class OspreyGUI(QMainWindow):
         # Check if query requires orchestration
         try:
             orchestration_plan = self.router.analyze_for_orchestration(
-                user_message,
-                enabled_projects
+                user_message, enabled_projects
             )
 
             if orchestration_plan.is_multi_project:
                 # Handle multi-project orchestration
                 self.orchestration_ui.handle_orchestrated_query(
-                    user_message,
-                    orchestration_plan,
-                    enabled_projects
+                    user_message, orchestration_plan, enabled_projects
                 )
                 return
 
@@ -1722,7 +1825,9 @@ class OspreyGUI(QMainWindow):
             # Each project has its own graph with its own state/execution tracking
             project_graph = selected_project.graph
             if not project_graph:
-                logger.warning(f"Project {routing_decision.project_name} has no graph, using main graph")
+                logger.warning(
+                    f"Project {routing_decision.project_name} has no graph, using main graph"
+                )
                 project_graph = self.graph
 
             # Update config with selected project's thread_id
@@ -1735,8 +1840,7 @@ class OspreyGUI(QMainWindow):
         except Exception as e:
             logger.error(f"Routing failed: {e}")
             self._append_colored_message(
-                f"⚠️ Routing error: {e}\nUsing fallback project.",
-                "#FFA500"
+                f"⚠️ Routing error: {e}\nUsing fallback project.", "#FFA500"
             )
             self.add_status(f"Routing error: {e}", "error")
 
@@ -1749,13 +1853,13 @@ class OspreyGUI(QMainWindow):
 
         # Use project-specific graph if we routed to a specific project
         # Otherwise use the main graph
-        graph_to_use = project_graph if 'project_graph' in locals() else self.graph
+        graph_to_use = project_graph if "project_graph" in locals() else self.graph
 
         self.worker = AgentWorker(
             self.gateway,
             graph_to_use,  # Use project's graph, not main graph
             self.base_config,
-            user_message
+            user_message,
         )
         self.worker.message_received.connect(self.on_message_received)
         self.worker.status_update.connect(self.on_status_update)
@@ -1774,7 +1878,9 @@ class OspreyGUI(QMainWindow):
         """Handle message received (delegated to MessageHandlers)."""
         self.message_handlers.on_message_received(message)
 
-    def _append_formatted_text(self, text: str, color: str, widget=None, prefix: str = "\n", suffix: str = "\n"):
+    def _append_formatted_text(
+        self, text: str, color: str, widget=None, prefix: str = "\n", suffix: str = "\n"
+    ):
         """
         Unified method to append formatted text to a text widget.
 
@@ -1789,6 +1895,7 @@ class OspreyGUI(QMainWindow):
             widget = self.conversation_display
 
         MessageFormatter.append_formatted_text(text, color, widget, prefix, suffix)
+
     def _append_colored_message(self, message, color, auto_open_plots=False):
         """Append a colored message to the conversation display with image detection.
 
@@ -1812,12 +1919,7 @@ class OspreyGUI(QMainWindow):
                     logger.info(f"Found {len(image_paths)} image(s) to display")
 
                     # Add a separator before the plot viewer
-                    self._append_formatted_text(
-                        "\n" + "─" * 80,
-                        "#3F3F46",
-                        prefix="",
-                        suffix="\n"
-                    )
+                    self._append_formatted_text("\n" + "─" * 80, "#3F3F46", prefix="", suffix="\n")
 
                     # Create and insert plot viewer widget
                     # Since QTextEdit doesn't support embedded widgets, we'll add
@@ -1825,16 +1927,10 @@ class OspreyGUI(QMainWindow):
 
                     for idx, image_path in enumerate(image_paths, 1):
                         self._append_formatted_text(
-                            f"\n📊 Plot {idx}: {image_path.name}",
-                            "#00FFFF",
-                            prefix="",
-                            suffix="\n"
+                            f"\n📊 Plot {idx}: {image_path.name}", "#00FFFF", prefix="", suffix="\n"
                         )
                         self._append_formatted_text(
-                            f"   📍 Location: {image_path}",
-                            "#808080",
-                            prefix="",
-                            suffix="\n"
+                            f"   📍 Location: {image_path}", "#808080", prefix="", suffix="\n"
                         )
 
                         # Check if file exists
@@ -1842,38 +1938,31 @@ class OspreyGUI(QMainWindow):
                             # Get image dimensions
                             try:
                                 from PyQt5.QtGui import QPixmap
+
                                 pixmap = QPixmap(str(image_path))
                                 if not pixmap.isNull():
                                     self._append_formatted_text(
                                         f"   📐 Size: {pixmap.width()}×{pixmap.height()}px",
                                         "#808080",
                                         prefix="",
-                                        suffix="\n"
+                                        suffix="\n",
                                     )
-                            except:
+                            except Exception:
                                 pass
 
                             self._append_formatted_text(
-                                f"   ✅ File exists - Double-click path above to open",
+                                "   ✅ File exists - Double-click path above to open",
                                 "#00FF00",
                                 prefix="",
-                                suffix="\n"
+                                suffix="\n",
                             )
                         else:
                             self._append_formatted_text(
-                                f"   ⚠️  File not found",
-                                "#FFA500",
-                                prefix="",
-                                suffix="\n"
+                                "   ⚠️  File not found", "#FFA500", prefix="", suffix="\n"
                             )
 
                     # Add separator after plots
-                    self._append_formatted_text(
-                        "─" * 80 + "\n",
-                        "#3F3F46",
-                        prefix="",
-                        suffix="\n"
-                    )
+                    self._append_formatted_text("─" * 80 + "\n", "#3F3F46", prefix="", suffix="\n")
 
                     logger.info(f"Displayed {len(image_paths)} plot reference(s)")
 
@@ -1894,14 +1983,11 @@ class OspreyGUI(QMainWindow):
                                     f"Click paths above to view others.\n",
                                     "#FFD700",
                                     prefix="",
-                                    suffix="\n"
+                                    suffix="\n",
                                 )
 
                 except Exception as e:
                     logger.error(f"Error displaying images: {e}")
-
-
-
 
     def on_status_update(self, status, component="base", model_info=None):
         """Handle status update (delegated to MessageHandlers)."""
@@ -1992,21 +2078,26 @@ class OspreyGUI(QMainWindow):
 
                 # Apply development/debug settings to the configuration
                 development_config = self.base_config["configurable"].get("development", {})
-                development_config["debug"] = self.settings_manager.get('debug_mode', False)
-                development_config["raise_raw_errors"] = self.settings_manager.get('raise_raw_errors', False)
+                development_config["debug"] = self.settings_manager.get("debug_mode", False)
+                development_config["raise_raw_errors"] = self.settings_manager.get(
+                    "raise_raw_errors", False
+                )
 
                 # Apply prompt settings
                 prompts_config = development_config.get("prompts", {})
-                prompts_config["print_all"] = self.settings_manager.get('print_prompts', False)
-                prompts_config["show_all"] = self.settings_manager.get('show_prompts', False)
-                prompts_config["latest_only"] = self.settings_manager.get('prompts_latest_only', True)
+                prompts_config["print_all"] = self.settings_manager.get("print_prompts", False)
+                prompts_config["show_all"] = self.settings_manager.get("show_prompts", False)
+                prompts_config["latest_only"] = self.settings_manager.get(
+                    "prompts_latest_only", True
+                )
                 development_config["prompts"] = prompts_config
 
                 self.base_config["configurable"]["development"] = development_config
 
             # Apply logging level changes immediately
             import logging
-            debug_mode = self.settings_manager.get('debug_mode', False)
+
+            debug_mode = self.settings_manager.get("debug_mode", False)
             new_level = logging.DEBUG if debug_mode else logging.INFO
 
             # Update root logger level
@@ -2020,13 +2111,17 @@ class OspreyGUI(QMainWindow):
                     logger_obj.setLevel(new_level)
 
             # Apply terminal suppression setting and update GUI handler level
-            suppress_terminal = self.settings_manager.get('suppress_terminal_output', False)
+            suppress_terminal = self.settings_manager.get("suppress_terminal_output", False)
             from osprey.utils.logger import set_gui_output_callback
-            set_gui_output_callback(self.gui_output_signal.emit_output, suppress_terminal=suppress_terminal)
+
+            set_gui_output_callback(
+                self.gui_output_signal.emit_output, suppress_terminal=suppress_terminal
+            )
 
             # Update GUI handler level to match the new logging level
             for handler in root_logger.handlers:
                 from osprey.utils.logger import GUIHandler
+
                 if isinstance(handler, GUIHandler):
                     handler.setLevel(new_level)
                     logger.debug(f"Updated GUI handler level to {logging.getLevelName(new_level)}")
@@ -2042,7 +2137,7 @@ class OspreyGUI(QMainWindow):
             self.add_status(f"Settings updated and saved - Logging level: {level_name}", "base")
 
             # Update Memory tab threshold display if it exists
-            if hasattr(self, 'memory_tab') and self.memory_tab:
+            if hasattr(self, "memory_tab") and self.memory_tab:
                 self.memory_tab.update_threshold_display()
                 self.add_status("Memory monitoring thresholds updated", "base")
 
@@ -2064,36 +2159,32 @@ class OspreyGUI(QMainWindow):
             if routing_settings_changed:
                 message += "\n\n⚠️ Routing settings changed - router has been reinitialized."
 
-            QMessageBox.information(
-                self,
-                "Settings Updated",
-                message
-            )
+            QMessageBox.information(self, "Settings Updated", message)
 
         dialog.accepted.connect(on_settings_accepted)
         dialog.show()  # Show modeless dialog
 
     def _save_gui_preferences(self):
         """Save GUI preferences to user's home directory.
-        
+
         This saves ONLY user interface preferences (NOT execution behavior).
         Execution behavior is handled by runtime overrides (in-memory only).
         """
         try:
             # Extract GUI-specific preferences
             gui_prefs = {
-                'use_persistent_conversations': self.settings_manager.gui.use_persistent_conversations,
-                'conversation_storage_mode': self.settings_manager.gui.conversation_storage_mode,
-                'redirect_output_to_gui': self.settings_manager.gui.redirect_output_to_gui,
-                'suppress_terminal_output': self.settings_manager.gui.suppress_terminal_output,
-                'group_system_messages': self.settings_manager.gui.group_system_messages,
-                'enable_routing_feedback': self.settings_manager.gui.enable_routing_feedback,
-                'memory_monitor_enabled': self.settings_manager.memory_monitor_enabled,
-                'memory_warning_threshold_mb': self.settings_manager.memory_warning_threshold_mb,
-                'memory_critical_threshold_mb': self.settings_manager.memory_critical_threshold_mb,
-                'memory_check_interval_seconds': self.settings_manager.memory_check_interval_seconds,
+                "use_persistent_conversations": self.settings_manager.gui.use_persistent_conversations,
+                "conversation_storage_mode": self.settings_manager.gui.conversation_storage_mode,
+                "redirect_output_to_gui": self.settings_manager.gui.redirect_output_to_gui,
+                "suppress_terminal_output": self.settings_manager.gui.suppress_terminal_output,
+                "group_system_messages": self.settings_manager.gui.group_system_messages,
+                "enable_routing_feedback": self.settings_manager.gui.enable_routing_feedback,
+                "memory_monitor_enabled": self.settings_manager.memory_monitor_enabled,
+                "memory_warning_threshold_mb": self.settings_manager.memory_warning_threshold_mb,
+                "memory_critical_threshold_mb": self.settings_manager.memory_critical_threshold_mb,
+                "memory_check_interval_seconds": self.settings_manager.memory_check_interval_seconds,
             }
-            
+
             # Update and save GUI preferences
             self.gui_preferences.update(gui_prefs)
             if self.gui_preferences.save_preferences():
@@ -2107,7 +2198,7 @@ class OspreyGUI(QMainWindow):
                 self,
                 "Save Warning",
                 f"GUI preferences could not be saved:\n{e}\n\n"
-                "Preferences will be lost when GUI is restarted."
+                "Preferences will be lost when GUI is restarted.",
             )
 
     def show_help_dialog(self):

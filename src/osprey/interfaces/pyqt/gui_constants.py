@@ -52,51 +52,51 @@ class ColorPalette:
     """Centralized color definitions for the GUI."""
 
     # Component colors
-    BASE: str = '#FFFFFF'
-    CONTEXT: str = '#AFD7FF'
-    ROUTER: str = '#FF00FF'
-    ORCHESTRATOR: str = '#00FFFF'
-    MONITOR: str = '#CD8500'
-    CLASSIFIER: str = '#FFA07A'
-    TASK_EXTRACTION: str = '#D8BFD8'
-    ERROR: str = '#FF0000'
-    GATEWAY: str = '#FFA07A'
-    APPROVAL: str = '#FFA07A'
-    TIME_RANGE_PARSING: str = '#1E90FF'
-    MEMORY: str = '#FFA07A'
-    PYTHON: str = '#FFA07A'
-    RESPOND: str = '#D8BFD8'
-    CLARIFY: str = '#D8BFD8'
+    BASE: str = "#FFFFFF"
+    CONTEXT: str = "#AFD7FF"
+    ROUTER: str = "#FF00FF"
+    ORCHESTRATOR: str = "#00FFFF"
+    MONITOR: str = "#CD8500"
+    CLASSIFIER: str = "#FFA07A"
+    TASK_EXTRACTION: str = "#D8BFD8"
+    ERROR: str = "#FF0000"
+    GATEWAY: str = "#FFA07A"
+    APPROVAL: str = "#FFA07A"
+    TIME_RANGE_PARSING: str = "#1E90FF"
+    MEMORY: str = "#FFA07A"
+    PYTHON: str = "#FFA07A"
+    RESPOND: str = "#D8BFD8"
+    CLARIFY: str = "#D8BFD8"
 
     # Message colors
-    USER_MESSAGE: str = '#D8BFD8'
-    AGENT_MESSAGE: str = '#FFFFFF'
-    SYSTEM_MESSAGE: str = '#808080'
-    SUCCESS_MESSAGE: str = '#00FF00'
-    WARNING_MESSAGE: str = '#FFA500'
-    ERROR_MESSAGE: str = '#FF0000'
-    INFO_MESSAGE: str = '#00FFFF'
-    QUEUED_MESSAGE: str = '#FFD700'
-    PROCESSING_MESSAGE: str = '#808080'
+    USER_MESSAGE: str = "#D8BFD8"
+    AGENT_MESSAGE: str = "#FFFFFF"
+    SYSTEM_MESSAGE: str = "#808080"
+    SUCCESS_MESSAGE: str = "#00FF00"
+    WARNING_MESSAGE: str = "#FFA500"
+    ERROR_MESSAGE: str = "#FF0000"
+    INFO_MESSAGE: str = "#00FFFF"
+    QUEUED_MESSAGE: str = "#FFD700"
+    PROCESSING_MESSAGE: str = "#808080"
 
     # UI element colors
-    TIMESTAMP: str = '#808080'
-    SEPARATOR: str = '#3F3F46'
-    BORDER: str = '#3F3F46'
-    BACKGROUND_DARK: str = '#1E1E1E'
-    BACKGROUND_MEDIUM: str = '#2D2D30'
-    HIGHLIGHT: str = '#0078D4'
+    TIMESTAMP: str = "#808080"
+    SEPARATOR: str = "#3F3F46"
+    BORDER: str = "#3F3F46"
+    BACKGROUND_DARK: str = "#1E1E1E"
+    BACKGROUND_MEDIUM: str = "#2D2D30"
+    HIGHLIGHT: str = "#0078D4"
 
     # Status colors
-    ENABLED: str = '#00FF00'
-    DISABLED: str = '#808080'
+    ENABLED: str = "#00FF00"
+    DISABLED: str = "#808080"
 
     # Tool usage colors
-    TOOL_LABEL: str = '#FFD700'
-    TOOL_CAPABILITY: str = '#00FFFF'
-    TOOL_SUCCESS: str = '#00FF00'
-    TOOL_FAILURE: str = '#FF0000'
-    TOOL_TIMING: str = '#FFA500'
+    TOOL_LABEL: str = "#FFD700"
+    TOOL_CAPABILITY: str = "#00FFFF"
+    TOOL_SUCCESS: str = "#00FF00"
+    TOOL_FAILURE: str = "#FF0000"
+    TOOL_TIMING: str = "#FFA500"
 
     @classmethod
     def get_component_color(cls, component: str) -> str:
@@ -109,7 +109,7 @@ class ColorPalette:
         Returns:
             Color hex string, defaults to BASE if not found
         """
-        component_upper = component.upper().replace(' ', '_')
+        component_upper = component.upper().replace(" ", "_")
         return getattr(cls, component_upper, cls.BASE)
 
 
@@ -178,69 +178,69 @@ class SettingsKeys:
     """Centralized settings key constants to avoid magic strings."""
 
     # Agent Control
-    PLANNING_MODE_ENABLED: str = 'planning_mode_enabled'
-    EPICS_WRITES_ENABLED: str = 'epics_writes_enabled'
-    TASK_EXTRACTION_BYPASS_ENABLED: str = 'task_extraction_bypass_enabled'
-    CAPABILITY_SELECTION_BYPASS_ENABLED: str = 'capability_selection_bypass_enabled'
+    PLANNING_MODE_ENABLED: str = "planning_mode_enabled"
+    EPICS_WRITES_ENABLED: str = "epics_writes_enabled"
+    TASK_EXTRACTION_BYPASS_ENABLED: str = "task_extraction_bypass_enabled"
+    CAPABILITY_SELECTION_BYPASS_ENABLED: str = "capability_selection_bypass_enabled"
 
     # Approval
-    APPROVAL_GLOBAL_MODE: str = 'approval_global_mode'
-    PYTHON_EXECUTION_APPROVAL_ENABLED: str = 'python_execution_approval_enabled'
-    PYTHON_EXECUTION_APPROVAL_MODE: str = 'python_execution_approval_mode'
-    MEMORY_APPROVAL_ENABLED: str = 'memory_approval_enabled'
+    APPROVAL_GLOBAL_MODE: str = "approval_global_mode"
+    PYTHON_EXECUTION_APPROVAL_ENABLED: str = "python_execution_approval_enabled"
+    PYTHON_EXECUTION_APPROVAL_MODE: str = "python_execution_approval_mode"
+    MEMORY_APPROVAL_ENABLED: str = "memory_approval_enabled"
 
     # Execution Limits
-    MAX_RECLASSIFICATIONS: str = 'max_reclassifications'
-    MAX_PLANNING_ATTEMPTS: str = 'max_planning_attempts'
-    MAX_STEP_RETRIES: str = 'max_step_retries'
-    MAX_EXECUTION_TIME_SECONDS: str = 'max_execution_time_seconds'
-    MAX_CONCURRENT_CLASSIFICATIONS: str = 'max_concurrent_classifications'
+    MAX_RECLASSIFICATIONS: str = "max_reclassifications"
+    MAX_PLANNING_ATTEMPTS: str = "max_planning_attempts"
+    MAX_STEP_RETRIES: str = "max_step_retries"
+    MAX_EXECUTION_TIME_SECONDS: str = "max_execution_time_seconds"
+    MAX_CONCURRENT_CLASSIFICATIONS: str = "max_concurrent_classifications"
 
     # GUI Settings
-    USE_PERSISTENT_CONVERSATIONS: str = 'use_persistent_conversations'
-    CONVERSATION_STORAGE_MODE: str = 'conversation_storage_mode'
-    REDIRECT_OUTPUT_TO_GUI: str = 'redirect_output_to_gui'
-    SUPPRESS_TERMINAL_OUTPUT: str = 'suppress_terminal_output'
-    GROUP_SYSTEM_MESSAGES: str = 'group_system_messages'
-    ENABLE_ROUTING_FEEDBACK: str = 'enable_routing_feedback'
-    MAX_MESSAGES_PER_CONVERSATION: str = 'max_messages_per_conversation'
-    MAX_LLM_DETAILS_ENTRIES: str = 'max_llm_details_entries'
-    MAX_TOOL_USAGE_ENTRIES: str = 'max_tool_usage_entries'
-    LLM_DETAILS_AUTO_CLEAR: str = 'llm_details_auto_clear'
-    IMAGE_CACHE_MAX_SIZE_MB: str = 'image_cache_max_size_mb'
-    IMAGE_CACHE_RETENTION_HOURS: str = 'image_cache_retention_hours'
-    IMAGE_CACHE_AUTO_CLEANUP: str = 'image_cache_auto_cleanup'
+    USE_PERSISTENT_CONVERSATIONS: str = "use_persistent_conversations"
+    CONVERSATION_STORAGE_MODE: str = "conversation_storage_mode"
+    REDIRECT_OUTPUT_TO_GUI: str = "redirect_output_to_gui"
+    SUPPRESS_TERMINAL_OUTPUT: str = "suppress_terminal_output"
+    GROUP_SYSTEM_MESSAGES: str = "group_system_messages"
+    ENABLE_ROUTING_FEEDBACK: str = "enable_routing_feedback"
+    MAX_MESSAGES_PER_CONVERSATION: str = "max_messages_per_conversation"
+    MAX_LLM_DETAILS_ENTRIES: str = "max_llm_details_entries"
+    MAX_TOOL_USAGE_ENTRIES: str = "max_tool_usage_entries"
+    LLM_DETAILS_AUTO_CLEAR: str = "llm_details_auto_clear"
+    IMAGE_CACHE_MAX_SIZE_MB: str = "image_cache_max_size_mb"
+    IMAGE_CACHE_RETENTION_HOURS: str = "image_cache_retention_hours"
+    IMAGE_CACHE_AUTO_CLEANUP: str = "image_cache_auto_cleanup"
 
     # Development
-    DEBUG_MODE: str = 'debug_mode'
-    VERBOSE_LOGGING: str = 'verbose_logging'
-    RAISE_RAW_ERRORS: str = 'raise_raw_errors'
-    PRINT_PROMPTS: str = 'print_prompts'
-    SHOW_PROMPTS: str = 'show_prompts'
-    PROMPTS_LATEST_ONLY: str = 'prompts_latest_only'
+    DEBUG_MODE: str = "debug_mode"
+    VERBOSE_LOGGING: str = "verbose_logging"
+    RAISE_RAW_ERRORS: str = "raise_raw_errors"
+    PRINT_PROMPTS: str = "print_prompts"
+    SHOW_PROMPTS: str = "show_prompts"
+    PROMPTS_LATEST_ONLY: str = "prompts_latest_only"
 
     # Routing
-    ENABLE_ROUTING_CACHE: str = 'enable_routing_cache'
-    CACHE_MAX_SIZE: str = 'cache_max_size'
-    CACHE_TTL_SECONDS: str = 'cache_ttl_seconds'
-    CACHE_SIMILARITY_THRESHOLD: str = 'cache_similarity_threshold'
-    ENABLE_ADVANCED_INVALIDATION: str = 'enable_advanced_invalidation'
-    ENABLE_ADAPTIVE_TTL: str = 'enable_adaptive_ttl'
-    ENABLE_PROBABILISTIC_EXPIRATION: str = 'enable_probabilistic_expiration'
-    ENABLE_EVENT_DRIVEN_INVALIDATION: str = 'enable_event_driven_invalidation'
-    ENABLE_SEMANTIC_ANALYSIS: str = 'enable_semantic_analysis'
-    SEMANTIC_SIMILARITY_THRESHOLD: str = 'semantic_similarity_threshold'
-    TOPIC_SIMILARITY_THRESHOLD: str = 'topic_similarity_threshold'
-    MAX_CONTEXT_HISTORY: str = 'max_context_history'
-    ORCHESTRATION_MAX_PARALLEL: str = 'orchestration_max_parallel'
-    ANALYTICS_MAX_HISTORY: str = 'analytics_max_history'
-    ANALYTICS_MAX_ENTRIES: str = 'analytics_max_entries'
-    ANALYTICS_RETENTION_DAYS: str = 'analytics_retention_days'
-    ANALYTICS_AUTO_CLEANUP: str = 'analytics_auto_cleanup'
-    MEMORY_MONITOR_ENABLED: str = 'memory_monitor_enabled'
-    MEMORY_WARNING_THRESHOLD_MB: str = 'memory_warning_threshold_mb'
-    MEMORY_CRITICAL_THRESHOLD_MB: str = 'memory_critical_threshold_mb'
-    MEMORY_CHECK_INTERVAL_SECONDS: str = 'memory_check_interval_seconds'
+    ENABLE_ROUTING_CACHE: str = "enable_routing_cache"
+    CACHE_MAX_SIZE: str = "cache_max_size"
+    CACHE_TTL_SECONDS: str = "cache_ttl_seconds"
+    CACHE_SIMILARITY_THRESHOLD: str = "cache_similarity_threshold"
+    ENABLE_ADVANCED_INVALIDATION: str = "enable_advanced_invalidation"
+    ENABLE_ADAPTIVE_TTL: str = "enable_adaptive_ttl"
+    ENABLE_PROBABILISTIC_EXPIRATION: str = "enable_probabilistic_expiration"
+    ENABLE_EVENT_DRIVEN_INVALIDATION: str = "enable_event_driven_invalidation"
+    ENABLE_SEMANTIC_ANALYSIS: str = "enable_semantic_analysis"
+    SEMANTIC_SIMILARITY_THRESHOLD: str = "semantic_similarity_threshold"
+    TOPIC_SIMILARITY_THRESHOLD: str = "topic_similarity_threshold"
+    MAX_CONTEXT_HISTORY: str = "max_context_history"
+    ORCHESTRATION_MAX_PARALLEL: str = "orchestration_max_parallel"
+    ANALYTICS_MAX_HISTORY: str = "analytics_max_history"
+    ANALYTICS_MAX_ENTRIES: str = "analytics_max_entries"
+    ANALYTICS_RETENTION_DAYS: str = "analytics_retention_days"
+    ANALYTICS_AUTO_CLEANUP: str = "analytics_auto_cleanup"
+    MEMORY_MONITOR_ENABLED: str = "memory_monitor_enabled"
+    MEMORY_WARNING_THRESHOLD_MB: str = "memory_warning_threshold_mb"
+    MEMORY_CRITICAL_THRESHOLD_MB: str = "memory_critical_threshold_mb"
+    MEMORY_CHECK_INTERVAL_SECONDS: str = "memory_check_interval_seconds"
 
 
 # Convenience instances for easy access
@@ -257,22 +257,22 @@ KEYS = SettingsKeys()
 
 # Backward compatibility: Export individual constants
 __all__ = [
-    'WindowDimensions',
-    'UILayout',
-    'ColorPalette',
-    'CacheDefaults',
-    'ConversationDefaults',
-    'ExecutionDefaults',
-    'MemoryDefaults',
-    'TimerDelays',
-    'SettingsKeys',
-    'WINDOW',
-    'LAYOUT',
-    'COLORS',
-    'CACHE',
-    'CONVERSATION',
-    'EXECUTION',
-    'MEMORY',
-    'TIMERS',
-    'KEYS',
+    "WindowDimensions",
+    "UILayout",
+    "ColorPalette",
+    "CacheDefaults",
+    "ConversationDefaults",
+    "ExecutionDefaults",
+    "MemoryDefaults",
+    "TimerDelays",
+    "SettingsKeys",
+    "WINDOW",
+    "LAYOUT",
+    "COLORS",
+    "CACHE",
+    "CONVERSATION",
+    "EXECUTION",
+    "MEMORY",
+    "TIMERS",
+    "KEYS",
 ]

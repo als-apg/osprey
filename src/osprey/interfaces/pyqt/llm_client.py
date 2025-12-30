@@ -36,9 +36,8 @@ Usage:
     response = client.call("Your prompt here", max_tokens=500)
 """
 
-import os
 import logging
-from typing import Optional
+import os
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -63,11 +62,7 @@ class SimpleLLMClient:
     """
 
     def __init__(
-        self,
-        provider: str,
-        model_id: str,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None
+        self, provider: str, model_id: str, api_key: str | None = None, base_url: str | None = None
     ):
         """Initialize LLM client with explicit configuration.
 
@@ -92,7 +87,7 @@ class SimpleLLMClient:
         )
 
     @classmethod
-    def from_gui_config(cls, gui_config_path: Optional[str] = None) -> 'SimpleLLMClient':
+    def from_gui_config(cls, gui_config_path: str | None = None) -> "SimpleLLMClient":
         """Create client from GUI configuration file.
 
         This method reads the user's explicitly configured 'classifier' model
@@ -115,7 +110,7 @@ class SimpleLLMClient:
         if gui_config_path is None:
             # GUI config is in the pyqt directory
             pyqt_dir = Path(__file__).parent
-            gui_config_path = pyqt_dir / 'gui_config.yml'
+            gui_config_path = pyqt_dir / "gui_config.yml"
 
             if not gui_config_path.exists():
                 raise FileNotFoundError(
@@ -127,12 +122,12 @@ class SimpleLLMClient:
         logger.debug(f"Loading GUI config from: {gui_config_path}")
 
         # Load config file
-        with open(gui_config_path, 'r') as f:
+        with open(gui_config_path) as f:
             config = yaml.safe_load(f)
 
         # Get classifier model configuration (user's explicit choice)
-        models = config.get('models', {})
-        classifier_config = models.get('classifier', {})
+        models = config.get("models", {})
+        classifier_config = models.get("classifier", {})
 
         if not classifier_config:
             raise ValueError(
@@ -145,8 +140,8 @@ class SimpleLLMClient:
                 f"    model_id: gpt5\n"
             )
 
-        provider = classifier_config.get('provider')
-        model_id = classifier_config.get('model_id')
+        provider = classifier_config.get("provider")
+        model_id = classifier_config.get("model_id")
 
         if not provider or not model_id:
             raise ValueError(
@@ -155,7 +150,7 @@ class SimpleLLMClient:
             )
 
         # Get provider configuration
-        providers = config.get('api', {}).get('providers', {})
+        providers = config.get("api", {}).get("providers", {})
         provider_config = providers.get(provider, {})
 
         if not provider_config:
@@ -165,8 +160,8 @@ class SimpleLLMClient:
             )
 
         # Resolve environment variables in API key
-        api_key = provider_config.get('api_key', '')
-        if api_key.startswith('${') and api_key.endswith('}'):
+        api_key = provider_config.get("api_key", "")
+        if api_key.startswith("${") and api_key.endswith("}"):
             env_var = api_key[2:-1]  # Extract VAR_NAME from ${VAR_NAME}
             api_key = os.getenv(env_var)
             if not api_key:
@@ -175,18 +170,11 @@ class SimpleLLMClient:
                     f"API calls may fail. Please set {env_var} in your environment."
                 )
 
-        base_url = provider_config.get('base_url')
+        base_url = provider_config.get("base_url")
 
-        logger.info(
-            f"Using user-configured provider from gui_config.yml: {provider}/{model_id}"
-        )
+        logger.info(f"Using user-configured provider from gui_config.yml: {provider}/{model_id}")
 
-        return cls(
-            provider=provider,
-            model_id=model_id,
-            api_key=api_key,
-            base_url=base_url
-        )
+        return cls(provider=provider, model_id=model_id, api_key=api_key, base_url=base_url)
 
     def _validate(self):
         """Validate configuration.
@@ -198,20 +186,14 @@ class SimpleLLMClient:
             raise ValueError("Provider is required")
         if not self.model_id:
             raise ValueError("Model ID is required")
-        if self.provider not in ['ollama'] and not self.api_key:
+        if self.provider not in ["ollama"] and not self.api_key:
             logger.warning(
-                f"No API key provided for {self.provider}. "
-                f"This may cause authentication errors."
+                f"No API key provided for {self.provider}. This may cause authentication errors."
             )
-        if self.provider == 'ollama' and not self.base_url:
+        if self.provider == "ollama" and not self.base_url:
             raise ValueError("Base URL required for Ollama")
 
-    def call(
-        self,
-        prompt: str,
-        max_tokens: int = 500,
-        temperature: float = 0.0
-    ) -> str:
+    def call(self, prompt: str, max_tokens: int = 500, temperature: float = 0.0) -> str:
         """Call LLM with prompt and return response.
 
         Args:
@@ -231,14 +213,14 @@ class SimpleLLMClient:
             f"(max_tokens={max_tokens}, temperature={temperature})"
         )
 
-        if self.provider == 'anthropic':
+        if self.provider == "anthropic":
             return self._call_anthropic(prompt, max_tokens, temperature)
-        elif self.provider in ['openai', 'argo', 'cborg', 'stanford']:
+        elif self.provider in ["openai", "argo", "cborg", "stanford"]:
             # These all use OpenAI-compatible API
             return self._call_openai_compatible(prompt, max_tokens, temperature)
-        elif self.provider == 'ollama':
+        elif self.provider == "ollama":
             return self._call_ollama(prompt, max_tokens, temperature)
-        elif self.provider == 'google':
+        elif self.provider == "google":
             return self._call_google(prompt, max_tokens, temperature)
         else:
             raise ValueError(
@@ -246,12 +228,7 @@ class SimpleLLMClient:
                 f"Supported providers: anthropic, openai, argo, cborg, stanford, ollama, google"
             )
 
-    def _call_anthropic(
-        self,
-        prompt: str,
-        max_tokens: int,
-        temperature: float
-    ) -> str:
+    def _call_anthropic(self, prompt: str, max_tokens: int, temperature: float) -> str:
         """Call Anthropic API directly."""
         try:
             import anthropic
@@ -261,7 +238,7 @@ class SimpleLLMClient:
                 model=self.model_id,
                 max_tokens=max_tokens,
                 temperature=temperature,
-                messages=[{"role": "user", "content": prompt}]
+                messages=[{"role": "user", "content": prompt}],
             )
 
             if message.content:
@@ -276,12 +253,7 @@ class SimpleLLMClient:
             logger.error(f"Anthropic API call failed: {e}")
             raise
 
-    def _call_openai_compatible(
-        self,
-        prompt: str,
-        max_tokens: int,
-        temperature: float
-    ) -> str:
+    def _call_openai_compatible(self, prompt: str, max_tokens: int, temperature: float) -> str:
         """Call OpenAI-compatible API (OpenAI, Argo, CBORG, Stanford).
 
         Note: Argo is the ANL (Argonne National Laboratory) service provider.
@@ -289,16 +261,13 @@ class SimpleLLMClient:
         try:
             import openai
 
-            client = openai.OpenAI(
-                api_key=self.api_key,
-                base_url=self.base_url
-            )
+            client = openai.OpenAI(api_key=self.api_key, base_url=self.base_url)
 
             response = client.chat.completions.create(
                 model=self.model_id,
                 max_tokens=max_tokens,
                 temperature=temperature,
-                messages=[{"role": "user", "content": prompt}]
+                messages=[{"role": "user", "content": prompt}],
             )
 
             response_text = response.choices[0].message.content
@@ -309,12 +278,7 @@ class SimpleLLMClient:
             logger.error(f"{self.provider} API call failed: {e}")
             raise
 
-    def _call_ollama(
-        self,
-        prompt: str,
-        max_tokens: int,
-        temperature: float
-    ) -> str:
+    def _call_ollama(self, prompt: str, max_tokens: int, temperature: float) -> str:
         """Call Ollama API directly."""
         try:
             import ollama
@@ -323,13 +287,10 @@ class SimpleLLMClient:
             response = client.chat(
                 model=self.model_id,
                 messages=[{"role": "user", "content": prompt}],
-                options={
-                    "num_predict": max_tokens,
-                    "temperature": temperature
-                }
+                options={"num_predict": max_tokens, "temperature": temperature},
             )
 
-            response_text = response['message']['content']
+            response_text = response["message"]["content"]
             logger.debug(f"Ollama response: {len(response_text)} chars")
             return response_text
 
@@ -337,12 +298,7 @@ class SimpleLLMClient:
             logger.error(f"Ollama API call failed: {e}")
             raise
 
-    def _call_google(
-        self,
-        prompt: str,
-        max_tokens: int,
-        temperature: float
-    ) -> str:
+    def _call_google(self, prompt: str, max_tokens: int, temperature: float) -> str:
         """Call Google Gemini API directly."""
         try:
             import google.generativeai as genai
@@ -353,9 +309,8 @@ class SimpleLLMClient:
             response = model.generate_content(
                 prompt,
                 generation_config=genai.types.GenerationConfig(
-                    max_output_tokens=max_tokens,
-                    temperature=temperature
-                )
+                    max_output_tokens=max_tokens, temperature=temperature
+                ),
             )
 
             response_text = response.text

@@ -73,7 +73,9 @@ class RoutingUIHandler:
             self.gui._append_colored_message(alt_msg, "#606060")
 
         # Display feedback prompt (only in automatic mode and if feedback enabled)
-        if self.gui.router.is_automatic_mode() and self.gui.settings_manager.get('enable_routing_feedback', True):
+        if self.gui.router.is_automatic_mode() and self.gui.settings_manager.get(
+            "enable_routing_feedback", True
+        ):
             feedback_msg = (
                 "   Was this routing correct?\n"
                 "   Type 'y' (yes/correct) or 'n' (no/incorrect) to provide feedback\n"
@@ -101,13 +103,12 @@ class RoutingUIHandler:
             query: The original query that was routed
         """
         # Check if feedback is enabled
-        if not self.gui.settings_manager.get('enable_routing_feedback', True):
+        if not self.gui.settings_manager.get("enable_routing_feedback", True):
             return
 
         if not self.current_routing_decision or not query:
             self.gui._append_colored_message(
-                "⚠️ No routing decision to provide feedback for.",
-                "#FFA500"
+                "⚠️ No routing decision to provide feedback for.", "#FFA500"
             )
             return
 
@@ -115,13 +116,12 @@ class RoutingUIHandler:
         self.current_query = query
 
         # Determine if feedback is positive or negative
-        is_correct = feedback in ['y', 'yes']
+        is_correct = feedback in ["y", "yes"]
 
         if is_correct:
             # Positive feedback
             self.gui._append_colored_message(
-                "✅ Thank you! Routing feedback recorded as correct.",
-                "#00FF00"
+                "✅ Thank you! Routing feedback recorded as correct.", "#00FF00"
             )
 
             # Record positive feedback
@@ -130,7 +130,7 @@ class RoutingUIHandler:
                 selected_project=self.current_routing_decision.project_name,
                 confidence=self.current_routing_decision.confidence,
                 user_feedback="correct",
-                reasoning=self.current_routing_decision.reasoning
+                reasoning=self.current_routing_decision.reasoning,
             )
 
             # Clear current routing decision (user answered feedback)
@@ -140,8 +140,7 @@ class RoutingUIHandler:
         else:
             # Negative feedback - ask for correct project
             self.gui._append_colored_message(
-                "👎 Routing was incorrect. Which project should have been used?",
-                "#FFA500"
+                "👎 Routing was incorrect. Which project should have been used?", "#FFA500"
             )
 
             # Get enabled projects for selection
@@ -150,12 +149,11 @@ class RoutingUIHandler:
 
             # Display options
             options_msg = "Available projects:\n" + "\n".join(
-                f"  {i+1}. {name}" for i, name in enumerate(project_names)
+                f"  {i + 1}. {name}" for i, name in enumerate(project_names)
             )
             self.gui._append_colored_message(options_msg, "#FFFFFF")
             self.gui._append_colored_message(
-                "Enter the number or name of the correct project:",
-                "#87CEEB"
+                "Enter the number or name of the correct project:", "#87CEEB"
             )
 
             # Set state to wait for correction
@@ -175,15 +173,12 @@ class RoutingUIHandler:
             user_input: User's correction input (project name or number)
         """
         # Check if feedback is enabled
-        if not self.gui.settings_manager.get('enable_routing_feedback', True):
+        if not self.gui.settings_manager.get("enable_routing_feedback", True):
             self.waiting_for_correction = False
             return
 
         if not self.correction_options:
-            self.gui._append_colored_message(
-                "⚠️ No correction options available.",
-                "#FFA500"
-            )
+            self.gui._append_colored_message("⚠️ No correction options available.", "#FFA500")
             self.waiting_for_correction = False
             return
 
@@ -200,8 +195,7 @@ class RoutingUIHandler:
 
         if not correct_project:
             self.gui._append_colored_message(
-                f"⚠️ Invalid selection: '{user_input}'. Please try again.",
-                "#FFA500"
+                f"⚠️ Invalid selection: '{user_input}'. Please try again.", "#FFA500"
             )
             return
 
@@ -212,16 +206,14 @@ class RoutingUIHandler:
             confidence=self.current_routing_decision.confidence,
             user_feedback="incorrect",
             correct_project=correct_project,
-            reasoning=self.current_routing_decision.reasoning
+            reasoning=self.current_routing_decision.reasoning,
         )
 
         self.gui._append_colored_message(
-            f"✅ Thank you! Feedback recorded. Correct project: {correct_project}",
-            "#00FF00"
+            f"✅ Thank you! Feedback recorded. Correct project: {correct_project}", "#00FF00"
         )
         self.gui._append_colored_message(
-            "   The system will learn from this correction.",
-            "#87CEEB"
+            "   The system will learn from this correction.", "#87CEEB"
         )
 
         # Clear state

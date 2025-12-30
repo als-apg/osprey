@@ -14,22 +14,23 @@ Key Features:
 - Conversation-aware routing with topic detection
 """
 
+from __future__ import annotations
+
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Any
 
-from osprey.utils.logger import get_logger
-from osprey.interfaces.pyqt.llm_client import SimpleLLMClient
-from osprey.interfaces.pyqt.routing_cache import RoutingCache, CacheStatistics
 from osprey.interfaces.pyqt.conversation_context import ConversationContext
-from osprey.interfaces.pyqt.semantic_context_analyzer import SemanticContextAnalyzer
+from osprey.interfaces.pyqt.llm_client import SimpleLLMClient
 from osprey.interfaces.pyqt.multi_project_orchestrator import (
     MultiProjectOrchestrator,
     OrchestrationPlan,
-    OrchestrationResult
 )
 from osprey.interfaces.pyqt.routing_analytics import RoutingAnalytics
+from osprey.interfaces.pyqt.routing_cache import CacheStatistics, RoutingCache
 from osprey.interfaces.pyqt.routing_feedback import RoutingFeedback
+from osprey.interfaces.pyqt.semantic_context_analyzer import SemanticContextAnalyzer
+from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
     from osprey.interfaces.pyqt.capability_registry import CapabilityRegistry
@@ -41,11 +42,12 @@ logger = get_logger("multi_project_router")
 @dataclass
 class RoutingDecision:
     """Result of routing decision."""
+
     project_name: str
     capability_name: str | None = None
     confidence: float = 0.0
     reasoning: str = ""
-    alternative_projects: List[str] = field(default_factory=list)
+    alternative_projects: list[str] = field(default_factory=list)
     timestamp: float = field(default_factory=time.time)
     from_cache: bool = False  # Indicates if decision came from cache
     routing_time_ms: float = 0.0  # Time taken for routing decision
@@ -68,8 +70,8 @@ class MultiProjectRouter:
 
     def __init__(
         self,
-        capability_registry: 'CapabilityRegistry',
-        llm_config: Dict[str, Any] = None,
+        capability_registry: CapabilityRegistry,
+        llm_config: dict[str, Any] = None,
         enable_cache: bool = True,
         cache_max_size: int = 100,
         cache_ttl_seconds: float = 3600.0,
@@ -89,7 +91,7 @@ class MultiProjectRouter:
         enable_analytics: bool = True,
         analytics_max_history: int = 1000,
         enable_feedback: bool = True,
-        feedback_max_history: int = 1000
+        feedback_max_history: int = 1000,
     ):
         """Initialize router.
 
@@ -128,10 +130,10 @@ class MultiProjectRouter:
         if llm_config:
             # Use provided LLM config
             self.llm_client = SimpleLLMClient(
-                provider=llm_config.get('provider', 'anthropic'),
-                model_id=llm_config.get('model_id', 'claude-3-sonnet-20240229'),
-                api_key=llm_config.get('api_key'),
-                base_url=llm_config.get('base_url')
+                provider=llm_config.get("provider", "anthropic"),
+                model_id=llm_config.get("model_id", "claude-3-sonnet-20240229"),
+                api_key=llm_config.get("api_key"),
+                base_url=llm_config.get("base_url"),
             )
             self.logger.info(
                 f"Initialized routing LLM client from config: "
@@ -158,7 +160,7 @@ class MultiProjectRouter:
             self.cache = RoutingCache(
                 max_size=cache_max_size,
                 ttl_seconds=cache_ttl_seconds,
-                similarity_threshold=cache_similarity_threshold
+                similarity_threshold=cache_similarity_threshold,
             )
             self.logger.info(
                 f"Initialized MultiProjectRouter with caching enabled "
@@ -178,7 +180,7 @@ class MultiProjectRouter:
                 max_history=context_max_history,
                 similarity_threshold=semantic_similarity_threshold,
                 topic_similarity_threshold=semantic_topic_threshold,
-                enable_intent_recognition=True
+                enable_intent_recognition=True,
             )
             self.logger.info(
                 f"Initialized semantic context analyzer "
@@ -189,8 +191,7 @@ class MultiProjectRouter:
         elif self.context_enabled:
             # Use simple conversation context
             self.conversation_context = ConversationContext(
-                max_history=context_max_history,
-                confidence_boost=context_confidence_boost
+                max_history=context_max_history, confidence_boost=context_confidence_boost
             )
             self.logger.info(
                 f"Initialized conversation-aware routing "
@@ -204,8 +205,7 @@ class MultiProjectRouter:
         self.orchestration_enabled = enable_orchestration
         if self.orchestration_enabled:
             self.orchestrator = MultiProjectOrchestrator(
-                llm_config=llm_config,
-                max_parallel_executions=orchestration_max_parallel
+                llm_config=llm_config, max_parallel_executions=orchestration_max_parallel
             )
             self.logger.info(
                 f"Initialized multi-project orchestration "
@@ -219,13 +219,9 @@ class MultiProjectRouter:
         self.analytics_enabled = enable_analytics
         if self.analytics_enabled:
             self.analytics = RoutingAnalytics(
-                max_history=analytics_max_history,
-                enable_persistence=True
+                max_history=analytics_max_history, enable_persistence=True
             )
-            self.logger.info(
-                f"Initialized routing analytics "
-                f"(max_history={analytics_max_history})"
-            )
+            self.logger.info(f"Initialized routing analytics (max_history={analytics_max_history})")
         else:
             self.analytics = None
             self.logger.info("Routing analytics disabled")
@@ -234,22 +230,14 @@ class MultiProjectRouter:
         self.feedback_enabled = enable_feedback
         if self.feedback_enabled:
             self.feedback = RoutingFeedback(
-                max_history=feedback_max_history,
-                enable_persistence=True
+                max_history=feedback_max_history, enable_persistence=True
             )
-            self.logger.info(
-                f"Initialized routing feedback "
-                f"(max_history={feedback_max_history})"
-            )
+            self.logger.info(f"Initialized routing feedback (max_history={feedback_max_history})")
         else:
             self.feedback = None
             self.logger.info("Routing feedback disabled")
 
-    def route_query(
-        self,
-        query: str,
-        available_projects: List['ProjectContext']
-    ) -> RoutingDecision:
+    def route_query(self, query: str, available_projects: list[ProjectContext]) -> RoutingDecision:
         """Route a user query to the best project.
 
         In AUTOMATIC mode (default):
@@ -281,7 +269,7 @@ class MultiProjectRouter:
                 confidence=1.0,
                 reasoning="Manual selection by user",
                 alternative_projects=[],
-                from_cache=False
+                from_cache=False,
             )
             self._last_routing_explanation = decision.reasoning
             return decision
@@ -293,7 +281,7 @@ class MultiProjectRouter:
                 project_name=project.metadata.name,
                 confidence=1.0,
                 reasoning="Only one project available",
-                from_cache=False
+                from_cache=False,
             )
             self._last_routing_explanation = decision.reasoning
             return decision
@@ -309,7 +297,7 @@ class MultiProjectRouter:
                     confidence=cached_decision.confidence,
                     reasoning=f"{cached_decision.reasoning} (from cache)",
                     alternative_projects=cached_decision.alternative_projects,
-                    from_cache=True
+                    from_cache=True,
                 )
                 self._last_routing_explanation = decision.reasoning
                 self.logger.info(
@@ -321,15 +309,11 @@ class MultiProjectRouter:
         # Automatic mode: LLM-based routing
         try:
             # Generate capability descriptions
-            capability_descriptions = self._generate_capability_descriptions(
-                available_projects
-            )
+            capability_descriptions = self._generate_capability_descriptions(available_projects)
 
             # Create routing prompt
             routing_prompt = self._create_routing_prompt(
-                query,
-                capability_descriptions,
-                available_projects
+                query, capability_descriptions, available_projects
             )
 
             # Call LLM for routing
@@ -339,12 +323,11 @@ class MultiProjectRouter:
 
             # Apply feedback learning adjustments if enabled
             if self.feedback_enabled and self.feedback:
-                adjusted_project, adjusted_confidence, feedback_reasoning = \
+                adjusted_project, adjusted_confidence, feedback_reasoning = (
                     self.feedback.get_routing_adjustment(
-                        query,
-                        decision.project_name,
-                        decision.confidence
+                        query, decision.project_name, decision.confidence
                     )
+                )
 
                 if adjusted_project != decision.project_name:
                     # Feedback suggests different project
@@ -369,10 +352,9 @@ class MultiProjectRouter:
             if self.conversation_context:
                 if self.semantic_enabled:
                     # Use semantic context boost
-                    should_boost, boost_amount, boost_reason = \
-                        self.conversation_context.should_boost_project(
-                            query, decision.project_name
-                        )
+                    should_boost, boost_amount, boost_reason = (
+                        self.conversation_context.should_boost_project(query, decision.project_name)
+                    )
 
                     if should_boost:
                         original_confidence = decision.confidence
@@ -405,7 +387,7 @@ class MultiProjectRouter:
                     project_name=decision.project_name,
                     confidence=decision.confidence,
                     reasoning=decision.reasoning,
-                    alternative_projects=decision.alternative_projects
+                    alternative_projects=decision.alternative_projects,
                 )
 
             # Add to conversation/semantic context
@@ -413,9 +395,7 @@ class MultiProjectRouter:
                 if self.semantic_enabled:
                     # Semantic context uses 'project' parameter
                     self.conversation_context.add_query(
-                        query=query,
-                        project=decision.project_name,
-                        confidence=decision.confidence
+                        query=query, project=decision.project_name, confidence=decision.confidence
                     )
                 else:
                     # Simple context uses 'project_name' parameter
@@ -423,7 +403,7 @@ class MultiProjectRouter:
                         query=query,
                         project_name=decision.project_name,
                         confidence=decision.confidence,
-                        reasoning=decision.reasoning
+                        reasoning=decision.reasoning,
                     )
 
             # Record analytics
@@ -437,12 +417,11 @@ class MultiProjectRouter:
                     mode=self.routing_mode,
                     reasoning=decision.reasoning,
                     alternative_projects=decision.alternative_projects,
-                    success=True
+                    success=True,
                 )
 
             self.logger.info(
-                f"Routed query to {decision.project_name} "
-                f"(confidence: {decision.confidence:.2f})"
+                f"Routed query to {decision.project_name} (confidence: {decision.confidence:.2f})"
             )
             return decision
 
@@ -454,7 +433,7 @@ class MultiProjectRouter:
                 project_name=project.metadata.name,
                 confidence=0.5,
                 reasoning=f"LLM routing failed, using fallback: {str(e)}",
-                from_cache=False
+                from_cache=False,
             )
             self._last_routing_explanation = decision.reasoning
 
@@ -469,7 +448,7 @@ class MultiProjectRouter:
                     mode=self.routing_mode,
                     reasoning=decision.reasoning,
                     success=False,
-                    error=str(e)
+                    error=str(e),
                 )
 
             return decision
@@ -573,9 +552,7 @@ class MultiProjectRouter:
             self.logger.info("Multi-project orchestration disabled")
 
     def analyze_for_orchestration(
-        self,
-        query: str,
-        available_projects: List['ProjectContext']
+        self, query: str, available_projects: list[ProjectContext]
     ) -> OrchestrationPlan:
         """Analyze query for multi-project orchestration needs.
 
@@ -589,16 +566,17 @@ class MultiProjectRouter:
         if not self.orchestration_enabled or not self.orchestrator:
             # Return empty plan if orchestration disabled
             from osprey.interfaces.pyqt.multi_project_orchestrator import OrchestrationPlan
+
             return OrchestrationPlan(
                 original_query=query,
                 sub_queries=[],
                 is_multi_project=False,
-                reasoning="Orchestration disabled"
+                reasoning="Orchestration disabled",
             )
 
         return self.orchestrator.analyze_query(query, available_projects)
 
-    def get_analytics(self) -> 'RoutingAnalytics' | None:
+    def get_analytics(self) -> RoutingAnalytics | None:
         """Get routing analytics instance.
 
         Returns:
@@ -627,7 +605,7 @@ class MultiProjectRouter:
         confidence: float,
         user_feedback: str,
         correct_project: str | None = None,
-        reasoning: str = ""
+        reasoning: str = "",
     ):
         """Record user feedback on a routing decision.
 
@@ -649,15 +627,14 @@ class MultiProjectRouter:
             confidence=confidence,
             user_feedback=user_feedback,
             correct_project=correct_project,
-            reasoning=reasoning
+            reasoning=reasoning,
         )
 
         self.logger.info(
-            f"Recorded {user_feedback} feedback for routing: "
-            f"{query[:50]}... → {selected_project}"
+            f"Recorded {user_feedback} feedback for routing: {query[:50]}... → {selected_project}"
         )
 
-    def get_feedback_stats(self, project_name: str) -> Dict[str, Any]:
+    def get_feedback_stats(self, project_name: str) -> dict[str, Any]:
         """Get feedback statistics for a project.
 
         Args:
@@ -687,10 +664,7 @@ class MultiProjectRouter:
 
     # Private methods
 
-    def _generate_capability_descriptions(
-        self,
-        projects: List['ProjectContext']
-    ) -> str:
+    def _generate_capability_descriptions(self, projects: list[ProjectContext]) -> str:
         """Generate descriptions of all capabilities for LLM.
 
         Args:
@@ -717,18 +691,14 @@ class MultiProjectRouter:
                 descriptions.append("Capabilities:")
                 for cap_name in capabilities.keys():
                     cap_desc = self.capability_registry.get_capability_description(
-                        cap_name,
-                        project.metadata.name
+                        cap_name, project.metadata.name
                     )
                     descriptions.append(f"  - {cap_desc}")
 
         return "\n".join(descriptions)
 
     def _create_routing_prompt(
-        self,
-        query: str,
-        capability_descriptions: str,
-        projects: List['ProjectContext']
+        self, query: str, capability_descriptions: str, projects: list[ProjectContext]
     ) -> str:
         """Create prompt for LLM routing decision.
 
@@ -748,7 +718,7 @@ class MultiProjectRouter:
             "",
             "Available Projects and Capabilities:",
             capability_descriptions,
-            ""
+            "",
         ]
 
         # Add conversation context if available
@@ -764,7 +734,7 @@ class MultiProjectRouter:
                     prompt_parts.append("Recent queries in this conversation:")
                     for i, rec in enumerate(context_info["recent_queries"], 1):
                         prompt_parts.append(
-                            f"  {i}. \"{rec['query']}\" → {rec['project']} "
+                            f'  {i}. "{rec["query"]}" → {rec["project"]} '
                             f"(confidence: {rec['confidence']:.0%})"
                         )
                     prompt_parts.append("")
@@ -784,36 +754,42 @@ class MultiProjectRouter:
                     prompt_parts.append("")
 
         # Add user query
-        prompt_parts.extend([
-            f"User Query: {query}",
-            "",
-            "Based on the user's query and the available capabilities, determine which project should handle this query.",
-            "",
-            "Respond in the following format:",
-            "PROJECT: <project_name>",
-            "CONFIDENCE: <0.0-1.0>",
-            "REASONING: <brief explanation of why this project was selected>",
-            "ALTERNATIVES: <comma-separated list of alternative projects that could handle this>",
-            "",
-            "Consider:",
-            "1. Which project's capabilities best match the query intent",
-            "2. The description and purpose of each project",
-            "3. The specific capabilities available in each project",
-            "4. Any domain-specific knowledge required"
-        ])
+        prompt_parts.extend(
+            [
+                f"User Query: {query}",
+                "",
+                "Based on the user's query and the available capabilities, determine which project should handle this query.",
+                "",
+                "Respond in the following format:",
+                "PROJECT: <project_name>",
+                "CONFIDENCE: <0.0-1.0>",
+                "REASONING: <brief explanation of why this project was selected>",
+                "ALTERNATIVES: <comma-separated list of alternative projects that could handle this>",
+                "",
+                "Consider:",
+                "1. Which project's capabilities best match the query intent",
+                "2. The description and purpose of each project",
+                "3. The specific capabilities available in each project",
+                "4. Any domain-specific knowledge required",
+            ]
+        )
 
         # Add conversation context consideration
         if self.conversation_context and not self.semantic_enabled:
             # Only simple context has has_active_topic
             if self.conversation_context.has_active_topic():
-                prompt_parts.append("5. Conversation context and topic continuity (if the query relates to the current topic)")
+                prompt_parts.append(
+                    "5. Conversation context and topic continuity (if the query relates to the current topic)"
+                )
 
-        prompt_parts.extend([
-            "",
-            "Make your decision based on the best match between the query and available capabilities.",
-            "",
-            f"Available project names: {', '.join(project_names)}"
-        ])
+        prompt_parts.extend(
+            [
+                "",
+                "Make your decision based on the best match between the query and available capabilities.",
+                "",
+                f"Available project names: {', '.join(project_names)}",
+            ]
+        )
 
         return "\n".join(prompt_parts)
 
@@ -840,11 +816,7 @@ class MultiProjectRouter:
 
         try:
             # Direct LLM call - no registry needed!
-            response = self.llm_client.call(
-                prompt=prompt,
-                max_tokens=500,
-                temperature=0.0
-            )
+            response = self.llm_client.call(prompt=prompt, max_tokens=500, temperature=0.0)
 
             return response
 
@@ -852,9 +824,7 @@ class MultiProjectRouter:
             raise RoutingError(f"Failed to call LLM for routing: {e}") from e
 
     def _parse_routing_result(
-        self,
-        result: str,
-        available_projects: List['ProjectContext']
+        self, result: str, available_projects: list[ProjectContext]
     ) -> RoutingDecision:
         """Parse LLM routing result.
 
@@ -865,18 +835,18 @@ class MultiProjectRouter:
         Returns:
             RoutingDecision.
         """
-        lines = result.strip().split('\n')
+        lines = result.strip().split("\n")
         decision_data = {}
 
         for line in lines:
-            if ':' in line:
-                key, value = line.split(':', 1)
+            if ":" in line:
+                key, value = line.split(":", 1)
                 decision_data[key.strip()] = value.strip()
 
-        project_name = decision_data.get('PROJECT', '')
-        confidence_str = decision_data.get('CONFIDENCE', '0.5')
-        reasoning = decision_data.get('REASONING', '')
-        alternatives_str = decision_data.get('ALTERNATIVES', '')
+        project_name = decision_data.get("PROJECT", "")
+        confidence_str = decision_data.get("CONFIDENCE", "0.5")
+        reasoning = decision_data.get("REASONING", "")
+        alternatives_str = decision_data.get("ALTERNATIVES", "")
 
         # Parse confidence
         try:
@@ -888,17 +858,13 @@ class MultiProjectRouter:
             confidence = 0.5
 
         # Parse alternatives
-        alternatives = [
-            p.strip() for p in alternatives_str.split(',')
-            if p.strip()
-        ]
+        alternatives = [p.strip() for p in alternatives_str.split(",") if p.strip()]
 
         # Validate project exists
         available_project_names = [p.metadata.name for p in available_projects]
         if project_name not in available_project_names:
             self.logger.warning(
-                f"Selected project '{project_name}' not in available projects. "
-                f"Using fallback."
+                f"Selected project '{project_name}' not in available projects. Using fallback."
             )
             # Use first available project as fallback
             project_name = available_project_names[0]
@@ -909,12 +875,14 @@ class MultiProjectRouter:
             project_name=project_name,
             confidence=confidence,
             reasoning=reasoning,
-            alternative_projects=alternatives
+            alternative_projects=alternatives,
         )
 
 
 # Custom Exceptions
 
+
 class RoutingError(Exception):
     """Raised when routing fails."""
+
     pass

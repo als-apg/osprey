@@ -5,7 +5,8 @@ including Rich markup parsing, color formatting, and message type extraction.
 """
 
 import re
-from PyQt5.QtGui import QTextCursor, QTextCharFormat, QBrush, QColor, QFont
+
+from PyQt5.QtGui import QBrush, QColor, QFont, QTextCharFormat, QTextCursor
 
 
 class MessageFormatter:
@@ -13,24 +14,24 @@ class MessageFormatter:
 
     # Rich color mapping to Qt colors
     RICH_COLOR_MAP = {
-        'white': '#FFFFFF',
-        'black': '#000000',
-        'red': '#FF0000',
-        'green': '#00FF00',
-        'yellow': '#FFFF00',
-        'blue': '#0000FF',
-        'magenta': '#FF00FF',
-        'cyan': '#00FFFF',
-        'bright_white': '#FFFFFF',
-        'bright_black': '#808080',
-        'bright_red': '#FF6B6B',
-        'bright_green': '#00FF00',
-        'bright_yellow': '#FFFF00',
-        'bright_blue': '#6B9EFF',
-        'bright_magenta': '#FF6BFF',
-        'bright_cyan': '#00FFFF',
-        'sky_blue2': '#87CEEB',
-        'bold': None,  # Style modifier, not a color
+        "white": "#FFFFFF",
+        "black": "#000000",
+        "red": "#FF0000",
+        "green": "#00FF00",
+        "yellow": "#FFFF00",
+        "blue": "#0000FF",
+        "magenta": "#FF00FF",
+        "cyan": "#00FFFF",
+        "bright_white": "#FFFFFF",
+        "bright_black": "#808080",
+        "bright_red": "#FF6B6B",
+        "bright_green": "#00FF00",
+        "bright_yellow": "#FFFF00",
+        "bright_blue": "#6B9EFF",
+        "bright_magenta": "#FF6BFF",
+        "bright_cyan": "#00FFFF",
+        "sky_blue2": "#87CEEB",
+        "bold": None,  # Style modifier, not a color
     }
 
     @staticmethod
@@ -50,37 +51,37 @@ class MessageFormatter:
 
         # First, try to extract from the standard logging format
         # Match pattern: [timestamp] LEVEL (with padding) component:
-        level_match = re.search(r'\]\s+(ERROR|CRITICAL|WARNING|WARN|INFO|DEBUG)\s+', message)
+        level_match = re.search(r"\]\s+(ERROR|CRITICAL|WARNING|WARN|INFO|DEBUG)\s+", message)
 
         if level_match:
             level = level_match.group(1).upper()
-            if level in ('ERROR', 'CRITICAL'):
-                return 'ERROR'
-            elif level in ('WARNING', 'WARN'):
-                return 'WARNING'
-            elif level == 'DEBUG':
-                return 'DEBUG'
-            elif level == 'INFO':
-                return 'INFO'
+            if level in ("ERROR", "CRITICAL"):
+                return "ERROR"
+            elif level in ("WARNING", "WARN"):
+                return "WARNING"
+            elif level == "DEBUG":
+                return "DEBUG"
+            elif level == "INFO":
+                return "INFO"
 
         # Fallback: Check for error/warning indicators in the message content
         # Only check AFTER the component name to avoid false positives
-        message_upper = message.upper()
+        message.upper()
 
         # Check for error emoji (strong indicator)
-        if '❌' in message:
-            return 'ERROR'
+        if "❌" in message:
+            return "ERROR"
 
         # Check for warning emoji (strong indicator)
-        if '⚠️' in message:
-            return 'WARNING'
+        if "⚠️" in message:
+            return "WARNING"
 
         # Check for success emoji (treat as INFO)
-        if '✅' in message:
-            return 'INFO'
+        if "✅" in message:
+            return "INFO"
 
         # Default to INFO for any unrecognized format
-        return 'INFO'
+        return "INFO"
 
     @staticmethod
     def strip_rich_markup(text: str) -> str:
@@ -94,7 +95,7 @@ class MessageFormatter:
             str: Text without markup tags
         """
         # Remove Rich markup tags like [white], [bold green], etc.
-        return re.sub(r'\[([^\]]+)\]', '', text)
+        return re.sub(r"\[([^\]]+)\]", "", text)
 
     @staticmethod
     def insert_rich_text(cursor: QTextCursor, text: str):
@@ -111,7 +112,7 @@ class MessageFormatter:
         # Pattern to match Rich markup: [color] or [style color]
         # But NOT timestamps like [12/03/2025 09:28:08 AM]
         # Timestamps contain digits, slashes, colons, and spaces
-        pattern = r'\[([^\]]+)\](.*?)(?=\[|$)'
+        pattern = r"\[([^\]]+)\](.*?)(?=\[|$)"
 
         pos = 0
         for match in re.finditer(pattern, text):
@@ -119,12 +120,12 @@ class MessageFormatter:
 
             # Check if this looks like a timestamp (contains digits and slashes/colons)
             # Timestamp pattern: contains digits, slashes, colons, spaces, AM/PM
-            is_timestamp = bool(re.search(r'\d+[/:]', style_spec))
+            is_timestamp = bool(re.search(r"\d+[/:]", style_spec))
 
             if is_timestamp:
                 # This is a timestamp, not a Rich markup tag - keep it as-is
                 if match.start() > pos:
-                    cursor.insertText(text[pos:match.start()])
+                    cursor.insertText(text[pos : match.start()])
                 # Insert the timestamp with brackets
                 cursor.insertText(f"[{style_spec}]")
                 pos = match.start() + len(f"[{style_spec}]")
@@ -132,17 +133,17 @@ class MessageFormatter:
 
             # Insert any text before the match
             if match.start() > pos:
-                cursor.insertText(text[pos:match.start()])
+                cursor.insertText(text[pos : match.start()])
 
             content = match.group(2)
 
             # Parse style specification (e.g., "bold green", "white", "sky_blue2")
             parts = style_spec.split()
-            color = '#FFFFFF'  # Default white
+            color = "#FFFFFF"  # Default white
             bold = False
 
             for part in parts:
-                if part == 'bold':
+                if part == "bold":
                     bold = True
                 elif part in MessageFormatter.RICH_COLOR_MAP:
                     if MessageFormatter.RICH_COLOR_MAP[part] is not None:
@@ -165,11 +166,7 @@ class MessageFormatter:
 
     @staticmethod
     def append_formatted_text(
-        text: str,
-        color: str,
-        widget,
-        prefix: str = "\n",
-        suffix: str = "\n"
+        text: str, color: str, widget, prefix: str = "\n", suffix: str = "\n"
     ):
         """
         Unified method to append formatted text to a text widget.

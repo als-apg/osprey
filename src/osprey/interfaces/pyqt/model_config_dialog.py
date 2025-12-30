@@ -5,8 +5,14 @@ Provides a dialog for configuring per-step LLM models for discovered projects.
 """
 
 from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QComboBox, QFormLayout, QMessageBox
+    QComboBox,
+    QDialog,
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
 )
 
 from osprey.interfaces.pyqt.model_preferences import ModelPreferencesStore
@@ -44,42 +50,34 @@ class ModelConfigDialog(QDialog):
         layout.addWidget(header)
 
         # Get provider from config
-        config_path = self.project_info.get('config_path')
+        config_path = self.project_info.get("config_path")
         provider = None
         if config_path:
             provider = self.preferences_manager.get_provider_from_config(config_path)
 
         # Provider info
-        provider_label = QLabel(
-            f"<b>LLM Provider:</b> {provider or 'Not configured'}"
-        )
+        provider_label = QLabel(f"<b>LLM Provider:</b> {provider or 'Not configured'}")
         layout.addWidget(provider_label)
 
-        layout.addWidget(QLabel(
-            "<p>Select which model to use for each infrastructure step:</p>"
-        ))
+        layout.addWidget(QLabel("<p>Select which model to use for each infrastructure step:</p>"))
 
         # Get available models for this provider (with dynamic discovery)
         available_models = []
         if provider:
             available_models = self.preferences_manager.get_available_models(
-                provider,
-                config_path=config_path,
-                use_dynamic=True
+                provider, config_path=config_path, use_dynamic=True
             )
 
         if not available_models:
-            layout.addWidget(QLabel(
-                f"<i>No models available for provider '{provider or 'unknown'}'</i>"
-            ))
+            layout.addWidget(
+                QLabel(f"<i>No models available for provider '{provider or 'unknown'}'</i>")
+            )
         else:
             # Create form for each step
             form_layout = QFormLayout()
 
             # Get current preferences
-            current_prefs = self.preferences_manager.get_all_preferences(
-                self.project_info['name']
-            )
+            current_prefs = self.preferences_manager.get_all_preferences(self.project_info["name"])
 
             for step in ModelPreferencesStore.INFRASTRUCTURE_STEPS:
                 combo = QComboBox()
@@ -98,7 +96,7 @@ class ModelConfigDialog(QDialog):
                 self.step_model_combos[step] = combo
 
                 # Format step name for display
-                step_display = step.replace('_', ' ').title()
+                step_display = step.replace("_", " ").title()
                 form_layout.addRow(f"{step_display}:", combo)
 
             layout.addLayout(form_layout)
@@ -142,7 +140,7 @@ class ModelConfigDialog(QDialog):
             "Clear All",
             "Reset all model selections to default?",
             QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
+            QMessageBox.No,
         )
 
         if reply == QMessageBox.Yes:
@@ -160,14 +158,9 @@ class ModelConfigDialog(QDialog):
 
         # Update preferences manager
         if step_models:
-            self.preferences_manager.set_all_preferences(
-                self.project_info['name'],
-                step_models
-            )
+            self.preferences_manager.set_all_preferences(self.project_info["name"], step_models)
         else:
             # Clear preferences if all are default
-            self.preferences_manager.clear_preferences(
-                self.project_info['name']
-            )
+            self.preferences_manager.clear_preferences(self.project_info["name"])
 
         self.accept()

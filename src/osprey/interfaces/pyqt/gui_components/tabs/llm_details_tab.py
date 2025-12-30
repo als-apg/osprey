@@ -1,7 +1,7 @@
 """LLM Details Tab for Osprey GUI."""
 
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton, QTextEdit
 from PyQt5.QtGui import QFont
+from PyQt5.QtWidgets import QLabel, QPushButton, QTextEdit, QVBoxLayout, QWidget
 
 
 class LLMDetailsTab(QWidget):
@@ -29,7 +29,9 @@ class LLMDetailsTab(QWidget):
         self.llm_details_display = QTextEdit()
         self.llm_details_display.setReadOnly(True)
         self.llm_details_display.setFont(QFont("Monospace", 9))
-        self.llm_details_display.setStyleSheet("background-color: #1E1E1E; color: #FFFFFF; border: 1px solid #3F3F46;")
+        self.llm_details_display.setStyleSheet(
+            "background-color: #1E1E1E; color: #FFFFFF; border: 1px solid #3F3F46;"
+        )
         layout.addWidget(self.llm_details_display)
 
         clear_btn = QPushButton("Clear Details")

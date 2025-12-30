@@ -6,8 +6,6 @@ discovered projects. Preferences persist only during program execution and
 are not saved to disk.
 """
 
-from typing import Dict, List, Optional
-
 from osprey.interfaces.pyqt.gui_utils import load_config_safe
 
 
@@ -16,78 +14,69 @@ class ModelPreferencesStore:
 
     # Infrastructure steps that can have custom models
     INFRASTRUCTURE_STEPS = [
-        'orchestrator',
-        'router',
-        'classifier',
-        'task_extractor',
-        'clarifier',
-        'responder'
+        "orchestrator",
+        "router",
+        "classifier",
+        "task_extractor",
+        "clarifier",
+        "responder",
     ]
 
     def __init__(self):
         """Initialize the model preferences manager."""
         # Structure: {project_name: {step_name: model_id}}
-        self._preferences: Dict[str, Dict[str, str]] = {}
+        self._preferences: dict[str, dict[str, str]] = {}
 
         # Cache of available models per provider (fallback static list)
-        self._available_models: Dict[str, List[str]] = {
-            'openai': [
-                'gpt-4-turbo-preview',
-                'gpt-4',
-                'gpt-4-32k',
-                'gpt-3.5-turbo',
-                'gpt-3.5-turbo-16k'
+        self._available_models: dict[str, list[str]] = {
+            "openai": [
+                "gpt-4-turbo-preview",
+                "gpt-4",
+                "gpt-4-32k",
+                "gpt-3.5-turbo",
+                "gpt-3.5-turbo-16k",
             ],
-            'anthropic': [
-                'claude-3-5-sonnet-20241022',
-                'claude-3-5-haiku-20241022',
-                'claude-3-opus-20240229',
-                'claude-3-sonnet-20240229',
-                'claude-3-haiku-20240307',
-                'claude-2.1',
-                'claude-2.0',
-                'claude-instant-1.2'
+            "anthropic": [
+                "claude-3-5-sonnet-20241022",
+                "claude-3-5-haiku-20241022",
+                "claude-3-opus-20240229",
+                "claude-3-sonnet-20240229",
+                "claude-3-haiku-20240307",
+                "claude-2.1",
+                "claude-2.0",
+                "claude-instant-1.2",
             ],
-            'azure': [
-                'gpt-4-turbo',
-                'gpt-4',
-                'gpt-35-turbo',
-                'gpt-35-turbo-16k'
+            "azure": ["gpt-4-turbo", "gpt-4", "gpt-35-turbo", "gpt-35-turbo-16k"],
+            "ollama": [
+                "llama2",
+                "llama2:13b",
+                "llama2:70b",
+                "llama3.1:8b",
+                "mistral",
+                "mixtral",
+                "codellama",
+                "phi",
             ],
-            'ollama': [
-                'llama2',
-                'llama2:13b',
-                'llama2:70b',
-                'llama3.1:8b',
-                'mistral',
-                'mixtral',
-                'codellama',
-                'phi'
+            "google": ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-pro"],
+            "cborg": [
+                "anthropic/claude-3-5-sonnet-20241022",
+                "anthropic/claude-3-5-haiku-20241022",
+                "openai/gpt-4-turbo-preview",
+                "openai/gpt-4o",
             ],
-            'google': [
-                'gemini-1.5-pro',
-                'gemini-1.5-flash',
-                'gemini-pro'
+            "argo": [
+                "anthropic/claude-3-5-sonnet-20241022",
+                "anthropic/claude-3-5-haiku-20241022",
+                "openai/gpt-4-turbo-preview",
+                "openai/gpt-4o",
+                "openai/gpt-4o-mini",
             ],
-            'cborg': [
-                'anthropic/claude-3-5-sonnet-20241022',
-                'anthropic/claude-3-5-haiku-20241022',
-                'openai/gpt-4-turbo-preview',
-                'openai/gpt-4o'
-            ],
-            'argo': [
-                'anthropic/claude-3-5-sonnet-20241022',
-                'anthropic/claude-3-5-haiku-20241022',
-                'openai/gpt-4-turbo-preview',
-                'openai/gpt-4o',
-                'openai/gpt-4o-mini'
-            ]
         }
 
         # Cache for dynamically discovered models
-        self._dynamic_model_cache: Dict[str, List[str]] = {}
+        self._dynamic_model_cache: dict[str, list[str]] = {}
 
-    def get_provider_from_config(self, config_path: str) -> Optional[str]:
+    def get_provider_from_config(self, config_path: str) -> str | None:
         """
         Extract LLM provider from a project's config file.
 
@@ -102,25 +91,24 @@ class ModelPreferencesStore:
             return None
 
         try:
-
             # Try different config structures (in priority order)
 
             # 1. Check models section first (most specific)
-            if 'models' in config:
-                models = config['models']
+            if "models" in config:
+                models = config["models"]
                 if models and isinstance(models, dict):
                     # Get provider from first model config
                     first_model = next(iter(models.values()))
-                    if isinstance(first_model, dict) and 'provider' in first_model:
-                        return first_model['provider']
+                    if isinstance(first_model, dict) and "provider" in first_model:
+                        return first_model["provider"]
 
             # 2. Legacy structure: llm.provider
-            if 'llm' in config and 'provider' in config['llm']:
-                return config['llm']['provider']
+            if "llm" in config and "provider" in config["llm"]:
+                return config["llm"]["provider"]
 
             # 3. New structure: api.providers.{provider_name} (least specific, fallback only)
-            if 'api' in config and 'providers' in config['api']:
-                providers = config['api']['providers']
+            if "api" in config and "providers" in config["api"]:
+                providers = config["api"]["providers"]
                 if providers:
                     # Return first provider
                     return list(providers.keys())[0]
@@ -130,7 +118,7 @@ class ModelPreferencesStore:
             print(f"Error extracting provider from config: {e}")
             return None
 
-    def discover_models_from_provider(self, provider: str, config_path: str) -> List[str]:
+    def discover_models_from_provider(self, provider: str, config_path: str) -> list[str]:
         """
         Dynamically discover available models from the provider.
 
@@ -153,14 +141,16 @@ class ModelPreferencesStore:
 
         try:
             # Try to discover models dynamically
-            if provider.lower() in ['openai', 'azure']:
+            if provider.lower() in ["openai", "azure"]:
                 discovered_models = self._discover_openai_models(config_path)
-            elif provider.lower() == 'anthropic':
+            elif provider.lower() == "anthropic":
                 discovered_models = self._discover_anthropic_models(config_path)
-            elif provider.lower() == 'ollama':
+            elif provider.lower() == "ollama":
                 discovered_models = self._discover_ollama_models(config_path)
-            elif provider.lower() in ['cborg', 'argo']:
-                discovered_models = self._discover_openai_compatible_models(config_path, provider.lower())
+            elif provider.lower() in ["cborg", "argo"]:
+                discovered_models = self._discover_openai_compatible_models(
+                    config_path, provider.lower()
+                )
 
             if discovered_models:
                 # Cache the discovered models
@@ -201,10 +191,12 @@ class ModelPreferencesStore:
             return os.environ.get(var_name, match.group(0))
 
         # Pattern matches ${VAR_NAME} or $VAR_NAME
-        pattern = r'\$\{([^}]+)\}|\$([A-Za-z_][A-Za-z0-9_]*)'
+        pattern = r"\$\{([^}]+)\}|\$([A-Za-z_][A-Za-z0-9_]*)"
         return re.sub(pattern, replace_env_var, value)
 
-    def _discover_models_generic(self, config_path: str, provider_name: str, discovery_func) -> List[str]:
+    def _discover_models_generic(
+        self, config_path: str, provider_name: str, discovery_func
+    ) -> list[str]:
         """
         Generic model discovery method with provider-specific callback.
 
@@ -223,7 +215,7 @@ class ModelPreferencesStore:
                 return []
 
             # Get provider-specific config
-            api_config = config.get('api', {}).get('providers', {}).get(provider_name, {})
+            api_config = config.get("api", {}).get("providers", {}).get(provider_name, {})
             if not api_config:
                 return []
 
@@ -235,12 +227,13 @@ class ModelPreferencesStore:
             print(f"{provider_name.title()} model discovery failed: {e}")
             return []
 
-    def _discover_openai_models(self, config_path: str) -> List[str]:
+    def _discover_openai_models(self, config_path: str) -> list[str]:
         """Discover models from OpenAI API."""
+
         def discover(config, api_config):
             import openai
 
-            api_key = self._resolve_env_var(api_config.get('api_key', ''))
+            api_key = self._resolve_env_var(api_config.get("api_key", ""))
             if not api_key:
                 return []
 
@@ -249,32 +242,32 @@ class ModelPreferencesStore:
 
             # Filter for chat models
             return [
-                m.id for m in models.data
-                if 'gpt' in m.id.lower() and not m.id.startswith('ft:')
+                m.id for m in models.data if "gpt" in m.id.lower() and not m.id.startswith("ft:")
             ]
 
-        return self._discover_models_generic(config_path, 'openai', discover)
+        return self._discover_models_generic(config_path, "openai", discover)
 
-    def _discover_anthropic_models(self, config_path: str) -> List[str]:
+    def _discover_anthropic_models(self, config_path: str) -> list[str]:
         """Discover models from Anthropic API."""
         # Anthropic doesn't have a models list API, use static list
         return []
 
-    def _discover_ollama_models(self, config_path: str) -> List[str]:
+    def _discover_ollama_models(self, config_path: str) -> list[str]:
         """Discover models from Ollama API."""
+
         def discover(config, api_config):
             import requests
 
-            base_url = self._resolve_env_var(api_config.get('base_url', 'http://localhost:11434'))
+            base_url = self._resolve_env_var(api_config.get("base_url", "http://localhost:11434"))
             response = requests.get(f"{base_url}/api/tags", timeout=5)
             response.raise_for_status()
 
             data = response.json()
-            return [m['name'] for m in data.get('models', [])]
+            return [m["name"] for m in data.get("models", [])]
 
-        return self._discover_models_generic(config_path, 'ollama', discover)
+        return self._discover_models_generic(config_path, "ollama", discover)
 
-    def _discover_openai_compatible_models(self, config_path: str, provider_name: str) -> List[str]:
+    def _discover_openai_compatible_models(self, config_path: str, provider_name: str) -> list[str]:
         """
         Discover models from OpenAI-compatible APIs (CBORG, Argo).
 
@@ -282,16 +275,17 @@ class ModelPreferencesStore:
             config_path: Path to project config file
             provider_name: Specific provider to query ('cborg' or 'argo')
         """
+
         def discover(config, api_config):
             import openai
 
-            api_key = self._resolve_env_var(api_config.get('api_key', ''))
-            base_url = self._resolve_env_var(api_config.get('base_url', ''))
+            api_key = self._resolve_env_var(api_config.get("api_key", ""))
+            base_url = self._resolve_env_var(api_config.get("base_url", ""))
 
             # Skip if credentials missing or look like placeholders
             if not api_key or not base_url:
                 return []
-            if 'your-' in api_key.lower() or 'placeholder' in api_key.lower():
+            if "your-" in api_key.lower() or "placeholder" in api_key.lower():
                 return []
 
             try:
@@ -304,7 +298,9 @@ class ModelPreferencesStore:
 
         return self._discover_models_generic(config_path, provider_name, discover)
 
-    def get_available_models(self, provider: str, config_path: Optional[str] = None, use_dynamic: bool = True) -> List[str]:
+    def get_available_models(
+        self, provider: str, config_path: str | None = None, use_dynamic: bool = True
+    ) -> list[str]:
         """
         Get list of available models for a provider.
 
@@ -339,7 +335,7 @@ class ModelPreferencesStore:
 
         self._preferences[project_name][step] = model_id
 
-    def get_model_for_step(self, project_name: str, step: str) -> Optional[str]:
+    def get_model_for_step(self, project_name: str, step: str) -> str | None:
         """
         Get the configured model for a specific step in a project.
 
@@ -355,7 +351,7 @@ class ModelPreferencesStore:
 
         return self._preferences[project_name].get(step)
 
-    def get_all_preferences(self, project_name: str) -> Dict[str, str]:
+    def get_all_preferences(self, project_name: str) -> dict[str, str]:
         """
         Get all model preferences for a project.
 
@@ -367,7 +363,7 @@ class ModelPreferencesStore:
         """
         return self._preferences.get(project_name, {}).copy()
 
-    def set_all_preferences(self, project_name: str, preferences: Dict[str, str]):
+    def set_all_preferences(self, project_name: str, preferences: dict[str, str]):
         """
         Set all model preferences for a project at once.
 

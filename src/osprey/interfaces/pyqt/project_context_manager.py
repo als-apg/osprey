@@ -13,7 +13,7 @@ The key innovation is context isolation - projects never share state.
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from osprey.utils.logger import get_logger
 
@@ -27,6 +27,7 @@ class IsolatedProjectContext:
     This context ensures that all framework components (config, registry, gateway)
     are isolated per-project. No global state is shared between projects.
     """
+
     project_name: str
     project_path: Path
     config_path: Path
@@ -41,7 +42,7 @@ class IsolatedProjectContext:
     metadata: Any = None  # ProjectMetadata instance
 
     # Cached configuration (to avoid repeated file reads)
-    _config_dict: Optional[Dict[str, Any]] = None
+    _config_dict: dict[str, Any] | None = None
 
     @property
     def config(self):
@@ -77,7 +78,7 @@ class IsolatedProjectContext:
 
         return self.config_builder.get(path, default)
 
-    def get_full_config(self) -> Dict[str, Any]:
+    def get_full_config(self) -> dict[str, Any]:
         """Get complete configuration dictionary for THIS project only.
 
         Returns a copy to prevent external modifications from affecting
@@ -127,12 +128,14 @@ class IsolatedProjectContext:
 
     def is_fully_loaded(self) -> bool:
         """Check if all components are loaded."""
-        return all([
-            self.config_builder is not None,
-            self.registry_manager is not None,
-            self.gateway is not None,
-            self.graph is not None
-        ])
+        return all(
+            [
+                self.config_builder is not None,
+                self.registry_manager is not None,
+                self.gateway is not None,
+                self.graph is not None,
+            ]
+        )
 
     def initialize_global_registry(self):
         """Initialize global framework singletons with this project's instances.
@@ -152,18 +155,22 @@ class IsolatedProjectContext:
         - The GUI processes one query at a time (no parallel execution)
         """
         if self.registry_manager is None:
-            logger.warning(f"Cannot initialize global singletons - {self.project_name} registry not loaded")
+            logger.warning(
+                f"Cannot initialize global singletons - {self.project_name} registry not loaded"
+            )
             return
 
         try:
             # 1. Sync global registry singleton
             from osprey.registry import manager as registry_module
+
             registry_module._registry = self.registry_manager
             registry_module._registry_config_path = str(self.config_path)
             logger.debug(f"✓ Synced global registry with {self.project_name}")
 
             # 2. Sync global config singleton
             import osprey.utils.config as config_module
+
             config_module._default_config = self.config_builder
             config_module._default_configurable = self.config_builder.configurable.copy()
             logger.debug(f"✓ Synced global config with {self.project_name}")
@@ -198,14 +205,11 @@ class ProjectContextManager:
     def __init__(self):
         """Initialize the project context manager."""
         self.logger = logger
-        self._contexts: Dict[str, IsolatedProjectContext] = {}
+        self._contexts: dict[str, IsolatedProjectContext] = {}
         self.logger.info("Initialized ProjectContextManager for isolated multi-project support")
 
     def create_project_context(
-        self,
-        project_name: str,
-        project_path: Path,
-        config_path: Path
+        self, project_name: str, project_path: Path, config_path: Path
     ) -> IsolatedProjectContext:
         """Create an isolated context for a project.
 
@@ -238,9 +242,7 @@ class ProjectContextManager:
         try:
             # Create isolated context
             context = IsolatedProjectContext(
-                project_name=project_name,
-                project_path=project_path,
-                config_path=config_path
+                project_name=project_name, project_path=project_path, config_path=config_path
             )
 
             # Step 1: Create isolated ConfigBuilder
@@ -254,7 +256,9 @@ class ProjectContextManager:
                 # CRITICAL: Temporarily set this project's config as default during initialization
                 # This ensures that any calls to get_agent_dir() or other config utilities
                 # during registry initialization will use THIS project's config
-                context.config_builder = config_module._get_config(str(config_path), set_as_default=True)
+                context.config_builder = config_module._get_config(
+                    str(config_path), set_as_default=True
+                )
                 self.logger.debug(f"Created isolated ConfigBuilder for {project_name}")
 
                 # Step 2: Validate and fix project_root if needed
@@ -300,8 +304,9 @@ class ProjectContextManager:
 
             # Step 5: Create isolated Graph
             # Graph uses the project's registry and capabilities
-            from osprey.graph import create_graph
             from langgraph.checkpoint.memory import MemorySaver
+
+            from osprey.graph import create_graph
 
             checkpointer = MemorySaver()
             context.graph = create_graph(context.registry_manager, checkpointer=checkpointer)
@@ -321,7 +326,7 @@ class ProjectContextManager:
             self.logger.error(f"Failed to create context for {project_name}: {e}")
             raise RuntimeError(f"Failed to create project context: {e}") from e
 
-    def get_context(self, project_name: str) -> Optional[IsolatedProjectContext]:
+    def get_context(self, project_name: str) -> IsolatedProjectContext | None:
         """Get the isolated context for a project.
 
         Args:
@@ -355,7 +360,7 @@ class ProjectContextManager:
         """
         return list(self._contexts.keys())
 
-    def get_all_contexts(self) -> Dict[str, IsolatedProjectContext]:
+    def get_all_contexts(self) -> dict[str, IsolatedProjectContext]:
         """Get all project contexts.
 
         Returns:
@@ -367,7 +372,7 @@ class ProjectContextManager:
         """Ensure project_root in config matches actual project location.
 
         This fixes issues when projects are moved on the filesystem.
-        
+
         IMPORTANT: This method NO LONGER writes to config.yml files.
         Instead, it only updates the in-memory configuration to use the
         correct runtime project path.
@@ -376,13 +381,11 @@ class ProjectContextManager:
             context: Project context to validate
         """
         runtime_project_root = str(context.project_path.resolve())
-        config_project_root = context.config_builder.raw_config.get('project_root')
+        config_project_root = context.config_builder.raw_config.get("project_root")
 
         # Normalize for comparison
         config_project_root_normalized = (
-            str(Path(config_project_root).resolve())
-            if config_project_root
-            else None
+            str(Path(config_project_root).resolve()) if config_project_root else None
         )
 
         # Update in-memory config if missing or incorrect
@@ -400,7 +403,7 @@ class ProjectContextManager:
                 )
 
             # Update ONLY in-memory config (DO NOT write to file)
-            context.config_builder.raw_config['project_root'] = runtime_project_root
+            context.config_builder.raw_config["project_root"] = runtime_project_root
 
             # Rebuild configurable with corrected project_root
             context.config_builder.configurable = context.config_builder._build_configurable()

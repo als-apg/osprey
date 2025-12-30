@@ -6,8 +6,9 @@ functionality like async loop management and error handling.
 """
 
 import asyncio
-from typing import Optional
+
 from PyQt5.QtCore import QThread, pyqtSignal
+
 from osprey.utils.logger import get_logger
 
 logger = get_logger("base_worker")
@@ -36,7 +37,7 @@ class BaseWorker(QThread):
     def __init__(self):
         """Initialize the base worker."""
         super().__init__()
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._loop: asyncio.AbstractEventLoop | None = None
         self._should_stop = False
 
     def run(self):

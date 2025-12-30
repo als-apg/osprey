@@ -16,8 +16,10 @@ Usage:
     event_bus.unsubscribe('message_received', handler.on_message)
 """
 
-from typing import Any, Callable, Dict, List, Optional
 from collections import defaultdict
+from collections.abc import Callable
+from typing import Any
+
 from osprey.utils.logger import get_logger
 
 logger = get_logger("event_bus")
@@ -28,8 +30,8 @@ class EventBus:
 
     def __init__(self):
         """Initialize the event bus."""
-        self._subscribers: Dict[str, List[Callable]] = defaultdict(list)
-        self._event_log: List[Dict[str, Any]] = []
+        self._subscribers: dict[str, list[Callable]] = defaultdict(list)
+        self._event_log: list[dict[str, Any]] = []
         self._logging_enabled = False
 
     def subscribe(self, event_type: str, handler: Callable) -> None:
@@ -65,10 +67,7 @@ class EventBus:
             data: Optional data to pass to handlers
         """
         if self._logging_enabled:
-            self._event_log.append({
-                'type': event_type,
-                'data': data
-            })
+            self._event_log.append({"type": event_type, "data": data})
 
         handlers = self._subscribers.get(event_type, [])
         logger.debug(f"Publishing '{event_type}' to {len(handlers)} handler(s)")
@@ -81,9 +80,11 @@ class EventBus:
                 else:
                     handler()
             except Exception as e:
-                logger.exception(f"Error in event handler {handler.__name__} for '{event_type}': {e}")
+                logger.exception(
+                    f"Error in event handler {handler.__name__} for '{event_type}': {e}"
+                )
 
-    def clear_subscribers(self, event_type: Optional[str] = None) -> None:
+    def clear_subscribers(self, event_type: str | None = None) -> None:
         """
         Clear all subscribers for an event type, or all subscribers if no type specified.
 
@@ -108,7 +109,7 @@ class EventBus:
         if not enabled:
             self._event_log.clear()
 
-    def get_event_log(self) -> List[Dict[str, Any]]:
+    def get_event_log(self) -> list[dict[str, Any]]:
         """
         Get the event log (only if logging is enabled).
 

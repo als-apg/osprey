@@ -15,7 +15,6 @@ Key Features:
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import List, Tuple
 
 import numpy as np
 
@@ -26,18 +25,19 @@ logger = get_logger("semantic_context_analyzer")
 # Try to import sentence-transformers, fall back to simple similarity if not available
 try:
     from sentence_transformers import SentenceTransformer
+
     EMBEDDINGS_AVAILABLE = True
 except ImportError:
     EMBEDDINGS_AVAILABLE = False
     logger.warning(
-        "sentence-transformers not available. "
-        "Install with: pip install sentence-transformers"
+        "sentence-transformers not available. Install with: pip install sentence-transformers"
     )
 
 
 @dataclass
 class SemanticQuery:
     """Query with semantic embedding."""
+
     text: str
     embedding: np.ndarray | None = None
     timestamp: float = field(default_factory=time.time)
@@ -48,9 +48,10 @@ class SemanticQuery:
 @dataclass
 class TopicCluster:
     """Detected topic cluster."""
+
     topic_id: int
     centroid: np.ndarray
-    queries: List[SemanticQuery]
+    queries: list[SemanticQuery]
     dominant_project: str
     confidence: float
     last_updated: float
@@ -64,7 +65,7 @@ class SemanticSimilarityCalculator:
     Falls back to simple word overlap if not available.
     """
 
-    def __init__(self, model_name: str = 'all-MiniLM-L6-v2'):
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
         """Initialize semantic similarity calculator.
 
         Args:
@@ -113,11 +114,7 @@ class SemanticSimilarityCalculator:
 
             return embedding
 
-    def calculate_similarity(
-        self,
-        embedding1: np.ndarray,
-        embedding2: np.ndarray
-    ) -> float:
+    def calculate_similarity(self, embedding1: np.ndarray, embedding2: np.ndarray) -> float:
         """Calculate cosine similarity between embeddings.
 
         Args:
@@ -154,17 +151,37 @@ class IntentRecognizer:
 
     # Intent patterns (simple keyword-based, could be enhanced with ML)
     INTENT_PATTERNS = {
-        'question': ['what', 'when', 'where', 'who', 'why', 'how', 'is', 'are', 'can', 'could', 'would'],
-        'command': ['show', 'display', 'get', 'fetch', 'list', 'find', 'search', 'execute', 'run'],
-        'clarification': ['also', 'and', 'what about', 'how about', 'more', 'another', 'additionally'],
-        'new_topic': ['now', 'next', 'instead', 'different', 'change', 'switch']
+        "question": [
+            "what",
+            "when",
+            "where",
+            "who",
+            "why",
+            "how",
+            "is",
+            "are",
+            "can",
+            "could",
+            "would",
+        ],
+        "command": ["show", "display", "get", "fetch", "list", "find", "search", "execute", "run"],
+        "clarification": [
+            "also",
+            "and",
+            "what about",
+            "how about",
+            "more",
+            "another",
+            "additionally",
+        ],
+        "new_topic": ["now", "next", "instead", "different", "change", "switch"],
     }
 
     def __init__(self):
         """Initialize intent recognizer."""
         logger.info("Initialized IntentRecognizer")
 
-    def recognize_intent(self, query: str, context: List[str] | None = None) -> str:
+    def recognize_intent(self, query: str, context: list[str] | None = None) -> str:
         """Recognize intent from query.
 
         Args:
@@ -178,27 +195,27 @@ class IntentRecognizer:
 
         # Check for clarification intent (requires context)
         if context and len(context) > 0:
-            for pattern in self.INTENT_PATTERNS['clarification']:
+            for pattern in self.INTENT_PATTERNS["clarification"]:
                 if pattern in query_lower:
-                    return 'clarification'
+                    return "clarification"
 
         # Check for new topic intent
-        for pattern in self.INTENT_PATTERNS['new_topic']:
+        for pattern in self.INTENT_PATTERNS["new_topic"]:
             if query_lower.startswith(pattern):
-                return 'new_topic'
+                return "new_topic"
 
         # Check for command intent
-        for pattern in self.INTENT_PATTERNS['command']:
+        for pattern in self.INTENT_PATTERNS["command"]:
             if query_lower.startswith(pattern):
-                return 'command'
+                return "command"
 
         # Check for question intent
-        for pattern in self.INTENT_PATTERNS['question']:
+        for pattern in self.INTENT_PATTERNS["question"]:
             if pattern in query_lower:
-                return 'question'
+                return "question"
 
         # Default to question
-        return 'question'
+        return "question"
 
 
 class SemanticContextAnalyzer:
@@ -217,7 +234,7 @@ class SemanticContextAnalyzer:
         max_history: int = 20,
         similarity_threshold: float = 0.5,
         topic_similarity_threshold: float = 0.6,
-        enable_intent_recognition: bool = True
+        enable_intent_recognition: bool = True,
     ):
         """Initialize semantic context analyzer.
 
@@ -237,8 +254,8 @@ class SemanticContextAnalyzer:
         self.intent_recognizer = IntentRecognizer() if enable_intent_recognition else None
 
         # History
-        self.query_history: List[SemanticQuery] = []
-        self.topic_clusters: List[TopicCluster] = []
+        self.query_history: list[SemanticQuery] = []
+        self.topic_clusters: list[TopicCluster] = []
 
         logger.info(
             f"Initialized SemanticContextAnalyzer: "
@@ -246,12 +263,7 @@ class SemanticContextAnalyzer:
             f"similarity_threshold={similarity_threshold}"
         )
 
-    def add_query(
-        self,
-        query: str,
-        project: str,
-        confidence: float = 0.0
-    ):
+    def add_query(self, query: str, project: str, confidence: float = 0.0):
         """Add query to history with semantic analysis.
 
         Args:
@@ -270,10 +282,7 @@ class SemanticContextAnalyzer:
 
         # Create semantic query
         semantic_query = SemanticQuery(
-            text=query,
-            embedding=embedding,
-            project=project,
-            intent=intent
+            text=query, embedding=embedding, project=project, intent=intent
         )
 
         # Add to history
@@ -291,11 +300,7 @@ class SemanticContextAnalyzer:
             f"(intent: {intent}, project: {project})"
         )
 
-    def get_relevant_context(
-        self,
-        query: str,
-        max_results: int = 5
-    ) -> List[SemanticQuery]:
+    def get_relevant_context(self, query: str, max_results: int = 5) -> list[SemanticQuery]:
         """Get relevant context queries based on semantic similarity.
 
         Args:
@@ -316,8 +321,7 @@ class SemanticContextAnalyzer:
         for hist_query in self.query_history:
             if hist_query.embedding is not None:
                 similarity = self.similarity_calculator.calculate_similarity(
-                    query_embedding,
-                    hist_query.embedding
+                    query_embedding, hist_query.embedding
                 )
 
                 if similarity >= self.similarity_threshold:
@@ -355,11 +359,7 @@ class SemanticContextAnalyzer:
 
         return None
 
-    def should_boost_project(
-        self,
-        query: str,
-        project: str
-    ) -> Tuple[bool, float, str]:
+    def should_boost_project(self, query: str, project: str) -> tuple[bool, float, str]:
         """Determine if project should get confidence boost.
 
         Args:
@@ -375,8 +375,7 @@ class SemanticContextAnalyzer:
             # Query is related to current topic
             query_embedding = self.similarity_calculator.encode(query)
             topic_similarity = self.similarity_calculator.calculate_similarity(
-                query_embedding,
-                current_topic.centroid
+                query_embedding, current_topic.centroid
             )
 
             if topic_similarity >= self.topic_similarity_threshold:
@@ -447,8 +446,7 @@ class SemanticContextAnalyzer:
 
         for cluster in self.topic_clusters:
             similarity = self.similarity_calculator.calculate_similarity(
-                query.embedding,
-                cluster.centroid
+                query.embedding, cluster.centroid
             )
 
             if similarity > closest_similarity:
@@ -464,9 +462,8 @@ class SemanticContextAnalyzer:
             # Update centroid (moving average)
             alpha = 0.3  # Weight for new query
             closest_cluster.centroid = (
-                (1 - alpha) * closest_cluster.centroid +
-                alpha * query.embedding
-            )
+                1 - alpha
+            ) * closest_cluster.centroid + alpha * query.embedding
 
             # Update dominant project
             project_counts = defaultdict(int)
@@ -491,7 +488,7 @@ class SemanticContextAnalyzer:
                 queries=[query],
                 dominant_project=query.project or "unknown",
                 confidence=1.0,
-                last_updated=time.time()
+                last_updated=time.time(),
             )
             self.topic_clusters.append(new_cluster)
 

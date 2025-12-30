@@ -1,11 +1,16 @@
 """System Information Tab for Osprey GUI."""
 
-from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QTextEdit, QScrollArea
-)
-from PyQt5.QtGui import QFont, QTextCursor, QTextCharFormat, QBrush, QColor
 from PyQt5.QtCore import pyqtSlot
+from PyQt5.QtGui import QBrush, QColor, QFont, QTextCharFormat, QTextCursor
+from PyQt5.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from osprey.interfaces.pyqt.collapsible_widget import MessageGroupWidget
 
@@ -40,7 +45,7 @@ class SystemInfoTab(QWidget):
         self.group_messages_toggle = QPushButton("📋 Grouped View")
         self.group_messages_toggle.setCheckable(True)
         self.group_messages_toggle.setChecked(
-            self.parent_gui.settings_manager.get('group_system_messages', True)
+            self.parent_gui.settings_manager.get("group_system_messages", True)
         )
         self.group_messages_toggle.setStyleSheet("background-color: #4A5568; color: #FFFFFF;")
         self.group_messages_toggle.clicked.connect(self.toggle_message_grouping)
@@ -60,21 +65,27 @@ class SystemInfoTab(QWidget):
         # Create traditional text edit (hidden by default if grouping is enabled)
         self.session_info = QTextEdit()
         self.session_info.setReadOnly(True)
-        self.session_info.setStyleSheet("background-color: #1E1E1E; color: #FFFFFF; border: 1px solid #3F3F46;")
+        self.session_info.setStyleSheet(
+            "background-color: #1E1E1E; color: #FFFFFF; border: 1px solid #3F3F46;"
+        )
         self.session_info.setAcceptRichText(False)  # Use plain text for better performance
         self.session_info.setFont(QFont("Monospace", 9))
-        self.session_info.setPlainText('Initializing Osprey Framework...\n\nPlease wait while the system initializes.')
+        self.session_info.setPlainText(
+            "Initializing Osprey Framework...\n\nPlease wait while the system initializes."
+        )
 
         # Add both widgets to layout (we'll show/hide based on setting)
         layout.addWidget(scroll_area)
         layout.addWidget(self.session_info)
 
         # Show/hide based on initial setting
-        if self.parent_gui.settings_manager.get('group_system_messages', True):
+        if self.parent_gui.settings_manager.get("group_system_messages", True):
             scroll_area.setVisible(True)
             self.session_info.setVisible(False)
-            self.message_group_widget.add_message('Initializing Osprey Framework...', 'INFO')
-            self.message_group_widget.add_message('Please wait while the system initializes.', 'INFO')
+            self.message_group_widget.add_message("Initializing Osprey Framework...", "INFO")
+            self.message_group_widget.add_message(
+                "Please wait while the system initializes.", "INFO"
+            )
         else:
             scroll_area.setVisible(False)
             self.session_info.setVisible(True)
@@ -91,8 +102,10 @@ class SystemInfoTab(QWidget):
         """Toggle between grouped and ungrouped message view."""
         is_grouped = self.group_messages_toggle.isChecked()
         # Update via update_from_dict to ensure proper handling
-        self.parent_gui.settings_manager.update_from_dict({'group_system_messages': is_grouped})
-        self.parent_gui.settings = self.parent_gui.settings_manager.get_all_settings()  # Update backward compat dict
+        self.parent_gui.settings_manager.update_from_dict({"group_system_messages": is_grouped})
+        self.parent_gui.settings = (
+            self.parent_gui.settings_manager.get_all_settings()
+        )  # Update backward compat dict
 
         # Update button text
         if is_grouped:
@@ -124,7 +137,7 @@ class SystemInfoTab(QWidget):
         message_type = self._extract_message_type(message)
 
         # If grouping is enabled, add to grouped widget WITH color formatting
-        if self.parent_gui.settings_manager.get('group_system_messages', True):
+        if self.parent_gui.settings_manager.get("group_system_messages", True):
             # Pass the original message with Rich markup for color formatting
             self.message_group_widget.add_message(message, message_type, rich_markup=message)
 
@@ -136,7 +149,7 @@ class SystemInfoTab(QWidget):
         self._insert_rich_text(cursor, message)
 
         # Add newline
-        cursor.insertText('\n')
+        cursor.insertText("\n")
         self.session_info.setTextCursor(cursor)
         self.session_info.ensureCursorVisible()
 
@@ -158,37 +171,37 @@ class SystemInfoTab(QWidget):
 
         # First, try to extract from the standard logging format
         # Match pattern: [timestamp] LEVEL (with padding) component:
-        level_match = re.search(r'\]\s+(ERROR|CRITICAL|WARNING|WARN|INFO|DEBUG)\s+', message)
+        level_match = re.search(r"\]\s+(ERROR|CRITICAL|WARNING|WARN|INFO|DEBUG)\s+", message)
 
         if level_match:
             level = level_match.group(1).upper()
-            if level in ('ERROR', 'CRITICAL'):
-                return 'ERROR'
-            elif level in ('WARNING', 'WARN'):
-                return 'WARNING'
-            elif level == 'DEBUG':
-                return 'DEBUG'
-            elif level == 'INFO':
-                return 'INFO'
+            if level in ("ERROR", "CRITICAL"):
+                return "ERROR"
+            elif level in ("WARNING", "WARN"):
+                return "WARNING"
+            elif level == "DEBUG":
+                return "DEBUG"
+            elif level == "INFO":
+                return "INFO"
 
         # Fallback: Check for error/warning indicators in the message content
         # Only check AFTER the component name to avoid false positives
-        message_upper = message.upper()
+        message.upper()
 
         # Check for error emoji (strong indicator)
-        if '❌' in message:
-            return 'ERROR'
+        if "❌" in message:
+            return "ERROR"
 
         # Check for warning emoji (strong indicator)
-        if '⚠️' in message:
-            return 'WARNING'
+        if "⚠️" in message:
+            return "WARNING"
 
         # Check for success emoji (treat as INFO)
-        if '✅' in message:
-            return 'INFO'
+        if "✅" in message:
+            return "INFO"
 
         # Default to INFO for any unrecognized format
-        return 'INFO'
+        return "INFO"
 
     def _insert_rich_text(self, cursor, text: str):
         """
@@ -205,30 +218,30 @@ class SystemInfoTab(QWidget):
 
         # Rich color mapping to Qt colors
         rich_color_map = {
-            'white': '#FFFFFF',
-            'black': '#000000',
-            'red': '#FF0000',
-            'green': '#00FF00',
-            'yellow': '#FFFF00',
-            'blue': '#0000FF',
-            'magenta': '#FF00FF',
-            'cyan': '#00FFFF',
-            'bright_white': '#FFFFFF',
-            'bright_black': '#808080',
-            'bright_red': '#FF6B6B',
-            'bright_green': '#00FF00',
-            'bright_yellow': '#FFFF00',
-            'bright_blue': '#6B9EFF',
-            'bright_magenta': '#FF6BFF',
-            'bright_cyan': '#00FFFF',
-            'sky_blue2': '#87CEEB',
-            'bold': None,  # Style modifier, not a color
+            "white": "#FFFFFF",
+            "black": "#000000",
+            "red": "#FF0000",
+            "green": "#00FF00",
+            "yellow": "#FFFF00",
+            "blue": "#0000FF",
+            "magenta": "#FF00FF",
+            "cyan": "#00FFFF",
+            "bright_white": "#FFFFFF",
+            "bright_black": "#808080",
+            "bright_red": "#FF6B6B",
+            "bright_green": "#00FF00",
+            "bright_yellow": "#FFFF00",
+            "bright_blue": "#6B9EFF",
+            "bright_magenta": "#FF6BFF",
+            "bright_cyan": "#00FFFF",
+            "sky_blue2": "#87CEEB",
+            "bold": None,  # Style modifier, not a color
         }
 
         # Pattern to match Rich markup: [color] or [style color]
         # But NOT timestamps like [12/03/2025 09:28:08 AM]
         # Timestamps contain digits, slashes, colons, and spaces
-        pattern = r'\[([^\]]+)\](.*?)(?=\[|$)'
+        pattern = r"\[([^\]]+)\](.*?)(?=\[|$)"
 
         pos = 0
         for match in re.finditer(pattern, text):
@@ -236,12 +249,12 @@ class SystemInfoTab(QWidget):
 
             # Check if this looks like a timestamp (contains digits and slashes/colons)
             # Timestamp pattern: contains digits, slashes, colons, spaces, AM/PM
-            is_timestamp = bool(re.search(r'\d+[/:]', style_spec))
+            is_timestamp = bool(re.search(r"\d+[/:]", style_spec))
 
             if is_timestamp:
                 # This is a timestamp, not a Rich markup tag - keep it as-is
                 if match.start() > pos:
-                    cursor.insertText(text[pos:match.start()])
+                    cursor.insertText(text[pos : match.start()])
                 # Insert the timestamp with brackets
                 cursor.insertText(f"[{style_spec}]")
                 pos = match.start() + len(f"[{style_spec}]")
@@ -249,17 +262,17 @@ class SystemInfoTab(QWidget):
 
             # Insert any text before the match
             if match.start() > pos:
-                cursor.insertText(text[pos:match.start()])
+                cursor.insertText(text[pos : match.start()])
 
             content = match.group(2)
 
             # Parse style specification (e.g., "bold green", "white", "sky_blue2")
             parts = style_spec.split()
-            color = '#FFFFFF'  # Default white
+            color = "#FFFFFF"  # Default white
             bold = False
 
             for part in parts:
-                if part == 'bold':
+                if part == "bold":
                     bold = True
                 elif part in rich_color_map:
                     if rich_color_map[part] is not None:
@@ -284,5 +297,5 @@ class SystemInfoTab(QWidget):
         """Clear the System Information tab."""
         self.session_info.clear()
         self.message_group_widget.clear()
-        if hasattr(self.parent_gui, 'update_session_info'):
+        if hasattr(self.parent_gui, "update_session_info"):
             self.parent_gui.update_session_info()

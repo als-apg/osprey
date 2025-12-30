@@ -23,8 +23,8 @@ def show_about_dialog(parent, gui_version: str):
 
     # Get comprehensive version information
     versions = get_all_versions()
-    osprey_version = versions['osprey']
-    python_version = versions['python']
+    osprey_version = versions["osprey"]
+    python_version = versions["python"]
 
     qt_version = QT_VERSION_STR
     pyqt_version = PYQT_VERSION_STR
@@ -32,13 +32,14 @@ def show_about_dialog(parent, gui_version: str):
 
     # Build core dependencies HTML
     core_deps_html = ""
-    for pkg, ver in versions['core'].items():
+    for pkg, ver in versions["core"].items():
         core_deps_html += f"<li>{pkg}: {ver}</li>\n"
 
     # Build optional dependencies HTML (only installed ones)
     optional_deps_html = ""
-    installed_optional = {pkg: ver for pkg, ver in versions['optional'].items()
-                        if ver != "Not installed"}
+    installed_optional = {
+        pkg: ver for pkg, ver in versions["optional"].items() if ver != "Not installed"
+    }
     if installed_optional:
         for pkg, ver in installed_optional.items():
             optional_deps_html += f"<li>{pkg}: {ver}</li>\n"
@@ -71,7 +72,7 @@ def show_about_dialog(parent, gui_version: str):
         <ul>
         {core_deps_html}
         </ul>
-        {f'<hr><p><b>Optional Dependencies (Installed):</b></p><ul>{optional_deps_html}</ul>' if optional_deps_html else ''}
+        {f"<hr><p><b>Optional Dependencies (Installed):</b></p><ul>{optional_deps_html}</ul>" if optional_deps_html else ""}
     """)
     layout.addWidget(text_browser)
 

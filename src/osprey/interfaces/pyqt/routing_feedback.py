@@ -19,10 +19,9 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Tuple
 
-from osprey.utils.logger import get_logger
 from osprey.interfaces.pyqt.gui_utils import get_gui_data_dir
+from osprey.utils.logger import get_logger
 
 logger = get_logger("routing_feedback")
 
@@ -30,6 +29,7 @@ logger = get_logger("routing_feedback")
 @dataclass
 class FeedbackRecord:
     """Single feedback record."""
+
     timestamp: float
     query: str
     selected_project: str
@@ -43,6 +43,7 @@ class FeedbackRecord:
 @dataclass
 class FeedbackPattern:
     """Learned pattern from feedback."""
+
     query_pattern: str
     correct_project: str
     confidence: float
@@ -67,7 +68,7 @@ class RoutingFeedback:
         max_history: int = 1000,
         enable_persistence: bool = True,
         persistence_path: Path | None = None,
-        learning_threshold: int = 2  # Min feedback count to establish pattern
+        learning_threshold: int = 2,  # Min feedback count to establish pattern
     ):
         """Initialize routing feedback system.
 
@@ -90,27 +91,29 @@ class RoutingFeedback:
             # This avoids requiring a config.yml when running from the framework directory
             try:
                 from osprey.utils.config import get_agent_dir
-                agent_data_dir = Path(get_agent_dir('routing_feedback'))
-                self.persistence_path = agent_data_dir.parent / 'routing_feedback.json'
+
+                agent_data_dir = Path(get_agent_dir("routing_feedback"))
+                self.persistence_path = agent_data_dir.parent / "routing_feedback.json"
             except FileNotFoundError:
                 # Fallback: use framework-relative GUI data directory
                 # This works regardless of CWD, user, or host
-                self.persistence_path = get_gui_data_dir() / 'routing_feedback.json'
+                self.persistence_path = get_gui_data_dir() / "routing_feedback.json"
 
         # Feedback storage
-        self._feedback_records: List[FeedbackRecord] = []
+        self._feedback_records: list[FeedbackRecord] = []
 
         # Learned patterns from feedback
-        self._learned_patterns: Dict[str, FeedbackPattern] = {}
+        self._learned_patterns: dict[str, FeedbackPattern] = {}
 
         # Query-to-project corrections
-        self._corrections: Dict[str, List[Tuple[str, str]]] = defaultdict(list)  # query -> [(project, timestamp)]
+        self._corrections: dict[str, list[tuple[str, str]]] = defaultdict(
+            list
+        )  # query -> [(project, timestamp)]
 
         # Project statistics
-        self._project_feedback: Dict[str, Dict[str, int]] = defaultdict(lambda: {
-            'correct': 0,
-            'incorrect': 0
-        })
+        self._project_feedback: dict[str, dict[str, int]] = defaultdict(
+            lambda: {"correct": 0, "incorrect": 0}
+        )
 
         # Load persisted data if available
         if self.enable_persistence:
@@ -129,7 +132,7 @@ class RoutingFeedback:
         user_feedback: str,
         correct_project: str | None = None,
         reasoning: str = "",
-        session_id: str | None = None
+        session_id: str | None = None,
     ):
         """Record user feedback on a routing decision.
 
@@ -150,7 +153,7 @@ class RoutingFeedback:
             user_feedback=user_feedback,
             correct_project=correct_project,
             reasoning=reasoning,
-            session_id=session_id
+            session_id=session_id,
         )
 
         # Add to records
@@ -162,9 +165,9 @@ class RoutingFeedback:
 
         # Update project statistics
         if user_feedback == "correct":
-            self._project_feedback[selected_project]['correct'] += 1
+            self._project_feedback[selected_project]["correct"] += 1
         else:
-            self._project_feedback[selected_project]['incorrect'] += 1
+            self._project_feedback[selected_project]["incorrect"] += 1
 
         # Track corrections
         if user_feedback == "incorrect" and correct_project:
@@ -178,16 +181,12 @@ class RoutingFeedback:
             self._save_feedback()
 
         self.logger.info(
-            f"Recorded feedback: {query[:50]}... → {selected_project} "
-            f"({user_feedback})"
+            f"Recorded feedback: {query[:50]}... → {selected_project} ({user_feedback})"
         )
 
     def get_routing_adjustment(
-        self,
-        query: str,
-        base_project: str,
-        base_confidence: float
-    ) -> Tuple[str, float, str]:
+        self, query: str, base_project: str, base_confidence: float
+    ) -> tuple[str, float, str]:
         """Get routing adjustment based on learned feedback.
 
         Args:
@@ -209,7 +208,7 @@ class RoutingFeedback:
                 return (
                     most_common,
                     0.95,  # High confidence from user feedback
-                    f"Learned from {len(corrections)} user correction(s)"
+                    f"Learned from {len(corrections)} user correction(s)",
                 )
 
         # Check for pattern match
@@ -220,7 +219,7 @@ class RoutingFeedback:
                 return (
                     learned.correct_project,
                     learned.confidence,
-                    f"Learned pattern from {learned.feedback_count} feedback(s)"
+                    f"Learned pattern from {learned.feedback_count} feedback(s)",
                 )
 
         # Check for similar queries
@@ -231,7 +230,7 @@ class RoutingFeedback:
         # No adjustment needed
         return (base_project, base_confidence, "")
 
-    def get_project_feedback_stats(self, project_name: str) -> Dict[str, any]:
+    def get_project_feedback_stats(self, project_name: str) -> dict[str, any]:
         """Get feedback statistics for a project.
 
         Args:
@@ -240,25 +239,25 @@ class RoutingFeedback:
         Returns:
             Dictionary with feedback statistics.
         """
-        stats = self._project_feedback.get(project_name, {'correct': 0, 'incorrect': 0})
-        total = stats['correct'] + stats['incorrect']
+        stats = self._project_feedback.get(project_name, {"correct": 0, "incorrect": 0})
+        total = stats["correct"] + stats["incorrect"]
 
         if total == 0:
             return {
-                'total_feedback': 0,
-                'correct_count': 0,
-                'incorrect_count': 0,
-                'accuracy_rate': 0.0
+                "total_feedback": 0,
+                "correct_count": 0,
+                "incorrect_count": 0,
+                "accuracy_rate": 0.0,
             }
 
         return {
-            'total_feedback': total,
-            'correct_count': stats['correct'],
-            'incorrect_count': stats['incorrect'],
-            'accuracy_rate': stats['correct'] / total
+            "total_feedback": total,
+            "correct_count": stats["correct"],
+            "incorrect_count": stats["incorrect"],
+            "accuracy_rate": stats["correct"] / total,
         }
 
-    def get_learned_patterns(self) -> List[FeedbackPattern]:
+    def get_learned_patterns(self) -> list[FeedbackPattern]:
         """Get all learned patterns.
 
         Returns:
@@ -266,7 +265,7 @@ class RoutingFeedback:
         """
         return list(self._learned_patterns.values())
 
-    def get_correction_suggestions(self, query: str) -> List[Tuple[str, int]]:
+    def get_correction_suggestions(self, query: str) -> list[tuple[str, int]]:
         """Get correction suggestions for a query.
 
         Args:
@@ -304,38 +303,40 @@ class RoutingFeedback:
         """
         try:
             data = {
-                'feedback_records': [
+                "feedback_records": [
                     {
-                        'timestamp': r.timestamp,
-                        'query': r.query,
-                        'selected_project': r.selected_project,
-                        'confidence': r.confidence,
-                        'user_feedback': r.user_feedback,
-                        'correct_project': r.correct_project,
-                        'reasoning': r.reasoning,
-                        'session_id': r.session_id
+                        "timestamp": r.timestamp,
+                        "query": r.query,
+                        "selected_project": r.selected_project,
+                        "confidence": r.confidence,
+                        "user_feedback": r.user_feedback,
+                        "correct_project": r.correct_project,
+                        "reasoning": r.reasoning,
+                        "session_id": r.session_id,
                     }
                     for r in self._feedback_records
                 ],
-                'learned_patterns': {
+                "learned_patterns": {
                     pattern: {
-                        'query_pattern': p.query_pattern,
-                        'correct_project': p.correct_project,
-                        'confidence': p.confidence,
-                        'feedback_count': p.feedback_count,
-                        'last_updated': p.last_updated
+                        "query_pattern": p.query_pattern,
+                        "correct_project": p.correct_project,
+                        "confidence": p.confidence,
+                        "feedback_count": p.feedback_count,
+                        "last_updated": p.last_updated,
                     }
                     for pattern, p in self._learned_patterns.items()
                 },
-                'project_feedback': dict(self._project_feedback),
-                'exported_at': datetime.now().isoformat()
+                "project_feedback": dict(self._project_feedback),
+                "exported_at": datetime.now().isoformat(),
             }
 
             filepath.parent.mkdir(parents=True, exist_ok=True)
-            with open(filepath, 'w') as f:
+            with open(filepath, "w") as f:
                 json.dump(data, f, indent=2)
 
-            self.logger.info(f"Exported {len(self._feedback_records)} feedback records to {filepath}")
+            self.logger.info(
+                f"Exported {len(self._feedback_records)} feedback records to {filepath}"
+            )
             return True
 
         except Exception as e:
@@ -357,20 +358,20 @@ class RoutingFeedback:
         query_lower = query.lower()
 
         # Common patterns
-        if 'weather' in query_lower:
+        if "weather" in query_lower:
             return "weather_query"
-        elif 'mps' in query_lower or 'machine protection' in query_lower:
+        elif "mps" in query_lower or "machine protection" in query_lower:
             return "mps_query"
-        elif 'status' in query_lower:
+        elif "status" in query_lower:
             return "status_query"
-        elif 'show' in query_lower or 'display' in query_lower:
+        elif "show" in query_lower or "display" in query_lower:
             return "display_query"
-        elif 'data' in query_lower:
+        elif "data" in query_lower:
             return "data_query"
         else:
             # Use first few words as pattern
             words = query_lower.split()[:3]
-            return '_'.join(words) if words else "other"
+            return "_".join(words) if words else "other"
 
     def _update_learned_patterns(self, query: str, correct_project: str):
         """Update learned patterns from feedback.
@@ -405,17 +406,12 @@ class RoutingFeedback:
                 correct_project=correct_project,
                 confidence=0.7,
                 feedback_count=1,
-                last_updated=time.time()
+                last_updated=time.time(),
             )
 
-        self.logger.debug(
-            f"Updated learned pattern: {pattern} → {correct_project}"
-        )
+        self.logger.debug(f"Updated learned pattern: {pattern} → {correct_project}")
 
-    def _find_similar_query_adjustment(
-        self,
-        query: str
-    ) -> tuple[str, float, str] | None:
+    def _find_similar_query_adjustment(self, query: str) -> tuple[str, float, str] | None:
         """Find adjustment based on similar queries.
 
         Args:
@@ -447,7 +443,7 @@ class RoutingFeedback:
                 best_match = (
                     most_common,
                     0.8 * similarity,  # Scale confidence by similarity
-                    f"Similar to corrected query (similarity: {similarity:.0%})"
+                    f"Similar to corrected query (similarity: {similarity:.0%})",
                 )
 
         return best_match
@@ -458,36 +454,36 @@ class RoutingFeedback:
             self.persistence_path.parent.mkdir(parents=True, exist_ok=True)
 
             # Save only recent feedback to avoid large files
-            recent_feedback = self._feedback_records[-self.max_history:]
+            recent_feedback = self._feedback_records[-self.max_history :]
 
             data = {
-                'feedback_records': [
+                "feedback_records": [
                     {
-                        'timestamp': r.timestamp,
-                        'query': r.query,
-                        'selected_project': r.selected_project,
-                        'confidence': r.confidence,
-                        'user_feedback': r.user_feedback,
-                        'correct_project': r.correct_project,
-                        'reasoning': r.reasoning,
-                        'session_id': r.session_id
+                        "timestamp": r.timestamp,
+                        "query": r.query,
+                        "selected_project": r.selected_project,
+                        "confidence": r.confidence,
+                        "user_feedback": r.user_feedback,
+                        "correct_project": r.correct_project,
+                        "reasoning": r.reasoning,
+                        "session_id": r.session_id,
                     }
                     for r in recent_feedback
                 ],
-                'learned_patterns': {
+                "learned_patterns": {
                     pattern: {
-                        'query_pattern': p.query_pattern,
-                        'correct_project': p.correct_project,
-                        'confidence': p.confidence,
-                        'feedback_count': p.feedback_count,
-                        'last_updated': p.last_updated
+                        "query_pattern": p.query_pattern,
+                        "correct_project": p.correct_project,
+                        "confidence": p.confidence,
+                        "feedback_count": p.feedback_count,
+                        "last_updated": p.last_updated,
                     }
                     for pattern, p in self._learned_patterns.items()
                 },
-                'saved_at': datetime.now().isoformat()
+                "saved_at": datetime.now().isoformat(),
             }
 
-            with open(self.persistence_path, 'w') as f:
+            with open(self.persistence_path, "w") as f:
                 json.dump(data, f, indent=2)
 
         except Exception as e:
@@ -499,28 +495,28 @@ class RoutingFeedback:
             if not self.persistence_path.exists():
                 return
 
-            with open(self.persistence_path, 'r') as f:
+            with open(self.persistence_path) as f:
                 data = json.load(f)
 
             # Load feedback records
-            for r_data in data.get('feedback_records', []):
+            for r_data in data.get("feedback_records", []):
                 record = FeedbackRecord(
-                    timestamp=r_data['timestamp'],
-                    query=r_data['query'],
-                    selected_project=r_data['selected_project'],
-                    confidence=r_data['confidence'],
-                    user_feedback=r_data['user_feedback'],
-                    correct_project=r_data.get('correct_project'),
-                    reasoning=r_data.get('reasoning', ''),
-                    session_id=r_data.get('session_id')
+                    timestamp=r_data["timestamp"],
+                    query=r_data["query"],
+                    selected_project=r_data["selected_project"],
+                    confidence=r_data["confidence"],
+                    user_feedback=r_data["user_feedback"],
+                    correct_project=r_data.get("correct_project"),
+                    reasoning=r_data.get("reasoning", ""),
+                    session_id=r_data.get("session_id"),
                 )
                 self._feedback_records.append(record)
 
                 # Rebuild statistics
                 if record.user_feedback == "correct":
-                    self._project_feedback[record.selected_project]['correct'] += 1
+                    self._project_feedback[record.selected_project]["correct"] += 1
                 else:
-                    self._project_feedback[record.selected_project]['incorrect'] += 1
+                    self._project_feedback[record.selected_project]["incorrect"] += 1
 
                 # Rebuild corrections
                 if record.user_feedback == "incorrect" and record.correct_project:
@@ -529,13 +525,13 @@ class RoutingFeedback:
                     )
 
             # Load learned patterns
-            for pattern, p_data in data.get('learned_patterns', {}).items():
+            for pattern, p_data in data.get("learned_patterns", {}).items():
                 self._learned_patterns[pattern] = FeedbackPattern(
-                    query_pattern=p_data['query_pattern'],
-                    correct_project=p_data['correct_project'],
-                    confidence=p_data['confidence'],
-                    feedback_count=p_data['feedback_count'],
-                    last_updated=p_data['last_updated']
+                    query_pattern=p_data["query_pattern"],
+                    correct_project=p_data["correct_project"],
+                    confidence=p_data["confidence"],
+                    feedback_count=p_data["feedback_count"],
+                    last_updated=p_data["last_updated"],
                 )
 
             self.logger.info(

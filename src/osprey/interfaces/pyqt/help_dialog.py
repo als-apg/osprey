@@ -6,11 +6,16 @@ Provides comprehensive help information across multiple tabs.
 """
 
 from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QTabWidget,
-    QTextBrowser, QPushButton, QWidget
+    QDialog,
+    QHBoxLayout,
+    QPushButton,
+    QTabWidget,
+    QTextBrowser,
+    QVBoxLayout,
+    QWidget,
 )
 
-from osprey.interfaces.pyqt.gui_utils import create_dark_palette, HELP_DIALOG_CSS
+from osprey.interfaces.pyqt.gui_utils import HELP_DIALOG_CSS, create_dark_palette
 
 
 class HelpDialog(QDialog):
@@ -747,12 +752,15 @@ class HelpDialog(QDialog):
 
         text_browser = self.create_styled_text_browser()
         # Keyboard shortcuts tab needs additional table styling
-        shortcuts_css = HELP_DIALOG_CSS.replace('</style>', """
+        shortcuts_css = HELP_DIALOG_CSS.replace(
+            "</style>",
+            """
                 table { border-collapse: collapse; width: 100%; margin: 10px 0; }
                 th { background-color: #2D2D30; color: #00FFFF; padding: 8px; text-align: left; border: 1px solid #3F3F46; }
                 td { padding: 8px; border: 1px solid #3F3F46; color: #FFFFFF; }
                 tr:nth-child(even) { background-color: #252526; }
-            </style>""")
+            </style>""",
+        )
         text_browser.setHtml(f"""{shortcuts_css}
             <h2>Keyboard Shortcuts</h2>
 

@@ -5,8 +5,9 @@ This module provides the OrchestrationWorker class which handles orchestrated
 query execution in a background thread to keep the GUI responsive.
 """
 
-from typing import Any, Dict
 import time
+from typing import Any
+
 from PyQt5.QtCore import pyqtSignal
 
 from osprey.interfaces.pyqt.base_worker import BaseWorker
@@ -39,13 +40,7 @@ class OrchestrationWorker(BaseWorker):
     synthesis_start = pyqtSignal()
     final_result = pyqtSignal(str)  # (combined_result)
 
-    def __init__(
-        self,
-        plan,
-        project_contexts: Dict[str, Any],
-        base_config: Dict[str, Any],
-        router
-    ):
+    def __init__(self, plan, project_contexts: dict[str, Any], base_config: dict[str, Any], router):
         """
         Initialize the orchestration worker.
 
@@ -103,7 +98,7 @@ class OrchestrationWorker(BaseWorker):
                                 reasoning=f"Sub-query {idx + 1} of multi-project orchestration",
                                 alternative_projects=[],
                                 success=False,
-                                error=error_msg
+                                error=error_msg,
                             )
                         continue
 
@@ -123,17 +118,15 @@ class OrchestrationWorker(BaseWorker):
                         "configurable": {
                             **self.base_config["configurable"],
                             "thread_id": f"{sub_query.project_name}_{idx}",
-                            "session_id": f"{sub_query.project_name}_{idx}"
+                            "session_id": f"{sub_query.project_name}_{idx}",
                         },
-                        "recursion_limit": self.base_config.get("recursion_limit", 100)
+                        "recursion_limit": self.base_config.get("recursion_limit", 100),
                     }
 
                     # Process the message through project's gateway
                     result = self.run_async(
                         project.gateway.process_message(
-                            sub_query.query,
-                            project_graph,
-                            project_config
+                            sub_query.query, project_graph, project_config
                         )
                     )
 
@@ -159,7 +152,7 @@ class OrchestrationWorker(BaseWorker):
                                 mode="orchestration",
                                 reasoning=f"Sub-query {idx + 1} of multi-project orchestration",
                                 alternative_projects=[],
-                                success=True
+                                success=True,
                             )
                     elif result.error:
                         response = f"Error: {result.error}"
@@ -178,7 +171,7 @@ class OrchestrationWorker(BaseWorker):
                                 reasoning=f"Sub-query {idx + 1} of multi-project orchestration",
                                 alternative_projects=[],
                                 success=False,
-                                error=result.error
+                                error=result.error,
                             )
                     else:
                         response = "No response generated"
@@ -197,7 +190,7 @@ class OrchestrationWorker(BaseWorker):
                                 reasoning=f"Sub-query {idx + 1} of multi-project orchestration",
                                 alternative_projects=[],
                                 success=False,
-                                error="No response generated"
+                                error="No response generated",
                             )
 
                     results[idx] = response
@@ -221,7 +214,7 @@ class OrchestrationWorker(BaseWorker):
                             reasoning=f"Sub-query {idx + 1} of multi-project orchestration",
                             alternative_projects=[],
                             success=False,
-                            error=str(e)
+                            error=str(e),
                         )
 
             # Check if stopped before synthesis
@@ -248,11 +241,7 @@ class OrchestrationWorker(BaseWorker):
         Returns:
             Final state from graph execution
         """
-        async for chunk in graph.astream(
-            agent_state,
-            config=config,
-            stream_mode="custom"
-        ):
+        async for _chunk in graph.astream(agent_state, config=config, stream_mode="custom"):
             # Check if we should stop
             if self.should_stop():
                 logger.info("Worker stop requested during graph execution")
@@ -277,11 +266,9 @@ class OrchestrationWorker(BaseWorker):
             if messages:
                 # Get the last AI message
                 for msg in reversed(messages):
-                    if hasattr(msg, 'content') and msg.content:
-                        if not hasattr(msg, 'type') or msg.type != 'human':
+                    if hasattr(msg, "content") and msg.content:
+                        if not hasattr(msg, "type") or msg.type != "human":
                             return msg.content
                 return "No response generated"
             return "No response generated"
         return "No response generated"
-
-

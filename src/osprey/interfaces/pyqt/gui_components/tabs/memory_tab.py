@@ -6,21 +6,28 @@ This tab monitors memory usage for:
 - Docker/Podman containers started by the framework
 """
 
-import psutil
 import subprocess
-from datetime import datetime
-from typing import Dict, List, Optional
 from collections import deque
-from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QTableWidget, QTableWidgetItem, QHeaderView, QGroupBox,
-    QProgressBar
-)
-from PyQt5.QtCore import QTimer, Qt
-from PyQt5.QtGui import QColor, QFont
+from datetime import datetime
 
+import psutil
+from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtGui import QColor, QFont
+from PyQt5.QtWidgets import (
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QProgressBar,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
+
+from osprey.interfaces.pyqt.gui_constants import COLORS, MEMORY
 from osprey.utils.logger import get_logger
-from osprey.interfaces.pyqt.gui_constants import MEMORY, COLORS
 
 logger = get_logger("memory_tab")
 
@@ -51,7 +58,7 @@ class MemoryTab(QWidget):
         self.setup_ui()
 
         # Start monitoring if enabled in settings
-        if self.parent_gui and self.parent_gui.settings_manager.get('memory_monitor_enabled', True):
+        if self.parent_gui and self.parent_gui.settings_manager.get("memory_monitor_enabled", True):
             self.start_monitoring()
 
     def setup_ui(self):
@@ -161,8 +168,20 @@ class MemoryTab(QWidget):
 
         # Warning/Critical thresholds info (store as instance variable for updates)
         self.threshold_label = QLabel()
-        warning_mb = self.parent_gui.settings_manager.get('memory_warning_threshold_mb', MEMORY.WARNING_THRESHOLD_MB) if self.parent_gui else MEMORY.WARNING_THRESHOLD_MB
-        critical_mb = self.parent_gui.settings_manager.get('memory_critical_threshold_mb', MEMORY.CRITICAL_THRESHOLD_MB) if self.parent_gui else MEMORY.CRITICAL_THRESHOLD_MB
+        warning_mb = (
+            self.parent_gui.settings_manager.get(
+                "memory_warning_threshold_mb", MEMORY.WARNING_THRESHOLD_MB
+            )
+            if self.parent_gui
+            else MEMORY.WARNING_THRESHOLD_MB
+        )
+        critical_mb = (
+            self.parent_gui.settings_manager.get(
+                "memory_critical_threshold_mb", MEMORY.CRITICAL_THRESHOLD_MB
+            )
+            if self.parent_gui
+            else MEMORY.CRITICAL_THRESHOLD_MB
+        )
         self.threshold_label.setText(
             f"⚠️ Warning: {warning_mb} MB  |  🔴 Critical: {critical_mb} MB"
         )
@@ -206,9 +225,9 @@ class MemoryTab(QWidget):
 
         self.process_table = QTableWidget()
         self.process_table.setColumnCount(6)
-        self.process_table.setHorizontalHeaderLabels([
-            'Type', 'PID/ID', 'Name', 'Memory (MB)', 'CPU %', 'Status'
-        ])
+        self.process_table.setHorizontalHeaderLabels(
+            ["Type", "PID/ID", "Name", "Memory (MB)", "CPU %", "Status"]
+        )
         self.process_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.process_table.setStyleSheet("""
             QTableWidget {
@@ -247,10 +266,13 @@ class MemoryTab(QWidget):
             self.update_timer = QTimer(self)
             self.update_timer.timeout.connect(self.update_memory_stats)
 
-        interval_seconds = self.parent_gui.settings_manager.get(
-            'memory_check_interval_seconds',
-            MEMORY.CHECK_INTERVAL_SECONDS
-        ) if self.parent_gui else MEMORY.CHECK_INTERVAL_SECONDS
+        interval_seconds = (
+            self.parent_gui.settings_manager.get(
+                "memory_check_interval_seconds", MEMORY.CHECK_INTERVAL_SECONDS
+            )
+            if self.parent_gui
+            else MEMORY.CHECK_INTERVAL_SECONDS
+        )
 
         self.update_timer.start(interval_seconds * 1000)
         self.monitoring_enabled = True
@@ -293,7 +315,7 @@ class MemoryTab(QWidget):
             self._update_process_table(processes)
 
             # Update framework total
-            total_framework_mb = sum(p['memory_mb'] for p in processes)
+            total_framework_mb = sum(p["memory_mb"] for p in processes)
             self._update_framework_memory(total_framework_mb)
 
             # Update memory trend
@@ -319,11 +341,11 @@ class MemoryTab(QWidget):
 
         # Color code based on usage
         if percent > 90:
-            chunk_color = '#FF0000'
+            chunk_color = "#FF0000"
         elif percent > 75:
-            chunk_color = '#FFA500'
+            chunk_color = "#FFA500"
         else:
-            chunk_color = '#00FF00'
+            chunk_color = "#00FF00"
 
         self.system_memory_bar.setStyleSheet(f"""
             QProgressBar {{
@@ -338,7 +360,7 @@ class MemoryTab(QWidget):
             }}
         """)
 
-    def _collect_process_info(self) -> List[Dict]:
+    def _collect_process_info(self) -> list[dict]:
         """Collect information about all tracked processes.
 
         Returns:
@@ -348,7 +370,7 @@ class MemoryTab(QWidget):
 
         # Add GUI process
         try:
-            gui_info = self._get_process_info(self.gui_process, 'GUI')
+            gui_info = self._get_process_info(self.gui_process, "GUI")
             if gui_info:
                 processes.append(gui_info)
         except Exception as e:
@@ -357,7 +379,7 @@ class MemoryTab(QWidget):
         # Add child processes
         try:
             for child in self.gui_process.children(recursive=True):
-                child_info = self._get_process_info(child, 'Child')
+                child_info = self._get_process_info(child, "Child")
                 if child_info:
                     processes.append(child_info)
                     self.tracked_pids.add(child.pid)
@@ -374,7 +396,7 @@ class MemoryTab(QWidget):
 
         return processes
 
-    def _get_process_info(self, process: psutil.Process, proc_type: str) -> Optional[Dict]:
+    def _get_process_info(self, process: psutil.Process, proc_type: str) -> dict | None:
         """Get information about a single process.
 
         Args:
@@ -390,17 +412,17 @@ class MemoryTab(QWidget):
             cpu_percent = process.cpu_percent(interval=0.1)
 
             return {
-                'type': proc_type,
-                'pid': process.pid,
-                'name': process.name(),
-                'memory_mb': memory_mb,
-                'cpu_percent': cpu_percent,
-                'status': process.status()
+                "type": proc_type,
+                "pid": process.pid,
+                "name": process.name(),
+                "memory_mb": memory_mb,
+                "cpu_percent": cpu_percent,
+                "status": process.status(),
             }
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             return None
 
-    def _get_docker_containers(self) -> List[Dict]:
+    def _get_docker_containers(self) -> list[dict]:
         """Get memory usage of Docker containers started by framework.
 
         Returns:
@@ -409,18 +431,18 @@ class MemoryTab(QWidget):
         containers = []
         try:
             result = subprocess.run(
-                ['docker', 'ps', '--format', '{{.ID}}|{{.Names}}|{{.Status}}'],
+                ["docker", "ps", "--format", "{{.ID}}|{{.Names}}|{{.Status}}"],
                 capture_output=True,
                 text=True,
-                timeout=2
+                timeout=2,
             )
 
             if result.returncode == 0:
-                for line in result.stdout.strip().split('\n'):
+                for line in result.stdout.strip().split("\n"):
                     if not line:
                         continue
 
-                    parts = line.split('|')
+                    parts = line.split("|")
                     if len(parts) >= 3:
                         container_id = parts[0]
                         name = parts[1]
@@ -428,33 +450,42 @@ class MemoryTab(QWidget):
 
                         # Get memory stats
                         stats_result = subprocess.run(
-                            ['docker', 'stats', container_id, '--no-stream', '--format', '{{.MemUsage}}'],
+                            [
+                                "docker",
+                                "stats",
+                                container_id,
+                                "--no-stream",
+                                "--format",
+                                "{{.MemUsage}}",
+                            ],
                             capture_output=True,
                             text=True,
-                            timeout=2
+                            timeout=2,
                         )
 
                         if stats_result.returncode == 0:
                             mem_usage = stats_result.stdout.strip()
                             try:
-                                used_str = mem_usage.split('/')[0].strip()
-                                if 'MiB' in used_str:
-                                    memory_mb = float(used_str.replace('MiB', ''))
-                                elif 'GiB' in used_str:
-                                    memory_mb = float(used_str.replace('GiB', '')) * 1024
+                                used_str = mem_usage.split("/")[0].strip()
+                                if "MiB" in used_str:
+                                    memory_mb = float(used_str.replace("MiB", ""))
+                                elif "GiB" in used_str:
+                                    memory_mb = float(used_str.replace("GiB", "")) * 1024
                                 else:
                                     memory_mb = 0
 
-                                containers.append({
-                                    'type': 'Docker',
-                                    'pid': container_id[:12],
-                                    'name': name,
-                                    'memory_mb': memory_mb,
-                                    'cpu_percent': 0,
-                                    'status': status
-                                })
+                                containers.append(
+                                    {
+                                        "type": "Docker",
+                                        "pid": container_id[:12],
+                                        "name": name,
+                                        "memory_mb": memory_mb,
+                                        "cpu_percent": 0,
+                                        "status": status,
+                                    }
+                                )
                                 self.container_ids.add(container_id)
-                            except:
+                            except (ValueError, IndexError, AttributeError):
                                 pass
 
         except (subprocess.TimeoutExpired, FileNotFoundError):
@@ -464,7 +495,7 @@ class MemoryTab(QWidget):
 
         return containers
 
-    def _get_podman_containers(self) -> List[Dict]:
+    def _get_podman_containers(self) -> list[dict]:
         """Get memory usage of Podman containers started by framework.
 
         Returns:
@@ -473,18 +504,18 @@ class MemoryTab(QWidget):
         containers = []
         try:
             result = subprocess.run(
-                ['podman', 'ps', '--format', '{{.ID}}|{{.Names}}|{{.Status}}'],
+                ["podman", "ps", "--format", "{{.ID}}|{{.Names}}|{{.Status}}"],
                 capture_output=True,
                 text=True,
-                timeout=2
+                timeout=2,
             )
 
             if result.returncode == 0:
-                for line in result.stdout.strip().split('\n'):
+                for line in result.stdout.strip().split("\n"):
                     if not line:
                         continue
 
-                    parts = line.split('|')
+                    parts = line.split("|")
                     if len(parts) >= 3:
                         container_id = parts[0]
                         name = parts[1]
@@ -492,33 +523,42 @@ class MemoryTab(QWidget):
 
                         # Get memory stats
                         stats_result = subprocess.run(
-                            ['podman', 'stats', container_id, '--no-stream', '--format', '{{.MemUsage}}'],
+                            [
+                                "podman",
+                                "stats",
+                                container_id,
+                                "--no-stream",
+                                "--format",
+                                "{{.MemUsage}}",
+                            ],
                             capture_output=True,
                             text=True,
-                            timeout=2
+                            timeout=2,
                         )
 
                         if stats_result.returncode == 0:
                             mem_usage = stats_result.stdout.strip()
                             try:
-                                used_str = mem_usage.split('/')[0].strip()
-                                if 'MB' in used_str:
-                                    memory_mb = float(used_str.replace('MB', ''))
-                                elif 'GB' in used_str:
-                                    memory_mb = float(used_str.replace('GB', '')) * 1024
+                                used_str = mem_usage.split("/")[0].strip()
+                                if "MB" in used_str:
+                                    memory_mb = float(used_str.replace("MB", ""))
+                                elif "GB" in used_str:
+                                    memory_mb = float(used_str.replace("GB", "")) * 1024
                                 else:
                                     memory_mb = 0
 
-                                containers.append({
-                                    'type': 'Podman',
-                                    'pid': container_id[:12],
-                                    'name': name,
-                                    'memory_mb': memory_mb,
-                                    'cpu_percent': 0,
-                                    'status': status
-                                })
+                                containers.append(
+                                    {
+                                        "type": "Podman",
+                                        "pid": container_id[:12],
+                                        "name": name,
+                                        "memory_mb": memory_mb,
+                                        "cpu_percent": 0,
+                                        "status": status,
+                                    }
+                                )
                                 self.container_ids.add(container_id)
-                            except:
+                            except (ValueError, IndexError, AttributeError):
                                 pass
 
         except (subprocess.TimeoutExpired, FileNotFoundError):
@@ -528,7 +568,7 @@ class MemoryTab(QWidget):
 
         return containers
 
-    def _update_process_table(self, processes: List[Dict]):
+    def _update_process_table(self, processes: list[dict]):
         """Update the process table with current data.
 
         Args:
@@ -538,41 +578,41 @@ class MemoryTab(QWidget):
 
         for row, proc in enumerate(processes):
             # Type
-            type_item = QTableWidgetItem(proc['type'])
-            if proc['type'] == 'GUI':
+            type_item = QTableWidgetItem(proc["type"])
+            if proc["type"] == "GUI":
                 type_item.setForeground(QColor(COLORS.INFO_MESSAGE))
-            elif proc['type'] in ('Docker', 'Podman'):
-                type_item.setForeground(QColor('#FF00FF'))
+            elif proc["type"] in ("Docker", "Podman"):
+                type_item.setForeground(QColor("#FF00FF"))
             else:
                 type_item.setForeground(QColor(COLORS.WARNING_MESSAGE))
             self.process_table.setItem(row, 0, type_item)
 
             # PID/ID
-            pid_item = QTableWidgetItem(str(proc['pid']))
-            pid_item.setForeground(QColor('#FFFFFF'))
+            pid_item = QTableWidgetItem(str(proc["pid"]))
+            pid_item.setForeground(QColor("#FFFFFF"))
             pid_item.setFont(QFont("Monospace", 9))
             self.process_table.setItem(row, 1, pid_item)
 
             # Name
-            name_item = QTableWidgetItem(proc['name'])
-            name_item.setForeground(QColor('#00FFFF'))
+            name_item = QTableWidgetItem(proc["name"])
+            name_item.setForeground(QColor("#00FFFF"))
             self.process_table.setItem(row, 2, name_item)
 
             # Memory
             memory_item = QTableWidgetItem(f"{proc['memory_mb']:.1f}")
-            memory_item.setForeground(QColor('#FFD700'))
+            memory_item.setForeground(QColor("#FFD700"))
             memory_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
             self.process_table.setItem(row, 3, memory_item)
 
             # CPU
             cpu_item = QTableWidgetItem(f"{proc['cpu_percent']:.1f}")
-            cpu_item.setForeground(QColor('#00FF00'))
+            cpu_item.setForeground(QColor("#00FF00"))
             cpu_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
             self.process_table.setItem(row, 4, cpu_item)
 
             # Status
-            status_item = QTableWidgetItem(proc['status'])
-            status_item.setForeground(QColor('#808080'))
+            status_item = QTableWidgetItem(proc["status"])
+            status_item.setForeground(QColor("#808080"))
             self.process_table.setItem(row, 5, status_item)
 
     def _update_framework_memory(self, total_mb: float):
@@ -588,22 +628,28 @@ class MemoryTab(QWidget):
         self.framework_memory_label.setText(f"{total_mb:.1f} MB ({percent:.2f}% of system)")
 
         # Color code based on thresholds
-        warning_mb = self.parent_gui.settings_manager.get(
-            'memory_warning_threshold_mb',
-            MEMORY.WARNING_THRESHOLD_MB
-        ) if self.parent_gui else MEMORY.WARNING_THRESHOLD_MB
+        warning_mb = (
+            self.parent_gui.settings_manager.get(
+                "memory_warning_threshold_mb", MEMORY.WARNING_THRESHOLD_MB
+            )
+            if self.parent_gui
+            else MEMORY.WARNING_THRESHOLD_MB
+        )
 
-        critical_mb = self.parent_gui.settings_manager.get(
-            'memory_critical_threshold_mb',
-            MEMORY.CRITICAL_THRESHOLD_MB
-        ) if self.parent_gui else MEMORY.CRITICAL_THRESHOLD_MB
+        critical_mb = (
+            self.parent_gui.settings_manager.get(
+                "memory_critical_threshold_mb", MEMORY.CRITICAL_THRESHOLD_MB
+            )
+            if self.parent_gui
+            else MEMORY.CRITICAL_THRESHOLD_MB
+        )
 
         if total_mb >= critical_mb:
-            color = '#FF0000'
+            color = "#FF0000"
         elif total_mb >= warning_mb:
-            color = '#FFA500'
+            color = "#FFA500"
         else:
-            color = '#00FFFF'
+            color = "#00FFFF"
 
         self.framework_memory_bar.setStyleSheet(f"""
             QProgressBar {{
@@ -626,10 +672,7 @@ class MemoryTab(QWidget):
         """
         # Add current measurement to history
         timestamp = datetime.now()
-        self.memory_history.append({
-            'timestamp': timestamp,
-            'memory_mb': total_mb
-        })
+        self.memory_history.append({"timestamp": timestamp, "memory_mb": total_mb})
 
         # Check if we're still in warmup period (2 minutes after startup)
         elapsed_seconds = (timestamp - self.trend_start_time).total_seconds()
@@ -655,13 +698,13 @@ class MemoryTab(QWidget):
         trend_info = self._calculate_trend()
 
         # Update display
-        if trend_info['direction'] == 'increasing':
+        if trend_info["direction"] == "increasing":
             icon = "📈"
             color = "#FFA500"  # Orange for increasing
-            if trend_info['rate'] > 10:  # More than 10 MB/min
+            if trend_info["rate"] > 10:  # More than 10 MB/min
                 icon = "⚠️📈"
                 color = "#FF6B6B"  # Bright coral red for rapidly increasing (more readable)
-        elif trend_info['direction'] == 'decreasing':
+        elif trend_info["direction"] == "decreasing":
             icon = "📉"
             color = "#00FF00"  # Green for decreasing
         else:  # stable
@@ -674,54 +717,44 @@ class MemoryTab(QWidget):
         )
 
         self.trend_indicator.setText(trend_text)
-        self.trend_indicator.setStyleSheet(f"color: {color}; font-family: monospace; font-weight: bold;")
+        self.trend_indicator.setStyleSheet(
+            f"color: {color}; font-family: monospace; font-weight: bold;"
+        )
 
-    def _calculate_trend(self) -> Dict:
+    def _calculate_trend(self) -> dict:
         """Calculate memory usage trend from history.
 
         Returns:
             Dictionary with trend information
         """
         if len(self.memory_history) < 2:
-            return {
-                'direction': 'unknown',
-                'rate': 0.0,
-                'duration': 0.0
-            }
+            return {"direction": "unknown", "rate": 0.0, "duration": 0.0}
 
         # Get first and last measurements
         first = self.memory_history[0]
         last = self.memory_history[-1]
 
         # Calculate time difference in seconds
-        duration = (last['timestamp'] - first['timestamp']).total_seconds()
+        duration = (last["timestamp"] - first["timestamp"]).total_seconds()
 
         if duration == 0:
-            return {
-                'direction': 'stable',
-                'rate': 0.0,
-                'duration': 0.0
-            }
+            return {"direction": "stable", "rate": 0.0, "duration": 0.0}
 
         # Calculate memory change
-        memory_change = last['memory_mb'] - first['memory_mb']
+        memory_change = last["memory_mb"] - first["memory_mb"]
 
         # Calculate rate in MB per minute
         rate_per_minute = (memory_change / duration) * 60
 
         # Determine direction (threshold: 0.5 MB/min to avoid noise)
         if rate_per_minute > 0.5:
-            direction = 'increasing'
+            direction = "increasing"
         elif rate_per_minute < -0.5:
-            direction = 'decreasing'
+            direction = "decreasing"
         else:
-            direction = 'stable'
+            direction = "stable"
 
-        return {
-            'direction': direction,
-            'rate': rate_per_minute,
-            'duration': duration
-        }
+        return {"direction": direction, "rate": rate_per_minute, "duration": duration}
 
     def _check_thresholds(self, total_mb: float):
         """Check memory thresholds and update status.
@@ -729,32 +762,45 @@ class MemoryTab(QWidget):
         Args:
             total_mb: Total framework memory usage in MB
         """
-        warning_mb = self.parent_gui.settings_manager.get(
-            'memory_warning_threshold_mb',
-            MEMORY.WARNING_THRESHOLD_MB
-        ) if self.parent_gui else MEMORY.WARNING_THRESHOLD_MB
+        warning_mb = (
+            self.parent_gui.settings_manager.get(
+                "memory_warning_threshold_mb", MEMORY.WARNING_THRESHOLD_MB
+            )
+            if self.parent_gui
+            else MEMORY.WARNING_THRESHOLD_MB
+        )
 
-        critical_mb = self.parent_gui.settings_manager.get(
-            'memory_critical_threshold_mb',
-            MEMORY.CRITICAL_THRESHOLD_MB
-        ) if self.parent_gui else MEMORY.CRITICAL_THRESHOLD_MB
+        critical_mb = (
+            self.parent_gui.settings_manager.get(
+                "memory_critical_threshold_mb", MEMORY.CRITICAL_THRESHOLD_MB
+            )
+            if self.parent_gui
+            else MEMORY.CRITICAL_THRESHOLD_MB
+        )
 
         timestamp = datetime.now().strftime("%H:%M:%S")
 
         if total_mb >= critical_mb:
             status_text = f"🔴 CRITICAL: Framework using {total_mb:.1f} MB (threshold: {critical_mb} MB) - {timestamp}"
             self.status_label.setText(status_text)
-            self.status_label.setStyleSheet("color: #FF0000; font-size: 10px; padding: 5px; font-weight: bold;")
+            self.status_label.setStyleSheet(
+                "color: #FF0000; font-size: 10px; padding: 5px; font-weight: bold;"
+            )
             logger.warning(f"Memory usage critical: {total_mb:.1f} MB")
         elif total_mb >= warning_mb:
             status_text = f"⚠️ WARNING: Framework using {total_mb:.1f} MB (threshold: {warning_mb} MB) - {timestamp}"
             self.status_label.setText(status_text)
-            self.status_label.setStyleSheet("color: #FFA500; font-size: 10px; padding: 5px; font-weight: bold;")
+            self.status_label.setStyleSheet(
+                "color: #FFA500; font-size: 10px; padding: 5px; font-weight: bold;"
+            )
         elif self.monitoring_enabled:
-            interval_seconds = self.parent_gui.settings_manager.get(
-                'memory_check_interval_seconds',
-                MEMORY.CHECK_INTERVAL_SECONDS
-            ) if self.parent_gui else MEMORY.CHECK_INTERVAL_SECONDS
+            interval_seconds = (
+                self.parent_gui.settings_manager.get(
+                    "memory_check_interval_seconds", MEMORY.CHECK_INTERVAL_SECONDS
+                )
+                if self.parent_gui
+                else MEMORY.CHECK_INTERVAL_SECONDS
+            )
             status_text = f"✅ Normal: {total_mb:.1f} MB - Last update: {timestamp} (updates every {interval_seconds}s)"
             self.status_label.setText(status_text)
             self.status_label.setStyleSheet("color: #00FF00; font-size: 10px; padding: 5px;")
@@ -764,8 +810,12 @@ class MemoryTab(QWidget):
         if not self.parent_gui:
             return
 
-        warning_mb = self.parent_gui.settings_manager.get('memory_warning_threshold_mb', MEMORY.WARNING_THRESHOLD_MB)
-        critical_mb = self.parent_gui.settings_manager.get('memory_critical_threshold_mb', MEMORY.CRITICAL_THRESHOLD_MB)
+        warning_mb = self.parent_gui.settings_manager.get(
+            "memory_warning_threshold_mb", MEMORY.WARNING_THRESHOLD_MB
+        )
+        critical_mb = self.parent_gui.settings_manager.get(
+            "memory_critical_threshold_mb", MEMORY.CRITICAL_THRESHOLD_MB
+        )
 
         self.threshold_label.setText(
             f"⚠️ Warning: {warning_mb} MB  |  🔴 Critical: {critical_mb} MB"

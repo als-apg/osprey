@@ -4,10 +4,12 @@ Shared utilities for PyQt GUI
 This module contains common functions used across the GUI to reduce code duplication.
 """
 
-from PyQt5.QtGui import QPalette, QColor
 from pathlib import Path
+from typing import Any
+
 import yaml
-from typing import Optional, Dict, Any
+from PyQt5.QtGui import QColor, QPalette
+
 from osprey.utils.logger import get_logger
 
 logger = get_logger("gui_utils")
@@ -33,7 +35,7 @@ def create_dark_palette() -> QPalette:
     return palette
 
 
-def load_config_safe(config_path: str) -> Optional[Dict[str, Any]]:
+def load_config_safe(config_path: str) -> dict[str, Any] | None:
     """
     Safely load a YAML configuration file with error handling.
 
@@ -44,7 +46,7 @@ def load_config_safe(config_path: str) -> Optional[Dict[str, Any]]:
         Dictionary containing config data, or None if loading fails
     """
     try:
-        with open(config_path, 'r') as f:
+        with open(config_path) as f:
             config = yaml.safe_load(f)
             return config if config else {}
     except FileNotFoundError:
@@ -76,7 +78,7 @@ def get_gui_data_dir() -> Path:
     osprey_package_root = Path(__file__).parent.parent.parent
 
     # Create a data directory within the osprey package
-    gui_data_dir = osprey_package_root / '_gui_data'
+    gui_data_dir = osprey_package_root / "_gui_data"
     gui_data_dir.mkdir(parents=True, exist_ok=True)
 
     return gui_data_dir

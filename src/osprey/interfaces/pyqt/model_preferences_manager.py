@@ -7,7 +7,8 @@ This module handles model preference configuration for projects:
 - Managing model overrides for infrastructure steps
 """
 
-from PyQt5.QtWidgets import QMessageBox, QDialog
+from PyQt5.QtWidgets import QDialog, QMessageBox
+
 from osprey.utils.logger import get_logger
 
 logger = get_logger("model_preferences_manager")
@@ -39,20 +40,20 @@ class ModelPreferencesUIHandler:
             # Refresh the projects table to show updated configuration
             self.gui.refresh_projects_display()
 
-            pref_count = self.gui.model_preferences.get_preference_count(project_info['name'])
+            pref_count = self.gui.model_preferences.get_preference_count(project_info["name"])
             if pref_count > 0:
                 QMessageBox.information(
                     self.gui,
                     "Configuration Saved",
                     f"Model configuration for {project_info['name']} has been saved.\n"
-                    f"{pref_count} step(s) configured."
+                    f"{pref_count} step(s) configured.",
                 )
             else:
                 QMessageBox.information(
                     self.gui,
                     "Configuration Cleared",
                     f"Model configuration for {project_info['name']} has been cleared.\n"
-                    f"All steps will use default models from config."
+                    f"All steps will use default models from config.",
                 )
 
     def apply_model_preferences_to_config(self, project_name: str):
@@ -96,12 +97,16 @@ class ModelPreferencesUIHandler:
         # Apply preferences for each project
         # Later projects override earlier ones for infrastructure steps
         for project in self.gui.discovered_projects:
-            project_name = project['name']
+            project_name = project["name"]
             self.apply_model_preferences_to_config(project_name)
 
         # Log summary
         overrides = get_runtime_model_overrides()
         if overrides:
-            self.gui.add_status(f"Applied {len(overrides)} model override(s) for infrastructure steps", "base")
+            self.gui.add_status(
+                f"Applied {len(overrides)} model override(s) for infrastructure steps", "base"
+            )
         else:
-            self.gui.add_status("No model preferences configured - using defaults from config", "base")
+            self.gui.add_status(
+                "No model preferences configured - using defaults from config", "base"
+            )

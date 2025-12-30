@@ -15,7 +15,9 @@ Key Features:
 import asyncio
 import json
 import time
-from typing import List, Dict, Set, Optional, Any, Callable
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
 
 from osprey.utils.logger import get_logger
 
@@ -25,39 +27,37 @@ logger = get_logger("realtime_analytics_websocket")
 try:
     import websockets
     from websockets.server import WebSocketServerProtocol
+
     WEBSOCKETS_AVAILABLE = True
 except ImportError:
     WEBSOCKETS_AVAILABLE = False
     WebSocketServerProtocol = Any  # Type hint fallback
-    logger.warning(
-        "websockets not available. "
-        "Install with: pip install websockets"
-    )
+    logger.warning("websockets not available. Install with: pip install websockets")
 
 
 @dataclass
 class MetricUpdate:
     """Real-time metric update message."""
+
     timestamp: float
     metric_type: str  # "routing", "cache", "feedback", etc.
-    data: Dict[str, Any]
+    data: dict[str, Any]
 
     def to_json(self) -> str:
         """Convert to JSON string."""
-        return json.dumps({
-            'timestamp': self.timestamp,
-            'type': self.metric_type,
-            'data': self.data
-        })
+        return json.dumps(
+            {"timestamp": self.timestamp, "type": self.metric_type, "data": self.data}
+        )
 
 
 @dataclass
 class ClientConnection:
     """WebSocket client connection info."""
+
     websocket: WebSocketServerProtocol
     client_id: str
     connected_at: float
-    subscriptions: Set[str]  # Metric types client is subscribed to
+    subscriptions: set[str]  # Metric types client is subscribed to
 
     def __hash__(self):
         return hash(self.client_id)
@@ -73,7 +73,7 @@ class MetricsEventBus:
 
     def __init__(self):
         """Initialize event bus."""
-        self.listeners: List[Callable[[MetricUpdate], None]] = []
+        self.listeners: list[Callable[[MetricUpdate], None]] = []
         logger.info("Initialized MetricsEventBus")
 
     def subscribe(self, listener: Callable[[MetricUpdate], None]):
@@ -119,12 +119,7 @@ class RealtimeAnalyticsWebSocket:
     - Automatic reconnection support
     """
 
-    def __init__(
-        self,
-        host: str = "localhost",
-        port: int = 8765,
-        enable_compression: bool = True
-    ):
+    def __init__(self, host: str = "localhost", port: int = 8765, enable_compression: bool = True):
         """Initialize WebSocket server.
 
         Args:
@@ -137,7 +132,7 @@ class RealtimeAnalyticsWebSocket:
         self.enable_compression = enable_compression
 
         # Client management
-        self.clients: Set[ClientConnection] = set()
+        self.clients: set[ClientConnection] = set()
         self.client_counter = 0
 
         # Event bus
@@ -150,10 +145,10 @@ class RealtimeAnalyticsWebSocket:
 
         # Statistics
         self.stats = {
-            'total_connections': 0,
-            'total_messages_sent': 0,
-            'total_messages_received': 0,
-            'start_time': None
+            "total_connections": 0,
+            "total_messages_sent": 0,
+            "total_messages_received": 0,
+            "start_time": None,
         }
 
         logger.info(
@@ -176,11 +171,11 @@ class RealtimeAnalyticsWebSocket:
                 self._handle_client,
                 self.host,
                 self.port,
-                compression="deflate" if self.enable_compression else None
+                compression="deflate" if self.enable_compression else None,
             )
 
             self.running = True
-            self.stats['start_time'] = time.time()
+            self.stats["start_time"] = time.time()
 
             logger.info(f"WebSocket server started on ws://{self.host}:{self.port}")
 
@@ -212,10 +207,7 @@ class RealtimeAnalyticsWebSocket:
         logger.info("WebSocket server stopped")
 
     def broadcast_metric(
-        self,
-        metric_type: str,
-        data: Dict[str, Any],
-        target_subscriptions: Optional[Set[str]] = None
+        self, metric_type: str, data: dict[str, Any], target_subscriptions: set[str] | None = None
     ):
         """Broadcast metric update to subscribed clients.
 
@@ -224,33 +216,29 @@ class RealtimeAnalyticsWebSocket:
             data: Metric data.
             target_subscriptions: Optional set of subscription types to target.
         """
-        update = MetricUpdate(
-            timestamp=time.time(),
-            metric_type=metric_type,
-            data=data
-        )
+        update = MetricUpdate(timestamp=time.time(), metric_type=metric_type, data=data)
 
         self.event_bus.publish(update)
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         """Get server statistics.
 
         Returns:
             Dictionary with server statistics.
         """
         uptime = None
-        if self.stats['start_time']:
-            uptime = time.time() - self.stats['start_time']
+        if self.stats["start_time"]:
+            uptime = time.time() - self.stats["start_time"]
 
         return {
-            'running': self.running,
-            'connected_clients': len(self.clients),
-            'total_connections': self.stats['total_connections'],
-            'messages_sent': self.stats['total_messages_sent'],
-            'messages_received': self.stats['total_messages_received'],
-            'uptime_seconds': uptime,
-            'host': self.host,
-            'port': self.port
+            "running": self.running,
+            "connected_clients": len(self.clients),
+            "total_connections": self.stats["total_connections"],
+            "messages_sent": self.stats["total_messages_sent"],
+            "messages_received": self.stats["total_messages_received"],
+            "uptime_seconds": uptime,
+            "host": self.host,
+            "port": self.port,
         }
 
     # Private methods
@@ -268,24 +256,20 @@ class RealtimeAnalyticsWebSocket:
             websocket=websocket,
             client_id=f"client_{self.client_counter}",
             connected_at=time.time(),
-            subscriptions=set()
+            subscriptions=set(),
         )
 
         self.clients.add(client)
-        self.stats['total_connections'] += 1
+        self.stats["total_connections"] += 1
 
-        logger.info(
-            f"Client connected: {client.client_id} "
-            f"(total: {len(self.clients)})"
-        )
+        logger.info(f"Client connected: {client.client_id} (total: {len(self.clients)})")
 
         try:
             # Send welcome message
-            await self._send_to_client(client, {
-                'type': 'welcome',
-                'client_id': client.client_id,
-                'server_time': time.time()
-            })
+            await self._send_to_client(
+                client,
+                {"type": "welcome", "client_id": client.client_id, "server_time": time.time()},
+            )
 
             # Handle messages
             async for message in websocket:
@@ -298,10 +282,7 @@ class RealtimeAnalyticsWebSocket:
         finally:
             # Clean up
             self.clients.discard(client)
-            logger.info(
-                f"Client removed: {client.client_id} "
-                f"(remaining: {len(self.clients)})"
-            )
+            logger.info(f"Client removed: {client.client_id} (remaining: {len(self.clients)})")
 
     async def _handle_message(self, client: ClientConnection, message: str):
         """Handle message from client.
@@ -310,46 +291,37 @@ class RealtimeAnalyticsWebSocket:
             client: Client connection.
             message: Message string.
         """
-        self.stats['total_messages_received'] += 1
+        self.stats["total_messages_received"] += 1
 
         try:
             data = json.loads(message)
-            msg_type = data.get('type')
+            msg_type = data.get("type")
 
-            if msg_type == 'subscribe':
+            if msg_type == "subscribe":
                 # Subscribe to metric types
-                metric_types = data.get('metric_types', [])
+                metric_types = data.get("metric_types", [])
                 client.subscriptions.update(metric_types)
 
-                await self._send_to_client(client, {
-                    'type': 'subscribed',
-                    'metric_types': list(client.subscriptions)
-                })
-
-                logger.debug(
-                    f"Client {client.client_id} subscribed to: {metric_types}"
+                await self._send_to_client(
+                    client, {"type": "subscribed", "metric_types": list(client.subscriptions)}
                 )
 
-            elif msg_type == 'unsubscribe':
+                logger.debug(f"Client {client.client_id} subscribed to: {metric_types}")
+
+            elif msg_type == "unsubscribe":
                 # Unsubscribe from metric types
-                metric_types = data.get('metric_types', [])
+                metric_types = data.get("metric_types", [])
                 client.subscriptions.difference_update(metric_types)
 
-                await self._send_to_client(client, {
-                    'type': 'unsubscribed',
-                    'metric_types': metric_types
-                })
-
-                logger.debug(
-                    f"Client {client.client_id} unsubscribed from: {metric_types}"
+                await self._send_to_client(
+                    client, {"type": "unsubscribed", "metric_types": metric_types}
                 )
 
-            elif msg_type == 'ping':
+                logger.debug(f"Client {client.client_id} unsubscribed from: {metric_types}")
+
+            elif msg_type == "ping":
                 # Respond to ping
-                await self._send_to_client(client, {
-                    'type': 'pong',
-                    'timestamp': time.time()
-                })
+                await self._send_to_client(client, {"type": "pong", "timestamp": time.time()})
 
             else:
                 logger.warning(f"Unknown message type: {msg_type}")
@@ -359,7 +331,7 @@ class RealtimeAnalyticsWebSocket:
         except Exception as e:
             logger.error(f"Error handling message: {e}")
 
-    async def _send_to_client(self, client: ClientConnection, data: Dict):
+    async def _send_to_client(self, client: ClientConnection, data: dict):
         """Send data to client.
 
         Args:
@@ -369,7 +341,7 @@ class RealtimeAnalyticsWebSocket:
         try:
             message = json.dumps(data)
             await client.websocket.send(message)
-            self.stats['total_messages_sent'] += 1
+            self.stats["total_messages_sent"] += 1
         except Exception as e:
             logger.error(f"Error sending to client {client.client_id}: {e}")
 
@@ -396,11 +368,9 @@ class RealtimeAnalyticsWebSocket:
             if not client.subscriptions or update.metric_type in client.subscriptions:
                 try:
                     await client.websocket.send(message)
-                    self.stats['total_messages_sent'] += 1
+                    self.stats["total_messages_sent"] += 1
                 except Exception as e:
-                    logger.error(
-                        f"Error broadcasting to client {client.client_id}: {e}"
-                    )
+                    logger.error(f"Error broadcasting to client {client.client_id}: {e}")
 
 
 class AnalyticsMetricsPublisher:
@@ -427,7 +397,7 @@ class AnalyticsMetricsPublisher:
         confidence: float,
         routing_time_ms: float,
         cache_hit: bool,
-        mode: str
+        mode: str,
     ):
         """Publish routing decision metric.
 
@@ -440,46 +410,36 @@ class AnalyticsMetricsPublisher:
             mode: Routing mode (automatic/manual).
         """
         self.websocket_server.broadcast_metric(
-            metric_type='routing_decision',
+            metric_type="routing_decision",
             data={
-                'query': query[:100],  # Truncate for privacy
-                'project': project,
-                'confidence': confidence,
-                'routing_time_ms': routing_time_ms,
-                'cache_hit': cache_hit,
-                'mode': mode,
-                'timestamp': time.time()
-            }
+                "query": query[:100],  # Truncate for privacy
+                "project": project,
+                "confidence": confidence,
+                "routing_time_ms": routing_time_ms,
+                "cache_hit": cache_hit,
+                "mode": mode,
+                "timestamp": time.time(),
+            },
         )
 
-    def publish_cache_statistics(self, stats: Dict[str, Any]):
+    def publish_cache_statistics(self, stats: dict[str, Any]):
         """Publish cache statistics.
 
         Args:
             stats: Cache statistics.
         """
-        self.websocket_server.broadcast_metric(
-            metric_type='cache_stats',
-            data=stats
-        )
+        self.websocket_server.broadcast_metric(metric_type="cache_stats", data=stats)
 
-    def publish_analytics_summary(self, summary: Dict[str, Any]):
+    def publish_analytics_summary(self, summary: dict[str, Any]):
         """Publish analytics summary.
 
         Args:
             summary: Analytics summary data.
         """
-        self.websocket_server.broadcast_metric(
-            metric_type='analytics_summary',
-            data=summary
-        )
+        self.websocket_server.broadcast_metric(metric_type="analytics_summary", data=summary)
 
     def publish_feedback_event(
-        self,
-        query: str,
-        project: str,
-        feedback: str,
-        correct_project: Optional[str] = None
+        self, query: str, project: str, feedback: str, correct_project: str | None = None
     ):
         """Publish user feedback event.
 
@@ -490,12 +450,12 @@ class AnalyticsMetricsPublisher:
             correct_project: Correct project if feedback was incorrect.
         """
         self.websocket_server.broadcast_metric(
-            metric_type='feedback_event',
+            metric_type="feedback_event",
             data={
-                'query': query[:100],
-                'project': project,
-                'feedback': feedback,
-                'correct_project': correct_project,
-                'timestamp': time.time()
-            }
+                "query": query[:100],
+                "project": project,
+                "feedback": feedback,
+                "correct_project": correct_project,
+                "timestamp": time.time(),
+            },
         )
