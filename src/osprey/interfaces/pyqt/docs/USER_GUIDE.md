@@ -833,9 +833,13 @@ A: Check database size, reduce execution timeout, or disable persistence tempora
 
 ### Additional Documentation
 
-- **README.md**: Quick start and basic usage
+All documentation files are located in the `src/osprey/interfaces/pyqt/docs/` directory:
+
+- **README.md** (in pyqt root): Quick start and basic usage
 - **INSTALLATION_GUIDE.md**: Detailed installation instructions
 - **MULTI_PROJECT_GUIDE.md**: Multi-project setup and usage
+- **USER_GUIDE.md**: This comprehensive guide
+- **README_GUI_CONFIG.md**: GUI configuration details
 
 ### Contributing
 
