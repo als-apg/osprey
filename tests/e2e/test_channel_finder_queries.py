@@ -22,6 +22,133 @@ logger = logging.getLogger(__name__)
 
 # Test cases - each entry defines a complete test scenario
 QUERY_TEST_CASES = [
+    # ===== EXPLICIT DETECTION TESTS =====
+    {
+        "id": "explicit_only_hierarchical",
+        "name": "Explicit detection only - Hierarchical pipeline",
+        "description": (
+            "Tests that when the query contains only explicit channel addresses from the "
+            "hierarchical database and no additional search is needed, the pipeline correctly "
+            "detects them, validates them, and returns results WITHOUT running hierarchical "
+            "navigation. This tests the optimization path where we skip the full pipeline."
+        ),
+        "database": "hierarchical.json",
+        "query": "Get me the channels MAG:DIPOLE[B01]:CURRENT:SP and MAG:QF[QF05]:CURRENT:RB",
+        "expected_channels": ["MAG:DIPOLE[B01]:CURRENT:SP", "MAG:QF[QF05]:CURRENT:RB"],
+        "pipeline": "hierarchical",
+        "match_type": "exact",
+    },
+    {
+        "id": "explicit_plus_search_hierarchical",
+        "name": "Explicit detection + hierarchical search",
+        "description": (
+            "Tests hybrid mode where the query contains some explicit channel addresses "
+            "AND requires additional search via hierarchical navigation. The LLM should detect "
+            "the explicit address, validate it, then proceed with hierarchical navigation for "
+            "the natural language portion, and merge both results."
+        ),
+        "database": "hierarchical.json",
+        "query": "Get MAG:DIPOLE[B01]:CURRENT:SP and also find all focusing quadrupole current readbacks",
+        "expected_channels": [
+            "MAG:DIPOLE[B01]:CURRENT:SP",
+            # All QF readbacks - 16 quadrupoles
+            "MAG:QF[QF01]:CURRENT:RB",
+            "MAG:QF[QF02]:CURRENT:RB",
+            "MAG:QF[QF03]:CURRENT:RB",
+            "MAG:QF[QF04]:CURRENT:RB",
+            "MAG:QF[QF05]:CURRENT:RB",
+            "MAG:QF[QF06]:CURRENT:RB",
+            "MAG:QF[QF07]:CURRENT:RB",
+            "MAG:QF[QF08]:CURRENT:RB",
+            "MAG:QF[QF09]:CURRENT:RB",
+            "MAG:QF[QF10]:CURRENT:RB",
+            "MAG:QF[QF11]:CURRENT:RB",
+            "MAG:QF[QF12]:CURRENT:RB",
+            "MAG:QF[QF13]:CURRENT:RB",
+            "MAG:QF[QF14]:CURRENT:RB",
+            "MAG:QF[QF15]:CURRENT:RB",
+            "MAG:QF[QF16]:CURRENT:RB",
+        ],
+        "pipeline": "hierarchical",
+        "match_type": "exact",
+    },
+    {
+        "id": "explicit_only_middle_layer",
+        "name": "Explicit detection only - Middle layer pipeline",
+        "description": (
+            "Tests explicit channel detection for the middle layer pipeline. "
+            "Query contains only explicit MML-style channel addresses (SR01C:BPM1:X format). "
+            "Should detect them, validate against database, and return WITHOUT running the "
+            "React agent search."
+        ),
+        "database": "middle_layer.json",
+        "query": "I need SR01C:BPM1:X and SR02C:BPM3:Y",
+        "expected_channels": ["SR01C:BPM1:X", "SR02C:BPM3:Y"],
+        "pipeline": "middle_layer",
+        "match_type": "exact",
+    },
+    {
+        "id": "explicit_plus_search_middle_layer",
+        "name": "Explicit detection + React agent search",
+        "description": (
+            "Tests hybrid mode for middle layer pipeline. Query has explicit addresses "
+            "plus a natural language request that requires React agent database exploration. "
+            "Should merge explicit channels with agent search results."
+        ),
+        "database": "middle_layer.json",
+        "query": "Get me SR01C:BPM1:X and also find all BPM Y positions in sector 12",
+        "expected_channels": [
+            "SR01C:BPM1:X",
+            # All sector 12 BPM Y positions
+            "SR12C:BPM1:Y",
+            "SR12C:BPM2:Y",
+            "SR12C:BPM3:Y",
+            "SR12C:BPM4:Y",
+            "SR12C:BPM5:Y",
+            "SR12C:BPM6:Y",
+            "SR12C:BPM7:Y",
+            "SR12C:BPM8:Y",
+        ],
+        "pipeline": "middle_layer",
+        "match_type": "exact",
+    },
+    {
+        "id": "explicit_only_in_context",
+        "name": "Explicit detection only - In-context pipeline",
+        "description": (
+            "Tests explicit channel detection for flat database / in-context pipeline. "
+            "Query contains explicit channel NAMES (not addresses - they differ in flat DB). "
+            "Should detect channel names, validate, and return WITHOUT semantic search."
+        ),
+        "database": "in_context.json",
+        "query": "Get TerminalVoltageSetPoint and AcceleratingTubeBeginningGunPressureReadBack",
+        "expected_channels": [
+            "TerminalVoltageSetPoint",
+            "AcceleratingTubeBeginningGunPressureReadBack",
+        ],
+        "pipeline": "in_context",
+        "match_type": "exact",
+    },
+    {
+        "id": "explicit_plus_search_in_context",
+        "name": "Explicit detection + semantic search",
+        "description": (
+            "Tests hybrid mode for in-context pipeline. Query has explicit channel names "
+            "plus natural language that requires semantic search through the flat database. "
+            "Should merge explicit channels with semantic search results."
+        ),
+        "database": "in_context.json",
+        "query": "Get TerminalVoltageSetPoint and find all pressure readbacks for ion pumps in beamline 1",
+        "expected_channels": [
+            "TerminalVoltageSetPoint",
+            # Ion pump pressures in beamline 1
+            "BeamLine1MiddleIonPumpIP78PressureReadBack",
+            "BeamLine1EndIonPumpIP125PressureReadBack",
+        ],
+        "pipeline": "in_context",
+        "match_type": "partial",  # Semantic search might find more relevant ones
+    },
+    # ===== HIERARCHICAL NAVIGATION TESTS =====
     {
         "id": "optional_direct_signal",
         "name": "Direct signal at optional level (Heartbeat)",
@@ -144,11 +271,18 @@ async def test_channel_finder_query(e2e_project_factory, test_case):
     config["channel_finder"]["pipeline_mode"] = pipeline_mode
 
     # Set database path in the correct location for the pipeline
-    database_path = (
+    # Check if database is in examples/ subdirectory or root channel_databases/
+    db_base = (
         Path(__file__).parent.parent.parent
-        / "src/osprey/templates/apps/control_assistant/data/channel_databases/examples"
-        / test_case["database"]
+        / "src/osprey/templates/apps/control_assistant/data/channel_databases"
     )
+    db_file = test_case["database"]
+
+    # Main databases are in root, examples are in examples/
+    if db_file in ["hierarchical.json", "middle_layer.json", "in_context.json"]:
+        database_path = db_base / db_file
+    else:
+        database_path = db_base / "examples" / db_file
 
     # Ensure the pipeline-specific config structure exists
     if "pipelines" not in config["channel_finder"]:
