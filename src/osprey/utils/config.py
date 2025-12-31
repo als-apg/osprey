@@ -439,6 +439,10 @@ class ConfigBuilder:
             "capability_selection_bypass_enabled": self._require_config(
                 "execution_control.agent_control.capability_selection_bypass_enabled", False
             ),
+            # Parallel execution control
+            "parallel_execution_enabled": self._require_config(
+                "execution_control.agent_control.parallel_execution_enabled", False
+            ),
             # Note: Execution limits (max_reclassifications, max_planning_attempts, etc.)
             # are now centralized in get_execution_limits() utility function
         }

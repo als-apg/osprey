@@ -221,7 +221,18 @@ def capability_node(cls):
         # Extract current step information using StateManager (lazy import to avoid circular imports)
         from osprey.state import StateManager
 
+        # Get step information - StateManager handles both parallel and sequential modes
         step = StateManager.get_current_step(state)
+        current_step_index = StateManager.get_current_step_index(state)
+        
+        # Log execution mode for debugging
+        agent_control = state.get("agent_control", {})
+        parallel_enabled = agent_control.get("parallel_execution_enabled", False)
+        if parallel_enabled:
+            logger.info(f"Capability {capability_name} executing step {current_step_index} (key={step.get('context_key')})")
+        else:
+            logger.info(f"Executing capability: {capability_name}")
+        
         start_time = time.time()
 
         try:
@@ -233,8 +244,6 @@ def capability_node(cls):
                         "progress": 0.1,
                     }
                 )
-
-            logger.info(f"Executing capability: {capability_name}")
 
             # Execute based on method type
             if is_static:
@@ -377,20 +386,35 @@ def _handle_capability_state_updates(
     state_updates = result.copy() if isinstance(result, dict) else {}
 
     # Step progression - advance to next step after successful execution
+    # NOTE: In parallel execution mode, do NOT increment planning_current_step_index
+    # The router will determine the next step based on execution_step_results
     current_step_index = StateManager.get_current_step_index(state)
-    state_updates["planning_current_step_index"] = current_step_index + 1
+    
+    # Check if we're in parallel execution mode
+    agent_control = state.get("agent_control", {})
+    parallel_enabled = agent_control.get("parallel_execution_enabled", False)
+    
+    if not parallel_enabled:
+        # Sequential mode: increment step index
+        state_updates["planning_current_step_index"] = current_step_index + 1
+    # In parallel mode: don't update planning_current_step_index
+    # The router tracks progress via execution_step_results
 
-    # Control flow updates
-    state_updates["control_current_step_retry_count"] = 0  # Reset retry count
-
-    # Clear retry state when capability succeeds
-    state_updates["control_has_error"] = False
-    state_updates["control_retry_count"] = 0
-    state_updates["control_error_info"] = None
+    # Control flow updates - skip in parallel mode to avoid concurrent updates
+    if not parallel_enabled:
+        state_updates["control_current_step_retry_count"] = 0  # Reset retry count
+        state_updates["control_has_error"] = False
+        state_updates["control_retry_count"] = 0
+        state_updates["control_error_info"] = None
+    # In parallel mode: don't update control flow fields
+    # The router will handle these after all parallel steps complete
 
     # Store step results with step information
     step_results = state.get("execution_step_results", {}).copy()
     step_key = step.get("context_key", f"{current_step_index}_{capability_name}")
+    
+    logger.info(f"Storing result for step {current_step_index} with key={step_key}, success=True")
+    
     step_results[step_key] = {
         "step_index": current_step_index,  # For explicit ordering
         "capability": capability_name,
@@ -403,13 +427,14 @@ def _handle_capability_state_updates(
     }
     state_updates["execution_step_results"] = step_results
 
-    # Update last result for router decision-making
-    state_updates["execution_last_result"] = {
-        "capability": capability_name,
-        "success": True,
-        "execution_time": execution_time,
-        "timestamp": datetime.now().isoformat(),
-    }
+    # Update last result for router decision-making (skip in parallel mode)
+    if not parallel_enabled:
+        state_updates["execution_last_result"] = {
+            "capability": capability_name,
+            "success": True,
+            "execution_time": execution_time,
+            "timestamp": datetime.now().isoformat(),
+        }
 
     logger.debug(f"State updates: step {current_step_index + 1}")
 

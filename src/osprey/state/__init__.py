@@ -93,6 +93,7 @@ from .state import (
     create_progress_event,
     create_status_update,
     merge_capability_context_data,
+    merge_execution_step_results,
 )
 from .state_manager import StateManager, get_execution_steps_summary
 
@@ -107,6 +108,7 @@ __all__ = [
     "create_progress_event",
     "get_execution_steps_summary",
     "merge_capability_context_data",
+    "merge_execution_step_results",
     # Session management (simplified)
     "SessionContext",
     # Execution components (keep as dataclasses)

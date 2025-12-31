@@ -156,6 +156,35 @@ def merge_capability_context_data(
     return result
 
 
+def merge_execution_step_results(
+    existing: dict[str, Any] | None, new: dict[str, Any]
+) -> dict[str, Any]:
+    """Merge execution step results for parallel execution support.
+    
+    This custom reducer enables multiple parallel capabilities to update
+    execution_step_results simultaneously without conflicts. Each capability
+    updates its own step key, so we can safely merge the dictionaries.
+    
+    :param existing: Existing execution step results from previous state
+    :type existing: Optional[Dict[str, Any]]
+    :param new: New execution step results to merge
+    :type new: Dict[str, Any]
+    :return: Merged dictionary with all step results
+    :rtype: Dict[str, Any]
+    """
+    if existing is None:
+        return copy.deepcopy(new)
+    
+    # Deep copy existing to avoid mutation
+    result = copy.deepcopy(existing)
+    
+    # Merge in new results - each step has a unique key
+    for step_key, step_data in new.items():
+        result[step_key] = copy.deepcopy(step_data)
+    
+    return result
+
+
 # ===== MAIN CONVERSATIONAL STATE =====
 
 
@@ -272,7 +301,7 @@ class AgentState(MessagesState):
     planning_current_step_index: int
 
     # Execution fields
-    execution_step_results: dict[str, Any]
+    execution_step_results: Annotated[dict[str, Any], merge_execution_step_results]
     execution_last_result: ExecutionResult | None
     execution_pending_approvals: dict[str, ApprovalRequest]
     execution_start_time: float | None
