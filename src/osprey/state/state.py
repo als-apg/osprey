@@ -160,11 +160,11 @@ def merge_execution_step_results(
     existing: dict[str, Any] | None, new: dict[str, Any]
 ) -> dict[str, Any]:
     """Merge execution step results for parallel execution support.
-    
+
     This custom reducer enables multiple parallel capabilities to update
     execution_step_results simultaneously without conflicts. Each capability
     updates its own step key, so we can safely merge the dictionaries.
-    
+
     :param existing: Existing execution step results from previous state
     :type existing: Optional[Dict[str, Any]]
     :param new: New execution step results to merge
@@ -174,14 +174,14 @@ def merge_execution_step_results(
     """
     if existing is None:
         return copy.deepcopy(new)
-    
+
     # Deep copy existing to avoid mutation
     result = copy.deepcopy(existing)
-    
+
     # Merge in new results - each step has a unique key
     for step_key, step_data in new.items():
         result[step_key] = copy.deepcopy(step_data)
-    
+
     return result
 
 
