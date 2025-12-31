@@ -80,12 +80,18 @@ def test_agent_control_defaults_structure():
     defaults = get_agent_control_defaults()
 
     # Should include all expected fields
+    # Note: max_reclassifications and max_planning_attempts are now in execution_limits
     expected_fields = [
         "planning_mode_enabled",
         "epics_writes_enabled",
+        "control_system_writes_enabled",
+        "approval_global_mode",
+        "python_execution_approval_enabled",
+        "python_execution_approval_mode",
+        "memory_approval_enabled",
+        "task_extraction_bypass_enabled",
+        "capability_selection_bypass_enabled",
         "parallel_execution_enabled",
-        "max_reclassifications",
-        "max_planning_attempts",
     ]
 
     for field in expected_fields:
@@ -101,16 +107,18 @@ def test_parallel_execution_type_validation():
 
 
 def test_state_manager_preserves_agent_control():
-    """Test that StateManager preserves agent_control settings."""
+    """Test that StateManager resets agent_control to defaults for new conversations."""
     # Create initial state with parallel execution enabled
     state1 = StateManager.create_fresh_state("Query 1")
     state1["agent_control"]["parallel_execution_enabled"] = True
 
-    # Create new state (should reset agent_control to defaults)
+    # Create new state with current_state (should reset agent_control to defaults)
     state2 = StateManager.create_fresh_state("Query 2", current_state=state1)
 
-    # agent_control should be reset to defaults (not preserved)
-    assert state2["agent_control"]["parallel_execution_enabled"] is False
+    # agent_control should be reset to defaults (not preserved from state1)
+    # The defaults come from config, so we need to check what the actual default is
+    defaults = get_agent_control_defaults()
+    assert state2["agent_control"]["parallel_execution_enabled"] == defaults["parallel_execution_enabled"]
 
 
 def test_parallel_execution_independent_of_other_settings():

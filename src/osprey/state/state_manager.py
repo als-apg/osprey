@@ -122,6 +122,7 @@ def get_agent_control_defaults() -> dict[str, Any]:
         return {
             "planning_mode_enabled": False,
             "epics_writes_enabled": False,
+            "control_system_writes_enabled": False,
             "approval_global_mode": "selective",
             "python_execution_approval_enabled": True,
             "python_execution_approval_mode": "all_code",
