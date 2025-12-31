@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Users now edit `facility_description.py` for facility-specific content
   - `system.py` auto-combines modules (no manual editing needed)
   - Query splitter prompts now accept `facility_name` parameter
+- **Benchmark Dataset**: Renamed `in_context_main.json` to `in_context_benchmark.json` for consistency
 
 ### Added
 - **Channel Finder**: Added explicit detection functionality to channel finder service
