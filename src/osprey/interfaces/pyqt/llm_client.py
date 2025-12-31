@@ -122,8 +122,15 @@ class SimpleLLMClient:
         logger.debug(f"Loading GUI config from: {gui_config_path}")
 
         # Load config file
-        with open(gui_config_path) as f:
-            config = yaml.safe_load(f)
+        try:
+            with open(gui_config_path) as f:
+                config = yaml.safe_load(f)
+        except FileNotFoundError as err:
+            raise FileNotFoundError(
+                f"GUI configuration file not found at {gui_config_path}.\n"
+                f"Please ensure gui_config.yml exists in the pyqt directory with "
+                f"a 'classifier' model configured for your facility's LLM provider."
+            ) from err
 
         # Get classifier model configuration (user's explicit choice)
         models = config.get("models", {})

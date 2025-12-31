@@ -111,11 +111,16 @@ class OspreyGUI(QMainWindow):
 
     def __init__(self, config_path=None):
         super().__init__()
-        # If no config path provided, use the GUI-specific config file
+
+        # Check for gui_config.yml and provide helpful error if missing
         if config_path is None:
             gui_config = Path(__file__).parent / "gui_config.yml"
-            if gui_config.exists():
-                config_path = str(gui_config)
+            if not gui_config.exists():
+                # Show error dialog before initializing GUI
+                self._show_missing_config_error(gui_config)
+                raise FileNotFoundError(f"Required configuration file not found: {gui_config}")
+            config_path = str(gui_config)
+
         self.config_path = config_path
         self.graph = None
         self.gateway = None
@@ -287,6 +292,48 @@ class OspreyGUI(QMainWindow):
         except Exception as e:
             logger.exception(f"Error during GUI initialization: {e}")
             raise
+
+    def _show_missing_config_error(self, gui_config_path: Path):
+        """Show user-friendly error dialog for missing gui_config.yml.
+
+        Args:
+            gui_config_path: Path where gui_config.yml should be located
+        """
+        from PyQt5.QtWidgets import QMessageBox
+
+        # Create a minimal QApplication if one doesn't exist yet
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication(sys.argv)
+
+        error_msg = (
+            f"<h3>❌ Missing Configuration File</h3>"
+            f"<p>The GUI requires <b>gui_config.yml</b> to start, but it was not found.</p>"
+            f"<p><b>Expected location:</b><br><code>{gui_config_path}</code></p>"
+            f"<hr>"
+            f"<p><b>To fix this issue:</b></p>"
+            f"<ol>"
+            f"<li>Copy the example configuration file:<br>"
+            f"<code>cp gui_config.yml.example gui_config.yml</code></li>"
+            f"<li>Edit <code>gui_config.yml</code> to configure your LLM provider</li>"
+            f"<li>Set the required environment variable (e.g., <code>ARGO_API_KEY</code>)</li>"
+            f"<li>Restart the GUI</li>"
+            f"</ol>"
+            f"<hr>"
+            f"<p><b>What to configure:</b></p>"
+            f"<ul>"
+            f"<li><b>models.classifier</b> - LLM model for routing queries between projects</li>"
+            f"<li><b>api.providers</b> - API credentials for your LLM provider</li>"
+            f"</ul>"
+            f"<p>See <code>gui_config.yml.example</code> for a complete template with all available options.</p>"
+        )
+
+        msg_box = QMessageBox()
+        msg_box.setIcon(QMessageBox.Critical)
+        msg_box.setWindowTitle("Osprey GUI - Configuration Required")
+        msg_box.setText(error_msg)
+        msg_box.setStandardButtons(QMessageBox.Ok)
+        msg_box.exec_()
 
     def _setup_event_subscriptions(self):
         """Subscribe to event bus events."""
