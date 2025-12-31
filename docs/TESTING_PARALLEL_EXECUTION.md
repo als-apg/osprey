@@ -11,18 +11,21 @@ The parallel execution feature includes comprehensive tests. Run them to verify 
 ```bash
 cd osprey
 
-# Run only the parallel execution tests
+# Run only the parallel execution tests (52 tests)
+pytest tests/ -k parallel -v
+
+# Or run specific test files
 pytest tests/base/test_decorators_parallel_execution.py \
        tests/infrastructure/test_router_parallel_execution.py \
        tests/integration/test_parallel_execution_integration.py \
        tests/state/test_execution_step_results_reducer.py \
        tests/utils/test_config_parallel_execution.py -v
 
-# Or run all tests to ensure no regressions
+# Or run all tests to ensure no regressions (1000+ tests)
 pytest tests/ -v
 ```
 
-**Expected result**: All tests should pass ✅
+**Expected result**: All 52 parallel execution tests should pass ✅
 
 ### Option 2: Quick Pre-commit Check
 

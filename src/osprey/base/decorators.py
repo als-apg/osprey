@@ -224,15 +224,17 @@ def capability_node(cls):
         # Get step information - StateManager handles both parallel and sequential modes
         step = StateManager.get_current_step(state)
         current_step_index = StateManager.get_current_step_index(state)
-        
+
         # Log execution mode for debugging
         agent_control = state.get("agent_control", {})
         parallel_enabled = agent_control.get("parallel_execution_enabled", False)
         if parallel_enabled:
-            logger.info(f"Capability {capability_name} executing step {current_step_index} (key={step.get('context_key')})")
+            logger.info(
+                f"Capability {capability_name} executing step {current_step_index} (key={step.get('context_key')})"
+            )
         else:
             logger.info(f"Executing capability: {capability_name}")
-        
+
         start_time = time.time()
 
         try:
@@ -389,11 +391,11 @@ def _handle_capability_state_updates(
     # NOTE: In parallel execution mode, do NOT increment planning_current_step_index
     # The router will determine the next step based on execution_step_results
     current_step_index = StateManager.get_current_step_index(state)
-    
+
     # Check if we're in parallel execution mode
     agent_control = state.get("agent_control", {})
     parallel_enabled = agent_control.get("parallel_execution_enabled", False)
-    
+
     if not parallel_enabled:
         # Sequential mode: increment step index
         state_updates["planning_current_step_index"] = current_step_index + 1
@@ -412,9 +414,9 @@ def _handle_capability_state_updates(
     # Store step results with step information
     step_results = state.get("execution_step_results", {}).copy()
     step_key = step.get("context_key", f"{current_step_index}_{capability_name}")
-    
+
     logger.info(f"Storing result for step {current_step_index} with key={step_key}, success=True")
-    
+
     step_results[step_key] = {
         "step_index": current_step_index,  # For explicit ordering
         "capability": capability_name,

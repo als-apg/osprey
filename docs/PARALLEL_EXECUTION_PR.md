@@ -261,6 +261,80 @@ As detailed in Issue #19, this implementation uses LangGraph's native BSP execut
 - State updates lost (reducers not applied)
 - Graph flow broken (edges never traversed)
 
+### Why Send() API Instead of list[str]?
+
+The initial suggestion in Issue #19 was to return `list[str]` from the router for parallel execution. However, we implemented using LangGraph's `Send()` API instead for critical technical reasons:
+
+**The Problem with list[str] Approach:**
+```python
+# Initial suggestion - DOESN'T WORK for our use case
+def router(state):
+    return ["capability_1", "capability_2"]  # Execute in parallel
+```
+
+This approach has a **fatal flaw** for Osprey's architecture: all parallel capabilities receive the **same state** with the **same `planning_current_step_index`**. This means:
+- ❌ All capabilities would try to execute step 0 (or whatever the current index is)
+- ❌ No way to tell each capability which specific step it should execute
+- ❌ Capabilities would read the wrong step's `task_objective`, `inputs`, and `context_key`
+- ❌ Results would be stored with incorrect step indices
+
+**The Send() Solution:**
+```python
+# Our implementation - WORKS correctly
+def router(state):
+    return [
+        Send("capability_1", {**state, "planning_current_step_index": 0}),
+        Send("capability_2", {**state, "planning_current_step_index": 1}),
+    ]
+```
+
+✅ **Why Send() is Essential:**
+- Each `Send()` command can pass a **modified state** to its target capability
+- We inject the correct `planning_current_step_index` for each parallel step
+- Each capability executes its assigned step with the correct context
+- Results are stored with the correct step indices
+- Maintains proper step isolation and data flow
+
+**Real-World Example:**
+
+Consider a plan with two independent PV reads:
+```python
+steps = [
+    PlannedStep(context_key="step_0", capability="pv_reader", task_objective="Read PV A"),
+    PlannedStep(context_key="step_1", capability="pv_reader", task_objective="Read PV B"),
+    PlannedStep(context_key="step_2", capability="respond", inputs=["step_0", "step_1"])
+]
+```
+
+With `list[str]`:
+- Both `pv_reader` calls would get `planning_current_step_index=0`
+- Both would try to read "PV A" (step 0's objective)
+- Step 1 would never execute correctly
+
+With `Send()`:
+- First `pv_reader` gets `planning_current_step_index=0` → reads "PV A"
+- Second `pv_reader` gets `planning_current_step_index=1` → reads "PV B"
+- Each stores results under correct step key
+- Step 2 can access both results correctly
+
+**Technical Implementation:**
+
+The `Send()` API is used in [`router_node.py`](src/osprey/infrastructure/router_node.py) lines 356-377:
+```python
+send_commands = []
+for idx in parallel_indices:
+    step = plan_steps[idx]
+    step_capability = step.get("capability", "respond")
+
+    # Create Send command WITH step index in state
+    parallel_state = {**state, "planning_current_step_index": idx}
+    send_commands.append(Send(step_capability, parallel_state))
+
+return send_commands
+```
+
+This approach is the **only way** to achieve true parallel execution while maintaining correct step-to-capability mapping in Osprey's execution model.
+
 ### Future Enhancements
 
 - Automatic detection of parallelizable steps based on dependency analysis

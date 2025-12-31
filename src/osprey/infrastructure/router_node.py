@@ -70,18 +70,18 @@ class RouterNode(BaseInfrastructureNode):
 def _get_next_executable_batch(steps: list[PlannedStep], completed_indices: set[int]) -> list[int]:
     """
     Determine which steps can be executed in parallel based on dependencies.
-    
+
     This function analyzes the execution plan to find all steps that:
     1. Haven't been completed yet
     2. Have all their dependencies satisfied
-    
+
     Args:
         steps: List of planned steps from the execution plan
         completed_indices: Set of step indices that have been completed
-        
+
     Returns:
         List of step indices that can be executed in parallel
-        
+
     Example:
         >>> steps = [
         ...     PlannedStep(context_key="step_0", capability="pv_reader", inputs=[]),
@@ -95,16 +95,16 @@ def _get_next_executable_batch(steps: list[PlannedStep], completed_indices: set[
         [2]  # Step 2 can run after 0 and 1 complete
     """
     executable = []
-    
+
     for idx, step in enumerate(steps):
         # Skip if already completed
         if idx in completed_indices:
             continue
-            
+
         # Check if all dependencies are satisfied
         dependencies_satisfied = True
-        inputs = step.get('inputs', [])
-        
+        inputs = step.get("inputs", [])
+
         for input_spec in inputs:
             # input_spec is a dict like {"PV_DATA": "step_0"}
             # Extract the context_key from the value
@@ -112,21 +112,21 @@ def _get_next_executable_batch(steps: list[PlannedStep], completed_indices: set[
                 # Find the step index that produces this context_key
                 dep_idx = None
                 for dep_step_idx, dep_step in enumerate(steps):
-                    if dep_step.get('context_key') == context_key:
+                    if dep_step.get("context_key") == context_key:
                         dep_idx = dep_step_idx
                         break
-                
+
                 # If dependency not completed, this step can't execute yet
                 if dep_idx is not None and dep_idx not in completed_indices:
                     dependencies_satisfied = False
                     break
-            
+
             if not dependencies_satisfied:
                 break
-        
+
         if dependencies_satisfied:
             executable.append(idx)
-    
+
     return executable
 
 
@@ -307,25 +307,25 @@ def router_conditional_edge(state: AgentState) -> str | list[Send]:
     # Check if parallel execution is enabled
     agent_control = state.get("agent_control", {})
     parallel_enabled = agent_control.get("parallel_execution_enabled", False)
-    
+
     # Debug logging
     logger.debug(f"Agent control keys: {list(agent_control.keys())}")
     logger.debug(f"Parallel execution enabled: {parallel_enabled}")
-    
+
     if parallel_enabled and Send is not None:
         # Determine which steps have been completed
         step_results = state.get("execution_step_results", {})
         completed_indices = set()
-        
-        for step_key, result in step_results.items():
+
+        for _step_key, result in step_results.items():
             if result.get("success", False):
                 step_idx = result.get("step_index")
                 if step_idx is not None:
                     completed_indices.add(step_idx)
-        
+
         # Get next executable batch
         executable_indices = _get_next_executable_batch(plan_steps, completed_indices)
-        
+
         if len(executable_indices) == 0:
             # All steps completed - this shouldn't happen as orchestrator ensures
             # plans end with respond/clarify, but handle gracefully
@@ -335,44 +335,40 @@ def router_conditional_edge(state: AgentState) -> str | list[Send]:
             # Multiple steps can execute in parallel
             # BUT: Never include respond/clarify in parallel batch - they must wait for all data
             parallel_indices = []
-            final_step_index = None
-            
+
             for idx in executable_indices:
                 step = plan_steps[idx]
                 step_capability = step.get("capability", "respond")
-                
+
                 # Check if this is a final response step
                 if step_capability.lower() in ["respond", "clarify"]:
-                    final_step_index = idx
+                    # Skip final response steps - they must wait for all data
+                    pass
                 else:
                     parallel_indices.append(idx)
-            
+
             # If we have multiple non-response steps, execute them in parallel
             if len(parallel_indices) > 1:
                 logger.key_info(
                     f"Parallel execution: {len(parallel_indices)} steps can run simultaneously"
                 )
-                
+
                 # Create Send commands for each parallel step
                 send_commands = []
                 for idx in parallel_indices:
                     step = plan_steps[idx]
                     step_capability = step.get("capability", "respond")
-                    
+
                     # Validate capability exists
                     if not registry.get_node(step_capability):
-                        logger.error(
-                            f"Capability '{step_capability}' not registered - skipping"
-                        )
+                        logger.error(f"Capability '{step_capability}' not registered - skipping")
                         continue
-                    
+
                     # Create Send command WITH step index in state
                     parallel_state = {**state, "planning_current_step_index": idx}
-                    send_commands.append(
-                        Send(step_capability, parallel_state)
-                    )
+                    send_commands.append(Send(step_capability, parallel_state))
                     logger.key_info(f"  → Step {idx + 1}: {step_capability}")
-                
+
                 if send_commands:
                     return send_commands
                 # Fall through to sequential if no valid commands
@@ -383,23 +379,21 @@ def router_conditional_edge(state: AgentState) -> str | list[Send]:
             current_index = executable_indices[0]
             current_step = plan_steps[current_index]
             step_capability = current_step.get("capability", "respond")
-            
+
             logger.key_info(
                 f"Executing step {current_index + 1}/{len(plan_steps)} - capability: {step_capability}"
             )
-            
+
             # Validate capability exists
             if not registry.get_node(step_capability):
-                logger.error(
-                    f"Capability '{step_capability}' not registered - skipping"
-                )
+                logger.error(f"Capability '{step_capability}' not registered - skipping")
                 return "error"
-            
+
             # Use Send() to pass the correct step index in state
             # This ensures the capability gets step 2's information, not step 0's
             sequential_state = {**state, "planning_current_step_index": current_index}
             return [Send(step_capability, sequential_state)]
-    
+
     # Sequential execution (default or fallback)
     current_step = plan_steps[current_index]
 
