@@ -7,6 +7,7 @@ including state management, dependency analysis, and LangGraph integration.
 from unittest.mock import Mock, patch
 
 import pytest
+from langgraph.types import Send
 
 from osprey.base.planning import ExecutionPlan, PlannedStep
 from osprey.infrastructure.router_node import router_conditional_edge
@@ -71,12 +72,13 @@ def test_router_returns_parallel_steps_for_independent_tasks(mock_get_registry, 
     state["execution_step_results"] = {}
     state["agent_control"]["parallel_execution_enabled"] = True  # Enable parallel execution
 
-    # Router should return list of 3 capabilities for parallel execution
+    # Router should return list of 3 Send objects for parallel execution
     result = router_conditional_edge(state)
 
     assert isinstance(result, list)
     assert len(result) == 3
-    assert all(cap == "pv_reader" for cap in result)
+    assert all(isinstance(item, Send) for item in result)
+    assert all(item.node == "pv_reader" for item in result)
 
 
 @patch("osprey.infrastructure.router_node.get_registry")
@@ -122,11 +124,17 @@ def test_router_returns_single_step_after_parallel_completion(mock_get_registry,
     }
     state["agent_control"]["parallel_execution_enabled"] = True  # Enable parallel execution
 
-    # Router should return single capability for dependent step
+    # Router should return single Send object (or list with one Send) for dependent step
     result = router_conditional_edge(state)
 
-    assert isinstance(result, str)
-    assert result == "calculator"
+    # Handle both single Send and list[Send] with one element
+    if isinstance(result, list):
+        assert len(result) == 1
+        assert isinstance(result[0], Send)
+        assert result[0].node == "calculator"
+    else:
+        assert isinstance(result, Send)
+        assert result.node == "calculator"
 
 
 def test_state_reducer_merges_parallel_results():
@@ -199,12 +207,21 @@ def test_router_handles_sequential_execution(mock_get_registry, mock_registry):
     state["agent_control"]["parallel_execution_enabled"] = True  # Enable parallel execution
 
     result = router_conditional_edge(state)
-    assert result == "data_loader"
+    # Handle both single Send and list[Send] with one element
+    if isinstance(result, list):
+        assert len(result) == 1
+        assert result[0].node == "data_loader"
+    else:
+        assert result.node == "data_loader"
 
     # Test step 1 (depends on step 0)
     state["execution_step_results"] = {"step_0": {"step_index": 0, "success": True}}
     result = router_conditional_edge(state)
-    assert result == "data_processor"
+    if isinstance(result, list):
+        assert len(result) == 1
+        assert result[0].node == "data_processor"
+    else:
+        assert result.node == "data_processor"
 
     # Test step 2 (depends on step 1)
     state["execution_step_results"] = {
@@ -212,7 +229,11 @@ def test_router_handles_sequential_execution(mock_get_registry, mock_registry):
         "step_1": {"step_index": 1, "success": True},
     }
     result = router_conditional_edge(state)
-    assert result == "data_analyzer"
+    if isinstance(result, list):
+        assert len(result) == 1
+        assert result[0].node == "data_analyzer"
+    else:
+        assert result.node == "data_analyzer"
 
 
 @patch("osprey.infrastructure.router_node.get_registry")
@@ -265,6 +286,8 @@ def test_router_handles_mixed_parallel_and_sequential(mock_get_registry, mock_re
     result = router_conditional_edge(state)
     assert isinstance(result, list)
     assert len(result) == 3
+    assert all(isinstance(item, Send) for item in result)
+    assert all(item.node == "pv_reader" for item in result)
 
     # After parallel completion - should return single calculator step
     state["execution_step_results"] = {
@@ -274,8 +297,12 @@ def test_router_handles_mixed_parallel_and_sequential(mock_get_registry, mock_re
     }
 
     result = router_conditional_edge(state)
-    assert isinstance(result, str)
-    assert result == "calculator"
+    # Handle both single Send and list[Send] with one element
+    if isinstance(result, list):
+        assert len(result) == 1
+        assert result[0].node == "calculator"
+    else:
+        assert result.node == "calculator"
 
 
 @patch("osprey.infrastructure.router_node.get_registry")
@@ -319,10 +346,11 @@ def test_router_skips_completed_steps(mock_get_registry, mock_registry):
 
     result = router_conditional_edge(state)
 
-    # Should return only steps 1 and 2
+    # Should return only steps 1 and 2 as Send objects
     assert isinstance(result, list)
     assert len(result) == 2
-    assert all(cap == "pv_reader" for cap in result)
+    assert all(isinstance(item, Send) for item in result)
+    assert all(item.node == "pv_reader" for item in result)
 
 
 # ===== END-TO-END PARALLEL EXECUTION TESTS =====
@@ -525,7 +553,7 @@ def test_parallel_execution_disabled_uses_sequential_mode(mock_get_registry, moc
 
 @patch("osprey.infrastructure.router_node.get_registry")
 def test_parallel_execution_with_partial_failures(mock_get_registry, mock_registry):
-    """Test parallel execution when some steps fail."""
+    """Test parallel execution when some steps fail - router should retry failed steps."""
     mock_get_registry.return_value = mock_registry
 
     plan = ExecutionPlan(
@@ -568,9 +596,13 @@ def test_parallel_execution_with_partial_failures(mock_get_registry, mock_regist
 
     result = router_conditional_edge(state)
 
-    # Should still try to execute step 2 (calculator)
-    # The calculator will need to handle missing data from step 1
-    assert result == "calculator"
+    # Router should retry the failed step (step 1) rather than proceeding to step 2
+    # This is the correct behavior - don't skip failed dependencies
+    if isinstance(result, list):
+        assert len(result) == 1
+        assert result[0].node == "pv_reader"
+    else:
+        assert result.node == "pv_reader"
 
 
 def test_parallel_execution_preserves_step_ordering():
