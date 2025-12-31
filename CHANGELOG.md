@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Channel Finder**: Initialize `query_splitting` attribute in HierarchicalPipeline
+  - Fixes `AttributeError: 'HierarchicalPipeline' object has no attribute 'query_splitting'`
+
 ### Added
 - **Channel Finder**: Optional `query_splitting` parameter for hierarchical and middle_layer pipelines
   - Disable query splitting for facility-specific terminology that shouldn't be split

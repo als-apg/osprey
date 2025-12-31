@@ -92,6 +92,7 @@ class HierarchicalPipeline(BasePipeline):
         model_config: dict,
         facility_name: str = "control system",
         facility_description: str = "",
+        query_splitting: bool = True,
         **kwargs,
     ):
         """
@@ -102,16 +103,18 @@ class HierarchicalPipeline(BasePipeline):
             model_config: LLM model configuration
             facility_name: Name of facility
             facility_description: Facility description for context
+            query_splitting: Whether to split multi-part queries (disable for facility-specific lingo)
             **kwargs: Additional pipeline arguments
         """
         super().__init__(database, model_config, **kwargs)
         self.facility_name = facility_name
         self.facility_description = facility_description
+        self.query_splitting = query_splitting
 
-        # Load query splitter from shared prompts
+        # Load query splitter from shared prompts (only if query splitting is enabled)
         config_builder = _get_config()
-        prompts_module = load_prompts(config_builder.raw_config)
-        self.query_splitter = prompts_module.query_splitter
+        prompts_module = load_prompts(config_builder.raw_config, require_query_splitter=query_splitting)
+        self.query_splitter = getattr(prompts_module, 'query_splitter', None) if query_splitting else None
 
         # Load hierarchical navigation context from prompts (not database - separation of data vs instructions)
         if hasattr(prompts_module, "hierarchical_context"):
