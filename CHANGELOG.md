@@ -7,8 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Channel Finder**: Added explicit detection functionality to channel finder service
+  - New `explicit_detection.py` prompt module for detecting explicit channel names, PV names, and IOC names
+  - Updated `BasePipeline` with `build_result()` helper method for constructing pipeline results
+  - Enhanced all pipeline implementations (hierarchical, in-context, middle layer) to use explicit detection
+  - Added unit tests for explicit detection prompt and `build_result()` method
+  - Updated e2e tests to verify explicit detection behavior
+  - Configuration updates to include explicit detection in pipeline workflows
+
 ### Changed
 - 12/24/2025 Updated the Osprey Framework Components to version 0.9.9 and added the PyQt5 GUI
+- **Control Assistant**: Write access now enabled by default in control assistant template (`writes_enabled: true` for mock connector)
+  - Simplifies tutorial experience - users can test write operations immediately with mock connector
+  - Production deployments should carefully review hardware implications before enabling writes
 - **License**: Added explicit "BSD 3-Clause License" header to LICENSE.txt for clarity
 
 ### Documentation
