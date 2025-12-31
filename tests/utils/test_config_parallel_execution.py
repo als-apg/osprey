@@ -118,7 +118,10 @@ def test_state_manager_preserves_agent_control():
     # agent_control should be reset to defaults (not preserved from state1)
     # The defaults come from config, so we need to check what the actual default is
     defaults = get_agent_control_defaults()
-    assert state2["agent_control"]["parallel_execution_enabled"] == defaults["parallel_execution_enabled"]
+    assert (
+        state2["agent_control"]["parallel_execution_enabled"]
+        == defaults["parallel_execution_enabled"]
+    )
 
 
 def test_parallel_execution_independent_of_other_settings():
