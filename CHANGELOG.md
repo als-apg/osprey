@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Channel Finder**: Optional `query_splitting` parameter for hierarchical and middle_layer pipelines
+  - Disable query splitting for facility-specific terminology that shouldn't be split
+  - Enabled by default for backward compatibility
+
 ### Changed
 - **Channel Finder Prompts**: Modularized prompt structure across all pipelines
   - Split `system.py` into `facility_description.py` (REQUIRED) and `matching_rules.py` (OPTIONAL)

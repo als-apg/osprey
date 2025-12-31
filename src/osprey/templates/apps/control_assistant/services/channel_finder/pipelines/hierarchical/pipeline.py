@@ -187,16 +187,20 @@ class HierarchicalPipeline(BasePipeline):
             logger.info(f"  → [dim]{detection_result.reasoning}[/dim]")
             logger.info("  → Proceeding with hierarchical navigation")
 
-        # Stage 1: Split query into atomic queries
-        atomic_queries = await self._split_query(query)
-        logger.info(
-            f"[bold cyan]Stage 1:[/bold cyan] Split into {len(atomic_queries)} atomic quer{'y' if len(atomic_queries) == 1 else 'ies'}"
-        )
+        # Stage 1: Split query into atomic queries (optional)
+        if self.query_splitting:
+            atomic_queries = await self._split_query(query)
+            logger.info(
+                f"[bold cyan]Stage 1:[/bold cyan] Split into {len(atomic_queries)} atomic quer{'y' if len(atomic_queries) == 1 else 'ies'}"
+            )
 
-        # Only show individual queries if there are multiple (avoid redundancy for single query)
-        if len(atomic_queries) > 1:
-            for i, aq in enumerate(atomic_queries, 1):
-                logger.info(f"  → Query {i}: {aq}")
+            # Only show individual queries if there are multiple (avoid redundancy for single query)
+            if len(atomic_queries) > 1:
+                for i, aq in enumerate(atomic_queries, 1):
+                    logger.info(f"  → Query {i}: {aq}")
+        else:
+            atomic_queries = [query]
+            logger.info("[bold cyan]Stage 1:[/bold cyan] Query splitting disabled, using original query")
 
         # Stage 2: Navigate hierarchy for each atomic query
         all_channels = []
