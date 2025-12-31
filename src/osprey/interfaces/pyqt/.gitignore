@@ -1,0 +1,8 @@
+# Site-specific configuration files
+gui_config.yml
+
+# Backup files
+*.backup
+*.py.backup
+*.save
+*~

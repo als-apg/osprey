@@ -109,6 +109,10 @@ def _validate_and_fix_execution_plan(
             f"The system will automatically retry with reclassification."
         )
         logger.error(error_msg)
+        logger.warning(
+            f"Hallucinated capabilities detected. The orchestrator attempted to use {hallucinated_capabilities} "
+            f"which are not registered in this project. This will trigger automatic reclassification."
+        )
         raise ValueError(error_msg)
 
     logger.debug("✅ All capabilities in execution plan exist in registry")
