@@ -6,12 +6,15 @@ import textwrap
 def get_prompt(facility_name: str = "Example Middle Layer Accelerator") -> str:
     """Prompt for Stage 1: Query splitting.
 
+    Args:
+        facility_name: Name of the facility for context
+
     Returns:
         Formatted prompt string for query splitting
     """
     return textwrap.dedent(
-        """
-        You are a query analyzer for the Example Middle Layer Accelerator control system.
+        f"""
+        You are a query analyzer for the {facility_name} control system.
 
         Your task is to split user queries into atomic sub-queries. Each atomic query
         should request a single channel or a homogeneous group of channels.
@@ -24,17 +27,17 @@ def get_prompt(facility_name: str = "Example Middle Layer Accelerator") -> str:
 
         MIDDLE LAYER FUNCTIONAL HIERARCHY:
         Channels are organized functionally: System → Family → Field → (Subfield) → ChannelNames
-        - System: SR (Storage Ring), BR (Booster), VAC (Vacuum), BTS (Transfer Line)
-        - Family: BPM, HCM, VCM, QF, QD, SF, SD, DCCT, RF, IonPump, Gauge, etc.
-        - Field: Monitor, Setpoint, OnControl, SumSignal, Pressure, Voltage, etc.
-        - Subfield: (Optional) X, Y, Frequency, Voltage, Forward, Reflected
+        - System: SR (Storage Ring), BR (Booster Ring), BTS (Booster-to-Storage Transfer Line)
+        - Family: BPM, HCM, VCM, QF, QD, SF, SD, BEND, DCCT, RF, VAC, ID, Tune, Thermocouple, Scraper, etc.
+        - Field: Monitor, Setpoint, X, Y, Pressure, FrequencyMonitor, VoltageSetpoint, etc.
+        - Subfield: (Optional) IonPump/Gauge under VAC, Forward/Reflected under PowerMonitor
 
         SPLITTING GUIDELINES:
         - "BPM 5 horizontal position" → ["BPM 5 horizontal position"] (single device, single field)
-        - "beam position and current" → ["beam position", "current"] (different families)
+        - "beam position and current" → ["beam position", "current"] (different families: BPM vs DCCT)
         - "all horizontal correctors" → ["all horizontal correctors"] (single family)
-        - "vacuum pressure and RF frequency" → ["vacuum pressure", "RF frequency"] (different systems)
-        - "horizontal and vertical position at BPM 8" → ["horizontal and vertical position at BPM 8"] (same family, related subfields)
+        - "vacuum pressure and RF frequency" → ["vacuum pressure", "RF frequency"] (different families: VAC vs RF)
+        - "horizontal and vertical position at BPM 8" → ["horizontal and vertical position at BPM 8"] (same family, related fields)
 
         EXAMPLES:
         - "Show me horizontal corrector 5 setpoint" → ["Show me horizontal corrector 5 setpoint"]

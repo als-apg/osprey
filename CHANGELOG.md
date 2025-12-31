@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Channel Finder Prompts**: Modularized prompt structure across all pipelines
+  - Split `system.py` into `facility_description.py` (REQUIRED) and `matching_rules.py` (OPTIONAL)
+  - Users now edit `facility_description.py` for facility-specific content
+  - `system.py` auto-combines modules (no manual editing needed)
+  - Query splitter prompts now accept `facility_name` parameter
+
 ### Added
 - **Channel Finder**: Added explicit detection functionality to channel finder service
   - New `explicit_detection.py` prompt module for detecting explicit channel names, PV names, and IOC names

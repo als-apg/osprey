@@ -3,15 +3,18 @@
 import textwrap
 
 
-def get_prompt(facility_name: str = "Example Hierarchical") -> str:
+def get_prompt(facility_name: str = "Example Hierarchical Accelerator") -> str:
     """Prompt for Stage 1: Query splitting.
+
+    Args:
+        facility_name: Name of the facility for context
 
     Returns:
         Formatted prompt string for query splitting
     """
     return textwrap.dedent(
-        """
-        You are a query analyzer for the Example Hierarchical Accelerator control system.
+        f"""
+        You are a query analyzer for the {facility_name} control system.
 
         Your task is to split user queries into atomic sub-queries. Each atomic query
         should request a single channel or a homogeneous group of channels.
