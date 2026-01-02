@@ -331,7 +331,7 @@ def set_control_system(system_type: str, project: str):
       osprey config set-control-system tango
     """
     try:
-        from osprey.generators.config_updater import update_control_system_type
+        from osprey.generators.config_updater import set_control_system_type
 
         from .project_utils import resolve_config_path
 
@@ -358,7 +358,8 @@ def set_control_system(system_type: str, project: str):
             raise click.Abort() from None
 
         # Update configuration
-        update_control_system_type(config_path, system_type.lower())
+        new_content, preview = set_control_system_type(config_path, system_type.lower())
+        config_path.write_text(new_content)
 
         console.print(f"✅ Control system type updated to: [bold]{system_type}[/bold]")
         console.print(f"   Configuration: {config_path}", style=Styles.DIM)
@@ -404,7 +405,7 @@ def set_epics_gateway(facility: str, address: str, port: int, project: str):
           --address gateway.example.com --port 5064
     """
     try:
-        from osprey.generators.config_updater import update_epics_gateway
+        from osprey.generators.config_updater import set_epics_gateway_config
 
         from .project_utils import resolve_config_path
 
@@ -435,7 +436,13 @@ def set_epics_gateway(facility: str, address: str, port: int, project: str):
             raise click.Abort() from None
 
         # Update configuration
-        update_epics_gateway(config_path, facility, address, port)
+        custom_config = None
+        if facility == "custom":
+            custom_config = {
+                "read_only": {"address": address, "port": port, "use_name_server": False}
+            }
+        new_content, preview = set_epics_gateway_config(config_path, facility, custom_config)
+        config_path.write_text(new_content)
 
         console.print("✅ EPICS gateway updated")
         console.print(f"   Configuration: {config_path}", style=Styles.DIM)
