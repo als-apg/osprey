@@ -130,8 +130,12 @@ class MiddleLayerPipeline(BasePipeline):
 
         # Load query splitter prompt (only if enabled)
         config_builder = _get_config()
-        prompts_module = load_prompts(config_builder.raw_config, require_query_splitter=query_splitting)
-        self.query_splitter = getattr(prompts_module, 'query_splitter', None) if query_splitting else None
+        prompts_module = load_prompts(
+            config_builder.raw_config, require_query_splitter=query_splitting
+        )
+        self.query_splitter = (
+            getattr(prompts_module, "query_splitter", None) if query_splitting else None
+        )
 
         # Agent will be created lazily on first use
         self._agent = None
@@ -525,7 +529,9 @@ Example workflow:
                     logger.info(f"  → Query {i}: {aq}")
         else:
             atomic_queries = [query]
-            logger.info("[bold cyan]Stage 1:[/bold cyan] Query splitting disabled, using original query")
+            logger.info(
+                "[bold cyan]Stage 1:[/bold cyan] Query splitting disabled, using original query"
+            )
 
         # Stage 2: Process each query with React agent
         all_channels = []

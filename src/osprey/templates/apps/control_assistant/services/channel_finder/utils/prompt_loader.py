@@ -35,7 +35,9 @@ def load_prompts(config: dict, require_query_splitter: bool = True) -> Any:
     pipeline_prompts_path = pipeline_prompts_config.get("path", "")
 
     if pipeline_prompts_path:
-        prompts = _try_load_prompts_directly(pipeline_prompts_path, pipeline_mode, require_query_splitter)
+        prompts = _try_load_prompts_directly(
+            pipeline_prompts_path, pipeline_mode, require_query_splitter
+        )
         if prompts:
             logger.info(
                 f"[dim]✓ Loaded pipeline-specific prompts from {pipeline_prompts_path}[/dim]"
@@ -71,7 +73,9 @@ def load_prompts(config: dict, require_query_splitter: bool = True) -> Any:
     )
 
 
-def _try_load_prompts_directly(prompts_path: str, pipeline_mode: str = "in_context", require_query_splitter: bool = True) -> Any | None:
+def _try_load_prompts_directly(
+    prompts_path: str, pipeline_mode: str = "in_context", require_query_splitter: bool = True
+) -> Any | None:
     """Try to load prompts module directly from specified path.
 
     Args:
