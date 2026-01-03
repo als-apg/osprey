@@ -122,6 +122,7 @@ def get_agent_control_defaults() -> dict[str, Any]:
         return {
             "planning_mode_enabled": False,
             "epics_writes_enabled": False,
+            "control_system_writes_enabled": False,
             "approval_global_mode": "selective",
             "python_execution_approval_enabled": True,
             "python_execution_approval_mode": "all_code",
@@ -134,6 +135,8 @@ def get_agent_control_defaults() -> dict[str, Any]:
             # Bypass configuration defaults
             "task_extraction_bypass_enabled": False,
             "capability_selection_bypass_enabled": False,
+            # Parallel execution control
+            "parallel_execution_enabled": False,
         }
 
 
