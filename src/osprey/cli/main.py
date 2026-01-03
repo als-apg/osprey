@@ -40,7 +40,7 @@ if sys.platform == "win32":
 try:
     from osprey import __version__
 except ImportError:
-    __version__ = "0.9.9"
+    __version__ = "0.9.10"
 
 
 # PERFORMANCE OPTIMIZATION: Lazy command loading
