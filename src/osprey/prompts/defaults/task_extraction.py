@@ -219,23 +219,6 @@ class DefaultTaskExtractionPromptBuilder(FrameworkPromptBuilder):
             )
         )
 
-        # Multiple distinct questions in one message
-        self.examples.append(
-            TaskExtractionExample(
-                messages=[
-                    MessageUtils.create_user_message(
-                        "What is the weather like in San Francisco? Can you also tell me the system status and the current CPU usage?"
-                    ),
-                ],
-                user_memory=UserMemories(entries=[]),
-                expected_output=ExtractedTask(
-                    task="Provide three pieces of information: 1) Current weather conditions in San Francisco, 2) Current system status, and 3) Current CPU usage",
-                    depends_on_chat_history=False,
-                    depends_on_user_memory=False,
-                ),
-            )
-        )
-
         # Examples with memory
 
         # Memory-informed request referring to previously saved information
@@ -340,8 +323,6 @@ Core requirements:
 • Determine if task builds on previous conversation context
 • Consider available data sources when interpreting requests
 • Set depends_on_user_memory=true only when the task directly incorporates specific information from user memory
-• If the user asks multiple distinct questions in one message, extract ALL of them into a comprehensive task description
-• Preserve all specific details (locations, names, times, etc.) from the original query
         """.strip()
 
     def get_system_instructions(self, messages: list[BaseMessage], retrieval_result=None) -> str:

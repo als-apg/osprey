@@ -278,10 +278,6 @@ class Pipeline:
             default=False, description="Enable planning mode for complex tasks"
         )
 
-        parallel_execution_enabled: bool = Field(
-            default=True, description="Enable parallel execution of independent steps"
-        )
-
         # Execution limits
 
         max_execution_time: int = Field(
@@ -616,7 +612,6 @@ class Pipeline:
             {
                 # Agent control overrides from valves
                 "planning_mode_enabled": self.valves.planning_mode_enabled,
-                "parallel_execution_enabled": self.valves.parallel_execution_enabled,
                 "epics_writes_enabled": self.valves.epics_writes_enabled,
                 "debug_mode": self.valves.debug_mode,
                 "verbose_logging": self.valves.verbose_logging,

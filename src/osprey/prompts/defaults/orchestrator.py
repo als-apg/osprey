@@ -36,8 +36,7 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
                 {"ANALYSIS_RESULTS": "some_analysis_context"}
               ]
               **CRITICAL**: Include ALL required context sources! Complex operations often need multiple inputs.
-            - parameters: Optional dict for step-specific configuration (e.g., {"precision_ms": 1000, "location": "San Francisco"})
-              **IMPORTANT**: Parameter values MUST be simple types (string, number, or boolean) - NOT lists or nested objects
+            - parameters: Optional dict for step-specific configuration (e.g., {"precision_ms": 1000})
 
             Planning Guidelines:
             1. Dependencies between steps (ensure proper sequencing)

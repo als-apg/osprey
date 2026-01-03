@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Documentation**: Fixed workflow file references to use correct `@src/osprey/workflows/` path for copy-paste into Claude Code and Cursor
+
+## [0.9.10] - 2025-01-03
+
+### Fixed
+- **Channel Finder**: Initialize `query_splitting` attribute in HierarchicalPipeline
+  - Fixes `AttributeError: 'HierarchicalPipeline' object has no attribute 'query_splitting'`
+
+### Added
+- **Channel Finder**: Optional `query_splitting` parameter for hierarchical and middle_layer pipelines
+  - Disable query splitting for facility-specific terminology that shouldn't be split
+  - Enabled by default for backward compatibility
+
+### Changed
+- **Channel Finder Prompts**: Modularized prompt structure across all pipelines
+  - Split `system.py` into `facility_description.py` (REQUIRED) and `matching_rules.py` (OPTIONAL)
+  - Users now edit `facility_description.py` for facility-specific content
+  - `system.py` auto-combines modules (no manual editing needed)
+  - Query splitter prompts now accept `facility_name` parameter
+- **Benchmark Dataset**: Renamed `in_context_main.json` to `in_context_benchmark.json` for consistency
+- **Documentation**: Updated control assistant tutorials for modular prompt structure
+  - Part 1: Updated directory structure with new prompt file layout
+  - Part 2: Added cross-references to prompt customization section
+  - Part 4: Expanded channel finder prompt customization with step-by-step guidance
+
 ### Added
 - **Channel Finder**: Added explicit detection functionality to channel finder service
   - New `explicit_detection.py` prompt module for detecting explicit channel names, PV names, and IOC names
@@ -15,9 +41,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added unit tests for explicit detection prompt and `build_result()` method
   - Updated e2e tests to verify explicit detection behavior
   - Configuration updates to include explicit detection in pipeline workflows
+- **Tests**: `test_memory_capability.py`: 32 tests for memory operations, context, exceptions, and helper functions (37.7% → 62.4% coverage)
+- **Tests**: `test_logging.py`: 27 tests for API call logging, caller info extraction, and file creation (29.1% → 55.7% coverage)
+- **Tests**: `test_models.py` (generators): 21 tests for capability generation Pydantic models (0% → 100% coverage)
+- **Tests**: `test_models_utilities.py` (python_executor): 39 tests for execution error handling, notebook tracking, and utility functions
+- **Tests**: `test_models.py` (memory_storage): 13 tests for memory content formatting and validation (0% → 100% coverage)
+- **Tests**: `test_storage_manager.py`: 22 tests for memory persistence, file operations, and entry management (24.1% → 72.4% coverage)
+- **Tests**: `test_memory_provider.py`: 23 tests for memory data source integration and prompt formatting (32.2% → 94.9% coverage)
+- **Tests**: `test_providers_argo.py`: 27 tests for ARGO provider adapter (18.6% → 54.8% coverage)
+- **Tests**: `test_providers_ollama.py`: 31 tests for Ollama provider with fallback logic (24.2% → 96.0% coverage)
+- **Tests**: `test_providers_anthropic.py`: 27 tests for Anthropic provider metadata, model creation, and health checks (23.5% → 50.0% coverage)
+- **Tests**: `test_completion.py`: 28 tests for TypedDict conversion and proxy validation (30.9% → 58.0% coverage)
+- **Tests**: `test_logging.py`: 19 tests for API call context and result sanitization (13.3% → 29.1% coverage)
+- **Tests**: `test_respond_node.py`: 26 tests for response generation, context gathering, and mode determination (37.7% → 72.1% coverage, infrastructure module 54.7% → 58.4%)
+- **Tests**: `test_task_extraction_node.py`: 25 tests for task extraction, data source integration, and error classification (33.0% → 62.1% coverage, infrastructure module 52.1% → 54.7%)
+- **Tests**: `test_error_node.py`: 29 tests for error response generation and context handling (33.6% → 91.8% coverage, infrastructure module 45.2% → 52.1%)
+- **Tests**: Expanded infrastructure and models tests - 40 new tests for error classification, retry policies, and helper functions (infrastructure module 37.2% → 45.2%, overall 45.8% → 46.4%)
+- **Tests**: Added comprehensive tests for CLI and deployment modules (coverage expansion)
+  - `test_preview_styles.py`: 23 tests for theme preview and color display functionality (0% → 88.1% coverage)
+  - `test_main.py`: 23 tests for CLI entry point and lazy command loading (28.6% → 95.2% coverage)
+  - `test_health_cmd.py`: 38 tests for health checks and environment diagnostics (0% → 69.6% coverage)
+  - `test_loader.py`: 55 tests for YAML loading, imports, and parameter management (0% → 86.6% coverage)
+  - `test_chat_cmd.py`: 15 tests for command execution and output formatting
+  - `test_export_config_cmd.py`: 16 tests for deprecation warnings and format options
+  - `test_deploy_cmd.py`: 23 tests for deployment actions (up/down/restart/status/build/clean/rebuild)
+  - `test_registry_cmd.py`: 22 tests for registry display functions
+  - `test_config_cmd.py`: 23 tests for config subcommands (show/export/set-control-system/set-epics-gateway/set-models)
+  - `test_remove_cmd.py`: 16 tests for capability removal and backups
+  - `test_generate_cmd.py`: 37 tests for code generation commands (capability/mcp-server/claude-config)
+  - `test_orchestration_node.py`: 12 tests for execution planning validation and error handling
+  - `test_classification_node.py`: 13 tests for capability classification structure and error handling
+  - Fixed missing `Dict` import in `scripts/analyze_test_coverage.py`
+  - Renamed `analyze_coverage.py` → `analyze_test_coverage.py` for clarity
+
+### Fixed
+- **CLI**: Fixed broken imports in `config_cmd.py`
+  - Changed `update_control_system_type` → `set_control_system_type` (correct function name)
+  - Changed `update_epics_gateway` → `set_epics_gateway_config` (correct function name)
+  - Updated function calls to handle return values correctly (both functions return tuple of new_content, preview)
 
 ### Changed
-- 12/24/2025 Updated the Osprey Framework Components to version 0.9.9 and added the PyQt5 GUI
 - **Control Assistant**: Write access now enabled by default in control assistant template (`writes_enabled: true` for mock connector)
   - Simplifies tutorial experience - users can test write operations immediately with mock connector
   - Production deployments should carefully review hardware implications before enabling writes
@@ -2098,3 +2161,4 @@ This release represents the framework's first complete domain-specific applicati
 ---
 
 *This is an early access release. We welcome feedback and contributions!*
+
