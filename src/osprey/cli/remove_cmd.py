@@ -260,13 +260,15 @@ def capability(capability_name: str, force: bool, quiet: bool):
         if has_config:
             # Create backup
             backup_path = config_path.with_suffix(".yml.bak")
-            backup_path.write_text(config_path.read_text())
+            # Use UTF-8 encoding for backup
+            backup_path.write_text(config_path.read_text(encoding="utf-8"), encoding="utf-8")
             if not quiet:
                 console.print(f"  ✓ Created backup: [{Styles.DIM}]{backup_path}[/{Styles.DIM}]")
 
             # Remove
             new_content, _, _ = remove_capability_react_from_config(config_path, capability_name)
-            config_path.write_text(new_content)
+            # Use UTF-8 encoding explicitly to support Unicode characters on Windows
+            config_path.write_text(new_content, encoding="utf-8")
             console.print(f"  {Messages.success(f'Removed from {config_path.name}')}")
 
         # Delete file

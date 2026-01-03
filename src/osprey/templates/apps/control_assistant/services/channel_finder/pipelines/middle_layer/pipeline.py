@@ -109,6 +109,7 @@ class MiddleLayerPipeline(BasePipeline):
         model_config: dict,
         facility_name: str = "control system",
         facility_description: str = "",
+        query_splitting: bool = True,
         **kwargs,
     ) -> None:
         """
@@ -119,16 +120,22 @@ class MiddleLayerPipeline(BasePipeline):
             model_config: LLM model configuration
             facility_name: Name of facility
             facility_description: Facility description for context
+            query_splitting: Whether to split multi-part queries (disable for facility-specific lingo)
             **kwargs: Additional pipeline arguments
         """
         super().__init__(database, model_config, **kwargs)
         self.facility_name = facility_name
         self.facility_description = facility_description
+        self.query_splitting = query_splitting
 
-        # Load query splitter prompt
+        # Load query splitter prompt (only if enabled)
         config_builder = _get_config()
-        prompts_module = load_prompts(config_builder.raw_config)
-        self.query_splitter = prompts_module.query_splitter
+        prompts_module = load_prompts(
+            config_builder.raw_config, require_query_splitter=query_splitting
+        )
+        self.query_splitter = (
+            getattr(prompts_module, "query_splitter", None) if query_splitting else None
+        )
 
         # Agent will be created lazily on first use
         self._agent = None
@@ -510,15 +517,21 @@ Example workflow:
             logger.info(f"  → [dim]{detection_result.reasoning}[/dim]")
             logger.info("  → Proceeding with agent search")
 
-        # Stage 1: Split query into atomic queries
-        atomic_queries = await self._split_query(query)
-        logger.info(
-            f"[bold cyan]Stage 1:[/bold cyan] Split into {len(atomic_queries)} atomic quer{'y' if len(atomic_queries) == 1 else 'ies'}"
-        )
+        # Stage 1: Split query into atomic queries (optional)
+        if self.query_splitting:
+            atomic_queries = await self._split_query(query)
+            logger.info(
+                f"[bold cyan]Stage 1:[/bold cyan] Split into {len(atomic_queries)} atomic quer{'y' if len(atomic_queries) == 1 else 'ies'}"
+            )
 
-        if len(atomic_queries) > 1:
-            for i, aq in enumerate(atomic_queries, 1):
-                logger.info(f"  → Query {i}: {aq}")
+            if len(atomic_queries) > 1:
+                for i, aq in enumerate(atomic_queries, 1):
+                    logger.info(f"  → Query {i}: {aq}")
+        else:
+            atomic_queries = [query]
+            logger.info(
+                "[bold cyan]Stage 1:[/bold cyan] Query splitting disabled, using original query"
+            )
 
         # Stage 2: Process each query with React agent
         all_channels = []

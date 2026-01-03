@@ -293,7 +293,7 @@ Detailed Workflow Guides
 
 .. code-block:: text
 
-   @osprey-workflows/pre-merge-cleanup.md Scan my uncommitted changes
+   @src/osprey/workflows/pre-merge-cleanup.md Scan my uncommitted changes
 
 **What it checks:**
 
@@ -316,7 +316,7 @@ Detailed Workflow Guides
 
 .. code-block:: text
 
-   @osprey-workflows/commit-organization.md Help me organize my commits
+   @src/osprey/workflows/commit-organization.md Help me organize my commits
 
 **Best for:**
 
@@ -341,7 +341,7 @@ Detailed Workflow Guides
 
 .. code-block:: text
 
-   @osprey-workflows/testing-workflow.md What type of test should I write?
+   @src/osprey/workflows/testing-workflow.md What type of test should I write?
 
 **Decision Framework:**
 
@@ -375,7 +375,7 @@ Detailed Workflow Guides
 
 .. code-block:: text
 
-   @osprey-workflows/update-documentation.md What docs need updating?
+   @src/osprey/workflows/update-documentation.md What docs need updating?
 
 ----
 
@@ -390,7 +390,7 @@ Detailed Workflow Guides
 
 .. code-block:: text
 
-   @osprey-workflows/docstrings.md Write a docstring for this function
+   @src/osprey/workflows/docstrings.md Write a docstring for this function
 
 ----
 
@@ -405,7 +405,7 @@ Detailed Workflow Guides
 
 .. code-block:: text
 
-   @osprey-workflows/comments.md Add comments to explain this logic
+   @src/osprey/workflows/comments.md Add comments to explain this logic
 
 ----
 
@@ -420,7 +420,7 @@ Detailed Workflow Guides
 
 .. code-block:: text
 
-   @osprey-workflows/ai-code-review.md Review this AI-generated code
+   @src/osprey/workflows/ai-code-review.md Review this AI-generated code
 
 ----
 
@@ -435,7 +435,7 @@ Detailed Workflow Guides
 
 .. code-block:: text
 
-   @osprey-workflows/channel-finder-pipeline-selection.md Help me select the right Channel Finder pipeline.
+   @src/osprey/workflows/channel-finder-pipeline-selection.md Help me select the right Channel Finder pipeline.
 
 ----
 
@@ -450,7 +450,7 @@ Detailed Workflow Guides
 
 .. code-block:: text
 
-   @osprey-workflows/channel-finder-database-builder.md Help me build my Channel Finder database.
+   @src/osprey/workflows/channel-finder-database-builder.md Help me build my Channel Finder database.
 
 
 ----
@@ -466,7 +466,7 @@ Detailed Workflow Guides
 
 .. code-block:: text
 
-   @osprey-workflows/release-workflow.md Guide me through releasing v0.9.8
+   @src/osprey/workflows/release-workflow.md Guide me through releasing v0.9.8
 
 ----
 
@@ -499,42 +499,42 @@ Example: Adding a Capability with AI
 
 .. code-block:: text
 
-   @osprey-workflows/ + @docs/source/developer-guides/
+   @src/osprey/workflows/ + @docs/source/developer-guides/
    I want to add a capability for archiver data. Help me plan the implementation.
 
 **2. Write the code and docstrings:**
 
 .. code-block:: text
 
-   @osprey-workflows/docstrings.md
+   @src/osprey/workflows/docstrings.md
    Write a docstring for my new capability class
 
 **3. Add appropriate tests:**
 
 .. code-block:: text
 
-   @osprey-workflows/testing-workflow.md
+   @src/osprey/workflows/testing-workflow.md
    My capability calls an external API. Should I write unit or integration tests?
 
 **4. Update documentation:**
 
 .. code-block:: text
 
-   @osprey-workflows/update-documentation.md
+   @src/osprey/workflows/update-documentation.md
    I added a new archiver capability. What documentation needs updating?
 
 **5. Pre-commit cleanup:**
 
 .. code-block:: text
 
-   @osprey-workflows/pre-merge-cleanup.md
+   @src/osprey/workflows/pre-merge-cleanup.md
    Scan my uncommitted changes for issues
 
 **6. Organize commits:**
 
 .. code-block:: text
 
-   @osprey-workflows/commit-organization.md
+   @src/osprey/workflows/commit-organization.md
    Help me organize these changes into atomic commits with CHANGELOG entries
 
 ----

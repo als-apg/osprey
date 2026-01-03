@@ -11,7 +11,7 @@ from osprey.utils.config import _get_config
 logger = logging.getLogger(__name__)
 
 
-def load_prompts(config: dict) -> Any:
+def load_prompts(config: dict, require_query_splitter: bool = True) -> Any:
     """Load prompts based on configuration.
 
     Priority order:
@@ -21,6 +21,7 @@ def load_prompts(config: dict) -> Any:
 
     Args:
         config: Configuration dictionary
+        require_query_splitter: Whether query_splitter is required (False if query splitting is disabled)
 
     Returns:
         Prompts module with query_splitter, channel_matcher, correction
@@ -34,7 +35,9 @@ def load_prompts(config: dict) -> Any:
     pipeline_prompts_path = pipeline_prompts_config.get("path", "")
 
     if pipeline_prompts_path:
-        prompts = _try_load_prompts_directly(pipeline_prompts_path, pipeline_mode)
+        prompts = _try_load_prompts_directly(
+            pipeline_prompts_path, pipeline_mode, require_query_splitter
+        )
         if prompts:
             logger.info(
                 f"[dim]✓ Loaded pipeline-specific prompts from {pipeline_prompts_path}[/dim]"
@@ -49,7 +52,7 @@ def load_prompts(config: dict) -> Any:
     facility_path = facility_config.get("path", "")
 
     if prompt_source == "facility" and facility_path:
-        prompts = _try_load_facility_prompts(facility_path, pipeline_mode)
+        prompts = _try_load_facility_prompts(facility_path, pipeline_mode, require_query_splitter)
         if prompts:
             logger.info(
                 f"[dim]✓ Loaded facility-specific prompts from {facility_path}/prompts[/dim]"
@@ -70,12 +73,15 @@ def load_prompts(config: dict) -> Any:
     )
 
 
-def _try_load_prompts_directly(prompts_path: str, pipeline_mode: str = "in_context") -> Any | None:
+def _try_load_prompts_directly(
+    prompts_path: str, pipeline_mode: str = "in_context", require_query_splitter: bool = True
+) -> Any | None:
     """Try to load prompts module directly from specified path.
 
     Args:
         prompts_path: Direct path to prompts directory (not facility root)
         pipeline_mode: Pipeline mode ('in_context' or 'hierarchical')
+        require_query_splitter: Whether query_splitter is required
 
     Returns:
         Prompts module if found, None otherwise
@@ -95,13 +101,15 @@ def _try_load_prompts_directly(prompts_path: str, pipeline_mode: str = "in_conte
             logger.debug(f"Prompts directory does not exist: {prompts_dir}")
             return None
 
-        # Determine required files based on pipeline mode
-        base_files = ["__init__.py", "system.py", "query_splitter.py"]
+        # Determine required files based on pipeline mode and query_splitting setting
+        base_files = ["__init__.py", "system.py"]
+        if require_query_splitter:
+            base_files.append("query_splitter.py")
 
         if pipeline_mode == "hierarchical":
             required_files = base_files
         elif pipeline_mode == "middle_layer":
-            # Middle layer uses React agent, only needs query_splitter
+            # Middle layer uses React agent, only needs query_splitter (if enabled)
             required_files = base_files
         else:
             # in_context and other modes need full prompt set
@@ -126,9 +134,11 @@ def _try_load_prompts_directly(prompts_path: str, pipeline_mode: str = "in_conte
 
             # Verify it has the required attributes based on pipeline mode
             if pipeline_mode in ["hierarchical", "middle_layer"]:
-                required_attrs = ["query_splitter"]
+                required_attrs = ["query_splitter"] if require_query_splitter else []
             else:
-                required_attrs = ["query_splitter", "channel_matcher", "correction"]
+                required_attrs = ["channel_matcher", "correction"]
+                if require_query_splitter:
+                    required_attrs.insert(0, "query_splitter")
 
             missing_attrs = [attr for attr in required_attrs if not hasattr(prompts_module, attr)]
             if missing_attrs:

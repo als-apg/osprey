@@ -91,9 +91,14 @@ The interactive menu provides the best onboarding experience with channel finder
    │   │       │   ├── in_context/         #   - Semantic search (small systems)
    │   │       │   └── hierarchical/       #   - Hierarchical nav (large systems)
    │   │       ├── databases/              # Database adapters (flat, template, hierarchical)
-   │   │       ├── prompts/                # Pipeline-specific prompts
-   │   │       │   ├── in_context/         #   (channel_matcher, query_splitter, etc.)
-   │   │       │   └── hierarchical/
+   │   │       ├── prompts/                # Pipeline-specific prompts (see Part 4)
+   │   │       │   ├── in_context/         # ← Each pipeline has its own prompts:
+   │   │       │   │   ├── facility_description.py  # REQUIRED: Your facility
+   │   │       │   │   ├── matching_rules.py        # OPTIONAL: Custom terminology
+   │   │       │   │   ├── query_splitter.py        # OPTIONAL: Query splitting examples
+   │   │       │   │   └── system.py                # Auto-combines (don't edit)
+   │   │       │   ├── hierarchical/       #   (same structure)
+   │   │       │   └── middle_layer/       #   (same structure)
    │   │       ├── benchmarks/             # Evaluation system (runner, models)
    │   │       ├── core/                   # Base classes & models
    │   │       ├── llm/                    # LLM completion utilities
@@ -107,7 +112,7 @@ The interactive menu provides the best onboarding experience with channel finder
    │   │   │   └── TEMPLATE_EXAMPLE.json
    │   │   ├── benchmarks/
    │   │   │   ├── datasets/               # Test query datasets
-   │   │   │   │   ├── in_context_main.json
+   │   │   │   │   ├── in_context_benchmark.json
    │   │   │   │   └── hierarchical_benchmark.json
    │   │   │   └── results/                # Benchmark output
    │   │   ├── raw/                        # Raw address data (CSV files)

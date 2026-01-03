@@ -25,7 +25,7 @@ Usage:
     osprey workflows export
 
     # Then reference in AI assistant
-    @osprey-workflows/testing-workflow.md What type of test should I write?
+    @src/osprey/workflows/testing-workflow.md What type of test should I write?
 """
 
 __all__ = []

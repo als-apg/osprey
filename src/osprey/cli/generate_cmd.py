@@ -534,7 +534,8 @@ async def _generate_from_prompt_async(generator, output_file: str, quiet: bool):
         console.print(f"\n💾 [{Styles.HEADER}]Step 4: Writing output file...[/{Styles.HEADER}]")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(code)
+    # Use UTF-8 encoding explicitly to support Unicode characters on Windows
+    output_path.write_text(code, encoding="utf-8")
 
     console.print(f"  {Messages.success(f'Written: {output_path} ({len(code):,} bytes)')}")
 
@@ -781,10 +782,12 @@ async def _offer_registry_integration(generator, classifier_analysis, orchestrat
         if confirm:
             # Backup first
             backup_path = registry_path.with_suffix(".py.bak")
-            backup_path.write_text(registry_path.read_text())
+            # Use UTF-8 encoding for backup
+            backup_path.write_text(registry_path.read_text(encoding="utf-8"), encoding="utf-8")
 
             # Write new content
-            registry_path.write_text(new_content)
+            # Use UTF-8 encoding explicitly to support Unicode characters on Windows
+            registry_path.write_text(new_content, encoding="utf-8")
 
             console.print(f"\n  {Messages.success(f'Updated {registry_path}')}")
             console.print(f"  [{Styles.DIM}]Backup saved to: {backup_path}[/{Styles.DIM}]")
@@ -876,7 +879,8 @@ async def _generate_capability_async(
         console.print(f"\n💾 [{Styles.HEADER}]Step 4: Writing output file...[/{Styles.HEADER}]")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(code)
+    # Use UTF-8 encoding explicitly to support Unicode characters on Windows
+    output_path.write_text(code, encoding="utf-8")
 
     console.print(f"  {Messages.success(f'Written: {output_path} ({len(code):,} bytes)')}")
 

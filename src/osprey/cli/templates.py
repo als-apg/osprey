@@ -143,7 +143,8 @@ class TemplateManager:
         rendered = template.render(**context)
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(rendered)
+        # Use UTF-8 encoding explicitly to support Unicode characters on Windows
+        output_path.write_text(rendered, encoding="utf-8")
 
     def create_project(
         self,
@@ -482,7 +483,10 @@ class TemplateManager:
                 if registry_style == "standalone" and output_name == "registry.py":
                     self._generate_explicit_registry(output_path, ctx, template_name)
                 else:
-                    self.render_template(f"apps/{template_name}/{rel_path}", ctx, output_path)
+                    # Convert Windows backslashes to forward slashes for Jinja2
+                    # (harmless on Linux/macOS where paths already use forward slashes)
+                    template_path_str = f"apps/{template_name}/{rel_path}".replace("\\", "/")
+                    self.render_template(template_path_str, ctx, output_path)
             else:
                 # Static file - copy directly
                 output_path = base_output_dir / output_rel_path
@@ -627,7 +631,8 @@ class TemplateManager:
 
         # Write to output file
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(registry_code)
+        # Use UTF-8 encoding explicitly to support Unicode characters on Windows
+        output_path.write_text(registry_code, encoding="utf-8")
 
     def _create_agent_data_structure(self, project_dir: Path, ctx: dict):
         """Create _agent_data directory structure for the project.
@@ -755,5 +760,6 @@ proper framework operation, especially when using containerized services.
 """
 
         readme_path = agent_data_dir / "README.md"
-        with open(readme_path, "w") as f:
+        # Use UTF-8 encoding explicitly to support Unicode characters on Windows
+        with open(readme_path, "w", encoding="utf-8") as f:
             f.write(readme_content)

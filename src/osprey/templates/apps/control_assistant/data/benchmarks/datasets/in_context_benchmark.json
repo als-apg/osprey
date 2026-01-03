@@ -125,7 +125,7 @@
     },
     {
         "user_query": "Give me the corona triode measurement values",
-        "targeted_pv": ["CoronaTriodCurrent", "CoronaTriiodError"],
+        "targeted_pv": ["CoronaTriodCurrent", "CoronaTriodError"],
         "details": "Testing component-based grouping: corona triode measurement values (excludes needle controls)"
     },
     {

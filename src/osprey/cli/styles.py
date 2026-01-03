@@ -11,6 +11,7 @@ Design Philosophy:
 - Clear separation between fixed UI standards and customizable theme colors
 """
 
+import sys
 from dataclasses import dataclass
 
 from rich.console import Console
@@ -154,7 +155,11 @@ def set_theme(theme: ColorTheme):
     global _active_theme, console, custom_style
     _active_theme = theme
     # Rebuild theme-dependent objects
-    console = Console(theme=_build_rich_theme(theme))
+    # On Windows, force UTF-8 encoding to support Unicode characters
+    if sys.platform == "win32":
+        console = Console(theme=_build_rich_theme(theme), force_terminal=True, legacy_windows=False)
+    else:
+        console = Console(theme=_build_rich_theme(theme))
     custom_style = _build_questionary_style(theme)
 
 
@@ -431,7 +436,11 @@ custom_style = _build_questionary_style(_active_theme)
 # ============================================================================
 
 # Singleton console instance with theme
-console = Console(theme=osprey_theme)
+# On Windows, force UTF-8 encoding to support Unicode characters (✓, ✗, ⚠️, etc.)
+if sys.platform == "win32":
+    console = Console(theme=osprey_theme, force_terminal=True, legacy_windows=False)
+else:
+    console = Console(theme=osprey_theme)
 
 
 # ============================================================================

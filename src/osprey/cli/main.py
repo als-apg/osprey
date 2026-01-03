@@ -14,11 +14,33 @@ import sys
 
 import click
 
+# Fix Windows console encoding to support Unicode characters (✓, ✗, ⚠️, etc.)
+# This must be done before any output that uses Unicode characters
+if sys.platform == "win32":
+    try:
+        # Reconfigure stdout and stderr to use UTF-8 encoding
+        # This fixes the 'charmap' codec error on Windows when printing Unicode
+        import io
+
+        # Only reconfigure if not already UTF-8
+        if sys.stdout.encoding.lower() != "utf-8":
+            sys.stdout = io.TextIOWrapper(
+                sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True
+            )
+        if sys.stderr.encoding.lower() != "utf-8":
+            sys.stderr = io.TextIOWrapper(
+                sys.stderr.buffer, encoding="utf-8", errors="replace", line_buffering=True
+            )
+    except (AttributeError, OSError):
+        # If reconfiguration fails (e.g., no buffer attribute), continue
+        # The CLI should still work, just without fancy Unicode characters
+        pass
+
 # Import version from osprey package
 try:
     from osprey import __version__
 except ImportError:
-    __version__ = "0.9.9"
+    __version__ = "0.9.10"
 
 
 # PERFORMANCE OPTIMIZATION: Lazy command loading

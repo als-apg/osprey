@@ -106,7 +106,8 @@ def export_config(project: str, output: str, format: str):
         # Output to file or console
         if output:
             output_path = Path(output)
-            output_path.write_text(output_str)
+            # Use UTF-8 encoding explicitly to support Unicode characters on Windows
+            output_path.write_text(output_str, encoding="utf-8")
             console.print(f"✅ Configuration exported to: [bold]{output_path}[/bold]")
         else:
             # Print to console with syntax highlighting

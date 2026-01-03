@@ -441,7 +441,7 @@ def sample_middle_layer_pipeline(
     mock_prompts.query_splitter.get_prompt = MagicMock(return_value="Mock query splitter prompt")
 
     # Mock load_prompts to return our mock
-    def mock_load_prompts(config):
+    def mock_load_prompts(config, require_query_splitter=True):
         return mock_prompts
 
     monkeypatch.setattr(

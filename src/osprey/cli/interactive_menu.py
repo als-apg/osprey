@@ -2164,10 +2164,10 @@ def handle_workflows_action():
         # Usage instructions
         console.print(f"\n{Messages.header('Usage in AI coding assistants:')}")
         console.print(
-            f"  {Messages.command('@osprey-workflows/testing-workflow.md What type of test?')}"
+            f"  {Messages.command('@src/osprey/workflows/testing-workflow.md What type of test?')}"
         )
         console.print(
-            f"  {Messages.command('@osprey-workflows/pre-merge-cleanup.md Scan changes')}"
+            f"  {Messages.command('@src/osprey/workflows/pre-merge-cleanup.md Scan changes')}"
         )
         console.print(
             f"\n[{Styles.DIM}]Learn more: https://als-apg.github.io/osprey/contributing/03_ai-assisted-development.html[/{Styles.DIM}]"
@@ -2626,7 +2626,8 @@ def handle_set_control_system(project_path: Path | None = None) -> None:
     if questionary.confirm(
         "\nUpdate config.yml with this configuration?", default=True, style=custom_style
     ).ask():
-        config_path.write_text(new_content)
+        # Use UTF-8 encoding explicitly to support Unicode characters on Windows
+        config_path.write_text(new_content, encoding="utf-8")
         console.print(f"\n{Messages.success('✓ Control system configuration updated!')}")
 
         if control_type == "epics":
@@ -2740,7 +2741,8 @@ def handle_set_epics_gateway(project_path: Path | None = None) -> None:
     if questionary.confirm(
         "\nUpdate config.yml with this configuration?", default=True, style=custom_style
     ).ask():
-        config_path.write_text(new_content)
+        # Use UTF-8 encoding explicitly to support Unicode characters on Windows
+        config_path.write_text(new_content, encoding="utf-8")
         console.print(f"\n{Messages.success('✓ EPICS gateway configuration updated!')}")
         console.print(
             "\n[dim]Remember to also set control_system.type to 'epics' for production use[/dim]"
@@ -2821,7 +2823,8 @@ def handle_set_models(project_path: Path | None = None) -> None:
     if questionary.confirm(
         "\nUpdate all models in config.yml?", default=True, style=custom_style
     ).ask():
-        config_path.write_text(new_content)
+        # Use UTF-8 encoding explicitly to support Unicode characters on Windows
+        config_path.write_text(new_content, encoding="utf-8")
         console.print(f"\n{Messages.success('✓ Model configuration updated!')}")
         console.print(
             f"\n[dim]All {len(current_models)} model(s) now use: {provider}/{model_id}[/dim]"

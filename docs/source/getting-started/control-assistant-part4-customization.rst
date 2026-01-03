@@ -19,16 +19,159 @@ Step 10: Prompt Customization
 
 The template works out of the box, but customizing prompts with facility-specific knowledge dramatically improves accuracy, relevance, and user trust. OSPREY provides two levels of prompt customization: **service-level prompts** (like channel finder) and **framework-level prompts** (orchestrator, classification, response generation).
 
+.. _part4-channel-finder-prompts:
+
 Channel Finder Prompt Customization
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-An important customization you can make is adding facility-specific context to the channel finder prompts. This was covered in detail in :ref:`Part 2: Building Your Channel Finder <channel-finder-benchmarking>`, where you learned how to customize the ``facility_description`` variable to include:
+The channel finder uses facility-specific prompts to dramatically improve semantic matching accuracy. Each pipeline (in_context, hierarchical, middle_layer) has its own prompts directory with a clear separation of concerns:
 
-- Physical system descriptions and hierarchy
-- Naming conventions and operational terminology
-- Disambiguation rules for ambiguous queries
+**Prompt File Structure:**
 
-See :doc:`control-assistant-part2-channel-finder` for comprehensive channel finder customization guidance.
+.. list-table::
+   :header-rows: 1
+   :widths: 28 52 20
+
+   * - File
+     - Purpose
+     - Edit Required?
+   * - ``facility_description.py``
+     - Your facility's identity, systems, naming structure
+     - **REQUIRED**
+   * - ``matching_rules.py``
+     - Terminology (SP/RB, Monitor/Setpoint), synonyms
+     - OPTIONAL
+   * - ``query_splitter.py``
+     - Stage 1 query splitting examples
+     - OPTIONAL
+   * - ``system.py``
+     - Auto-combines facility_description + matching_rules
+     - Don't edit
+
+**Directory Structure:**
+
+.. code-block:: text
+
+   src/my_control_assistant/services/channel_finder/prompts/
+   ├── in_context/
+   │   ├── facility_description.py  # REQUIRED: Edit for your facility
+   │   ├── matching_rules.py        # OPTIONAL: Custom terminology
+   │   ├── query_splitter.py        # OPTIONAL: Query splitting examples
+   │   ├── system.py               # Auto-combines (don't edit)
+   │   └── __init__.py
+   ├── hierarchical/                # Same structure
+   └── middle_layer/                # Same structure
+
+.. dropdown:: **Step 1: Edit facility_description.py (Required)**
+   :color: success
+   :open:
+
+   This file defines your facility's identity and structure. The LLM uses this context to understand your control system and make accurate semantic matches.
+
+   **What to include:**
+
+   - Physical system descriptions (accelerator sections, subsystems)
+   - Channel naming patterns and their meanings
+   - Disambiguation rules for ambiguous queries
+
+   **Example (UCSB FEL Accelerator):**
+
+   .. code-block:: python
+
+      # prompts/in_context/facility_description.py
+      import textwrap
+
+      facility_description = textwrap.dedent(
+          """
+          The University of California, Santa Barbara (UCSB) Free Electron Laser (FEL)
+          uses relativistic electrons to generate a powerful terahertz (THz) laser beam.
+
+          1. Electron Source (Thermionic Gun):
+             - Electrons are emitted from a thermionic cathode in short pulses
+             - Control parameters include gun voltage, beam pulse timing
+
+          2. Acceleration Section:
+             - Electrons accelerated by high terminal voltage
+             - Control parameters: accelerator voltage stability
+
+          3. Beam Transport and Steering:
+             - Steering coils and dipole magnets control beam trajectory
+             - Quadrupole magnets focus/defocus the beam
+
+          IMPORTANT TERMINOLOGY AND CONVENTIONS:
+
+          Channel Naming Patterns:
+          - "Motor" channels = Control/command channels (for setting positions)
+          - "MotorReadBack" or "ReadBack" channels = Status/measurement channels
+          - "SetPoint" or "Set" channels = Control values to be commanded
+
+          Disambiguation Rules:
+          - When query asks for "control" or "motor control" → return ONLY Motor/Set channels
+          - When query asks for "status" or "readback" → return ONLY ReadBack channels
+          - When query is ambiguous (e.g., "check") → include both Set and ReadBack
+          """
+      )
+
+.. dropdown:: **Step 2: Edit matching_rules.py (Optional)**
+   :color: info
+
+   If your facility uses terminology that differs from the defaults (or you want more detailed matching rules), customize this file. This is especially useful for:
+
+   - Custom setpoint/readback naming conventions
+   - Device synonyms operators commonly use
+   - Operational context that affects channel selection
+
+   **Example:**
+
+   .. code-block:: python
+
+      # prompts/in_context/matching_rules.py
+      import textwrap
+
+      matching_rules = textwrap.dedent(
+          """
+          MATCHING TERMINOLOGY:
+
+          Setpoint vs Readback:
+          - "SP" (Setpoint) = Control/command value to be written
+          - "RB" (Readback) = Actual measured value (read-only)
+          - "GOLDEN" = Reference value for known good operation
+          - When user asks to "set", "control", "adjust" → return SP channels
+          - When user asks to "read", "monitor", "measure" → return RB channels
+          - When ambiguous ("show me", "what is") → include both SP and RB
+
+          Common Device Synonyms:
+          - "bending magnet" = dipole magnet
+          - "focusing magnet" or "quad" = quadrupole magnet
+          - "corrector" or "steering" = corrector magnet
+          - "vacuum level" or "vacuum pressure" = pressure measurement
+          """
+      )
+
+   **Note:** If you don't need custom matching rules, you can leave this file with minimal content or use the defaults.
+
+.. dropdown:: **How system.py Works (Don't Edit)**
+   :color: secondary
+
+   The ``system.py`` file automatically imports and combines both files:
+
+   .. code-block:: python
+
+      # prompts/in_context/system.py (auto-generated, don't edit)
+      from .facility_description import facility_description as _facility
+      from .matching_rules import matching_rules as _rules
+
+      facility_description = f"{_facility}\n\n{_rules}"
+
+   This provides backward compatibility—existing service code that references ``prompts_module.system.facility_description`` continues to work unchanged.
+
+**Best Practices:**
+
+1. **Start with facility_description.py**: Get the basic structure working first
+2. **Run benchmarks early**: Test with a few queries before writing all rules
+3. **Add matching_rules.py incrementally**: Only add rules when benchmarks reveal terminology gaps
+4. **Use the CLI for rapid iteration**: ``python src/my_control_assistant/services/channel_finder/cli.py``
+5. **Document for your team**: Comments in these files help future maintainers
 
 .. _part4-framework-prompt-customization:
 
@@ -229,104 +372,108 @@ Create an ``__init__.py`` file in your framework_prompts module to export your b
 
 **Step 3: Register Your Custom Prompt Provider**
 
-In your agent's ``registry.py``, extend the existing registry configuration to include your custom prompt builders. **The template already registers the Python prompt builder** - you can add more as needed:
-
-.. code-block:: python
-
-   # src/my_control_assistant/registry.py
-   from osprey.registry import (
-       RegistryConfigProvider,
-       extend_framework_registry,
-       CapabilityRegistration,
-       ContextClassRegistration,
-       FrameworkPromptProviderRegistration,
-       RegistryConfig
-   )
-
-
-   class MyControlAssistantRegistryProvider(RegistryConfigProvider):
-       """Registry provider for My Control Assistant."""
-
-       def get_registry_config(self) -> RegistryConfig:
-           """Return registry configuration with custom framework prompts."""
-           return extend_framework_registry(
-               # Your existing capabilities
-               capabilities=[
-                   CapabilityRegistration(
-                       name="channel_finding",
-                       module_path="my_control_assistant.capabilities.channel_finding",
-                       class_name="ChannelFindingCapability",
-                       description="Find control system channels using semantic search",
-                       provides=["CHANNEL_ADDRESSES"],
-                       requires=[]
-                   ),
-                   # ... other capabilities ...
-               ],
-
-               # Your existing context classes
-               context_classes=[
-                   ContextClassRegistration(
-                       context_type="CHANNEL_ADDRESSES",
-                       module_path="my_control_assistant.context_classes",
-                       class_name="ChannelAddressesContext"
-                   ),
-                   # ... other context classes ...
-               ],
-
-               # Custom framework prompts (Python and Task Extraction already registered in template!)
-               framework_prompt_providers=[
-                   FrameworkPromptProviderRegistration(
-                       module_path="my_control_assistant.framework_prompts",
-                       prompt_builders={
-                           "python": "ControlSystemPythonPromptBuilder",  # ✅ Already in template!
-                           "task_extraction": "ControlSystemTaskExtractionPromptBuilder",  # ✅ Already in template!
-                           # Add your own custom builders:
-                           # "orchestrator": "MyFacilityOrchestratorPromptBuilder",
-                           # "response_generation": "MyFacilityResponseGenerationPromptBuilder",
-                           # "classification": "MyFacilityClassificationPromptBuilder",
-                           # "error_analysis": "MyFacilityErrorAnalysisPromptBuilder",
-                           # "clarification": "MyFacilityClarificationPromptBuilder",
-                           # "memory_extraction": "MyFacilityMemoryExtractionPromptBuilder",
-                       }
-                   )
-               ]
-           )
+In your agent's ``registry.py``, extend the existing registry configuration to include your custom prompt builders. **The template already registers the Python and Task Extraction prompt builders** - you can add more as needed.
 
 The framework automatically discovers and uses your custom builders. You can override as many or as few prompt types as needed—any not specified will use the framework defaults.
 
-**Available Prompt Builder Types:**
+.. tab-set::
 
-.. list-table::
-   :header-rows: 1
-   :widths: 25 35 40
+   .. tab-item:: Registry Configuration
 
-   * - Builder Type
-     - Base Class
-     - Purpose
-   * - ``python``
-     - ``DefaultPythonPromptBuilder``
-     - Controls Python code generation (**already customized in template**)
-   * - ``task_extraction``
-     - ``DefaultTaskExtractionPromptBuilder``
-     - Extracts actionable tasks from conversations (**already customized in template**)
-   * - ``orchestrator``
-     - ``DefaultOrchestratorPromptBuilder``
-     - Controls execution planning and capability sequencing
-   * - ``response_generation``
-     - ``DefaultResponseGenerationPromptBuilder``
-     - Formats final responses to users
-   * - ``classification``
-     - ``DefaultClassificationPromptBuilder``
-     - Determines which capabilities match user tasks
-   * - ``error_analysis``
-     - ``DefaultErrorAnalysisPromptBuilder``
-     - Generates explanations for execution errors
-   * - ``clarification``
-     - ``DefaultClarificationPromptBuilder``
-     - Creates targeted questions for ambiguous queries
-   * - ``memory_extraction``
-     - ``DefaultMemoryExtractionPromptBuilder``
-     - Extracts and stores user preferences and context
+      .. code-block:: python
+
+         # src/my_control_assistant/registry.py
+         from osprey.registry import (
+             RegistryConfigProvider,
+             extend_framework_registry,
+             CapabilityRegistration,
+             ContextClassRegistration,
+             FrameworkPromptProviderRegistration,
+             RegistryConfig
+         )
+
+
+         class MyControlAssistantRegistryProvider(RegistryConfigProvider):
+             """Registry provider for My Control Assistant."""
+
+             def get_registry_config(self) -> RegistryConfig:
+                 """Return registry configuration with custom framework prompts."""
+                 return extend_framework_registry(
+                     # Your existing capabilities
+                     capabilities=[
+                         CapabilityRegistration(
+                             name="channel_finding",
+                             module_path="my_control_assistant.capabilities.channel_finding",
+                             class_name="ChannelFindingCapability",
+                             description="Find control system channels using semantic search",
+                             provides=["CHANNEL_ADDRESSES"],
+                             requires=[]
+                         ),
+                         # ... other capabilities ...
+                     ],
+
+                     # Your existing context classes
+                     context_classes=[
+                         ContextClassRegistration(
+                             context_type="CHANNEL_ADDRESSES",
+                             module_path="my_control_assistant.context_classes",
+                             class_name="ChannelAddressesContext"
+                         ),
+                         # ... other context classes ...
+                     ],
+
+                     # Custom framework prompts (Python and Task Extraction already registered in template!)
+                     framework_prompt_providers=[
+                         FrameworkPromptProviderRegistration(
+                             module_path="my_control_assistant.framework_prompts",
+                             prompt_builders={
+                                 "python": "ControlSystemPythonPromptBuilder",  # ✅ Already in template!
+                                 "task_extraction": "ControlSystemTaskExtractionPromptBuilder",  # ✅ Already in template!
+                                 # Add your own custom builders:
+                                 # "orchestrator": "MyFacilityOrchestratorPromptBuilder",
+                                 # "response_generation": "MyFacilityResponseGenerationPromptBuilder",
+                                 # "classification": "MyFacilityClassificationPromptBuilder",
+                                 # "error_analysis": "MyFacilityErrorAnalysisPromptBuilder",
+                                 # "clarification": "MyFacilityClarificationPromptBuilder",
+                                 # "memory_extraction": "MyFacilityMemoryExtractionPromptBuilder",
+                             }
+                         )
+                     ]
+                 )
+
+   .. tab-item:: Available Builder Types
+
+      .. list-table::
+         :header-rows: 1
+         :widths: 25 35 40
+
+         * - Builder Type
+           - Base Class
+           - Purpose
+         * - ``python``
+           - ``DefaultPythonPromptBuilder``
+           - Controls Python code generation (**already customized in template**)
+         * - ``task_extraction``
+           - ``DefaultTaskExtractionPromptBuilder``
+           - Extracts actionable tasks from conversations (**already customized in template**)
+         * - ``orchestrator``
+           - ``DefaultOrchestratorPromptBuilder``
+           - Controls execution planning and capability sequencing
+         * - ``response_generation``
+           - ``DefaultResponseGenerationPromptBuilder``
+           - Formats final responses to users
+         * - ``classification``
+           - ``DefaultClassificationPromptBuilder``
+           - Determines which capabilities match user tasks
+         * - ``error_analysis``
+           - ``DefaultErrorAnalysisPromptBuilder``
+           - Generates explanations for execution errors
+         * - ``clarification``
+           - ``DefaultClarificationPromptBuilder``
+           - Creates targeted questions for ambiguous queries
+         * - ``memory_extraction``
+           - ``DefaultMemoryExtractionPromptBuilder``
+           - Extracts and stores user preferences and context
 
 **Step 4: Test and Debug Your Custom Prompts**
 
