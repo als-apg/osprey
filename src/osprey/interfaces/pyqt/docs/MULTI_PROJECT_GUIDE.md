@@ -201,11 +201,6 @@ print(f"Created: {registry_path}")
 
 ## See Also
 
-All documentation files are located in the `src/osprey/interfaces/pyqt/docs/` directory:
-
-- **INSTALLATION_GUIDE.md**: Detailed installation instructions
-- **USER_GUIDE.md**: Comprehensive user guide
-- **README.md** (in pyqt root): Quick start and basic usage
-- **README_GUI_CONFIG.md**: GUI configuration details
-
-Also see CLI's `discover_nearby_projects()` in `src/osprey/cli/interactive_menu.py`
+- [PyQt GUI Installation Guide](INSTALLATION_GUIDE.md)
+- [PyQt GUI README](README.md)
+- CLI's `discover_nearby_projects()` in `src/osprey/cli/interactive_menu.py`
