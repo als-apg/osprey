@@ -117,7 +117,9 @@ class BasicLLMCodeGenerator:
                 logger.info("No model config provided, using default 'python_code_generator'")
                 cfg = get_model_config("python_code_generator")
                 if not cfg or not cfg.get("provider"):
-                    logger.warning("models.python_code_generator missing or incomplete; falling back to response/orchestrator config")
+                    logger.warning(
+                        "models.python_code_generator missing or incomplete; falling back to response/orchestrator config"
+                    )
                     for fallback_name in ("response", "orchestrator"):
                         fallback_cfg = get_model_config(fallback_name)
                         if fallback_cfg and fallback_cfg.get("provider"):

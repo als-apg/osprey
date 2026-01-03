@@ -29,7 +29,8 @@ from osprey.interfaces.pyqt.multi_project_orchestrator import (
 from osprey.interfaces.pyqt.routing_analytics import RoutingAnalytics
 from osprey.interfaces.pyqt.routing_cache import CacheStatistics, RoutingCache
 from osprey.interfaces.pyqt.routing_feedback import RoutingFeedback
-from osprey.interfaces.pyqt.semantic_context_analyzer import SemanticContextAnalyzer
+
+# SemanticContextAnalyzer imported lazily to avoid PyQt5/PyTorch DLL conflict on Windows
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -175,6 +176,9 @@ class MultiProjectRouter:
         self.semantic_enabled = enable_semantic_context
 
         if self.semantic_enabled:
+            # Lazy import to avoid PyQt5/PyTorch DLL conflict on Windows
+            from osprey.interfaces.pyqt.semantic_context_analyzer import SemanticContextAnalyzer
+
             # Use semantic context analyzer for advanced routing
             self.conversation_context = SemanticContextAnalyzer(
                 max_history=context_max_history,

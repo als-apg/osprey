@@ -44,7 +44,9 @@ from osprey.utils.config import get_config_value
 _gui_output_callback: Callable[[str], None] | None = None
 
 
-def set_gui_output_callback(callback: Callable[[str], None] | None, suppress_terminal: bool = True) -> None:
+def set_gui_output_callback(
+    callback: Callable[[str], None] | None, suppress_terminal: bool = True
+) -> None:
     """
     Set a callback function to redirect logging output to GUI.
 
@@ -85,8 +87,9 @@ def set_gui_output_callback(callback: Callable[[str], None] | None, suppress_ter
         gui_handler = GUIHandler(callback, level=current_level)
         # Use a formatter that matches terminal output format
         # Format: [MM/DD/YYYY HH:MM:SS AM/PM] LEVEL     Component: message
-        formatter = logging.Formatter('[%(asctime)s] %(levelname)-8s %(name)s: %(message)s',
-                                     datefmt='%m/%d/%Y %I:%M:%S %p')
+        formatter = logging.Formatter(
+            "[%(asctime)s] %(levelname)-8s %(name)s: %(message)s", datefmt="%m/%d/%Y %I:%M:%S %p"
+        )
         gui_handler.setFormatter(formatter)
         root_logger.addHandler(gui_handler)
 
@@ -145,7 +148,6 @@ class GUIHandler(logging.Handler):
             self.callback(msg)
         except Exception:
             self.handleError(record)
-
 
 
 class ComponentLogger:

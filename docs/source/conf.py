@@ -17,8 +17,8 @@ import sys
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 
 # Add project root and src directories
-project_root = os.path.abspath('../..')
-src_root = os.path.abspath('../../src')
+project_root = os.path.abspath("../..")
+src_root = os.path.abspath("../../src")
 
 sys.path.insert(0, project_root)
 sys.path.insert(0, src_root)
@@ -28,70 +28,72 @@ sys.path.insert(0, src_root)
 
 # -- Project information -----------------------------------------------------
 
+
 # Function to get version from git
 def get_version_from_git():
     """Get the current version from git tags, with GitHub Actions support."""
     try:
         # In GitHub Actions, check if we're building for a specific tag
-        github_ref = os.environ.get('GITHUB_REF', '')
-        if github_ref.startswith('refs/tags/v'):
+        github_ref = os.environ.get("GITHUB_REF", "")
+        if github_ref.startswith("refs/tags/v"):
             # Extract version from GitHub ref (e.g., refs/tags/v0.7.2 -> 0.7.2)
-            version = github_ref.replace('refs/tags/v', '')
+            version = github_ref.replace("refs/tags/v", "")
             print(f"📋 Using version from GitHub tag: {version}")
             return version
 
         # Fallback to git describe for local builds
         result = subprocess.run(
-            ['git', 'describe', '--tags', '--abbrev=0'],
+            ["git", "describe", "--tags", "--abbrev=0"],
             capture_output=True,
             text=True,
-            cwd=project_root
+            cwd=project_root,
         )
         if result.returncode == 0:
             # Remove 'v' prefix if present
-            version = result.stdout.strip().lstrip('v')
+            version = result.stdout.strip().lstrip("v")
             print(f"📋 Using version from git describe: {version}")
             return version
         else:
             print("⚠️  No git tags found, using fallback version")
-            return '0.0.0-dev'
+            return "0.0.0-dev"
     except (subprocess.SubprocessError, FileNotFoundError):
         print("⚠️  Git not available, using fallback version")
-        return '0.0.0-dev'
+        return "0.0.0-dev"
 
-project = 'Osprey Framework'
-copyright = '2025, Osprey Developer Team'
-author = 'Osprey Developer Team'
+
+project = "Osprey Framework"
+copyright = "2025, Osprey Developer Team"
+author = "Osprey Developer Team"
 release = get_version_from_git()
 
 # -- General configuration ---------------------------------------------------
 
 # Add custom extensions directory to path
-sys.path.insert(0, os.path.abspath('_ext'))
+sys.path.insert(0, os.path.abspath("_ext"))
 
 extensions = [
-    'sphinx.ext.autodoc',        # Auto-generate API docs
-    'sphinx.ext.autosummary',    # Auto-generate summary tables
-    'sphinx.ext.viewcode',       # Add source code links
-    'sphinx.ext.napoleon',       # Google/NumPy docstring support
-    'sphinx.ext.intersphinx',    # Link to other projects
-    'sphinx.ext.githubpages',    # GitHub Pages support
-    'myst_parser',               # Markdown support
-    'sphinx_copybutton',         # Copy button for code blocks
-    'sphinx.ext.graphviz',       # Graph visualization
-    'sphinx.ext.todo',           # TODO notes
-    'sphinx_design',             # Design components (cards, tabs, etc.)
-    'sphinxcontrib.mermaid',     # Mermaid diagram support
-    'workflow_autodoc',          # Custom: Auto-document workflow files
+    "sphinx.ext.autodoc",  # Auto-generate API docs
+    "sphinx.ext.autosummary",  # Auto-generate summary tables
+    "sphinx.ext.viewcode",  # Add source code links
+    "sphinx.ext.napoleon",  # Google/NumPy docstring support
+    "sphinx.ext.intersphinx",  # Link to other projects
+    "sphinx.ext.githubpages",  # GitHub Pages support
+    "myst_parser",  # Markdown support
+    "sphinx_copybutton",  # Copy button for code blocks
+    "sphinx.ext.graphviz",  # Graph visualization
+    "sphinx.ext.todo",  # TODO notes
+    "sphinx_design",  # Design components (cards, tabs, etc.)
+    "sphinxcontrib.mermaid",  # Mermaid diagram support
+    "workflow_autodoc",  # Custom: Auto-document workflow files
 ]
 
-templates_path = ['_templates']
+templates_path = ["_templates"]
 exclude_patterns = []
 
 # -- Options for HTML output ------------------------------------------------
 
-html_theme = 'pydata_sphinx_theme'
-html_static_path = ['_static']
+html_theme = "pydata_sphinx_theme"
+html_static_path = ["_static"]
 
 # Theme options for PyData Sphinx Theme - Clean Original Style
 html_theme_options = {
@@ -165,84 +167,73 @@ html_js_files = ["js/execution_plan_viewer.js"]
 
 autodoc_mock_imports = [
     # Heavy API client libraries - interfaces documented, implementations mocked
-    'openai',
-    'anthropic',
-    'google',
-    'google.generativeai',
-    'google.genai',
-    'google.genai.types',
-    'ollama',
-    'pydantic_ai',
-    'pydantic_ai.models',
-    'pydantic_ai.models.openai',
-    'pydantic_ai.models.gemini',
-    'pydantic_ai.models.anthropic',
-    'pydantic_ai.providers',
-    'pydantic_ai.providers.openai',
-    'pydantic_ai.providers.google_gla',
-    'pydantic_ai.providers.anthropic',
-
+    "openai",
+    "anthropic",
+    "google",
+    "google.generativeai",
+    "google.genai",
+    "google.genai.types",
+    "ollama",
+    "pydantic_ai",
+    "pydantic_ai.models",
+    "pydantic_ai.models.openai",
+    "pydantic_ai.models.gemini",
+    "pydantic_ai.models.anthropic",
+    "pydantic_ai.providers",
+    "pydantic_ai.providers.openai",
+    "pydantic_ai.providers.google_gla",
+    "pydantic_ai.providers.anthropic",
     # Data science stack - too heavy for docs CI, interfaces documented
-    'pandas',
-    'numpy',
-    'matplotlib',
-    'plotly',
-    'seaborn',
-    'scikit-learn',
-    'scipy',
-
+    "pandas",
+    "numpy",
+    "matplotlib",
+    "plotly",
+    "seaborn",
+    "scikit-learn",
+    "scipy",
     # Database clients - connection logic mocked, interfaces documented
-    'pymongo',
-    'neo4j',
-    'qdrant_client',
-    'psycopg',
-    'psycopg.rows',
-    'psycopg_pool',
-    'langgraph.checkpoint.postgres',
-
+    "pymongo",
+    "neo4j",
+    "qdrant_client",
+    "psycopg",
+    "psycopg.rows",
+    "psycopg_pool",
+    "langgraph.checkpoint.postgres",
     # Specialized infrastructure - interfaces documented, implementations mocked
-    'pydantic_ai',
-    'langgraph',
-    'langchain',
-
+    "pydantic_ai",
+    "langgraph",
+    "langchain",
     # Container and deployment tools - not needed for documentation
-    'docker',
-    'podman',
-    'python-dotenv',
-    'dotenv',
-
+    "docker",
+    "podman",
+    "python-dotenv",
+    "dotenv",
     # EPICS control system - specialized scientific software
-    'epics',
-    'pyepics',
-    'p4p',
-    'pvaccess',
-
+    "epics",
+    "pyepics",
+    "p4p",
+    "pvaccess",
     # Development tools - not needed for static documentation
-    'pytest',
-    'jupyter',
-    'notebook',
-    'ipykernel',
-
+    "pytest",
+    "jupyter",
+    "notebook",
+    "ipykernel",
     # Network and async libraries - interfaces documented, implementations mocked
-    'aiohttp',
-    'websockets',
-
+    "aiohttp",
+    "websockets",
     # Framework services that depend on complex infrastructure
     # Note: The services themselves can now import, but their dependencies are mocked above
-
     # Internal modules that have import issues during docs build
-    'container_manager',
-    'loader',
-
+    "container_manager",
+    "loader",
     # Framework modules that fail due to registry/config dependencies
-    'framework.infrastructure.task_extraction_node',
-    'framework.infrastructure.orchestration_node',
-    'framework.infrastructure.error_node.ErrorType',
-    'framework.services.python_executor.PythonExecutorConfig',
-
+    "framework.infrastructure.task_extraction_node",
+    "framework.infrastructure.orchestration_node",
+    "framework.infrastructure.error_node.ErrorType",
+    "framework.services.python_executor.PythonExecutorConfig",
     # Capability error classes that depend on registry
-    'framework.capabilities.memory',
-    'framework.capabilities.time_range_parsing',
+    "framework.capabilities.memory",
+    "framework.capabilities.time_range_parsing",
 ]
 
 # IMPORTANT: If you see import errors for modules NOT in the above list,
@@ -251,12 +242,12 @@ autodoc_mock_imports = [
 # understanding why they're failing to import.
 
 autodoc_default_options = {
-    'members': True,
-    'member-order': 'bysource',
-    'special-members': '__init__',
-    'undoc-members': True,
-    'exclude-members': '__weakref__',
-    'show-inheritance': True
+    "members": True,
+    "member-order": "bysource",
+    "special-members": "__init__",
+    "undoc-members": True,
+    "exclude-members": "__weakref__",
+    "show-inheritance": True,
 }
 
 # Enhanced autodoc settings following API guide best practices
@@ -338,10 +329,10 @@ sd_fontawesome_latex = True
 # -- Mermaid configuration -------------------------------------------------
 
 # Use client-side rendering (no CLI needed)
-mermaid_output_format = 'raw'
+mermaid_output_format = "raw"
 
 # Mermaid version to use
-mermaid_version = '11.8.0'
+mermaid_version = "11.8.0"
 
 # Mermaid initialization with dynamic light/dark theme support
 mermaid_init_js = """

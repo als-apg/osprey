@@ -101,7 +101,7 @@ def _validate_and_fix_execution_plan(
 
     # If hallucinated capabilities found, trigger re-planning
     if hallucinated_capabilities:
-        available_caps = registry.get_stats()['capability_names']
+        available_caps = registry.get_stats()["capability_names"]
         error_msg = (
             f"Orchestrator hallucinated non-existent capabilities: {hallucinated_capabilities}. "
             f"Available capabilities: {available_caps}. "

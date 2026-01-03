@@ -22,13 +22,15 @@ from osprey.utils.logger import get_logger
 
 logger = get_logger("semantic_context_analyzer")
 
-# Try to import sentence-transformers, fall back to simple similarity if not available
+# Check if sentence-transformers is available, but don't import yet (lazy loading)
 try:
-    from sentence_transformers import SentenceTransformer
+    import importlib.util
 
-    EMBEDDINGS_AVAILABLE = True
-except ImportError:
+    EMBEDDINGS_AVAILABLE = importlib.util.find_spec("sentence_transformers") is not None
+except (ImportError, ValueError):
     EMBEDDINGS_AVAILABLE = False
+
+if not EMBEDDINGS_AVAILABLE:
     logger.warning(
         "sentence-transformers not available. Install with: pip install sentence-transformers"
     )
@@ -73,13 +75,29 @@ class SemanticSimilarityCalculator:
         """
         self.model_name = model_name
         self.model = None
+        self._model_load_attempted = False
+
+        # Don't load model yet - defer until first use (lazy loading)
+        logger.debug(
+            "SemanticSimilarityCalculator initialized (model will be loaded on first use)"
+        )
+
+    def _load_model(self):
+        """Lazy load the sentence-transformers model on first use."""
+        if self._model_load_attempted:
+            return
+
+        self._model_load_attempted = True
 
         if EMBEDDINGS_AVAILABLE:
             try:
-                self.model = SentenceTransformer(model_name)
-                logger.info(f"Loaded sentence-transformers model: {model_name}")
+                # Import here to avoid PyQt5/PyTorch DLL conflict on Windows
+                from sentence_transformers import SentenceTransformer
+
+                self.model = SentenceTransformer(self.model_name)
+                logger.info(f"Loaded sentence-transformers model: {self.model_name}")
             except Exception as e:
-                logger.warning(f"Failed to load model {model_name}: {e}")
+                logger.warning(f"Failed to load model {self.model_name}: {e}")
                 self.model = None
 
         if not self.model:
@@ -94,6 +112,10 @@ class SemanticSimilarityCalculator:
         Returns:
             Embedding vector as numpy array.
         """
+        # Lazy load model on first use
+        if not self._model_load_attempted:
+            self._load_model()
+
         if self.model:
             return self.model.encode(text, convert_to_numpy=True)
         else:
