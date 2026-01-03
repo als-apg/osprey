@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Documentation**: Fixed workflow file references to use correct `@src/osprey/workflows/` path for copy-paste into Claude Code and Cursor
+
 ## [0.9.10] - 2025-01-03
 
 ### Fixed

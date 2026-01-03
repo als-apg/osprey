@@ -2164,10 +2164,10 @@ def handle_workflows_action():
         # Usage instructions
         console.print(f"\n{Messages.header('Usage in AI coding assistants:')}")
         console.print(
-            f"  {Messages.command('@osprey-workflows/testing-workflow.md What type of test?')}"
+            f"  {Messages.command('@src/osprey/workflows/testing-workflow.md What type of test?')}"
         )
         console.print(
-            f"  {Messages.command('@osprey-workflows/pre-merge-cleanup.md Scan changes')}"
+            f"  {Messages.command('@src/osprey/workflows/pre-merge-cleanup.md Scan changes')}"
         )
         console.print(
             f"\n[{Styles.DIM}]Learn more: https://als-apg.github.io/osprey/contributing/03_ai-assisted-development.html[/{Styles.DIM}]"
