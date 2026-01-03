@@ -17,7 +17,7 @@ def get_workflows_source_path() -> Path | None:
     """Get the path to bundled workflow files using importlib.resources.
 
     DEPRECATED: This now points to assist/tasks for backward compatibility.
-    New code should use osprey.cli.assist_cmd functions instead.
+    New code should use osprey.cli.tasks_cmd functions instead.
 
     Returns:
         Path to the assist/tasks directory in the installed package,
@@ -48,11 +48,12 @@ def get_workflows_source_path() -> Path | None:
 def workflows(ctx):
     """Manage AI workflow documentation files.
 
-    DEPRECATED: Use 'osprey assist' instead for coding assistant integrations.
+    DEPRECATED: Use 'osprey tasks' and 'osprey claude' instead.
 
     The workflows have been consolidated into the assist system:
-      - osprey assist list        # List all available tasks
-      - osprey assist install X   # Install task for your coding assistant
+      - osprey tasks list         # List all available tasks
+      - osprey tasks show X       # Show task details
+      - osprey claude install X   # Install task as Claude Code skill
 
     This command is kept for backward compatibility but will be removed
     in a future version.
@@ -72,10 +73,11 @@ def workflows(ctx):
     # Show deprecation warning
     console.print(
         "\n[yellow]⚠ DEPRECATED:[/yellow] 'osprey workflows' is deprecated. "
-        "Use [cyan]osprey assist[/cyan] instead.\n"
+        "Use [cyan]osprey tasks[/cyan] and [cyan]osprey claude[/cyan] instead.\n"
     )
-    console.print("  [dim]osprey assist list[/dim]        - List all available tasks")
-    console.print("  [dim]osprey assist install X[/dim]   - Install task for coding assistant\n")
+    console.print("  [dim]osprey tasks list[/dim]         - List all available tasks")
+    console.print("  [dim]osprey tasks show X[/dim]       - Show task details")
+    console.print("  [dim]osprey claude install X[/dim]   - Install task as Claude Code skill\n")
 
     if ctx.invoked_subcommand is None:
         # Default action: export to current directory

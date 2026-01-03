@@ -561,11 +561,11 @@ Example: Adding a Capability with AI
 
    **Explore More:**
 
-   - List available tasks: ``osprey assist list``
+   - List available tasks: ``osprey tasks list``
    - :doc:`02_code-standards` for coding conventions
    - :doc:`index` for environment setup
    - :doc:`../developer-guides/index` for technical guides
 
    **Get Started:**
 
-   Run ``osprey assist list`` to see available tasks, then reference one with your next change!
+   Run ``osprey tasks list`` to see available tasks, then reference one with your next change!

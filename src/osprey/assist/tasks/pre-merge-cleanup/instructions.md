@@ -18,7 +18,7 @@ related: [commit-organization, update-documentation]
 **Paste this prompt to your AI assistant (Cursor/Copilot):**
 
 ```
-I'm ready to commit my changes. Following @docs/workflows/pre-merge-cleanup.md,
+I'm ready to commit my changes. Following @src/osprey/assist/tasks/pre-merge-cleanup/instructions.md,
 scan my uncommitted changes for:
 
 1. BLOCKERS:

@@ -23,8 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **CLI**: Deprecated `osprey workflows` command (use `osprey tasks` instead)
-- **CLI**: Deprecated `osprey assist` command (use `osprey tasks` and `osprey claude` instead)
-  - Both commands still work for backward compatibility but show deprecation warnings
+  - Command still works for backward compatibility but shows deprecation warning
 - **Documentation**: Updated workflow references to use new command structure
   - `osprey tasks list` for browsing tasks
   - `osprey claude install <task>` for installing Claude Code skills

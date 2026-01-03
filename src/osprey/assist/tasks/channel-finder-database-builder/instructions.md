@@ -22,7 +22,7 @@ related: [channel-finder-pipeline-selection]
 **Paste this prompt to your AI assistant:**
 
 ```
-Following @docs/workflows/channel-finder-database-builder.md, help me build my Channel Finder database.
+Following @src/osprey/assist/tasks/channel-finder-database-builder/instructions.md, help me build my Channel Finder database.
 
 Your role:
 1. Ask questions to understand what information I have available

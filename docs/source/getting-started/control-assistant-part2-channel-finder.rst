@@ -72,7 +72,7 @@ That's it—no code changes required. The template includes complete implementat
       @src/osprey/assist/tasks/channel-finder-pipeline-selection/instructions.md Help me select the right Channel Finder pipeline.
 
    .. note::
-      List available tasks with: ``osprey assist list``
+      List available tasks with: ``osprey tasks list``
 
    For more information about AI-assisted development workflows, see :doc:`../contributing/03_ai-assisted-development`.
 
@@ -296,7 +296,7 @@ That's it—no code changes required. The template includes complete implementat
                   Guide me on writing descriptions that help the LLM distinguish between channels.
 
                .. note::
-                  List available tasks with: ``osprey assist list``
+                  List available tasks with: ``osprey tasks list``
 
                For more information about AI-assisted development workflows, see :doc:`../contributing/03_ai-assisted-development`.
 
@@ -967,7 +967,7 @@ That's it—no code changes required. The template includes complete implementat
                   Guide me on writing descriptions that help the LLM navigate the hierarchy correctly.
 
                .. note::
-                  List available tasks with: ``osprey assist list``
+                  List available tasks with: ``osprey tasks list``
 
                For more information about AI-assisted development workflows, see :doc:`../contributing/03_ai-assisted-development`.
 
@@ -1923,7 +1923,7 @@ That's it—no code changes required. The template includes complete implementat
                   Guide me on writing descriptions that help the agent explore the database effectively.
 
                .. note::
-                  List available tasks with: ``osprey assist list``
+                  List available tasks with: ``osprey tasks list``
 
                For more information about AI-assisted development workflows, see :doc:`../contributing/03_ai-assisted-development`.
 

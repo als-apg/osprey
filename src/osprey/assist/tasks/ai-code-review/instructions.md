@@ -20,7 +20,7 @@ related: [pre-merge-cleanup, commit-organization, testing-workflow]
 **Paste this prompt to your AI assistant (Cursor/Copilot):**
 
 ```
-Following @docs/workflows/ai-code-review.md, perform a systematic code review of my uncommitted changes.
+Following @src/osprey/assist/tasks/ai-code-review/instructions.md, perform a systematic code review of my uncommitted changes.
 
 PHASE 1 - Statistical Overview:
 - Total lines added/removed

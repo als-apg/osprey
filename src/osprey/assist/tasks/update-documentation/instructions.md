@@ -20,7 +20,7 @@ This document provides a comprehensive workflow for identifying and updating doc
 **For AI assistants (recommended):**
 
 ```
-@docs/workflows/update-documentation.md
+@src/osprey/assist/tasks/update-documentation/instructions.md
 
 I have uncommitted changes. Please:
 1. Analyze what changed using git diff

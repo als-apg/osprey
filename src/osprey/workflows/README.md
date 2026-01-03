@@ -4,17 +4,17 @@ This directory is deprecated. Workflow files have been moved to `src/osprey/assi
 
 ## Migration
 
-Use the new `osprey assist` command instead of `osprey workflows`:
+Use the new commands instead of `osprey workflows`:
 
 ```bash
 # List available tasks
-osprey assist list
-
-# Install a task for your coding assistant
-osprey assist install migrate
+osprey tasks list
 
 # Show task details
-osprey assist show testing-workflow
+osprey tasks show testing-workflow
+
+# Install a task as a Claude Code skill
+osprey claude install migrate
 ```
 
 ## New Location

@@ -175,12 +175,12 @@ See `src/osprey/assist/tasks/migrate/schema.yml` for the full schema definition.
 
 ### Coding Assistant Integration (Recommended)
 
-OSPREY provides coding assistant integrations via the `osprey assist` command.
+OSPREY provides coding assistant integrations via the `osprey claude` command.
 
 **Install the integration:**
 
 ```bash
-osprey assist install migrate
+osprey claude install migrate
 ```
 
 This installs the appropriate integration for your coding assistant (Claude Code, Cursor, etc.).
@@ -298,4 +298,4 @@ src/osprey/assist/integrations/
     └── migrate/SKILL.md         # Claude Code skill wrapper
 ```
 
-Install with: `osprey assist install migrate`
+Install with: `osprey claude install migrate`

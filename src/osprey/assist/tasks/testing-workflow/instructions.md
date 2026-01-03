@@ -16,7 +16,7 @@ Comprehensive guide for testing in Osprey, with emphasis on cost-effective test 
 **Paste this prompt to your AI assistant:**
 
 ```
-Following @docs/workflows/testing-workflow.md, help me write tests for [COMPONENT/FEATURE].
+Following @src/osprey/assist/tasks/testing-workflow/instructions.md, help me write tests for [COMPONENT/FEATURE].
 
 Analyze the code and determine:
 1. What type of tests are needed (unit, integration, or e2e)?

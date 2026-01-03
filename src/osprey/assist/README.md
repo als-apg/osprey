@@ -6,10 +6,13 @@ Coding assistant integrations for OSPREY. Provides tool-agnostic task instructio
 
 ```bash
 # List available tasks
-osprey assist list
+osprey tasks list
 
-# Install a task for your coding assistant
-osprey assist install migrate
+# Show task details
+osprey tasks show migrate
+
+# Install a task as a Claude Code skill
+osprey claude install migrate
 
 # Output:
 # Installed Claude Code skill to .claude/skills/migrate/SKILL.md
@@ -138,7 +141,8 @@ Follow the instructions in [instructions.md](../../../tasks/my-task/instructions
 
 ### 4. Register with CLI (optional)
 
-Add the task to the `osprey assist` command in `src/osprey/cli/assist_cmd.py`.
+Tasks in `src/osprey/assist/tasks/` are automatically discovered by the CLI.
+To add a Claude Code skill wrapper, create the integration in `src/osprey/assist/integrations/claude_code/{task}/SKILL.md`.
 
 ## Adding a New Tool Integration
 
@@ -160,7 +164,7 @@ Each tool has its own wrapper format:
 
 ### 3. Update the CLI
 
-Add installation logic in `src/osprey/cli/assist_cmd.py` to copy the wrapper to the correct location.
+Installation logic is in `src/osprey/cli/claude_cmd.py` (for Claude Code) and `src/osprey/cli/tasks_cmd.py` (for task browsing).
 
 ## Design Principles
 
@@ -172,5 +176,5 @@ Add installation logic in `src/osprey/cli/assist_cmd.py` to copy the wrapper to 
 
 ## Related Documentation
 
-- [Migration Workflow](../workflows/migration-workflow.md) - Overview of the migration process
+- [Migration Task](tasks/migrate/instructions.md) - Migration workflow for upgrading downstream projects
 - [Migration Authoring](tasks/migrate/authoring/README.md) - CLI tools and prompts for creating migrations

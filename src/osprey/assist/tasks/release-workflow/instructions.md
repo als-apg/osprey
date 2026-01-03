@@ -16,7 +16,7 @@ This document provides the **definitive workflow** for creating releases that en
 **Paste this prompt to your AI assistant (Cursor/Copilot):**
 
 ```
-I'm ready to create a new release. Following @docs/workflows/release-workflow.md,
+I'm ready to create a new release. Following @src/osprey/assist/tasks/release-workflow/instructions.md,
 guide me through the complete release process for version X.X.X.
 
 Walk me through each step and verify completion before moving to the next:
@@ -305,7 +305,7 @@ Before creating a release, ensure these files have the correct version. **All ve
 - [ ] **`src/osprey/cli/main.py`** - Line 20: `__version__ = "0.7.3"` (fallback version)
 
 ### 📝 Documentation & Release Notes
-- [ ] **`RELEASE_NOTES.md`** - Line 1: `# Alpha Berkeley Framework - Latest Release (v0.7.3)`
+- [ ] **`RELEASE_NOTES.md`** - Line 1: `# Osprey Framework - Latest Release (v0.7.3)`
 - [ ] **`CHANGELOG.md`** - Add new section: `## [0.7.3] - 2025-MM-DD`
 - [ ] **`README.md`** - Line 12: `**🎉 Latest Release: v0.7.3**`
 

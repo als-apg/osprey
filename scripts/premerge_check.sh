@@ -107,14 +107,14 @@ if [ $ERRORS -eq 0 ]; then
   echo "✅ Automated checks passed ($WARNINGS warnings)"
   echo ""
   echo "Manual verification recommended:"
-  echo "  • Review with: @docs/workflows/ai-code-review.md (if AI-generated)"
-  echo "  • Pre-merge cleanup: @docs/workflows/pre-merge-cleanup.md"
+  echo "  • Review with: @src/osprey/assist/tasks/ai-code-review/instructions.md (if AI-generated)"
+  echo "  • Pre-merge cleanup: @src/osprey/assist/tasks/pre-merge-cleanup/instructions.md"
   echo "  • Check docstrings, test coverage, and config sync"
   exit 0
 else
   echo "❌ Found $ERRORS blocking issues ($WARNINGS warnings)"
   echo ""
-  echo "See: docs/workflows/pre-merge-cleanup.md for detailed guidance"
+  echo "See: src/osprey/assist/tasks/pre-merge-cleanup/instructions.md for detailed guidance"
   exit 1
 fi
 

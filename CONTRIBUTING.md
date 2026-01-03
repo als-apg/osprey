@@ -67,32 +67,44 @@ ruff format --check src/ tests/
 
 We provide comprehensive workflow guides optimized for AI-assisted development:
 
-### Quick Reference
+### Browsing Tasks
 
-📋 **[Workflow Index](docs/workflows/README.md)** - All workflows organized by situation
+```bash
+# List all available tasks
+osprey tasks list
+
+# Show details about a specific task
+osprey tasks show pre-merge-cleanup
+```
 
 ### Essential Workflows
 
 **Before committing:**
-- **[Pre-Merge Cleanup](docs/workflows/pre-merge-cleanup.md)** - Scan for issues before commit
-- **[Commit Organization](docs/workflows/commit-organization.md)** - Organize atomic commits
+- `pre-merge-cleanup` - Scan for issues before commit
+- `commit-organization` - Organize atomic commits
 
 **While coding:**
-- **[Docstrings Guide](docs/workflows/docstrings.md)** - Professional docstring writing
-- **[Comments Guide](docs/workflows/comments.md)** - Strategic inline comments
+- `docstrings` - Professional docstring writing
+- `comments` - Strategic inline comments
 
 **After changes:**
-- **[Update Documentation](docs/workflows/update-documentation.md)** - Keep docs in sync
+- `update-documentation` - Keep docs in sync
 
 ### Using with AI Assistants
 
-Reference workflows in your AI assistant (Cursor, Copilot) with `@` mentions:
+For Claude Code, install tasks as skills:
+
+```bash
+osprey claude install pre-commit
+```
+
+Reference task instructions in other AI assistants (Cursor, Copilot) with `@` mentions:
 
 ```
-@docs/workflows/pre-merge-cleanup.md Scan my uncommitted changes
+@src/osprey/assist/tasks/pre-merge-cleanup/instructions.md Scan my uncommitted changes
 ```
 
-Each workflow includes an "AI Quick Start" section with detailed prompt guidance.
+Each task includes an "AI Quick Start" section with detailed prompt guidance.
 
 ### Automation
 

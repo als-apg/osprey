@@ -16,7 +16,7 @@ This guide helps you organize uncommitted Git changes into atomic, logical commi
 **Paste this prompt to your AI assistant (Cursor/Copilot):**
 
 ```
-I have multiple uncommitted changes. Following @docs/workflows/commit-organization.md,
+I have multiple uncommitted changes. Following @src/osprey/assist/tasks/commit-organization/instructions.md,
 help me organize them into atomic, logical commits.
 
 CRITICAL REQUIREMENTS:

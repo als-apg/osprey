@@ -22,7 +22,7 @@ related: [channel-finder-database-builder]
 **Paste this prompt to your AI assistant:**
 
 ```
-Following @docs/workflows/channel-finder-pipeline-selection.md, help me select the right Channel Finder pipeline.
+Following @src/osprey/assist/tasks/channel-finder-pipeline-selection/instructions.md, help me select the right Channel Finder pipeline.
 
 Your approach:
 1. DO NOT immediately recommend a pipeline
