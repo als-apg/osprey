@@ -211,6 +211,30 @@ class DarkTheme(Theme):
             /* Check boxes */
             QCheckBox {
                 color: #FFFFFF;
+                spacing: 5px;
+            }
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+                border: 1px solid #3F3F46;
+                border-radius: 3px;
+                background-color: #2D2D30;
+            }
+            QCheckBox::indicator:hover {
+                border: 1px solid #0078D4;
+                background-color: #3F3F46;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #0078D4;
+                border: 1px solid #0078D4;
+                image: none;
+            }
+            QCheckBox::indicator:checked:hover {
+                background-color: #1084E4;
+            }
+            QCheckBox::indicator:disabled {
+                background-color: #1E1E1E;
+                border: 1px solid #2D2D30;
             }
             
             /* Labels */
