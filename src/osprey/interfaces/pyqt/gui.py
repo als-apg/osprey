@@ -1740,6 +1740,19 @@ class OspreyGUI(QMainWindow):
         if not user_message:
             return
 
+        # Preprocess message to resolve conversation history references (GUI-only feature)
+        from osprey.interfaces.pyqt.conversation_preprocessor import ConversationPreprocessor
+        
+        preprocessed_message, explanation = ConversationPreprocessor.preprocess_message(
+            user_message, self.conversation_manager, self.current_conversation_id
+        )
+        
+        # If preprocessing occurred, show explanation to user
+        if explanation:
+            self._append_colored_message(explanation, "#FFD700")
+            # Use preprocessed message for framework
+            user_message = preprocessed_message
+
         # Check if waiting for correction input (only if feedback enabled)
         if (
             self.settings_manager.get("enable_routing_feedback", True)
