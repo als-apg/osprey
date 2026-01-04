@@ -67,53 +67,55 @@ class ConversationPreprocessor:
         if not conversation or not conversation.messages:
             return message, None, None
 
-        # Find the most recent user-assistant exchange
         messages = conversation.messages
         if len(messages) < 2:
             return message, None, None
 
-        # Look for the most recent user message and its assistant response
-        previous_user_msg = None
-        previous_assistant_msg = None
-        
-        for i in range(len(messages) - 1, -1, -1):
-            msg = messages[i]
-            if msg.type == "user" and previous_user_msg is None:
-                previous_user_msg = msg
-            elif msg.type == "assistant" and previous_user_msg is not None and previous_assistant_msg is None:
-                previous_assistant_msg = msg
-                break
-
-        if not previous_user_msg or not previous_assistant_msg:
-            return message, None, None
-
-        # Check if the current message is asking about the previous exchange
+        # Check if the current message is asking about a previous exchange
         # Patterns like "what was X when I asked earlier" or "do you know what X was when I asked"
         message_lower = message.lower()
         is_asking_about_previous = any([
-            "when i asked" in message_lower and ("earlier" in message_lower or "before" in message_lower or "question" in message_lower),
-            "what was" in message_lower and "when" in message_lower,
-            "do you know what" in message_lower and "when" in message_lower,
+            "when i asked" in message_lower and ("earlier" in message_lower or "before" in message_lower or "question" in message_lower or "this" in message_lower),
+            "what was" in message_lower and ("when" in message_lower or "earlier" in message_lower),
+            "do you know what" in message_lower and ("when" in message_lower or "earlier" in message_lower),
+            "when did i ask" in message_lower,
+            re.search(r"(earlier|before|previously)\s+(question|query|message)", message_lower),
         ])
 
-        if is_asking_about_previous:
-            # User is asking about a previous conversation - provide the answer directly
-            logger.info(f"Detected question about previous conversation. Providing direct answer from history.")
-            
-            explanation = (
-                f"📝 Resolved conversation reference:\n"
-                f"   Previous question: \"{previous_user_msg.content[:100]}{'...' if len(previous_user_msg.content) > 100 else ''}\"\n"
-                f"   Providing previous answer directly from conversation history"
-            )
-            
-            # Format the direct answer
-            direct_answer = (
-                f"Based on our previous conversation:\n\n"
-                f"**Your question:** {previous_user_msg.content}\n\n"
-                f"**My answer:** {previous_assistant_msg.content}"
-            )
-            
-            return message, explanation, direct_answer
+        if not is_asking_about_previous:
+            # Not asking about previous conversation - let framework handle it
+            logger.debug("Message references history but not asking about previous conversation")
+            return message, None, None
 
-        # Not asking about previous conversation - let framework handle it
-        return message, None, None
+        # User IS asking about a previous conversation - find the most recent user-assistant exchange
+        logger.info(f"Detected question about previous conversation: '{message}'")
+        
+        # Look back through the last few exchanges (up to 3) to find user-assistant pairs
+        user_assistant_pairs = []
+        for i in range(len(messages) - 1):
+            if messages[i].type == "user" and i + 1 < len(messages) and messages[i + 1].type == "assistant":
+                user_assistant_pairs.append((messages[i], messages[i + 1]))
+        
+        if not user_assistant_pairs:
+            logger.debug("No previous user-assistant exchanges found")
+            return message, None, None
+        
+        # Use the most recent exchange (last in the list)
+        previous_user_msg, previous_assistant_msg = user_assistant_pairs[-1]
+        
+        logger.info(f"Found previous exchange - User: '{previous_user_msg.content[:50]}...', Assistant: '{previous_assistant_msg.content[:50]}...'")
+        
+        explanation = (
+            f"📝 Resolved conversation reference:\n"
+            f"   Previous question: \"{previous_user_msg.content[:100]}{'...' if len(previous_user_msg.content) > 100 else ''}\"\n"
+            f"   Providing previous answer directly from conversation history"
+        )
+        
+        # Format the direct answer
+        direct_answer = (
+            f"Based on our previous conversation:\n\n"
+            f"**Your question:** {previous_user_msg.content}\n\n"
+            f"**My answer:** {previous_assistant_msg.content}"
+        )
+        
+        return message, explanation, direct_answer
