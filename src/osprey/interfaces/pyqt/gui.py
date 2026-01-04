@@ -1743,11 +1743,33 @@ class OspreyGUI(QMainWindow):
         # Preprocess message to resolve conversation history references (GUI-only feature)
         from osprey.interfaces.pyqt.conversation_preprocessor import ConversationPreprocessor
         
-        preprocessed_message, explanation = ConversationPreprocessor.preprocess_message(
+        preprocessed_message, explanation, direct_answer = ConversationPreprocessor.preprocess_message(
             user_message, self.conversation_manager, self.current_conversation_id
         )
         
-        # If preprocessing occurred, show explanation to user
+        # If we have a direct answer from conversation history, display it and return
+        if direct_answer:
+            # Show explanation
+            if explanation:
+                self._append_colored_message(explanation, "#FFD700")
+            
+            # Display the direct answer from history
+            self._append_colored_message(f"🤖 Assistant: {direct_answer}", "#00FFFF")
+            
+            # Add to conversation history
+            if self.current_conversation_id:
+                self.conversation_manager.add_message(
+                    self.current_conversation_id, "assistant", direct_answer
+                )
+                self.conversation_display_mgr.update_conversation_list()
+                self.save_conversation_history()
+            
+            # Clear input and return - no need to call framework
+            self.input_field.clear()
+            self.status_bar.showMessage("✅ Ready - Type your message")
+            return
+        
+        # If preprocessing occurred but no direct answer, show explanation
         if explanation:
             self._append_colored_message(explanation, "#FFD700")
             # Use preprocessed message for framework

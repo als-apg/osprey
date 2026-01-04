@@ -3,11 +3,11 @@ Conversation History Preprocessor for GUI
 
 Preprocesses user messages to resolve conversation history references before
 sending to the framework. This allows the GUI to leverage its conversation
-history to resolve temporal references like "earlier" or "when I asked before".
+history to answer questions about previous interactions directly, without
+needing to query the framework.
 """
 
 import re
-from datetime import datetime
 from typing import Optional
 
 from osprey.utils.logger import get_logger
@@ -41,8 +41,12 @@ class ConversationPreprocessor:
     @classmethod
     def preprocess_message(
         cls, message: str, conversation_manager, current_conversation_id: str
-    ) -> tuple[str, Optional[str]]:
+    ) -> tuple[str, Optional[str], Optional[str]]:
         """Preprocess message to resolve conversation history references.
+        
+        This method checks if the user is asking about a previous conversation.
+        If so, it retrieves the previous question and answer from history and
+        returns them directly, bypassing the framework entirely.
         
         Args:
             message: Original user message
@@ -50,94 +54,66 @@ class ConversationPreprocessor:
             current_conversation_id: ID of current conversation
             
         Returns:
-            Tuple of (preprocessed_message, explanation)
-            - preprocessed_message: Message with history references resolved
+            Tuple of (preprocessed_message, explanation, direct_answer)
+            - preprocessed_message: Message with history references resolved (or original)
             - explanation: Human-readable explanation of what was resolved (or None)
+            - direct_answer: Direct answer from conversation history (or None if framework should handle)
         """
         if not cls.should_preprocess(message):
-            return message, None
+            return message, None, None
 
         # Get conversation history
         conversation = conversation_manager.get_conversation(current_conversation_id)
         if not conversation or not conversation.messages:
-            return message, None
+            return message, None, None
 
-        # Find the most recent user message (excluding the current one)
-        previous_user_messages = [
-            msg for msg in conversation.messages if msg.type == "user"
-        ]
+        # Find the most recent user-assistant exchange
+        messages = conversation.messages
+        if len(messages) < 2:
+            return message, None, None
+
+        # Look for the most recent user message and its assistant response
+        previous_user_msg = None
+        previous_assistant_msg = None
         
-        if len(previous_user_messages) < 1:
-            # No previous messages to reference
-            return message, None
+        for i in range(len(messages) - 1, -1, -1):
+            msg = messages[i]
+            if msg.type == "user" and previous_user_msg is None:
+                previous_user_msg = msg
+            elif msg.type == "assistant" and previous_user_msg is not None and previous_assistant_msg is None:
+                previous_assistant_msg = msg
+                break
 
-        # Get the most recent previous user message
-        previous_message = previous_user_messages[-1]
-        previous_content = previous_message.content
-        previous_timestamp = previous_message.timestamp
+        if not previous_user_msg or not previous_assistant_msg:
+            return message, None, None
 
-        if not previous_timestamp:
-            # No timestamp available
-            return message, None
-
-        # Parse timestamp
-        try:
-            if isinstance(previous_timestamp, str):
-                timestamp_dt = datetime.fromisoformat(previous_timestamp.replace("Z", "+00:00"))
-            else:
-                timestamp_dt = previous_timestamp
-            
-            timestamp_str = timestamp_dt.strftime("%Y-%m-%d %H:%M:%S")
-        except Exception as e:
-            logger.warning(f"Failed to parse timestamp: {e}")
-            return message, None
-
-        # Create enhanced message with explicit timestamp
-        enhanced_message = cls._enhance_message_with_timestamp(
-            message, previous_content, timestamp_str
-        )
-
-        # Create explanation
-        explanation = (
-            f"📝 Resolved conversation reference:\n"
-            f"   Previous question: \"{previous_content[:100]}{'...' if len(previous_content) > 100 else ''}\"\n"
-            f"   Asked at: {timestamp_str}"
-        )
-
-        return enhanced_message, explanation
-
-    @classmethod
-    def _enhance_message_with_timestamp(
-        cls, message: str, previous_content: str, timestamp_str: str
-    ) -> str:
-        """Enhance message by adding explicit timestamp information.
-        
-        Args:
-            message: Original message
-            previous_content: Content of previous message
-            timestamp_str: Timestamp string in format "YYYY-MM-DD HH:MM:SS"
-            
-        Returns:
-            Enhanced message with explicit timestamp
-        """
-        # Check what kind of reference this is
+        # Check if the current message is asking about the previous exchange
+        # Patterns like "what was X when I asked earlier" or "do you know what X was when I asked"
         message_lower = message.lower()
-        
-        # Pattern 1: "when I asked earlier" or similar
-        if re.search(r"when\s+i\s+asked", message_lower):
-            # Replace the temporal reference with explicit timestamp
-            enhanced = re.sub(
-                r"when\s+i\s+asked\s+(earlier|before|this\s+question\s+earlier)",
-                f"at {timestamp_str} when I asked",
-                message,
-                flags=re.IGNORECASE
+        is_asking_about_previous = any([
+            "when i asked" in message_lower and ("earlier" in message_lower or "before" in message_lower or "question" in message_lower),
+            "what was" in message_lower and "when" in message_lower,
+            "do you know what" in message_lower and "when" in message_lower,
+        ])
+
+        if is_asking_about_previous:
+            # User is asking about a previous conversation - provide the answer directly
+            logger.info(f"Detected question about previous conversation. Providing direct answer from history.")
+            
+            explanation = (
+                f"📝 Resolved conversation reference:\n"
+                f"   Previous question: \"{previous_user_msg.content[:100]}{'...' if len(previous_user_msg.content) > 100 else ''}\"\n"
+                f"   Providing previous answer directly from conversation history"
             )
-            return enhanced
-        
-        # Pattern 2: "earlier" or "before" without "when I asked"
-        if re.search(r"\b(earlier|before)\b", message_lower):
-            # Add timestamp context
-            return f"{message} (referring to {timestamp_str})"
-        
-        # Default: append timestamp information
-        return f"{message} (previous question was at {timestamp_str})"
+            
+            # Format the direct answer
+            direct_answer = (
+                f"Based on our previous conversation:\n\n"
+                f"**Your question:** {previous_user_msg.content}\n\n"
+                f"**My answer:** {previous_assistant_msg.content}"
+            )
+            
+            return message, explanation, direct_answer
+
+        # Not asking about previous conversation - let framework handle it
+        return message, None, None
