@@ -78,9 +78,7 @@ class SemanticSimilarityCalculator:
         self._model_load_attempted = False
 
         # Don't load model yet - defer until first use (lazy loading)
-        logger.debug(
-            "SemanticSimilarityCalculator initialized (model will be loaded on first use)"
-        )
+        logger.debug("SemanticSimilarityCalculator initialized (model will be loaded on first use)")
 
     def _load_model(self):
         """Lazy load the sentence-transformers model on first use."""

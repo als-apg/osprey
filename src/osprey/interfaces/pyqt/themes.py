@@ -27,7 +27,7 @@ class Theme:
 
 class DarkTheme(Theme):
     """Dark theme for the Osprey Framework GUI.
-    
+
     This theme provides a dark color scheme optimized for reduced eye strain
     and professional appearance. It's designed to work consistently across
     Windows, Linux, and macOS platforms.
@@ -56,10 +56,10 @@ class DarkTheme(Theme):
 
     def get_stylesheet(self) -> str:
         """Get comprehensive dark theme stylesheet.
-        
+
         This stylesheet ensures consistent dark theme appearance across all
         widgets, dialogs, and windows on Windows, Linux, and macOS.
-        
+
         Returns:
             Complete CSS stylesheet for dark theme
         """
@@ -69,18 +69,18 @@ class DarkTheme(Theme):
                 background-color: #2D2D30;
                 color: #FFFFFF;
             }
-            
+
             /* Main window */
             QMainWindow {
                 background-color: #2D2D30;
             }
-            
+
             /* Dialogs */
             QDialog {
                 background-color: #2D2D30;
                 color: #FFFFFF;
             }
-            
+
             /* Menu bar */
             QMenuBar {
                 background-color: #2D2D30;
@@ -94,7 +94,7 @@ class DarkTheme(Theme):
             QMenuBar::item:selected {
                 background-color: #0078D4;
             }
-            
+
             /* Menus */
             QMenu {
                 background-color: #2D2D30;
@@ -107,7 +107,7 @@ class DarkTheme(Theme):
             QMenu::item:selected {
                 background-color: #0078D4;
             }
-            
+
             /* Tab widgets */
             QTabWidget::pane {
                 border: 1px solid #3F3F46;
@@ -127,7 +127,7 @@ class DarkTheme(Theme):
             QTabBar::tab:hover {
                 background-color: #3F3F46;
             }
-            
+
             /* Buttons */
             QPushButton {
                 background-color: #4A5568;
@@ -146,14 +146,14 @@ class DarkTheme(Theme):
                 background-color: #2D2D30;
                 color: #808080;
             }
-            
+
             /* Status bar */
             QStatusBar {
                 background-color: #2D2D30;
                 color: #FFFFFF;
                 border-top: 1px solid #3F3F46;
             }
-            
+
             /* Group boxes */
             QGroupBox {
                 border: 1px solid #3F3F46;
@@ -167,7 +167,7 @@ class DarkTheme(Theme):
                 padding: 0 5px;
                 color: #FFFFFF;
             }
-            
+
             /* Combo boxes */
             QComboBox {
                 background-color: #2D2D30;
@@ -191,7 +191,7 @@ class DarkTheme(Theme):
                 selection-color: #FFFFFF;
                 border: 1px solid #3F3F46;
             }
-            
+
             /* Spin boxes */
             QSpinBox, QDoubleSpinBox {
                 background-color: #2D2D30;
@@ -207,7 +207,7 @@ class DarkTheme(Theme):
                 background-color: #3F3F46;
                 border: none;
             }
-            
+
             /* Check boxes */
             QCheckBox {
                 color: #FFFFFF;
@@ -236,13 +236,13 @@ class DarkTheme(Theme):
                 background-color: #1E1E1E;
                 border: 1px solid #2D2D30;
             }
-            
+
             /* Labels */
             QLabel {
                 color: #FFFFFF;
                 background-color: transparent;
             }
-            
+
             /* Scroll bars */
             QScrollBar:vertical {
                 background-color: #2D2D30;

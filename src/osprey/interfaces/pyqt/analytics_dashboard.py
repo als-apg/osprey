@@ -125,10 +125,10 @@ class AnalyticsDashboard(QWidget):
         header_layout.addWidget(self.time_range_combo)
 
         # Refresh button
-        refresh_btn = QPushButton("🔄 Refresh")
-        refresh_btn.clicked.connect(self.refresh_data)
-        refresh_btn.setStyleSheet("background-color: #4A5568; color: #FFFFFF;")
-        header_layout.addWidget(refresh_btn)
+        self.refresh_btn = QPushButton("🔄 Refresh")
+        self.refresh_btn.clicked.connect(self.on_refresh_clicked)
+        self.refresh_btn.setStyleSheet("background-color: #4A5568; color: #FFFFFF;")
+        header_layout.addWidget(self.refresh_btn)
 
         # Auto-refresh toggle
         self.auto_refresh_btn = QPushButton("⏸️ Auto-Refresh: OFF")
@@ -384,14 +384,41 @@ class AnalyticsDashboard(QWidget):
 
         return group
 
+    def on_refresh_clicked(self):
+        """Handle refresh button click with visual feedback."""
+        # Disable button and show loading state
+        self.refresh_btn.setEnabled(False)
+        self.refresh_btn.setText("⏳ Refreshing...")
+
+        # Force GUI update
+        from PyQt5.QtWidgets import QApplication
+
+        QApplication.processEvents()
+
+        # Perform refresh
+        self.refresh_data()
+
+        # Re-enable button
+        self.refresh_btn.setEnabled(True)
+        self.refresh_btn.setText("🔄 Refresh")
+
     def refresh_data(self):
         """Refresh dashboard data."""
         try:
+            self.logger.info("Refreshing analytics dashboard data...")
+
+            # Verify analytics object is available
+            if not self.analytics:
+                self.logger.error("Analytics object is not available")
+                return
+
             # Get time range
             time_range_hours = self._get_time_range_hours()
+            self.logger.debug(f"Time range: {time_range_hours} hours")
 
             # Get summary
             summary = self.analytics.get_summary(time_range_hours)
+            self.logger.debug(f"Retrieved summary: {summary.total_queries} total queries")
 
             # Update overview metrics
             self._update_overview_metrics(summary)
@@ -405,10 +432,18 @@ class AnalyticsDashboard(QWidget):
             # Update query patterns
             self._update_query_patterns()
 
-            self.logger.debug("Dashboard data refreshed")
+            self.logger.info("✅ Dashboard data refreshed successfully")
 
         except Exception as e:
-            self.logger.error(f"Failed to refresh dashboard: {e}")
+            self.logger.error(f"❌ Failed to refresh dashboard: {e}", exc_info=True)
+            # Show error to user
+            from PyQt5.QtWidgets import QMessageBox
+
+            QMessageBox.warning(
+                self,
+                "Refresh Failed",
+                f"Failed to refresh analytics data:\n{str(e)}\n\nCheck the logs for details.",
+            )
 
     def _get_time_range_hours(self) -> float | None:
         """Get selected time range in hours."""

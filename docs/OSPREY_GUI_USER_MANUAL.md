@@ -231,7 +231,7 @@ If `osprey-gui` is not found:
    ```bash
    # Find where pip installed scripts
    python -m site --user-base
-   
+
    # Add to PATH (Linux/macOS - add to ~/.bashrc)
    export PATH="$HOME/.local/bin:$PATH"
    ```
@@ -1386,7 +1386,7 @@ caput -S pvgatemain1.aps4.anl.gov:5065 YOUR:PV:NAME value
    ```bash
    # Verify Python version
    python --version  # Should be 3.8 or higher
-   
+
    # Check if environment is activated
    which python      # Should point to your virtual environment
    ```
@@ -1395,7 +1395,7 @@ caput -S pvgatemain1.aps4.anl.gov:5065 YOUR:PV:NAME value
    ```bash
    # Check if Osprey is installed
    pip list | grep osprey
-   
+
    # Check if osprey-gui command exists
    which osprey-gui  # Should show path to command
    ```

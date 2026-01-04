@@ -11,7 +11,7 @@ This guide explains how to configure the Osprey PyQt GUI for your facility.
    ```
 
 2. **Set up environment variables for API keys:**
-   
+
    Create or update your `.env` file in the project root with your API key(s):
    ```bash
    # Choose ONE provider that your facility uses
@@ -26,7 +26,7 @@ This guide explains how to configure the Osprey PyQt GUI for your facility.
    ```
 
 3. **Edit `gui_config.yml` to configure your LLM provider:**
-   
+
    Update the `models.classifier` section with your facility's provider:
    ```yaml
    models:
@@ -37,7 +37,7 @@ This guide explains how to configure the Osprey PyQt GUI for your facility.
    ```
 
 4. **Verify your provider is configured in the `api.providers` section:**
-   
+
    Make sure the provider you chose has the correct `base_url` and uses the environment variable for the API key:
    ```yaml
    api:
@@ -66,7 +66,7 @@ models:
     provider: anthropic  # Your facility's LLM provider
     model_id: claude-3-5-haiku-20241022
     max_tokens: 4096
-  
+
   # Optional: Orchestrator model for multi-project queries
   orchestrator:
     provider: anthropic
@@ -146,29 +146,29 @@ routing:
     max_size: 100
     ttl_seconds: 3600.0  # 1 hour
     similarity_threshold: 0.85
-  
+
   # Advanced cache invalidation strategies
   advanced_invalidation:
     enabled: true
     adaptive_ttl: true  # Hot entries cached longer
     probabilistic_expiration: true  # Prevent cache stampede
     event_driven: true  # Auto-invalidate on config changes
-  
+
   # Semantic analysis for better routing decisions
   semantic_analysis:
     enabled: true
     similarity_threshold: 0.5
     topic_similarity_threshold: 0.6
     max_context_history: 20
-  
+
   # Multi-project orchestration
   orchestration:
     max_parallel: 3  # Max parallel sub-queries
-  
+
   # Analytics and metrics
   analytics:
     max_history: 1000  # Max routing decisions to track
-  
+
   # User feedback collection
   feedback:
     enabled: true
@@ -190,10 +190,10 @@ execution_control:
   agent_control:
     task_extraction_bypass_enabled: false
     capability_selection_bypass_enabled: false
-  
+
   epics:
     writes_enabled: false  # Set true to allow EPICS writes
-  
+
   limits:
     max_reclassifications: 1
     max_planning_attempts: 2
@@ -221,12 +221,12 @@ Configure human approval requirements for sensitive operations:
 ```yaml
 approval:
   global_mode: selective  # 'all', 'selective', or 'none'
-  
+
   capabilities:
     python_execution:
       enabled: true
       mode: all_code  # 'all_code', 'epics_writes', or 'none'
-    
+
     memory:
       enabled: true
 ```
@@ -250,12 +250,12 @@ development:
   debug: false  # Enable DEBUG logging level
   verbose_logging: false  # Enable verbose logging output
   raise_raw_errors: false  # Show full error stack traces
-  
+
   prompts:
     print_all: false  # Save prompts to files
     show_all: false  # Display prompts in console
     latest_only: true  # Use latest.md instead of timestamps
-  
+
   memory_monitor:
     enabled: true
     warning_threshold_mb: 500
