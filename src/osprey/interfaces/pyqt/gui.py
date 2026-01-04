@@ -2273,6 +2273,13 @@ def main(config_path=None):
     app = QApplication(sys.argv)
     app.setApplicationName("Osprey Framework")
 
+    # Apply theme using the theme manager
+    # This ensures consistent appearance across Windows, Linux, and macOS
+    from osprey.interfaces.pyqt.themes import get_theme_manager
+    
+    theme_manager = get_theme_manager()
+    theme_manager.apply_theme(app)  # Applies dark theme by default
+
     window = OspreyGUI(config_path=config_path)
     window.show()
 
