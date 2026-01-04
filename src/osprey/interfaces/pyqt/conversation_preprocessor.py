@@ -90,20 +90,23 @@ class ConversationPreprocessor:
         # User IS asking about a previous conversation - find the most recent user-assistant exchange
         logger.info(f"Detected question about previous conversation: '{message}'")
         
-        # Look back through the last few exchanges (up to 3) to find user-assistant pairs
-        user_assistant_pairs = []
-        for i in range(len(messages) - 1):
-            if messages[i].type == "user" and i + 1 < len(messages) and messages[i + 1].type == "assistant":
-                user_assistant_pairs.append((messages[i], messages[i + 1]))
+        # Look back through the last few exchanges to find user-response pairs
+        # Response can be from 'agent', 'assistant', or 'project'
+        user_response_pairs = []
+        response_types = {"agent", "assistant", "project"}
         
-        if not user_assistant_pairs:
-            logger.debug("No previous user-assistant exchanges found")
+        for i in range(len(messages) - 1):
+            if messages[i].type == "user" and i + 1 < len(messages) and messages[i + 1].type in response_types:
+                user_response_pairs.append((messages[i], messages[i + 1]))
+        
+        if not user_response_pairs:
+            logger.debug("No previous user-response exchanges found")
             return message, None, None
         
         # Use the most recent exchange (last in the list)
-        previous_user_msg, previous_assistant_msg = user_assistant_pairs[-1]
+        previous_user_msg, previous_response_msg = user_response_pairs[-1]
         
-        logger.info(f"Found previous exchange - User: '{previous_user_msg.content[:50]}...', Assistant: '{previous_assistant_msg.content[:50]}...'")
+        logger.info(f"Found previous exchange - User: '{previous_user_msg.content[:50]}...', Response: '{previous_response_msg.content[:50]}...'")
         
         explanation = (
             f"📝 Resolved conversation reference:\n"
@@ -115,7 +118,7 @@ class ConversationPreprocessor:
         direct_answer = (
             f"Based on our previous conversation:\n\n"
             f"**Your question:** {previous_user_msg.content}\n\n"
-            f"**My answer:** {previous_assistant_msg.content}"
+            f"**My answer:** {previous_response_msg.content}"
         )
         
         return message, explanation, direct_answer
