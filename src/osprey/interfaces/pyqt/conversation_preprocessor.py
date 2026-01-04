@@ -64,7 +64,7 @@ class ConversationPreprocessor:
 
         # Find the most recent user message (excluding the current one)
         previous_user_messages = [
-            msg for msg in conversation.messages if msg.get("role") == "user"
+            msg for msg in conversation.messages if msg.type == "user"
         ]
         
         if len(previous_user_messages) < 1:
@@ -73,8 +73,8 @@ class ConversationPreprocessor:
 
         # Get the most recent previous user message
         previous_message = previous_user_messages[-1]
-        previous_content = previous_message.get("content", "")
-        previous_timestamp = previous_message.get("timestamp")
+        previous_content = previous_message.content
+        previous_timestamp = previous_message.timestamp
 
         if not previous_timestamp:
             # No timestamp available
