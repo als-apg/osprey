@@ -167,7 +167,7 @@ def _get_caller_info(skip_frames: int = 2) -> dict[str, Any]:
             "/threading.py",  # Threading module
             "/asyncio/",  # AsyncIO internals
             "/langgraph/",  # LangGraph execution engine
-            "/pydantic_ai/",  # PydanticAI agent wrapper
+            "/litellm/",  # LiteLLM adapter
             "/queue.py",  # Queue module
         ]
 

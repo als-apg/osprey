@@ -1702,9 +1702,7 @@ def handle_chat_action(project_path: Path | None = None):
             console.print(
                 f"     {Messages.command('pip install --upgrade pydantic pydantic-core')}\n"
             )
-            console.print("  3. Check pydantic-ai compatibility:")
-            console.print(f"     {Messages.command('pip install --upgrade pydantic-ai')}\n")
-            console.print("  4. Or upgrade to Python 3.12+\n")
+            console.print("  3. Or upgrade to Python 3.12+\n")
         else:
             console.print(Messages.warning("There was an error loading the chat dependencies."))
             console.print(

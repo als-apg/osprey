@@ -394,10 +394,9 @@ To replace a framework provider with a custom implementation:
 
 Custom providers are useful for integrating institutional AI services (e.g., Stanford AI Playground, LBNL CBorg), commercial providers not yet in the framework (e.g., Cohere, Mistral AI), or self-hosted models with custom endpoints.
 
-All custom providers must inherit from :class:`BaseProvider` and implement three core methods:
+All custom providers must inherit from :class:`BaseProvider` and implement two core methods:
 
-- ``create_model()`` - Create PydanticAI model instances for agent workflows
-- ``execute_completion()`` - Execute direct API calls (used by infrastructure nodes)
+- ``execute_completion()`` - Execute completions via LiteLLM (used by infrastructure nodes)
 - ``check_health()`` - Test connectivity and authentication (used by ``osprey health`` CLI)
 
 .. code-block:: python
@@ -405,9 +404,10 @@ All custom providers must inherit from :class:`BaseProvider` and implement three
    # Implementation in src/my_app/providers/institutional.py
    from typing import Any
    from osprey.models.providers.base import BaseProvider
-   import httpx
-   import openai
-   from pydantic_ai.models.openai import OpenAIModel
+   from osprey.models.providers.litellm_adapter import (
+       execute_litellm_completion,
+       check_litellm_health,
+   )
 
    class InstitutionalAIProvider(BaseProvider):
        """Custom provider for institutional AI service."""
@@ -434,36 +434,6 @@ All custom providers must inherit from :class:`BaseProvider` and implement three
        ]
        api_key_note = "Requires active institutional affiliation"
 
-       def create_model(
-           self,
-           model_id: str,
-           api_key: str | None,
-           base_url: str | None,
-           timeout: float | None,
-           http_client: httpx.AsyncClient | None
-       ) -> OpenAIModel:
-           """Create model instance for PydanticAI agents."""
-           from pydantic_ai.providers.openai import OpenAIProvider
-
-           # For OpenAI-compatible APIs, use OpenAI client
-           if http_client:
-               client = openai.AsyncOpenAI(
-                   api_key=api_key,
-                   base_url=base_url,
-                   http_client=http_client
-               )
-           else:
-               client = openai.AsyncOpenAI(
-                   api_key=api_key,
-                   base_url=base_url,
-                   timeout=timeout or 60.0
-               )
-
-           return OpenAIModel(
-               model_name=model_id,
-               provider=OpenAIProvider(openai_client=client)
-           )
-
        def execute_completion(
            self,
            message: str,
@@ -472,36 +442,19 @@ All custom providers must inherit from :class:`BaseProvider` and implement three
            base_url: str | None,
            max_tokens: int = 1024,
            temperature: float = 0.0,
-           thinking: dict | None = None,
-           system_prompt: str | None = None,
-           output_format: Any | None = None,
            **kwargs
        ) -> str | Any:
-           """Execute direct chat completion."""
-           client = openai.OpenAI(api_key=api_key, base_url=base_url)
-
-           messages = [{"role": "user", "content": message}]
-           if system_prompt:
-               messages.insert(0, {"role": "system", "content": system_prompt})
-
-           # Handle structured output if requested
-           if output_format:
-               response = client.beta.chat.completions.parse(
-                   model=model_id,
-                   messages=messages,
-                   response_format=output_format,
-                   max_tokens=max_tokens,
-                   temperature=temperature
-               )
-               return response.choices[0].message.parsed
-           else:
-               response = client.chat.completions.create(
-                   model=model_id,
-                   messages=messages,
-                   max_tokens=max_tokens,
-                   temperature=temperature
-               )
-               return response.choices[0].message.content
+           """Execute completion via LiteLLM adapter."""
+           return execute_litellm_completion(
+               provider=self.name,
+               message=message,
+               model_id=model_id,
+               api_key=api_key,
+               base_url=base_url,
+               max_tokens=max_tokens,
+               temperature=temperature,
+               **kwargs,
+           )
 
        def check_health(
            self,
@@ -510,39 +463,19 @@ All custom providers must inherit from :class:`BaseProvider` and implement three
            timeout: float = 5.0,
            model_id: str | None = None
        ) -> tuple[bool, str]:
-           """Test provider connectivity and authentication."""
-           if not api_key:
-               return False, "API key not configured"
-
-           try:
-               client = openai.OpenAI(
-                   api_key=api_key,
-                   base_url=base_url,
-                   timeout=timeout
-               )
-               # Minimal test with cheapest model
-               test_model = model_id or self.health_check_model_id
-               response = client.chat.completions.create(
-                   model=test_model,
-                   messages=[{"role": "user", "content": "Hi"}],
-                   max_tokens=5
-               )
-               if response.choices:
-                   return True, "API accessible and authenticated"
-               return False, "API responded but no completion"
-           except Exception as e:
-               error_msg = str(e).lower()
-               if "authentication" in error_msg or "api key" in error_msg:
-                   return False, "Authentication failed (check API key)"
-               elif "timeout" in error_msg:
-                   return False, "Request timeout"
-               else:
-                   return False, f"API error: {str(e)[:50]}"
+           """Test provider connectivity via LiteLLM."""
+           return check_litellm_health(
+               provider=self.name,
+               api_key=api_key,
+               base_url=base_url,
+               timeout=timeout,
+               model_id=model_id or self.health_check_model_id,
+           )
 
 Once registered, custom providers integrate seamlessly with the framework:
 
 - Available in ``osprey init`` interactive provider selection
-- Accessible via :func:`osprey.models.get_model` and :func:`osprey.models.get_chat_completion`
+- Accessible via :func:`osprey.models.get_chat_completion`
 - Tested automatically by ``osprey health`` command
 - Configuration managed in ``config.yml`` like framework providers
 
@@ -596,10 +529,9 @@ Once registered, custom providers integrate seamlessly with the framework:
 
    **Implementation Notes:**
 
-   - For OpenAI-compatible APIs, reuse ``OpenAIModel`` from PydanticAI
-   - For provider-specific SDKs (Google, Anthropic), use their PydanticAI model classes
+   - Use ``execute_litellm_completion()`` and ``check_litellm_health()`` from the adapter
+   - For OpenAI-compatible APIs, LiteLLM handles them via ``openai/`` prefix with custom ``api_base``
    - ``check_health()`` should use minimal tokens (typically 5-10 tokens, ~$0.0001 cost)
-   - ``create_model()`` caller owns ``http_client`` lifecycle - don't close it in provider
    - All metadata is introspected from class attributes (single source of truth)
 
 Registry Initialization and Usage

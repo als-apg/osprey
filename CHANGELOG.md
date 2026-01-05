@@ -64,10 +64,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Content consolidated into `src/osprey/assist/tasks/{name}/instructions.md`
   - Only `README.md` deprecation notice remains in workflows directory
 
+### Added
+- **Models**: New vLLM provider adapter for high-throughput local inference
+  - Uses LiteLLM's OpenAI-compatible interface
+  - Auto-detects served models via `/models` endpoint
+  - Supports structured outputs with json_schema
+- **Tests**: Consolidated E2E test suite for LLM providers (`tests/e2e/test_llm_providers.py`)
+  - Provider × model × task matrix approach (anthropic, openai, google, cborg, ollama, vllm)
+  - Tests basic completion, structured output (Pydantic), and ReAct agent workflows
+  - Auto-skips unavailable providers/models based on environment
+
 ### Changed
 - **Models**: Migrated all LLM provider implementations to LiteLLM unified interface (#23)
   - Replaced ~2,200 lines of custom provider code with ~700 lines using LiteLLM adapter
-  - All 7 providers (anthropic, google, openai, ollama, cborg, stanford, argo) now use LiteLLM
+  - All 8 providers (anthropic, google, openai, ollama, cborg, stanford, argo, vllm) now use LiteLLM
   - Preserved extended thinking, structured outputs, and health check functionality
   - Access to 100+ providers through LiteLLM
 

@@ -174,15 +174,7 @@ autodoc_mock_imports = [
     "google.genai",
     "google.genai.types",
     "ollama",
-    "pydantic_ai",
-    "pydantic_ai.models",
-    "pydantic_ai.models.openai",
-    "pydantic_ai.models.gemini",
-    "pydantic_ai.models.anthropic",
-    "pydantic_ai.providers",
-    "pydantic_ai.providers.openai",
-    "pydantic_ai.providers.google_gla",
-    "pydantic_ai.providers.anthropic",
+    "litellm",
     # Data science stack - too heavy for docs CI, interfaces documented
     "pandas",
     "numpy",
@@ -200,7 +192,6 @@ autodoc_mock_imports = [
     "psycopg_pool",
     "langgraph.checkpoint.postgres",
     # Specialized infrastructure - interfaces documented, implementations mocked
-    "pydantic_ai",
     "langgraph",
     "langchain",
     # Container and deployment tools - not needed for documentation

@@ -3,14 +3,12 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
-import httpx
-
 
 class BaseProvider(ABC):
     """Abstract base class for AI model providers.
 
     All provider implementations must inherit from this class and implement
-    the three core methods: create_model, execute_completion, and check_health.
+    the two core methods: execute_completion and check_health.
 
     **Metadata as Class Attributes** (SINGLE SOURCE OF TRUTH):
     Subclasses define provider metadata as class attributes. The registry
@@ -55,33 +53,6 @@ class BaseProvider(ABC):
     api_key_url: str | None = None  # URL where users can obtain an API key
     api_key_instructions: list[str] = []  # Step-by-step instructions for obtaining the key
     api_key_note: str | None = None  # Additional notes or requirements
-
-    def create_model(
-        self,
-        model_id: str,
-        api_key: str | None,
-        base_url: str | None,
-        timeout: float | None,
-        http_client: httpx.AsyncClient | None,
-    ) -> Any:
-        """Create a model instance for PydanticAI.
-
-        .. deprecated::
-            This method is no longer used. Use execute_completion() instead.
-            Retained for backward compatibility with any external code.
-
-        :param model_id: Model identifier for this provider
-        :param api_key: API authentication key
-        :param base_url: Custom API endpoint URL
-        :param timeout: Request timeout in seconds
-        :param http_client: Pre-configured HTTP client (caller owns lifecycle)
-        :return: Configured model instance
-        :raises NotImplementedError: Always, this method is deprecated
-        """
-        raise NotImplementedError(
-            f"{self.__class__.__name__}.create_model() is deprecated. "
-            "Use execute_completion() instead."
-        )
 
     @abstractmethod
     def execute_completion(

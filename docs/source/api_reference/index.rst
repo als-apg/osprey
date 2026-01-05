@@ -66,7 +66,7 @@ API Reference
 
         **Integrate external data** → :class:`~osprey.data_management.DataSourceProvider` + provider patterns
 
-        **Manage LLM models** → :func:`~osprey.models.get_model` + :func:`~osprey.models.get_chat_completion`
+        **Manage LLM models** → :func:`~osprey.models.get_chat_completion`
 
         **Configure logging and streaming** → :func:`~osprey.utils.logger.get_logger` + :class:`~osprey.utils.logger.ComponentLogger`
 

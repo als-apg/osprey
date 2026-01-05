@@ -115,7 +115,7 @@ def _build_task_extraction_prompt(messages: list[BaseMessage], retrieval_result)
 def _extract_task(messages: list[BaseMessage], retrieval_result, logger) -> ExtractedTask:
     """Extract actionable task from native LangGraph messages with integrated data sources.
 
-    Uses PydanticAI agent to analyze conversation and extract structured
+    Uses LLM completion to analyze conversation and extract structured
     task information including context dependencies.
 
     :param messages: The native LangGraph messages

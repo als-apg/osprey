@@ -103,7 +103,7 @@ class ClarifyCapability(BaseCapability):
                     }
                 )
 
-            # Generate clarifying questions using PydanticAI
+            # Generate clarifying questions using LLM completion
             # Run sync function in thread pool to avoid blocking event loop for streaming
             questions_response = await asyncio.to_thread(
                 _generate_clarifying_questions, state, task_objective
@@ -179,7 +179,7 @@ class ClarifyCapability(BaseCapability):
 
 
 def _generate_clarifying_questions(state, task_objective: str) -> ClarifyingQuestionsResponse:
-    """Generate specific clarifying questions using PydanticAI.
+    """Generate specific clarifying questions using LLM completion.
 
     :param state: Current agent state
     :param task_objective: The orchestrator's clarification instruction

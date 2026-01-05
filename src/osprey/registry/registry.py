@@ -430,6 +430,9 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                 ProviderRegistration(
                     module_path="osprey.models.providers.argo", class_name="ArgoProviderAdapter"
                 ),
+                ProviderRegistration(
+                    module_path="osprey.models.providers.vllm", class_name="VLLMProviderAdapter"
+                ),
             ],
             # Framework connectors for control systems and archivers
             connectors=[

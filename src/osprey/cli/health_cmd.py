@@ -461,7 +461,7 @@ class HealthChecker:
             "rich",
             "yaml",
             "jinja2",
-            "pydantic_ai",
+            "litellm",
             "langgraph",
             "langchain_core",
         ]
@@ -472,8 +472,6 @@ class HealthChecker:
             import_name = dep
             if dep == "yaml":
                 import_name = "yaml"
-            elif dep == "pydantic_ai":
-                import_name = "pydantic_ai"
             elif dep == "langchain_core":
                 import_name = "langchain_core"
 

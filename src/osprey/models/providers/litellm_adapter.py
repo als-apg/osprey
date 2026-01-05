@@ -40,9 +40,9 @@ def get_litellm_model_name(
     :param base_url: Custom API endpoint URL (for OpenAI-compatible providers)
     :return: LiteLLM-formatted model string
     """
-    # OpenAI-compatible providers (CBORG, Stanford, ARGO)
+    # OpenAI-compatible providers (CBORG, Stanford, ARGO, vLLM)
     # These use the openai/ prefix with a custom api_base
-    if provider in ("cborg", "stanford", "argo"):
+    if provider in ("cborg", "stanford", "argo", "vllm"):
         return f"openai/{model_id}"
 
     # Native LiteLLM providers
@@ -249,10 +249,17 @@ def _supports_native_structured_output(provider: str, model_id: str) -> bool:
         # GPT-4o and newer support structured outputs
         return "gpt-4o" in model_id or "gpt-4-turbo" in model_id
 
-    # OpenAI-compatible providers (CBORG, Stanford, ARGO) may support it
-    # depending on the underlying model
-    if provider in ("cborg", "stanford", "argo"):
+    # OpenAI-compatible providers (CBORG, Stanford, ARGO) support native structured outputs
+    # CBORG proxies to underlying providers and supports structured output for all models
+    if provider == "cborg":
+        return True  # CBORG supports structured outputs via OpenAI-compatible API
+
+    if provider in ("stanford", "argo"):
         return "gpt-4o" in model_id or "claude-sonnet-4" in model_id or "claude-opus-4" in model_id
+
+    # vLLM supports structured outputs for most models
+    if provider == "vllm":
+        return True  # vLLM handles json_schema natively
 
     return False
 

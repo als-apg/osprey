@@ -4,14 +4,12 @@ Framework Utilities
 
 Supporting systems for advanced usage and development tooling.
 
-Model Factory
-=============
+LLM Completion Interface
+========================
 
-Multi-provider LLM model management for structured generation and direct completions.
+Multi-provider LLM completions via LiteLLM for structured generation and direct completions.
 
 .. currentmodule:: osprey.models
-
-.. autofunction:: get_model
 
 .. autofunction:: get_chat_completion
 

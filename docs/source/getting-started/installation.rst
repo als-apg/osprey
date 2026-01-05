@@ -137,8 +137,8 @@ After creating and activating the virtual environment, install the framework pac
 
    **Core Dependencies** (always installed):
 
-   * **Core Framework**: `LangGraph <https://www.langchain.com/langgraph>`_, `LangChain <https://www.langchain.com/>`_, `Pydantic-AI <https://ai.pydantic.dev/>`_
-   * **AI Providers**: `OpenAI <https://openai.com/>`_, `Anthropic <https://www.anthropic.com/>`_, `Google Generative AI <https://ai.google.dev/>`_, `Ollama <https://ollama.com/>`_
+   * **Core Framework**: `LangGraph <https://www.langchain.com/langgraph>`_, `LangChain <https://www.langchain.com/>`_, `LiteLLM <https://docs.litellm.ai/>`_
+   * **AI Providers**: 100+ providers via LiteLLM including `OpenAI <https://openai.com/>`_, `Anthropic <https://www.anthropic.com/>`_, `Google <https://ai.google.dev/>`_, `Ollama <https://ollama.com/>`_
    * **CLI & UI**: `Rich <https://rich.readthedocs.io/>`_, `Click <https://click.palletsprojects.com/>`_, `prompt_toolkit <https://python-prompt-toolkit.readthedocs.io/>`_
    * **Container Runtime**: Docker Desktop 4.0+ or Podman 4.0+ (installed separately via system package managers)
    * **Configuration**: PyYAML, Jinja2, python-dotenv

@@ -622,29 +622,28 @@ The framework supports performance optimization through bypass configuration:
 Both settings default to ``false`` and can be overridden at runtime using :ref:`slash commands <slash-commands-section>` (``/task:off``, ``/caps:off``).
 
 
-Model Factory Configuration
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
+LLM Completion Configuration
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The model factory integrates with the configuration system following the same provider configuration patterns:
+The LLM completion interface integrates with the configuration system following the same provider configuration patterns:
 
 .. code-block:: python
 
-   from osprey.models import get_model
-   from osprey.utils.config import get_provider_config
+   from osprey.models import get_chat_completion
 
-   # Configuration-driven model creation
-   provider_config = get_provider_config("anthropic")
-   model = get_model(
+   # Configuration-driven completion (provider config auto-loaded)
+   response = get_chat_completion(
+       message="Explain quantum computing",
        provider="anthropic",
-       model_id=provider_config.get("model_id"),
-       api_key=provider_config.get("api_key")  # Auto-loaded from config
+       model_id="claude-sonnet-4",
    )
 
-   # Direct model configuration for development/testing
-   model = get_model(
+   # With explicit provider config for development/testing
+   response = get_chat_completion(
+       message="Explain quantum computing",
        provider="anthropic",
-       model_id="claude-haiku-4-5-20251001",
-       api_key="explicit-key-for-testing"
+       model_id="claude-sonnet-4",
+       provider_config={"api_key": "explicit-key-for-testing"}
    )
 
 **Provider Conventions**: All providers follow the same configuration structure with provider-specific requirements automatically validated:
