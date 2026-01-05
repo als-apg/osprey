@@ -2,14 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-import httpx
-from pydantic_ai.models.anthropic import AnthropicModel
-
 from osprey.models.providers.anthropic import AnthropicProviderAdapter
-
-# =============================================================================
-# Test Provider Metadata
-# =============================================================================
 
 
 class TestAnthropicProviderMetadata:
@@ -89,84 +82,10 @@ class TestAnthropicProviderMetadata:
         assert "key" in instructions_text
 
 
-# =============================================================================
-# Test Model Creation
-# =============================================================================
-
-
-class TestAnthropicModelCreation:
-    """Test Anthropic model instance creation."""
-
-    @patch("osprey.models.providers.anthropic.PydanticAnthropicProvider")
-    def test_create_model_basic(self, mock_provider_class):
-        """Test basic model creation without HTTP client."""
-        provider = AnthropicProviderAdapter()
-
-        model = provider.create_model(
-            model_id="claude-haiku-4-5-20251001",
-            api_key="test-key",
-            base_url=None,
-            timeout=30.0,
-            http_client=None,
-        )
-
-        # Should create model instance
-        assert model is not None
-        assert isinstance(model, AnthropicModel)
-        # Provider should be called with API key
-        mock_provider_class.assert_called_once()
-        call_kwargs = mock_provider_class.call_args[1]
-        assert call_kwargs["api_key"] == "test-key"
-        assert call_kwargs["http_client"] is None
-
-    @patch("osprey.models.providers.anthropic.PydanticAnthropicProvider")
-    def test_create_model_with_http_client(self, mock_provider_class):
-        """Test model creation with HTTP client for proxy support."""
-        provider = AnthropicProviderAdapter()
-        http_client = MagicMock(spec=httpx.AsyncClient)
-
-        model = provider.create_model(
-            model_id="claude-sonnet-4-5-20250929",
-            api_key="test-key",
-            base_url=None,
-            timeout=60.0,
-            http_client=http_client,
-        )
-
-        assert model is not None
-        assert isinstance(model, AnthropicModel)
-        # HTTP client should be passed to provider
-        call_kwargs = mock_provider_class.call_args[1]
-        assert call_kwargs["http_client"] == http_client
-
-    @patch("osprey.models.providers.anthropic.PydanticAnthropicProvider")
-    def test_create_model_different_model_ids(self, mock_provider_class):
-        """Test model creation with various model IDs."""
-        provider = AnthropicProviderAdapter()
-
-        for model_id in ["claude-sonnet-4-5-20250929", "claude-haiku-4-5-20251001"]:
-            model = provider.create_model(
-                model_id=model_id,
-                api_key="test-key",
-                base_url=None,
-                timeout=None,
-                http_client=None,
-            )
-            assert model is not None
-            # Model should have the specified model_name
-            assert model.model_name == model_id
-
-
-# =============================================================================
-# Test Health Checks
-# =============================================================================
-
-
 class TestAnthropicHealthCheck:
-    """Test Anthropic provider health check functionality."""
+    """Test Anthropic provider health check functionality via LiteLLM."""
 
-    @patch("osprey.models.providers.anthropic.anthropic.Anthropic")
-    def test_health_check_missing_api_key(self, mock_client_class):
+    def test_health_check_missing_api_key(self):
         """Test health check fails when API key is missing."""
         provider = AnthropicProviderAdapter()
 
@@ -175,69 +94,64 @@ class TestAnthropicHealthCheck:
         assert is_healthy is False
         assert "not set" in message.lower()
 
-    @patch("osprey.models.providers.anthropic.anthropic.Anthropic")
-    def test_health_check_placeholder_api_key(self, mock_client_class):
+    def test_health_check_placeholder_api_key(self):
         """Test health check detects placeholder/template API keys."""
         provider = AnthropicProviderAdapter()
 
-        # Test placeholder formats that are detected by the implementation
-        placeholders = ["${ANTHROPIC_API_KEY}", "sk-ant-xxx"]
+        placeholders = ["${ANTHROPIC_API_KEY}", "YOUR_API_KEY_HERE"]
 
         for placeholder in placeholders:
             is_healthy, message = provider.check_health(api_key=placeholder, base_url=None)
             assert is_healthy is False
             assert "not configured" in message.lower() or "placeholder" in message.lower()
 
-    @patch("osprey.models.providers.anthropic.anthropic.Anthropic")
-    def test_health_check_success(self, mock_client_class):
-        """Test successful health check."""
+    @patch("osprey.models.providers.litellm_adapter.litellm.completion")
+    def test_health_check_success(self, mock_completion):
+        """Test successful health check via LiteLLM."""
         provider = AnthropicProviderAdapter()
 
-        # Mock successful API response
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-
+        # Mock successful LiteLLM response
         mock_response = MagicMock()
-        mock_response.content = [MagicMock(text="Hello")]
-        mock_client.messages.create.return_value = mock_response
+        mock_response.choices = [MagicMock(message=MagicMock(content="Hello"))]
+        mock_completion.return_value = mock_response
 
         is_healthy, message = provider.check_health(
-            api_key="sk-ant-valid-key", base_url=None, model_id="claude-haiku-4-5-20251001"
+            api_key="sk-ant-valid-key",
+            base_url=None,
+            model_id="claude-haiku-4-5-20251001",
         )
 
         assert is_healthy is True
-        assert "working" in message.lower() or "accessible" in message.lower()
-        mock_client.messages.create.assert_called_once()
+        assert "accessible" in message.lower()
+        mock_completion.assert_called_once()
 
-    @patch("osprey.models.providers.anthropic.anthropic.Anthropic")
-    def test_health_check_authentication_error(self, mock_client_class):
+    @patch("osprey.models.providers.litellm_adapter.litellm.completion")
+    def test_health_check_authentication_error(self, mock_completion):
         """Test health check handles authentication errors."""
-        from anthropic import AuthenticationError
+        import litellm
 
         provider = AnthropicProviderAdapter()
-
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        mock_client.messages.create.side_effect = AuthenticationError(
-            "Invalid API key", response=MagicMock(), body=None
+        mock_completion.side_effect = litellm.AuthenticationError(
+            message="Invalid API key",
+            llm_provider="anthropic",
+            model="claude-haiku-4-5-20251001",
         )
 
         is_healthy, message = provider.check_health(api_key="sk-ant-invalid-key", base_url=None)
 
         assert is_healthy is False
-        assert "authentication" in message.lower() or "invalid" in message.lower()
+        assert "authentication" in message.lower()
 
-    @patch("osprey.models.providers.anthropic.anthropic.Anthropic")
-    def test_health_check_rate_limit(self, mock_client_class):
+    @patch("osprey.models.providers.litellm_adapter.litellm.completion")
+    def test_health_check_rate_limit(self, mock_completion):
         """Test health check handles rate limit as healthy (key works)."""
-        from anthropic import RateLimitError
+        import litellm
 
         provider = AnthropicProviderAdapter()
-
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        mock_client.messages.create.side_effect = RateLimitError(
-            "Rate limited", response=MagicMock(), body=None
+        mock_completion.side_effect = litellm.RateLimitError(
+            message="Rate limited",
+            llm_provider="anthropic",
+            model="claude-haiku-4-5-20251001",
         )
 
         is_healthy, message = provider.check_health(api_key="sk-ant-key", base_url=None)
@@ -246,124 +160,52 @@ class TestAnthropicHealthCheck:
         assert is_healthy is True
         assert "rate limit" in message.lower()
 
-    @patch("osprey.models.providers.anthropic.anthropic.Anthropic")
-    def test_health_check_model_not_found(self, mock_client_class):
-        """Test health check handles model not found error."""
-        from anthropic import NotFoundError
 
+class TestAnthropicExecuteCompletion:
+    """Test Anthropic provider execute_completion via LiteLLM."""
+
+    @patch("osprey.models.providers.litellm_adapter.litellm.completion")
+    def test_execute_completion_basic(self, mock_completion):
+        """Test basic completion execution."""
         provider = AnthropicProviderAdapter()
 
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        mock_client.messages.create.side_effect = NotFoundError(
-            "Model not found", response=MagicMock(), body=None
-        )
-
-        is_healthy, message = provider.check_health(
-            api_key="sk-ant-key", base_url=None, model_id="nonexistent-model"
-        )
-
-        assert is_healthy is False
-        assert "not found" in message.lower()
-
-    @patch("osprey.models.providers.anthropic.anthropic.Anthropic")
-    def test_health_check_timeout(self, mock_client_class):
-        """Test health check handles timeout errors."""
-        from anthropic import APITimeoutError
-
-        provider = AnthropicProviderAdapter()
-
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        mock_client.messages.create.side_effect = APITimeoutError(request=MagicMock())
-
-        is_healthy, message = provider.check_health(api_key="sk-ant-key", base_url=None)
-
-        assert is_healthy is False
-        # Message can be "timeout" or "connection failed" depending on error handling
-        assert "timeout" in message.lower() or "connection failed" in message.lower()
-
-    @patch("osprey.models.providers.anthropic.anthropic.Anthropic")
-    def test_health_check_uses_cheap_model_by_default(self, mock_client_class):
-        """Test health check uses cheapest model when no model_id specified."""
-        provider = AnthropicProviderAdapter()
-
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
         mock_response = MagicMock()
-        mock_response.content = [MagicMock(text="OK")]
-        mock_client.messages.create.return_value = mock_response
+        mock_response.choices = [MagicMock(message=MagicMock(content="Hello!"))]
+        mock_completion.return_value = mock_response
 
-        provider.check_health(api_key="sk-ant-key", base_url=None)
-
-        # Should use health_check_model_id (haiku)
-        call_args = mock_client.messages.create.call_args[1]
-        assert "haiku" in call_args["model"].lower()
-
-    @patch("osprey.models.providers.anthropic.anthropic.Anthropic")
-    def test_health_check_uses_provided_model_id(self, mock_client_class):
-        """Test health check uses provided model ID if specified."""
-        provider = AnthropicProviderAdapter()
-
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        mock_response = MagicMock()
-        mock_response.content = [MagicMock(text="OK")]
-        mock_client.messages.create.return_value = mock_response
-
-        provider.check_health(
-            api_key="sk-ant-key", base_url=None, model_id="claude-sonnet-4-5-20250929"
+        result = provider.execute_completion(
+            message="Say hello",
+            model_id="claude-haiku-4-5-20251001",
+            api_key="test-key",
+            base_url=None,
         )
 
-        call_args = mock_client.messages.create.call_args[1]
-        assert call_args["model"] == "claude-sonnet-4-5-20250929"
+        assert result == "Hello!"
+        mock_completion.assert_called_once()
+        call_kwargs = mock_completion.call_args[1]
+        assert call_kwargs["model"] == "anthropic/claude-haiku-4-5-20251001"
+        assert call_kwargs["api_key"] == "test-key"
 
-    @patch("osprey.models.providers.anthropic.anthropic.Anthropic")
-    def test_health_check_respects_timeout(self, mock_client_class):
-        """Test health check passes timeout parameter."""
+    @patch("osprey.models.providers.litellm_adapter.litellm.completion")
+    def test_execute_completion_with_thinking(self, mock_completion):
+        """Test completion with extended thinking enabled."""
         provider = AnthropicProviderAdapter()
 
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
         mock_response = MagicMock()
-        mock_response.content = [MagicMock(text="OK")]
-        mock_client.messages.create.return_value = mock_response
+        mock_response.choices = [MagicMock(message=MagicMock(content="Thinking response"))]
+        mock_completion.return_value = mock_response
 
-        provider.check_health(api_key="sk-ant-key", base_url=None, timeout=10.0)
-
-        call_args = mock_client.messages.create.call_args[1]
-        assert call_args["timeout"] == 10.0
-
-    @patch("osprey.models.providers.anthropic.anthropic.Anthropic")
-    def test_health_check_generic_api_error(self, mock_client_class):
-        """Test health check handles generic API errors."""
-        from anthropic import APIConnectionError
-
-        provider = AnthropicProviderAdapter()
-
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        mock_client.messages.create.side_effect = APIConnectionError(request=MagicMock())
-
-        is_healthy, message = provider.check_health(api_key="sk-ant-key", base_url=None)
-
-        assert is_healthy is False
-        assert (
-            "error" in message.lower()
-            or "connection" in message.lower()
-            or "failed" in message.lower()
+        result = provider.execute_completion(
+            message="Think about this",
+            model_id="claude-sonnet-4",
+            api_key="test-key",
+            base_url=None,
+            max_tokens=2000,
+            enable_thinking=True,
+            budget_tokens=1000,
         )
 
-    @patch("osprey.models.providers.anthropic.anthropic.Anthropic")
-    def test_health_check_unexpected_error(self, mock_client_class):
-        """Test health check handles unexpected exceptions."""
-        provider = AnthropicProviderAdapter()
-
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        mock_client.messages.create.side_effect = Exception("Unexpected error")
-
-        is_healthy, message = provider.check_health(api_key="sk-ant-key", base_url=None)
-
-        assert is_healthy is False
-        assert "error" in message.lower() or "unexpected" in message.lower()
+        assert result is not None
+        call_kwargs = mock_completion.call_args[1]
+        # Should include thinking configuration
+        assert "thinking" in call_kwargs

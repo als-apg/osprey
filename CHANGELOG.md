@@ -64,6 +64,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Content consolidated into `src/osprey/assist/tasks/{name}/instructions.md`
   - Only `README.md` deprecation notice remains in workflows directory
 
+### Changed
+- **Models**: Migrated all LLM provider implementations to LiteLLM unified interface (#23)
+  - Replaced ~2,200 lines of custom provider code with ~700 lines using LiteLLM adapter
+  - All 7 providers (anthropic, google, openai, ollama, cborg, stanford, argo) now use LiteLLM
+  - Preserved extended thinking, structured outputs, and health check functionality
+  - Access to 100+ providers through LiteLLM
+
+### Removed
+- **Models**: Removed unused `get_model()` function and `factory.py` module
+  - The function was dead code (never called anywhere in the codebase)
+  - All model access now goes through `get_chat_completion()`
+
 ### Fixed
 - **Code Generation**: Fix `${VAR}` environment variable expansion in `claude_code_generator`
 - **CBORG Provider**: Add missing `temperature` parameter to API calls

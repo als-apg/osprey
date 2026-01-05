@@ -56,7 +56,6 @@ class BaseProvider(ABC):
     api_key_instructions: list[str] = []  # Step-by-step instructions for obtaining the key
     api_key_note: str | None = None  # Additional notes or requirements
 
-    @abstractmethod
     def create_model(
         self,
         model_id: str,
@@ -67,17 +66,22 @@ class BaseProvider(ABC):
     ) -> Any:
         """Create a model instance for PydanticAI.
 
+        .. deprecated::
+            This method is no longer used. Use execute_completion() instead.
+            Retained for backward compatibility with any external code.
+
         :param model_id: Model identifier for this provider
         :param api_key: API authentication key
         :param base_url: Custom API endpoint URL
         :param timeout: Request timeout in seconds
         :param http_client: Pre-configured HTTP client (caller owns lifecycle)
         :return: Configured model instance
-
-        Note: If http_client is provided, the CALLER is responsible for
-        closing it. Providers should not close or manage client lifecycle.
+        :raises NotImplementedError: Always, this method is deprecated
         """
-        pass
+        raise NotImplementedError(
+            f"{self.__class__.__name__}.create_model() is deprecated. "
+            "Use execute_completion() instead."
+        )
 
     @abstractmethod
     def execute_completion(

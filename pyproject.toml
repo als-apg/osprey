@@ -63,6 +63,7 @@ dependencies = [
     "nbclient",
 
     # AI/ML provider integrations
+    "litellm>=1.56.0",  # Unified LLM provider interface (100+ providers)
     "openai",
     "anthropic",
     "google-generativeai",
@@ -264,6 +265,7 @@ module = [
     "anthropic.*",
     "google.*",
     "ollama.*",
+    "litellm.*",
     "pandas.*",
     "numpy.*",
     "matplotlib.*",

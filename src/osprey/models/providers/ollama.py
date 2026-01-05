@@ -1,21 +1,20 @@
-"""Ollama Provider Adapter Implementation."""
+"""Ollama Provider Adapter Implementation.
+
+This provider uses LiteLLM as the backend for unified API access,
+while preserving Ollama-specific fallback URL logic for development workflows.
+"""
 
 import logging
 from typing import Any
 
-import httpx
-import ollama
-import openai
-from pydantic_ai.models.openai import OpenAIModel
-from pydantic_ai.providers.openai import OpenAIProvider as PydanticOpenAIProvider
-
 from .base import BaseProvider
+from .litellm_adapter import execute_litellm_completion
 
 logger = logging.getLogger(__name__)
 
 
 class OllamaProviderAdapter(BaseProvider):
-    """Ollama local model provider implementation."""
+    """Ollama local model provider implementation using LiteLLM."""
 
     # Metadata (single source of truth)
     name = "ollama"
@@ -69,75 +68,32 @@ class OllamaProviderAdapter(BaseProvider):
         except Exception:
             return False
 
-    def create_model(
-        self,
-        model_id: str,
-        api_key: str | None,
-        base_url: str | None,
-        timeout: float | None,
-        http_client: httpx.AsyncClient | None,
-    ) -> OpenAIModel:
-        """Create Ollama model instance with fallback support."""
-        effective_base_url = base_url
-        if not base_url.endswith("/v1"):
-            effective_base_url = base_url.rstrip("/") + "/v1"
-
+    def _resolve_base_url(self, base_url: str) -> str:
+        """Resolve working base URL with fallback support."""
         # Test primary URL first
         if self._test_connection(base_url):
             logger.debug(f"Successfully connected to Ollama at {base_url}")
-        else:
-            logger.debug(f"Failed to connect to Ollama at {base_url}")
+            return base_url
 
-            # Try fallback URLs
-            fallback_urls = self._get_fallback_urls(base_url)
-            working_url = None
+        logger.debug(f"Failed to connect to Ollama at {base_url}")
 
-            for fallback_url in fallback_urls:
-                logger.debug(f"Attempting fallback connection to Ollama at {fallback_url}")
-                if self._test_connection(fallback_url):
-                    working_url = fallback_url
-                    logger.warning(
-                        f"⚠️  Ollama connection fallback: configured URL '{base_url}' failed, "
-                        f"using fallback '{fallback_url}'. Consider updating your configuration "
-                        f"for your current execution environment."
-                    )
-                    break
-
-            if working_url:
-                effective_base_url = working_url
-                if not working_url.endswith("/v1"):
-                    effective_base_url = working_url.rstrip("/") + "/v1"
-            else:
-                # All connection attempts failed
-                raise ValueError(
-                    f"Failed to connect to Ollama at configured URL '{base_url}' "
-                    f"and all fallback URLs {fallback_urls}. Please ensure Ollama is running "
-                    f"and accessible, or update your configuration."
+        # Try fallback URLs
+        fallback_urls = self._get_fallback_urls(base_url)
+        for fallback_url in fallback_urls:
+            logger.debug(f"Attempting fallback connection to Ollama at {fallback_url}")
+            if self._test_connection(fallback_url):
+                logger.warning(
+                    f"Ollama connection fallback: configured URL '{base_url}' failed, "
+                    f"using fallback '{fallback_url}'. Consider updating your configuration."
                 )
+                return fallback_url
 
-        # Create OpenAI-compatible model
-        if http_client:
-            client_args = {
-                "api_key": api_key or "ollama",  # Ollama doesn't need real key
-                "http_client": http_client,
-                "base_url": effective_base_url,
-            }
-            openai_client = openai.AsyncOpenAI(**client_args)
-        else:
-            effective_timeout = timeout if timeout is not None else 60.0
-            client_args = {
-                "api_key": api_key or "ollama",
-                "timeout": effective_timeout,
-                "base_url": effective_base_url,
-            }
-            openai_client = openai.AsyncOpenAI(**client_args)
-
-        model = OpenAIModel(
-            model_name=model_id,
-            provider=PydanticOpenAIProvider(openai_client=openai_client),
+        # All connection attempts failed
+        raise ValueError(
+            f"Failed to connect to Ollama at configured URL '{base_url}' "
+            f"and all fallback URLs {fallback_urls}. Please ensure Ollama is running "
+            f"and accessible, or update your configuration."
         )
-        model.model_id = model_id
-        return model
 
     def execute_completion(
         self,
@@ -152,89 +108,21 @@ class OllamaProviderAdapter(BaseProvider):
         output_format: Any | None = None,
         **kwargs,
     ) -> str | Any:
-        """Execute Ollama chat completion with fallback support."""
-        # Ollama connection with graceful fallback for development workflows
-        client = None
-        used_fallback = False
+        """Execute Ollama chat completion via LiteLLM with fallback support."""
+        # Resolve working base URL with fallbacks
+        effective_base_url = self._resolve_base_url(base_url)
 
-        try:
-            # First attempt: Use configured base_url
-            client = ollama.Client(host=base_url)
-            client.list()  # Test connection
-            logger.debug(f"Successfully connected to Ollama at {base_url}")
-        except Exception as e:
-            logger.debug(f"Failed to connect to Ollama at {base_url}: {e}")
-
-            # Determine fallback URLs based on current base_url
-            fallback_urls = self._get_fallback_urls(base_url)
-
-            # Try fallback URLs
-            for fallback_url in fallback_urls:
-                try:
-                    logger.debug(f"Attempting fallback connection to Ollama at {fallback_url}")
-                    client = ollama.Client(host=fallback_url)
-                    client.list()  # Test connection
-                    used_fallback = True
-                    logger.warning(
-                        f"⚠️  Ollama connection fallback: configured URL '{base_url}' failed, "
-                        f"using fallback '{fallback_url}'. Consider updating your configuration "
-                        f"for your current execution environment."
-                    )
-                    break
-                except Exception as fallback_e:
-                    logger.debug(f"Fallback attempt failed for {fallback_url}: {fallback_e}")
-                    continue
-
-            if client is None:
-                # All connection attempts failed
-                raise ValueError(
-                    f"Failed to connect to Ollama at configured URL '{base_url}' "
-                    f"and all fallback URLs {fallback_urls}. Please ensure Ollama is running "
-                    f"and accessible, or update your configuration."
-                ) from None
-
-        # Build request
-        chat_messages = [{"role": "user", "content": message}]
-
-        options = {}
-        if max_tokens is not None:
-            options["num_predict"] = max_tokens
-
-        request_args = {
-            "model": model_id,
-            "messages": chat_messages,
-        }
-        if options:
-            request_args["options"] = options
-
-        if output_format is not None:
-            # Instruct Ollama to use the Pydantic model's JSON schema for the output format
-            request_args["format"] = output_format.model_json_schema()
-
-        try:
-            response = client.chat(**request_args)
-        except Exception as e:
-            current_url = fallback_urls[0] if used_fallback else base_url
-            raise ValueError(
-                f"Ollama chat request failed using {current_url}. "
-                f"Error: {e}. Please verify the model '{model_id}' is available."
-            ) from e
-
-        # Extract content from response
-        ollama_content_str = response["message"]["content"]
-
-        # Handle typed dict output flag
-        is_typed_dict_output = kwargs.get("is_typed_dict_output", False)
-
-        if output_format is not None:
-            # Validate the JSON string from Ollama against the Pydantic model
-            result = output_format.model_validate_json(ollama_content_str.strip())
-            if is_typed_dict_output and hasattr(result, "model_dump"):
-                return result.model_dump()
-            return result
-        else:
-            # If no output_model was specified, return the raw string content
-            return ollama_content_str
+        return execute_litellm_completion(
+            provider=self.name,
+            message=message,
+            model_id=model_id,
+            api_key=api_key or "ollama",  # Ollama doesn't need real key
+            base_url=effective_base_url,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            output_format=output_format,
+            **kwargs,
+        )
 
     def check_health(
         self,

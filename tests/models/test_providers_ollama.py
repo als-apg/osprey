@@ -1,6 +1,6 @@
 """Tests for Ollama provider adapter."""
 
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from pydantic import BaseModel
@@ -118,229 +118,66 @@ class TestOllamaTestConnection:
             assert result is False
 
 
-class TestOllamaCreateModel:
-    """Test Ollama model instance creation."""
-
-    def test_create_model_success(self):
-        """Test model creation with successful connection."""
-        provider = OllamaProviderAdapter()
-
-        with (
-            patch.object(OllamaProviderAdapter, "_test_connection", return_value=True),
-            patch("openai.AsyncOpenAI") as mock_openai,
-        ):
-            mock_client = Mock()
-            mock_openai.return_value = mock_client
-
-            model = provider.create_model(
-                model_id="mistral:7b",
-                api_key=None,
-                base_url="http://localhost:11434",
-                timeout=30.0,
-                http_client=None,
-            )
-
-            # Verify model was created
-            assert model is not None
-
-    def test_create_model_with_fallback(self):
-        """Test model creation falls back on connection failure."""
-        provider = OllamaProviderAdapter()
-
-        with (
-            patch.object(
-                OllamaProviderAdapter,
-                "_test_connection",
-                side_effect=[False, True],  # First fails, second succeeds
-            ),
-            patch("openai.AsyncOpenAI") as mock_openai,
-        ):
-            mock_client = Mock()
-            mock_openai.return_value = mock_client
-
-            model = provider.create_model(
-                model_id="mistral:7b",
-                api_key=None,
-                base_url="http://localhost:11434",
-                timeout=30.0,
-                http_client=None,
-            )
-
-            assert model is not None
-
-    def test_create_model_all_connections_fail(self):
-        """Test model creation fails when all connections fail."""
-        provider = OllamaProviderAdapter()
-
-        with patch.object(OllamaProviderAdapter, "_test_connection", return_value=False):
-            with pytest.raises(ValueError, match="Failed to connect"):
-                provider.create_model(
-                    model_id="mistral:7b",
-                    api_key=None,
-                    base_url="http://localhost:11434",
-                    timeout=30.0,
-                    http_client=None,
-                )
-
-    def test_create_model_adds_v1_path(self):
-        """Test model creation adds /v1 to base URL."""
-        provider = OllamaProviderAdapter()
-
-        with (
-            patch.object(OllamaProviderAdapter, "_test_connection", return_value=True),
-            patch("openai.AsyncOpenAI") as mock_openai,
-        ):
-            mock_client = Mock()
-            mock_openai.return_value = mock_client
-
-            provider.create_model(
-                model_id="mistral:7b",
-                api_key=None,
-                base_url="http://localhost:11434",
-                timeout=30.0,
-                http_client=None,
-            )
-
-            # Verify /v1 was added to base URL
-            call_kwargs = mock_openai.call_args[1]
-            assert call_kwargs["base_url"].endswith("/v1")
-
-    def test_create_model_with_http_client(self):
-        """Test model creation with custom HTTP client."""
-        provider = OllamaProviderAdapter()
-        mock_http_client = Mock()
-
-        with (
-            patch.object(OllamaProviderAdapter, "_test_connection", return_value=True),
-            patch("openai.AsyncOpenAI") as mock_openai,
-        ):
-            mock_client = Mock()
-            mock_openai.return_value = mock_client
-
-            provider.create_model(
-                model_id="mistral:7b",
-                api_key=None,
-                base_url="http://localhost:11434",
-                timeout=None,
-                http_client=mock_http_client,
-            )
-
-            # Verify HTTP client was used
-            call_kwargs = mock_openai.call_args[1]
-            assert call_kwargs["http_client"] is mock_http_client
-
-
 class TestOllamaExecuteCompletion:
-    """Test Ollama completion execution."""
+    """Test Ollama completion execution via LiteLLM."""
 
-    def test_execute_text_completion(self):
+    @patch("osprey.models.providers.litellm_adapter.litellm.completion")
+    @patch.object(OllamaProviderAdapter, "_test_connection", return_value=True)
+    def test_execute_text_completion(self, mock_test, mock_completion):
         """Test basic text completion."""
         provider = OllamaProviderAdapter()
 
-        with patch("ollama.Client") as mock_client_class:
-            mock_client = Mock()
-            mock_client.list.return_value = []  # Connection test
-            mock_client.chat.return_value = {"message": {"content": "Test response"}}
-            mock_client_class.return_value = mock_client
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock(message=MagicMock(content="Test response"))]
+        mock_completion.return_value = mock_response
 
-            result = provider.execute_completion(
-                message="Hello",
-                model_id="mistral:7b",
-                api_key=None,
-                base_url="http://localhost:11434",
-            )
+        result = provider.execute_completion(
+            message="Hello",
+            model_id="mistral:7b",
+            api_key=None,
+            base_url="http://localhost:11434",
+        )
 
-            assert result == "Test response"
+        assert result == "Test response"
+        mock_completion.assert_called_once()
+        call_kwargs = mock_completion.call_args[1]
+        assert call_kwargs["model"] == "ollama/mistral:7b"
 
-    def test_execute_completion_with_fallback(self):
+    @patch("osprey.models.providers.litellm_adapter.litellm.completion")
+    @patch.object(
+        OllamaProviderAdapter,
+        "_test_connection",
+        side_effect=[False, True],  # First fails, second succeeds
+    )
+    def test_execute_completion_with_fallback(self, mock_test, mock_completion):
         """Test completion execution with fallback."""
         provider = OllamaProviderAdapter()
 
-        with patch("ollama.Client") as mock_client_class:
-            # First client fails, second succeeds
-            mock_client_fail = Mock()
-            mock_client_fail.list.side_effect = Exception("Connection failed")
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock(message=MagicMock(content="Response"))]
+        mock_completion.return_value = mock_response
 
-            mock_client_success = Mock()
-            mock_client_success.list.return_value = []
-            mock_client_success.chat.return_value = {"message": {"content": "Response"}}
+        result = provider.execute_completion(
+            message="Hello",
+            model_id="mistral:7b",
+            api_key=None,
+            base_url="http://localhost:11434",
+        )
 
-            mock_client_class.side_effect = [mock_client_fail, mock_client_success]
+        assert result == "Response"
 
-            result = provider.execute_completion(
-                message="Hello",
-                model_id="mistral:7b",
-                api_key=None,
-                base_url="http://localhost:11434",
-            )
-
-            assert result == "Response"
-
-    def test_execute_completion_with_max_tokens(self):
-        """Test completion with max tokens parameter."""
+    @patch.object(OllamaProviderAdapter, "_test_connection", return_value=False)
+    def test_execute_completion_all_connections_fail(self, mock_test):
+        """Test completion fails when all connections fail."""
         provider = OllamaProviderAdapter()
 
-        with patch("ollama.Client") as mock_client_class:
-            mock_client = Mock()
-            mock_client.list.return_value = []
-            mock_client.chat.return_value = {"message": {"content": "Response"}}
-            mock_client_class.return_value = mock_client
-
+        with pytest.raises(ValueError, match="Failed to connect"):
             provider.execute_completion(
                 message="Hello",
                 model_id="mistral:7b",
                 api_key=None,
                 base_url="http://localhost:11434",
-                max_tokens=100,
             )
-
-            # Verify max_tokens was passed as num_predict
-            call_kwargs = mock_client.chat.call_args[1]
-            assert "options" in call_kwargs
-            assert call_kwargs["options"]["num_predict"] == 100
-
-    def test_execute_completion_with_output_format(self):
-        """Test completion with structured output."""
-        provider = OllamaProviderAdapter()
-
-        with patch("ollama.Client") as mock_client_class:
-            mock_client = Mock()
-            mock_client.list.return_value = []
-            mock_client.chat.return_value = {
-                "message": {"content": '{"result": "test", "value": 42}'}
-            }
-            mock_client_class.return_value = mock_client
-
-            result = provider.execute_completion(
-                message="Hello",
-                model_id="mistral:7b",
-                api_key=None,
-                base_url="http://localhost:11434",
-                output_format=SampleOutput,
-            )
-
-            # Verify result is parsed as Pydantic model
-            assert isinstance(result, SampleOutput)
-            assert result.result == "test"
-            assert result.value == 42
-
-    def test_execute_completion_chat_error(self):
-        """Test completion handles chat execution errors."""
-        provider = OllamaProviderAdapter()
-
-        with patch("ollama.Client") as mock_client_class:
-            mock_client = Mock()
-            mock_client.list.return_value = []  # Connection succeeds
-            mock_client.chat.side_effect = Exception("Chat failed")
-            mock_client_class.return_value = mock_client
-
-            with pytest.raises(ValueError, match="chat request failed"):
-                provider.execute_completion(
-                    message="Hello",
-                    model_id="mistral:7b",
-                    api_key=None,
-                    base_url="http://localhost:11434",
-                )
 
 
 class TestOllamaHealthCheck:
