@@ -464,7 +464,8 @@ class OrchestrationNode(BaseInfrastructureNode):
             _log_execution_plan(execution_plan, logger)
 
             logger.success(
-                f"Final execution plan ready with {len(execution_plan.get('steps', []))} steps"
+                f"Final execution plan ready with {len(execution_plan.get('steps', []))} steps",
+                steps=execution_plan.get("steps", []),
             )
 
         except ValueError as e:

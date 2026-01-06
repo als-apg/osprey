@@ -819,7 +819,6 @@ class OspreyTUI(App):
                     display = self.query_one("#chat-display", ChatDisplay)
                     display._plan_steps = steps
                     display._plan_step_states = ["pending"] * len(steps)
-                    display._plan_progress_counter = 0
                 elif block._last_error_msg:
                     # Use last error message for failed orchestration
                     block.set_output(block._last_error_msg, status="error")
