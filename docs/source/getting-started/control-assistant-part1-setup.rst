@@ -48,11 +48,19 @@ The interactive menu provides the best onboarding experience with channel finder
             ○ hierarchical - Structured navigation (best for >1,000 channels, scalable)
             ● both         - Include both pipelines (maximum flexibility, comparison)
 
-      5. **Registry Style** → Choose ``extend`` (recommended)
-      6. **Provider & Model** → Configure AI provider and model (recommended: Claude Haiku)
-      7. **API Key** → Automatic detection or secure input
+      5. **Code Generator** → Choose ``basic`` or ``claude_code`` (recommended: basic)
+      6. **Registry Style** → Choose ``extend`` (recommended)
+      7. **Provider & Model** → Configure AI provider and model (recommended: Claude Haiku)
+      8. **API Key** → Automatic detection or secure input
 
-      **Result:** Complete project ready to run with your chosen pipeline configuration.
+      **Result:** Complete project ready to run with Mock connector (tutorial mode).
+
+      .. tip::
+         Projects start in **Mock mode** by default for safe learning and development.
+         When ready for production, use the interactive config menu to switch to EPICS:
+         ``osprey`` → Your project → ``config`` → ``set-control-system``
+
+         See :ref:`Migrate to Production <migrate-to-production>` in Part 3 for details.
 
    .. tab-item:: Direct CLI Command
 
@@ -74,17 +82,23 @@ The interactive menu provides the best onboarding experience with channel finder
    ├── src/my_control_assistant/
    │   ├── capabilities/                   # ← Agent capabilities (Osprey integration)
    │   │   ├── channel_finding.py          # Wraps channel_finder service
-   │   │   ├── channel_value_retrieval.py  # Live value reads via ConnectorFactory
+   │   │   ├── channel_read.py             # Live value reads via ConnectorFactory
+   │   │   ├── channel_write.py            # Channel writes with LLM-based value parsing
    │   │   └── archiver_retrieval.py       # Historical data via ConnectorFactory
    │   ├── services/                       # ← Service Layer (key pattern!)
    │   │   └── channel_finder/             # Standalone, testable business logic
    │   │       ├── pipelines/              # Two pipeline architectures:
    │   │       │   ├── in_context/         #   - Semantic search (small systems)
    │   │       │   └── hierarchical/       #   - Hierarchical nav (large systems)
-   │   │       ├── databases/              # Database adapters (template, hierarchical, legacy)
-   │   │       ├── prompts/                # Pipeline-specific prompts
-   │   │       │   ├── in_context/         #   (channel_matcher, query_splitter, etc.)
-   │   │       │   └── hierarchical/
+   │   │       ├── databases/              # Database adapters (flat, template, hierarchical)
+   │   │       ├── prompts/                # Pipeline-specific prompts (see Part 4)
+   │   │       │   ├── in_context/         # ← Each pipeline has its own prompts:
+   │   │       │   │   ├── facility_description.py  # REQUIRED: Your facility
+   │   │       │   │   ├── matching_rules.py        # OPTIONAL: Custom terminology
+   │   │       │   │   ├── query_splitter.py        # OPTIONAL: Query splitting examples
+   │   │       │   │   └── system.py                # Auto-combines (don't edit)
+   │   │       │   ├── hierarchical/       #   (same structure)
+   │   │       │   └── middle_layer/       #   (same structure)
    │   │       ├── benchmarks/             # Evaluation system (runner, models)
    │   │       ├── core/                   # Base classes & models
    │   │       ├── llm/                    # LLM completion utilities
@@ -98,7 +112,7 @@ The interactive menu provides the best onboarding experience with channel finder
    │   │   │   └── TEMPLATE_EXAMPLE.json
    │   │   ├── benchmarks/
    │   │   │   ├── datasets/               # Test query datasets
-   │   │   │   │   ├── in_context_main.json
+   │   │   │   │   ├── in_context_benchmark.json
    │   │   │   │   └── hierarchical_benchmark.json
    │   │   │   └── results/                # Benchmark output
    │   │   ├── raw/                        # Raw address data (CSV files)
@@ -177,11 +191,16 @@ Configure your AI/LLM providers with API keys from environment variables:
        openai:
          api_key: ${OPENAI_API_KEY}
          base_url: https://api.openai.com/v1
-       ollama:                  # Local models
-         api_key: ollama
-         base_url: http://localhost:11434
+      ollama:                  # Local models
+        api_key: ollama
+        base_url: http://localhost:11434
 
-The template includes CBorg (LBNL's service) by default. Simply update the providers to match your environment. See :doc:`Convention over Configuration <../developer-guides/01_understanding-the-framework/02_convention-over-configuration>` for provider patterns.
+The template includes CBorg (LBNL's service) by default. Simply update the providers to match your environment.
+
+.. admonition:: Custom Providers
+   :class: tip
+
+   Need to integrate your institution's AI service or a provider not listed above? You can register custom providers in your application registry. See :ref:`custom-ai-provider-registration` for complete implementation guidance including all required methods and metadata fields.
 
 Semantic Channel Finding Configuration
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -271,26 +290,30 @@ Control System & Archiver Configuration
 
 **The Power of Connectors:** Your capabilities use the ``ConnectorFactory`` API, which means the same code works in both modes. No capability changes needed when migrating from tutorial to production - just update the config! See :doc:`Control System Integration Guide <../developer-guides/05_production-systems/06_control-system-integration>` for implementing custom connectors.
 
-**Pattern Detection:** The framework automatically detects control system operations in generated Python code using configurable regex patterns. This enables the approval system to identify when code will read or write to control systems:
+**Pattern Detection (Security Layer):** The framework automatically detects ALL control system operations in generated Python code - both approved API usage AND circumvention attempts. This is a critical security feature that ensures the approval workflow catches any attempt to bypass the connector's safety features.
+
+The framework detects:
+- ✅ **Approved API**: ``write_channel()``, ``read_channel()`` (has limits, verification)
+- 🔒 **Circumvention**: Direct library calls like ``epics.caput()``, ``tango.DeviceProxy().write_attribute()``
 
 .. code-block:: yaml
 
    control_system:
-     type: epics
-     patterns:                     # Used by approval system
-       epics:
-         write:
-           - 'epics\.caput\('       # Matches: epics.caput(...)
-           - '\.put\('              # Matches: pv.put(...)
-         read:
-           - 'epics\.caget\('       # Matches: epics.caget(...)
-           - '\.get\('              # Matches: pv.get(...)
+     type: epics  # Only controls runtime connector, not patterns!
+
+     # Pattern detection is automatic - comprehensive security coverage
+     # Catches: write_channel(), epics.caput(), tango writes, LabVIEW, etc.
+
+.. note::
+   The pattern detection includes both the unified ``osprey.runtime`` API (``write_channel``,
+   ``read_channel``) and legacy EPICS functions (``caput``, ``caget``) for backward compatibility.
+   Default patterns are used if none are configured.
 
 You'll see this pattern detection in action when you use the Python execution capability in :doc:`Part 3 <control-assistant-part3-production>`.
 
 .. seealso::
    For more details about pattern detection and how it integrates with the approval system,
-   see :doc:`../developer-guides/05_production-systems/03_python-execution-service`.
+   see :doc:`../developer-guides/05_production-systems/03_python-execution-service/index`.
 
 Safety Controls
 ~~~~~~~~~~~~~~~~
@@ -303,11 +326,11 @@ Critical for production deployments - control what code can execute:
    approval:
      global_mode: "selective"     # disabled | selective | all_capabilities
      capabilities:
-       python_execution:
-         enabled: true
-         mode: "epics_writes"     # disabled | all_code | epics_writes
-       memory:
-         enabled: true
+     python_execution:
+       enabled: true
+       mode: "control_writes"   # disabled | all_code | control_writes
+     memory:
+       enabled: true
 
    # Execution limits and master safety switches
    execution_control:

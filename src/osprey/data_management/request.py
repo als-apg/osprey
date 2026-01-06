@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from osprey.state import AgentState
 
+
 @dataclass
 class DataSourceRequester:
     """
@@ -18,8 +19,10 @@ class DataSourceRequester:
     Enables data sources to make decisions about whether to respond
     based on the requesting component and execution context.
     """
+
     component_type: str  # "task_extraction", "capability", "orchestrator"
     component_name: str  # specific name like "task_extraction", "performance_analysis"
+
 
 @dataclass
 class DataSourceRequest:
@@ -29,16 +32,18 @@ class DataSourceRequest:
     Provides flexible interface for data source providers to receive
     specific queries and contextual metadata for intelligent retrieval.
     """
+
     user_id: str | None
     requester: DataSourceRequester
     query: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
+
 def create_data_source_request(
-    state: 'AgentState',
+    state: "AgentState",
     requester: DataSourceRequester,
     query: str | None = None,
-    metadata: dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None,
 ) -> DataSourceRequest:
     """
     Create a data source request from AgentState and requester information.
@@ -56,6 +61,7 @@ def create_data_source_request(
     user_id = None
     try:
         from osprey.utils.config import get_session_info
+
         session_info = get_session_info()
         user_id = session_info.get("user_id")
     except Exception:
@@ -63,8 +69,5 @@ def create_data_source_request(
         pass
 
     return DataSourceRequest(
-        user_id=user_id,
-        requester=requester,
-        query=query,
-        metadata=metadata or {}
+        user_id=user_id, requester=requester, query=query, metadata=metadata or {}
     )

@@ -183,11 +183,9 @@ class KnowledgeRetrievalCapability(BaseCapability):
     provides = ["KNOWLEDGE_CONTEXT"]
     requires = []
 
-    @staticmethod
-    async def execute(state: AgentState, **kwargs):
-        # Get query from task objective
-        step = StateManager.get_current_step(state)
-        query = step.get("task_objective", "")
+    async def execute(self):
+        # Get query from task objective using helper method
+        query = self.get_task_objective()
 
         # Query knowledge base
         docs = await knowledge_base.search(query, top_k=5)
@@ -199,11 +197,8 @@ class KnowledgeRetrievalCapability(BaseCapability):
             sources=[doc.source for doc in docs]
         )
 
-        # Store and return
-        return StateManager.store_context(
-            state, "KNOWLEDGE_CONTEXT",
-            step.get("context_key"), knowledge
-        )
+        # Store and return using helper method
+        return self.store_output_context(knowledge)
 ```
 
 PATTERN D: CHAINED CAPABILITIES

@@ -103,10 +103,10 @@ class UnifiedCommandCompleter(Completer):
 
                 # Map categories to theme colors
                 category_colors = {
-                    "cli": theme.info,        # info/blue for CLI commands
-                    "agent": theme.success,   # success/green for agent commands
-                    "service": theme.warning, # warning/yellow for service commands
-                    "custom": theme.accent    # accent/pink for custom commands
+                    "cli": theme.info,  # info/blue for CLI commands
+                    "agent": theme.success,  # success/green for agent commands
+                    "service": theme.warning,  # warning/yellow for service commands
+                    "custom": theme.accent,  # accent/pink for custom commands
                 }
 
                 color = category_colors.get(command.category.value, theme.text_primary)
@@ -120,21 +120,23 @@ class UnifiedCommandCompleter(Completer):
                 # Add syntax hint using theme's dim text color
                 if command.valid_options:
                     options_hint = f" [{'/'.join(command.valid_options[:2])}{'...' if len(command.valid_options) > 2 else ''}]"
-                    display_html += f'<syntax style="fg:{theme.text_dim} italic">{options_hint}</syntax>'
+                    display_html += (
+                        f'<syntax style="fg:{theme.text_dim} italic">{options_hint}</syntax>'
+                    )
 
                 yield Completion(
                     text=completion,
                     start_position=start_position,
                     display=HTML(display_html),
-                    style='class:completion'
+                    style="class:completion",
                 )
             else:
                 # Fallback for commands without full metadata
                 yield Completion(
                     text=completion,
                     start_position=start_position,
-                    display=HTML(f'<completion>{completion}</completion>'),
-                    style='class:completion'
+                    display=HTML(f"<completion>{completion}</completion>"),
+                    style="class:completion",
                 )
 
     def _extract_current_command(self, text: str) -> str:
@@ -153,12 +155,12 @@ class UnifiedCommandCompleter(Completer):
         parts = text.split()
 
         for part in reversed(parts):
-            if part.startswith('/'):
+            if part.startswith("/"):
                 return part
 
         # If no slash command found, check if we're in the middle of typing one
         # This handles cases where cursor is right after a /
-        if text.endswith('/'):
+        if text.endswith("/"):
             return "/"
 
         return ""

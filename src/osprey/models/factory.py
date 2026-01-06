@@ -51,7 +51,7 @@ def _validate_proxy_url(proxy_url: str) -> bool:
     try:
         parsed = urlparse(proxy_url)
         # Check for valid scheme and netloc (host:port)
-        if parsed.scheme not in ('http', 'https'):
+        if parsed.scheme not in ("http", "https"):
             return False
         if not parsed.netloc:
             return False
@@ -165,11 +165,14 @@ def get_model(
 
     # Get provider from registry
     from osprey.registry import get_registry
+
     registry = get_registry()
     provider_class = registry.get_provider(provider)
 
     if not provider_class:
-        raise ValueError(f"Unknown provider: {provider}. Use registry.list_providers() to see available providers.")
+        raise ValueError(
+            f"Unknown provider: {provider}. Use registry.list_providers() to see available providers."
+        )
 
     # Get provider config
     provider_config = get_provider_config(provider)
@@ -201,5 +204,5 @@ def get_model(
         api_key=api_key,
         base_url=base_url,
         timeout=timeout,
-        http_client=async_http_client
+        http_client=async_http_client,
     )

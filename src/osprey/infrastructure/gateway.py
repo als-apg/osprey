@@ -263,8 +263,40 @@ class Gateway:
             return False
 
     def _detect_approval_response(self, user_input: str) -> dict[str, Any] | None:
-        """Detect approval or rejection in user input using LLM classification."""
+        """Detect approval or rejection in user input.
+
+        First checks for explicit yes/no responses, then falls back to LLM classification
+        for more complex responses.
+        """
         try:
+            # First check for explicit yes/no responses (fast path)
+            normalized_input = user_input.strip().lower()
+            # Remove common trailing punctuation
+            normalized_input = normalized_input.rstrip(".!?")
+
+            # Check for explicit "yes" responses
+            if normalized_input in ["yes", "y", "yep", "yeah", "ok", "okay"]:
+                self.logger.info(f"Detected explicit approval: '{user_input}'")
+                return {
+                    "type": "approval",
+                    "approved": True,
+                    "message": user_input,
+                    "timestamp": time.time(),
+                }
+
+            # Check for explicit "no" responses
+            if normalized_input in ["no", "n", "nope", "nah", "cancel"]:
+                self.logger.info(f"Detected explicit rejection: '{user_input}'")
+                return {
+                    "type": "rejection",
+                    "approved": False,
+                    "message": user_input,
+                    "timestamp": time.time(),
+                }
+
+            # If not a simple yes/no, use LLM-based detection for complex responses
+            self.logger.info(f"Using LLM-based approval detection for: '{user_input}'")
+
             # Get approval model configuration from framework config
             approval_config = get_model_config("approval")
             if not approval_config:

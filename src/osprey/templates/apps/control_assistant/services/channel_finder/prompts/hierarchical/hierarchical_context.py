@@ -10,9 +10,6 @@ Architecture:
 This maintains clean separation between data and prompt logic.
 """
 
-from typing import Dict
-
-
 # =============================================================================
 # HIERARCHICAL NAVIGATION INSTRUCTIONS
 # =============================================================================
@@ -32,7 +29,6 @@ hierarchical_context = {
 
         Select multiple systems when the query spans subsystems or is ambiguous.
     """,
-
     "family": """
         Select the device family/families within the chosen system.
 
@@ -52,7 +48,6 @@ hierarchical_context = {
 
         When in doubt, include more families rather than fewer. Each will be properly explored.
     """,
-
     "device": """
         Select specific device instance(s) based on the query.
 
@@ -67,7 +62,6 @@ hierarchical_context = {
 
         Device naming patterns are visible in the available options list.
     """,
-
     "field": """
         Select the physical quantity or parameter being referenced.
 
@@ -91,7 +85,6 @@ hierarchical_context = {
 
         Select multiple fields when the query could apply to several measurements/controls.
     """,
-
     "subfield": """
         Select the specific measurement/control type or channel function FOR THIS FIELD.
 
@@ -118,11 +111,11 @@ hierarchical_context = {
 
         When in doubt about scope: if the query uses "all" or "everything", be inclusive.
         Otherwise, prefer precision - select only the subfields that match the query intent.
-    """
+    """,
 }
 
 
-def get_hierarchical_context() -> Dict[str, str]:
+def get_hierarchical_context() -> dict[str, str]:
     """
     Get hierarchical navigation instructions.
 

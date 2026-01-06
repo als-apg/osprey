@@ -4,7 +4,7 @@ A super simple weather agent for learning Osprey Framework basics. Get it runnin
 
 ## What It Does
 
-Ask about current weather in San Francisco, New York, or Prague and get instant results! The current weather conditions are provided by a simple mock API.
+Ask about current weather in any location and get instant results! The current weather conditions are provided by a simple mock API that simulates weather data.
 
 ## Quick Setup
 
@@ -37,8 +37,9 @@ osprey chat
 
 ```
 "What's the weather in San Francisco?"
-"How's the weather in New York?"
-"Tell me about Prague weather"
+"How's the weather in Tokyo?"
+"Tell me about the weather in London"
+"What's the weather like?" (uses "local")
 ```
 
 That's it! No external APIs, no containers, no complex setup.
@@ -74,22 +75,18 @@ User Query → LLM Classifier → Weather Capability → Mock API → Results
 ## How It Works
 
 1. **User asks**: "What's the weather in London?"
-2. **LLM understands**: Classifies as weather request
-3. **Capability runs**: Extracts "London" from query
-4. **Mock API**: Generates realistic London weather
+2. **LLM understands**: Classifies as weather request, extracts location
+3. **Capability runs**: Processes the request for "London"
+4. **Mock API**: Generates random weather data for London
 5. **Result returned**: Structured weather data
 
-## Supported Cities
-
-- San Francisco (default)
-- New York
-- Prague
+The mock API accepts any location string and returns simulated weather data, so you can ask about any city or place!
 
 ## Next Steps
 
 Once this is working:
 1. **Explore the code**: See how capabilities work
-2. **Add a city**: Modify `mock_weather_api.py`
+2. **Try different locations**: The mock API works with any location
 3. **Try the Control Assistant tutorial**: Production-grade control system integration
 4. **Build your own**: Use this as a template
 

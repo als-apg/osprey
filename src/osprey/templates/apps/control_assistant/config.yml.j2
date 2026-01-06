@@ -45,9 +45,18 @@ models:
   python_code_generator:
     provider: {{ default_provider }}
     model_id: {{ default_model }}
+    max_tokens: 8192  # Allow longer code generation
   time_parsing:
     provider: {{ default_provider }}
     model_id: {{ default_model }}
+  channel_write:
+    provider: {{ default_provider }}
+    model_id: {{ default_model }}
+    max_tokens: 2048  # For write operation parsing
+  channel_finder:
+    provider: {{ default_provider }}
+    model_id: {{ default_model }}
+    max_tokens: 4096  # For channel finder semantic search
 
 # ============================================================
 # API CONFIGURATION
@@ -59,6 +68,9 @@ api:
     cborg:
       api_key: ${CBORG_API_KEY}
       base_url: https://api.cborg.lbl.gov/v1
+    stanford:
+      api_key: ${STANFORD_API_KEY}
+      base_url: https://aiapi-prod.stanford.edu/v1
     openai:
       api_key: ${OPENAI_API_KEY}
       base_url: https://api.openai.com/v1
@@ -73,6 +85,9 @@ api:
       base_url: http://localhost:11434
       host: localhost
       port: 11434
+    argo:
+      api_key: ${ARGO_API_KEY}
+      base_url: https://argo-bridge.cels.anl.gov
 
 # ============================================================
 # ENVIRONMENT VARIABLES
@@ -80,6 +95,8 @@ api:
 # Set these in your .env file:
 #
 #   CBORG_API_KEY=your-cborg-key
+#   STANFORD_API_KEY=...
+#   ARGO_API_KEY=your-argo-key
 #   OPENAI_API_KEY=sk-...
 #   ANTHROPIC_API_KEY=sk-ant-...
 #   GOOGLE_API_KEY=...
@@ -162,16 +179,12 @@ approval:
   capabilities:
     python_execution:
       enabled: true
-      mode: "epics_writes"   # Options: disabled | epics_writes | all_code
+      mode: "control_writes"   # Options: disabled | control_writes | all_code
     memory:
       enabled: true
 
 # Execution limits and safety controls
 execution_control:
-  # EPICS writes (hardware control) - Master safety switch
-  epics:
-    writes_enabled: false    # Set true only for production hardware control
-
   # Agent control - Runtime behavior configuration
   agent_control:
     task_extraction_bypass_enabled: false    # Skip LLM task extraction
@@ -198,37 +211,67 @@ execution_control:
 # Switch modes by changing 'type' field
 
 control_system:
-  # Control system type - determines both pattern detection and runtime connector
+  # Control system type - determines which runtime connector to use
+  # Note: Pattern detection is control-system-agnostic (same for all types)
   # Options:
   #   - mock: Development mode (accepts any channel names, no hardware)
   #   - epics: Production EPICS control system
   type: mock  # <-- Change to 'epics' for production
 
-  # Pattern Detection (Layer 1)
-  # Used by: Code analyzer, approval system
-  # Purpose: Detect control system operations in generated code
-  patterns:
-    mock:
-      write:
-        - '\.caput\('
-        - '\.write_pv\('
-      read:
-        - '\.caget\('
-        - '\.read_pv\('
+  # Write Access Control - Master safety switch for hardware control
+  # This is OPERATOR-LEVEL authorization (always hard-stops if false)
+  writes_enabled: true  # Tutorial default: enabled for mock connector
+                        # For production: carefully review hardware implications before enabling
+                        # If disabled, ALL writes are blocked (non-configurable hard error)
 
-    epics:
-      write:
-        - 'epics\.caput\('
-        - 'epics\.PV\([^)]*\)\.put\('
-        - '\.put\('
-      read:
-        - 'epics\.caget\('
-        - 'epics\.PV\([^)]*\)\.get\('
-        - '\.get\('
+  # Runtime Channel Limits Checking
+  limits_checking:
+    enabled: true
+    database_path: "src/{{ package_name }}/data/channel_limits.json"
+    allow_unlisted_channels: true  # Permissive mode for tutorial
+    on_violation: "skip"   # Options: "error" | "skip" (DEFAULT)
+                           # - error: Strict - ANY violation blocks entire operation
+                           # - skip: Resilient - skip invalid writes, continue with valid ones
+                           # Production: "skip" recommended for multi-channel operations
+
+  # Write Verification Configuration
+  # Configures how channel writes are verified for accuracy
+  write_verification:
+    enabled: true  # Enable verification by default
+    default_level: callback  # Options: none, callback, readback
+                            # - none: Fast write, no verification
+                            # - callback: Control system confirms processing (e.g., EPICS IOC callback)
+                            # - readback: Full verification with readback comparison
+    default_tolerance_percent: 0.1  # Default tolerance: 0.1% (one per mil)
+                                    # Only used for "readback" verification level
+                                    # Can be overridden per-channel in channel_limits.json
+    timeout: 5.0  # Timeout for verification operations
+    fail_on_mismatch: false  # false: log warning, true: raise error on verification failure
+
+  # Pattern Detection (Layer 1 - Security)
+  # Purpose: Detect ALL control system operations in generated code for approval workflows
+  #
+  # SECURITY: Catches both approved API usage AND circumvention attempts
+  # The framework automatically detects:
+  #   - Approved: osprey.runtime API (write_channel, read_channel) - has all safety features
+  #   - Security: Direct library calls (epics.caput, tango.DeviceProxy, etc.) - bypasses safety
+  #   - Future: Other control systems (LabVIEW, custom) - comprehensive detection
+  #
+  # This ensures LLM-generated code cannot bypass connector safety features (limits, verification)
+  # by directly importing control system libraries.
+  #
+  # Advanced: Extend patterns for custom control system libraries (rarely needed)
+  # Uncomment and add to customize:
+  # patterns:
+  #   write:
+  #     - 'my_custom_cs_lib\.write\('
+  #   read:
+  #     - 'my_custom_cs_lib\.read\('
 
   # Runtime Connectors (Layer 2)
-  # Used by: Capabilities (channel_value_retrieval, archiver_retrieval)
-  # Purpose: Actual I/O operations to control systems
+  # Used by: Capabilities (channel_value_retrieval, channel_write, archiver_retrieval)
+  #          and osprey.runtime API (read_channel, write_channel)
+  # Purpose: Actual I/O operations to control systems with built-in safety features
   connector:
     timeout: 5.0  # Default timeout in seconds
 
@@ -281,7 +324,19 @@ archiver:
 
 channel_finder:
   # Active pipeline mode
-  pipeline_mode: {{ default_pipeline }}  # "in_context" or "hierarchical"
+  pipeline_mode: {{ default_pipeline }}  # "in_context", "hierarchical", or "middle_layer"
+
+  # Explicit channel address validation mode
+  # Controls how explicit PV addresses in queries are validated against the channel finder database
+  # Options:
+  #   - lenient (DEFAULT): Accept all explicit addresses, warn if not in database
+  #                       Best for production - trusts user-provided addresses while providing feedback
+  #                       Use case: Database has 200 curated PVs, but users may reference any of 5000+ actual PVs
+  #   - strict: Only accept channels that exist in database
+  #            Best for testing - ensures all channels are documented
+  #   - skip: No validation, accept all addresses immediately (fastest)
+  #          Best for performance - when you fully trust user inputs
+  explicit_validation_mode: lenient
 
   # Pipeline-specific configurations
   pipelines:
@@ -290,7 +345,7 @@ channel_finder:
     # Best for: few hundred channels (example from UCSB FEL)
     in_context:
       database:
-        type: template                # Database type: "template" (with device family expansion) or "legacy" (flat list)
+        type: template                # Database type: "template" (with device family expansion) or "flat" (simple list)
         path: src/{{ package_name }}/data/channel_databases/in_context.json
         presentation_mode: template    # How to present device families to LLM:
                                       # "explicit" - list all expanded channel names (BPM01XPosition, BPM02XPosition, ...)
@@ -310,7 +365,7 @@ channel_finder:
 
       # Benchmark dataset for this pipeline
       benchmark:
-        dataset_path: src/{{ package_name }}/data/benchmarks/datasets/in_context_main.json
+        dataset_path: src/{{ package_name }}/data/benchmarks/datasets/in_context_benchmark.json
         # In-context pipeline benchmark using UCSB FEL channels (30 queries)
 {% endif %}
 {% if enable_hierarchical %}
@@ -331,6 +386,26 @@ channel_finder:
       benchmark:
         dataset_path: src/{{ package_name }}/data/benchmarks/datasets/hierarchical_benchmark.json
         # Hierarchical pipeline benchmark with multi-level channel structure (47 queries)
+{% endif %}
+{% if enable_middle_layer %}
+    # Middle Layer Pipeline (React Agent with MML Database)
+    # Best for: MATLAB Middle Layer (MML) style databases, functional hierarchy (System→Family→Field), device/sector filtering
+    middle_layer:
+      database:
+        type: middle_layer            # Always "middle_layer" for this pipeline mode
+        path: src/{{ package_name }}/data/channel_databases/middle_layer.json
+                                      # Database must follow MML structure: System → Family → Field → ChannelNames
+                                      # Supports optional _description fields and device/sector filtering via DeviceList
+
+      # Example prompts for middle_layer pipeline
+      prompts:
+        path: src/{{ package_name }}/services/channel_finder/prompts/middle_layer
+        # Example accelerator prompts for React agent with database query tools
+
+      # Benchmark dataset for this pipeline
+      benchmark:
+        dataset_path: src/{{ package_name }}/data/benchmarks/datasets/middle_layer_benchmark.json
+        # Middle layer pipeline benchmark with functional hierarchy (35 queries, 174 channels)
 {% endif %}
 
   # Benchmarking configuration
@@ -365,6 +440,24 @@ channel_finder:
 execution:
   execution_method: "local"              # Options: local | container
   python_env_path: {{ current_python_env }}  # Path to Python with dependencies
+
+  # Code generation configuration
+  code_generator: "{{ code_generator | default('basic') }}"  # Options: basic | claude_code
+  generators:
+    basic:
+      # Reference the model config defined in 'models' section
+      model_config_name: "python_code_generator"
+      save_prompts: true  # Save prompts and responses for transparency/debugging
+      # Or define inline configuration here (overrides model_config_name):
+      # provider: cborg
+      # model_id: anthropic/claude-haiku
+      # temperature: 0.7
+
+    # Claude Code configuration (requires claude-agent-sdk)
+    claude_code:
+      claude_config_path: "claude_generator_config.yml"  # Path to detailed config
+      profile: "fast"        # Options: fast (DEFAULT, single-phase) | robust (multi-phase)
+      # Advanced settings are in claude_generator_config.yml
 
   # EPICS infrastructure (DEPRECATED - use control_system section above)
   # Maintained for backward compatibility during migration
@@ -452,6 +545,13 @@ development:
     print_all: true      # Save prompts to files
     latest_only: true    # Keep only latest prompt version
 
+  # LLM API call logging configuration
+  # Captures raw inputs/outputs to get_chat_completion with caller metadata
+  api_calls:
+    save_all: true             # Save all API inputs/outputs to files
+    latest_only: true          # Keep only latest call per function (false = timestamped files)
+    include_stack_trace: false # Include full Python stack trace in metadata
+
 # ============================================================
 # LOGGING
 # ============================================================
@@ -499,7 +599,8 @@ logging:
 
     # Accelerator-specific components
     channel_finding: "light_green"
-    channel_value_retrieval: "light_cyan1"
+    channel_read: "light_cyan1"
+    channel_write: "light_salmon3"
     archiver_retrieval: "turquoise2"
 
 # ============================================================
@@ -518,4 +619,5 @@ file_paths:
   user_memory_dir: user_memory
   registry_exports_dir: registry_exports
   prompts_dir: prompts
+  api_calls_dir: api_calls
   checkpoints: checkpoints

@@ -131,7 +131,7 @@ class ApprovalManager:
         :raises ValueError: If configuration is invalid or missing required fields
         """
         try:
-            logger.info(f"🔍 Loading approval configuration from raw config: {approval_config}")
+            logger.debug("🔍 Loading approval configuration from raw config")
             self.config = GlobalApprovalConfig.from_dict(approval_config)
 
             # Log configuration summary for security audit trail
@@ -156,10 +156,14 @@ class ApprovalManager:
         """
         if self.config.global_mode == "disabled":
             # Override: global disable means everything is disabled
-            return PythonExecutionApprovalConfig(enabled=False, mode=self.config.python_execution.mode)
+            return PythonExecutionApprovalConfig(
+                enabled=False, mode=self.config.python_execution.mode
+            )
         elif self.config.global_mode == "all_capabilities":
             # Override: global enable means everything is enabled
-            return PythonExecutionApprovalConfig(enabled=True, mode=self.config.python_execution.mode)
+            return PythonExecutionApprovalConfig(
+                enabled=True, mode=self.config.python_execution.mode
+            )
         else:
             # Selective mode: use capability-specific setting
             return self.config.python_execution
@@ -217,14 +221,12 @@ class ApprovalManager:
         :rtype: dict
         """
         return {
-            'global_mode': self.config.global_mode,
-            'python_execution': {
-                'enabled': self.get_python_execution_config().enabled,
-                'mode': self.get_python_execution_config().mode.value
+            "global_mode": self.config.global_mode,
+            "python_execution": {
+                "enabled": self.get_python_execution_config().enabled,
+                "mode": self.get_python_execution_config().mode.value,
             },
-            'memory': {
-                'enabled': self.get_memory_config().enabled
-            }
+            "memory": {"enabled": self.get_memory_config().enabled},
         }
 
 
@@ -295,7 +297,7 @@ def get_approval_manager() -> ApprovalManager:
 
         # Get approval configuration from config system
         # The config system will provide sensible defaults if approval section is missing
-        approval_config = get_config_value('approval_config')
+        approval_config = get_config_value("approval_config")
 
         # Basic validation - config system should always provide a dict
         if not isinstance(approval_config, dict):
@@ -307,7 +309,9 @@ def get_approval_manager() -> ApprovalManager:
             _approval_manager = ApprovalManager(approval_config)
             logger.info("✅ Approval manager initialized successfully")
             logger.info(f"   - Global mode: {approval_config['global_mode']}")
-            logger.info(f"   - Capabilities configured: {list(approval_config['capabilities'].keys())}")
+            logger.info(
+                f"   - Capabilities configured: {list(approval_config['capabilities'].keys())}"
+            )
         except Exception as e:
             # Security-critical component failure requires immediate attention
             logger.error(f"Failed to initialize ApprovalManager with valid config: {e}")

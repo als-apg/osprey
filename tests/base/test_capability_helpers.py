@@ -15,6 +15,7 @@ from osprey.context import CapabilityContext
 # Test context types (prefix with _ to avoid pytest collection warnings)
 class _TestContext(CapabilityContext):
     """Test context for unit testing."""
+
     CONTEXT_TYPE: ClassVar[str] = "TEST_DATA"
     CONTEXT_CATEGORY: ClassVar[str] = "TEST"
     value: str
@@ -30,6 +31,7 @@ class _TestContext(CapabilityContext):
 
 class _TestMultipleContext(CapabilityContext):
     """Another test context."""
+
     CONTEXT_TYPE: ClassVar[str] = "MULTIPLE_DATA"
     CONTEXT_CATEGORY: ClassVar[str] = "TEST"
     values: list[str]
@@ -80,10 +82,7 @@ def test_get_required_contexts_with_cardinality(mock_state, mock_step, mock_regi
     class TestCap(BaseCapability):
         name = "test"
         description = "test"
-        requires = [
-            "TEST_DATA",
-            ("MULTIPLE_DATA", "single")
-        ]
+        requires = ["TEST_DATA", ("MULTIPLE_DATA", "single")]
 
         async def execute(self) -> dict:
             return {}
@@ -136,8 +135,8 @@ def test_get_required_contexts_soft_mode(mock_state, mock_step, monkeypatch):
         # OPTIONAL_DATA is missing - soft mode should handle this
     }
 
-    monkeypatch.setattr('osprey.registry.get_registry', lambda: mock_reg)
-    monkeypatch.setattr('osprey.context.context_manager.ContextManager', lambda state: mock_cm)
+    monkeypatch.setattr("osprey.registry.get_registry", lambda: mock_reg)
+    monkeypatch.setattr("osprey.context.context_manager.ContextManager", lambda state: mock_cm)
 
     # Should not raise even if only one context exists
     contexts = instance.get_required_contexts(constraint_mode="soft")
@@ -239,7 +238,7 @@ def test_get_required_contexts_single_value_unpacking(mock_state, mock_step, moc
 
     with mock_registry:
         # Single value unpacking requires trailing comma
-        test_data, = instance.get_required_contexts()
+        (test_data,) = instance.get_required_contexts()
 
     assert isinstance(test_data, _TestContext)
     assert test_data.value == "test"
@@ -309,11 +308,7 @@ def test_get_parameters_with_values():
     instance._state = {"test": "state"}
     instance._step = {
         "context_key": "test_key",
-        "parameters": {
-            "precision_ms": 500,
-            "timeout": 30,
-            "mode": "fast"
-        }
+        "parameters": {"precision_ms": 500, "timeout": 30, "mode": "fast"},
     }
 
     params = instance.get_parameters()
@@ -395,7 +390,7 @@ def test_get_parameters_usage_pattern():
     instance._state = {"test": "state"}
     instance._step = {
         "context_key": "test_key",
-        "parameters": {"precision_ms": 250}  # Only one param set
+        "parameters": {"precision_ms": 250},  # Only one param set
     }
 
     params = instance.get_parameters()
@@ -425,10 +420,7 @@ def test_get_task_objective_from_step():
 
     instance = TestCap()
     instance._state = {"task_current_task": "Global task"}
-    instance._step = {
-        "context_key": "test_key",
-        "task_objective": "Specific step task"
-    }
+    instance._step = {"context_key": "test_key", "task_objective": "Specific step task"}
 
     task = instance.get_task_objective()
 
@@ -454,7 +446,7 @@ def test_get_task_objective_fallback_to_current_task(monkeypatch):
     # Mock StateManager
     mock_sm = MagicMock()
     mock_sm.get_current_task.return_value = "Global task"
-    monkeypatch.setattr('osprey.state.StateManager', mock_sm)
+    monkeypatch.setattr("osprey.state.StateManager", mock_sm)
 
     task = instance.get_task_objective()
 
@@ -514,7 +506,7 @@ def test_get_task_objective_common_patterns():
     instance._state = {"task_current_task": "Find channels"}
     instance._step = {
         "context_key": "test_key",
-        "task_objective": "Search for beam current channels"
+        "task_objective": "Search for beam current channels",
     }
 
     # Pattern 1: Use directly
@@ -528,6 +520,142 @@ def test_get_task_objective_common_patterns():
     # Pattern 3: Use in logging
     log_msg = f"Starting: {instance.get_task_objective()}"
     assert log_msg == "Starting: Search for beam current channels"
+
+
+# ========================================
+# Test get_step_inputs()
+# ========================================
+
+
+def test_get_step_inputs_from_step():
+    """Test getting inputs when they exist in step."""
+
+    class TestCap(BaseCapability):
+        name = "test"
+        description = "test"
+
+        async def execute(self) -> dict:
+            return {}
+
+    instance = TestCap()
+    instance._state = {}
+    instance._step = {
+        "context_key": "test_key",
+        "inputs": [{"CHANNEL_ADDRESSES": "channels"}, {"TIME_RANGE": "time_range"}],
+    }
+
+    inputs = instance.get_step_inputs()
+
+    # Should return step's inputs list
+    assert inputs == [{"CHANNEL_ADDRESSES": "channels"}, {"TIME_RANGE": "time_range"}]
+
+
+def test_get_step_inputs_empty_list():
+    """Test getting inputs when step has no inputs."""
+
+    class TestCap(BaseCapability):
+        name = "test"
+        description = "test"
+
+        async def execute(self) -> dict:
+            return {}
+
+    instance = TestCap()
+    instance._state = {}
+    instance._step = {"context_key": "test_key"}  # No inputs!
+
+    inputs = instance.get_step_inputs()
+
+    # Should return empty list as default
+    assert inputs == []
+
+
+def test_get_step_inputs_with_custom_default():
+    """Test using custom default instead of empty list."""
+
+    class TestCap(BaseCapability):
+        name = "test"
+        description = "test"
+
+        async def execute(self) -> dict:
+            return {}
+
+    instance = TestCap()
+    instance._state = {}
+    instance._step = {"context_key": "test_key"}  # No inputs!
+
+    custom_default = [{"DEFAULT": "value"}]
+    inputs = instance.get_step_inputs(default=custom_default)
+
+    # Should return custom default
+    assert inputs == custom_default
+
+
+def test_get_step_inputs_none_value():
+    """Test that None value in inputs returns default."""
+
+    class TestCap(BaseCapability):
+        name = "test"
+        description = "test"
+
+        async def execute(self) -> dict:
+            return {}
+
+    instance = TestCap()
+    instance._state = {}
+    instance._step = {"context_key": "test_key", "inputs": None}  # Explicitly None
+
+    inputs = instance.get_step_inputs()
+
+    # Should return default (empty list) when inputs is None
+    assert inputs == []
+
+
+def test_get_step_inputs_without_step():
+    """Test error when called outside execute()."""
+
+    class TestCap(BaseCapability):
+        name = "test"
+        description = "test"
+
+        async def execute(self) -> dict:
+            return {}
+
+    instance = TestCap()
+    # Don't inject step
+
+    with pytest.raises(RuntimeError, match="requires self._step"):
+        instance.get_step_inputs()
+
+
+def test_get_step_inputs_common_patterns():
+    """Test common usage patterns."""
+
+    class TestCap(BaseCapability):
+        name = "test"
+        description = "test"
+
+        async def execute(self) -> dict:
+            return {}
+
+    instance = TestCap()
+    instance._state = {}
+    instance._step = {
+        "context_key": "test_key",
+        "inputs": [{"CHANNEL_ADDRESSES": "channels"}, {"TIME_RANGE": "time"}],
+    }
+
+    # Pattern 1: Use directly
+    inputs = instance.get_step_inputs()
+    assert len(inputs) == 2
+
+    # Pattern 2: Check if any inputs exist
+    has_inputs = bool(instance.get_step_inputs())
+    assert has_inputs is True
+
+    # Pattern 3: Count inputs for logging
+    count = len(instance.get_step_inputs())
+    assert count == 2
 
 
 # ========================================
@@ -551,7 +679,7 @@ def test_store_output_context_simple(mock_state, mock_step, mock_registry):
 
     test_context = _TestContext(value="test")
 
-    with mock_registry as mock_reg:
+    with mock_registry:
         updates = instance.store_output_context(test_context)
 
     # Verify returned type
@@ -567,6 +695,7 @@ def test_store_output_context_without_context_type(monkeypatch):
 
     class BadContext:
         """Context without CONTEXT_TYPE."""
+
         pass
 
     class TestCap(BaseCapability):
@@ -582,7 +711,7 @@ def test_store_output_context_without_context_type(monkeypatch):
 
     # Mock to prevent registry loading
     mock_reg = MagicMock()
-    monkeypatch.setattr('osprey.registry.get_registry', lambda: mock_reg)
+    monkeypatch.setattr("osprey.registry.get_registry", lambda: mock_reg)
 
     bad_context = BadContext()
 
@@ -627,7 +756,7 @@ def test_store_output_context_missing_context_key(mock_state, monkeypatch):
     # Mock to prevent registry loading
     mock_reg = MagicMock()
     mock_reg.context_types.TEST_DATA = "TEST_DATA"
-    monkeypatch.setattr('osprey.registry.get_registry', lambda: mock_reg)
+    monkeypatch.setattr("osprey.registry.get_registry", lambda: mock_reg)
 
     test_context = _TestContext(value="test")
 
@@ -642,7 +771,7 @@ def test_store_output_context_missing_context_key(mock_state, monkeypatch):
 
 def test_store_output_contexts_multiple(mock_state, mock_step, monkeypatch):
     """Test multiple output storage with call verification."""
-    from unittest.mock import MagicMock, call
+    from unittest.mock import MagicMock
 
     class TestCap(BaseCapability):
         name = "test"
@@ -664,13 +793,15 @@ def test_store_output_contexts_multiple(mock_state, mock_step, monkeypatch):
     mock_reg.context_types.MULTIPLE_DATA = "MULTIPLE_DATA"
 
     # Mock StateManager.store_context to return different updates for each call
-    mock_store = MagicMock(side_effect=[
-        {"context_data": {"TEST_DATA": "stored1"}},
-        {"context_data": {"MULTIPLE_DATA": "stored2"}}
-    ])
+    mock_store = MagicMock(
+        side_effect=[
+            {"context_data": {"TEST_DATA": "stored1"}},
+            {"context_data": {"MULTIPLE_DATA": "stored2"}},
+        ]
+    )
 
-    monkeypatch.setattr('osprey.registry.get_registry', lambda: mock_reg)
-    monkeypatch.setattr('osprey.state.StateManager.store_context', mock_store)
+    monkeypatch.setattr("osprey.registry.get_registry", lambda: mock_reg)
+    monkeypatch.setattr("osprey.state.StateManager.store_context", mock_store)
 
     updates = instance.store_output_contexts(context1, context2)
 
@@ -704,7 +835,7 @@ def test_store_output_contexts_with_provides_validation(mock_state, mock_step, m
 
     # Mock to prevent registry loading
     mock_reg = MagicMock()
-    monkeypatch.setattr('osprey.registry.get_registry', lambda: mock_reg)
+    monkeypatch.setattr("osprey.registry.get_registry", lambda: mock_reg)
 
     wrong_context = _TestMultipleContext(values=["wrong"])
 
@@ -828,26 +959,22 @@ async def test_static_method_pattern_still_works(monkeypatch):
     from unittest.mock import MagicMock
 
     # Mock LangGraph functions
-    monkeypatch.setattr('osprey.base.decorators.get_stream_writer', lambda: None)
+    monkeypatch.setattr("osprey.base.decorators.get_stream_writer", lambda: None)
 
     # Create proper mock state with execution plan
     mock_state = {
         "planning_execution_steps": [
-            {
-                "capability": "old_style",
-                "context_key": "test_key",
-                "task_objective": "Test"
-            }
+            {"capability": "old_style", "context_key": "test_key", "task_objective": "Test"}
         ],
         "planning_current_step_index": 0,
-        "execution_step_results": {}
+        "execution_step_results": {},
     }
 
     # Mock StateManager to return the step
     mock_sm = MagicMock()
     mock_sm.get_current_step.return_value = mock_state["planning_execution_steps"][0]
     mock_sm.get_current_step_index.return_value = 0
-    monkeypatch.setattr('osprey.state.StateManager', mock_sm)
+    monkeypatch.setattr("osprey.state.StateManager", mock_sm)
 
     @capability_node
     class OldStyleCap(BaseCapability):
@@ -871,26 +998,22 @@ async def test_instance_method_pattern_works(monkeypatch):
     from unittest.mock import MagicMock
 
     # Mock LangGraph functions
-    monkeypatch.setattr('osprey.base.decorators.get_stream_writer', lambda: None)
+    monkeypatch.setattr("osprey.base.decorators.get_stream_writer", lambda: None)
 
     # Create proper mock state with execution plan
     mock_state = {
         "planning_execution_steps": [
-            {
-                "capability": "new_style",
-                "context_key": "test_key",
-                "task_objective": "Test"
-            }
+            {"capability": "new_style", "context_key": "test_key", "task_objective": "Test"}
         ],
         "planning_current_step_index": 0,
-        "execution_step_results": {}
+        "execution_step_results": {},
     }
 
     # Mock StateManager to return the step
     mock_sm = MagicMock()
     mock_sm.get_current_step.return_value = mock_state["planning_execution_steps"][0]
     mock_sm.get_current_step_index.return_value = 0
-    monkeypatch.setattr('osprey.state.StateManager', mock_sm)
+    monkeypatch.setattr("osprey.state.StateManager", mock_sm)
 
     @capability_node
     class NewStyleCap(BaseCapability):
@@ -924,33 +1047,25 @@ def mock_state():
     """Create a mock agent state with complete execution plan."""
     return {
         "planning_execution_steps": [
-            {
-                "capability": "test",
-                "context_key": "test_key",
-                "task_objective": "Test objective"
-            }
+            {"capability": "test", "context_key": "test_key", "task_objective": "Test objective"}
         ],
         "planning_current_step_index": 0,
         "context_data": {},
-        "execution_step_results": {}
+        "execution_step_results": {},
     }
 
 
 @pytest.fixture
 def mock_step():
     """Create a mock execution step."""
-    return {
-        "capability": "test",
-        "context_key": "test_key",
-        "task_objective": "Test objective"
-    }
+    return {"capability": "test", "context_key": "test_key", "task_objective": "Test objective"}
 
 
 @pytest.fixture
 def mock_registry(monkeypatch):
     """Mock the registry and context management for testing."""
-    from unittest.mock import MagicMock
     from contextlib import contextmanager
+    from unittest.mock import MagicMock
 
     @contextmanager
     def mock_registry_context():
@@ -964,7 +1079,7 @@ def mock_registry(monkeypatch):
         mock_cm = MagicMock()
         mock_cm.extract_from_step.return_value = {
             "TEST_DATA": _TestContext(value="test"),
-            "MULTIPLE_DATA": _TestMultipleContext(values=["test1", "test2"])
+            "MULTIPLE_DATA": _TestMultipleContext(values=["test1", "test2"]),
         }
 
         # Mock StateManager
@@ -976,9 +1091,9 @@ def mock_registry(monkeypatch):
             return mock_reg
 
         # Patch at the point where they're imported (inside the methods)
-        monkeypatch.setattr('osprey.registry.get_registry', mock_get_registry)
-        monkeypatch.setattr('osprey.context.context_manager.ContextManager', lambda state: mock_cm)
-        monkeypatch.setattr('osprey.state.StateManager', mock_sm)
+        monkeypatch.setattr("osprey.registry.get_registry", mock_get_registry)
+        monkeypatch.setattr("osprey.context.context_manager.ContextManager", lambda state: mock_cm)
+        monkeypatch.setattr("osprey.state.StateManager", mock_sm)
 
         try:
             yield mock_reg
@@ -986,4 +1101,3 @@ def mock_registry(monkeypatch):
             pass
 
     return mock_registry_context()
-

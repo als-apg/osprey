@@ -12,9 +12,9 @@ This package contains:
 """
 
 # Version information
-__version__ = "0.9.1"
+__version__ = "0.9.10"
 
-__all__ = ['__version__']
+__all__ = ["__version__"]
 
 # Framework is designed for on-demand imports to avoid circular dependencies
 # Use specific imports like: from osprey.state import AgentState

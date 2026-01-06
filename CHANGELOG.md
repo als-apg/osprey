@@ -7,7 +7,664 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Documentation**: Fixed workflow file references to use correct `@src/osprey/workflows/` path for copy-paste into Claude Code and Cursor
+
+## [0.9.10] - 2025-01-03
+
+### Fixed
+- **Channel Finder**: Initialize `query_splitting` attribute in HierarchicalPipeline
+  - Fixes `AttributeError: 'HierarchicalPipeline' object has no attribute 'query_splitting'`
+
 ### Added
+- **Channel Finder**: Optional `query_splitting` parameter for hierarchical and middle_layer pipelines
+  - Disable query splitting for facility-specific terminology that shouldn't be split
+  - Enabled by default for backward compatibility
+
+### Changed
+- **Channel Finder Prompts**: Modularized prompt structure across all pipelines
+  - Split `system.py` into `facility_description.py` (REQUIRED) and `matching_rules.py` (OPTIONAL)
+  - Users now edit `facility_description.py` for facility-specific content
+  - `system.py` auto-combines modules (no manual editing needed)
+  - Query splitter prompts now accept `facility_name` parameter
+- **Benchmark Dataset**: Renamed `in_context_main.json` to `in_context_benchmark.json` for consistency
+- **Documentation**: Updated control assistant tutorials for modular prompt structure
+  - Part 1: Updated directory structure with new prompt file layout
+  - Part 2: Added cross-references to prompt customization section
+  - Part 4: Expanded channel finder prompt customization with step-by-step guidance
+
+### Added
+- **Channel Finder**: Added explicit detection functionality to channel finder service
+  - New `explicit_detection.py` prompt module for detecting explicit channel names, PV names, and IOC names
+  - Updated `BasePipeline` with `build_result()` helper method for constructing pipeline results
+  - Enhanced all pipeline implementations (hierarchical, in-context, middle layer) to use explicit detection
+  - Added unit tests for explicit detection prompt and `build_result()` method
+  - Updated e2e tests to verify explicit detection behavior
+  - Configuration updates to include explicit detection in pipeline workflows
+- **Tests**: `test_memory_capability.py`: 32 tests for memory operations, context, exceptions, and helper functions (37.7% → 62.4% coverage)
+- **Tests**: `test_logging.py`: 27 tests for API call logging, caller info extraction, and file creation (29.1% → 55.7% coverage)
+- **Tests**: `test_models.py` (generators): 21 tests for capability generation Pydantic models (0% → 100% coverage)
+- **Tests**: `test_models_utilities.py` (python_executor): 39 tests for execution error handling, notebook tracking, and utility functions
+- **Tests**: `test_models.py` (memory_storage): 13 tests for memory content formatting and validation (0% → 100% coverage)
+- **Tests**: `test_storage_manager.py`: 22 tests for memory persistence, file operations, and entry management (24.1% → 72.4% coverage)
+- **Tests**: `test_memory_provider.py`: 23 tests for memory data source integration and prompt formatting (32.2% → 94.9% coverage)
+- **Tests**: `test_providers_argo.py`: 27 tests for ARGO provider adapter (18.6% → 54.8% coverage)
+- **Tests**: `test_providers_ollama.py`: 31 tests for Ollama provider with fallback logic (24.2% → 96.0% coverage)
+- **Tests**: `test_providers_anthropic.py`: 27 tests for Anthropic provider metadata, model creation, and health checks (23.5% → 50.0% coverage)
+- **Tests**: `test_completion.py`: 28 tests for TypedDict conversion and proxy validation (30.9% → 58.0% coverage)
+- **Tests**: `test_logging.py`: 19 tests for API call context and result sanitization (13.3% → 29.1% coverage)
+- **Tests**: `test_respond_node.py`: 26 tests for response generation, context gathering, and mode determination (37.7% → 72.1% coverage, infrastructure module 54.7% → 58.4%)
+- **Tests**: `test_task_extraction_node.py`: 25 tests for task extraction, data source integration, and error classification (33.0% → 62.1% coverage, infrastructure module 52.1% → 54.7%)
+- **Tests**: `test_error_node.py`: 29 tests for error response generation and context handling (33.6% → 91.8% coverage, infrastructure module 45.2% → 52.1%)
+- **Tests**: Expanded infrastructure and models tests - 40 new tests for error classification, retry policies, and helper functions (infrastructure module 37.2% → 45.2%, overall 45.8% → 46.4%)
+- **Tests**: Added comprehensive tests for CLI and deployment modules (coverage expansion)
+  - `test_preview_styles.py`: 23 tests for theme preview and color display functionality (0% → 88.1% coverage)
+  - `test_main.py`: 23 tests for CLI entry point and lazy command loading (28.6% → 95.2% coverage)
+  - `test_health_cmd.py`: 38 tests for health checks and environment diagnostics (0% → 69.6% coverage)
+  - `test_loader.py`: 55 tests for YAML loading, imports, and parameter management (0% → 86.6% coverage)
+  - `test_chat_cmd.py`: 15 tests for command execution and output formatting
+  - `test_export_config_cmd.py`: 16 tests for deprecation warnings and format options
+  - `test_deploy_cmd.py`: 23 tests for deployment actions (up/down/restart/status/build/clean/rebuild)
+  - `test_registry_cmd.py`: 22 tests for registry display functions
+  - `test_config_cmd.py`: 23 tests for config subcommands (show/export/set-control-system/set-epics-gateway/set-models)
+  - `test_remove_cmd.py`: 16 tests for capability removal and backups
+  - `test_generate_cmd.py`: 37 tests for code generation commands (capability/mcp-server/claude-config)
+  - `test_orchestration_node.py`: 12 tests for execution planning validation and error handling
+  - `test_classification_node.py`: 13 tests for capability classification structure and error handling
+  - Fixed missing `Dict` import in `scripts/analyze_test_coverage.py`
+  - Renamed `analyze_coverage.py` → `analyze_test_coverage.py` for clarity
+
+### Fixed
+- **CLI**: Fixed broken imports in `config_cmd.py`
+  - Changed `update_control_system_type` → `set_control_system_type` (correct function name)
+  - Changed `update_epics_gateway` → `set_epics_gateway_config` (correct function name)
+  - Updated function calls to handle return values correctly (both functions return tuple of new_content, preview)
+
+### Changed
+- **Control Assistant**: Write access now enabled by default in control assistant template (`writes_enabled: true` for mock connector)
+  - Simplifies tutorial experience - users can test write operations immediately with mock connector
+  - Production deployments should carefully review hardware implications before enabling writes
+- **License**: Added explicit "BSD 3-Clause License" header to LICENSE.txt for clarity
+
+### Documentation
+- Updated Hello World tutorial to reflect current weather capability implementation with natural language location handling
+- Fixed version picker showing non-existent versioned directories causing 404 errors
+  - Updated docs workflow to only list actually deployed versions (stable and latest/development)
+  - Removed all individual version tag entries from versions.json until versioned directories are implemented
+- Fixed double slash typos in image paths causing 404 errors on GitHub Pages for in-context and hierarchical channel finder CLI screenshots
+- Added "Viewing Exported Workflows" section to AI-assisted development guide showing example output of exported workflow files
+- Removed v0.9.2+ migration guide (no longer needed as framework has fully transitioned to instance method pattern)
+  - Cleaned up all cross-references to migration guide across documentation
+  - Streamlined architecture overview sections in main index and developer guides
+  - Updated main index diagram from workflow to architecture overview
+- Added academic reference (Hellert et al. 2025, arXiv:2512.18779) for semantic channel finding theoretical framework
+
+## [0.9.9] - 2025-12-22
+
+### Fixed
+- **Testing**: Fixed middle layer benchmark test assertion to use `queries_evaluated` instead of `total_queries` field from benchmark results
+
+### Changed
+- **Workflows**: Moved AI workflow files from `docs/workflows/` to `src/osprey/workflows/` for package bundling
+  - Workflows now distributed with installed package
+  - Enables version-locked workflow documentation
+- **Documentation**: Updated workflow references to use `@osprey-workflows/` path
+  - Added workflow export instructions to AI-assisted development guide
+  - Updated all @-mention examples across documentation
+
+### Added
+- **CLI**: New `osprey workflows` command to export AI workflow files
+  - `osprey workflows export` - Export workflows to local directory (default: ./osprey-workflows/)
+  - `osprey workflows list` - List all available workflow files
+  - Interactive menu integration for easy access
+- **Documentation - AI Workflows**: Channel Finder workflow guides for AI-assisted development
+  - New workflow files: pipeline selection guide and database builder guide with AI prompts and code references
+  - Workflow cards in AI-assisted development guide linking to pipeline selection and database building workflows
+  - AI-assisted workflow dropdowns in tutorial "Build Your Database" sections for all three pipelines (in-context, hierarchical, middle layer)
+  - AI-assisted pipeline selection dropdown before pipeline tab-set in tutorial
+  - Enhanced workflows with guidance for AI assistants to read database format code and examples before giving advice
+  - Code reference sections showing AI how to use source files for evidence-based recommendations
+- **Documentation**: Comprehensive middle layer pipeline guide in Sphinx docs
+  - Complete tutorial with architecture comparison and usage examples
+  - CLI screenshots and integration examples
+  - End-to-end benchmark tests validating complete integration
+- **Channel Finder - Sample Data**: Middle layer database and benchmarks
+  - 2,033-channel sample database covering 3 systems (SR, BR, BTS)
+  - 20 device families with full metadata
+  - 35-query benchmark dataset (20% coverage ratio - best of all pipelines)
+  - Realistic accelerator physics context
+- **Channel Finder - Tools**: Middle layer support across all CLI tools
+  - Database preview tool with tree visualization for functional hierarchy
+  - CLI query interface with middle_layer pipeline support
+  - Benchmark runner with middle_layer dataset support
+- **Templates - Channel Finder**: Middle layer configuration support
+  - Conditional config generation for middle_layer pipeline
+  - Dynamic AVAILABLE_PIPELINES list based on enabled pipelines
+  - Database and benchmark paths auto-configured
+- **Channel Finder - Middle Layer Testing**: Comprehensive tool and utility tests
+  - 480 lines of tests covering all database query tools
+  - Tests for prompt loader with middle_layer support
+  - Tests for MML converter utility enhancements
+- **Channel Finder - Middle Layer**: React agent prompts for functional navigation
+  - Query splitter prompt for decomposing complex queries
+  - System prompt with database exploration tools
+- **Registry Manager**: Silent initialization mode for clean CLI output
+  - Suppress INFO/DEBUG logging during initialization when `silent=True`
+  - Useful for CLI tools that need clean output without verbose registry logs
+- **Channel Finder: Middle Layer Pipeline**: Complete React agent-based channel finder pipeline for MATLAB Middle Layer (MML) databases with System→Family→Field hierarchy; includes MiddleLayerDatabase with O(1) validation and device/sector filtering, MiddleLayerPipeline with 5 database query tools (list_systems, list_families, inspect_fields, list_channel_names, get_common_names), MMLConverter utility for converting Python MML exports to JSON, optional _description fields at all levels for enhanced LLM guidance, comprehensive test suite (14 tests), sample database, and complete documentation
+
+### Changed
+- **CLI - Project Initialization**: Enhanced channel finder selection
+  - Added middle_layer option to interactive menu
+  - Changed default from "both" to "all" (now includes all three pipelines)
+  - Updated descriptions for clarity: in_context (<200 channels), hierarchical (pattern-based), middle_layer (functional)
+- **Channel Finder - Middle Layer Pipeline**: Migrated from Pydantic-AI to LangGraph
+  - Now uses LangGraph's create_react_agent for improved agent behavior
+  - Converted tools from Pydantic-AI format to LangChain StructuredTool
+  - Enhanced structured output with ChannelSearchResult model
+  - Better error handling and agent state management
+
+### Fixed
+- **Build Scripts**: Removed trailing whitespace from configuration and script files
+- **Testing: Channel Finder test path correction**: Fixed incorrect database path in `test_multiple_direct_signals_fix.py` to point to correct example database location
+- **Channel Finder: Multiple direct signal selection**: Fixed leaf node detection to properly handle multiple direct signals (e.g., "status and heartbeat") selected together at optional levels
+- **Channel Finder: Optional levels LLM awareness**: Enhanced database descriptions and prompts to better distinguish direct signals from subdevice-specific signals
+- **Channel Finder: Separator overrides**: Fixed `build_channels_from_selections()` to respect `_separator` metadata from tree nodes via new `_collect_separator_overrides()` method
+- **Channel Finder: Separator overrides with expanded instances**: Fixed `_collect_separator_overrides()` navigation through expanded instance names (e.g., `CH-1`) by checking `_expansion` definitions to find container nodes
+- **Channel Finder: Navigation through expanded instances**: Fixed `_navigate_to_node()` and `_extract_tree_options()` to properly handle expanded instances at optional levels - base containers with `_expansion` no longer appear as selectable options, and navigation through expanded instance names works correctly
+
+### Removed
+- **Documentation**: Obsolete markdown tutorials for middle layer
+  - Content migrated to Sphinx documentation (control-assistant-part2-channel-finder.rst)
+
+## [0.9.8] - 2025-12-19
+
+### Added
+- **Testing: Hello World Weather template coverage**: Added comprehensive unit test suite for hello_world_weather template including mock weather API validation, response formatting, and error handling scenarios
+- **Hello World Weather: LLM-based location extraction**: Added structured output parser using LLM to extract locations from natural language queries, replacing simple string matching with intelligent parsing that handles nicknames, abbreviations, and defaults to "local" when no location is specified
+- **Documentation Version Switcher**: PyData Sphinx Theme version switcher for GitHub Pages with multi-version documentation support; workflow dynamically generates `versions.json` from git tags and preserves historical versions in separate directories (e.g., `/v0.9.7/`, `/latest/`)
+- **Developer Workflows System**: New `docs/workflows/` directory with 10 comprehensive workflow guides (pre-merge cleanup, commit organization, release process, testing strategy, AI code review, docstrings, comments, documentation updates) featuring YAML frontmatter metadata and AI assistant integration prompts
+- **Custom Sphinx Extension**: `workflow_autodoc.py` extension with `.. workflow-summary::` and `.. workflow-list::` directives for auto-documenting workflow files from markdown with YAML frontmatter, including custom CSS styling
+- **Testing: Workflow autodoc extension**: Comprehensive test suite for custom Sphinx extension including frontmatter parsing, directive rendering, and integration tests with actual workflow files
+- **Contributing Guide**: Professional `CONTRIBUTING.md` with quick start guide, branch naming conventions, code standards summary, and links to comprehensive documentation
+- **CI/CD Infrastructure**: Comprehensive GitHub Actions CI pipeline with parallel jobs for testing (Python 3.11 & 3.12, Ubuntu & macOS), linting (Ruff), type checking (mypy), documentation builds, and package validation
+- **Pre-commit Hooks**: `.pre-commit-config.yaml` with Ruff linting/formatting, file quality checks (trailing whitespace, merge conflicts, large files), and optional mypy type checking
+- **Dependabot Configuration**: Automated weekly dependency updates for Python packages and GitHub Actions with intelligent grouping (development, Sphinx, LangChain dependencies)
+- **Release Automation**: `.github/workflows/release.yml` for automated PyPI publishing using trusted publishing (OIDC), version verification, and optional TestPyPI deployment
+- **Pre-merge Check Script**: `scripts/premerge_check.sh` automated scanning for debug code, commented code, hardcoded secrets, missing CHANGELOG entries, incomplete docstrings, and unlinked TODOs
+- **Code Coverage Reporting**: Codecov integration in CI pipeline with coverage reports uploaded for Python 3.11 Ubuntu runs
+- **Status Badges**: README.md badges for CI status, documentation, code coverage, PyPI version, Python version support, and license
+
+### Changed
+- **Code Quality: Comprehensive Linting Cleanup**: Fixed multiple code quality issues across 47 files - B904 exception chaining (30 instances), E722 bare except clauses (5 instances), B007 unused loop variables (4 instances), formatting issues; removed B904 from ruff ignore list and added intentional per-file ignores for test files and example scripts; all changes verified with full test suite (968 unit + 15 e2e tests passing)
+- **Code Formatting**: Applied automated Ruff formatting across codebase - modernized type hints to Python 3.10+ style (`Optional[T]` → `T | None`, `List[T]` → `list[T]`), normalized quotes, cleaned whitespace, and removed unused imports; no functional changes
+- **Documentation Workflows**: Migrated workflow files from `docs/resources/other/` to `docs/workflows/` with updated references throughout; workflows now feature consistent YAML frontmatter for machine parsing and AI integration
+- **Documentation Structure**: Reorganized contributing documentation from placeholder to comprehensive guide with 6 dedicated sections (Getting Started, Git & GitHub, Code Standards, Developer Workflows, AI-Assisted Development, Community Guidelines) using sphinx-design cards and grids
+- **Contributing Guide**: Restructured `docs/source/contributing/index.rst` from placeholder to comprehensive 400+ line guide with learning paths, AI integration examples, workflow categories, and automation tools documentation
+- **CI Pipeline**: Enhanced documentation job to create preview artifacts for pull requests with 7-day retention; added clear separation between CI checks (`.github/workflows/ci.yml`) and deployment (`.github/workflows/docs.yml`)
+- **Development Dependencies**: Added `pytest-cov` to `[dev]` optional dependencies in `pyproject.toml` for code coverage reporting in CI pipeline
+- **Hello World Weather: Mock API simplification**: Refactored mock weather API to accept any location string and generate random weather data, removing hardcoded city list and enabling flexible location support for tutorial demonstrations
+- **Documentation: Citation update**: Updated paper citation to reflect new title "Osprey: Production-Ready Agentic AI for Safety-Critical Control Systems"
+- **Documentation: Framework name cleanup**: Replaced all remaining references to "Alpha Berkeley Framework" with "Osprey Framework" across README, templates, documentation, and test files
+- **Testing: E2E hello_world_weather tutorial test**: Enhanced test to exercise both weather AND Python capabilities with a multi-step query that validates configuration defaults, context passing, and code generation/execution workflows
+- **Hello World Weather Template**: Enhanced mock weather API with improved error handling and response formatting; updated tutorial documentation for better clarity
+
+### Fixed
+- **Configuration: Execution defaults for Python code generation**: Added missing code generator configuration defaults to `ConfigBuilder._get_execution_defaults()`. Now includes `code_generator: "basic"` and corresponding generators configuration, preventing "Unknown provider: None" errors when using Python capabilities in projects with minimal configuration
+- **Hello World Weather Template**: Fixed template conditional to include execution infrastructure configuration while excluding only EPICS-specific settings, ensuring Python code generation works out-of-the-box
+- **Testing: CI workflow autodoc test collection**: Fixed `ModuleNotFoundError: No module named 'sphinx'` in CI by adding `pytest.importorskip` to `tests/documentation/test_workflow_autodoc.py`; Sphinx is only required for documentation builds and is not part of `[dev]` dependencies, so workflow autodoc tests now gracefully skip when Sphinx is unavailable
+
+### Removed
+- **Documentation: Local server launcher**: Removed `docs/launch_docs.py` script; users should use standard Sphinx commands (`make html` and `python -m http.server`) for local documentation builds and serving
+
+## [0.9.7] - 2025-12-14
+
+### Added
+- **CLI: Model Configuration Command**: New `osprey config set-models` command to update all model configurations at once with interactive or direct mode
+- **Channel Finder: API call context tracking**: Added context tracking to channel finder pipeline for better API call logging and debugging
+
+### Changed
+- **Documentation: Python version requirement consistency**: Updated all documentation and templates to consistently specify "Python 3.11+" instead of "Python 3.11", matching the pyproject.toml requirement of `>=3.11`
+- **Channel Finder Service**: Improved configuration validation with clearer error messages when channel_finder model is not configured
+- **Control Assistant Template: Use Osprey's completion module**: Removed duplicate `completion.py` implementation from channel finder service; now uses `osprey.models.completion` for consistency and maintainability
+
+### Fixed
+- **Channel Finder: Optional levels navigation**: Fixed bug where direct signals incorrectly appeared as subdevice options in optional hierarchy levels. The system now correctly distinguishes between container nodes (which belong at the current optional level) and leaf/terminal nodes (which belong to the next level). Also fixed `build_channels_from_selections()` to handle missing optional levels and apply automatic separator cleanup (removes `::` and trailing separators).
+- **Hello World Weather Template**: Added service configuration (container runtime, deployed services) to prevent `'services/docker-compose.yml.j2' not found` error when following installation guide
+- **Channel Write Capability**: Removed `verification_levels` field from approval `analysis_details` that incorrectly called `_get_verification_config()` method before connector initialization
+- **Testing**: Added integration test for channel_write approval workflow to catch capability-approval interaction bugs
+- **Testing: Channel Finder registration tests**: Updated test mocks to include `channel_finder` model configuration in the mocked `configurable` dict, fixing tests broken by stricter validation introduced in commit 5834de3
+- **Testing: E2E workflow test**: Updated `test_hello_world_template_generates_correctly` to expect services directory and deployment configuration, matching current template structure
+- **Testing: E2E benchmark tests**: Fixed registry initialization in `test_channel_finder_benchmarks.py` by calling `initialize_registry()` before creating `BenchmarkRunner` to prevent "Registry not initialized" errors
+- **Code Quality**: Pre-merge cleanup - removed unused imports, applied black formatting to 13 files, and documented DEBUG and CONFIG_FILE environment variables in env.example
+
+## [0.9.6] - 2025-12-06
+
+### Added
+- **Control Assistant Template: Custom Task Extraction Prompt**: Added control-system-specific task extraction prompt builder that replaces framework defaults with domain-specific examples
+  - 14 control system examples covering channel references, temporal context, write operations, and visualization requests
+  - Unit test suite verifying custom prompt usage without LLM invocation
+  - Documentation in Part 4 tutorial explaining single-point-of-failure importance
+- **Channel Finder: Enhanced Database Preview Tool**: Flexible display options for better hierarchy visibility
+  - `--depth N` parameter to control tree depth display (default: 3, -1 for unlimited)
+  - `--max-items N` parameter to limit items shown per level (default: 10, -1 for unlimited)
+  - `--sections` parameter with modular output sections: tree, stats, breakdown, samples, all
+  - `--path PATH` parameter to preview any database file directly without modifying config
+  - `--focus PATH` parameter to zoom into specific hierarchy branches
+  - New `stats` section showing unique value counts at each hierarchy level
+  - New `breakdown` section showing channel count breakdown by path
+  - New `samples` section showing random sample channel names
+  - Backwards compatible `--full` flag support
+  - Comprehensive unit tests covering all preview features and edge cases
+
+### Changed
+- **Channel Finder: Preview Tool Default Depth**: Default tree display depth increased from 2 to 3 levels for better visibility
+
+### Fixed
+- **MCP Server Template: Dynamic timestamps instead of hardcoded dates**: Fixed MCP server generation template to use current UTC timestamps instead of hardcoded November 15, 2025 dates. Prevents e2e test failures due to stale mock data and ensures demo servers return realistic "current" weather data.
+- **Tests: Channel Finder unit test updates**: Updated channel finder test files for compatibility with hierarchical database changes (optional levels, custom separators)
+- **Tests: Registry mock cleanup and fixture name collisions**: Fixed 7 registry isolation test failures caused by session-level registry mock pollution from capability tests, renamed conflicting test fixtures to prevent pytest naming collisions
+- **Python Executor: Context File Creation for Pre-Approval Notebooks**: Fixed timing issue where `context.json` was not created until execution, causing warnings and test failures when approval was required. Context is now saved immediately when creating pre-approval, syntax error, and static analysis failure notebooks.
+- **Code Quality: Pre-merge cleanup**: Removed unused imports and applied code formatting standards (black + isort) across entire codebase for consistency
+- **Documentation: Fixed RST docstring formatting**: Corrected docstring syntax in `BaseInfrastructureNode.get_current_task()` to use proper RST code block notation (eliminates Sphinx warnings)
+
+### Added
+- **Hierarchical Channel Finder: Custom Separator Overrides**: Per-node control of channel name separators
+  - New `_separator` metadata field overrides default separators from naming pattern
+  - Solves EPICS naming conventions with mixed delimiters (e.g., `:` for subdevices, `_` for suffixes, `.` for legacy subsystems)
+  - Backward compatible: nodes without `_separator` use pattern defaults
+  - Documentation: New "Custom Separators" tab in Advanced Hierarchy Patterns section
+- **Hierarchical Channel Finder: Automatic Leaf Detection**: Eliminates verbose `_is_leaf` markers for childless nodes
+  - Nodes without children are automatically detected as leaves (no explicit marker needed)
+  - `_is_leaf` now only required for nodes that have children but are also complete channels
+  - Reduces verbosity in database definitions (e.g., RB/SP readback/setpoint nodes)
+  - Backward compatible: explicit `_is_leaf` markers still work (take precedence)
+  - Updated all examples and documentation to reflect cleaner syntax
+  - Test coverage: 2 new tests for automatic leaf detection functionality
+- **Channel Finder: Comprehensive Parameterized Test Suite**: Automated testing coverage for all example databases
+  - New `test_all_example_databases.py` with 80 tests covering all 6 example databases
+  - Parameterized tests automatically run on any new example database added
+  - Core functionality tests: loading, navigation, channel generation, validation, statistics
+  - Database-specific feature tests for unique characteristics (optional levels, legacy format, etc.)
+  - Expected channel count validation for all databases (total: 30,908 channels)
+  - Now testing previously uncovered databases: `hierarchical_legacy.json` and `optional_levels.json`
+  - Suppresses expected deprecation warnings for intentional legacy format testing
+- **Channel Finder: Pluggable Pipeline and Database System**: Registration pattern for custom implementations
+  - `register_pipeline()` and `register_database()` methods for extending channel finder
+  - Discovery API: `list_available_pipelines()` and `list_available_databases()`
+  - Config-driven selection without modifying framework code
+  - Examples for RAG pipeline and PostgreSQL database implementations
+- **Hierarchical Channel Finder: Flexible Naming Configuration**: Navigation-only levels and decoupled naming
+  - Naming pattern can reference subset of hierarchy levels (not all required in pattern)
+  - New `_channel_part` field decouples tree keys from naming components
+  - Enables semantic tree organization with PV names at leaf (JLab CEBAF pattern)
+  - Enables friendly navigation with technical naming ("Magnets" → "MAG")
+  - Backward compatible: existing databases work unchanged
+  - Example database: `hierarchical_jlab_style.json` demonstrating both features
+  - Test coverage: 18 new tests for flexible naming functionality
+
+#### Configuration Management
+- **EPICS Gateway Presets**: Built-in configurations for APS and ALS facilities
+  - APS: pvgatemain1.aps4.anl.gov:5064 (read-only and write-access)
+  - ALS: cagw-alsdmz.als.lbl.gov:5064 (read-only), :5084 (write-access)
+  - Custom facility support with interactive configuration
+- **Configuration Management API**: Programmatic control system and EPICS gateway configuration
+  - `get_control_system_type()`, `set_control_system_type()` for runtime connector switching
+  - `get_epics_gateway_config()`, `set_epics_gateway_config()` for gateway management
+  - `validate_facility_config()` for preset validation
+  - Comprehensive test coverage for all configuration operations
+- **Unified Configuration Command**: `osprey config` command group following industry standards
+  - `osprey config show` - Display current project configuration
+  - `osprey config export` - Export framework default configuration
+  - `osprey config set-control-system` - Switch between Mock/EPICS connectors
+  - `osprey config set-epics-gateway` - Configure EPICS gateway (APS, ALS, custom)
+  - Interactive menu integration for guided configuration workflows
+
+#### Control System Operations
+- **Runtime Utilities for Control System Operations**: Control-system-agnostic utilities for generated Python code
+  - New `osprey.runtime` module with synchronous API (write_channel, read_channel, write_channels)
+  - Automatic configuration from execution context for reproducible notebooks
+  - Async operations handled internally for simple generated code
+  - Works with any control system (EPICS, Mock, etc.) without code changes
+  - Complete unit and integration test coverage
+  - API reference documentation with usage examples
+- **Connector Auto-Verification**: Connectors automatically determine verification level and tolerance from configuration
+  - Per-channel verification config from limits database (highest priority)
+  - Global verification config from config.yml (fallback)
+  - Hardcoded safe defaults if no config available (test environments)
+  - New `LimitsValidator.get_verification_config()` method for per-channel lookup
+  - Automatic limits validation on all connector writes (no application-level checks needed)
+  - Comprehensive test coverage including mock and EPICS connectors
+- **Control System Prompt Builders**: Custom prompt builders teaching LLMs to use runtime utilities
+  - New ControlSystemPythonPromptBuilder with osprey.runtime documentation
+  - Automatic injection of domain-specific instructions into capability prompts
+  - Enhanced classifier examples for control system operations
+  - Graceful fallback if custom prompts unavailable
+  - Comprehensive test coverage for prompt builder integration
+  - Complete tutorial on framework prompt customization
+
+#### Testing Infrastructure
+- **E2E Test Infrastructure**: Improved test isolation and added warnings to prevent common test failures
+  - Added pytest hook to warn users when running `pytest -m e2e` instead of `pytest tests/e2e/`
+  - Enhanced registry cleanup in test fixtures to prevent state pollution between tests
+  - Added module cleanup in channel finder benchmarks to prevent stale imports
+  - Updated README.md, TESTING_GUIDE.md, and tests/e2e/README.md with correct test commands
+  - Added critical warnings in pytest.ini about proper e2e test execution
+- **Runtime Utilities E2E Tests**: Comprehensive end-to-end test suite validating complete workflows
+  - LLM learning osprey.runtime API from prompts
+  - Context snapshot preservation and configuration
+  - Channel limits safety integration (validates runtime respects boundaries)
+  - Positive and negative test cases for write operations
+  - Calculation + write workflows (e.g., "set voltage to sqrt(4150)")
+- **E2E Test Infrastructure**: Warnings and cleanup mechanisms to prevent state pollution from incorrect test invocation
+- **Unit Tests**: Registry isolation and channel finder registration test coverage
+
+#### Documentation
+- **EPICS Integration and Configuration Guides**: Comprehensive documentation for production deployment
+  - Getting Started: Mock-first workflow with clear migration path to EPICS
+  - CLI Reference: Complete `osprey config` command documentation
+  - Production Guide: EPICS gateway configuration with facility presets
+  - Architecture Guide: Pattern detection security model and design principles
+  - API Reference: Framework-standard pattern detection reference
+- **Documentation Positioning**: Updated README and tutorials to emphasize production-ready control system focus
+  - Highlight plan-first orchestration and control system safety
+  - Emphasize protocol-agnostic integration (EPICS, LabVIEW, Tango)
+  - Note production deployment at major facilities (LBNL Advanced Light Source)
+  - Updated feature list for control system use cases
+  - Added comprehensive tutorial section on how generated code interacts with control systems using osprey.runtime
+- **Developer Documentation**: Commit organization workflow guide for managing complex Git changes
+
+### Changed
+
+- **Code Quality**: Pre-merge cleanup improvements across codebase
+  - Code formatting: Applied Black and isort to all changed files for consistent style
+  - Linting fixes: Resolved ruff warnings (unused imports, bare except, unused variables)
+  - Logging improvements: Replaced debug print() statements with proper logger.debug() calls in runtime module
+  - Type hints: Added return type hints to 6 public functions for better IDE support
+  - Import cleanup: Removed duplicate import in memory capability
+
+#### Configuration and Architecture
+- **CLI Organization**: Deprecated `osprey export-config` in favor of `osprey config export`
+  - Backward compatibility maintained with deprecation notice
+  - All configuration operations now unified under `osprey config` namespace
+- **Pattern Detection Architecture**: Refactored to framework-standard patterns with security enhancements
+  - Control-system-agnostic patterns work across all connector types
+  - Comprehensive security coverage detects circumvention attempts (epics.caput, tango.DeviceProxy, etc.)
+  - Framework provides sensible defaults; users can override in config.yml
+  - Separated approved API patterns (write_channel, read_channel) from direct library call detection
+  - `control_system.type` config now only affects runtime connector, not pattern detection
+- **Project Templates**: Simplified pattern detection configuration with framework defaults
+  - Removed verbose per-control-system pattern definitions
+  - Framework automatically provides comprehensive security patterns
+  - Clear guidance on when to override patterns (advanced/custom workflows only)
+  - Updated README with EPICS gateway configuration instructions
+  - Mock-first approach: Projects start in Mock mode, switch to EPICS when ready
+- **Dependencies**: Promoted Claude Agent SDK from optional to core dependency
+  - Advanced code generation now available in all installations
+  - No longer requires separate installation with [claude-agent] extra
+  - Minimum framework version 0.9.6+ for Claude Code generator support
+
+#### Control System Connectors and Safety
+- **Control System Connector API**: Unified channel naming and comprehensive write verification
+  - Method rename: read_pv → read_channel, write_pv → write_channel (deprecated methods emit DeprecationWarning)
+  - Class rename: PVValue → ChannelValue, PVMetadata → ChannelMetadata (deprecated classes emit DeprecationWarning)
+  - Three-tier write verification: none/callback/readback with configurable tolerance
+  - Rich result objects: ChannelWriteResult and WriteVerification with detailed status
+  - Mock connector verification simulation for development testing
+  - All deprecated APIs will be removed in v0.10
+- **Runtime Channel Limits Validation**: Comprehensive safety system for validating writes against configured boundaries
+  - Synchronous validation engine with min/max/step/writable constraints
+  - Failsafe design blocks all unlisted channels by default
+  - Optional max_step checking with I/O overhead warnings
+  - Configurable policy modes: strict (error) vs resilient (skip)
+  - JSON-based limits database with embedded defaults support
+  - New exception: ChannelLimitsViolationError with detailed violation context
+- **Python Executor Limits Checking Integration**: Automatic runtime validation of all epics.caput() calls
+  - Transparent monkeypatching of epics.caput() and PV.put() methods
+  - Embedded validator configuration in wrapper for container isolation
+  - Graceful degradation if pyepics unavailable
+  - Clear operator feedback with safety status messages
+
+#### Python Execution and Code Generation
+- **Python Execution Infrastructure**: Integrated runtime utilities with execution wrapper and notebooks
+  - Execution wrapper automatically configures runtime from context snapshots
+  - Context manager preserves control system config for reproducible execution
+  - Notebooks include runtime configuration cell for standalone execution
+  - Proper cleanup in finally block ensures resource release
+  - E2E test artifacts now include generated Python code files
+  - Developer guide documentation with integration details
+- **Channel Write Capability Template**: Simplified by removing limits config loading (now automatic in connector)
+  - Capabilities focus on orchestration (parsing, approval)
+  - Connectors handle safety (limits, verification)
+  - Cleaner separation of concerns
+
+#### Template Configuration and Capabilities
+- **Template Configuration**: Updated minimal template and project config for control system safety features
+  - Added control_system section with writes_enabled, limits_checking, write_verification
+  - Updated integration guides for new connector API
+  - Framework capabilities updated for connector method rename
+  - Pattern detection updated with new read_channel/write_channel patterns
+  - Registry and utility updates for new context types
+- **Channel Value Retrieval Renamed to Channel Read**: Renamed `channel_value_retrieval` capability to `channel_read` throughout the entire codebase for consistency and clarity
+  - **Capability Name**: `channel_value_retrieval` → `channel_read`
+  - **Class Name**: `ChannelValueRetrievalCapability` → `ChannelReadCapability`
+  - **File Name**: `channel_value_retrieval.py.j2` → `channel_read.py.j2`
+  - **Description**: Updated from "Retrieve current values" to "Read current values"
+  - **Documentation**: Updated all references in .rst files, README, and examples
+  - **Symmetric Naming**: Now matches `channel_read` (read) / `channel_write` (write) pattern
+  - **Registry**: Updated capability registration and context type references
+  - **Config**: Updated logging colors and capability lists
+- **Channel Write Approval Workflow**: Human-in-the-loop approval for direct control system writes
+  - Structured interrupt with operation summary and safety concerns
+  - Integration with existing approval_manager and evaluator system
+  - Clear approval prompts with channel addresses and target values
+  - Resume payload includes complete operation context
+- **BaseCapability Helper Method**: get_step_inputs() for accessing orchestrator-provided input contexts
+  - Simplifies access to step inputs list from within execute()
+  - Handles None values gracefully with configurable defaults
+  - Comprehensive tests for various edge cases
+
+#### UI/UX and Documentation Structure
+- **CLI Approval Display**: Enhanced approval message presentation with heavy-bordered panel, bold title, and helpful subtitle for improved visibility and user experience
+- **Gateway Approval Detection**: Enhanced approval response detection with two-tier system - instant pattern matching for simple yes/no responses, with LLM-powered fallback for complex natural language
+- **Documentation Structure**: Refactored Python execution service documentation for improved organization
+  - Removed obsolete standalone 03_python-execution-service.rst file
+  - Streamlined service-overview.rst (793 → 452 lines, 40% reduction)
+  - Focused content on generator extensibility for developers
+  - Updated all cross-references to use directory structure
+  - Improved navigation and reduced redundancy
+- **OpenWebUI**: Enhanced configuration for improved out-of-box experience
+  - Auto-configure Ollama and Pipeline connections in docker-compose
+  - Disable authentication for local development (WEBUI_AUTH=false)
+  - Documentation: automatic vs manual configuration guidance
+  - Documentation: Docker vs Podman container networking (host.docker.internal vs host.containers.internal)
+
+#### Miscellaneous
+- **Error Node**: Removed deprecated manual streaming code and progress tracking in favor of unified logger system with automatic streaming
+
+### Fixed
+
+- **Runtime Utilities**: Context file now created during pre-approval stage, ensuring configuration access for osprey.runtime
+
+#### Test Infrastructure and Stability
+- **E2E Test**: Fixed `test_runtime_utilities_basic_write` by ensuring `context.json` is created during pre-approval stage
+  - Context file now created before pre-approval notebook generation in `_create_pre_approval_notebook()`
+  - Executor node reuses existing context file instead of recreating it
+  - Test properly disables approval workflows for automated e2e execution
+- **Test Configuration Pattern Detection**: Removed pattern overrides from test fixtures to use framework defaults
+  - Test configs now use complete default patterns from `pattern_detection.py`
+  - Fixes approval workflow tests to correctly detect `write_channel`/`read_channel` operations
+  - Ensures tests validate actual framework behavior rather than incomplete test-specific patterns
+  - Fixed 3 failing tests in `TestApprovalWorkflow` integration test suite
+- **E2E Test Stability**: Improved test isolation and removed flaky test
+  - Added approval manager singleton cleanup to prevent state pollution between tests
+  - Removed redundant `test_runtime_utilities_calculation_with_write` (flaky due to ambiguous LLM prompt)
+  - Fixed runtime utilities tests to disable limits checking when testing LLM code generation
+  - Corrected config field name from `limits_file` to `database_path`
+  - Fixed `_disable_capabilities` helper to properly comment out multi-line capability registrations
+
+#### Validation and Logging
+- **Limits validator**: Properly exclude metadata fields (description, source) from unknown field warnings
+- **Error Node Logging**: Removed duplicate start/completion logging that occurred when combining decorator's automatic logging with manual status messages
+
+## [0.9.5] - 2025-12-01
+
+### Added
+- **CLI Commands**: New `osprey generate claude-config` command to generate Claude Code generator configuration files with sensible defaults and auto-detection of provider settings
+- **Interactive Menu**: Added 'generate' command to project selection submenu, centralized menu choice management with `get_project_menu_choices()`, improved consistency between main and project selection flows
+- **E2E Test Suites**: Added comprehensive end-to-end test coverage
+  - **Claude Config Generation Tests** (`test_claude_config_generation.py`): Validates `osprey generate claude-config` command, tests configuration file structure, provider auto-detection, and profile customization
+  - **Code Generator Workflow Tests** (`test_code_generator_workflows.py`): Tests complete code generation pipeline with basic and Claude Code generators. Validates example script guidance following, instruction adherence, and deterministic assertions for generated code content
+  - **MCP Capability Generation Tests** (`test_mcp_capability_generation.py`): End-to-end MCP integration testing including server generation/launch, capability generation from live MCP server, registry integration, and query execution with LLM judge verification
+
+### Changed
+- **API Call Logging**: Enhanced with caller context tracking across all LLM-calling components. Logging metadata now includes capability/module/operation details for better debugging. Improved JSON serialization with Pydantic model support (mode='json') and better error visibility (warnings instead of silent failures)
+- **Claude Code Generator Configuration**: Major simplification - profiles now directly specify phases to run instead of using planning_modes abstraction. Default profile changed from 'balanced' to 'fast'. Unified prompt building into single data-driven `_build_phase_prompt()` method. Reduced codebase by 564 lines through elimination of duplicate prompt builders and dead code
+- **Registry Display**: Filtered infrastructure nodes table to exclude capability nodes (avoid duplication with Capabilities table), moved context classes to verbose-only mode, improved handling of tuple types in provides/requires fields
+- **MCP Generator Error Handling**: Added pre-flight connectivity checks using httpx, much clearer error messages when server is not running, and actionable instructions in error messages
+- **Test Infrastructure**: Added auto-reset registry fixtures in both unit and E2E test conftest files to ensure complete test isolation. Fixtures now reset registry, clear config caches, and clear CONFIG_FILE env var before/after each test to prevent state leakage. Removed manual registry reset calls from individual tests
+
+### Removed
+- **Claude Code Generator Profiles**: Removed 'balanced' profile (consolidated to 'fast' and 'robust' only)
+- **Claude Code Generator Configuration**: Removed 'workflow_mode' setting (use direct 'phases' list specification), removed 'planning_modes' abstraction (profiles specify phases directly), removed dead code (_generate_direct, _generate_phased, _build_phase_options, 7 duplicate prompt builders)
+
+### Fixed
+- **Registry Import Timing**: Fixed module-level `get_registry()` calls that could cause initialization order issues. Moved registry access to runtime (function/method level) in python capability, time_range_parsing capability, generate_from_prompt, and hello_world_weather template
+- **Python Executor Logging**: Replaced deprecated `get_streamer` with unified `get_logger` API in code generator node for consistent streaming support
+- **MCP Generator Configuration**: Added proper model configuration validation with clear error messages when provider is not configured. Improved error handling with unused variable cleanup and better logging integration
+- **Time Range Parsing Tests**: Added mock for `store_output_context` to bypass registry validation, allowing tests to run independently of registry state. Removed obsolete decorator integration tests that were duplicating coverage
+- **Tutorial E2E Tests**: Relaxed over-strict plot count assertion (1+ PNG files instead of 2+) to accommodate both single-figure and multi-figure plotting approaches
+- **Claude Code Generator Tests**: Refactored to skip low-level prompt building tests (implementation details now covered by E2E tests). Improved test maintainability by focusing on behavior rather than internal methods
+- **E2E Test Documentation**: Complete rewrite of tests/e2e/README.md with clearer structure, better isolation guidance, and comprehensive examples. Added warnings about running E2E tests separately from unit tests
+- **Documentation**: Updated all Claude Code generator documentation to reflect simplified configuration model. Restructured generator-claude.rst with improved UX using collapsible dropdowns and tabbed sections. Updated all examples to use 'fast' as default profile
+- **Tests**: Updated Claude Code generator tests to check 'profile_phases' instead of removed 'workflow_mode', removed tests for removed features, added tests for new phase-based configuration model
+
+### Added
+- **Python Executor Service - Complete Modular Refactoring**
+  - **Modular Subdirectory Structure**: Reorganized python_executor service into focused subdirectories
+    - `analysis/` - Code analysis, pattern detection, and policy enforcement
+    - `approval/` - Human approval workflows
+    - `execution/` - Container management and code execution
+    - `generation/` - Pluggable code generator system
+    - Each subdirectory has proper `__init__.py` and dedicated README documentation
+
+  - **Pluggable Code Generator System**: New extensible architecture for code generation
+    - **Abstract Interface**: `CodeGenerator` protocol defining standard generator contract
+    - **Generator Factory**: Dynamic registration and instantiation with `GeneratorFactory`
+    - **Multiple Implementations**:
+      * `BasicGenerator` - Simple template-based generation for straightforward tasks
+      * `ClaudeCodeGenerator` - Advanced AI-powered generation with:
+        - Full conversation history management
+        - Result validation and error recovery
+        - Streaming support with callbacks
+        - Tool use integration
+        - Configurable via `execution.code_generator` and `execution.generators` settings
+      * `MockGenerator` - Deterministic generator for testing
+    - **Registry Integration**: Generator lifecycle managed through framework registry system
+    - **State Model Extensions**: `PythonExecutorState` enhanced to support generator configuration
+
+  - **Generator Configuration**: Explicit, flexible configuration structure
+    - New `execution.code_generator` setting specifies active generator
+    - Generator-specific config in `execution.generators` with model references or inline config
+    - Deprecation warnings for old `models.python_code_generator` approach (backward compatible)
+    - Updated project templates with examples for all generator types
+
+  - **Integration Enhancements**: Connected generator system to framework
+    - Python capability updated to support generator configuration
+    - Analysis node enhanced with generator-aware validation
+    - Execution pipeline improved for generator output handling
+    - Container engine with better error reporting
+
+  - **Comprehensive Test Suite**: Extensive test coverage for new system
+    - Unit tests for all generator implementations (BasicGenerator, ClaudeCodeGenerator, MockGenerator)
+    - Integration tests for generator-service interaction
+    - Pattern detection integration tests
+    - Result validation test suites
+    - State reducer tests
+    - Shared test fixtures and utilities in `tests/services/python_executor/`
+
+  - **CLI and Template Improvements**: Enhanced user experience
+    - Generator selection and configuration in interactive menu
+    - Template system with generator-specific configurations
+    - Claude generator config template (`claude_generator_config.yml.j2`)
+    - Example plotting scripts for common use cases (time series, multi-subplot, publication-quality)
+    - Improved README templates with generator setup instructions
+
+## [0.9.4] - 2025-11-28
+
+### Added
+- **Channel Finder E2E Benchmarks**
+  - New benchmark test suite for hierarchical channel finder pipeline
+  - Tests query processing across all hierarchy complexity levels
+  - Performance metrics: navigation depth, branching factor, channel count
+  - Validates correct channel finding across diverse hierarchy patterns
+  - Example queries testing system understanding and multi-level navigation
+- **Flexible Hierarchical Database Schema**
+  - Clean, flexible schema for defining arbitrary control system hierarchies
+  - Single `hierarchy` section combines level definitions and naming pattern with built-in validation
+  - Support arbitrary mixing of tree navigation (semantic categories) and instance expansion (numbered/patterned devices) at any level
+  - Enable multiple consecutive instance levels (e.g., SECTOR→DEVICE, FLOOR→ROOM), instance-first hierarchies, or any tree/instance pattern
+  - Automatic validation ensures level names and naming patterns stay in sync (catches errors at load time, not runtime)
+  - Each level specifies `name` and `type` (`tree` for semantic categories, `instances` for numbered expansions)
+  - Removed redundant/confusing fields from schema (eliminated `_structure` documentation field, consolidated three separate config fields into one)
+  - Comprehensive test suite with 33 unit tests including 6 new naming pattern validation tests (all passing)
+  - Example databases demonstrating real-world use cases:
+    - `hierarchical.json`: Accelerator control (1,048 channels) - SYSTEM[tree]→FAMILY[tree]→DEVICE[instances]→FIELD[tree]→SUBFIELD[tree]
+    - `mixed_hierarchy.json`: Building management (1,720 channels) - SECTOR[instances]→BUILDING[tree]→FLOOR[instances]→ROOM[instances]→EQUIPMENT[tree]
+    - `instance_first.json`: Manufacturing (85 channels) - LINE[instances]→STATION[tree]→PARAMETER[tree]
+    - `consecutive_instances.json`: Accelerator naming (4,996 channels) - SYSTEM[tree]→FAMILY[tree]→SECTOR[instances]→DEVICE[instances]→PROPERTY[tree]
+  - Backward compatibility: Legacy databases with implicit configuration automatically converted with deprecation warnings
+  - Support hierarchies from 1 to 15+ levels with any combination of types
+  - Updated documentation with clean schema examples and comprehensive guides
+- **Hello World Weather E2E Test**
+  - New end-to-end test validating complete Hello World tutorial workflow
+  - Tests weather capability execution, mock API integration, and registry initialization
+  - LLM judge evaluation ensures beginner-friendly experience
+  - Validates template generation and framework setup for new users
+
+### Changed
+- **Test Infrastructure**
+  - Fixed test isolation between unit tests and e2e tests using `reset_registry()`
+  - Updated all e2e tests to use Claude Haiku (faster, more cost-effective)
+  - Separated unit test and e2e test execution to prevent registry mock contamination
+  - Updated channel finder tests to use new unified database schema (`"type"` instead of `"structure"`)
+  - Documentation: Updated `RELEASE_WORKFLOW.md` with clear instructions for running unit tests (`pytest tests/ --ignore=tests/e2e`) and e2e tests (`pytest tests/e2e/`) separately
+
+## [0.9.3] - 2025-11-27
+
+### Added
+- **LLM API Call Logging** - Comprehensive logging of all LLM API interactions for debugging and transparency
+  - New `development.api_calls` configuration section with `save_all`, `latest_only`, and `include_stack_trace` options
+  - Automatic capture of complete input/output pairs with rich metadata (caller function, module, class, line number, model config)
+  - Context variable propagation through async/thread boundaries using Python's `contextvars` for accurate caller detection
+  - Intelligent caller detection that skips thread pool and asyncio internals to find actual business logic
+  - Integration with classifier and orchestrator nodes via `set_api_call_context()` helper function
+  - Capability-aware logging: classifier logs include capability name in filename for parallel classification tasks
+  - Files saved to `_agent_data/api_calls/` with descriptive naming: `{module}_{class}_{function}_{capability}_latest.txt`
+  - Documentation added to prompt customization guide and configuration reference
+  - Complements existing prompt debugging (`development.prompts`) for complete LLM interaction transparency
+- **End-to-End Test Infrastructure** - Complete LLM-based testing system for workflow validation
+  - New `tests/e2e/` directory with comprehensive e2e test framework
+  - **LLM Judge System** (`judge.py`) - AI-powered test evaluation with structured scoring
+    - Evaluates workflows against plain-text expectations for flexible validation
+    - Provides confidence scores (0.0-1.0) and detailed reasoning
+    - Identifies warnings and concerns even in passing tests
+  - **E2E Project Factory** (`conftest.py`) - Automated test project creation and execution
+    - Creates isolated test projects from templates in temporary directories
+    - Full framework initialization with registry, graph, and gateway setup
+    - Query execution with complete state management and artifact collection
+    - Working directory management for correct `_agent_data/` placement
+    - Root logger capture for comprehensive execution trace logging
+  - **Tutorial Tests** (`test_tutorials.py`) - Validates complete user workflows
+    - `test_bpm_timeseries_and_correlation_tutorial` - Full control assistant workflow (channel finding, archiver retrieval, plotting)
+    - `test_simple_query_smoke_test` - Quick infrastructure validation
+  - **CLI Options** - Flexible test execution and debugging
+    - `--e2e-verbose` - Real-time progress updates during test execution
+    - `--judge-verbose` - Detailed LLM judge reasoning and evaluation
+    - `--judge-provider` and `--judge-model` - Configurable judge AI model
+  - **Comprehensive Documentation** (`tests/e2e/README.md`) - Complete testing guide with examples
+  - **Belt and Suspenders Validation** - LLM judge + hard assertions for reliable testing
+- **CLI Provider/Model Configuration** - Added `--provider` and `--model` flags to `osprey init` command for configuring AI provider during project creation
 - **Unified Logging with Automatic Streaming**
   - Added `BaseCapability.get_logger()` method providing single API for logging and streaming
   - Enhanced `ComponentLogger` with automatic LangGraph streaming support
@@ -23,19 +680,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Backward compatible: existing `get_logger()` and `get_streamer()` patterns continue to work
 
 ### Changed
-- **Infrastructure Nodes Migrated to Instance Method Pattern**
-  - All 7 infrastructure nodes now use instance methods instead of static methods
-  - Updated nodes: router, task_extraction, classification, clarify, respond, error, orchestration
-  - Decorator enhancements support both static and instance methods for backward compatibility
-  - Runtime injection of `_state` for all nodes, selective `_step` injection for execution nodes
-  - Added helper methods: `get_current_task()`, `get_user_query()`, `get_execution_plan()`, `get_current_step()`
-  - Test coverage expanded with 15 new infrastructure tests in `tests/infrastructure/`
+- **Capability Base Class** - Moved exception handling for classifier/orchestrator guide creation to base class properties with warning logs
+- **Capability Templates** - Cleaned up unused imports and logger usage in all capability templates (control_assistant, minimal)
 
-- **Capability Instance Method Pattern Test Coverage**
-  - Added 12 comprehensive tests in new `tests/capabilities/` directory
-  - Test coverage for memory, python, and time_range_parsing capabilities
-  - Validates instance method signatures, state injection, and decorator integration
-  - Includes end-to-end integration tests with mocked dependencies
+## [0.9.2] - 2025-11-25
+
+### 🎉 Major Features
+
+- **Complete Documentation**: Comprehensive docs for new architecture
+  - Main python_executor service documentation with architecture overview
+  - Per-subdirectory READMEs (analysis, approval, execution, generation)
+  - Detailed generator implementation guides:
+    * BasicGenerator usage and customization
+    * ClaudeCodeGenerator configuration and features
+    * MockGenerator for testing
+  - Updated developer guides with new modular architecture
+  - API reference documentation updates
+
+**Benefits of New Architecture**:
+- **Extensibility**: Easy to add new code generators (e.g., Claude Code SDK, GPT-4, custom generators)
+- **Testability**: MockGenerator enables deterministic testing without API calls
+- **Maintainability**: Clear separation of concerns with modular subdirectories
+- **Flexibility**: Swap generators without modifying core service logic
+- **Zero Breaking Changes**: Existing configurations continue to work with deprecation warnings
 
 ### Fixed
 - **Interactive Menu Registry Contamination** ([#29](https://github.com/als-apg/osprey/issues/29))
@@ -45,9 +712,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Prevents second project from inheriting capabilities from first project
   - Added comprehensive test suite to verify registry isolation
 
-## [0.9.2] - 2025-11-22
+#### Argo AI Provider (ANL Institutional Service)
+- **New provider adapter** for Argonne National Laboratory's Argo proxy service
+- **8 models supported**: Claude (Haiku 4.5, Sonnet 4.5, Sonnet 3.7, Opus 4.1), Gemini (2.5 Flash, 2.5 Pro), GPT-5, GPT-5 Mini
+- **OpenAI-compatible interface** with automatic structured output support
+- Uses `$USER` environment variable for ANL authentication
+- File: `src/osprey/models/providers/argo.py`
+- Added `ARGO_API_KEY` to all project templates
 
-### 🎉 Major Features
+#### Infrastructure Node Instance Method Migration
+- **All 7 infrastructure nodes** migrated from static method pattern to instance method pattern
+- Aligns infrastructure nodes with capability node implementation
+- **Decorator Enhancements**:
+  - Automatic detection of static vs instance methods (backward compatible)
+  - Runtime injection of `_state` for all infrastructure nodes
+  - Selective `_step` injection only for in-execution nodes (clarify, respond)
+  - Defensive None checks for step injection with warning logs
+  - Validation for invalid method types (classmethod, property)
+- **Migrated Nodes**:
+  - Router: Minimal state usage, routing metadata
+  - Task Extraction: Data source integration, state refs updated
+  - Classification: Extensive state usage (100+ refs), bypass mode
+  - Clarify: First `_step` injection, task_objective extraction
+  - Respond: `_step` injection, response generation
+  - Error: NO `_step` injection (uses `StateManager.get_current_step_index()`)
+  - Orchestration: 200+ lines, nested functions via closure
+- **Testing**: Added 15 unit tests for infrastructure pattern
+  - Tests validate decorator injection logic (_state, _step)
+  - Tests verify backward compatibility with static methods
+  - All tests passing
+
+#### Capability Instance Method Pattern Testing
+- Added 12 comprehensive tests for migrated capabilities
+- New test directory: `tests/capabilities/` with fixtures and integration tests
+- Memory Capability Tests (4 tests): signature validation, state/step injection, decorator integration
+- Python Capability Tests (3 tests): instance method pattern validation
+- TimeRangeParsing Capability Tests (5 tests): full end-to-end integration
+- All tests formatted with black and linted
 
 #### Instance Method Pattern for Capabilities
 - **New Recommended Pattern**: Capabilities can now use instance methods instead of static methods
@@ -120,8 +821,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Each BPM has unique, reproducible random characteristics based on PV name
   - Slow drift patterns simulate realistic beam position variations
   - Adjusted default noise level from 0.01 to 0.1 for more realistic data
+- **Template Updates**: All capability templates now use instance method pattern
+  - `hello_world_weather` template updated with new pattern and helper methods
+  - `control_assistant` templates (archiver_retrieval, channel_finding, channel_value_retrieval) updated
+  - `minimal` template updated to show recommended pattern
+  - All templates include proper `requires` field with cardinality constraints
 
 ### Fixed
+- **Interactive Menu Registry Contamination** ([#29](https://github.com/als-apg/osprey/issues/29))
+  - Fixed bug where creating multiple projects in the same interactive menu session caused capability contamination
+  - Global registry singleton now properly reset when switching between projects
+  - Added `reset_registry()` calls in `handle_chat_action()` before launching chat
+  - Prevents second project from inheriting capabilities from first project
+  - Added comprehensive test suite to verify registry isolation
 - **Stanford API Key Detection**: Added missing STANFORD_API_KEY to environment variable detection (Reported by Marty)
 - **Weather Template**: Fixed context extraction example in hello world weather template (PR #26)
 - **CRITICAL BUG FIX**: `ContextManager.extract_from_step()` now correctly handles multiple contexts of the same type
@@ -130,8 +842,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Single contexts still returned as objects for backward compatibility: `{"CURRENT_WEATHER": ctx_obj}`
   - Capabilities can check `isinstance(context, list)` to detect and handle multiple contexts
   - Added 17 comprehensive test cases covering all scenarios
+- **Interactive Menu Registry Contamination** ([#29](https://github.com/als-apg/osprey/issues/29))
+  - Fixed bug where creating multiple projects in the same interactive menu session caused capability contamination
+  - Global registry singleton now properly reset when switching between projects
+  - Added `reset_registry()` calls in `handle_chat_action()` before launching chat
+  - Prevents second project from inheriting capabilities from first project
+  - Added comprehensive test suite to verify registry isolation
 
-### Changed
+### Breaking Changes
 - **BREAKING CHANGE**: `BaseCapabilityContext.get_access_details()` signature simplified
   - **Old:** `get_access_details(self, key_name: Optional[str] = None)` with defensive fallback
   - **New:** `get_access_details(self, key: str)` - key parameter is required
@@ -149,11 +867,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Each summary dict already contains a `"type"` field for identification
   - More natural format for UI/LLM consumption
   - Updated 4 consumer files: `respond_node.py`, `clarify_node.py`, `memory.py`, `response_generation.py`
-- **Template Updates**: All capability templates now use instance method pattern
-  - `hello_world_weather` template updated with new pattern and helper methods
-  - `control_assistant` templates (archiver_retrieval, channel_finding, channel_value_retrieval) updated
-  - `minimal` template updated to show recommended pattern
-  - All templates include proper `requires` field with cardinality constraints
 
 ### Documentation
 - **Complete Documentation Overhaul**: Updated 20+ documentation files for new patterns
@@ -1448,3 +2161,4 @@ This release represents the framework's first complete domain-specific applicati
 ---
 
 *This is an early access release. We welcome feedback and contributions!*
+

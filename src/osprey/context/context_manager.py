@@ -30,6 +30,7 @@ logger = get_logger("osprey")
 # ==================== SHARED UTILITY FUNCTIONS ==================
 # ===================================================================
 
+
 def recursively_summarize_data(data, max_depth: int = 3, current_depth: int = 0):
     """
     Recursively summarize data structures to prevent massive context overflow.
@@ -46,12 +47,12 @@ def recursively_summarize_data(data, max_depth: int = 3, current_depth: int = 0)
         Summarized version of the data structure
     """
     # Configuration constants - clearly visible "knobs" for tuning behavior
-    LARGE_LIST_THRESHOLD = 10     # Lists larger than this will be truncated
-    LARGE_DICT_THRESHOLD = 10     # Dicts larger than this will be truncated
-    LONG_STRING_THRESHOLD = 200   # Strings longer than this will be truncated
-    LIST_SAMPLE_SIZE = 3          # Number of items to show from large lists
-    DICT_SAMPLE_SIZE = 3          # Number of keys to show from large dicts
-    STRING_PREVIEW_SIZE = 100     # Number of characters to show from long strings
+    LARGE_LIST_THRESHOLD = 10  # Lists larger than this will be truncated
+    LARGE_DICT_THRESHOLD = 10  # Dicts larger than this will be truncated
+    LONG_STRING_THRESHOLD = 200  # Strings longer than this will be truncated
+    LIST_SAMPLE_SIZE = 3  # Number of items to show from large lists
+    DICT_SAMPLE_SIZE = 3  # Number of keys to show from large dicts
+    STRING_PREVIEW_SIZE = 100  # Number of characters to show from long strings
 
     # Prevent infinite recursion
     if current_depth >= max_depth:
@@ -61,8 +62,10 @@ def recursively_summarize_data(data, max_depth: int = 3, current_depth: int = 0)
     if isinstance(data, list):
         if len(data) > LARGE_LIST_THRESHOLD:
             # For large lists, show count and first few items
-            sample_items = [recursively_summarize_data(item, max_depth, current_depth + 1)
-                           for item in data[:LIST_SAMPLE_SIZE]]
+            sample_items = [
+                recursively_summarize_data(item, max_depth, current_depth + 1)
+                for item in data[:LIST_SAMPLE_SIZE]
+            ]
             return f"List with {len(data):,} items: {sample_items}... (truncated)"
         else:
             # For small lists, recursively summarize each item
@@ -73,11 +76,16 @@ def recursively_summarize_data(data, max_depth: int = 3, current_depth: int = 0)
         if len(data) > LARGE_DICT_THRESHOLD:
             # For large dicts, show count and first few keys
             keys = list(data.keys())[:DICT_SAMPLE_SIZE]
-            sample_data = {k: recursively_summarize_data(data[k], max_depth, current_depth + 1) for k in keys}
+            sample_data = {
+                k: recursively_summarize_data(data[k], max_depth, current_depth + 1) for k in keys
+            }
             return f"Dict with {len(data)} keys: {sample_data}... (showing first {DICT_SAMPLE_SIZE} keys only)"
         else:
             # For small dicts, recursively summarize each value
-            return {k: recursively_summarize_data(v, max_depth, current_depth + 1) for k, v in data.items()}
+            return {
+                k: recursively_summarize_data(v, max_depth, current_depth + 1)
+                for k, v in data.items()
+            }
 
     # Handle strings
     elif isinstance(data, str):
@@ -101,7 +109,7 @@ class ContextManager:
     The data is stored as: {context_type: {context_key: {field: value}}}
     """
 
-    def __init__(self, state: 'AgentState'):
+    def __init__(self, state: "AgentState"):
         """Initialize ContextManager with agent state.
 
         Args:
@@ -114,17 +122,19 @@ class ContextManager:
         if not isinstance(state, dict):
             raise TypeError(f"ContextManager expects AgentState dictionary, got {type(state)}")
 
-        if 'capability_context_data' not in state:
+        if "capability_context_data" not in state:
             raise ValueError("AgentState must contain 'capability_context_data' key")
 
-        self._data = state['capability_context_data']
+        self._data = state["capability_context_data"]
         self._object_cache: dict[str, dict[str, CapabilityContext]] = {}
 
     def __getattr__(self, context_type: str):
         """Enable dot notation access to context data with lazy namespace creation."""
-        if context_type.startswith('_'):
+        if context_type.startswith("_"):
             # For private attributes, use normal attribute access
-            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{context_type}'")
+            raise AttributeError(
+                f"'{self.__class__.__name__}' object has no attribute '{context_type}'"
+            )
 
         if context_type in self._data:
             # Create a namespace for this context type with lazy object reconstruction
@@ -132,9 +142,13 @@ class ContextManager:
             return namespace
 
         # If not found in _data, raise AttributeError to maintain normal Python behavior
-        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{context_type}'")
+        raise AttributeError(
+            f"'{self.__class__.__name__}' object has no attribute '{context_type}'"
+        )
 
-    def set_context(self, context_type: str, key: str, value: 'CapabilityContext', skip_validation: bool = False) -> None:
+    def set_context(
+        self, context_type: str, key: str, value: "CapabilityContext", skip_validation: bool = False
+    ) -> None:
         """Store context using Pydantic's built-in serialization.
 
         Args:
@@ -148,20 +162,27 @@ class ContextManager:
             try:
                 # Import registry here to avoid circular imports
                 from osprey.registry import get_registry
+
                 registry = get_registry()
                 # Check if registry is initialized before validation
-                if hasattr(registry, '_registries') and registry._registries:
+                if hasattr(registry, "_registries") and registry._registries:
                     # Validate context type is recognized
                     if not registry.is_valid_context_type(context_type):
-                        raise ValueError(f"Unknown context type: {context_type}. Valid types: {registry.get_all_context_types()}")
+                        raise ValueError(
+                            f"Unknown context type: {context_type}. Valid types: {registry.get_all_context_types()}"
+                        )
 
                     # Validate value is correct type for context type
                     expected_type = registry.get_context_class(context_type)
                     if expected_type is not None and not isinstance(value, expected_type):
-                        raise ValueError(f"Context type {context_type} expects {expected_type}, got {type(value)}")
+                        raise ValueError(
+                            f"Context type {context_type} expects {expected_type}, got {type(value)}"
+                        )
                 else:
                     # Registry not initialized - just log a warning and continue
-                    logger.warning(f"Registry not initialized, skipping validation for {context_type}")
+                    logger.warning(
+                        f"Registry not initialized, skipping validation for {context_type}"
+                    )
 
             except ImportError:
                 # If registry is not available yet, skip validation
@@ -179,7 +200,7 @@ class ContextManager:
 
         logger.debug(f"Stored context: {context_type}.{key} = {type(value).__name__}")
 
-    def get_context(self, context_type: str, key: str) -> Optional['CapabilityContext']:
+    def get_context(self, context_type: str, key: str) -> Optional["CapabilityContext"]:
         """Retrieve using Pydantic's .model_validate() for reconstruction.
 
         Args:
@@ -190,10 +211,11 @@ class ContextManager:
             Reconstructed CapabilityContext object or None if not found
         """
         # Check cache first
-        if (context_type in self._object_cache and
-            key in self._object_cache[context_type]):
+        if context_type in self._object_cache and key in self._object_cache[context_type]:
             cached_obj = self._object_cache[context_type][key]
-            logger.debug(f"Retrieved cached context: {context_type}.{key} = {type(cached_obj).__name__}")
+            logger.debug(
+                f"Retrieved cached context: {context_type}.{key} = {type(cached_obj).__name__}"
+            )
             return cached_obj
 
         # Get raw dictionary data
@@ -216,13 +238,15 @@ class ContextManager:
                 self._object_cache[context_type] = {}
             self._object_cache[context_type][key] = reconstructed_obj
 
-            logger.debug(f"Retrieved and cached context: {context_type}.{key} = {type(reconstructed_obj).__name__}")
+            logger.debug(
+                f"Retrieved and cached context: {context_type}.{key} = {type(reconstructed_obj).__name__}"
+            )
             return reconstructed_obj
         except Exception as e:
             logger.error(f"Failed to reconstruct {context_type}: {e}")
             return None
 
-    def get_all_of_type(self, context_type: str) -> dict[str, 'CapabilityContext']:
+    def get_all_of_type(self, context_type: str) -> dict[str, "CapabilityContext"]:
         """Get all contexts of a specific type as reconstructed objects.
 
         Args:
@@ -255,7 +279,9 @@ class ContextManager:
                 flattened[flattened_key] = context
         return flattened
 
-    def get_context_access_description(self, context_filter: list[dict[str, str]] | None = None) -> str:
+    def get_context_access_description(
+        self, context_filter: list[dict[str, str]] | None = None
+    ) -> str:
         """Create detailed description of available context data for use in prompts.
 
         Args:
@@ -268,7 +294,9 @@ class ContextManager:
             return "No context data available."
 
         description_parts = []
-        description_parts.append("The agent context is available via the 'context' object with dot notation access:")
+        description_parts.append(
+            "The agent context is available via the 'context' object with dot notation access:"
+        )
         description_parts.append("")
 
         # Determine which contexts to show based on context_filter
@@ -299,7 +327,7 @@ class ContextManager:
 
                 for key, context_obj in contexts_dict.items():
                     # Use the get_access_details method with the actual key name
-                    if hasattr(context_obj, 'get_access_details'):
+                    if hasattr(context_obj, "get_access_details"):
                         try:
                             details = context_obj.get_access_details(key)
                             if isinstance(details, dict):
@@ -310,14 +338,17 @@ class ContextManager:
                             else:
                                 description_parts.append(f"  └── {key}: {str(details)}")
                         except Exception as e:
-                            description_parts.append(f"  └── {key}: {type(context_obj).__name__} object (get_access_details error: {e})")
+                            description_parts.append(
+                                f"  └── {key}: {type(context_obj).__name__} object (get_access_details error: {e})"
+                            )
                     else:
-                        description_parts.append(f"  └── {key}: {type(context_obj).__name__} object (no get_access_details method available)")
+                        description_parts.append(
+                            f"  └── {key}: {type(context_obj).__name__} object (no get_access_details method available)"
+                        )
 
                 description_parts.append("")
 
         return "\n".join(description_parts)
-
 
     def get_summaries(self, step: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         """Get summaries of contexts for human display/LLM consumption.
@@ -351,11 +382,28 @@ class ContextManager:
         summaries = []
         for context_or_list in step_contexts.values():
             # Handle both single contexts and lists
-            contexts_list = context_or_list if isinstance(context_or_list, list) else [context_or_list]
+            contexts_list = (
+                context_or_list if isinstance(context_or_list, list) else [context_or_list]
+            )
             for context in contexts_list:
                 summaries.append(context.get_summary())
 
         return summaries
+
+    def add_execution_config(self, config: dict) -> None:
+        """Add execution configuration to context data.
+
+        This config is saved alongside capability contexts and can be
+        accessed by runtime utilities for reproducible execution.
+
+        Args:
+            config: Execution configuration dictionary
+        """
+        # Store in special _execution_config key
+        if "_execution_config" not in self._data:
+            self._data["_execution_config"] = {}
+
+        self._data["_execution_config"] = config
 
     def get_raw_data(self) -> dict[str, dict[str, dict[str, Any]]]:
         """Get the raw dictionary data for state updates.
@@ -390,7 +438,7 @@ class ContextManager:
             raise ValueError("Filename cannot be empty")
 
         # Ensure filename has .json extension if not provided
-        if not filename.endswith('.json'):
+        if not filename.endswith(".json"):
             filename = f"{filename}.json"
 
         # Ensure folder exists
@@ -400,7 +448,7 @@ class ContextManager:
 
         try:
             # Save using standard JSON (data is already JSON-serializable via Pydantic)
-            with open(context_file, 'w', encoding='utf-8') as f:
+            with open(context_file, "w", encoding="utf-8") as f:
                 json.dump(self._data, f, indent=2, ensure_ascii=False, default=str)
 
             logger.info(f"Saved context data to: {context_file}")
@@ -422,19 +470,22 @@ class ContextManager:
         try:
             # Import registry here to avoid circular imports
             from osprey.registry import get_registry
+
             registry = get_registry()
             return registry.get_context_class(context_type)
         except Exception as e:
             logger.error(f"Failed to get context class for {context_type}: {e}")
-            raise ValueError(f"Registry not available, cannot get context class for {context_type}") from e
+            raise ValueError(
+                f"Registry not available, cannot get context class for {context_type}"
+            ) from e
 
     def extract_from_step(
         self,
         step: dict[str, Any],
         state: dict[str, Any],
         constraints: list[str | tuple[str, str]] | None = None,
-        constraint_mode: str = "hard"
-    ) -> dict[str, Union['CapabilityContext', list['CapabilityContext']]]:
+        constraint_mode: str = "hard",
+    ) -> dict[str, Union["CapabilityContext", list["CapabilityContext"]]]:
         """Extract all contexts specified in step.inputs with optional type and cardinality constraints.
 
         This method consolidates the common pattern of extracting context data from
@@ -507,11 +558,11 @@ class ContextManager:
                 raise DataValidationError(str(e))
         """
         # Extract all contexts from step.inputs
-        step_inputs = step.get('inputs', [])
+        step_inputs = step.get("inputs", [])
         if not step_inputs:
             # Check if we need any data at all
             if constraints:
-                capability_context_data = state.get('capability_context_data', {})
+                capability_context_data = state.get("capability_context_data", {})
                 if not capability_context_data:
                     raise ValueError("No context data available and no step inputs specified")
             return {}
@@ -534,7 +585,9 @@ class ContextManager:
         for context_type, contexts_dict in nested_results.items():
             values = list(contexts_dict.values())
             if len(values) > 1:
-                logger.debug(f"Multiple contexts of type {context_type} detected: {len(values)} instances")
+                logger.debug(
+                    f"Multiple contexts of type {context_type} detected: {len(values)} instances"
+                )
             results[context_type] = values[0] if len(values) == 1 else values
 
         # Apply constraints if specified
@@ -568,9 +621,13 @@ class ContextManager:
             elif constraint_mode == "soft":
                 # At least one constraint must be satisfied
                 if not (required_types & found_types):
-                    raise ValueError(f"None of the required context types found: {list(required_types)}")
+                    raise ValueError(
+                        f"None of the required context types found: {list(required_types)}"
+                    )
             else:
-                raise ValueError(f"Invalid constraint_mode: {constraint_mode}. Use 'hard' or 'soft'")
+                raise ValueError(
+                    f"Invalid constraint_mode: {constraint_mode}. Use 'hard' or 'soft'"
+                )
 
             # Validate cardinality constraints
             for context_type, required_cardinality in cardinality_constraints.items():
@@ -613,10 +670,12 @@ class ContextNamespace:
 
     def __setattr__(self, key: str, value):
         """Set context object by key."""
-        if key.startswith('_'):
+        if key.startswith("_"):
             # Set private attributes normally
             super().__setattr__(key, value)
         else:
             # This would require the value to be a CapabilityContext object
             # For now, raise an error as direct assignment should go through set_context
-            raise AttributeError(f"Cannot directly assign to context key '{key}'. Use context_manager.set_context() instead.")
+            raise AttributeError(
+                f"Cannot directly assign to context key '{key}'. Use context_manager.set_context() instead."
+            )

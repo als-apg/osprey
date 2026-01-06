@@ -13,7 +13,7 @@ Configuration Architecture
    - Self-contained configuration approach
    - Configuration templates and project initialization
    - Environment variable integration
-   - Viewing framework defaults with ``osprey export-config``
+   - Managing configuration with ``osprey config``
    - Configuration organization and best practices
 
    **Prerequisites:** Basic `YAML <https://yaml.org>`__ knowledge
@@ -84,7 +84,7 @@ Project Configuration
      capabilities:
        python_execution:
          enabled: true
-         mode: "epics_writes"
+         mode: "control_writes"
 
    execution_control:
      epics:
@@ -117,10 +117,10 @@ When you run ``osprey init my-project``, the template is rendered with your proj
 .. code-block:: bash
 
    # See what a default config looks like
-   osprey export-config
+   osprey config export
 
    # Save to file for reference
-   osprey export-config --output reference.yml
+   osprey config export --output reference.yml
 
 Configuration Sections
 ======================

@@ -17,7 +17,7 @@ Key Components:
 Integration:
     - Receives error information from capability decorators via agent state
     - Uses ErrorClassification.format_for_llm() for consistent metadata formatting
-    - Integrates with LangGraph streaming for real-time progress updates
+    - Uses unified logger system for status updates and streaming
     - Returns responses as AIMessage objects for direct user presentation
 
 The error node is designed to never fail - if LLM generation fails, it provides
@@ -30,7 +30,6 @@ from datetime import datetime
 from typing import Any
 
 from langchain_core.messages import AIMessage
-from langgraph.config import get_stream_writer
 
 from osprey.base.decorators import infrastructure_node
 from osprey.base.errors import ErrorClassification, ErrorSeverity
@@ -217,7 +216,7 @@ class ErrorNode(BaseInfrastructureNode):
 
     Integration Points:
         - **Input**: Pre-classified errors from capability decorators via agent state
-        - **Streaming**: Real-time progress updates through LangGraph streaming system
+        - **Logging**: Unified logger system for status updates and streaming
         - **Output**: AIMessage objects formatted for direct user presentation
         - **Monitoring**: Comprehensive logging integration for operational visibility
 
@@ -337,8 +336,7 @@ class ErrorNode(BaseInfrastructureNode):
 
         The execution follows a carefully designed two-phase approach that ensures
         robust error handling even when components of the error generation system
-        itself experience failures. Streaming progress updates keep users informed
-        during the response generation process.
+        itself experience failures.
 
         Processing Pipeline:
             1. **Context Extraction**: Reads error details from agent state including
@@ -354,7 +352,6 @@ class ErrorNode(BaseInfrastructureNode):
 
         Error Handling Strategy:
             - Comprehensive exception handling prevents method failure
-            - Streaming progress updates provide real-time feedback
             - Automatic fallback to structured response if LLM generation fails
             - All failures logged for operational monitoring and debugging
 
@@ -424,60 +421,18 @@ class ErrorNode(BaseInfrastructureNode):
            :class:`AIMessage` : Response message format
         """
         state = self._state
-
-        logger.key_info("Starting error response generation")
-
-        streaming = get_stream_writer()
-        if streaming:
-            streaming(
-                {"event_type": "status", "message": "Generating error response...", "progress": 0.1}
-            )
+        logger = self.get_logger()
 
         try:
             error_context = _create_error_context_from_state(state)
             _populate_error_context(error_context, state)
 
-            if streaming:
-                streaming(
-                    {
-                        "event_type": "status",
-                        "message": "Generating LLM explanation...",
-                        "progress": 0.5,
-                    }
-                )
-
             response = await _generate_error_response(error_context)
-
-            if streaming:
-                streaming(
-                    {
-                        "event_type": "status",
-                        "message": "Error response generated",
-                        "progress": 1.0,
-                        "complete": True,
-                    }
-                )
-
-            logger.key_info(
-                f"Generated error response for {error_context.error_severity.value}: "
-                f"{error_context.error_message}"
-            )
 
             return {"messages": [AIMessage(content=response)]}
 
         except Exception as e:
             logger.error(f"Error response generation failed: {e}")
-
-            if streaming:
-                streaming(
-                    {
-                        "event_type": "status",
-                        "message": "Using fallback error response",
-                        "progress": 1.0,
-                        "complete": True,
-                    }
-                )
-
             return {"messages": [AIMessage(content=_create_fallback_response(state, e))]}
 
 
@@ -735,7 +690,7 @@ def _populate_error_context(error_context: ErrorContext, state: AgentState) -> N
     # Sort by step_index to maintain chronological order
     ordered_results = sorted(step_results.items(), key=lambda x: x[1].get("step_index", 0))
 
-    for step_key, result in ordered_results:
+    for _, result in ordered_results:
         step_index = result.get("step_index", 0)
         capability_name = result.get("capability", "unknown")
         task_objective = result.get("task_objective", capability_name)

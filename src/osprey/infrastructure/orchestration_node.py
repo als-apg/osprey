@@ -40,8 +40,6 @@ if TYPE_CHECKING:
     from osprey.base.errors import ErrorClassification
 
 
-registry = get_registry()
-
 # =============================================================================
 # EXECUTION PLAN VALIDATION
 # =============================================================================
@@ -65,6 +63,8 @@ def _validate_and_fix_execution_plan(
     :return: Fixed execution plan that ends with respond or clarify
     :raises ValueError: If hallucinated capabilities are found requiring re-planning
     """
+    # Get fresh registry instance (not module-level cached)
+    registry = get_registry()
 
     steps = execution_plan.get("steps", [])
 
@@ -91,13 +91,13 @@ def _validate_and_fix_execution_plan(
     for i, step in enumerate(steps):
         capability_name = step.get("capability", "")
         if not capability_name:
-            logger.warning(f"Step {i+1} has no capability specified")
+            logger.warning(f"Step {i + 1} has no capability specified")
             continue
 
         # Check if capability exists in registry
         if not registry.get_node(capability_name):
             hallucinated_capabilities.append(capability_name)
-            logger.error(f"Step {i+1}: Capability '{capability_name}' not found in registry")
+            logger.error(f"Step {i + 1}: Capability '{capability_name}' not found in registry")
 
     # If hallucinated capabilities found, trigger re-planning
     if hallucinated_capabilities:
@@ -317,6 +317,9 @@ class OrchestrationNode(BaseInfrastructureNode):
             raise ReclassificationRequiredError("No active capabilities found for task")
 
         # Get capability instances from registry using capability names
+        # Get fresh registry instance (not module-level cached)
+        registry = get_registry()
+
         active_capabilities = []
         for cap_name in active_capability_names:
             capability = registry.get_capability(cap_name)
@@ -424,6 +427,16 @@ class OrchestrationNode(BaseInfrastructureNode):
         # Log the prompt for TUI visibility
         logger.info("LLM prompt built", llm_prompt=message, stream=False)
 
+        # Set caller context for API call logging (propagates through asyncio.to_thread)
+        from osprey.models import set_api_call_context
+
+        set_api_call_context(
+            function="_create_execution_plan",
+            module="orchestration_node",
+            class_name="OrchestrationNode",
+            line=428,
+        )
+
         # Run sync LLM call in thread pool to avoid blocking event loop for streaming
         execution_plan = await asyncio.to_thread(
             get_chat_completion,
@@ -451,8 +464,7 @@ class OrchestrationNode(BaseInfrastructureNode):
             _log_execution_plan(execution_plan, logger)
 
             logger.success(
-                f"Final execution plan ready with {len(execution_plan.get('steps', []))} steps",
-                steps=execution_plan.get("steps", []),
+                f"Final execution plan ready with {len(execution_plan.get('steps', []))} steps"
             )
 
         except ValueError as e:

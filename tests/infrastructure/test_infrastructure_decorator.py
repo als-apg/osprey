@@ -55,9 +55,9 @@ class TestDecoratorMethodDetection:
 
         # Verify it's an instance method (not static)
         execute_method = inspect.getattr_static(NewNode, "execute")
-        assert not isinstance(
-            execute_method, staticmethod
-        ), "New execute() should be instance method"
+        assert not isinstance(execute_method, staticmethod), (
+            "New execute() should be instance method"
+        )
         assert callable(execute_method), "execute() must be callable"
 
 

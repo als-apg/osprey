@@ -24,7 +24,6 @@ from osprey.data_management import (
 from osprey.models import get_chat_completion
 from osprey.prompts.defaults.task_extraction import ExtractedTask
 from osprey.prompts.loader import get_framework_prompts
-from osprey.registry import get_registry
 
 # Updated imports for LangGraph compatibility with TypedDict state
 from osprey.utils.config import get_model_config
@@ -32,7 +31,6 @@ from osprey.utils.logger import get_logger
 
 # Module-level logger for helper functions
 logger = get_logger("task_extraction")
-registry = get_registry()
 
 # =============================================================================
 # PROMPT BUILDING HELPER FUNCTIONS
@@ -134,7 +132,7 @@ def _extract_task(messages: list[BaseMessage], retrieval_result, logger) -> Extr
 
     prompt = _build_task_extraction_prompt(messages, retrieval_result)
 
-    # Log the prompt for TUI visibility (use info, not debug - debug is filtered by root logger)
+    # Log the prompt for TUI visibility
     logger.info("LLM prompt built", llm_prompt=prompt, stream=False)
 
     # Use structured LLM generation for task extraction
@@ -143,7 +141,7 @@ def _extract_task(messages: list[BaseMessage], retrieval_result, logger) -> Extr
         message=prompt, model_config=task_extraction_config, output_model=ExtractedTask
     )
 
-    # Log the response for TUI visibility (use info, not debug - debug is filtered by root logger)
+    # Log the response for TUI visibility
     response_json = response.model_dump_json(indent=2)
     logger.info("LLM response received", llm_response=response_json, stream=False)
 
@@ -263,9 +261,7 @@ class TaskExtractionNode(BaseInfrastructureNode):
 
         if bypass_enabled:
             logger.info("Task extraction bypass enabled - using full context with data sources")
-            logger.status(
-                "Bypassing task extraction - retrieving data and formatting full context"
-            )
+            logger.status("Bypassing task extraction - retrieving data and formatting full context")
         else:
             logger.status("Extracting actionable task from conversation")
         try:
@@ -307,17 +303,14 @@ class TaskExtractionNode(BaseInfrastructureNode):
                     f" * Builds on previous context: {processed_task.depends_on_chat_history}"
                 )
                 logger.info(f" * Uses memory context: {processed_task.depends_on_user_memory}")
-                logger.success(
-                    "Task extraction bypassed - full context ready",
-                    task=processed_task.task,
-                )
+                logger.success("Task extraction bypassed - full context ready")
             else:
                 logger.info(f" * Extracted: '{processed_task.task[:100]}...'")
                 logger.info(
                     f" * Builds on previous context: {processed_task.depends_on_chat_history}"
                 )
                 logger.info(f" * Uses memory context: {processed_task.depends_on_user_memory}")
-                logger.success("Task extraction completed", task=processed_task.task)
+                logger.success("Task extraction completed")
 
             # Create direct state update with correct field names
             return {

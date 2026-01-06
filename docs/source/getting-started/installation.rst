@@ -7,7 +7,7 @@ What You'll Learn
 This installation guide covers the complete framework setup process:
 
 * **Installing Container Runtime** - Docker Desktop or Podman for containerized services
-* **Python 3.11 Setup** - Virtual environment configuration
+* **Python 3.11+ Setup** - Virtual environment configuration
 * **Framework Installation** - Installing the pip package with all dependencies
 * **Project Creation** - Generating a new project from templates
 * **Configuration** - Setting up ``config.yml`` and environment variables
@@ -28,7 +28,7 @@ This installation guide covers the complete framework setup process:
    **What You'll Install:**
 
    - Docker Desktop 4.0+ OR Podman 4.0+ (container runtime)
-   - Python 3.11 (programming language)
+   - Python 3.11+ (programming language)
    - Osprey Framework (pip package)
 
    **Time estimate:** 30-60 minutes for complete setup
@@ -101,9 +101,9 @@ If both are installed, Docker is preferred by default.
 
 **Environment Setup**
 
-**Python 3.11 Requirement**
+**Python 3.11+ Requirement**
 
-This framework requires `Python 3.11 <https://www.python.org/downloads/>`_. Verify you have the correct version:
+This framework requires `Python 3.11+ <https://www.python.org/downloads/>`_. Verify you have the correct version:
 
 .. code-block:: bash
 
@@ -111,7 +111,7 @@ This framework requires `Python 3.11 <https://www.python.org/downloads/>`_. Veri
 
 **Virtual Environment Setup**
 
-To avoid conflicts with your system Python packages, create a virtual environment with Python 3.11:
+To avoid conflicts with your system Python packages, create a virtual environment with Python 3.11+:
 
 .. code-block:: bash
 
@@ -146,16 +146,25 @@ After creating and activating the virtual environment, install the framework pac
 
    **Optional Dependencies** (install with extras):
 
-   * **[scientific]**: NumPy, Pandas, SciPy, Matplotlib, Seaborn, Scikit-learn, ipywidgets *(required for Python execution capability)*
+   * **[scientific]**: SciPy, Seaborn, Scikit-learn, ipywidgets *(for advanced data analysis)*
    * **[docs]**: Sphinx and documentation tools
    * **[dev]**: pytest, black, mypy, and development tools
+
+   .. note::
+      The following packages are now included in the core installation:
+
+      * **Claude Agent SDK**: Advanced code generation with multi-turn agentic reasoning
+      * **NumPy, Pandas, Matplotlib**: Required for data handling and visualization in Python execution capability
 
    **Installation Examples:**
 
    .. code-block:: bash
 
-      # Recommended: Core + scientific computing
+      # Recommended: Core + scientific computing for advanced data analysis
       pip install osprey-framework[scientific]
+
+      # Minimal installation (includes Claude Code SDK)
+      pip install osprey-framework
 
       # Core + documentation
       pip install osprey-framework[docs]
@@ -428,10 +437,10 @@ If you want to build and serve the documentation locally:
    # Install documentation dependencies using optional dependencies
    pip install -e ".[docs]"
 
-   # Build and serve documentation
-   python docs/launch_docs.py
+   # Build and serve documentation with auto-reload
+   cd docs && sphinx-autobuild source build
 
-Once running, you can view the documentation at http://localhost:8082
+Once running, you can view the documentation at http://localhost:8000
 
 Building and Running
 ~~~~~~~~~~~~~~~~~~~~
@@ -515,13 +524,16 @@ OpenWebUI Configuration
 
 **Ollama Connection:**
 
-For Ollama running on localhost, use ``http://host.containers.internal:11434`` instead of ``http://localhost:11434`` because containers cannot access the host's localhost directly. This should match your ``config.yml`` Ollama base URL setting (see `Configuration`_ section above).
+The framework automatically configures OpenWebUI to connect to Ollama at ``http://host.docker.internal:11434``. This special hostname allows containers to access services running on the host machine (containers cannot access the host's localhost directly).
 
-Once the correct URL is configured and Ollama is serving, `OpenWebUI <https://openwebui.com/>`_ will automatically discover all models currently available in your Ollama installation.
+.. note::
+   On **Linux with Podman**, use ``host.containers.internal`` instead of ``host.docker.internal``. Update the URL in ``services/open-webui/docker-compose.yml`` if needed.
+
+Once Ollama is serving, `OpenWebUI <https://openwebui.com/>`_ will automatically discover all models currently available in your Ollama installation.
 
 **Pipeline Connection:**
 
-The Osprey framework provides a pipeline connection to the OpenWebUI service.
+The Osprey framework provides a pipeline connection to integrate the agent framework with OpenWebUI.
 
 .. dropdown:: Understanding Pipelines
    :color: info
@@ -535,16 +547,43 @@ The Osprey framework provides a pipeline connection to the OpenWebUI service.
 
    Pipelines appear as models with an "External" designation in your model selector and enable advanced functionality like real-time data retrieval, custom processing workflows, and integration with external AI services.
 
-1. Go to **Admin Panel** → **Settings** (upper panel) → **Connections** (left panel)
-2. Click the **(+)** button in **Manage OpenAI API Connections**
-3. Configure the pipeline connection with these details:
+The framework automatically configures the pipeline connection with these settings:
 
-   - **URL**: ``http://pipelines:9099`` (if using default configuration)
-   - **API Key**: Found in ``services/osprey/pipelines/docker-compose.yml.j2`` under ``PIPELINES_API_KEY`` (default ``0p3n-w3bu!``)
+- **URL**: ``http://pipelines:9099`` (default configuration)
+- **API Key**: ``0p3n-w3bu!`` (default, can be changed in ``services/osprey/pipelines/docker-compose.yml.j2`` under ``PIPELINES_API_KEY``)
 
-   **Note**: The URL uses ``pipelines:9099`` instead of ``localhost:9099`` because OpenWebUI runs inside a container and communicates with the pipelines service through the container network.
+**Note**: The URL uses ``pipelines:9099`` instead of ``localhost:9099`` because OpenWebUI runs inside a container and communicates with the pipelines service through the container network.
 
+.. dropdown:: Manual Configuration (if needed)
+   :color: secondary
+   :icon: tools
 
+   If you need to manually configure or verify the pipeline connection:
+
+   1. Go to **Admin Panel** → **Settings** (upper panel) → **Connections** (left panel)
+   2. Click the **(+)** button in **Manage OpenAI API Connections**
+   3. Configure the pipeline connection with these details:
+
+      - **URL**: ``http://pipelines:9099`` (if using default configuration)
+      - **API Key**: Found in ``services/osprey/pipelines/docker-compose.yml.j2`` under ``PIPELINES_API_KEY`` (default ``0p3n-w3bu!``)
+
+**Authentication:**
+
+For local development convenience, OpenWebUI authentication is disabled (``WEBUI_AUTH=false``). This means:
+
+- **No login required** - Access the interface immediately at `http://localhost:8080 <http://localhost:8080>`_
+- **Full admin access** - All features and settings are available without authentication
+- **Faster workflow** - No need to manage passwords or user accounts
+
+.. warning::
+   **Security Consideration**: If you deploy OpenWebUI on a shared server or expose it to a network, you should enable authentication for security. To enable authentication:
+
+   1. Open ``services/osprey/open-webui/docker-compose.yml.j2``
+   2. Change ``WEBUI_AUTH=false`` to ``WEBUI_AUTH=true``
+   3. Redeploy with ``osprey deploy up``
+   4. On first visit, you'll be prompted to create an admin account
+
+   For localhost-only deployments (default), authentication is not necessary.
 
 
 
@@ -678,7 +717,7 @@ Troubleshooting
 
 **Verification Steps:**
 
-1. Check Python version: ``python --version`` (should be 3.11.x)
+1. Check Python version: ``python --version`` (should be 3.11.x or higher)
 2. Check container runtime version: ``docker --version`` or ``podman --version`` (should be 4.0.0+)
 3. Verify virtual environment is active (should see ``(venv)`` in your prompt)
 4. Test core framework imports: ``python -c "import langgraph; print('LangGraph installed successfully')"``
@@ -687,7 +726,7 @@ Troubleshooting
 
 **Common Installation Issues:**
 
-- **Python version mismatch**: Ensure you're using Python 3.11 with ``python3.11 -m venv venv``
+- **Python version mismatch**: Ensure you're using Python 3.11+ with ``python3.11 -m venv venv``
 - **Package conflicts**: If you get dependency conflicts, try creating a fresh virtual environment
 - **Missing dependencies**: The main requirements.txt should install everything needed; avoid mixing with system packages
 

@@ -25,7 +25,8 @@ class TestPathBasedLoading:
         registry_dir.mkdir(parents=True)
         registry_file = registry_dir / "registry.py"
 
-        registry_file.write_text("""
+        registry_file.write_text(
+            """
 from osprey.registry import (
     RegistryConfigProvider,
     extend_framework_registry,
@@ -46,12 +47,14 @@ class TestRegistryProvider(RegistryConfigProvider):
                 )
             ]
         )
-""")
+"""
+        )
 
         # Change to temp directory to test relative paths
         original_cwd = Path.cwd()
         try:
             import os
+
             os.chdir(tmp_path)
 
             # Load registry using relative path
@@ -70,7 +73,8 @@ class TestRegistryProvider(RegistryConfigProvider):
         registry_dir.mkdir(parents=True)
         registry_file = registry_dir / "registry.py"
 
-        registry_file.write_text("""
+        registry_file.write_text(
+            """
 from osprey.registry import (
     RegistryConfigProvider,
     extend_framework_registry
@@ -82,7 +86,8 @@ class TestRegistryProvider(RegistryConfigProvider):
             capabilities=[],
             context_classes=[]
         )
-""")
+"""
+        )
 
         # Load registry using absolute path
         absolute_path = str(registry_file.absolute())
@@ -98,13 +103,15 @@ class TestRegistryProvider(RegistryConfigProvider):
         registry_dir.mkdir(parents=True)
         registry_file = registry_dir / "registry.py"
 
-        registry_file.write_text("""
+        registry_file.write_text(
+            """
 from osprey.registry import RegistryConfigProvider, extend_framework_registry
 
 class TestProvider(RegistryConfigProvider):
     def get_registry_config(self):
         return extend_framework_registry(capabilities=[], context_classes=[])
-""")
+"""
+        )
 
         # Should handle paths with spaces correctly
         manager = RegistryManager(registry_path=str(registry_file))
@@ -136,13 +143,15 @@ class TestConfigFormats:
         # Create simple registry
         registry_file = tmp_path / "app" / "registry.py"
         registry_file.parent.mkdir(parents=True)
-        registry_file.write_text("""
+        registry_file.write_text(
+            """
 from osprey.registry import RegistryConfigProvider, extend_framework_registry
 
 class AppProvider(RegistryConfigProvider):
     def get_registry_config(self):
         return extend_framework_registry(capabilities=[], context_classes=[])
-""")
+"""
+        )
 
         manager = RegistryManager(registry_path=str(registry_file))
 
@@ -156,7 +165,8 @@ class AppProvider(RegistryConfigProvider):
         """Test registry using explicit RegistryConfig (not helper)."""
         registry_file = tmp_path / "app" / "registry.py"
         registry_file.parent.mkdir(parents=True)
-        registry_file.write_text("""
+        registry_file.write_text(
+            """
 from osprey.registry import (
     RegistryConfigProvider,
     extend_framework_registry,
@@ -186,7 +196,8 @@ class AppProvider(RegistryConfigProvider):
                 )
             ]
         )
-""")
+"""
+        )
 
         manager = RegistryManager(registry_path=str(registry_file))
 
@@ -216,7 +227,8 @@ class TestSysPathManagement:
 
         # Create registry that references app modules
         registry_file = app_dir / "registry.py"
-        registry_file.write_text("""
+        registry_file.write_text(
+            """
 from osprey.registry import RegistryConfigProvider, extend_framework_registry, ContextClassRegistration
 
 class TestProvider(RegistryConfigProvider):
@@ -231,17 +243,20 @@ class TestProvider(RegistryConfigProvider):
                 )
             ]
         )
-""")
+"""
+        )
 
         # Create the referenced module
         context_file = app_dir / "context_classes.py"
-        context_file.write_text("""
+        context_file.write_text(
+            """
 from osprey.context import BaseContext
 
 class TestContext(BaseContext):
     def __init__(self):
         super().__init__("TEST_CONTEXT")
-""")
+"""
+        )
 
         # Store original sys.path
         original_syspath = sys.path.copy()
@@ -268,13 +283,15 @@ class TestContext(BaseContext):
         app_dir.mkdir(parents=True)
 
         registry_file = app_dir / "registry.py"
-        registry_file.write_text("""
+        registry_file.write_text(
+            """
 from osprey.registry import RegistryConfigProvider, extend_framework_registry
 
 class TestProvider(RegistryConfigProvider):
     def get_registry_config(self):
         return extend_framework_registry(capabilities=[], context_classes=[])
-""")
+"""
+        )
 
         original_syspath = sys.path.copy()
 
@@ -296,13 +313,15 @@ class TestProvider(RegistryConfigProvider):
         app_dir.mkdir(parents=True)
 
         registry_file = app_dir / "registry.py"
-        registry_file.write_text("""
+        registry_file.write_text(
+            """
 from osprey.registry import RegistryConfigProvider, extend_framework_registry
 
 class TestProvider(RegistryConfigProvider):
     def get_registry_config(self):
         return extend_framework_registry(capabilities=[], context_classes=[])
-""")
+"""
+        )
 
         original_syspath = sys.path.copy()
 
@@ -333,31 +352,36 @@ class TestProvider(RegistryConfigProvider):
 
         # Create a minimal config.yml to avoid config loading errors
         config_file = tmp_path / "config.yml"
-        config_file.write_text("""
+        config_file.write_text(
+            """
 project_root: .
 models:
   orchestrator:
     provider: openai
     model_id: gpt-4
-""")
+"""
+        )
 
         # Set CONFIG_FILE environment variable
-        monkeypatch.setenv('CONFIG_FILE', str(config_file))
+        monkeypatch.setenv("CONFIG_FILE", str(config_file))
 
         # Create context_classes module
         context_file = app_dir / "context_classes.py"
-        context_file.write_text("""
+        context_file.write_text(
+            """
 from osprey.context.base import CapabilityContext
 
 class WeatherContext(CapabilityContext):
     def __init__(self):
         super().__init__("WEATHER_DATA")
         self.temperature = None
-""")
+"""
+        )
 
         # Create registry that references it
         registry_file = app_dir / "registry.py"
-        registry_file.write_text("""
+        registry_file.write_text(
+            """
 from osprey.registry import RegistryConfigProvider, extend_framework_registry, ContextClassRegistration
 
 class WeatherProvider(RegistryConfigProvider):
@@ -372,7 +396,8 @@ class WeatherProvider(RegistryConfigProvider):
                 )
             ]
         )
-""")
+"""
+        )
 
         original_syspath = sys.path.copy()
 
@@ -383,18 +408,19 @@ class WeatherProvider(RegistryConfigProvider):
 
             # Verify we can now import the application module
             import weather_app.context_classes
-            assert hasattr(weather_app.context_classes, 'WeatherContext')
+
+            assert hasattr(weather_app.context_classes, "WeatherContext")
 
             # Verify the context class was loaded correctly
-            assert "WEATHER_DATA" in manager._registries['contexts']
+            assert "WEATHER_DATA" in manager._registries["contexts"]
 
         finally:
             # Clean up
             sys.path[:] = original_syspath
-            if 'weather_app' in sys.modules:
-                del sys.modules['weather_app']
-            if 'weather_app.context_classes' in sys.modules:
-                del sys.modules['weather_app.context_classes']
+            if "weather_app" in sys.modules:
+                del sys.modules["weather_app"]
+            if "weather_app.context_classes" in sys.modules:
+                del sys.modules["weather_app.context_classes"]
 
     def test_syspath_detection_with_explicit_src_dir(self, tmp_path):
         """Test Pattern 2: Registry not in src/ but src/ exists."""
@@ -406,13 +432,15 @@ class WeatherProvider(RegistryConfigProvider):
         src_dir.mkdir(parents=True)
 
         registry_file = config_dir / "registry.py"
-        registry_file.write_text("""
+        registry_file.write_text(
+            """
 from osprey.registry import RegistryConfigProvider, extend_framework_registry
 
 class TestProvider(RegistryConfigProvider):
     def get_registry_config(self):
         return extend_framework_registry(capabilities=[], context_classes=[])
-""")
+"""
+        )
 
         original_syspath = sys.path.copy()
 
@@ -429,4 +457,3 @@ class TestProvider(RegistryConfigProvider):
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-

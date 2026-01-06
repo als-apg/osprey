@@ -11,7 +11,6 @@ Convention-based LangGraph-native implementation with built-in error handling an
 from __future__ import annotations
 
 import asyncio
-import json
 from typing import Any
 
 from osprey.base import BaseCapability, CapabilityMatch, ClassifierExample
@@ -176,10 +175,7 @@ class ClassificationNode(BaseInfrastructureNode):
             registry = get_registry()
             active_capabilities = registry.get_stats()["capability_names"]
 
-            logger.success(
-                f"Bypass mode: activated all {len(active_capabilities)} capabilities",
-                capability_names=active_capabilities,
-            )
+            logger.success(f"Bypass mode: activated all {len(active_capabilities)} capabilities")
 
             # Return standardized classification result
             return _create_classification_result(
@@ -220,8 +216,7 @@ class ClassificationNode(BaseInfrastructureNode):
         )
 
         logger.success(
-            f"Classification completed with {len(active_capabilities)} active capabilities",
-            capability_names=active_capabilities,
+            f"Classification completed with {len(active_capabilities)} active capabilities"
         )
         logger.debug(f"Active capabilities: {active_capabilities}")
 
@@ -387,7 +382,7 @@ class CapabilityClassifier:
             f"\n\nTask Analyzer System Prompt for capability '{capability.name}':\n{message}\n\n"
         )
 
-        # Log per-capability prompt for TUI (dict format for multi-tab support)
+        # Log prompt for TUI display
         self.logger.info(
             f"Classification prompt for {capability.name}",
             llm_prompt={capability.name: message},
@@ -396,6 +391,17 @@ class CapabilityClassifier:
 
         # Execute classification
         try:
+            # Set caller context for API call logging (propagates through asyncio.to_thread)
+            from osprey.models import set_api_call_context
+
+            set_api_call_context(
+                function="_perform_classification",
+                module="classification_node",
+                class_name="CapabilityClassifier",
+                line=387,
+                extra={"capability": capability.name},
+            )
+
             response_data = await asyncio.to_thread(
                 get_chat_completion,
                 model_config=get_model_config("classifier"),
@@ -403,18 +409,18 @@ class CapabilityClassifier:
                 output_model=CapabilityMatch,
             )
 
-            result = self._process_classification_response(capability, response_data)
-
-            # Log per-capability response for TUI (dict format for multi-tab support)
-            response_json = json.dumps(
-                {"capability": capability.name, "is_match": result}, indent=2
-            )
+            # Log response for TUI display
+            if isinstance(response_data, CapabilityMatch):
+                response_json = response_data.model_dump_json()
+            else:
+                response_json = str(response_data)
             self.logger.info(
                 f"Classification result for {capability.name}",
                 llm_response={capability.name: response_json},
                 stream=False,
             )
 
+            result = self._process_classification_response(capability, response_data)
             self.logger.info(f" >>> Capability '{capability.name}' >>> {result}")
             return result
 

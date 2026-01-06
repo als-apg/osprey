@@ -324,7 +324,10 @@ Component Registration
        description="Domain knowledge retrieval"
    )
 
-**AI Provider Registration:**
+.. _custom-ai-provider-registration:
+
+AI Provider Registration
+------------------------
 
 Applications can register custom AI providers for institutional services or commercial providers not included in the framework.
 
@@ -389,67 +392,215 @@ To replace a framework provider with a custom implementation:
 
 **Provider Implementation:**
 
+Custom providers are useful for integrating institutional AI services (e.g., Stanford AI Playground, LBNL CBorg), commercial providers not yet in the framework (e.g., Cohere, Mistral AI), or self-hosted models with custom endpoints.
+
+All custom providers must inherit from :class:`BaseProvider` and implement three core methods:
+
+- ``create_model()`` - Create PydanticAI model instances for agent workflows
+- ``execute_completion()`` - Execute direct API calls (used by infrastructure nodes)
+- ``check_health()`` - Test connectivity and authentication (used by ``osprey health`` CLI)
+
 .. code-block:: python
 
-   # Implementation in src/my_app/providers/azure.py
+   # Implementation in src/my_app/providers/institutional.py
+   from typing import Any
    from osprey.models.providers.base import BaseProvider
-   from typing import Optional
    import httpx
+   import openai
+   from pydantic_ai.models.openai import OpenAIModel
 
-   class AzureOpenAIProviderAdapter(BaseProvider):
-       """Azure OpenAI provider with institutional configuration."""
+   class InstitutionalAIProvider(BaseProvider):
+       """Custom provider for institutional AI service."""
 
-       # Provider metadata (single source of truth)
-       name = "azure_openai"
+       # Provider metadata - displayed in CLI and used by framework
+       name = "institutional_ai"
+       description = "Institutional AI Service (Custom Models)"
        requires_api_key = True
        requires_base_url = True
        requires_model_id = True
        supports_proxy = True
-       default_base_url = None
+       default_base_url = "https://ai.institution.edu/v1"
+       default_model_id = "gpt-4"
+       health_check_model_id = "gpt-3.5-turbo"  # Cheapest for health checks
+       available_models = ["gpt-4", "gpt-3.5-turbo", "custom-model"]
+
+       # API key acquisition info (shown in CLI help)
+       api_key_url = "https://ai.institution.edu/api-keys"
+       api_key_instructions = [
+           "Log in with institutional credentials",
+           "Navigate to API Keys section",
+           "Generate new API key",
+           "Copy and save the key securely"
+       ]
+       api_key_note = "Requires active institutional affiliation"
 
        def create_model(
            self,
            model_id: str,
-           api_key: Optional[str],
-           base_url: Optional[str],
-           timeout: Optional[float],
-           http_client: Optional[httpx.AsyncClient]
-       ):
-           """Create PydanticAI model instance."""
-           # Implementation for Azure-specific model creation
-           pass
+           api_key: str | None,
+           base_url: str | None,
+           timeout: float | None,
+           http_client: httpx.AsyncClient | None
+       ) -> OpenAIModel:
+           """Create model instance for PydanticAI agents."""
+           from pydantic_ai.providers.openai import OpenAIProvider
+
+           # For OpenAI-compatible APIs, use OpenAI client
+           if http_client:
+               client = openai.AsyncOpenAI(
+                   api_key=api_key,
+                   base_url=base_url,
+                   http_client=http_client
+               )
+           else:
+               client = openai.AsyncOpenAI(
+                   api_key=api_key,
+                   base_url=base_url,
+                   timeout=timeout or 60.0
+               )
+
+           return OpenAIModel(
+               model_name=model_id,
+               provider=OpenAIProvider(openai_client=client)
+           )
 
        def execute_completion(
            self,
            message: str,
            model_id: str,
-           api_key: Optional[str],
-           base_url: Optional[str],
+           api_key: str | None,
+           base_url: str | None,
            max_tokens: int = 1024,
            temperature: float = 0.0,
+           thinking: dict | None = None,
+           system_prompt: str | None = None,
+           output_format: Any | None = None,
            **kwargs
-       ):
-           """Execute direct API completion."""
-           # Implementation for Azure-specific completions
-           pass
+       ) -> str | Any:
+           """Execute direct chat completion."""
+           client = openai.OpenAI(api_key=api_key, base_url=base_url)
+
+           messages = [{"role": "user", "content": message}]
+           if system_prompt:
+               messages.insert(0, {"role": "system", "content": system_prompt})
+
+           # Handle structured output if requested
+           if output_format:
+               response = client.beta.chat.completions.parse(
+                   model=model_id,
+                   messages=messages,
+                   response_format=output_format,
+                   max_tokens=max_tokens,
+                   temperature=temperature
+               )
+               return response.choices[0].message.parsed
+           else:
+               response = client.chat.completions.create(
+                   model=model_id,
+                   messages=messages,
+                   max_tokens=max_tokens,
+                   temperature=temperature
+               )
+               return response.choices[0].message.content
 
        def check_health(
            self,
-           api_key: Optional[str],
-           base_url: Optional[str],
-           timeout: float = 5.0
-       ):
-           """Test connectivity and authentication."""
-           # Implementation for Azure health check
-           return (True, "Connected successfully")
+           api_key: str | None,
+           base_url: str | None,
+           timeout: float = 5.0,
+           model_id: str | None = None
+       ) -> tuple[bool, str]:
+           """Test provider connectivity and authentication."""
+           if not api_key:
+               return False, "API key not configured"
 
-Common use cases for custom providers include:
+           try:
+               client = openai.OpenAI(
+                   api_key=api_key,
+                   base_url=base_url,
+                   timeout=timeout
+               )
+               # Minimal test with cheapest model
+               test_model = model_id or self.health_check_model_id
+               response = client.chat.completions.create(
+                   model=test_model,
+                   messages=[{"role": "user", "content": "Hi"}],
+                   max_tokens=5
+               )
+               if response.choices:
+                   return True, "API accessible and authenticated"
+               return False, "API responded but no completion"
+           except Exception as e:
+               error_msg = str(e).lower()
+               if "authentication" in error_msg or "api key" in error_msg:
+                   return False, "Authentication failed (check API key)"
+               elif "timeout" in error_msg:
+                   return False, "Request timeout"
+               else:
+                   return False, f"API error: {str(e)[:50]}"
 
-- **Institutional AI Services**: Stanford AI Playground, LBNL CBorg, national lab endpoints
-- **Commercial Providers**: Cohere, Mistral AI, Together AI, etc.
-- **Custom Endpoints**: Self-hosted models with OpenAI-compatible APIs
+Once registered, custom providers integrate seamlessly with the framework:
 
-Once registered, custom providers work seamlessly with :func:`osprey.models.get_model` and :func:`osprey.models.get_chat_completion`, and are automatically discovered by the health check system (``osprey health``).
+- Available in ``osprey init`` interactive provider selection
+- Accessible via :func:`osprey.models.get_model` and :func:`osprey.models.get_chat_completion`
+- Tested automatically by ``osprey health`` command
+- Configuration managed in ``config.yml`` like framework providers
+
+.. dropdown:: 📋 Complete Provider Metadata Reference
+   :color: info
+   :icon: info
+
+   **Required Metadata Attributes:**
+
+   .. list-table::
+      :widths: 30 70
+      :header-rows: 1
+
+      * - Attribute
+        - Description
+      * - ``name``
+        - Provider identifier (e.g., ``"azure_openai"``, ``"institutional_ai"``)
+      * - ``description``
+        - User-friendly description shown in TUI (e.g., ``"Azure OpenAI (Enterprise)"``)
+      * - ``requires_api_key``
+        - ``True`` if provider needs API key for authentication
+      * - ``requires_base_url``
+        - ``True`` if provider needs custom base URL
+      * - ``requires_model_id``
+        - ``True`` if provider requires model ID specification
+      * - ``supports_proxy``
+        - ``True`` if provider supports HTTP proxy configuration
+
+   **Optional Metadata Attributes:**
+
+   .. list-table::
+      :widths: 30 70
+      :header-rows: 1
+
+      * - Attribute
+        - Description
+      * - ``default_base_url``
+        - Default API endpoint (e.g., ``"https://api.openai.com/v1"``)
+      * - ``default_model_id``
+        - Recommended model for general use (used in project templates)
+      * - ``health_check_model_id``
+        - Cheapest/fastest model for ``osprey health`` checks
+      * - ``available_models``
+        - List of model IDs for CLI selection (e.g., ``["gpt-4", "gpt-3.5-turbo"]``)
+      * - ``api_key_url``
+        - URL where users obtain API keys (e.g., ``"https://console.anthropic.com/"``)
+      * - ``api_key_instructions``
+        - Step-by-step list of strings for obtaining the key
+      * - ``api_key_note``
+        - Additional requirements (e.g., ``"Requires institutional affiliation"``)
+
+   **Implementation Notes:**
+
+   - For OpenAI-compatible APIs, reuse ``OpenAIModel`` from PydanticAI
+   - For provider-specific SDKs (Google, Anthropic), use their PydanticAI model classes
+   - ``check_health()`` should use minimal tokens (typically 5-10 tokens, ~$0.0001 cost)
+   - ``create_model()`` caller owns ``http_client`` lifecycle - don't close it in provider
+   - All metadata is introspected from class attributes (single source of truth)
 
 Registry Initialization and Usage
 =================================

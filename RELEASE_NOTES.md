@@ -1,80 +1,124 @@
-# Osprey Framework - Latest Release (v0.9.1)
+# Osprey Framework - Latest Release (v0.9.10)
 
-🎉 **MCP Integration Release** - Auto-generate Capabilities from Model Context Protocol Servers
+🎉 **Modular Prompts & Production Hardening** - Channel Finder Customization & Massive Test Coverage Expansion
 
-## What's New in v0.9.1
+## What's New in v0.9.10
 
-### 🚀 Major New Features
+### 🚀 Channel Finder Enhancements
 
-**MCP Capability Generator (Prototype):**
-- **Auto-generate Osprey capabilities** from Model Context Protocol (MCP) servers
-- **`osprey generate capability`** - Create complete capabilities from running MCP servers
-- **`osprey generate mcp-server`** - Generate demo MCP servers for testing and development
-- **Automatic ReAct agent integration** - Built-in LangGraph ReAct agent pattern
-- **LLM-powered guide generation** - Automatically creates classifier and orchestrator examples
-- **Interactive registry integration** - Confirms and updates registry and config automatically
-- **Complete tutorial** - End-to-end MCP integration workflow in Quick Start Patterns
-- **Dependencies**: Requires `langchain-mcp-adapters`, `langgraph`, and provider-specific LangChain packages
+#### Modular Prompt Structure
+- **Simplified Customization**: Split monolithic `system.py` into focused modules
+  - `facility_description.py` (REQUIRED) - Your facility-specific content
+  - `matching_rules.py` (OPTIONAL) - Custom matching logic
+  - `system.py` auto-combines modules - no manual editing needed
+- **Query Splitter Enhancement**: Now accepts `facility_name` parameter for better context
+- **All Pipelines Updated**: Hierarchical, in-context, and middle layer all use modular structure
 
-**Capability Removal Command:**
-- **`osprey remove capability`** - Safe, automated removal of generated capabilities
-- **Comprehensive cleanup** - Removes registry entries, config models, and capability files
-- **Automatic backups** - Creates `.bak` files before any modifications
-- **Interactive confirmation** - Preview changes before applying them
-- **Force mode** - Optional `--force` flag to skip confirmation prompts
+#### Explicit Detection
+- **New Detection Module**: `explicit_detection.py` identifies explicit channel/PV/IOC names in queries
+  - Catches direct references before semantic search
+  - Works across all pipeline implementations
+  - `build_result()` helper method in BasePipeline for consistent result construction
 
-### 🔧 Improvements
+#### Query Splitting Control
+- **New Parameter**: `query_splitting` for hierarchical and middle_layer pipelines
+  - Disable for facility-specific terminology that shouldn't be split
+  - Enabled by default for backward compatibility
 
-**Core Dependencies:**
-- Added `matplotlib>=3.10.3` to core dependencies
-- Python capability visualization now works out of the box
-- Tutorial examples (plotting, visualization) work immediately after installation
+### 🧪 Production Hardening (~500+ New Tests)
+
+#### Test Coverage Expansion
+Major test coverage improvements across the codebase:
+
+| Module | Before | After |
+|--------|--------|-------|
+| Ollama provider | 24.2% | 96.0% |
+| Memory provider | 32.2% | 94.9% |
+| Error node | 33.6% | 91.8% |
+| CLI main | 28.6% | 95.2% |
+| YAML loader | 0% | 86.6% |
+| Preview styles | 0% | 88.1% |
+| Health cmd | 0% | 69.6% |
+| Memory capability | 37.7% | 62.4% |
+
+#### New Test Suites
+- **CLI Commands**: chat, config, deploy, generate, remove, registry, health
+- **Infrastructure**: error_node, respond_node, task_extraction_node, orchestration_node, classification_node
+- **Models**: generators, memory_storage, completion, logging
+- **Providers**: Anthropic, Ollama, ARGO
+
+### 🐛 Bug Fixes
+
+- **Channel Finder**: Fixed `AttributeError` - `query_splitting` attribute initialization in HierarchicalPipeline
+- **CLI**: Fixed broken imports in `config_cmd.py` (incorrect function names)
+
+### 🔧 Quality of Life
+
+- **Control Assistant Template**: Write access now enabled by default for mock connector
+  - Simplifies tutorial experience
+  - Production deployments should review before enabling
+- **License**: Added explicit "BSD 3-Clause License" header
+- **Benchmark Dataset**: Renamed `in_context_main.json` → `in_context_benchmark.json` for consistency
+
+### 📚 Documentation
+
+- Updated Hello World tutorial for current weather capability implementation
+- Fixed version picker 404 errors in documentation
+- Fixed image path typos for channel finder CLI screenshots
+- Added "Viewing Exported Workflows" section to AI-assisted development guide
+- Removed obsolete v0.9.2+ migration guide (no longer needed)
+- Added academic reference (Hellert et al. 2025, arXiv:2512.18779)
+
+---
 
 ## Installation
 
 ```bash
-pip install osprey-framework==0.9.1
+pip install --upgrade osprey-framework
 ```
 
-## Quick Start - MCP Integration
+Or install with all optional dependencies:
 
 ```bash
-# 1. Generate a demo MCP server
-osprey generate mcp-server --name weather_demo
-
-# 2. Run the server (in another terminal)
-python weather_demo_server.py
-
-# 3. Generate capability from MCP server
-osprey generate capability --from-mcp http://localhost:3001 --name weather_demo
-
-# 4. Test your capability
-osprey chat
+pip install --upgrade "osprey-framework[all]"
 ```
 
-## Documentation
+## Upgrading from v0.9.9
 
-- **Tutorial**: [End-to-End MCP Integration](https://osprey-framework.readthedocs.io/en/latest/developer-guides/02_quick-start-patterns/04_mcp-capability-generation.html)
-- **Full Changelog**: See CHANGELOG.md
-- **Project Homepage**: https://github.com/als-apg/osprey
+### Prompt Structure Migration
 
-## Requirements
+If you've customized channel finder prompts:
 
-- Python >=3.11
-- For MCP integration: `pip install langchain-mcp-adapters langgraph langchain-anthropic` (or `langchain-openai`)
-- Recommended: Claude Haiku 4.5 for best capability generation results
+1. **Check your `system.py` files** - They now auto-combine modules
+2. **Move facility content** to `facility_description.py`
+3. **Move matching rules** to `matching_rules.py` (optional)
 
-## Migration Notes
+The new structure makes future upgrades easier - framework updates won't overwrite your customizations.
 
-This is a prototype release for MCP integration. The API and generated code structure may evolve in future releases. Generated capabilities use the ReAct agent pattern with LangGraph for autonomous tool selection and execution.
+### Query Splitting
 
-## What's Next
+If you have facility-specific terms being incorrectly split:
 
-- Enhanced MCP server templates and presets
-- Improved context class customization
-- Additional LLM provider support for capability generation
-- Production-ready MCP integration patterns
+```python
+# In your pipeline configuration
+pipeline = HierarchicalPipeline(
+    query_splitting=False  # Disable splitting for your facility
+)
+```
 
 ---
 
-**Previous Release**: [v0.9.0 Release Notes](https://github.com/als-apg/osprey/releases/tag/v0.9.0)
+## What's Next?
+
+Check out our [documentation](https://als-apg.github.io/osprey) for:
+- Channel Finder prompt customization guide
+- AI-assisted development workflows
+- Complete tutorial series
+
+## Contributors
+
+Thank you to everyone who contributed to this release!
+
+---
+
+**Full Changelog**: https://github.com/als-apg/osprey/blob/main/CHANGELOG.md

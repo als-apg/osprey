@@ -74,6 +74,8 @@ BaseCapability
 
    .. automethod:: BaseCapability.get_task_objective
 
+   .. automethod:: BaseCapability.get_step_inputs
+
    .. automethod:: BaseCapability.store_output_context
 
    .. automethod:: BaseCapability.store_output_contexts

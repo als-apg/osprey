@@ -13,9 +13,9 @@ class TestRouterNodeMigration:
     def test_execute_is_instance_method(self):
         """Test execute() is an instance method, not static."""
         execute_method = inspect.getattr_static(RouterNode, "execute")
-        assert not isinstance(
-            execute_method, staticmethod
-        ), "RouterNode.execute() should be instance method (not @staticmethod)"
+        assert not isinstance(execute_method, staticmethod), (
+            "RouterNode.execute() should be instance method (not @staticmethod)"
+        )
 
     @pytest.mark.asyncio
     async def test_execute_accesses_state_via_instance(self, base_state):

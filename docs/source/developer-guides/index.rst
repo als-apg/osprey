@@ -2,16 +2,7 @@
 Developer Guides
 ================
 
-.. admonition:: 🚧 Early Access Documentation
-   :class: warning
-
-   This documentation is part of an early access release and is **under active development**.
-   Many sections are still being written, edited, or reorganized.
-   Expect **inconsistencies**, missing content, outdated references, and broken cross-links.
-
-   We welcome feedback! If you find issues or have suggestions, please open an issue on our GitHub page.
-
-**Comprehensive learning-oriented guides** for building sophisticated agent applications with the Osprey Framework. These guides combine architectural understanding with practical implementation patterns, taking you from basic concepts to production-ready systems.
+**Comprehensive learning-oriented guides** for deploying agentic AI in large-scale control system environments. These guides combine architectural understanding with practical implementation patterns, taking you from basic concepts to production control room deployment.
 
 .. dropdown:: 🎯 Learning Paths & Quick Navigation
 
@@ -43,7 +34,7 @@ Developer Guides
          * :doc:`02_quick-start-patterns/01_building-your-first-capability` - @capability_node patterns
          * :doc:`03_core-framework-systems/05_message-and-execution-flow` - Router-controlled architecture
          * :doc:`04_infrastructure-components/04_orchestrator-planning` - LLM-powered execution coordination
-         * :doc:`05_production-systems/03_python-execution-service` - Container & local execution
+         * :doc:`05_production-systems/03_python-execution-service/index` - Pluggable code generation & execution
 
          **Advanced Integration Patterns:**
 
@@ -77,7 +68,7 @@ Developer Guides
          **Security & Approval Systems**
 
          * :doc:`05_production-systems/01_human-approval-workflows` - LangGraph-native interrupts
-         * :doc:`05_production-systems/03_python-execution-service` - Code analysis & container execution
+         * :doc:`05_production-systems/03_python-execution-service/index` - Code generation, analysis & secure execution
          * :doc:`04_infrastructure-components/01_gateway-architecture` - Universal entry point security
 
          **Deployment & Integration**
@@ -101,7 +92,7 @@ Developer Guides
 
          **Add approval workflows** → :doc:`05_production-systems/01_human-approval-workflows`
 
-         **Enable Python execution** → :doc:`05_production-systems/03_python-execution-service`
+         **Enable Python execution** → :doc:`05_production-systems/03_python-execution-service/index`
 
          **Store user context** → :doc:`03_core-framework-systems/02_context-management-system`
 
@@ -110,6 +101,8 @@ Developer Guides
          **Handle complex data flows** → :doc:`03_core-framework-systems/05_message-and-execution-flow`
 
          **Integrate external data** → :doc:`05_production-systems/02_data-source-integration`
+
+         **Register custom model provider** → :doc:`03_core-framework-systems/03_registry-and-discovery` (AI Provider Registration)
 
          **Understand the architecture** → :doc:`01_understanding-the-framework/01_infrastructure-architecture`
 
@@ -142,7 +135,7 @@ Developer Guides
 Guide Categories
 ================
 
-.. grid:: 1 1 3 3
+.. grid:: 1 1 2 2
    :gutter: 3
    :class-container: guides-section-grid
 
@@ -164,20 +157,6 @@ Guide Categories
 
       Master capability development, state management, and testing workflows. Get productive immediately with convention-based patterns.
 
-   .. grid-item-card:: 🔄 Migration Guide
-      :link: migration-guide-instance-methods
-      :link-type: doc
-      :class-header: bg-secondary text-white
-      :class-body: text-center
-      :shadow: md
-
-      **Upgrading from v0.9.1 and earlier**
-
-      Migrate legacy static method capabilities to the new instance method pattern with helper methods (v0.9.2+).
-
-.. grid:: 1 1 2 2
-   :gutter: 3
-   :class-container: guides-section-grid
 
    .. grid-item-card:: ⚙️ Core Framework Systems
       :link: 03_core-framework-systems/index
@@ -226,7 +205,6 @@ Guide Categories
    * :doc:`02_quick-start-patterns/02_state-and-context-essentials` - AgentState, ContextManager, and data sharing patterns
    * :doc:`02_quick-start-patterns/03_running-and-testing` - Gateway testing, CLI workflows, and debugging techniques
    * :doc:`02_quick-start-patterns/04_mcp-capability-generation` - Generate capabilities from MCP servers (prototype)
-   * :doc:`migration-guide-instance-methods` - **Migration Guide:** Upgrade from v0.9.1 static methods → v0.9.2+ instance methods
 
    **⚙️ Core Framework Systems**
 
@@ -248,7 +226,7 @@ Guide Categories
 
    * :doc:`05_production-systems/01_human-approval-workflows` - LangGraph-native approval with rich context
    * :doc:`05_production-systems/02_data-source-integration` - Parallel retrieval and intelligent provider discovery
-   * :doc:`05_production-systems/03_python-execution-service` - Secure code execution with security analysis
+   * :doc:`05_production-systems/03_python-execution-service/index` - Pluggable code generation and secure execution
    * :doc:`05_production-systems/04_memory-storage-service` - Persistent user memory with framework integration
    * :doc:`05_production-systems/05_container-and-deployment` - Service orchestration and template-based deployment
 
@@ -256,7 +234,6 @@ Guide Categories
    :maxdepth: 2
    :hidden:
 
-   migration-guide-instance-methods
    01_understanding-the-framework/index
    02_quick-start-patterns/index
    03_core-framework-systems/index

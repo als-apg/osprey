@@ -1,9 +1,18 @@
 # Osprey Framework
 
+[![CI](https://github.com/als-apg/osprey/workflows/CI/badge.svg)](https://github.com/als-apg/osprey/actions/workflows/ci.yml)
+[![Documentation](https://readthedocs.org/projects/osprey-framework/badge/?version=latest)](https://als-apg.github.io/osprey/)
+[![codecov](https://codecov.io/gh/als-apg/osprey/branch/main/graph/badge.svg)](https://codecov.io/gh/als-apg/osprey)
+[![PyPI version](https://badge.fury.io/py/osprey-framework.svg)](https://badge.fury.io/py/osprey-framework)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
+
+**🎉 Latest Release: v0.9.10** - Modular Prompts & Production Hardening
+
 > **🚧 Early Access Release**
 > This is an early access version of the Osprey Framework. While the core functionality is stable and ready for experimentation, documentation and APIs may still evolve. We welcome feedback and contributions!
 
-An open-source, domain-agnostic, capability-based architecture for building intelligent agents that can be adapted to any specific domain.
+A production-ready framework for deploying agentic AI in large-scale, safety-critical control system environments—particle accelerators, fusion experiments, beamlines, and complex scientific facilities.
 
 **📄 Research**
 This work was presented as a contributed oral presentation at [ICALEPCS'25](https://indico.jacow.org/event/86/overview) and will be featured at the [Machine Learning and the Physical Sciences Workshop](https://ml4physicalsciences.github.io/2025/) at NeurIPS 2025.
@@ -39,24 +48,37 @@ osprey chat
 
 **[📖 Read the Full Documentation →](https://als-apg.github.io/osprey)**
 
+### 🧪 Testing
+
+```bash
+# Run unit tests (fast, no API keys required)
+pytest tests/ --ignore=tests/e2e -v
+
+# Run e2e tests (slow, requires API keys)
+# ⚠️ IMPORTANT: Use 'pytest tests/e2e/' NOT 'pytest -m e2e'
+pytest tests/e2e/ -v
+```
+
+See [TESTING_GUIDE.md](TESTING_GUIDE.md) and [tests/e2e/README.md](tests/e2e/README.md) for details.
+
 
 ## Key Features
 
-- **Scalable Capability Management** - Efficiently scales to large sets of specialized agents
-- **Structured Orchestration** - Converts freeform inputs into clear, executable plans
-- **Modular Architecture** - Easily integrates new capabilities without disrupting workflows
-- **Human-in-the-Loop Ready** - Transparent execution plans for inspection and debugging
-- **Domain-Adaptable** - Designed for heterogeneous scientific infrastructure
+- **Plan-First Orchestration** - Complete execution plans with explicit dependencies before any hardware interaction
+- **Control-System Safety** - Pattern detection, PV boundary checking, and mandatory approval for hardware writes
+- **Protocol-Agnostic Integration** - Seamless connection to EPICS, LabVIEW, Tango, and mock environments
+- **Scalable Capability Management** - Dynamic classification prevents prompt explosion as toolsets grow
+- **Production-Proven** - Deployed at major facilities including LBNL's Advanced Light Source accelerator
 
 ---
 
 ## 📖 Citation
 
-If you use the Alpha Berkeley Framework in your research or projects, please cite our [paper](https://arxiv.org/abs/2508.15066):
+If you use the Osprey Framework in your research or projects, please cite our [paper](https://arxiv.org/abs/2508.15066):
 
 ```bibtex
 @misc{hellert2025osprey,
-      title={Osprey: A Scalable Framework for the Orchestration of Agentic Systems},
+      title={Osprey: Production-Ready Agentic AI for Safety-Critical Control Systems},
       author={Thorsten Hellert and João Montenegro and Antonin Sulc},
       year={2025},
       eprint={2508.15066},

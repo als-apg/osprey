@@ -227,13 +227,21 @@ Commands are parsed from user input and applied to ``agent_control`` state befor
 Approval Workflow Integration
 -----------------------------
 
-Gateway automatically detects approval responses using LLM classification and creates resume commands:
+Gateway automatically detects approval responses using a two-tier detection system and creates resume commands:
 
-**LLM-Powered Approval Detection:**
-   Uses the configured ``approval`` model from ``osprey.models`` to classify user responses as approval or rejection.
+**Explicit Yes/No Detection (Fast Path):**
+   First checks for simple, explicit approval/rejection responses without LLM calls:
+
+   - **Approval words**: ``yes``, ``y``, ``yep``, ``yeah``, ``ok``, ``okay`` (case-insensitive, with optional punctuation like ``.``, ``!``, ``?``)
+   - **Rejection words**: ``no``, ``n``, ``nope``, ``nah``, ``cancel`` (case-insensitive, with optional punctuation)
+
+   This provides instant, deterministic responses for common approval scenarios.
+
+**LLM-Powered Approval Detection (Fallback):**
+   For complex responses (e.g., "I think we should proceed"), uses the configured ``approval`` model from ``osprey.models`` to classify user responses.
 
 **Approval Model Configuration:**
-   Configured in ``src/osprey/config.yml`` under ``osprey.models.approval`` (Ollama with Mistral 7B by default).
+   Configured in ``src/osprey/config.yml`` under ``osprey.models.approval``. Only invoked for complex responses.
 
 **Fail-Safe Behavior:**
    If LLM classification fails for any reason, the system defaults to "not approved" and logs a clear warning message.

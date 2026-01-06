@@ -25,41 +25,32 @@ class DefaultPythonPromptBuilder(FrameworkPromptBuilder):
 
     def get_role_definition(self) -> str:
         """Get the role definition for Python code generation."""
-        return "You are a Python code generator that creates clean, simple, and effective Python code for computational tasks."
+        return "You are an expert Python developer generating high-quality, executable code."
 
     def get_task_definition(self) -> str:
         """Get the task definition for Python code generation."""
-        return "TASK: Generate minimal, working Python code to accomplish computational tasks and basic data processing."
+        return None  # Task is provided via capability_prompts
 
     def get_instructions(self) -> str:
-        """Get the instructions for Python code generation."""
-        return textwrap.dedent("""
-            INSTRUCTIONS:
-            1. Write minimal, working Python code that accomplishes the specified task
-            2. Include basic error handling if needed
-            3. Use standard library when possible - avoid unnecessary imports
-            4. Print results clearly with descriptive output
-            5. Keep code simple, readable, and well-commented
-            6. Focus on the core computational task without over-engineering
+        """Get the instructions for Python code generation.
 
-            CODE REQUIREMENTS:
-            - Use clear variable names
-            - Include comments for complex logic
-            - Print intermediate steps for debugging if helpful
-            - Handle common edge cases (division by zero, empty lists, etc.)
-            - Structure code logically with proper indentation
-
-            EXAMPLE OUTPUT FORMAT:
-            ```python
-            # Brief comment explaining the task
-            import math  # Only import what's needed
-
-            # Main computation
-            radius = 5
-            area = math.pi * radius ** 2
-            print(f"Area of circle with radius {radius}: {area:.2f}")
-            ```
-            """).strip()
+        These instructions are domain-agnostic and apply to all Python code generation.
+        Domain-specific guidance (like control system operations) should be added
+        via custom prompt builders in application templates.
+        """
+        return textwrap.dedent(
+            """
+            === CODE GENERATION INSTRUCTIONS ===
+            1. Generate complete, executable Python code
+            2. Include all necessary imports at the top
+            3. Use professional coding standards and clear variable names
+            4. Add brief comments explaining complex logic
+            5. STAY FOCUSED: Implement exactly what's requested - avoid over-engineering simple tasks
+            6. Use provided context data when available (accessible via 'context' object)
+            7. IMPORTANT: Store computed results in a dictionary variable named 'results' for automatic saving
+            8. Generate ONLY the Python code, without markdown code blocks or additional explanation
+            """
+        ).strip()
 
     def get_orchestrator_guide(self) -> OrchestratorGuide | None:
         """Create orchestrator guide for Python capability."""
@@ -73,10 +64,10 @@ class DefaultPythonPromptBuilder(FrameworkPromptBuilder):
                 task_objective="Calculate the area of a circle with radius 5 and display the result",
                 expected_output=registry.context_types.PYTHON_RESULTS,
                 success_criteria="Mathematical calculation completed with printed result",
-                inputs=[]
+                inputs=[],
             ),
             scenario_description="Simple mathematical calculations using Python",
-            notes=f"Output stored under {registry.context_types.PYTHON_RESULTS} context type. Generated code, execution output, and any errors are captured."
+            notes=f"Output stored under {registry.context_types.PYTHON_RESULTS} context type. Generated code, execution output, and any errors are captured.",
         )
 
         data_processing_example = OrchestratorExample(
@@ -86,10 +77,10 @@ class DefaultPythonPromptBuilder(FrameworkPromptBuilder):
                 task_objective="Process a list of numbers [1, 2, 3, 4, 5] and calculate mean, median, and standard deviation",
                 expected_output=registry.context_types.PYTHON_RESULTS,
                 success_criteria="Statistical analysis completed with all metrics calculated",
-                inputs=[]
+                inputs=[],
             ),
             scenario_description="Basic data processing and statistical calculations",
-            notes=f"Output stored under {registry.context_types.PYTHON_RESULTS} context type. Demonstrates data manipulation and statistical functions."
+            notes=f"Output stored under {registry.context_types.PYTHON_RESULTS} context type. Demonstrates data manipulation and statistical functions.",
         )
 
         utility_example = OrchestratorExample(
@@ -99,14 +90,15 @@ class DefaultPythonPromptBuilder(FrameworkPromptBuilder):
                 task_objective="Generate 10 random numbers between 1 and 100 and find the maximum value",
                 expected_output=registry.context_types.PYTHON_RESULTS,
                 success_criteria="Random number generation completed with maximum value identified",
-                inputs=[]
+                inputs=[],
             ),
             scenario_description="Utility functions like random number generation and basic algorithms",
-            notes=f"Output stored under {registry.context_types.PYTHON_RESULTS} context type. Shows how to handle randomization and list operations."
+            notes=f"Output stored under {registry.context_types.PYTHON_RESULTS} context type. Shows how to handle randomization and list operations.",
         )
 
         return OrchestratorGuide(
-            instructions=textwrap.dedent(f"""
+            instructions=textwrap.dedent(
+                f"""
                 **When to plan "python" steps:**
                 - User requests simple calculations or mathematical operations
                 - Need to perform basic data processing or statistical analysis
@@ -139,9 +131,10 @@ class DefaultPythonPromptBuilder(FrameworkPromptBuilder):
 
                 ALWAYS prefer this capability for simple computational tasks that don't require
                 sophisticated data analysis or complex external dependencies.
-                """),
+                """
+            ),
             examples=[calculation_example, data_processing_example, utility_example],
-            priority=40
+            priority=40,
         )
 
     def get_classifier_guide(self) -> TaskClassifierGuide | None:
@@ -152,53 +145,53 @@ class DefaultPythonPromptBuilder(FrameworkPromptBuilder):
                 ClassifierExample(
                     query="Calculate the area of a circle with radius 5",
                     result=True,
-                    reason="This requires mathematical calculation using Python."
+                    reason="This requires mathematical calculation using Python.",
                 ),
                 ClassifierExample(
                     query="What is your name?",
                     result=False,
-                    reason="This is a conversational question, not a computational task."
+                    reason="This is a conversational question, not a computational task.",
                 ),
                 ClassifierExample(
                     query="Process this list of numbers and find the average",
                     result=True,
-                    reason="This requires data processing and statistical calculation."
+                    reason="This requires data processing and statistical calculation.",
                 ),
                 ClassifierExample(
                     query="Show me the current time",
                     result=False,
-                    reason="This is a simple information request, not requiring custom code generation."
+                    reason="This is a simple information request, not requiring custom code generation.",
                 ),
                 ClassifierExample(
                     query="Generate a random number between 1 and 100",
                     result=True,
-                    reason="This requires Python code to generate random numbers."
+                    reason="This requires Python code to generate random numbers.",
                 ),
                 ClassifierExample(
                     query="Sort these numbers in ascending order: 5, 2, 8, 1, 9",
                     result=True,
-                    reason="This requires Python code for data manipulation and sorting."
+                    reason="This requires Python code for data manipulation and sorting.",
                 ),
                 ClassifierExample(
                     query="What tools do you have available?",
                     result=False,
-                    reason="This is a question about AI capabilities, not a computational task."
+                    reason="This is a question about AI capabilities, not a computational task.",
                 ),
                 ClassifierExample(
                     query="Calculate the fibonacci sequence up to 10 numbers",
                     result=True,
-                    reason="This requires Python code to implement an algorithm."
+                    reason="This requires Python code to implement an algorithm.",
                 ),
                 ClassifierExample(
                     query="How does machine learning work?",
                     result=False,
-                    reason="This is an educational question, not a request for code execution."
+                    reason="This is an educational question, not a request for code execution.",
                 ),
                 ClassifierExample(
                     query="Convert temperature from 32°F to Celsius",
                     result=True,
-                    reason="This requires mathematical calculation and unit conversion."
+                    reason="This requires mathematical calculation and unit conversion.",
                 ),
             ],
-            actions_if_true=ClassifierActions()
+            actions_if_true=ClassifierActions(),
         )

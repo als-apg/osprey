@@ -1,2 +1,1 @@
-"""Tests for Alpha Berkeley Framework."""
-
+"""Tests for Osprey Framework."""

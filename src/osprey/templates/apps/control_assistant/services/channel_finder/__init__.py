@@ -5,63 +5,59 @@ A facility-agnostic system for finding control system channels using natural lan
 Configure which facility to use in config.yml.
 """
 
-# Service (high-level interface)
-from .service import ChannelFinderService
+from .core.exceptions import (
+    ChannelFinderError,
+    ConfigurationError,
+    DatabaseLoadError,
+    HierarchicalNavigationError,
+    PipelineModeError,
+    QueryProcessingError,
+)
 
 # Core models and base classes
 from .core.models import (
-    QuerySplitterOutput,
-    ChannelMatchOutput,
     ChannelCorrectionOutput,
     ChannelFinderResult,
-    ChannelInfo
+    ChannelInfo,
+    ChannelMatchOutput,
+    QuerySplitterOutput,
 )
-from .core.exceptions import (
-    ChannelFinderError,
-    PipelineModeError,
-    DatabaseLoadError,
-    ConfigurationError,
-    HierarchicalNavigationError,
-    QueryProcessingError
-)
+
+# Databases
+from .databases import FlatChannelDatabase, HierarchicalChannelDatabase, TemplateChannelDatabase
+
+# Backward compatibility alias
+LegacyChannelDatabase = FlatChannelDatabase
 
 # Pipelines
 from .pipelines.in_context import InContextPipeline
 
-# Databases
-from .databases import (
-    LegacyChannelDatabase,
-    TemplateChannelDatabase,
-    HierarchicalChannelDatabase
-)
+# Service (high-level interface)
+from .service import ChannelFinderService
 
 __version__ = "2.0.0"
 
 __all__ = [
     # Service (high-level interface)
-    'ChannelFinderService',
-
+    "ChannelFinderService",
     # Pipelines
-    'InContextPipeline',
-
+    "InContextPipeline",
     # Database classes
-    'TemplateChannelDatabase',
-    'LegacyChannelDatabase',
-    'HierarchicalChannelDatabase',
-
+    "FlatChannelDatabase",
+    "TemplateChannelDatabase",
+    "LegacyChannelDatabase",  # Backward compatibility
+    "HierarchicalChannelDatabase",
     # Data models
-    'QuerySplitterOutput',
-    'ChannelMatchOutput',
-    'ChannelCorrectionOutput',
-    'ChannelFinderResult',
-    'ChannelInfo',
-
+    "QuerySplitterOutput",
+    "ChannelMatchOutput",
+    "ChannelCorrectionOutput",
+    "ChannelFinderResult",
+    "ChannelInfo",
     # Exceptions
-    'ChannelFinderError',
-    'PipelineModeError',
-    'DatabaseLoadError',
-    'ConfigurationError',
-    'HierarchicalNavigationError',
-    'QueryProcessingError',
+    "ChannelFinderError",
+    "PipelineModeError",
+    "DatabaseLoadError",
+    "ConfigurationError",
+    "HierarchicalNavigationError",
+    "QueryProcessingError",
 ]
-

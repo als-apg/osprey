@@ -90,6 +90,7 @@ class ApprovalDecision(NamedTuple):
        :class:`MemoryApprovalEvaluator` : Evaluator class that returns this decision
        :func:`osprey.approval.create_code_approval_interrupt` : Uses reasoning for user messages
     """
+
     needs_approval: bool
     reasoning: str
 
@@ -207,41 +208,35 @@ class PythonExecutionApprovalEvaluator:
         # If approval is disabled globally for Python execution
         if not self.config.enabled:
             return ApprovalDecision(
-                needs_approval=False,
-                reasoning="Python execution approval is disabled"
+                needs_approval=False, reasoning="Python execution approval is disabled"
             )
 
         # Apply mode-specific logic
         if self.config.mode == ApprovalMode.DISABLED:
-            return ApprovalDecision(
-                needs_approval=False,
-                reasoning="Approval mode is disabled"
-            )
+            return ApprovalDecision(needs_approval=False, reasoning="Approval mode is disabled")
 
-        elif self.config.mode == ApprovalMode.EPICS_WRITES:
+        elif self.config.mode in (ApprovalMode.CONTROL_WRITES, ApprovalMode.EPICS_WRITES):
+            # Support both new and deprecated modes
             if has_epics_writes:
                 return ApprovalDecision(
-                    needs_approval=True,
-                    reasoning="Code contains EPICS write operations"
+                    needs_approval=True, reasoning="Code contains control system write operations"
                 )
             else:
                 return ApprovalDecision(
                     needs_approval=False,
-                    reasoning="Code contains no EPICS writes (read-only or pure Python)"
+                    reasoning="Code contains no control system writes (read-only or pure Python)",
                 )
 
         elif self.config.mode == ApprovalMode.ALL_CODE:
-            return ApprovalDecision(
-                needs_approval=True,
-                reasoning="All code requires approval"
-            )
+            return ApprovalDecision(needs_approval=True, reasoning="All code requires approval")
 
         else:
             # Fail-safe to approval required for unknown modes to maintain security
-            logger.warning(f"Unknown approval mode: {self.config.mode}, defaulting to approval required")
+            logger.warning(
+                f"Unknown approval mode: {self.config.mode}, defaulting to approval required"
+            )
             return ApprovalDecision(
-                needs_approval=True,
-                reasoning=f"Unknown approval mode: {self.config.mode}"
+                needs_approval=True, reasoning=f"Unknown approval mode: {self.config.mode}"
             )
 
 
@@ -317,11 +312,9 @@ class MemoryApprovalEvaluator:
         """
         if self.config.enabled:
             return ApprovalDecision(
-                needs_approval=True,
-                reasoning="Memory operations require approval"
+                needs_approval=True, reasoning="Memory operations require approval"
             )
         else:
             return ApprovalDecision(
-                needs_approval=False,
-                reasoning="Memory operation approval is disabled"
+                needs_approval=False, reasoning="Memory operation approval is disabled"
             )

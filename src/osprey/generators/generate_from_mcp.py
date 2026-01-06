@@ -14,6 +14,7 @@ from .models import ClassifierAnalysis, OrchestratorAnalysis
 try:
     from mcp import ClientSession
     from mcp.client.sse import sse_client
+
     MCP_AVAILABLE = True
 except ImportError:
     MCP_AVAILABLE = False
@@ -33,17 +34,17 @@ SIMULATED_TOOLS = [
                 "location": {
                     "type": "string",
                     "default": "San Francisco",
-                    "description": "City name or coordinates (defaults to San Francisco if not provided)"
+                    "description": "City name or coordinates (defaults to San Francisco if not provided)",
                 },
                 "units": {
                     "type": "string",
                     "enum": ["celsius", "fahrenheit"],
                     "default": "celsius",
-                    "description": "Temperature units"
-                }
+                    "description": "Temperature units",
+                },
             },
-            "required": []
-        }
+            "required": [],
+        },
     },
     {
         "name": "get_forecast",
@@ -54,24 +55,24 @@ SIMULATED_TOOLS = [
                 "location": {
                     "type": "string",
                     "default": "San Francisco",
-                    "description": "City name or coordinates (defaults to San Francisco if not provided)"
+                    "description": "City name or coordinates (defaults to San Francisco if not provided)",
                 },
                 "days": {
                     "type": "integer",
                     "default": 5,
                     "minimum": 1,
                     "maximum": 7,
-                    "description": "Number of forecast days (1-7)"
+                    "description": "Number of forecast days (1-7)",
                 },
                 "units": {
                     "type": "string",
                     "enum": ["celsius", "fahrenheit"],
                     "default": "celsius",
-                    "description": "Temperature units"
-                }
+                    "description": "Temperature units",
+                },
             },
-            "required": []
-        }
+            "required": [],
+        },
     },
     {
         "name": "get_weather_alerts",
@@ -82,17 +83,17 @@ SIMULATED_TOOLS = [
                 "location": {
                     "type": "string",
                     "default": "San Francisco",
-                    "description": "City name or coordinates (defaults to San Francisco if not provided)"
+                    "description": "City name or coordinates (defaults to San Francisco if not provided)",
                 },
                 "severity": {
                     "type": "string",
                     "enum": ["all", "severe", "moderate", "minor"],
                     "default": "all",
-                    "description": "Filter by alert severity level"
-                }
+                    "description": "Filter by alert severity level",
+                },
             },
-            "required": []
-        }
+            "required": [],
+        },
     },
 ]
 
@@ -100,6 +101,7 @@ SIMULATED_TOOLS = [
 # =============================================================================
 # MCP Capability Generator
 # =============================================================================
+
 
 class MCPCapabilityGenerator(BaseCapabilityGenerator):
     """Generate complete MCP capability from MCP server tools."""
@@ -110,7 +112,7 @@ class MCPCapabilityGenerator(BaseCapabilityGenerator):
         server_name: str,
         verbose: bool = False,
         provider: str | None = None,
-        model_id: str | None = None
+        model_id: str | None = None,
     ):
         """Initialize generator.
 
@@ -126,7 +128,9 @@ class MCPCapabilityGenerator(BaseCapabilityGenerator):
         self.tools: list[dict[str, Any]] = []
         self.mcp_url: str | None = None
 
-    async def discover_tools(self, mcp_url: str | None = None, simulated: bool = False) -> list[dict[str, Any]]:
+    async def discover_tools(
+        self, mcp_url: str | None = None, simulated: bool = False
+    ) -> list[dict[str, Any]]:
         """Discover tools from MCP server or use simulated tools.
 
         Args:
@@ -147,8 +151,7 @@ class MCPCapabilityGenerator(BaseCapabilityGenerator):
         else:
             if not MCP_AVAILABLE:
                 raise RuntimeError(
-                    "MCP client not installed. Use simulated mode or install: "
-                    "pip install mcp"
+                    "MCP client not installed. Use simulated mode or install: pip install mcp"
                 )
 
             if self.verbose:
@@ -157,7 +160,34 @@ class MCPCapabilityGenerator(BaseCapabilityGenerator):
             self.mcp_url = mcp_url
 
             # FastMCP SSE endpoint is at /sse
-            sse_url = mcp_url if mcp_url.endswith('/sse') else f"{mcp_url}/sse"
+            sse_url = mcp_url if mcp_url.endswith("/sse") else f"{mcp_url}/sse"
+
+            # Pre-flight check: Try to connect to the server first
+            try:
+                import httpx
+
+                # Quick check to see if server is reachable
+                async with httpx.AsyncClient(timeout=2.0) as client:
+                    try:
+                        # Try a simple GET to the base URL
+                        _ = await client.get(mcp_url)
+                        # We expect this might fail, but at least we know server is responding
+                    except httpx.ConnectError as e:
+                        # Server is not reachable at all
+                        error_msg = (
+                            f"\n❌ Cannot connect to MCP server at {mcp_url}\n\n"
+                            f"The server is not running or not reachable.\n\n"
+                            f"To start the demo MCP server:\n"
+                            f"  1. Generate the server: osprey generate mcp-server\n"
+                            f"  2. Run it: python demo_mcp_server.py\n\n"
+                            f"Or use simulated mode (no server needed):\n"
+                            f"  osprey generate capability --from-mcp simulated --name {self.capability_name}\n\n"
+                            f"Connection error: {e}"
+                        )
+                        raise RuntimeError(error_msg) from e
+            except ImportError:
+                # httpx not available, skip pre-flight check
+                pass
 
             try:
                 # Use native MCP client to get tools in standardized format
@@ -175,7 +205,9 @@ class MCPCapabilityGenerator(BaseCapabilityGenerator):
                             tool_dict = {
                                 "name": tool.name,
                                 "description": tool.description or "",
-                                "inputSchema": tool.inputSchema if hasattr(tool, 'inputSchema') else {}
+                                "inputSchema": (
+                                    tool.inputSchema if hasattr(tool, "inputSchema") else {}
+                                ),
                             }
                             self.tools.append(tool_dict)
 
@@ -186,29 +218,48 @@ class MCPCapabilityGenerator(BaseCapabilityGenerator):
                 # Connection-specific errors - likely server not running
                 error_msg = (
                     f"\n❌ Cannot connect to MCP server at {sse_url}\n\n"
-                    f"The MCP server appears to be down or not responding.\n"
-                    f"Please ensure the MCP server is running before generating capabilities.\n\n"
-                    f"To use simulated mode instead (no server needed), add --simulated flag.\n\n"
-                    f"Error details: {type(e).__name__}: {e}"
+                    f"The MCP server appears to be down or not responding.\n\n"
+                    f"To start the demo MCP server:\n"
+                    f"  1. Generate the server: osprey generate mcp-server\n"
+                    f"  2. Run it: python demo_mcp_server.py\n\n"
+                    f"Or use simulated mode (no server needed):\n"
+                    f"  osprey generate capability --from-mcp simulated --name {self.capability_name}\n\n"
+                    f"Error: {type(e).__name__}: {e}"
                 )
                 raise RuntimeError(error_msg) from e
             except Exception as e:
                 # Check if this looks like a connection/TaskGroup error (common when server is down)
                 error_str = str(e).lower()
-                if any(term in error_str for term in ["taskgroup", "connection", "refused", "timeout", "unreachable", "connecterror"]):
+                if any(
+                    term in error_str
+                    for term in [
+                        "taskgroup",
+                        "connection",
+                        "refused",
+                        "timeout",
+                        "unreachable",
+                        "connecterror",
+                        "incomplete chunked read",
+                        "peer closed",
+                    ]
+                ):
                     error_msg = (
                         f"\n❌ Cannot connect to MCP server at {sse_url}\n\n"
-                        f"The MCP server appears to be down or unreachable.\n"
-                        f"Please start the MCP server before generating capabilities.\n\n"
-                        f"To use simulated mode instead (no server needed), add --simulated flag.\n\n"
-                        f"Error details: {type(e).__name__}: {e}"
+                        f"The MCP server appears to be down, crashed during handshake, or is incompatible.\n\n"
+                        f"To start the demo MCP server:\n"
+                        f"  1. Generate the server: osprey generate mcp-server\n"
+                        f"  2. Install FastMCP: pip install fastmcp\n"
+                        f"  3. Run it: python demo_mcp_server.py\n\n"
+                        f"Or use simulated mode (no server needed):\n"
+                        f"  osprey generate capability --from-mcp simulated --name {self.capability_name}\n\n"
+                        f"Technical details: {type(e).__name__}"
                     )
                     raise RuntimeError(error_msg) from e
                 else:
                     # Some other error during tool discovery
                     error_msg = (
                         f"\n❌ Failed to discover tools from MCP server at {sse_url}\n\n"
-                        f"Error details: {type(e).__name__}: {e}"
+                        f"Error: {type(e).__name__}: {e}"
                     )
                     raise RuntimeError(error_msg) from e
 
@@ -296,9 +347,7 @@ Output as JSON matching the OrchestratorAnalysis schema.
         return classifier_analysis, orchestrator_analysis
 
     def generate_capability_code(
-        self,
-        classifier_analysis: ClassifierAnalysis,
-        orchestrator_analysis: OrchestratorAnalysis
+        self, classifier_analysis: ClassifierAnalysis, orchestrator_analysis: OrchestratorAnalysis
     ) -> str:
         """Generate complete capability Python code.
 
@@ -311,21 +360,22 @@ Output as JSON matching the OrchestratorAnalysis schema.
         """
         timestamp = self._get_timestamp()
         class_name = self._to_class_name(self.capability_name)
-        context_class_name = self._to_class_name(self.capability_name, suffix='ResultsContext')
+        context_class_name = self._to_class_name(self.capability_name, suffix="ResultsContext")
         context_type = f"{self.server_name.upper()}_RESULTS"
 
         # Build examples using base class methods
         classifier_examples_code = self._build_classifier_examples_code(classifier_analysis)
         orchestrator_examples_code = self._build_orchestrator_examples_code(
-            orchestrator_analysis,
-            context_type
+            orchestrator_analysis, context_type
         )
 
         # Build tools list for documentation
-        tools_list = "\n".join([f"        - {t['name']}: {t.get('description', 'N/A')}" for t in self.tools])
+        tools_list = "\n".join(
+            [f"        - {t['name']}: {t.get('description', 'N/A')}" for t in self.tools]
+        )
 
         # Ensure SSE endpoint path is included
-        sse_url = self.mcp_url if self.mcp_url.endswith('/sse') else f"{self.mcp_url}/sse"
+        sse_url = self.mcp_url if self.mcp_url.endswith("/sse") else f"{self.mcp_url}/sse"
 
         code = f'''"""
 {self.server_name} MCP Capability
@@ -398,6 +448,7 @@ from osprey.base.examples import OrchestratorGuide, OrchestratorExample, TaskCla
 from osprey.context import CapabilityContext
 from osprey.state import StateManager
 from osprey.registry import get_registry
+from osprey.utils.logger import get_logger
 
 # MCP and LangGraph imports
 try:
@@ -411,9 +462,6 @@ except ImportError:
 
 # Get model for ReAct agent
 from osprey.utils.config import get_model_config, get_provider_config
-
-
-registry = get_registry()
 
 
 # =============================================================================
@@ -513,6 +561,9 @@ class {class_name}(BaseCapability):
     async def _get_react_agent(cls):
         """Get or create ReAct agent with MCP tools (cached)."""
         if cls._react_agent is None:
+            # Get logger for initialization (classmethod doesn't have self)
+            logger = get_logger("{self.capability_name}")
+
             try:
                 # Initialize MCP client
                 if cls._mcp_client is None:
@@ -525,13 +576,20 @@ class {class_name}(BaseCapability):
 
                 # Get LLM instance for ReAct agent
                 # Try to use dedicated "{self.capability_name}_react" model first, fallback to "orchestrator"
-                try:
-                    model_config = get_model_config("{self.capability_name}_react")
-                except Exception:
+                model_config = get_model_config("{self.capability_name}_react")
+                if not model_config or not model_config.get("provider"):
+                    # Model config doesn't exist or is incomplete, fallback to orchestrator
                     model_config = get_model_config("orchestrator")
 
                 provider = model_config.get("provider")
                 model_id = model_config.get("model_id")
+
+                if not provider:
+                    raise ValueError(
+                        f"No provider configured for {{self.capability_name}}_react or orchestrator model. "
+                        f"Please configure a model in config.yml under models section."
+                    )
+
                 provider_config = get_provider_config(provider)
 
                 # Create LangChain ChatModel based on provider
@@ -677,7 +735,7 @@ class {class_name}(BaseCapability):
                 {classifier_analysis.activation_criteria}
 
                 Activate if the query involves:
-                {chr(10).join('- ' + kw for kw in classifier_analysis.keywords[:10])}
+                {chr(10).join("- " + kw for kw in classifier_analysis.keywords[:10])}
 
                 Do NOT activate for purely informational queries about {self.server_name}.
             """).strip(),
@@ -751,4 +809,3 @@ class MyAppRegistryProvider(RegistryConfigProvider):
 '''
 
         return code
-

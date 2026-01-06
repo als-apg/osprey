@@ -81,6 +81,49 @@ python -m {{ package_name }}.services.channel_finder.cli
 python -m {{ package_name }}.services.channel_finder.benchmarks.cli
 ```
 
+{% if code_generator == 'claude_code' %}
+### 5. Configure Claude Code Generator
+
+The Claude Code generator requires advanced configuration in `claude_generator_config.yml`:
+
+{% if default_provider in ['cborg', 'anthropic'] %}
+**Provider Compatibility:** ✓ Your provider ({{ default_provider }}) is compatible with Claude Code!
+
+{% else %}
+**⚠️ Important:** Claude Code requires Anthropic's Claude models, but your main config uses {{ default_provider }}.
+
+The code generator will use direct Anthropic API access. You need **both**:
+- `{{ default_provider|upper }}_API_KEY` for your main orchestrator/framework
+- `ANTHROPIC_API_KEY` for the Claude Code generator
+
+Add both to your `.env` file:
+```bash
+{{ default_provider|upper }}_API_KEY=your_{{ default_provider }}_key
+ANTHROPIC_API_KEY=your_anthropic_key  # Required for Claude Code generator
+```
+
+{% endif %}
+**Quality/Speed Profiles:**
+```yaml
+# In config.yml:
+execution:
+  generators:
+    claude_code:
+      profile: "fast"  # Options: fast (DEFAULT, single-phase) | robust (multi-phase)
+```
+
+- **fast**: Quick one-pass generation (~5s, ~$0.02)
+- **fast**: Single-phase direct generation (~20s, ~$0.03) - DEFAULT
+- **robust**: Maximum quality with extended workflow (~30s, ~$0.15)
+
+**Advanced Features:**
+- **Example Learning**: Add your own examples to `_agent_data/example_scripts/` for Claude to learn from
+- **Custom Workflows**: Modify the 3-phase workflow (scan → plan → generate) in `claude_generator_config.yml`
+- **Model Selection**: Use different models for each workflow phase (Haiku for speed, Sonnet for quality)
+
+See `claude_generator_config.yml` for detailed configuration options.
+
+{% endif %}
 ---
 
 ## 💻 Command Line Tools
@@ -194,9 +237,9 @@ This template follows the proven **production architecture** from the ALS Assist
                           │
 ┌─────────────────────────────────────────────────────────┐
 │  Layer 2: Osprey Capabilities                           │
-│  src/{{ package_name }}/capabilities/                         │
+│  src/{{ package_name }}/capabilities/                   │
 │  - channel_finding.py                                   │
-│  - channel_value_retrieval.py (uses ConnectorFactory)   │
+│  - channel_read.py (uses ConnectorFactory)              │
 │  - archiver_retrieval.py (uses ConnectorFactory)        │
 └─────────────────────────────────────────────────────────┘
                           ▲
@@ -343,51 +386,73 @@ The template uses the **Osprey Connector Abstraction** (Issue #18) which provide
 - **Production Mode**: Real connectors (EPICS, LabVIEW, Tango, etc.) with same API
 - **Zero Code Changes**: Switch modes by editing `config.yml`
 
-### Migration to Production (3 Simple Steps)
+### Migration to Production
+
+#### Interactive Configuration (Recommended)
 
 **Step 1:** Install production dependencies (if using EPICS):
 
 ```bash
-pip install pyepics archivertools
+pip install pyepics als-archiver-client
 ```
 
-**Step 2:** Edit `config.yml` - change connector types:
+**Step 2:** Use interactive menu to switch to production mode:
 
-```yaml
-control_system:
-  type: epics  # Changed from 'mock' to 'epics'
-  connector:
-    epics:
-      timeout: 5.0
-      gateways:
-        read_only:
-          address: cagw.your-facility.edu
-          port: 5064
-
-archiver:
-  type: epics_archiver  # Changed from 'mock_archiver' to 'epics_archiver'
-  epics_archiver:
-    url: https://archiver.your-facility.edu:8443
-    timeout: 60
+```bash
+osprey  # Launch interactive menu
 ```
 
-**Step 3:** Test your connection:
+Navigate: **Your Project** → `config` → `set-control-system`
+- Select: **EPICS - Production mode**
+- Confirm archiver switch: **Yes - Use EPICS Archiver Appliance**
+
+**Step 3:** Configure EPICS gateway for your facility:
+
+Navigate: **Your Project** → `config` → `set-epics-gateway`
+- Select your facility: **APS** / **ALS** / **Custom**
+
+Supported facilities:
+- **APS** (Argonne): `pvgatemain1.aps4.anl.gov:5064`
+- **ALS** (Berkeley): `cagw-alsdmz.als.lbl.gov:5064` (read), `5084` (write)
+- **Custom**: Interactive prompts for your gateway
+
+**Step 4:** Test your connection:
 
 ```bash
 osprey chat
 # Try: "What is the current beam current?"
 ```
 
-**That's it!** Your capabilities (`channel_value_retrieval.py`, `archiver_retrieval.py`) work unchanged.
+**That's it!** Your capabilities work unchanged - `ConnectorFactory` automatically uses the configured connector.
+
+#### Manual Configuration (Alternative)
+
+You can also edit `config.yml` directly:
+
+```yaml
+control_system:
+  type: epics  # Changed from 'mock'
+  connector:
+    epics:
+      gateways:
+        read_only:
+          address: cagw.your-facility.edu
+          port: 5064
+
+archiver:
+  type: epics_archiver  # Changed from 'mock_archiver'
+  epics_archiver:
+    url: https://archiver.your-facility.edu:8443
+```
 
 ### Why This Works
 
 The capabilities use `ConnectorFactory` which automatically creates the right connector based on config:
 
 ```python
-# In channel_value_retrieval.py - works with ANY connector
+# In channel_read.py - works with ANY connector
 connector = await ConnectorFactory.create_control_system_connector()
-pv_value = await connector.read_pv(channel_address)  # Same API for all connectors
+channel_value = await connector.read_channel(channel_address)  # Same API for all connectors
 await connector.disconnect()
 ```
 
@@ -528,6 +593,99 @@ This template demonstrates enterprise patterns from the ALS deployment:
 ### Logging and Streaming
 - Unified logging with automatic streaming via `self.get_logger()`
 - Progress indicators for long-running operations
+
+### Control System Write Safety
+
+{% if 'channel_write' in selected_capabilities %}
+This application includes comprehensive safety controls for control system writes:
+
+**Safety Layers (enforced in order):**
+
+1. **Global writes_enabled flag** (`execution_control.epics.writes_enabled`)
+   - Master safety switch - all writes blocked if `false`
+   - Must be explicitly enabled for production hardware writes
+   - Applies to both Python-based writes and direct channel writes
+
+2. **Channel limits validation** (`control_system.limits_checking`)
+   - Enforces min/max/step/writable constraints from limits database
+   - Configurable per-channel limits in `data/channel_limits.json`
+   - Strict mode (`allow_unlisted_channels: false`) blocks unlisted channels
+
+3. **Human approval workflow** (`approval.capabilities.python_execution`)
+   - Requires user approval before executing writes
+   - Configurable approval modes: `disabled`, `epics_writes`, `all_code`
+   - LangGraph-native approval interrupts
+
+4. **Write verification** (`control_system.write_verification`)
+   - Verifies write success via callback or readback
+   - Per-channel verification levels and tolerances
+   - Detailed success/failure reporting
+
+**Configuration for Production:**
+
+```yaml
+# config.yml
+
+# Enable writes (disabled by default for safety)
+execution_control:
+  epics:
+    writes_enabled: true  # Must be true for hardware writes
+
+# Configure limits checking
+control_system:
+  limits_checking:
+    enabled: true
+    database_path: "src/{{ package_name }}/data/channel_limits.json"
+    allow_unlisted_channels: false  # Strict mode for production
+
+# Configure approval workflow
+approval:
+  capabilities:
+    python_execution:
+      enabled: true
+      mode: "epics_writes"  # Require approval for all control writes
+
+# Configure write verification
+control_system:
+  write_verification:
+    default_level: callback  # or 'readback' for full verification
+```
+
+**Limits Database Example:**
+
+```json
+{
+  "_comment": "Channel limits database for control assistant",
+  "_version": "1.0",
+
+  "defaults": {
+    "writable": true,
+    "verification": {
+      "level": "callback"
+    }
+  },
+
+  "MAGNET:CURRENT:SP": {
+    "min_value": -10.0,
+    "max_value": 10.0,
+    "max_step": 1.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.1
+    }
+  }
+}
+```
+
+**Safety Guarantees:**
+
+- All four safety layers must pass for writes to succeed
+- Failed safety checks provide clear error messages
+- Default behavior is safe (writes disabled)
+- Explicit configuration required for production writes
+
+See `capabilities/channel_write.py` docstring for complete safety documentation.
+{% endif %}
 
 ---
 

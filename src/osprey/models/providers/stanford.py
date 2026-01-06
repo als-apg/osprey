@@ -9,10 +9,11 @@ with the Otter agent system, enabling model selection across various providers
 while using a single API key and endpoint.
 """
 
-from typing import Optional, Any, Union
+import logging
+from typing import Any
+
 import httpx
 import openai
-import logging
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider as PydanticOpenAIProvider
 
@@ -60,10 +61,10 @@ class StanfordProviderAdapter(BaseProvider):
     def create_model(
         self,
         model_id: str,
-        api_key: Optional[str],
-        base_url: Optional[str],
-        timeout: Optional[float],
-        http_client: Optional[httpx.AsyncClient],
+        api_key: str | None,
+        base_url: str | None,
+        timeout: float | None,
+        http_client: httpx.AsyncClient | None,
     ) -> OpenAIModel:
         """Create Stanford AI model instance for PydanticAI.
 
@@ -103,15 +104,15 @@ class StanfordProviderAdapter(BaseProvider):
         self,
         message: str,
         model_id: str,
-        api_key: Optional[str],
-        base_url: Optional[str],
+        api_key: str | None,
+        base_url: str | None,
         max_tokens: int = 1024,
         temperature: float = 0.0,
-        thinking: Optional[dict] = None,
-        system_prompt: Optional[str] = None,
-        output_format: Optional[Any] = None,
+        thinking: dict | None = None,
+        system_prompt: str | None = None,
+        output_format: Any | None = None,
         **kwargs,
-    ) -> Union[str, Any]:
+    ) -> str | Any:
         """Execute Stanford AI chat completion.
 
         Args:
@@ -214,10 +215,10 @@ class StanfordProviderAdapter(BaseProvider):
 
     def check_health(
         self,
-        api_key: Optional[str],
-        base_url: Optional[str],
+        api_key: str | None,
+        base_url: str | None,
         timeout: float = 5.0,
-        model_id: Optional[str] = None,
+        model_id: str | None = None,
     ) -> tuple[bool, str]:
         """Check Stanford AI API health.
 

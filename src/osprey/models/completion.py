@@ -50,7 +50,7 @@ def _is_typed_dict(cls) -> bool:
        This check is based on the presence of __annotations__ and __total__
        attributes which are characteristic of TypedDict classes.
     """
-    return hasattr(cls, '__annotations__') and hasattr(cls, '__total__')
+    return hasattr(cls, "__annotations__") and hasattr(cls, "__total__")
 
 
 def _convert_typed_dict_to_pydantic(typed_dict_cls) -> type[BaseModel]:
@@ -84,7 +84,7 @@ def _convert_typed_dict_to_pydantic(typed_dict_cls) -> type[BaseModel]:
         raise ValueError(f"Expected TypedDict, got {type(typed_dict_cls)}")
 
     # Get the annotations from the TypedDict
-    annotations = getattr(typed_dict_cls, '__annotations__', {})
+    annotations = getattr(typed_dict_cls, "__annotations__", {})
 
     # Convert to Pydantic field definitions
     field_definitions = {}
@@ -148,7 +148,7 @@ def _validate_proxy_url(proxy_url: str) -> bool:
     try:
         parsed = urlparse(proxy_url)
         # Check for valid scheme and netloc (host:port)
-        if parsed.scheme not in ('http', 'https'):
+        if parsed.scheme not in ("http", "https"):
             return False
         if not parsed.netloc:
             return False
@@ -290,7 +290,6 @@ def get_chat_completion(
     """
 
     # Handle TypedDict to Pydantic conversion automatically
-    original_output_model = output_model
     is_typed_dict_output = False
 
     if output_model is not None and _is_typed_dict(output_model):
@@ -322,6 +321,7 @@ def get_chat_completion(
 
     # Get provider from registry
     from osprey.registry import get_registry
+
     registry = get_registry()
     provider_class = registry.get_provider(provider)
 
@@ -344,7 +344,9 @@ def get_chat_completion(
             http_client = httpx.Client(proxy=proxy_url)
         else:
             if proxy_url:
-                logger.warning(f"Invalid HTTP_PROXY URL format '{proxy_url}', ignoring proxy configuration")
+                logger.warning(
+                    f"Invalid HTTP_PROXY URL format '{proxy_url}', ignoring proxy configuration"
+                )
 
     # Execute completion using provider adapter
     provider_instance = provider_class()
@@ -366,7 +368,22 @@ def get_chat_completion(
         base_url=base_url,
         max_tokens=max_tokens,
         temperature=temperature,
-        **completion_kwargs
+        **completion_kwargs,
+    )
+
+    # Log API call for transparency and debugging
+    from osprey.models.logging import log_api_call
+
+    log_api_call(
+        message=message,
+        result=result,
+        provider=provider,
+        model_id=model_id,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        enable_thinking=enable_thinking,
+        budget_tokens=budget_tokens,
+        output_model=output_model,
     )
 
     # Result is already handled by provider (TypedDict conversion if needed)

@@ -13,8 +13,8 @@ from osprey.connectors.factory import ConnectorFactory
 def setup_test_connectors():
     """Register mock connectors for testing and clean up afterward."""
     # Register mock connectors (simulates what registry does)
-    ConnectorFactory.register_control_system('mock', MockConnector)
-    ConnectorFactory.register_archiver('mock_archiver', MockArchiverConnector)
+    ConnectorFactory.register_control_system("mock", MockConnector)
+    ConnectorFactory.register_archiver("mock_archiver", MockArchiverConnector)
 
     yield
 
@@ -30,14 +30,10 @@ class TestConnectorFactory:
     async def test_create_mock_control_system_connector(self):
         """Test creating a mock control system connector."""
         config = {
-            'type': 'mock',
-            'connector': {
-                'mock': {
-                    'response_delay_ms': 0,
-                    'noise_level': 0.01,
-                    'enable_writes': True
-                }
-            }
+            "type": "mock",
+            "connector": {
+                "mock": {"response_delay_ms": 0, "noise_level": 0.01, "enable_writes": True}
+            },
         }
 
         connector = await ConnectorFactory.create_control_system_connector(config)
@@ -52,11 +48,8 @@ class TestConnectorFactory:
     async def test_create_mock_archiver_connector(self):
         """Test creating a mock archiver connector."""
         config = {
-            'type': 'mock_archiver',
-            'mock_archiver': {
-                'sample_rate_hz': 1.0,
-                'noise_level': 0.01
-            }
+            "type": "mock_archiver",
+            "mock_archiver": {"sample_rate_hz": 1.0, "noise_level": 0.01},
         }
 
         connector = await ConnectorFactory.create_archiver_connector(config)
@@ -70,10 +63,7 @@ class TestConnectorFactory:
     @pytest.mark.asyncio
     async def test_create_with_invalid_type_raises_error(self):
         """Test that invalid connector type raises error."""
-        config = {
-            'type': 'nonexistent_system',
-            'connector': {}
-        }
+        config = {"type": "nonexistent_system", "connector": {}}
 
         with pytest.raises(ValueError, match="Unknown control system type"):
             await ConnectorFactory.create_control_system_connector(config)
@@ -91,18 +81,17 @@ class TestConnectorFactory:
             # If config loading fails or dependencies are missing, that's OK for this test
             # We're just checking it gives a reasonable error
             error_msg = str(e).lower()
-            assert ("unknown control system type" in error_msg or
-                    "config" in error_msg or
-                    "required" in error_msg or
-                    "install" in error_msg)
+            assert (
+                "unknown control system type" in error_msg
+                or "config" in error_msg
+                or "required" in error_msg
+                or "install" in error_msg
+            )
 
     @pytest.mark.asyncio
     async def test_factory_creates_independent_instances(self):
         """Test that factory creates independent connector instances."""
-        config = {
-            'type': 'mock',
-            'connector': {'mock': {'response_delay_ms': 0}}
-        }
+        config = {"type": "mock", "connector": {"mock": {"response_delay_ms": 0}}}
 
         connector1 = await ConnectorFactory.create_control_system_connector(config)
         connector2 = await ConnectorFactory.create_control_system_connector(config)
@@ -119,50 +108,74 @@ class TestConnectorFactory:
 
     def test_register_custom_connector(self):
         """Test registering a custom connector."""
+
         # Create a dummy connector class
         class CustomConnector(ControlSystemConnector):
             async def connect(self, config):
                 pass
+
             async def disconnect(self):
                 pass
-            async def read_pv(self, pv_address, timeout=None):
+
+            async def read_channel(self, channel_address, timeout=None):
                 pass
-            async def write_pv(self, pv_address, value, timeout=None):
+
+            async def write_channel(
+                self,
+                channel_address,
+                value,
+                timeout=None,
+                verification_level="callback",
+                tolerance=None,
+            ):
                 pass
-            async def read_multiple_pvs(self, pv_addresses, timeout=None):
+
+            async def read_multiple_channels(self, channel_addresses, timeout=None):
                 pass
-            async def subscribe(self, pv_address, callback):
+
+            async def subscribe(self, channel_address, callback):
                 pass
+
             async def unsubscribe(self, subscription_id):
                 pass
-            async def get_metadata(self, pv_address):
+
+            async def get_metadata(self, channel_address):
                 pass
-            async def validate_pv(self, pv_address):
+
+            async def validate_channel(self, channel_address):
                 pass
 
         # Register it
-        ConnectorFactory.register_control_system('custom_test', CustomConnector)
+        ConnectorFactory.register_control_system("custom_test", CustomConnector)
 
         # Check it's in the list
-        assert 'custom_test' in ConnectorFactory.list_control_systems()
+        assert "custom_test" in ConnectorFactory.list_control_systems()
 
     @pytest.mark.asyncio
     async def test_switch_between_connectors(self):
         """Test switching between different connector types."""
-        # Create mock connector
-        mock_config = {
-            'type': 'mock',
-            'connector': {'mock': {'response_delay_ms': 0}}
-        }
-        mock_connector = await ConnectorFactory.create_control_system_connector(mock_config)
-        assert isinstance(mock_connector, MockConnector)
+        from unittest.mock import patch
 
-        # Test it works
-        result = await mock_connector.read_pv('TEST:PV')
-        assert result.value is not None
+        # Mock config access since test runs without config.yml
+        with patch("osprey.utils.config.get_config_value") as mock_config_value:
+            # Return True for writes_enabled, None for others
+            def config_side_effect(key, default=None):
+                if key == "execution_control.epics.writes_enabled":
+                    return True
+                return default
 
-        await mock_connector.disconnect()
+            mock_config_value.side_effect = config_side_effect
 
-        # This demonstrates how easy it is to switch connector types
-        # Just change the config!
+            # Create mock connector
+            mock_config = {"type": "mock", "connector": {"mock": {"response_delay_ms": 0}}}
+            mock_connector = await ConnectorFactory.create_control_system_connector(mock_config)
+            assert isinstance(mock_connector, MockConnector)
 
+            # Test it works
+            result = await mock_connector.read_channel("TEST:PV")
+            assert result.value is not None
+
+            await mock_connector.disconnect()
+
+            # This demonstrates how easy it is to switch connector types
+            # Just change the config!

@@ -72,7 +72,7 @@ class ArchiverConnector(ABC):
         start_date: datetime,
         end_date: datetime,
         precision_ms: int = 1000,
-        timeout: int | None = None
+        timeout: int | None = None,
     ) -> pd.DataFrame:
         """
         Retrieve historical data for PVs.
@@ -124,4 +124,3 @@ class ArchiverConnector(ABC):
             Dictionary mapping PV name to availability status
         """
         pass
-

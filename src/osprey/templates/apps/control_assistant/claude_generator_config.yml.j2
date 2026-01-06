@@ -1,0 +1,289 @@
+# Claude Code Generator Configuration
+# ====================================
+#
+# This file configures the Claude Code SDK-based code generator for Osprey's
+# Python executor service. It provides sophisticated control over code generation
+# quality, performance, and behavior through customizable profiles.
+#
+# Quick Start:
+#   1. API access is configured based on your provider ({{ default_provider }})
+#   2. Default uses "fast" profile (single-phase direct generation) - change in config.yml if needed
+#   3. Optionally create _agent_data/example_scripts/ with examples for Claude to learn from
+#   4. For complex tasks, switch to "robust" profile for multi-phase workflow
+#
+# Configuration Structure:
+#   - api_config: API access configuration (based on your provider)
+#   - phases: Reusable building blocks (generate, scan, plan, implement)
+#   - profiles: Quality/speed tradeoffs - each profile specifies which phases to run
+#   - codebase_guidance: Directories for Claude to read for learning
+#
+# Profiles (choose based on quality/speed/cost tradeoffs):
+#   - fast: Single-phase direct generation [generate] (DEFAULT, ~20s)
+#   - robust: Multi-phase workflow [scan, plan, implement] (~60s)
+#
+# Customization:
+#   - Create new profiles or modify existing ones
+#   - Each profile directly specifies phases list
+#   - fast: phases: [generate] - single-phase direct generation (DEFAULT)
+#   - robust: phases: [scan, plan, implement] - full multi-phase workflow
+#   - Custom: phases: [scan, generate] - scan examples then generate directly
+#
+# Save Prompts:
+#   - Set save_prompts: true to save all prompts and responses (ENABLED BY DEFAULT)
+#   - Creates execution_folder/prompts/ with complete conversation history
+#   - Includes: system_prompt.txt, phase_prompts/, responses/, example_scripts/
+#   - Provides transparency and helps understand what Claude sees at each step
+
+# =============================================================================
+# API Configuration
+# =============================================================================
+# Claude Code generator requires Claude models from Anthropic.
+# Your main config uses: {{ default_provider }}
+{% if default_provider == 'cborg' %}
+# CBORG (Lawrence Berkeley Lab Model Routing)
+# CBORG routes to Anthropic's Claude models - fully compatible!
+api_config:
+  provider: "cborg"
+  base_url: "https://api.cborg.lbl.gov"
+  # Set your CBORG API key in .env: CBORG_API_KEY=your-key
+  # The generator will automatically configure:
+  #   - ANTHROPIC_AUTH_TOKEN from CBORG_API_KEY
+  #   - ANTHROPIC_BASE_URL to CBORG endpoint
+  #   - Proper model names for CBORG routing
+
+  # CBORG-specific optimizations:
+  disable_non_essential_model_calls: true  # Recommended for CBORG
+  disable_telemetry: true                  # Recommended for CBORG
+  max_output_tokens: 8192                  # Recommended to reduce throttling
+{% elif default_provider == 'anthropic' %}
+# Direct Anthropic API Access
+api_config:
+  provider: "anthropic"
+  # Set your API key in .env: ANTHROPIC_API_KEY=your-key
+  # Uses Anthropic's direct API endpoint
+{% else %}
+# NOTE: Your main config uses {{ default_provider }}, but Claude Code requires Claude models.
+# Defaulting to direct Anthropic API access for the code generator.
+# Your orchestrator and other framework models will still use {{ default_provider }}.
+#
+# To use Claude Code generator, you need an Anthropic API key:
+# Set ANTHROPIC_API_KEY in your .env file
+#
+# Alternative: Switch to CBORG provider for unified key management.
+api_config:
+  provider: "anthropic"
+  # Set your API key in .env: ANTHROPIC_API_KEY=your-key
+  # This is separate from your {{ default_provider }} configuration
+{% endif %}
+
+# =============================================================================
+# Phase Definitions (Reusable Building Blocks)
+# =============================================================================
+# These are the individual phases that can be composed into different workflows.
+# Each phase is a discrete step in the code generation process with its own
+# purpose, tools, and prompts.
+#
+# NOTE: The model for ALL phases comes from the profile configuration (not per-phase).
+# This is because ClaudeSDKClient maintains conversation context across phases
+# and requires a single model for the entire workflow.
+
+phases:
+  # GENERATE Phase - Direct code generation with optional example lookup
+  # Single-phase approach: Claude can check examples if relevant, then generates code
+  # All in one phase for speed while maintaining quality
+  generate:
+    agent_name: "code-generator"
+    prompt: |
+      Generate high-quality Python code for this task.
+
+      **Your approach:**
+      1. If relevant examples exist in example_scripts/, quickly check them for patterns
+      2. Apply any useful patterns or best practices you find
+      3. Generate the code directly
+
+      **Code Requirements:**
+      - Include ALL necessary imports at the top
+      - Store results in a dictionary named 'results'
+      - Add comments explaining key steps
+      - Use clear, descriptive variable names
+      - Handle errors appropriately
+      - Output ONLY Python code in a ```python code block
+
+      **Available Tools:**
+      - Glob: Find example files (e.g., `example_scripts/**/*.py`)
+      - Read: Read relevant examples if they exist
+      - Grep: Search for specific patterns
+
+      **Strategy:** Check examples ONLY if they seem relevant. Focus on generating good code quickly.
+
+    tools: ["Read", "Grep", "Glob"]  # Enable codebase reading
+    max_turns: 3                      # Allow a few iterations for reading + generating
+
+  # SCAN Phase - Find relevant examples and patterns in codebase
+  scan:
+    agent_name: "code-scanner"
+    prompt: |
+      Analyze the user's request and search the codebase for relevant examples.
+
+      Your goal is to:
+      1. Identify similar implementations or patterns
+      2. Find relevant libraries, functions, or approaches
+      3. Note any best practices or conventions to follow
+      4. Highlight useful code snippets to reference
+
+      Output a concise analysis (2-3 paragraphs) covering:
+      - Relevant files and patterns found
+      - Key libraries or approaches to use
+      - Important conventions or best practices observed
+
+    tools: ["Read", "Grep", "Glob"]  # Enable codebase reading
+    max_turns: 3                      # Limit search iterations
+
+  # PLAN Phase - Create detailed implementation plan
+  plan:
+    agent_name: "code-planner"
+    prompt: |
+      Now create a detailed implementation plan for this task.
+
+      Your plan should include:
+      1. **Imports**: All required libraries and modules
+      2. **Approach**: Step-by-step implementation strategy
+      3. **Data Structures**: Variables and their purposes
+      4. **Key Functions**: Main operations to perform
+      5. **Results**: What to store in the 'results' dictionary
+      6. **Error Handling**: How to handle edge cases
+
+      Output a structured plan with numbered steps (not code yet, just the plan).
+      Be specific but concise (1-2 pages maximum).
+
+      Make sure to explicitly present this plan - I will use it in the next step to generate code.
+
+    tools: ["Read"]                   # Can read specific files for details
+    max_turns: 2                      # Focused planning
+
+  # IMPLEMENT Phase - Write Python code following a plan
+  # Used in multi-phase workflows after scan and plan phases
+  implement:
+    agent_name: "code-implementer"
+    prompt: |
+      Generate high-quality Python code following the implementation plan.
+
+      Requirements:
+      1. Include ALL necessary imports at the top
+      2. Follow the plan's approach precisely (or implement the capability's structured plan)
+      3. Store results in a dictionary named 'results'
+      4. Add comments explaining key steps
+      5. Use clear, descriptive variable names
+      6. Handle errors appropriately
+      7. Output ONLY Python code in a code block
+
+      The code will be executed in a Jupyter environment with:
+      - Common scientific libraries (numpy, pandas, matplotlib, scipy)
+      - EPICS channel access (pyepics)
+      - Archiver access (configured)
+
+    tools: []                         # No tools - just implement the plan
+    max_turns: 2                      # Focused code writing
+
+# =============================================================================
+# Quality/Speed Profiles
+# =============================================================================
+# Profiles control code generation workflow by specifying which phases to run.
+# Choose a profile based on your quality/speed/cost tradeoffs.
+#
+# Each profile directly specifies:
+# - phases: Which phases to execute [generate] or [scan, plan, implement]
+# - model: Which Claude model to use
+# - max_turns: How many conversation turns allowed
+# - max_budget_usd: Cost limit for this generation
+#
+# CUSTOMIZATION: Create new profiles or modify phases list to customize workflow!
+#
+# Model names configured for Claude Code (requires Anthropic Claude models)
+{% if default_provider == 'cborg' %}
+# Using CBORG - compatible with Claude Code!
+{% elif default_provider == 'anthropic' %}
+# Using Anthropic direct API - fully compatible!
+{% else %}
+# NOTE: Claude Code requires Anthropic Claude models (your main config uses {{ default_provider }})
+# These profiles use Anthropic model names - ensure ANTHROPIC_API_KEY is set in .env
+{% endif %}
+
+profiles:
+  # FAST Profile - Single-phase direct generation (DEFAULT)
+  # Quick generation with optional example lookup
+  # Directly specifies phases instead of using a planning_mode
+  fast:
+    phases: [generate]               # Direct phase specification
+    save_prompts: true  # Save all prompts/responses to prompts/ folder for transparency
+{% if default_provider == 'cborg' %}
+    model: "anthropic/claude-haiku"
+{% else %}
+    model: "claude-haiku-4-5-20251001"
+{% endif %}
+    max_turns: 3
+    max_budget_usd: 0.10
+    description: "Single-phase generation with optional example lookup (fast, ~20s, ~$0.03)"
+
+  # ROBUST Profile - Multi-phase workflow with thorough analysis
+  # Full scan → plan → implement workflow for complex tasks
+  # Note: All phases use the SAME model (ClaudeSDKClient maintains conversation across phases)
+  robust:
+    phases: [scan, plan, implement]  # Direct phase specification
+    save_prompts: true  # Save all prompts/responses to prompts/ folder for transparency
+{% if default_provider == 'cborg' %}
+    model: "anthropic/claude-haiku"
+{% else %}
+    model: "claude-haiku-4-5-20251001"
+{% endif %}
+    max_turns: 10
+    max_budget_usd: 0.25
+    description: "Multi-phase workflow with thorough analysis (slower, ~60s, ~$0.05)"
+
+# =============================================================================
+# Codebase Reading Configuration - DIRECTORY ISOLATION & SECURITY
+# =============================================================================
+# ⚠️  SECURITY CRITICAL: The directories listed here contain example code that
+# will be COPIED into an isolated temporary directory for Claude Code to read.
+# Claude runs in /tmp/osprey_claude_code_restricted/ with only the copied
+# examples - it CANNOT access your project workspace, config files, or secrets.
+#
+# Without this restriction, Claude would have full read access to your
+# entire project directory tree, including sensitive configuration files,
+# API keys, and proprietary code!
+#
+# Configure example code that Claude can read to learn patterns and best practices.
+# ALL configured libraries are provided to Claude - it determines what's relevant.
+#
+# Directory Structure:
+#   Example scripts live in _agent_data/example_scripts/ with subdirectories:
+#     _agent_data/example_scripts/
+#       ├── plotting/       # Matplotlib visualization examples (included by default)
+#       ├── analysis/       # Data analysis patterns (add your own)
+#       └── archiver/       # Archiver retrieval examples (add your own)
+#
+# You can also point to external codebases (e.g., facility-specific libraries).
+# But be mindful: Only add directories you're comfortable with Claude reading!
+#
+# Each library provides:
+#   - directories: List of paths containing example code to copy
+#                  Use relative paths (from project root) or absolute paths.
+#   - guidance: High-level description of what scenarios/tasks these examples cover
+#               (tells Claude WHEN to look in this directory for relevant patterns)
+#
+# How It Works:
+#   1. Examples are copied from your project into /tmp/osprey_claude_code_restricted/
+#   2. Claude Code runs with this temp directory as its working directory
+#   3. Claude can only read the copied examples, NOT your project workspace
+#   4. After code generation, the temp directory is cleaned up
+# =============================================================================
+
+codebase_guidance:
+  plotting:
+    directories:
+      - "_agent_data/example_scripts/plotting/"
+    guidance: |
+      Use for any plotting, visualization, or graphing requests including:
+      time series plots, multi-parameter comparisons, correlation matrices,
+      publication-quality figures. See README.md for detailed patterns and best practices.
+

@@ -660,6 +660,9 @@ The model factory integrates with the configuration system following the same pr
        stanford:
          api_key: "${STANFORD_API_KEY}"
          base_url: "https://aiapi-prod.stanford.edu/v1"  # Stanford AI Playground
+       argo:
+         api_key: "${ARGO_API_KEY}"
+         base_url: "https://argo-bridge.cels.anl.gov"     # ANL Argo proxy
        anthropic:
          api_key: "${ANTHROPIC_API_KEY}"
          base_url: "https://api.anthropic.com"

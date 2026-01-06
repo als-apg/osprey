@@ -503,7 +503,8 @@ Try this example query:
       INFO  Classifier:  >>> Capability 'channel_finding' >>> False
       INFO  Classifier:  >>> Capability 'python' >>> False
       INFO  Classifier:  >>> Capability 'time_range_parsing' >>> False
-      INFO  Classifier:  >>> Capability 'channel_value_retrieval' >>> False
+      INFO  Classifier:  >>> Capability 'channel_read' >>> False
+      INFO  Classifier:  >>> Capability 'channel_write' >>> False
       INFO  Classifier:  >>> Capability 'archiver_retrieval' >>> False
       INFO  Classifier:  >>> Capability 'weather_demo' >>> True ✓
       INFO  Classifier: 3 capabilities required: ['respond', 'clarify', 'weather_demo']

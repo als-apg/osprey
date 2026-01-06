@@ -1,6 +1,6 @@
 # Project Dependencies
 # Add your application-specific dependencies here
 
-# Framework dependency
+# Framework dependency (includes Claude Code SDK for advanced code generation)
 osprey-framework>={{ framework_version }}
 

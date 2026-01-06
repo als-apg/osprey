@@ -21,15 +21,17 @@ from osprey.interfaces.cli.direct_conversation import run_cli
 
 @click.command()
 @click.option(
-    "--project", "-p",
+    "--project",
+    "-p",
     type=click.Path(exists=True, file_okay=False, dir_okay=True),
-    help="Project directory (default: current directory or OSPREY_PROJECT env var)"
+    help="Project directory (default: current directory or OSPREY_PROJECT env var)",
 )
 @click.option(
-    "--config", "-c",
+    "--config",
+    "-c",
     type=click.Path(exists=True),
     default="config.yml",
-    help="Configuration file (default: config.yml in project directory)"
+    help="Configuration file (default: config.yml in project directory)",
 )
 @click.option(
     "--tui",
@@ -96,7 +98,8 @@ def chat(project: str, config: str, tui: bool):
         # Set CONFIG_FILE environment variable for subprocess execution
         # This is critical for Python executor subprocess to initialize registry
         import os
-        os.environ['CONFIG_FILE'] = str(config_path)
+
+        os.environ["CONFIG_FILE"] = str(config_path)
 
         if tui:
             # Launch TUI interface
@@ -124,17 +127,18 @@ def chat(project: str, config: str, tui: bool):
 
     except KeyboardInterrupt:
         console.print("\n\n👋 Goodbye!", style=Styles.WARNING)
-        raise click.Abort()
+        raise click.Abort() from None
     except Exception as e:
         console.print(f"\n❌ Error: {e}", style=Styles.ERROR)
         # Show more details in verbose mode
         import os
+
         if os.environ.get("DEBUG"):
             import traceback
+
             console.print(traceback.format_exc(), style=Styles.DIM)
-        raise click.Abort()
+        raise click.Abort() from None
 
 
 if __name__ == "__main__":
     chat()
-

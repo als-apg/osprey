@@ -32,7 +32,6 @@ and inter-process communication.
    :mod:`osprey.base.planning` : Execution planning and step management
 """
 
-
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -118,12 +117,13 @@ class ExecutionResult:
        :class:`ExecutionError` : Structured error information for failures
        :class:`ExecutionRecord` : Historical execution records with steps
     """
+
     success: bool
     data: Any | None = None
     error: ExecutionError | None = None
     execution_time: float | None = None  # Duration in seconds
-    start_time: datetime | None = None   # When execution started
-    end_time: datetime | None = None     # When execution completed
+    start_time: datetime | None = None  # When execution started
+    end_time: datetime | None = None  # When execution completed
 
 
 @dataclass
@@ -207,7 +207,8 @@ class ExecutionRecord:
        :class:`ExecutionResult` : Individual execution outcome data
        :mod:`osprey.base.planning` : Execution planning system
     """
-    step: 'PlannedStep'  # Import handled at runtime
+
+    step: "PlannedStep"  # Import handled at runtime
     start_time: datetime
     result: ExecutionResult
     end_time: datetime | None = None
@@ -275,4 +276,7 @@ class CapabilityMatch(BaseModel):
        :class:`TaskClassifierGuide` : Classification guidance for capabilities
        :class:`ClassifierExample` : Few-shot examples for classification
     """
-    is_match: bool = Field(description="A boolean (true or false) indicating if the user's request matches the capability.")
+
+    is_match: bool = Field(
+        description="A boolean (true or false) indicating if the user's request matches the capability."
+    )

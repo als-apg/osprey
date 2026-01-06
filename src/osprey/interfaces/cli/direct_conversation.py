@@ -16,12 +16,7 @@ import os
 import uuid
 from typing import Any
 
-# Load environment variables before any other imports
 from dotenv import load_dotenv
-
-load_dotenv()
-
-
 from langgraph.checkpoint.memory import MemorySaver
 
 # Modern CLI dependencies
@@ -32,6 +27,9 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.shortcuts import clear
 from prompt_toolkit.styles import Style
+from rich.box import HEAVY
+from rich.panel import Panel
+
 # Centralized styles
 from osprey.cli.styles import OspreyColors, Styles, console
 
@@ -43,6 +41,9 @@ from osprey.infrastructure.gateway import Gateway
 from osprey.registry import get_registry, initialize_registry
 from osprey.utils.config import get_full_configuration
 from osprey.utils.logger import get_logger
+
+# Load environment variables after imports
+load_dotenv()
 
 logger = get_logger("cli")
 
@@ -145,29 +146,27 @@ class CLI:
         self.key_bindings = self._create_key_bindings()
 
         # Create custom style with dark completion menu background using centralized theme
-        self.prompt_style = Style.from_dict({
-            'prompt': f'{OspreyColors.PRIMARY} bold',
-            'suggestion': f'{OspreyColors.TEXT_DIM} italic',
-
-            # Dark completion menu styling
-            'completion-menu': f'bg:{OspreyColors.BG_SELECTED}',
-            'completion-menu.completion': f'bg:{OspreyColors.BG_SELECTED}',
-            'completion-menu.completion.current': f'bg:{OspreyColors.BG_HIGHLIGHT}',
-            'completion-menu.scrollbar': OspreyColors.BORDER_DIM,
-            'completion-menu.scrollbar.background': OspreyColors.BG_SELECTED,
-
-            # Fallback styles
-            'completion': f'bg:{OspreyColors.BG_SELECTED}',
-            'completion.current': f'bg:{OspreyColors.BG_HIGHLIGHT}',
-            'scrollbar': OspreyColors.BORDER_DIM,
-            'scrollbar.background': OspreyColors.BG_SELECTED,
-        })
+        self.prompt_style = Style.from_dict(
+            {
+                "prompt": f"{OspreyColors.PRIMARY} bold",
+                "suggestion": f"{OspreyColors.TEXT_DIM} italic",
+                # Dark completion menu styling
+                "completion-menu": f"bg:{OspreyColors.BG_SELECTED}",
+                "completion-menu.completion": f"bg:{OspreyColors.BG_SELECTED}",
+                "completion-menu.completion.current": f"bg:{OspreyColors.BG_HIGHLIGHT}",
+                "completion-menu.scrollbar": OspreyColors.BORDER_DIM,
+                "completion-menu.scrollbar.background": OspreyColors.BG_SELECTED,
+                # Fallback styles
+                "completion": f"bg:{OspreyColors.BG_SELECTED}",
+                "completion.current": f"bg:{OspreyColors.BG_HIGHLIGHT}",
+                "scrollbar": OspreyColors.BORDER_DIM,
+                "scrollbar.background": OspreyColors.BG_SELECTED,
+            }
+        )
 
         # Initialize command system
         self.command_context = CommandContext(
-            interface_type="cli",
-            cli_instance=self,
-            console=self.console
+            interface_type="cli", cli_instance=self, console=self.console
         )
         self.command_completer = UnifiedCommandCompleter(self.command_context)
 
@@ -192,7 +191,7 @@ class CLI:
         """
         bindings = KeyBindings()
 
-        @bindings.add('c-l')  # Ctrl+L to clear screen
+        @bindings.add("c-l")  # Ctrl+L to clear screen
         def _(event):
             """Clear the screen."""
             clear()
@@ -228,9 +227,9 @@ class CLI:
             style=self.prompt_style,
             completer=self.command_completer,
             mouse_support=False,  # Disable to allow normal terminal scrolling
-            complete_style='multi-column',
+            complete_style="multi-column",
             enable_suspend=True,  # Allow Ctrl+Z
-            reserve_space_for_menu=8  # Reserve space for completion menu
+            reserve_space_for_menu=8,  # Reserve space for completion menu
         )
 
     async def initialize(self):
@@ -276,9 +275,13 @@ class CLI:
         """
         # Simple startup message (no banner in chat)
         self.console.print()
-        self.console.print(f"[{Styles.PRIMARY}]Osprey Chat Interface[/{Styles.PRIMARY}]", style="bold")
+        self.console.print(
+            f"[{Styles.PRIMARY}]Osprey Chat Interface[/{Styles.PRIMARY}]", style="bold"
+        )
         self.console.print(f"[{Styles.DIM}]Type 'bye' or 'end' to exit[/{Styles.DIM}]")
-        self.console.print(f"[{Styles.DIM}]Use slash commands (/) for quick actions - try /help[/{Styles.DIM}]")
+        self.console.print(
+            f"[{Styles.DIM}]Use slash commands (/) for quick actions - try /help[/{Styles.DIM}]"
+        )
         self.console.print()
 
         # Initialize configuration using LangGraph config
@@ -291,23 +294,23 @@ class CLI:
         # Use explicit config_path if provided (clean, no side effects)
         # This also sets it as the default config for all subsequent config access
         configurable = get_full_configuration(config_path=self.config_path).copy()
-        configurable.update({
-            "user_id": "cli_user",
-            "thread_id": self.thread_id,
-            "chat_id": "cli_chat",
-            "session_id": self.thread_id,
-            "interface_context": "cli"
-        })
+        configurable.update(
+            {
+                "user_id": "cli_user",
+                "thread_id": self.thread_id,
+                "chat_id": "cli_chat",
+                "session_id": self.thread_id,
+                "interface_context": "cli",
+            }
+        )
 
         # Add recursion limit to runtime config
         from osprey.utils.config import get_config_value
+
         # Config is now set as default, so we don't need to pass config_path
         recursion_limit = get_config_value("execution_limits.graph_recursion_limit")
 
-        self.base_config = {
-            "configurable": configurable,
-            "recursion_limit": recursion_limit
-        }
+        self.base_config = {"configurable": configurable, "recursion_limit": recursion_limit}
 
         # Initialize framework
         self.console.print(f"[{Styles.INFO}]🔄 Initializing framework...[/{Styles.INFO}]")
@@ -322,11 +325,19 @@ class CLI:
         # Initialize modern prompt session
         self.prompt_session = self._create_prompt_session()
 
-        self.console.print(f"[{Styles.SUCCESS}]✅ Framework initialized! Thread ID: {self.thread_id}[/{Styles.SUCCESS}]")
-        self.console.print(f"[{Styles.DIM}]  • Use ↑/↓ arrow keys to navigate command history[/{Styles.DIM}]")
-        self.console.print(f"[{Styles.DIM}]  • Use ←/→ arrow keys to edit current line[/{Styles.DIM}]")
+        self.console.print(
+            f"[{Styles.SUCCESS}]✅ Framework initialized! Thread ID: {self.thread_id}[/{Styles.SUCCESS}]"
+        )
+        self.console.print(
+            f"[{Styles.DIM}]  • Use ↑/↓ arrow keys to navigate command history[/{Styles.DIM}]"
+        )
+        self.console.print(
+            f"[{Styles.DIM}]  • Use ←/→ arrow keys to edit current line[/{Styles.DIM}]"
+        )
         self.console.print(f"[{Styles.DIM}]  • Press Ctrl+L to clear screen[/{Styles.DIM}]")
-        self.console.print(f"[{Styles.DIM}]  • Type 'bye' or 'end' to exit, or press Ctrl+C[/{Styles.DIM}]")
+        self.console.print(
+            f"[{Styles.DIM}]  • Type 'bye' or 'end' to exit, or press Ctrl+C[/{Styles.DIM}]"
+        )
         self.console.print()
 
     async def run(self):
@@ -383,8 +394,7 @@ class CLI:
             try:
                 # Use modern prompt with rich formatting and history
                 user_input = await self.prompt_session.prompt_async(
-                    HTML('<prompt>👤 You: </prompt>'),
-                    style=self.prompt_style
+                    HTML("<prompt>👤 You: </prompt>"), style=self.prompt_style
                 )
                 user_input = user_input.strip()
 
@@ -398,7 +408,7 @@ class CLI:
                     continue
 
                 # Handle slash commands using centralized system
-                if user_input.startswith('/'):
+                if user_input.startswith("/"):
                     # Update command context with current state
                     self.command_context.config = self.base_config
                     self.command_context.gateway = self.gateway
@@ -407,7 +417,9 @@ class CLI:
                     try:
                         if self.graph and self.base_config:
                             current_state = self.graph.get_state(config=self.base_config)
-                            self.command_context.agent_state = current_state.values if current_state else None
+                            self.command_context.agent_state = (
+                                current_state.values if current_state else None
+                            )
                         else:
                             self.command_context.agent_state = None
                     except Exception:
@@ -540,11 +552,7 @@ class CLI:
         self.console.print(f"[{Styles.INFO}]🔄 Processing: {user_input}[/{Styles.INFO}]")
 
         # Gateway handles all preprocessing
-        result = await self.gateway.process_message(
-            user_input,
-            self.graph,
-            self.base_config
-        )
+        result = await self.gateway.process_message(user_input, self.graph, self.base_config)
 
         # Handle result
         if result.error:
@@ -553,14 +561,18 @@ class CLI:
 
         # Show slash command processing if any
         if result.slash_commands_processed:
-            self.console.print(f"[{Styles.SUCCESS}]✅ Processed commands: {result.slash_commands_processed}[/{Styles.SUCCESS}]")
+            self.console.print(
+                f"[{Styles.SUCCESS}]✅ Processed commands: {result.slash_commands_processed}[/{Styles.SUCCESS}]"
+            )
 
         # Execute the result
         if result.resume_command:
             self.console.print(f"[{Styles.INFO}]🔄 Resuming from interrupt...[/{Styles.INFO}]")
             # Resume commands come from gateway - execute with streaming
             try:
-                async for chunk in self.graph.astream(result.resume_command, config=self.base_config, stream_mode="custom"):
+                async for chunk in self.graph.astream(
+                    result.resume_command, config=self.base_config, stream_mode="custom"
+                ):
                     # Handle streaming updates if enabled (centralized logic)
                     self._handle_streaming_update(chunk)
 
@@ -570,12 +582,13 @@ class CLI:
                 # Check for additional interrupts
                 if state.interrupts:
                     interrupt = state.interrupts[0]
-                    user_message = interrupt.value.get('user_message', 'Additional approval required')
+                    user_message = interrupt.value.get(
+                        "user_message", "Additional approval required"
+                    )
                     self.console.print(f"\n[{Styles.WARNING}]{user_message}[/{Styles.WARNING}]")
 
                     user_input = await self.prompt_session.prompt_async(
-                        HTML('<prompt>👤 You: </prompt>'),
-                        style=self.prompt_style
+                        HTML("<prompt>👤 You: </prompt>"), style=self.prompt_style
                     )
                     user_input = user_input.strip()
                     await self._process_user_input(user_input)
@@ -589,7 +602,9 @@ class CLI:
         elif result.agent_state:
             # Debug: Show execution step results count in fresh state
             step_results = result.agent_state.get("execution_step_results", {})
-            self.console.print(f"[{Styles.INFO}]🔄 Starting new conversation turn (execution_step_results: {len(step_results)} records)...[/{Styles.INFO}]")
+            self.console.print(
+                f"[{Styles.INFO}]🔄 Starting new conversation turn (execution_step_results: {len(step_results)} records)...[/{Styles.INFO}]"
+            )
             await self._execute_result(result.agent_state)
         else:
             self.console.print(f"[{Styles.WARNING}]⚠️  No action required[/{Styles.WARNING}]")
@@ -650,7 +665,9 @@ class CLI:
 
         try:
             # Use streaming for real-time updates
-            async for chunk in self.graph.astream(input_data, config=self.base_config, stream_mode="custom"):
+            async for chunk in self.graph.astream(
+                input_data, config=self.base_config, stream_mode="custom"
+            ):
                 # Handle streaming updates if enabled (centralized logic)
                 self._handle_streaming_update(chunk)
 
@@ -665,13 +682,24 @@ class CLI:
                 interrupt_value = interrupt.value
 
                 # Extract user message from interrupt data
-                user_message = interrupt_value.get('user_message', 'Approval required')
-                self.console.print(f"\n[{Styles.WARNING}]{user_message}[/{Styles.WARNING}]")
+                user_message = interrupt_value.get("user_message", "Approval required")
+
+                # Display approval message in a stylish panel with heavy border
+                self.console.print("\n")  # Add spacing before panel
+                self.console.print(
+                    Panel(
+                        user_message,
+                        title="[bold red]⚠️  HUMAN APPROVAL REQUIRED[/bold red]",
+                        subtitle="[dim]Respond with 'yes' or 'no'[/dim]",
+                        border_style="yellow",
+                        box=HEAVY,
+                        padding=(1, 2),
+                    )
+                )
 
                 # Get user input for approval
                 user_input = await self.prompt_session.prompt_async(
-                    HTML('<prompt>👤 You: </prompt>'),
-                    style=self.prompt_style
+                    HTML("<prompt>👤 You: </prompt>"), style=self.prompt_style
                 )
                 user_input = user_input.strip()
 
@@ -753,7 +781,9 @@ class CLI:
 
         # Debug: Show execution step results count after execution
         step_results = result.get("execution_step_results", {})
-        self.console.print(f"[{Styles.INFO}]📊 Execution completed (execution_step_results: {len(step_results)} records)[/{Styles.INFO}]")
+        self.console.print(
+            f"[{Styles.INFO}]📊 Execution completed (execution_step_results: {len(step_results)} records)[/{Styles.INFO}]"
+        )
 
         # Extract and display the main text response
         text_response = None
@@ -761,8 +791,8 @@ class CLI:
         if messages:
             # Get the latest AI message
             for msg in reversed(messages):
-                if hasattr(msg, 'content') and msg.content:
-                    if not hasattr(msg, 'type') or msg.type != 'human':
+                if hasattr(msg, "content") and msg.content:
+                    if not hasattr(msg, "type") or msg.type != "human":
                         text_response = msg.content
                         self.console.print(f"[{Styles.SUCCESS}]🤖 {msg.content}[/{Styles.SUCCESS}]")
                         break
@@ -844,11 +874,12 @@ class CLI:
                 if messages:
                     # Get the latest AI message
                     for msg in reversed(messages):
-                        if hasattr(msg, 'content') and msg.content:
-                            if not hasattr(msg, 'type') or msg.type != 'human':
-                                self.console.print(f"[{Styles.SUCCESS}]🤖 {msg.content}[/{Styles.SUCCESS}]")
+                        if hasattr(msg, "content") and msg.content:
+                            if not hasattr(msg, "type") or msg.type != "human":
+                                self.console.print(
+                                    f"[{Styles.SUCCESS}]🤖 {msg.content}[/{Styles.SUCCESS}]"
+                                )
                                 return
-
 
         # If no response found, show completion
         self.console.print(f"[{Styles.SUCCESS}]✅ Execution completed[/{Styles.SUCCESS}]")
@@ -881,7 +912,9 @@ class CLI:
                 logger.debug("No figures found in ui_captured_figures registry")
                 return None
 
-            logger.info(f"Processing {len(ui_figures)} figures from centralized registry for CLI display")
+            logger.info(
+                f"Processing {len(ui_figures)} figures from centralized registry for CLI display"
+            )
             figure_lines = ["📊 Generated Figures:"]
 
             for figure_entry in ui_figures:
@@ -892,7 +925,11 @@ class CLI:
                     created_at = figure_entry.get("created_at", "unknown")
 
                     # Format created_at if it's available
-                    created_at_str = str(created_at)[:19] if created_at and created_at != "unknown" else "unknown time"
+                    created_at_str = (
+                        str(created_at)[:19]
+                        if created_at and created_at != "unknown"
+                        else "unknown time"
+                    )
 
                     # Create CLI-friendly display
                     figure_line = f"• {figure_path} (created by {capability} at {created_at_str})"
@@ -904,7 +941,7 @@ class CLI:
                     continue
 
             if len(figure_lines) > 1:  # More than just the header
-                return '\n'.join(figure_lines)
+                return "\n".join(figure_lines)
 
             return None
 
@@ -939,7 +976,9 @@ class CLI:
                 logger.debug("No commands found in ui_launchable_commands registry")
                 return None
 
-            logger.info(f"Processing {len(ui_commands)} commands from centralized registry for CLI display")
+            logger.info(
+                f"Processing {len(ui_commands)} commands from centralized registry for CLI display"
+            )
             command_lines = ["🚀 Executable Commands:"]
 
             for i, command_entry in enumerate(ui_commands, 1):
@@ -958,7 +997,7 @@ class CLI:
                     continue
 
             if len(command_lines) > 1:  # More than just the header
-                return '\n'.join(command_lines)
+                return "\n".join(command_lines)
 
             return None
 
@@ -993,7 +1032,9 @@ class CLI:
                 logger.debug("No notebook links found in ui_notebook_links registry")
                 return None
 
-            logger.info(f"Processing {len(ui_notebooks)} notebook links from centralized registry for CLI display")
+            logger.info(
+                f"Processing {len(ui_notebooks)} notebook links from centralized registry for CLI display"
+            )
             notebook_lines = ["📓 Generated Notebooks:"]
 
             for i, notebook_link in enumerate(ui_notebooks, 1):
@@ -1002,7 +1043,7 @@ class CLI:
                 notebook_lines.append(notebook_line)
 
             if len(notebook_lines) > 1:  # More than just the header
-                return '\n'.join(notebook_lines)
+                return "\n".join(notebook_lines)
 
             return None
 

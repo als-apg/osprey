@@ -206,7 +206,7 @@ def capability_node(cls):
             )
         if isinstance(execute_attr, property):
             raise ValueError(
-                f"Capability {cls.__name__}.execute() cannot be a property. " f"Must be a method."
+                f"Capability {cls.__name__}.execute() cannot be a property. Must be a method."
             )
         if not callable(execute_attr):
             raise ValueError(f"Capability {cls.__name__}.execute must be callable.")
@@ -572,7 +572,6 @@ def infrastructure_node(cls=None, *, quiet=False):
 
 
 def _create_infrastructure_node(cls, quiet=False):
-
     # Extract required components using reflection
     node_name = getattr(cls, "name", None)
     description = getattr(cls, "description", None)

@@ -1,27 +1,53 @@
-"""Shared fixtures for capability tests."""
+"""Shared fixtures for capability tests.
 
-import sys
+NOTE: This conftest.py mocks the registry for capability unit tests.
+Do NOT run these tests together with e2e tests - run them separately:
+  - Unit tests: pytest tests/ --ignore=tests/e2e
+  - E2E tests:   pytest tests/e2e/
+"""
+
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 
+from osprey.state import AgentState
 
-def pytest_configure(config):
-    """Configure pytest to mock registry before any imports."""
-    # Create mock registry
+
+@pytest.fixture(autouse=True, scope="function")
+def mock_registry_for_capability_tests():
+    """Mock the registry for capability unit tests.
+
+    This fixture automatically applies to all tests in the capabilities directory.
+    It mocks the registry to avoid requiring full framework initialization for unit tests.
+    The mock is properly cleaned up after each test to avoid polluting other test modules.
+    """
+    # Save the original registry and get_registry function
+    import osprey.registry.manager
+
+    original_registry = osprey.registry.manager._registry
+    original_get_registry = osprey.registry.manager.get_registry
+
+    # Create mock registry for capability unit tests
     mock_reg = MagicMock()
     mock_reg.context_types = MagicMock()
     mock_reg.services = MagicMock()
 
-    # Mock the get_registry function at module level
-    import osprey.registry.manager
+    # Mock registry methods to avoid isinstance() errors
+    mock_reg._registries = {}  # Empty dict to bypass validation
+    mock_reg.is_valid_context_type = MagicMock(return_value=True)
+    mock_reg.get_context_class = MagicMock(return_value=None)  # Return None to skip type validation
+    mock_reg.get_all_context_types = MagicMock(return_value=[])
 
+    # Replace with mock for this test
     osprey.registry.manager._registry = mock_reg
-    osprey.registry.manager.get_registry = lambda: mock_reg
+    osprey.registry.manager.get_registry = lambda **kwargs: mock_reg
 
+    yield
 
-from osprey.state import AgentState
+    # Restore original registry after test
+    osprey.registry.manager._registry = original_registry
+    osprey.registry.manager.get_registry = original_get_registry
 
 
 @pytest.fixture

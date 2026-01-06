@@ -5,34 +5,37 @@ Defines all dataclasses used for benchmark entries, results, and evaluation metr
 """
 
 from dataclasses import dataclass
-from typing import List, Dict, Any, Optional
+from typing import Any
 
 
 @dataclass
 class QueryBenchmarkEntry:
     """Single benchmark entry from dataset."""
+
     user_query: str
-    targeted_pv: List[str]
-    details: Optional[str] = None
+    targeted_pv: list[str]
+    details: str | None = None
 
 
 @dataclass
 class QueryRunResult:
     """Result from a single run of a query."""
+
     run_number: int
-    found_pvs: List[str]
+    found_pvs: list[str]
     success: bool
-    error: Optional[str] = None
+    error: str | None = None
     execution_time_seconds: float = 0.0
 
 
 @dataclass
 class QueryEvaluation:
     """Evaluation metrics for a single query across all runs."""
+
     query_index: int
     user_query: str
-    expected_pvs: List[str]
-    details: Optional[str]
+    expected_pvs: list[str]
+    details: str | None
 
     # Aggregate across all runs
     total_runs: int
@@ -41,7 +44,7 @@ class QueryEvaluation:
 
     # Best run metrics (run with highest F1 score)
     best_run_number: int
-    best_found_pvs: List[str]
+    best_found_pvs: list[str]
     best_true_positives: int
     best_false_positives: int
     best_false_negatives: int
@@ -59,15 +62,16 @@ class QueryEvaluation:
     unique_results_count: int  # How many different result sets?
 
     # Individual run details
-    runs: List[QueryRunResult]
+    runs: list[QueryRunResult]
 
 
 @dataclass
 class BenchmarkResults:
     """Complete benchmark results."""
+
     benchmark_name: str
     timestamp: str
-    config_snapshot: Dict[str, Any]
+    config_snapshot: dict[str, Any]
 
     # Dataset info
     total_queries: int
@@ -84,9 +88,8 @@ class BenchmarkResults:
     no_matches: int  # Queries with F1 = 0.0
 
     # Per-query results
-    query_evaluations: List[QueryEvaluation]
+    query_evaluations: list[QueryEvaluation]
 
     # Summary statistics
     avg_consistency_score: float
     avg_execution_time: float
-

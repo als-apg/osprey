@@ -9,10 +9,13 @@ Demonstrates essential capability patterns including:
 - Error handling and retry policies
 - Orchestrator and classifier guidance
 
-Supported locations: San Francisco (default), New York, Prague
+Supports San Francisco, New York, Prague, and defaults to local weather.
 """
 
+import asyncio
+import logging
 from typing import Dict, Any, Optional
+from pydantic import BaseModel, Field
 
 from osprey.base import (
     BaseCapability, capability_node,
@@ -20,13 +23,109 @@ from osprey.base import (
     ClassifierActions, ClassifierExample, TaskClassifierGuide
 )
 from osprey.base.errors import ErrorClassification, ErrorSeverity
+from osprey.models import get_chat_completion
 from osprey.registry import get_registry
 from osprey.state import AgentState, StateManager
+from osprey.utils.config import get_model_config
 
 from {{ package_name }}.context_classes import CurrentWeatherContext
 from {{ package_name }}.mock_weather_api import weather_api
 
-registry = get_registry()
+logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Private Helper: LLM-based Location Extraction
+# =============================================================================
+
+class _ParsedWeatherQuery(BaseModel):
+    """Internal model for parsed weather query location."""
+    location: str = Field(
+        description=(
+            "The location for which weather is requested. "
+            "Can be a city name like 'San Francisco', 'New York', 'Prague', "
+            "or 'local' if no specific location was mentioned in the query."
+        )
+    )
+
+
+async def _parse_location_from_query(query: str) -> str:
+    """
+    Extract location from weather query using LLM.
+
+    Private helper function that uses structured output to parse location
+    from natural language queries. Handles variations, nicknames, and
+    defaults to "local" when no location is specified.
+
+    Args:
+        query: User's weather query
+
+    Returns:
+        Extracted location string (or "local" as fallback)
+    """
+    # Clear, example-driven prompt for reliable location extraction
+    prompt = f"""You are a location extraction assistant. Extract the location from weather queries.
+
+Task: Given a weather query, extract the location name.
+
+Rules:
+1. If a city is mentioned explicitly, return the city name in title case
+2. Recognize common nicknames and abbreviations:
+   - "Big Apple", "NYC" → "New York"
+   - "SF", "Bay Area" → "San Francisco"
+   - "Praha" → "Prague"
+3. If NO location is mentioned, return exactly "local" (lowercase)
+4. If multiple locations appear, return the primary one being asked about
+
+Examples:
+- Query: "What's the weather in Paris?" → location: "Paris"
+- Query: "How's it in the Big Apple?" → location: "New York"
+- Query: "Is it nice in SF?" → location: "San Francisco"
+- Query: "What's the weather like?" → location: "local"
+- Query: "Should I bring an umbrella?" → location: "local"
+
+Now extract the location from this query:
+Query: "{query}"
+
+Return ONLY the location name (or "local" if no location mentioned)."""
+
+    model_config = get_model_config("orchestrator")
+
+    try:
+        logger.debug(f"Parsing location from query: {query}")
+
+        # Set caller context for API call logging (propagates through asyncio.to_thread)
+        from osprey.models import set_api_call_context
+
+        set_api_call_context(
+            function="_parse_location_from_query",
+            module="current_weather",
+            class_name="CurrentWeatherCapability",
+            extra={"capability": "current_weather", "stage": "location_parsing"},
+        )
+
+        parsed_result = await asyncio.to_thread(
+            get_chat_completion,
+            message=prompt,
+            model_config=model_config,
+            output_model=_ParsedWeatherQuery,
+            max_tokens=50,  # Only need a location name
+            temperature=0.0
+        )
+
+        location = parsed_result.location
+        logger.debug(f"Parsed location: {location}")
+        return location
+
+    except Exception as e:
+        logger.error(f"Failed to parse location from query: {e}")
+        logger.warning("Falling back to 'local' location")
+        return "local"
+
+
+# =============================================================================
+# Capability Implementation
+# =============================================================================
 
 @capability_node
 class CurrentWeatherCapability(BaseCapability):
@@ -55,14 +154,8 @@ class CurrentWeatherCapability(BaseCapability):
 
         try:
             # Extract location from user's query
-            query = self.get_task_objective().lower()
-
-            # Simple location detection (San Francisco is default)
-            location = "San Francisco"
-            if "new york" in query or "nyc" in query:
-                location = "New York"
-            elif "prague" in query or "praha" in query:
-                location = "Prague"
+            query = self.get_task_objective()
+            location = await _parse_location_from_query(query)
 
             # Get weather data
             logger.status(f"Getting weather for {location}...")
@@ -201,12 +294,12 @@ class CurrentWeatherCapability(BaseCapability):
                 context_key="current_weather",
                 capability="current_weather",
                 task_objective="Get current weather conditions for the specified location",
-                expected_output=registry.context_types.CURRENT_WEATHER,
+                expected_output="CURRENT_WEATHER",
                 success_criteria="Current weather data retrieved with temperature and conditions",
                 inputs=[]
             ),
             scenario_description="Getting current weather for a location",
-            notes=f"Output stored as {registry.context_types.CURRENT_WEATHER} with live weather data."
+            notes="Output stored as CURRENT_WEATHER with live weather data."
         )
 
         # Example 2: Complete workflow with response generation using weather data
@@ -219,13 +312,13 @@ class CurrentWeatherCapability(BaseCapability):
                 expected_output="FINAL_RESPONSE",
                 success_criteria="User receives clear response with temperature information",
                 inputs=[{
-                    registry.context_types.CURRENT_WEATHER: "current_weather"
+                    "CURRENT_WEATHER": "current_weather"
                 }]
             ),
             scenario_description="Complete workflow: weather retrieval followed by response generation",
-            notes=f"""This shows the SECOND step in a two-step plan:
+            notes="""This shows the SECOND step in a two-step plan:
 Step 1: current_weather capability (context_key='current_weather') retrieves weather data
-Step 2: respond capability uses that data via inputs=[{{ '{{' }}registry.context_types.CURRENT_WEATHER: 'current_weather'{{ '}}' }}]
+Step 2: respond capability uses that data via inputs=[{{ '{{' }}'CURRENT_WEATHER': 'current_weather'{{ '}}' }}]
 
 CRITICAL: The respond step MUST reference the weather data from Step 1 in its inputs list."""
         )
@@ -236,18 +329,18 @@ CRITICAL: The respond step MUST reference the weather data from Step 1 in its in
 - For real-time weather information requests
 - When location-specific current conditions are needed
 
-**Output: {registry.context_types.CURRENT_WEATHER}**
+**Output: CURRENT_WEATHER**
 - Contains: location, temperature, conditions, timestamp
 - Available for immediate display or further analysis
 
 **Location Support:**
 - Supports: San Francisco, New York, Prague
-- Defaults to San Francisco if location not specified
+- Defaults to "local" weather when no location is specified
 
 **Multi-Step Planning:**
 When weather data needs to be communicated to the user, plan TWO steps:
 1. current_weather step (retrieves data)
-2. respond step with inputs=[{{ '{{' }}registry.context_types.CURRENT_WEATHER: '<weather_step_key>'{{ '}}' }}]
+2. respond step with inputs=[{{ '{{' }}'CURRENT_WEATHER': '<weather_step_key>'{{ '}}' }}]
 The respond step MUST include the weather data in its inputs list to access the retrieved information.""",
             examples=[example_single_step, example_with_response],
             order=5

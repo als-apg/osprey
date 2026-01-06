@@ -12,4 +12,3 @@ the CLI scaffolding commands (osprey init, osprey create-example, etc.).
 """
 
 __all__ = []
-

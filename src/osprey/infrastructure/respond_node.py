@@ -122,6 +122,16 @@ class RespondCapability(BaseCapability):
             # Log prompt for TUI display
             logger.info("LLM prompt built", llm_prompt=prompt, stream=False)
 
+            # Set caller context for API call logging (propagates through asyncio.to_thread)
+            from osprey.models import set_api_call_context
+
+            set_api_call_context(
+                function="execute",
+                module="respond_node",
+                class_name="RespondCapability",
+                extra={"capability": "respond"},
+            )
+
             # Single LLM call - run in thread pool to avoid blocking event loop for streaming
             response = await asyncio.to_thread(
                 get_chat_completion,
@@ -310,7 +320,7 @@ def _get_capabilities_overview() -> str:
     """Get capabilities overview for conversational mode."""
     try:
         return get_registry().get_capabilities_overview()
-    except:
+    except Exception:
         return "General AI Assistant capabilities available"
 
 

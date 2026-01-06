@@ -24,7 +24,7 @@ class Action:
     class Valves(BaseModel):
         memory_base_path: str = Field(
             default=os.getenv("USER_MEMORY_DIR", "/app/user_memory"),
-            description="Base directory path for user memory files (mounted from host user_memory directory)"
+            description="Base directory path for user memory files (mounted from host user_memory directory)",
         )
 
     class UserValves(BaseModel):
@@ -58,6 +58,7 @@ class Action:
         try:
             # DEBUG: Print extensive debug information
             import os
+
             logger.info(f"DEBUG: Current working directory: {os.getcwd()}")
             logger.info(f"DEBUG: Memory base path setting: {self.valves.memory_base_path}")
             logger.info(f"DEBUG: User ID received: '{user_id}'")
@@ -76,15 +77,19 @@ class Action:
             if memory_dir.exists():
                 try:
                     dir_contents = list(memory_dir.iterdir())
-                    logger.info(f"DEBUG: Memory directory contents: {[str(f) for f in dir_contents]}")
+                    logger.info(
+                        f"DEBUG: Memory directory contents: {[str(f) for f in dir_contents]}"
+                    )
                 except Exception as dir_e:
                     logger.error(f"DEBUG: Error listing directory contents: {dir_e}")
 
             if memory_file.exists():
                 logger.info("DEBUG: Memory file found, attempting to read...")
-                with open(memory_file, encoding='utf-8') as f:
+                with open(memory_file, encoding="utf-8") as f:
                     data = json.load(f)
-                logger.info(f"DEBUG: Successfully loaded memory data with {len(data.get('entries', []))} entries")
+                logger.info(
+                    f"DEBUG: Successfully loaded memory data with {len(data.get('entries', []))} entries"
+                )
                 return data
             else:
                 logger.info("DEBUG: Memory file does not exist, returning empty structure")
@@ -93,7 +98,7 @@ class Action:
                     "user_id": user_id,
                     "created": datetime.now().strftime("%Y-%m-%d %H:%M"),
                     "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                    "entries": []
+                    "entries": [],
                 }
         except Exception as e:
             logger.error(f"DEBUG: Exception in _load_memory_data: {type(e).__name__}: {e}")
@@ -149,19 +154,21 @@ class Action:
                 data["created"] = data["last_updated"]
 
             # Atomic write: write to temp file first, then rename
-            temp_file = memory_file.with_suffix('.tmp')
-            with open(temp_file, 'w', encoding='utf-8') as f:
+            temp_file = memory_file.with_suffix(".tmp")
+            with open(temp_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
 
             # Rename temp file to actual file (atomic operation on most filesystems)
             temp_file.rename(memory_file)
 
-            logger.info(f"Successfully saved memory for user {user_id} with {len(data.get('entries', []))} entries")
+            logger.info(
+                f"Successfully saved memory for user {user_id} with {len(data.get('entries', []))} entries"
+            )
             return True
         except Exception as e:
             logger.error(f"Error saving memory for user {user_id}: {e}")
             # Clean up temp file if it exists
-            temp_file = self._get_memory_file_path(user_id).with_suffix('.tmp')
+            temp_file = self._get_memory_file_path(user_id).with_suffix(".tmp")
             if temp_file.exists():
                 temp_file.unlink()
             return False
@@ -268,7 +275,7 @@ class Action:
         """Create an interactive memory editing interface using JavaScript."""
 
         entries = data.get("entries", [])
-        entries_json = json.dumps(entries).replace('"', '\\"').replace('\n', '\\n')
+        entries_json = json.dumps(entries).replace('"', '\\"').replace("\n", "\\n")
 
         await __event_emitter__(
             {
@@ -674,7 +681,9 @@ class Action:
         __event_call__=None,
     ) -> dict | None:
         """Main action handler for memory manager."""
-        logger.info(f"Memory Manager Action - User: {__user__.get('name', 'Unknown')}, ID: {__user__.get('id', 'Unknown')}")
+        logger.info(
+            f"Memory Manager Action - User: {__user__.get('name', 'Unknown')}, ID: {__user__.get('id', 'Unknown')}"
+        )
 
         user_valves = __user__.get("valves")
         if not user_valves:
@@ -724,7 +733,10 @@ class Action:
                         await __event_emitter__(
                             {
                                 "type": "notification",
-                                "data": {"type": "info", "content": "Backup created before editing"},
+                                "data": {
+                                    "type": "info",
+                                    "content": "Backup created before editing",
+                                },
                             }
                         )
 
@@ -742,7 +754,10 @@ class Action:
                         await __event_emitter__(
                             {
                                 "type": "notification",
-                                "data": {"type": "success", "content": "Memories saved successfully!"},
+                                "data": {
+                                    "type": "success",
+                                    "content": "Memories saved successfully!",
+                                },
                             }
                         )
                     else:
@@ -756,7 +771,10 @@ class Action:
                     await __event_emitter__(
                         {
                             "type": "notification",
-                            "data": {"type": "error", "content": f"Editor error: {editor_result.get('message', 'Unknown error')}"},
+                            "data": {
+                                "type": "error",
+                                "content": f"Editor error: {editor_result.get('message', 'Unknown error')}",
+                            },
                         }
                     )
                 else:
@@ -783,7 +801,10 @@ class Action:
                             await __event_emitter__(
                                 {
                                     "type": "notification",
-                                    "data": {"type": "success", "content": "Memories saved successfully!"},
+                                    "data": {
+                                        "type": "success",
+                                        "content": "Memories saved successfully!",
+                                    },
                                 }
                             )
                         else:
@@ -797,7 +818,10 @@ class Action:
                         await __event_emitter__(
                             {
                                 "type": "notification",
-                                "data": {"type": "error", "content": f"Editor error: {editor_result.get('message', 'Unknown error')}"},
+                                "data": {
+                                    "type": "error",
+                                    "content": f"Editor error: {editor_result.get('message', 'Unknown error')}",
+                                },
                             }
                         )
                 else:

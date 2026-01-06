@@ -69,9 +69,7 @@ class ClarifyCapability(BaseCapability):
     description = (
         "Ask specific questions when user queries are ambiguous or missing critical details"
     )
-    provides = (
-        []
-    )  # Communication capability - no context output (questions go to user via chat history)
+    provides = []  # Communication capability - no context output (questions go to user via chat history)
     requires = []  # Can work with any execution context
 
     async def execute(self) -> dict[str, Any]:
@@ -85,11 +83,8 @@ class ClarifyCapability(BaseCapability):
         # Explicit logger retrieval - professional practice
         logger = get_logger("clarify")
 
-        # Get step (injected by decorator)
-        step = self._step
-
-        # Extract task_objective from step
-        task_objective = step.get("task_objective", "unknown") if step else "unknown"
+        # Extract task objective using helper method
+        task_objective = self.get_task_objective(default="unknown")
 
         logger.info(f"Clarification task objective: {task_objective}")
 

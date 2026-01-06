@@ -1,6 +1,6 @@
 # {{ app_display_name }}
 
-**A minimal Alpha Berkeley Framework application template optimized for easy integration of your APIs and workflows.**
+**A minimal Osprey Framework application template optimized for easy integration of your APIs and workflows.**
 
 This template is designed to be **LLM-friendly**, **agent-friendly**, and **human-friendly**, with clear documentation and examples showing exactly where to put your code.
 
@@ -8,7 +8,7 @@ This template is designed to be **LLM-friendly**, **agent-friendly**, and **huma
 
 ## 🎯 Purpose
 
-This minimal template provides the simplest starting point for integrating **your custom functionality** into the Alpha Berkeley Framework. It includes:
+This minimal template provides the simplest starting point for integrating **your custom functionality** into the Osprey Framework. It includes:
 
 ✓ **Complete example files** with inline documentation
 ✓ **Clear guidance** on where to put your API calls, data structures, and logic
@@ -110,11 +110,8 @@ class MyAPICapability(BaseCapability):
             timestamp=datetime.now()
         )
 
-        # Store and return
-        return StateManager.store_context(
-            state, "MY_API_RESPONSE",
-            step.get("context_key"), output
-        )
+        # Store and return using helper method
+        return self.store_output_context(output)
 ```
 
 **👉 The template has 200+ lines of documentation explaining every part!**
@@ -524,6 +521,6 @@ print(MyCapability.name, MyCapability.provides, MyCapability.requires)
 
 ---
 
-**You're ready to integrate your functionality into the Alpha Berkeley Framework!**
+**You're ready to integrate your functionality into the Osprey Framework!**
 
 Start by opening `{{ package_name }}/context_classes.py` and `{{ package_name }}/capabilities/example_capability.py.j2` to see complete, documented examples of exactly what to do.

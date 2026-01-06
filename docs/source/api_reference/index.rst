@@ -2,15 +2,6 @@
 API Reference
 =============
 
-.. admonition:: 🚧 Early Access Documentation
-   :class: warning
-
-   This documentation is part of an early access release and is **under active development**.
-   Many sections are still being written, edited, or reorganized.
-   Expect **inconsistencies**, missing content, outdated references, and broken cross-links.
-
-   We welcome feedback! If you find issues or have suggestions, please open an issue on our GitHub page.
-
 **Complete technical reference** for all public APIs in the Osprey Framework. This is your authoritative source for classes, methods, functions, and their precise interfaces. See also the :doc:`../developer-guides/index` for learning-oriented content, then return here when you need specific implementation details.
 
 .. dropdown:: 🎯 API Learning Paths & Quick Navigation

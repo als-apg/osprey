@@ -124,7 +124,7 @@ The ``mock_weather_api.py`` file provides a deterministic weather data provider 
 
    class SimpleWeatherAPI:
        """
-       Mock weather API, returns basic weather data for 3 cities (San Francisco, New York, Prague).
+       Mock weather API that returns weather data for any location string.
        """
 
        def get_current_weather(self, location: str) -> CurrentWeatherReading:
@@ -139,7 +139,7 @@ The ``mock_weather_api.py`` file provides a deterministic weather data provider 
 
       """
       Very simple mock weather API for quick setup.
-      Returns basic weather data for 3 cities (San Francisco, New York, Prague).
+      Accepts any location string and returns randomized weather data.
 
       The weather API returns only the type safe data model for the current weather reading.
       """
@@ -158,35 +158,26 @@ The ``mock_weather_api.py`` file provides a deterministic weather data provider 
       class SimpleWeatherAPI:
           """
           Very simple mock weather API for quick setup.
-          Returns basic weather data for 3 cities (San Francisco, New York, Prague).
+          Accepts any location string and returns randomized weather data.
 
           The weather API returns only the type safe data model for the current weather reading.
           """
 
-          # Simple city data with basic temperature ranges
-          CITY_DATA = {
-              "San Francisco": {"base_temp": 18, "conditions": ["Sunny", "Foggy", "Partly Cloudy"]},
-              "New York": {"base_temp": 15, "conditions": ["Sunny", "Rainy", "Cloudy", "Snow"]},
-              "Prague": {"base_temp": 12, "conditions": ["Rainy", "Cloudy", "Partly Cloudy"]}
-          }
+          # Weather condition options for random selection
+          ALL_CONDITIONS = [
+              "Sunny", "Partly Cloudy", "Cloudy", "Overcast", "Foggy",
+              "Rainy", "Drizzle", "Thunderstorms", "Snow", "Windy", "Clear"
+          ]
 
           def get_current_weather(self, location: str) -> CurrentWeatherReading:
               """Get simple current weather for a location."""
 
-              # Normalize location name
-              location = location.title()
-              if location not in self.CITY_DATA:
-                  # Default to San Francisco if city not found
-                  location = "San Francisco"
-
-              city_info = self.CITY_DATA[location]
-
-              # Simple random weather generation
-              temperature = city_info["base_temp"] + random.randint(-5, 8)
-              conditions = random.choice(city_info["conditions"])
+              # Generate random weather data
+              temperature = random.randint(0, 35)  # Temperature range: 0-35°C
+              conditions = random.choice(self.ALL_CONDITIONS)
 
               return CurrentWeatherReading(
-                  location=location,
+                  location=location,  # Preserve exact location string
                   temperature=float(temperature),
                   conditions=conditions,
                   timestamp=datetime.now()
@@ -344,16 +335,11 @@ The ``execute()`` method contains your main business logic, which you could call
           logger = self.get_logger()
 
           try:
-              logger.status("Extracting location from query...")
-              query = self.get_task_objective().lower()
+              # Extract location from user's query
+              query = self.get_task_objective()
+              location = await _parse_location_from_query(query)
 
-              # Simple location detection
-              location = "San Francisco"  # default
-              if "new york" in query or "nyc" in query:
-                  location = "New York"
-              elif "prague" in query or "praha" in query:
-                  location = "Prague"
-
+              # Get weather data
               logger.status(f"Getting weather for {location}...")
               weather = weather_api.get_current_weather(location)
 
@@ -377,7 +363,7 @@ The ``execute()`` method contains your main business logic, which you could call
 
    1. **Logger Setup** - Get unified logger using self.get_logger()
    2. **Task Retrieval** - Get task of current execution step
-   3. **Location Extraction** - Parse user query to find location (simplified for demo)
+   3. **Location Extraction** - Parse user query to find location
    4. **Data Retrieval** - Call your API/service to get actual data
    5. **Context Creation** - Convert raw data to structured context object
    6. **Context Storage** - Store context so other capabilities and LLM can access it
@@ -452,9 +438,9 @@ The orchestrator guide teaches the LLM how to plan execution steps and use your 
       - Contains: location, temperature, conditions, timestamp
       - Available for immediate display or further analysis
 
-      **Location Support:**
-      - Supports: San Francisco, New York, Prague
-    - Defaults to San Francisco if location not specified""",
+      **Location Handling:**
+      - Extracts locations from natural language queries
+      - Handles variations and common phrasings naturally""",
         examples=[example],
         order=5
     )
@@ -547,16 +533,11 @@ The classifier guide teaches the LLM when to activate your capability based on u
               logger = self.get_logger()
 
               try:
-                  logger.status("Extracting location from query...")
-                  query = self.get_task_objective().lower()
+                  # Extract location from user's query
+                  query = self.get_task_objective()
+                  location = await _parse_location_from_query(query)
 
-                  # Simple location detection
-                  location = "San Francisco"  # default
-                  if "new york" in query or "nyc" in query:
-                      location = "New York"
-                  elif "prague" in query or "praha" in query:
-                      location = "Prague"
-
+                  # Get weather data
                   logger.status(f"Getting weather for {location}...")
                   weather = weather_api.get_current_weather(location)
 
@@ -569,7 +550,7 @@ The classifier guide teaches the LLM when to activate your capability based on u
                   )
 
                   # Store context and return
-                  logger.success(f"Weather retrieved: {location} - {weather.temperature}°C")
+                  logger.status(f"Weather retrieved: {location} - {weather.temperature}°C")
                   return self.store_output_context(context)
 
               except Exception as e:
@@ -626,9 +607,9 @@ The classifier guide teaches the LLM when to activate your capability based on u
           - Contains: location, temperature, conditions, timestamp
           - Available for immediate display or further analysis
 
-          **Location Support:**
-          - Supports: San Francisco, New York, Prague
-          - Defaults to San Francisco if location not specified""",
+          **Location Handling:**
+          - Extracts locations from natural language queries
+          - Handles variations and common phrasings naturally""",
                   examples=[example],
                   order=5
               )
@@ -1062,7 +1043,7 @@ The ``config.yml`` includes:
 .. admonition:: Model Recommendation
    :class: tip
 
-   **We recommend Claude Haiku 4.5** for the best experience. It provides excellent performance, low latency, and works very well with the framework's structured outputs. However, any OpenAI-compatible provider works - including institutional services like LBNL CBorg or Stanford AI Playground.
+   **We recommend Claude Haiku 4.5** for the best experience. It provides excellent performance, low latency, and works very well with the framework's structured outputs. However, any OpenAI-compatible provider works - including institutional services like LBNL CBorg, Stanford AI Playground, or ANL Argo.
 
 **Customization:**
 
@@ -1092,13 +1073,14 @@ Set up your ``.env`` file with your API key:
    # ANTHROPIC_API_KEY=your-key-here     # If using Anthropic (recommended)
    # CBORG_API_KEY=your-key-here         # If using LBNL CBorg
    # STANFORD_API_KEY=your-key-here      # If using Stanford AI Playground
+   # ARGO_API_KEY=your-key-here          # If using ANL Argo
    # OPENAI_API_KEY=your-key-here        # If using OpenAI
    # GOOGLE_API_KEY=your-key-here        # If using Google
 
 .. admonition:: Model Recommendation
    :class: tip
 
-   **We recommend Claude Haiku 4.5** for the best experience. It provides excellent performance, low latency, and works exceptionally well with the framework's structured outputs. However, the framework works with any provider - including institutional services like LBNL CBorg, Stanford AI Playground, or commercial providers like OpenAI and Google.
+   **We recommend Claude Haiku 4.5** for the best experience. It provides excellent performance, low latency, and works exceptionally well with the framework's structured outputs. However, the framework works with any provider - including institutional services like LBNL CBorg, Stanford AI Playground, ANL Argo, or commercial providers like OpenAI and Google.
 
 .. dropdown:: **Where do I get an API key?**
    :color: info
@@ -1145,6 +1127,13 @@ Set up your ``.env`` file with your API key:
    4. Log in with your Stanford credentials and complete the form
    5. Once approved, copy the API key from the notification email
 
+   **ANL Argo**
+
+   1. Requires Argonne National Laboratory affiliation
+   2. Argo uses your ANL username (automatically obtained from the $USER environment variable)
+   3. Contact your ANL IT department for access to the Argo proxy service
+   4. Base URL: https://argo-bridge.cels.anl.gov
+
    **Ollama (Local Models)**
 
    Ollama runs locally and does not require an API key. Simply install Ollama and ensure it's running.
@@ -1166,6 +1155,7 @@ Ask weather-related questions:
    You: What's the weather in San Francisco?
    You: How's the weather in Prague?
    You: Tell me the current conditions in New York
+   You: What's the weather like?
 
 When you run your agent, you'll see the framework's decision-making process in action. Here are the key phases to watch for:
 

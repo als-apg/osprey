@@ -19,16 +19,159 @@ Step 10: Prompt Customization
 
 The template works out of the box, but customizing prompts with facility-specific knowledge dramatically improves accuracy, relevance, and user trust. OSPREY provides two levels of prompt customization: **service-level prompts** (like channel finder) and **framework-level prompts** (orchestrator, classification, response generation).
 
+.. _part4-channel-finder-prompts:
+
 Channel Finder Prompt Customization
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-An important customization you can make is adding facility-specific context to the channel finder prompts. This was covered in detail in :ref:`Part 2: Building Your Channel Finder <channel-finder-benchmarking>`, where you learned how to customize the ``facility_description`` variable to include:
+The channel finder uses facility-specific prompts to dramatically improve semantic matching accuracy. Each pipeline (in_context, hierarchical, middle_layer) has its own prompts directory with a clear separation of concerns:
 
-- Physical system descriptions and hierarchy
-- Naming conventions and operational terminology
-- Disambiguation rules for ambiguous queries
+**Prompt File Structure:**
 
-See :doc:`control-assistant-part2-channel-finder` for comprehensive channel finder customization guidance.
+.. list-table::
+   :header-rows: 1
+   :widths: 28 52 20
+
+   * - File
+     - Purpose
+     - Edit Required?
+   * - ``facility_description.py``
+     - Your facility's identity, systems, naming structure
+     - **REQUIRED**
+   * - ``matching_rules.py``
+     - Terminology (SP/RB, Monitor/Setpoint), synonyms
+     - OPTIONAL
+   * - ``query_splitter.py``
+     - Stage 1 query splitting examples
+     - OPTIONAL
+   * - ``system.py``
+     - Auto-combines facility_description + matching_rules
+     - Don't edit
+
+**Directory Structure:**
+
+.. code-block:: text
+
+   src/my_control_assistant/services/channel_finder/prompts/
+   ├── in_context/
+   │   ├── facility_description.py  # REQUIRED: Edit for your facility
+   │   ├── matching_rules.py        # OPTIONAL: Custom terminology
+   │   ├── query_splitter.py        # OPTIONAL: Query splitting examples
+   │   ├── system.py               # Auto-combines (don't edit)
+   │   └── __init__.py
+   ├── hierarchical/                # Same structure
+   └── middle_layer/                # Same structure
+
+.. dropdown:: **Step 1: Edit facility_description.py (Required)**
+   :color: success
+   :open:
+
+   This file defines your facility's identity and structure. The LLM uses this context to understand your control system and make accurate semantic matches.
+
+   **What to include:**
+
+   - Physical system descriptions (accelerator sections, subsystems)
+   - Channel naming patterns and their meanings
+   - Disambiguation rules for ambiguous queries
+
+   **Example (UCSB FEL Accelerator):**
+
+   .. code-block:: python
+
+      # prompts/in_context/facility_description.py
+      import textwrap
+
+      facility_description = textwrap.dedent(
+          """
+          The University of California, Santa Barbara (UCSB) Free Electron Laser (FEL)
+          uses relativistic electrons to generate a powerful terahertz (THz) laser beam.
+
+          1. Electron Source (Thermionic Gun):
+             - Electrons are emitted from a thermionic cathode in short pulses
+             - Control parameters include gun voltage, beam pulse timing
+
+          2. Acceleration Section:
+             - Electrons accelerated by high terminal voltage
+             - Control parameters: accelerator voltage stability
+
+          3. Beam Transport and Steering:
+             - Steering coils and dipole magnets control beam trajectory
+             - Quadrupole magnets focus/defocus the beam
+
+          IMPORTANT TERMINOLOGY AND CONVENTIONS:
+
+          Channel Naming Patterns:
+          - "Motor" channels = Control/command channels (for setting positions)
+          - "MotorReadBack" or "ReadBack" channels = Status/measurement channels
+          - "SetPoint" or "Set" channels = Control values to be commanded
+
+          Disambiguation Rules:
+          - When query asks for "control" or "motor control" → return ONLY Motor/Set channels
+          - When query asks for "status" or "readback" → return ONLY ReadBack channels
+          - When query is ambiguous (e.g., "check") → include both Set and ReadBack
+          """
+      )
+
+.. dropdown:: **Step 2: Edit matching_rules.py (Optional)**
+   :color: info
+
+   If your facility uses terminology that differs from the defaults (or you want more detailed matching rules), customize this file. This is especially useful for:
+
+   - Custom setpoint/readback naming conventions
+   - Device synonyms operators commonly use
+   - Operational context that affects channel selection
+
+   **Example:**
+
+   .. code-block:: python
+
+      # prompts/in_context/matching_rules.py
+      import textwrap
+
+      matching_rules = textwrap.dedent(
+          """
+          MATCHING TERMINOLOGY:
+
+          Setpoint vs Readback:
+          - "SP" (Setpoint) = Control/command value to be written
+          - "RB" (Readback) = Actual measured value (read-only)
+          - "GOLDEN" = Reference value for known good operation
+          - When user asks to "set", "control", "adjust" → return SP channels
+          - When user asks to "read", "monitor", "measure" → return RB channels
+          - When ambiguous ("show me", "what is") → include both SP and RB
+
+          Common Device Synonyms:
+          - "bending magnet" = dipole magnet
+          - "focusing magnet" or "quad" = quadrupole magnet
+          - "corrector" or "steering" = corrector magnet
+          - "vacuum level" or "vacuum pressure" = pressure measurement
+          """
+      )
+
+   **Note:** If you don't need custom matching rules, you can leave this file with minimal content or use the defaults.
+
+.. dropdown:: **How system.py Works (Don't Edit)**
+   :color: secondary
+
+   The ``system.py`` file automatically imports and combines both files:
+
+   .. code-block:: python
+
+      # prompts/in_context/system.py (auto-generated, don't edit)
+      from .facility_description import facility_description as _facility
+      from .matching_rules import matching_rules as _rules
+
+      facility_description = f"{_facility}\n\n{_rules}"
+
+   This provides backward compatibility—existing service code that references ``prompts_module.system.facility_description`` continues to work unchanged.
+
+**Best Practices:**
+
+1. **Start with facility_description.py**: Get the basic structure working first
+2. **Run benchmarks early**: Test with a few queries before writing all rules
+3. **Add matching_rules.py incrementally**: Only add rules when benchmarks reveal terminology gaps
+4. **Use the CLI for rapid iteration**: ``python src/my_control_assistant/services/channel_finder/cli.py``
+5. **Document for your team**: Comments in these files help future maintainers
 
 .. _part4-framework-prompt-customization:
 
@@ -43,6 +186,7 @@ The framework prompt provider system allows you to customize how the agent think
 - **Classifier**: How the agent decides which capabilities to invoke for a given task
 - **Task Extraction**: How conversations are compressed into concrete tasks
 - **Response Generation**: How final answers are formatted and presented to users
+- **Python Code Generation**: How Python code is generated for data analysis and control system operations
 
 **The Prompt Provider Architecture**
 
@@ -50,161 +194,286 @@ OSPREY uses a **provider registration system** that allows you to override defau
 
 **Step 1: Create Your Custom Prompt Builder**
 
-Create a new module in your agent project (e.g., ``src/my_control_assistant/framework_prompts/``) and subclass the appropriate default builder:
+Create a new module in your agent project (e.g., ``src/my_control_assistant/framework_prompts/``) and subclass the appropriate default builder.
 
-.. code-block:: python
+.. dropdown:: **Example: Python Prompt Builder (Already in Your Template!)**
+   :color: success
 
-   # src/my_control_assistant/framework_prompts/orchestrator.py
-   import textwrap
-   from osprey.prompts.defaults.orchestrator import DefaultOrchestratorPromptBuilder
-   from osprey.registry import get_registry
+   The control assistant template already includes a custom Python prompt builder that teaches the LLM to use ``osprey.runtime`` utilities for control system operations. This is located at ``src/my_control_assistant/framework_prompts/python.py``:
 
-   class MyFacilityOrchestratorPromptBuilder(DefaultOrchestratorPromptBuilder):
-       """Facility-specific orchestrator prompt customization."""
+   .. code-block:: python
 
-       def get_role_definition(self) -> str:
-           """Override the agent's role description."""
-           return "You are an expert execution planner for the MyFacility control system assistant."
+      # src/my_control_assistant/framework_prompts/python.py
+      import textwrap
+      from osprey.prompts.defaults.python import DefaultPythonPromptBuilder
 
-       def get_instructions(self) -> str:
-           """Extend base instructions with facility-specific guidance."""
-           registry = get_registry()
-           base_instructions = super().get_instructions()
+      class ControlSystemPythonPromptBuilder(DefaultPythonPromptBuilder):
+          """Python prompt builder with control system runtime utilities guidance.
 
-           facility_guidance = textwrap.dedent("""
-               MyFacility-Specific Planning Rules:
+          Extends the framework's default Python prompts to teach LLMs how to
+          interact with control systems using osprey.runtime utilities.
+          """
 
-               1. SAFETY PRIORITIES:
-                  - Always verify beam status before executing magnet changes
-                  - For vacuum operations, check interlocks before valve commands
-                  - Never plan writes to critical systems without explicit user confirmation
+          def get_instructions(self) -> str:
+              """Get Python instructions with control system operations guidance."""
+              # Get base framework instructions
+              base_instructions = super().get_instructions()
 
-               2. STANDARD WORKFLOWS:
-                  - Beam current queries: Use MAIN_DCCT (not backup DCCTs unless specified)
-                  - Magnet tuning: Always read current values before planning changes
-                  - Vacuum readbacks: Prefer ION-PUMP channels over GAUGE channels for routine monitoring
+              # Add control system-specific guidance
+              control_system_guidance = textwrap.dedent("""
 
-               3. OPERATIONAL CONTEXT:
-                  - Morning startup procedures require sequential system checks
-                  - Magnet ramping needs 2-second settling time between steps
-                  - RF cavity adjustments affect beam stability—plan conservatively
+                  === CONTROL SYSTEM OPERATIONS ===
+                  For reading/writing to control systems, use osprey.runtime utilities:
 
-               Focus on being practical and efficient while ensuring robust execution.
-               Never plan for simulated or fictional data - only real MyFacility operations.
-           """).strip()
+                  from osprey.runtime import write_channel, read_channel, write_channels
 
-           return f"{base_instructions}\n\n{facility_guidance}"
+                  Examples:
+                      # Write a calculated value
+                      from osprey.runtime import write_channel
+                      import math
+                      voltage = math.sqrt(4150)
+                      write_channel("TerminalVoltageSetPoint", voltage)
+                      results = {"voltage_set": voltage}
+
+                      # Read current value
+                      from osprey.runtime import read_channel
+                      current = read_channel("BeamCurrent")
+                      print(f"Current: {current}")
+                      results = {"beam_current": current}
+
+                  These utilities work with ANY control system (EPICS, Mock, etc.) - you don't
+                  need to know which one is configured. All safety checks (limits validation,
+                  approval workflows) happen automatically.
+
+                  IMPORTANT:
+                  - Never use epics.caput() or epics.caget() directly - use osprey.runtime utilities
+                  """).strip()
+
+              return base_instructions + "\n\n" + control_system_guidance
+
+   **What This Does:**
+
+   - Extends ``DefaultPythonPromptBuilder`` with control system-specific instructions
+   - Teaches the LLM to use ``osprey.runtime`` utilities instead of direct EPICS calls
+   - Provides concrete examples of read/write operations
+   - Ensures generated code works with any configured control system (EPICS, Mock, LabVIEW, etc.)
+
+   **Result:** When the Python capability generates code, the LLM automatically uses ``osprey.runtime`` utilities for control system operations, ensuring consistency, safety, and control-system-agnostic code.
+
+.. dropdown:: **Example: Task Extraction Prompt (Already in Your Template!)**
+   :color: success
+
+   The control assistant template already includes a custom task extraction prompt builder optimized for control system operations. This is located at ``src/my_control_assistant/framework_prompts/task_extraction.py``.
+
+   **Why Task Extraction Customization is Critical:** Task extraction sits at the beginning of the pipeline and converts conversational input into structured tasks. If it misinterprets the user's intent, the entire downstream pipeline executes the wrong task. This is especially important for domain-specific terminology—for example, "BPM" averaged over the english language on the internet means "beats per minute," but in accelerator physics it means "Beam Position Monitor." The custom prompt teaches domain-specific terminology and provides control system examples to ensure correct interpretation.
+
+   .. code-block:: python
+
+      # src/my_control_assistant/framework_prompts/task_extraction.py
+      import textwrap
+      from osprey.prompts.defaults import (
+          DefaultTaskExtractionPromptBuilder,
+          ExtractedTask,
+          TaskExtractionExample,
+      )
+      from osprey.state import MessageUtils, UserMemories
+
+      class ControlSystemTaskExtractionPromptBuilder(DefaultTaskExtractionPromptBuilder):
+          """Control-system-specific task extraction prompt builder.
+
+          Provides comprehensive task extraction examples tailored for control system
+          operations. These examples replace framework defaults with domain-specific
+          patterns for channels, devices, and system monitoring workflows.
+          """
+
+          def __init__(self):
+              """Initialize with ONLY control system examples.
+
+              The control system examples are comprehensive enough to cover all
+              necessary task extraction patterns while being domain-specific and
+              relevant to control system operations. This reduces prompt latency
+              compared to including framework defaults.
+              """
+              super().__init__(include_default_examples=False)  # Use only control system examples
+              self._add_control_system_examples()
+
+          def get_role_definition(self) -> str:
+              """Get the control-system-specific role definition."""
+              return "You are a control system assistant task extraction specialist that analyzes conversations to extract actionable tasks related to control system operations."
+
+          def get_instructions(self) -> str:
+              """Get the control-system-specific task extraction instructions."""
+              return textwrap.dedent("""
+              Your job is to:
+              1. Understand what the user is asking for in the context of control system operations
+              2. Extract a clear, actionable task related to channels, devices, or system monitoring
+              3. Determine if the task depends on chat history context
+              4. Determine if the task depends on user memory
+
+              ## Control System Guidelines:
+              - Create self-contained task descriptions executable without conversation context
+              - Resolve channel references from previous messages ("that channel", "those magnets")
+              - Resolve temporal references precisely ("an hour ago" → specific timestamp)
+              - Extract device families and system names from conversation context
+              - Carry forward channel addresses found in previous responses
+              - Set depends_on_chat_history=True if task references previous messages
+              - Set depends_on_user_memory=True only when task needs specific information from user memory
+              - Be specific about channels, time ranges, and operations in task descriptions
+
+              ## Control System Terminology:
+              - BPM = Beam Position Monitor (NOT beats per minute - this is accelerator/beam diagnostics)
+              - SP = Setpoint (desired value to write to a device)
+              - RB/RBV = Readback/Readback Value (actual measured value from a device)
+              - Common devices: quadrupoles (focusing magnets), dipoles (bending magnets), RF cavities, vacuum gauges
+
+              ## Common Patterns:
+              - Channel reference: "What about that magnet?" → resolve "magnet" to specific channel from history
+              - Temporal: "Show me the last hour" → calculate exact start/end times
+              - Comparative: "Compare with yesterday" → extract both current and historical requirements
+              - Device families: "All quadrupoles in sector 2" → be explicit about the device pattern
+
+              ## Write Operations:
+              - Extract the target (channel/device) and value clearly
+              - "Set X to Y" → task should specify both X and Y
+              - For contextual values, extract the value from conversation history
+
+              ## Computational Requests:
+              - State the computational goal, not the implementation steps
+              - "Plot X over time" → goal is to create the plot (orchestrator handles data retrieval)
+              - "Calculate average" → goal is the calculation (orchestrator handles data gathering)
+              """).strip()
+
+   **What This Does:**
+
+   - Replaces framework defaults with control-system-specific examples
+   - Uses domain terminology throughout (channels, BPMs, magnets, setpoints, readbacks)
+   - Teaches the LLM to extract the goal (WHAT to do) while leaving the workflow (HOW to do it) to the orchestrator
+   - Reduces prompt size for better latency compared to including framework defaults
+
+   **Result:** When users have multi-turn conversations about control systems, the LLM extracts clear, actionable tasks with proper context resolution while using domain-specific terminology.
 
 **Step 2: Create the Module __init__.py**
 
-Create an ``__init__.py`` file in your framework_prompts module to export your builders:
+Create an ``__init__.py`` file in your framework_prompts module to export your builders. The control assistant template already has this set up:
 
 .. code-block:: python
 
    # src/my_control_assistant/framework_prompts/__init__.py
-   from .orchestrator import MyFacilityOrchestratorPromptBuilder
+   from .python import ControlSystemPythonPromptBuilder  # Already in template!
+   from .task_extraction import ControlSystemTaskExtractionPromptBuilder  # Already in template!
+   # from .orchestrator import MyFacilityOrchestratorPromptBuilder  # Add your own
    # Add other builders as you create them
 
    __all__ = [
-       "MyFacilityOrchestratorPromptBuilder",
+       "ControlSystemPythonPromptBuilder",  # Already exported
+       "ControlSystemTaskExtractionPromptBuilder",  # Already exported
+       # "MyFacilityOrchestratorPromptBuilder",  # Add your own
    ]
 
 **Step 3: Register Your Custom Prompt Provider**
 
-In your agent's ``registry.py``, extend the existing registry configuration to include your custom prompt builders. This builds on the ``RegistryConfigProvider`` pattern you already have from Parts 1-3:
-
-.. code-block:: python
-
-   # src/my_control_assistant/registry.py
-   from osprey.registry import (
-       RegistryConfigProvider,
-       extend_framework_registry,
-       CapabilityRegistration,
-       ContextClassRegistration,
-       FrameworkPromptProviderRegistration,
-       RegistryConfig
-   )
-
-
-   class MyControlAssistantRegistryProvider(RegistryConfigProvider):
-       """Registry provider for My Control Assistant."""
-
-       def get_registry_config(self) -> RegistryConfig:
-           """Return registry configuration with custom framework prompts."""
-           return extend_framework_registry(
-               # Your existing capabilities
-               capabilities=[
-                   CapabilityRegistration(
-                       name="channel_finding",
-                       module_path="my_control_assistant.capabilities.channel_finding",
-                       class_name="ChannelFindingCapability",
-                       description="Find control system channels using semantic search",
-                       provides=["CHANNEL_ADDRESSES"],
-                       requires=[]
-                   ),
-                   # ... other capabilities ...
-               ],
-
-               # Your existing context classes
-               context_classes=[
-                   ContextClassRegistration(
-                       context_type="CHANNEL_ADDRESSES",
-                       module_path="my_control_assistant.context_classes",
-                       class_name="ChannelAddressesContext"
-                   ),
-                   # ... other context classes ...
-               ],
-
-               # Add custom framework prompts
-               framework_prompt_providers=[
-                   FrameworkPromptProviderRegistration(
-                       module_path="my_control_assistant.framework_prompts",
-                       prompt_builders={
-                           "orchestrator": "MyFacilityOrchestratorPromptBuilder",
-                           # Add other builders as needed:
-                           # "task_extraction": "MyFacilityTaskExtractionPromptBuilder",
-                           # "response_generation": "MyFacilityResponseGenerationPromptBuilder",
-                           # "classification": "MyFacilityClassificationPromptBuilder",
-                           # "error_analysis": "MyFacilityErrorAnalysisPromptBuilder",
-                           # "clarification": "MyFacilityClarificationPromptBuilder",
-                           # "memory_extraction": "MyFacilityMemoryExtractionPromptBuilder",
-                       }
-                   )
-               ]
-           )
+In your agent's ``registry.py``, extend the existing registry configuration to include your custom prompt builders. **The template already registers the Python and Task Extraction prompt builders** - you can add more as needed.
 
 The framework automatically discovers and uses your custom builders. You can override as many or as few prompt types as needed—any not specified will use the framework defaults.
 
-**Available Prompt Builder Types:**
+.. tab-set::
 
-.. list-table::
-   :header-rows: 1
-   :widths: 25 35 40
+   .. tab-item:: Registry Configuration
 
-   * - Builder Type
-     - Base Class
-     - Purpose
-   * - ``orchestrator``
-     - ``DefaultOrchestratorPromptBuilder``
-     - Controls execution planning and capability sequencing
-   * - ``task_extraction``
-     - ``DefaultTaskExtractionPromptBuilder``
-     - Extracts actionable tasks from conversations
-   * - ``response_generation``
-     - ``DefaultResponseGenerationPromptBuilder``
-     - Formats final responses to users
-   * - ``classification``
-     - ``DefaultClassificationPromptBuilder``
-     - Determines which capabilities match user tasks
-   * - ``error_analysis``
-     - ``DefaultErrorAnalysisPromptBuilder``
-     - Generates explanations for execution errors
-   * - ``clarification``
-     - ``DefaultClarificationPromptBuilder``
-     - Creates targeted questions for ambiguous queries
-   * - ``memory_extraction``
-     - ``DefaultMemoryExtractionPromptBuilder``
-     - Extracts and stores user preferences and context
+      .. code-block:: python
+
+         # src/my_control_assistant/registry.py
+         from osprey.registry import (
+             RegistryConfigProvider,
+             extend_framework_registry,
+             CapabilityRegistration,
+             ContextClassRegistration,
+             FrameworkPromptProviderRegistration,
+             RegistryConfig
+         )
+
+
+         class MyControlAssistantRegistryProvider(RegistryConfigProvider):
+             """Registry provider for My Control Assistant."""
+
+             def get_registry_config(self) -> RegistryConfig:
+                 """Return registry configuration with custom framework prompts."""
+                 return extend_framework_registry(
+                     # Your existing capabilities
+                     capabilities=[
+                         CapabilityRegistration(
+                             name="channel_finding",
+                             module_path="my_control_assistant.capabilities.channel_finding",
+                             class_name="ChannelFindingCapability",
+                             description="Find control system channels using semantic search",
+                             provides=["CHANNEL_ADDRESSES"],
+                             requires=[]
+                         ),
+                         # ... other capabilities ...
+                     ],
+
+                     # Your existing context classes
+                     context_classes=[
+                         ContextClassRegistration(
+                             context_type="CHANNEL_ADDRESSES",
+                             module_path="my_control_assistant.context_classes",
+                             class_name="ChannelAddressesContext"
+                         ),
+                         # ... other context classes ...
+                     ],
+
+                     # Custom framework prompts (Python and Task Extraction already registered in template!)
+                     framework_prompt_providers=[
+                         FrameworkPromptProviderRegistration(
+                             module_path="my_control_assistant.framework_prompts",
+                             prompt_builders={
+                                 "python": "ControlSystemPythonPromptBuilder",  # ✅ Already in template!
+                                 "task_extraction": "ControlSystemTaskExtractionPromptBuilder",  # ✅ Already in template!
+                                 # Add your own custom builders:
+                                 # "orchestrator": "MyFacilityOrchestratorPromptBuilder",
+                                 # "response_generation": "MyFacilityResponseGenerationPromptBuilder",
+                                 # "classification": "MyFacilityClassificationPromptBuilder",
+                                 # "error_analysis": "MyFacilityErrorAnalysisPromptBuilder",
+                                 # "clarification": "MyFacilityClarificationPromptBuilder",
+                                 # "memory_extraction": "MyFacilityMemoryExtractionPromptBuilder",
+                             }
+                         )
+                     ]
+                 )
+
+   .. tab-item:: Available Builder Types
+
+      .. list-table::
+         :header-rows: 1
+         :widths: 25 35 40
+
+         * - Builder Type
+           - Base Class
+           - Purpose
+         * - ``python``
+           - ``DefaultPythonPromptBuilder``
+           - Controls Python code generation (**already customized in template**)
+         * - ``task_extraction``
+           - ``DefaultTaskExtractionPromptBuilder``
+           - Extracts actionable tasks from conversations (**already customized in template**)
+         * - ``orchestrator``
+           - ``DefaultOrchestratorPromptBuilder``
+           - Controls execution planning and capability sequencing
+         * - ``response_generation``
+           - ``DefaultResponseGenerationPromptBuilder``
+           - Formats final responses to users
+         * - ``classification``
+           - ``DefaultClassificationPromptBuilder``
+           - Determines which capabilities match user tasks
+         * - ``error_analysis``
+           - ``DefaultErrorAnalysisPromptBuilder``
+           - Generates explanations for execution errors
+         * - ``clarification``
+           - ``DefaultClarificationPromptBuilder``
+           - Creates targeted questions for ambiguous queries
+         * - ``memory_extraction``
+           - ``DefaultMemoryExtractionPromptBuilder``
+           - Extracts and stores user preferences and context
 
 **Step 4: Test and Debug Your Custom Prompts**
 
@@ -229,6 +498,54 @@ With ``print_all: true``, prompts are saved to ``_agent_data/prompts/`` with fil
 Set ``latest_only: false`` to preserve multiple versions (timestamped) when iterating on prompt changes, making it easy to compare different prompt versions and track what changed.
 
 **Advanced Customization Patterns**
+
+.. dropdown:: Example: Orchestrator Prompt Builder (Custom Facility Rules)
+   :color: info
+
+   You can create additional custom prompt builders for other framework components. Here's an example of customizing the orchestrator with facility-specific planning rules:
+
+   .. code-block:: python
+
+      # src/my_control_assistant/framework_prompts/orchestrator.py
+      import textwrap
+      from osprey.prompts.defaults.orchestrator import DefaultOrchestratorPromptBuilder
+      from osprey.registry import get_registry
+
+      class MyFacilityOrchestratorPromptBuilder(DefaultOrchestratorPromptBuilder):
+          """Facility-specific orchestrator prompt customization."""
+
+          def get_role_definition(self) -> str:
+              """Override the agent's role description."""
+              return "You are an expert execution planner for the MyFacility control system assistant."
+
+          def get_instructions(self) -> str:
+              """Extend base instructions with facility-specific guidance."""
+              registry = get_registry()
+              base_instructions = super().get_instructions()
+
+              facility_guidance = textwrap.dedent("""
+                  MyFacility-Specific Planning Rules:
+
+                  1. SAFETY PRIORITIES:
+                     - Always verify beam status before executing magnet changes
+                     - For vacuum operations, check interlocks before valve commands
+                     - Never plan writes to critical systems without explicit user confirmation
+
+                  2. STANDARD WORKFLOWS:
+                     - Beam current queries: Use MAIN_DCCT (not backup DCCTs unless specified)
+                     - Magnet tuning: Always read current values before planning changes
+                     - Vacuum readbacks: Prefer ION-PUMP channels over GAUGE channels for routine monitoring
+
+                  3. OPERATIONAL CONTEXT:
+                     - Morning startup procedures require sequential system checks
+                     - Magnet ramping needs 2-second settling time between steps
+                     - RF cavity adjustments affect beam stability—plan conservatively
+
+                  Focus on being practical and efficient while ensuring robust execution.
+                  Never plan for simulated or fictional data - only real MyFacility operations.
+              """).strip()
+
+              return f"{base_instructions}\n\n{facility_guidance}"
 
 .. dropdown:: Example: Custom Classification Prompt
    :color: info
@@ -285,36 +602,6 @@ Set ``latest_only: false`` to preserve multiple versions (timestamped) when iter
                   "Provide helpful context about accelerator physics when relevant"
               ]
 
-.. dropdown:: Example: Custom Task Extraction Prompt
-   :color: info
-
-   Customize how conversations are extracted into actionable tasks:
-
-   .. code-block:: python
-
-      # src/my_control_assistant/framework_prompts/task_extraction.py
-      import textwrap
-      from osprey.prompts.defaults.task_extraction import DefaultTaskExtractionPromptBuilder
-
-      class MyFacilityTaskExtractionPromptBuilder(DefaultTaskExtractionPromptBuilder):
-          """Custom task extraction for MyFacility operations."""
-
-          def get_role_definition(self) -> str:
-              return "You are a MyFacility control system task extraction specialist."
-
-          def get_instructions(self) -> str:
-              return textwrap.dedent("""
-                  Extract clear, actionable tasks related to MyFacility control systems.
-
-                  Guidelines:
-                  - Create self-contained task descriptions executable without conversation context
-                  - Resolve temporal references to specific times using facility timestamps
-                  - Extract specific measurements, device names, and parameters from previous responses
-                  - Understand MyFacility device naming conventions
-                  - Set depends_on_chat_history=True if task references previous messages
-                  - Be specific and actionable using MyFacility terminology
-              """).strip()
-
 Step 11: System Configuration
 ==============================
 
@@ -360,6 +647,11 @@ Model Configuration
      time_parsing:              # Parses time expressions
        provider: cborg
        model_id: anthropic/claude-haiku
+
+.. admonition:: Need a Custom Provider?
+   :class: tip
+
+   The framework includes built-in providers for Anthropic, OpenAI, Google, Ollama, CBorg (LBNL), and Stanford AI Playground. If you need to integrate with your institution's AI service or another commercial provider, you can register custom providers. See :ref:`custom-ai-provider-registration` for complete implementation guidance.
 
 **Optimization Strategy:**
 

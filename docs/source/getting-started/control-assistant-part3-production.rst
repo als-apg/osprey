@@ -47,16 +47,17 @@ First, launch the interactive chat interface:
       [11/11/25 11:20:35] INFO     Loading configuration from explicit path:
                                    <workspace>/my-control-assistant/config.yml
       🔄 Initializing framework...
-      [11/11/25 11:20:36] INFO     Registry: Registry initialization complete!
-                                   Components loaded:
-                                      • 8 capabilities: memory, time_range_parsing, python, respond, clarify,
-                                                        channel_finding, channel_value_retrieval, archiver_retrieval
-                                      • 13 nodes (including 5 core infrastructure)
-                                      • 6 context types: MEMORY_CONTEXT, TIME_RANGE, PYTHON_RESULTS,
-                                                         CHANNEL_ADDRESSES, CHANNEL_VALUES, ARCHIVER_DATA
+     [11/29/25 14:06:30] INFO     Registry: Registry initialization complete!
+                                  Components loaded:
+                                     • 9 capabilities: memory, time_range_parsing, python, respond, clarify,
+                                                       channel_finding, channel_read, channel_write, archiver_retrieval
+                                     • 14 nodes (including 5 core infrastructure)
+                                     • 6 context types: MEMORY_CONTEXT, TIME_RANGE, PYTHON_RESULTS,
+                                                        CHANNEL_ADDRESSES, CHANNEL_VALUES, CHANNEL_WRITE_RESULTS,
+                                                        ARCHIVER_DATA
                                       • 1 data sources: core_user_memory
                                       • 1 services: python_executor
-      ✅ Framework initialized! Thread ID: cli_session_dceb3a13
+      ✅ Framework initialized! Thread ID: cli_session_76681b34
 
    **Further Reading:** :doc:`../developer-guides/03_core-framework-systems/03_registry-and-discovery`, :doc:`../developer-guides/01_understanding-the-framework/01_infrastructure-architecture`
 
@@ -143,7 +144,8 @@ Your query goes through three intelligent phases that transform natural language
       **Your application capabilities:**
 
       - ``channel_finding`` - Find control system channels using semantic search
-      - ``channel_value_retrieval`` - Retrieve current values from control system channels
+      - ``channel_write`` - Write values to control system channels with LLM-based parsing
+      - ``channel_read`` - Read current values from control system channels
       - ``archiver_retrieval`` - Query historical time-series data from the archiver
 
       The framework evaluates all 6 capabilities independently using their classifier guides. For the request "Show me the beam current over the last 24 hours", it asks:
@@ -152,7 +154,7 @@ Your query goes through three intelligent phases that transform natural language
       - "Does this task require ``memory``?" → **NO** (not storing/recalling information)
       - "Does this task require ``python``?" → **YES** (need to plot the data)
       - "Does this task require ``channel_finding``?" → **YES** (need to find the beam current channel)
-      - "Does this task require ``channel_value_retrieval``?" → **NO** (need historical data, not current values)
+      - "Does this task require ``channel_read``?" → **NO** (need historical data, not current values)
       - "Does this task require ``archiver_retrieval``?" → **YES** (need to retrieve time-series data)
 
       The classification happens in parallel for efficiency, with each capability evaluated independently based on the examples and instructions in its ``_create_classifier_guide()`` method.
@@ -174,7 +176,7 @@ Your query goes through three intelligent phases that transform natural language
             INFO Classifier: Classifying 6 capabilities with max 5 concurrent requests
             INFO Classifier:  >>> Capability 'time_range_parsing' >>> True
             INFO Classifier:  >>> Capability 'memory' >>> False
-            INFO Classifier:  >>> Capability 'channel_value_retrieval' >>> False
+            INFO Classifier:  >>> Capability 'channel_read' >>> False
             INFO Classifier:  >>> Capability 'channel_finding' >>> True
             INFO Classifier:  >>> Capability 'python' >>> True
             INFO Classifier:  >>> Capability 'archiver_retrieval' >>> True
@@ -541,6 +543,63 @@ With the execution plan complete, the framework executes each planned step in se
         - Complete Jupyter notebook with execution code
 
       The Python capability automatically determined this was a safe read-only visualization task requiring no approval.
+
+      .. dropdown:: 🔍 **How Generated Code Interacts with Control Systems**
+         :color: info
+
+         The control assistant template includes a **custom Python prompt builder** that teaches the LLM to use ``osprey.runtime`` utilities for control system operations. This is an example of **framework prompt customization** (covered in :ref:`Part 4 <part4-framework-prompt-customization>`).
+
+         **What is osprey.runtime?**
+
+         ``osprey.runtime`` is a control-system-agnostic module that provides simple synchronous functions for reading and writing to any configured control system (EPICS, Mock, LabVIEW, etc.). When the Python capability generates code that needs to interact with control systems, it's taught to use these utilities:
+
+         .. code-block:: python
+
+            from osprey.runtime import write_channel, read_channel
+
+            # Read from control system (works like EPICS caget)
+            current = read_channel("BEAM:CURRENT")
+            print(f"Current: {current} mA")
+
+            # Write to control system (works like EPICS caput)
+            write_channel("MAGNET:SETPOINT", 5.0)
+
+         **Why Use osprey.runtime Instead of Direct Control System Libraries?**
+
+         1. **Control-System Agnostic**: Same code works with EPICS, Mock, or any other configured connector
+         2. **Automatic Configuration**: Uses the control system settings from when the code was generated (reproducible notebooks)
+         3. **Safety Integration**: All boundary checking, limits validation, and approval workflows happen automatically
+         4. **Simple API**: Synchronous functions (no async/await needed in generated code)
+
+         **How It Works:**
+
+         The control assistant template extends the framework's default Python prompt builder with control system-specific guidance:
+
+         .. code-block:: python
+
+            # src/my_control_assistant/framework_prompts/python.py
+            class ControlSystemPythonPromptBuilder(DefaultPythonPromptBuilder):
+                def get_instructions(self) -> str:
+                    base_instructions = super().get_instructions()
+
+                    control_system_guidance = '''
+                    === CONTROL SYSTEM OPERATIONS ===
+                    For reading/writing to control systems, use osprey.runtime utilities:
+
+                    from osprey.runtime import write_channel, read_channel
+
+                    These utilities work with ANY control system (EPICS, Mock, etc.)
+                    '''
+
+                    return base_instructions + control_system_guidance
+
+         This custom prompt builder is registered in ``registry.py`` and automatically used whenever the Python capability generates code.
+
+         **Where to Learn More:**
+
+         - :ref:`Part 4, Step 10: Framework Prompt Customization <part4-framework-prompt-customization>` - Complete guide to customizing framework prompts
+         - :doc:`../developer-guides/03_core-framework-systems/04_prompt-customization` - Advanced prompt customization patterns
+         - :doc:`../api_reference/03_production_systems/06_control-system-connectors` - Control system connector API reference
 
       .. dropdown:: 🖥️  **View Terminal Output**
 
@@ -1153,21 +1212,27 @@ The structure of your control system determines your approach:
       .. code-block:: json
 
          {
-           "hierarchy_definition": ["system", "family", "device", "field", "subfield"],
-           "naming_pattern": "{system}:{family}[{device}]:{field}:{subfield}",
+           "hierarchy": {
+             "levels": [
+               {"name": "system", "type": "tree"},
+               {"name": "family", "type": "tree"},
+               {"name": "device", "type": "instances"},
+               {"name": "field", "type": "tree"},
+               {"name": "subfield", "type": "tree"}
+             ],
+             "naming_pattern": "{system}:{family}[{device}]:{field}:{subfield}"
+           },
            "tree": {
              "MAGNETS": {
                "_description": "Magnet System: Your facility description...",
                "DIPOLE": {
                  "_description": "Dipole Magnets: Bend beam trajectory...",
-                 "devices": {"_type": "range", "_pattern": "D{:02d}", "_range": [1, 16]},
-                 "fields": {
+                 "DEVICE": {
+                   "_expansion": {"_type": "range", "_pattern": "D{:02d}", "_range": [1, 16]},
                    "CURRENT": {
                      "_description": "Magnet current in Amperes...",
-                     "subfields": {
-                       "SP": {"_description": "Setpoint (read-write)"},
-                       "RB": {"_description": "Readback (read-only)"}
-                     }
+                     "SP": {"_description": "Setpoint (read-write)"},
+                     "RB": {"_description": "Readback (read-only)"}
                    }
                  }
                }
@@ -1196,15 +1261,92 @@ The structure of your control system determines your approach:
 
 .. tab-set::
 
-   .. tab-item:: Quick Start
+   .. tab-item:: Interactive Configuration (Recommended)
+
+      The framework provides interactive commands to configure EPICS for production use.
 
       **Step 1:** Install dependencies:
 
       .. code-block:: bash
 
+         cd my-control-assistant
          pip install pyepics
 
-      **Step 2:** Edit ``config.yml``:
+      **Step 2:** Launch interactive menu and configure control system:
+
+      .. code-block:: bash
+
+         osprey  # Launch interactive menu
+
+      Then navigate: **Project Menu** → ``config`` → ``set-control-system``
+
+      .. code-block:: text
+
+         Configuration
+         Manage project configuration settings
+
+         ? What would you like to do?
+           [→] show
+         » [→] set-control-system - Switch between Mock/EPICS connectors
+           [→] set-epics-gateway  - Configure EPICS gateway
+           [←] back
+
+         ──────────────────────────────────────
+
+         Configure Control System
+
+         Current control system: mock
+         Current archiver: mock_archiver
+
+         ? Select control system type:
+         » EPICS - Production mode (connects to real control system)
+           Mock - Tutorial/Development mode (safe, no hardware)
+           [←] Back
+
+         ──────────────────────────────────────
+
+         Archiver Configuration
+
+         ? Also switch archiver to EPICS?
+         » Yes - Use EPICS Archiver Appliance
+           No - Keep mock archiver
+
+      **Step 3:** Configure EPICS gateway:
+
+      Navigate: **Project Menu** → ``config`` → ``set-epics-gateway``
+
+      .. code-block:: text
+
+         Configure EPICS Gateway
+
+         ? Select EPICS facility:
+         » APS (Argonne National Laboratory) - Advanced Photon Source
+           ALS (Lawrence Berkeley National Laboratory) - Advanced Light Source
+           Custom - Manual configuration
+           [←] Back
+
+      Select your facility (APS or ALS), and the framework automatically configures:
+
+      - Gateway addresses
+      - Port numbers
+      - Connection mode (``use_name_server``)
+
+      **Supported Facilities:**
+
+      - **APS**: ``pvgatemain1.aps4.anl.gov:5064``
+      - **ALS**: ``cagw-alsdmz.als.lbl.gov:5064`` (read), ``5084`` (write)
+      - **Custom**: Interactive prompts for your facility's gateway
+
+      **Step 4:** Test connection:
+
+      .. code-block:: bash
+
+         osprey chat
+         # Try: "What is the beam current?"
+
+      **What Happened Under the Hood:**
+
+      The interactive commands updated your ``config.yml``:
 
       .. code-block:: yaml
 
@@ -1212,24 +1354,49 @@ The structure of your control system determines your approach:
            type: epics          # ← Changed from 'mock'
            connector:
              epics:
+               timeout: 5.0
                gateways:
                  read_only:
-                   address: cagw.your-facility.edu
+                   address: cagw-alsdmz.als.lbl.gov  # ← From facility preset
                    port: 5064
-                   use_name_server: false  # false = EPICS_CA_ADDR_LIST (direct gateway)
-                                           # true = EPICS_CA_NAME_SERVERS (SSH tunnels, some setups)
-               timeout: 5.0
+                   use_name_server: false
 
-      **Step 3:** Test connection:
+         archiver:
+           type: epics_archiver  # ← Changed from 'mock_archiver'
+           epics_archiver:
+             url: https://archiver.als.lbl.gov:8443
 
-      .. code-block:: bash
+      Your capabilities work unchanged - ``ConnectorFactory`` automatically uses the EPICS connector based on configuration.
 
-         osprey chat
-         # Try: "What is the beam current?"
+      .. note::
+         **Pattern Detection is a Security Layer**
 
-      **That's it!** Your capabilities work unchanged - ``ConnectorFactory`` automatically uses the EPICS connector based on configuration.
+         The framework provides comprehensive pattern detection automatically - **no configuration needed!**
 
-   .. tab-item:: Advanced Configuration
+         **Security Purpose:** Detects both approved API usage AND circumvention attempts. An LLM could try
+         to bypass connector safety features (limits, verification) by directly importing control system
+         libraries. Pattern detection catches this.
+
+         The framework automatically detects:
+
+         - ✅ **Approved**: ``osprey.runtime`` API (``write_channel``, ``read_channel``) - has all safety features
+         - 🔒 **EPICS Circumvention**: ``epics.caput()``, ``pv.put()`` - bypasses safety
+         - 🔒 **Tango Circumvention**: ``DeviceProxy().write_attribute()`` - bypasses safety
+         - 🔒 **LabVIEW Circumvention**: Common LabVIEW patterns - bypasses safety
+
+         .. code-block:: yaml
+
+            control_system:
+              type: epics  # Only controls runtime connector, not patterns!
+
+              # Pattern detection is automatic - comprehensive security coverage
+              # Detects: write_channel() AND direct library calls (epics, tango, etc.)
+
+         **Security Design:** The ``control_system.type`` config only affects which *connector* is used at runtime,
+         not which patterns are detected. Detection is control-system-agnostic to prevent circumvention regardless
+         of which library an LLM might try to use.
+
+   .. tab-item:: Manual Configuration
 
       **Gateway Configuration (Read-Only + Read-Write)**
 
@@ -1257,28 +1424,27 @@ The structure of your control system determines your approach:
 
       .. code-block:: yaml
 
-         execution_control:
-           epics:
-             writes_enabled: false  # Must be true to allow writes
-
-      **Pattern Detection for Approval Workflows**
-
-      Configure regex patterns for identifying control system operations in generated code:
-
-      .. code-block:: yaml
-
          control_system:
-           type: epics
-           patterns:
-             epics:
-               write:
-                 - 'epics\.caput\('
-                 - '\.put\('
-               read:
-                 - 'epics\.caget\('
-                 - '\.get\('
+           writes_enabled: false  # Must be true to allow writes
 
-      This enables the approval system to require human review for write operations.
+      .. note::
+         **Pattern Detection is Framework-Standard (Security Layer)**
+
+         The framework provides comprehensive **control-system-agnostic** pattern detection
+         automatically - no configuration needed!
+
+         **Security Purpose:** Detects both approved API usage AND circumvention attempts where
+         an LLM might try to bypass connector safety by directly importing control system libraries.
+
+         Patterns automatically detect:
+         - ✅ **Approved**: ``osprey.runtime`` API (``write_channel``, ``read_channel``) - has all safety features
+         - 🔒 **EPICS Circumvention**: ``epics.caput``, ``pv.put()`` - bypasses safety
+         - 🔒 **Tango Circumvention**: ``DeviceProxy().write_attribute()`` - bypasses safety
+         - 🔒 **LabVIEW Circumvention**: Common patterns - bypasses safety
+
+         The ``control_system.type`` setting only affects which *connector* is used at runtime,
+         **not** which patterns are detected. This ensures comprehensive security regardless of
+         which control system an LLM might try to use.
 
       **Development + Production Config Pattern**
 
@@ -1484,7 +1650,7 @@ The template includes two Jupyter containers configured with different execution
          allows_writes: true
          requires_approval: true
 
-The framework automatically selects between containers using :doc:`pattern detection <../developer-guides/05_production-systems/03_python-execution-service>` - it analyzes generated code for control system write operations (like ``epics.caput()``) and routes to the appropriate container:
+The framework automatically selects between containers using :doc:`pattern detection <../developer-guides/05_production-systems/03_python-execution-service/index>` - it analyzes generated code for control system write operations (like ``write_channel()``) and routes to the appropriate container:
 
 - **Read-only** container (port 8088) is used when no write patterns are detected
 - **Write access** container (port 8089) is used when write patterns are detected (potentially triggering approval workflows)
@@ -1533,7 +1699,7 @@ Troubleshooting
    1. Check database path in ``config.yml``
    2. Validate database: ``python -m my_control_assistant.data.tools.validate_database``
    3. Preview database presentation: ``python -m my_control_assistant.data.tools.preview_database``
-   4. Test with CLI: ``python -m my_control_assistant.services.channel_finder.cli``
+   4. Test with CLI: ``python src/my_control_assistant/services/channel_finder/cli.py``
    5. Enable debug mode: ``config.yml`` → ``development.prompts.print_all: true``
    6. Review saved prompts in ``_agent_data/prompts/``
 

@@ -25,14 +25,10 @@ Configuration:
     The capability code remains the same - just change the config!
 """
 
-import logging
 import textwrap
-from datetime import datetime
 from typing import Any, Dict, Optional
 
 from osprey.base.capability import BaseCapability
-
-# Import production patterns
 from osprey.base.decorators import capability_node
 from osprey.base.errors import ErrorClassification, ErrorSeverity
 from osprey.base.examples import (
@@ -43,19 +39,10 @@ from osprey.base.examples import (
     TaskClassifierGuide,
 )
 from osprey.base.planning import PlannedStep
-
-# Import connector factory for control system integration
 from osprey.connectors.factory import ConnectorFactory
-from osprey.context.context_manager import ContextManager
-from osprey.registry import get_registry
-from osprey.state import AgentState, StateManager
 
-# Application imports
-from ..context_classes import ArchiverDataContext, ChannelAddressesContext
+from ..context_classes import ArchiverDataContext
 
-logger = get_logger("archiver_retrieval")
-
-registry = get_registry()
 
 
 # === Archiver-Related Errors ===
@@ -231,7 +218,7 @@ class ArchiverRetrievalCapability(BaseCapability):
             channels_flat = []
             for ctx in channels_raw:
                 channels_flat.extend(ctx.channels)
-            logger.info(f"Merged {len(channels_raw)} CHANNEL_ADDRESSES contexts into {len(channels_flat)} total channels")
+            self.get_logger().info(f"Merged {len(channels_raw)} CHANNEL_ADDRESSES contexts into {len(channels_flat)} total channels")
             contexts["CHANNEL_ADDRESSES"] = channels_flat
         else:
             # Single context - extract channel list
@@ -328,15 +315,15 @@ class ArchiverRetrievalCapability(BaseCapability):
                 context_key="historical_beam_current_data",
                 capability="archiver_retrieval",
                 task_objective="Retrieve historical beam current data from archiver for the last 24 hours",
-                expected_output=registry.context_types.ARCHIVER_DATA,
+                expected_output="ARCHIVER_DATA",
                 success_criteria="Historical data retrieved successfully for specified time range",
                 inputs=[
-                    {registry.context_types.CHANNEL_ADDRESSES: "beam_current_channels"},
-                    {registry.context_types.TIME_RANGE: "last_24_hours_timerange"}
+                    {"CHANNEL_ADDRESSES": "beam_current_channels"},
+                    {"TIME_RANGE": "last_24_hours_timerange"}
                 ]
             ),
             scenario_description="Retrieve historical time-series data from the archiver",
-            notes=f"Requires channel addresses and time range from previous steps. Output stored under {registry.context_types.ARCHIVER_DATA} context type. Optional parameter: precision_ms (default: 1000)."
+            notes="Requires channel addresses and time range from previous steps. Output stored under ARCHIVER_DATA context type. Optional parameter: precision_ms (default: 1000)."
         )
 
         # Workflow example: Show what comes AFTER archiver_retrieval for plotting
@@ -345,12 +332,12 @@ class ArchiverRetrievalCapability(BaseCapability):
                 context_key="beam_current_plot",
                 capability="python",
                 task_objective="Create a matplotlib time-series plot of the beam current data showing trends over the 24-hour period",
-                expected_output=registry.context_types.PYTHON_RESULTS,
+                expected_output="PYTHON_RESULTS",
                 success_criteria="Time-series plot created with proper labels, showing beam current trends",
-                inputs=[{registry.context_types.ARCHIVER_DATA: "historical_beam_current_data"}]
+                inputs=[{"ARCHIVER_DATA": "historical_beam_current_data"}]
             ),
             scenario_description="WORKFLOW: Use python capability to plot archiver data from previous step",
-            notes=f"Typical plotting workflow: archiver_retrieval (gets data) → python (creates plot) → respond (delivers to user). The python capability consumes the {registry.context_types.ARCHIVER_DATA} from the archiver_retrieval step."
+            notes="Typical plotting workflow: archiver_retrieval (gets data) → python (creates plot) → respond (delivers to user). The python capability consumes the ARCHIVER_DATA from the archiver_retrieval step."
         )
 
         # Workflow example: Show what comes AFTER archiver_retrieval for analysis
@@ -359,16 +346,16 @@ class ArchiverRetrievalCapability(BaseCapability):
                 context_key="beam_current_statistics",
                 capability="python",
                 task_objective="Calculate mean, standard deviation, min, and max values of the beam current data over the time period",
-                expected_output=registry.context_types.PYTHON_RESULTS,
+                expected_output="PYTHON_RESULTS",
                 success_criteria="Statistical metrics calculated and displayed with clear labels",
-                inputs=[{registry.context_types.ARCHIVER_DATA: "historical_beam_current_data"}]
+                inputs=[{"ARCHIVER_DATA": "historical_beam_current_data"}]
             ),
             scenario_description="WORKFLOW: Use python capability to analyze archiver data from previous step",
-            notes=f"Typical analysis workflow: archiver_retrieval (gets data) → python (calculates statistics) → respond (delivers results). The python capability consumes the {registry.context_types.ARCHIVER_DATA} from the archiver_retrieval step."
+            notes="Typical analysis workflow: archiver_retrieval (gets data) → python (calculates statistics) → respond (delivers results). The python capability consumes the ARCHIVER_DATA from the archiver_retrieval step."
         )
 
         return OrchestratorGuide(
-            instructions=textwrap.dedent(f"""
+            instructions=textwrap.dedent("""
                 **When to plan "archiver_retrieval" steps:**
                 - When tasks require historical channel data
                 - When retrieving past values from the archiver
@@ -377,17 +364,17 @@ class ArchiverRetrievalCapability(BaseCapability):
                 **Step Structure:**
                 - context_key: Unique identifier for output (e.g., "historical_data", "trend_data")
                 - inputs: Specify required inputs:
-                {{'{{' }}"{registry.context_types.CHANNEL_ADDRESSES}": "context_key_with_channel_data", "{registry.context_types.TIME_RANGE}": "context_key_with_time_range"{{'}}' }}
+                {{ '{' }}"CHANNEL_ADDRESSES": "context_key_with_channel_data", "TIME_RANGE": "context_key_with_time_range"{{ '}' }}
 
                 **Required Inputs:**
-                - {registry.context_types.CHANNEL_ADDRESSES} data: typically from a "channel_finding" step
-                - {registry.context_types.TIME_RANGE} data: typically from a "time_range_parsing" step
+                - CHANNEL_ADDRESSES data: typically from a "channel_finding" step
+                - TIME_RANGE data: typically from a "time_range_parsing" step
 
                 **Input flow and sequencing:**
-                1. "channel_finding" step must precede this step (if {registry.context_types.CHANNEL_ADDRESSES} data is not present already)
-                2. "time_range_parsing" step must precede this step (if {registry.context_types.TIME_RANGE} data is not present already)
+                1. "channel_finding" step must precede this step (if CHANNEL_ADDRESSES data is not present already)
+                2. "time_range_parsing" step must precede this step (if TIME_RANGE data is not present already)
 
-                **Output: {registry.context_types.ARCHIVER_DATA}**
+                **Output: ARCHIVER_DATA**
                 - Contains: Structured historical data from the archiver
                 - Available to downstream steps via context system
 
@@ -397,7 +384,7 @@ class ArchiverRetrievalCapability(BaseCapability):
                 - For complex analysis: archiver_retrieval → data_analysis → respond
                 - Combined: archiver_retrieval → data_analysis → python (plot analysis) → respond
 
-                Do NOT plan this for current values; use "channel_value_retrieval" for real-time data.
+                Do NOT plan this for current values; use "channel_read" for real-time data.
                 """),
             examples=[archiver_retrieval_example, plotting_workflow_python_step, analysis_workflow_python_step],
             priority=15

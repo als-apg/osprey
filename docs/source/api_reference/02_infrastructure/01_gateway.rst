@@ -56,7 +56,7 @@ Registration & Configuration
 
 Gateway is not registered in the framework registry as it serves as the entry point that interfaces call directly. It operates independently of the node execution system and manages state transitions for the framework.
 
-Gateway uses LLM-powered approval detection through the configured ``approval`` model for robust natural language understanding of user approval responses. All other operations are deterministic.
+Gateway uses a two-tier approval detection system: explicit yes/no pattern matching for instant responses (``yes``, ``no``, ``ok``, etc.), with LLM-powered fallback through the configured ``approval`` model for complex natural language responses. All other operations are deterministic.
 
 Architecture Overview
 ---------------------

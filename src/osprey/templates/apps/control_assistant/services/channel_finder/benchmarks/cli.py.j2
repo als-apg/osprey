@@ -6,23 +6,26 @@ Runs channel finder benchmarks to evaluate performance and accuracy.
 Supports multiple datasets and provides detailed metrics.
 
 Usage:
-    python -m {{ package_name }}.services.channel_finder.benchmarks.cli
-    python -m {{ package_name }}.services.channel_finder.benchmarks.cli --dataset basic_queries
-    python -m {{ package_name }}.services.channel_finder.benchmarks.cli --queries 0:10
+    python src/{{ package_name }}/services/channel_finder/benchmarks/cli.py
+    python src/{{ package_name }}/services/channel_finder/benchmarks/cli.py --queries 0:10
 """
 
-import asyncio
-import sys
 import argparse
+import asyncio
 import logging
-from pathlib import Path
+import sys
 from datetime import datetime
+from pathlib import Path
 
-from .runner import BenchmarkRunner
-from ..utils.config import get_config
-from osprey.cli.styles import console, Messages, Styles
+# Add project root to path (enables running as standalone script)
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
+
 from rich.panel import Panel
 from rich.table import Table
+from {{package_name}}.services.channel_finder.benchmarks.runner import BenchmarkRunner
+from {{package_name}}.services.channel_finder.utils.config import get_config
+
+from osprey.cli.styles import Messages, Styles, console
 
 
 def parse_query_selection(query_arg: str):
@@ -138,6 +141,15 @@ async def run_benchmarks(
         console.print(f"  {Messages.success('Configuration loaded')}")
     except Exception as e:
         console.print(f"  {Messages.error(f'Failed to load configuration: {e}')}")
+        return 1
+
+    # Initialize registry (required for LLM providers)
+    try:
+        from osprey.registry import initialize_registry
+        initialize_registry()
+        console.print(f"  {Messages.success('Registry initialized')}")
+    except Exception as e:
+        console.print(f"  {Messages.error(f'Failed to initialize registry: {e}')}")
         return 1
 
     # Initialize benchmark runner (reads from config)

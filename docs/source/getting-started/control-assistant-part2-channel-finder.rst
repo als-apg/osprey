@@ -6,6 +6,11 @@ Part 2: Building Your Channel Finder
 Step 3: Semantic Channel Finding Pipelines
 ==========================================
 
+.. admonition:: Academic Reference
+   :class: seealso
+
+   For a comprehensive theoretical framework and analysis of semantic channel finding in complex experimental infrastructure, see Hellert et al. (2025), "From Natural Language to Control Signals: A Conceptual Framework for Semantic Channel Finding in Complex Experimental Infrastructure," available on `arXiv:2512.18779 <https://arxiv.org/abs/2512.18779>`_.
+
 **The Core Challenge: Bridging Human Language and Control System Addresses**
 
 Control systems at scientific facilities present a fundamental communication gap: operators and physicists think in terms of physical concepts ("beam current," "terminal voltage," "ion pump pressure"), while control systems use technical addresses (``SR01C___DCCT1_AM00``, ``TMVST``, ``IP41Pressure``). This gap becomes critical in large facilities with thousands to hundreds of thousands of channels—manually looking up addresses is impractical, and exact string matching fails because users don't know the precise naming conventions.
@@ -22,14 +27,15 @@ Control systems at scientific facilities present a fundamental communication gap
 
 ---------
 
-**Two Pipeline Implementations**
+**Three Pipeline Implementations**
 
-This template provides two semantic channel finding implementations, each suited to different facility scales:
+This template provides three semantic channel finding implementations, each suited to different facility architectures:
 
 - **In-Context Search**: Direct semantic matching—best for small to medium systems (few hundred channels)
-- **Hierarchical Navigation**: Structured navigation through system hierarchy—scales to large systems (thousands+ channels)
+- **Hierarchical Navigation**: Structured navigation through system hierarchy—scales to large systems with strict naming patterns (thousands+ channels)
+- **Middle Layer Exploration**: React agent with database query tools—scales to large systems organized by function rather than naming patterns (thousands+ channels)
 
-Both pipelines share the same interface and capabilities, differing only in their matching strategy. Choose based on your system size, or try both and benchmark which performs better for your facility.
+All three pipelines share the same interface and capabilities, differing only in their matching strategy and database organization. Choose based on your system architecture, or try multiple and benchmark which performs better for your facility.
 
 **Switching Between Pipelines**
 
@@ -38,9 +44,37 @@ To switch pipelines, edit ``config.yml`` and change the ``pipeline_mode`` settin
 .. code-block:: yaml
 
    channel_finder:
-     pipeline_mode: in_context  # or "hierarchical"
+     pipeline_mode: in_context  # or "hierarchical" or "middle_layer"
 
-That's it—no code changes required. The template includes complete implementations of both pipelines with example databases, CLI tools, and benchmark datasets. The tabs below detail each pipeline's workflow, database format, and testing tools.
+That's it—no code changes required. The template includes complete implementations of all three pipelines with example databases, CLI tools, and benchmark datasets. The tabs below detail each pipeline's workflow, database format, and testing tools.
+
+.. admonition:: Customize prompts for your facility
+   :class: tip
+
+   After building your database, edit ``facility_description.py`` with your facility's systems and terminology to dramatically improve matching accuracy. See :ref:`part4-channel-finder-prompts` in Part 4 for step-by-step guidance.
+
+.. dropdown:: AI-Assisted Pipeline Selection
+   :color: info
+   :icon: workflow
+
+   **Not sure which pipeline to use?** Let a coding assistant help you choose based on your channel naming patterns.
+
+   **When to use this workflow:**
+
+   - Setting up Channel Finder for the first time
+   - You have channel examples but aren't sure which pipeline fits best
+   - You want to have a discussion with a coding assistant to help you choose the right pipeline
+
+   **Copy this prompt to your AI assistant:**
+
+   .. code-block:: text
+
+      @src/osprey/workflows/channel-finder-pipeline-selection.md Help me select the right Channel Finder pipeline.
+
+   .. note::
+      First export workflows to your project: ``osprey workflows export``
+
+   For more information about AI-assisted development workflows, see :doc:`../contributing/03_ai-assisted-development`.
 
 .. _channel-finder-benchmarking:
 
@@ -61,67 +95,60 @@ That's it—no code changes required. The template includes complete implementat
       .. dropdown:: Channel Names vs Addresses: Optimizing LLM Token Matching
          :color: info
 
-         The in-context pipeline supports a **two-layer naming architecture** that dramatically improves semantic matching consistency:
+         **The Challenge:** Control systems use cryptic addresses (``TMVST``, ``Acc_I``, ``IP41Pressure``), but users query with natural language ("terminal voltage setpoint", "grading resistor current"). The LLM needs to bridge this gap during semantic matching.
 
-         - **`channel`**: Descriptive semantic name aligned with description (e.g., ``"TerminalVoltageSetPoint"``)
-         - **`address`**: Actual control system PV/address (e.g., ``"TMVST"``)
+         **The Solution:** When building your channel database, you choose how to create the searchable channel names:
 
-         **Why this helps (but isn't strictly required):**
+         .. code-block:: bash
 
-         The LLM sees the full channel entry (name, address, description). While it can match queries against descriptions alone, having the channel **name** itself semantically aligned with the description makes matching much, much more consistent and reliable.
+            # Default: use raw addresses as channel names
+            python build_channel_database.py
 
-         **Example - what the LLM sees:**
+            # LLM-powered: generate descriptive channel names (recommended)
+            python build_channel_database.py --use-llm --config config.yml
 
-         .. code-block:: json
+         **How It Works:**
 
-            {
-              "channel": "TMVST",  // or "TerminalVoltageSetPoint"
-              "address": "TMVST",
-              "description": "Set value of the terminal where electron gun and collector are located"
-            }
+         Your database stores three fields, but the LLM only sees two during semantic matching:
 
-         **Query:** *"terminal voltage setpoint"*
+         +---------------------------------------+------------------+---------------+
+         | ``channel`` (shown to LLM)            | ``address``      | ``description``|
+         |                                       | (hidden from LLM)| (shown to LLM)|
+         +=======================================+==================+===============+
+         | Default: ``TMVST``                    | ``TMVST``        | "Set value... |
+         +---------------------------------------+------------------+---------------+
+         | With ``--use-llm``: ``TerminalVoltage | ``TMVST``        | "Set value... |
+         | SetPoint``                            |                  |               |
+         +---------------------------------------+------------------+---------------+
 
-         - **With cryptic name** (``TMVST``): LLM matches on description, but returns inconsistent token ``TMVST``
-         - **With descriptive name** (``TerminalVoltageSetPoint``): LLM matches on description AND name, returns consistent token ``TerminalVoltageSetPoint``
+         The LLM sees only: ``channel`` + ``description`` (formatted as ``"ChannelName: Description"``)
 
-         The descriptive name **reinforces** the semantic signal from the description, creating stronger, more consistent matches.
+         **Why Descriptive Names Dramatically Improve Matching:**
 
-         **How it works:**
+         When a user queries *"terminal voltage setpoint"*:
 
-         .. code-block:: text
+         - **Default mode** (``TMVST``): LLM matches on description alone → returns cryptic token ``TMVST``
+         - **LLM-powered mode** (``TerminalVoltageSetPoint``): LLM matches on both name and description → returns semantically aligned token ``TerminalVoltageSetPoint``
 
-            User Query: "terminal voltage setpoint"
-               ↓
-            LLM sees both name and description:
-               With "TMVST": Description matches, but name doesn't align → weaker signal
-               With "TerminalVoltageSetPoint": Both name and description align → stronger, consistent signal ✓
-               ↓
-            System returns:
-               - channel: "TerminalVoltageSetPoint"  (semantically consistent with what was matched)
-               - address: "TMVST"                    (what connects to control system)
+         The descriptive channel name reinforces the semantic signal from the description, creating stronger, more consistent matches. The channel name becomes a searchable index aligned with how users think and query.
 
-         **Database builder integration:**
+         **What the ``--use-llm`` flag does:**
 
-         The ``build_channel_database.py`` tool with ``--use-llm`` flag automatically generates these semantically consistent channel names from your addresses and descriptions:
+         - Extracts semantic tokens from descriptions (location, device type, property)
+         - Generates unique PascalCase names that align with description content
+         - Preserves original addresses for control system connections
 
-         - Extracts key semantic tokens from descriptions (location, device type, property, read/write)
-         - Assembles them into channel names that align with and reinforce the description content
-         - Preserves original addresses for actual control system connections
-
-         **Result structure:**
-
-         Results include both for complete information flow:
+         Example results:
 
          +---------------------------------------+---------------------------------+
-         | Channel (reinforces description)      | Address (for EPICS/LabView/etc.)|
+         | Channel (shown to LLM, searchable)    | Address (for EPICS/LabView/etc.)|
          +=======================================+=================================+
          | ``TerminalVoltageSetPoint``           | ``TMVST``                       |
          +---------------------------------------+---------------------------------+
          | ``AcceleratingTubeEndIonPumpPressure``| ``IP41Pressure``                |
          +---------------------------------------+---------------------------------+
 
-         The descriptive names **reinforce** the semantic signal from descriptions, making matching much more consistent and reliable, while addresses remain correct for control system connections.
+         **Note:** You can manually edit channel names in the database JSON file at any time to customize them for your facility's terminology and conventions.
 
 
 
@@ -133,6 +160,27 @@ That's it—no code changes required. The template includes complete implementat
 
          **Live Example**: In-context pipeline processing "What are the grading resistor currents and the terminal voltage?" — Shows query splitting into 2 atomic queries, full database mode with 255 channels, matching 4 results (2 grading resistor currents + 2 terminal voltages), and validation confirming all channels are valid.
 
+
+      **Try It Now: Interactive Channel Finder**
+
+      The template includes a working example database (UCSB FEL accelerator, 255 channels). Try the channel finder immediately—no database setup required:
+
+      .. code-block:: bash
+
+         # From my-control-assistant directory
+         cd my-control-assistant
+
+         # Switch to in-context pipeline
+         # python config.yml: set pipeline_mode to "in_context"
+
+         python src/my_control_assistant/services/channel_finder/cli.py
+
+      **Example queries to try:**
+
+      .. code-block:: text
+
+         🔍 Query: What is the terminal voltage?
+         🔍 Query: Get me the grading resistor currents and beam current
 
       **How It Works:**
 
@@ -213,7 +261,8 @@ That's it—no code changes required. The template includes complete implementat
             - **Flat structure**: All channels at the same level, no nested hierarchy
             - **Rich descriptions**: Natural language descriptions enable semantic matching
             - **Template support**: Device families (like BPM01-BPM10) defined once and expanded automatically
-            - **Separate naming**: ``channel`` (searchable name) vs. ``address`` (actual PV address)
+            - **Separate naming**: ``channel`` (searchable name shown to LLM) vs. ``address`` (actual PV address, not shown to LLM)
+            - **LLM sees**: Only ``channel`` + ``description`` during semantic matching
 
             **Minimal setup:** Just list your channels with descriptions. The pipeline handles the rest.
 
@@ -222,6 +271,34 @@ That's it—no code changes required. The template includes complete implementat
             **From CSV to Template Database**
 
             The in-context pipeline provides tools to build template-based databases from simple CSV files. This workflow streamlines database creation, especially for facilities with device families.
+
+            .. dropdown:: AI-Assisted Database Building
+               :color: info
+               :icon: workflow
+
+               **Need help writing effective channel descriptions?** Let an AI coding assistant guide you through building a high-quality database.
+
+               **When to use this workflow:**
+
+               - Writing channel descriptions that enable effective LLM matching
+               - Extracting information from existing documentation or source code files
+               - Improving database quality based on test query results
+               - Understanding what makes descriptions helpful vs. just complete
+
+               **Example query to your AI assistant:**
+
+               .. code-block:: text
+
+                  @src/osprey/workflows/channel-finder-database-builder.md Help me build my Channel Finder database.
+
+                  I'm using the in-context pipeline with ~250 channels from a CSV export.
+                  I have EPICS .db files with DESC fields and access to wiki page about out control system.
+                  Guide me on writing descriptions that help the LLM distinguish between channels.
+
+               .. note::
+                  First export workflows to your project: ``osprey workflows export``
+
+               For more information about AI-assisted development workflows, see :doc:`../contributing/03_ai-assisted-development`.
 
             **Workflow Overview:**
 
@@ -305,6 +382,8 @@ That's it—no code changes required. The template includes complete implementat
 
             **LLM Name Generation Example:**
 
+            The database stores three fields per channel, but the in-context pipeline only presents ``channel`` and ``description`` to the LLM during semantic matching. The ``address`` is preserved for control system connections but never shown to the LLM.
+
             Without LLM (uses raw addresses):
 
             .. code-block:: json
@@ -315,6 +394,8 @@ That's it—no code changes required. The template includes complete implementat
                  "description": "Diagnostic current through grading resistor chain in accelerating tube"
                }
 
+            LLM sees: ``"Acc_I: Diagnostic current through grading resistor chain in accelerating tube"``
+
             With LLM (descriptive, searchable names):
 
             .. code-block:: json
@@ -324,6 +405,8 @@ That's it—no code changes required. The template includes complete implementat
                  "address": "Acc_I",
                  "description": "Diagnostic current through grading resistor chain in accelerating tube"
                }
+
+            LLM sees: ``"AcceleratingTubeGradingResistorDiagnosticCurrent: Diagnostic current through grading resistor chain in accelerating tube"``
 
             The LLM uses facility-specific prompts to generate names that:
 
@@ -471,8 +554,8 @@ That's it—no code changes required. The template includes complete implementat
 
             .. code-block:: bash
 
-               # From project root directory
-               python -m my_control_assistant.services.channel_finder.cli
+               # From my-control-assistant directory
+               python src/my_control_assistant/services/channel_finder/cli.py
 
             This launches an interactive terminal where you can:
 
@@ -523,13 +606,13 @@ That's it—no code changes required. The template includes complete implementat
             .. code-block:: bash
 
                # Run all benchmark queries
-               python -m my_control_assistant.services.channel_finder.benchmarks.cli
+               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py
 
                # Test specific queries (useful during development)
-               python -m my_control_assistant.services.channel_finder.benchmarks.cli --queries 0,1
+               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py --queries 0,1
 
                # Compare model performance
-               python -m my_control_assistant.services.channel_finder.benchmarks.cli --model anthropic/claude-sonnet
+               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py --model anthropic/claude-sonnet
 
             **Benchmark Capabilities:**
 
@@ -583,9 +666,9 @@ That's it—no code changes required. The template includes complete implementat
                        chunk_size: 50
                        max_correction_iterations: 2
 
-                  # Benchmark dataset for this pipeline
-                  benchmark:
-                    dataset_path: src/my_control_assistant/data/benchmarks/datasets/in_context_main.json
+                 # Benchmark dataset for this pipeline
+                 benchmark:
+                   dataset_path: src/my_control_assistant/data/benchmarks/datasets/in_context_benchmark.json
                     # In-context pipeline benchmark using UCSB FEL channels (30 queries)
 
                # Global benchmarking configuration
@@ -614,14 +697,14 @@ That's it—no code changes required. The template includes complete implementat
             .. code-block:: bash
 
                # Use a different dataset
-               python -m my_control_assistant.services.channel_finder.benchmarks.cli \
+               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py \
                   --dataset src/my_control_assistant/data/benchmarks/datasets/custom_dataset.json
 
                # Run specific queries
-               python -m my_control_assistant.services.channel_finder.benchmarks.cli --queries 0,1,5,10
+               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py --queries 0,1,5,10
 
                # Show detailed logs
-               python -m my_control_assistant.services.channel_finder.benchmarks.cli --verbose
+               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py --verbose
 
             **When to use these tools:**
 
@@ -641,6 +724,10 @@ That's it—no code changes required. The template includes complete implementat
             7. **Iterate with CLI**: Test queries interactively before running full benchmarks
             8. **Benchmark Systematically**: Run full benchmark suite before production deployment
 
+            .. seealso::
+
+               **Next Step: Customize Prompts** — Edit ``facility_description.py`` with your facility's terminology to improve matching accuracy. See :ref:`part4-channel-finder-prompts`.
+
 
    .. tab-item:: Hierarchical Pipeline
 
@@ -654,6 +741,33 @@ That's it—no code changes required. The template includes complete implementat
          :width: 100%
 
          **Live Example**: Hierarchical pipeline processing "whats the beam current?" through 5 navigation levels (system → family → device → field → subfield) to find ``DIAG:DCCT[MAIN]:CURRENT:RB`` from 1,050 channels. Shows the recursive branching at each level.
+
+
+      **Try It Now: Interactive Channel Finder**
+
+      The template includes a working example database (accelerator with magnets, vacuum, RF, and diagnostics—1,050 channels). Try the hierarchical channel finder immediately:
+
+      .. code-block:: bash
+
+         # From my-control-assistant directory
+         cd my-control-assistant
+
+         # Switch to hierarchical pipeline
+         # Edit config.yml: set pipeline_mode to "hierarchical"
+
+         python src/my_control_assistant/services/channel_finder/cli.py
+
+      **Example queries to try:**
+
+      .. code-block:: text
+
+         🔍 Query: Whats the beam current?
+         🔍 Query: Get me all focusing quadrupole currents
+
+      .. admonition:: Database Format (v0.9.4+)
+         :class: tip
+
+         Hierarchical databases use a **flexible schema** that lets you define any hierarchy structure to match your control system. See the **Database Format** tab below for schema details and **Building Your Own Database** for a step-by-step guide.
 
       **How It Works:**
 
@@ -704,6 +818,12 @@ That's it—no code changes required. The template includes complete implementat
 
          .. tab-item:: Database Format
 
+            .. note::
+
+               This tab shows the **simplest hierarchical database pattern**—a straightforward 5-level structure with basic naming. This is perfect for getting started.
+
+               For **advanced patterns** (navigation-only levels, friendly names, optional levels, custom separators), see the **Building Your Database** tab which includes detailed examples and use cases for complex naming conventions.
+
             **Nested Hierarchy Structure:**
 
             The hierarchical database organizes channels by physical system structure with rich domain context at each level:
@@ -711,32 +831,37 @@ That's it—no code changes required. The template includes complete implementat
             .. code-block:: json
 
                {
-                 "hierarchy_definition": ["system", "family", "device", "field", "subfield"],
-                 "naming_pattern": "{system}:{family}[{device}]:{field}:{subfield}",
+                 "_comment": "Accelerator Control System - Hierarchical Channel Database",
+                 "hierarchy": {
+                   "levels": [
+                     {"name": "system", "type": "tree"},
+                     {"name": "family", "type": "tree"},
+                     {"name": "device", "type": "instances"},
+                     {"name": "field", "type": "tree"},
+                     {"name": "subfield", "type": "tree"}
+                   ],
+                   "naming_pattern": "{system}:{family}[{device}]:{field}:{subfield}"
+                 },
                  "tree": {
                    "MAG": {
                      "_description": "Magnet System: Controls beam trajectory and focusing. Includes dipoles, quadrupoles, sextupoles, and correctors.",
                      "QF": {
                        "_description": "Focusing Quadrupoles: Positive gradient magnets. Focus horizontal, defocus vertical. Part of tune correction system.",
-                       "devices": {
-                         "_type": "range",
-                         "_pattern": "QF{:02d}",
-                         "_range": [1, 16]
-                       },
-                       "fields": {
+                       "DEVICE": {
+                         "_expansion": {
+                           "_type": "range",
+                           "_pattern": "QF{:02d}",
+                           "_range": [1, 16]
+                         },
                          "CURRENT": {
                            "_description": "Excitation Current (Amperes): Current through coil windings. Proportional to field gradient.",
-                           "subfields": {
-                             "SP": {"_description": "Setpoint (read-write): Commanded current"},
-                             "RB": {"_description": "Readback (read-only): Measured current"}
-                           }
+                           "SP": {"_description": "Setpoint (read-write): Commanded current"},
+                           "RB": {"_description": "Readback (read-only): Measured current"}
                          },
                          "STATUS": {
                            "_description": "Operational status indicators",
-                           "subfields": {
-                             "READY": {"_description": "Ready (read-only): Power supply ready"},
-                             "ON": {"_description": "On (read-only): Power supply energized"}
-                           }
+                           "READY": {"_description": "Ready (read-only): Power supply ready"},
+                           "ON": {"_description": "On (read-only): Power supply energized"}
                          }
                        }
                      }
@@ -745,12 +870,13 @@ That's it—no code changes required. The template includes complete implementat
                      "_description": "Diagnostic System: Beam instrumentation and measurement devices",
                      "DCCT": {
                        "_description": "DC Current Transformers: Non-invasive beam current measurement",
-                       "devices": {"_type": "explicit", "_devices": ["MAIN"]},
-                       "fields": {
+                       "DEVICE": {
+                         "_expansion": {
+                           "_type": "list",
+                           "_instances": ["MAIN"]
+                         },
                          "CURRENT": {
-                           "subfields": {
-                             "RB": {"_description": "Readback (read-only): Measured beam current in mA"}
-                           }
+                           "RB": {"_description": "Readback (read-only): Measured beam current in mA"}
                          }
                        }
                      }
@@ -760,10 +886,54 @@ That's it—no code changes required. The template includes complete implementat
 
             **Key features:**
 
+            - **Clean schema**: Single ``hierarchy`` section combines level definitions and naming pattern with built-in validation
+            - **Flexible structure**: Each level specifies its ``name`` and ``type`` (``tree`` for semantic categories, ``instances`` for numbered/patterned expansions)
             - **Deep descriptions**: Rich domain knowledge at every level guides LLM navigation
-            - **Device ranges**: Define device families once (e.g., QF01-QF16) using range notation
+            - **Instance expansion**: Define device families once (e.g., QF01-QF16) using ``_expansion`` with ranges or lists
             - **Physical organization**: Hierarchy mirrors actual control system structure
-            - **Naming pattern**: Automatic assembly of full channel names from navigation paths
+            - **Automatic validation**: System ensures naming pattern references match level names, catching errors at load time
+
+            .. dropdown:: Understanding Hierarchy Levels: Tree vs Instances
+               :color: info
+
+               Each level in the ``hierarchy.levels`` array specifies its behavior during navigation. Understanding the two level types is key to building effective hierarchical databases.
+
+               **Tree Levels (``"type": "tree"``):**
+
+               - **Purpose**: Navigate through named semantic categories
+               - **Behavior**: LLM selects from explicitly defined options at this level; multiple selections trigger branching
+               - **When to use**: For categorical decisions where each option has different meaning
+               - **Examples**:
+                  - Systems: MAG (magnets), VAC (vacuum), RF (radio frequency), DIAG (diagnostics)
+                  - Families: DIPOLE, QUADRUPOLE, SEXTUPOLE, CORRECTOR
+                  - Fields: CURRENT, STATUS, POSITION, VOLTAGE
+                  - Subfields: SP (setpoint), RB (readback), GOLDEN (reference)
+
+               **Instance Levels (``"type": "instances"``):**
+
+               - **Purpose**: Expand across numbered or named instances that share the same structure
+               - **Behavior**: Instances are generated from ``_expansion`` definition (range or list)
+               - **When to use**: For device families where all instances have identical structure
+               - **Examples**:
+                  - Devices: QF01, QF02, ..., QF16 (all focusing quadrupoles with same fields)
+                  - Numbered sensors: BPM01, BPM02, ..., BPM20 (all beam position monitors)
+                  - Named instances: MAIN, BACKUP (both have same measurement structure)
+
+               **Key Difference:**
+
+               - **Tree**: Each option may have different children (MAG system has different families than VAC system)
+               - **Expand Here**: All instances have identical children (QF01 has same fields as QF02, QF03, etc.)
+
+               **Typical Pattern for Accelerators:**
+
+               .. code-block:: text
+
+                  system [tree] → family [tree] → device [expand_here] → field [tree] → subfield [tree]
+                     ↓               ↓                ↓                     ↓                ↓
+                  Navigate        Navigate         Expand all          Navigate         Navigate
+                  (MAG/VAC/RF)    (QF/QD/DIPOLE)   (01-16)             (CURRENT/STATUS) (SP/RB)
+
+               This pattern creates a powerful combination: semantic navigation through systems and families, automatic expansion across device instances, then semantic navigation through measurements.
 
             Result example: ``MAG:QF[QF03]:CURRENT:RB`` (Magnet system → QF family → device QF03 → CURRENT field → RB subfield)
 
@@ -772,6 +942,34 @@ That's it—no code changes required. The template includes complete implementat
             **Manual JSON Creation: A Structured Approach**
 
             Unlike the in-context pipeline (which has automated CSV-to-JSON builders), hierarchical databases require manual JSON creation. This reflects their purpose: representing well-organized control systems with existing hierarchical structures.
+
+            .. dropdown:: AI-Assisted Database Building
+               :color: info
+               :icon: workflow
+
+               **Need help structuring your hierarchy and writing descriptions?** Let an AI coding assistant guide you through the process.
+
+               **When to use this workflow:**
+
+               - Organizing your control system into a hierarchical structure
+               - Writing distinguishing descriptions at branching points
+               - Understanding which hierarchy levels need the most detailed descriptions
+               - Extracting hierarchy information from existing documentation
+
+               **Example query to your AI assistant:**
+
+               .. code-block:: text
+
+                  @src/osprey/workflows/channel-finder-database-builder.md Help me build my Channel Finder database.
+
+                  I'm using the hierarchical pipeline for an accelerator with ~1,050 channels.
+                  My naming follows SYSTEM:FAMILY[DEVICE]:FIELD:SUBFIELD pattern.
+                  Guide me on writing descriptions that help the LLM navigate the hierarchy correctly.
+
+               .. note::
+                  First export workflows to your project: ``osprey workflows export``
+
+               For more information about AI-assisted development workflows, see :doc:`../contributing/03_ai-assisted-development`.
 
             **When to Use This Workflow:**
 
@@ -782,19 +980,326 @@ That's it—no code changes required. The template includes complete implementat
 
             **Step 1: Understand the Schema**
 
-            A hierarchical database has three required top-level keys:
+            The hierarchical database format in OSPREY uses a clean, flexible schema with two top-level keys:
 
             .. code-block:: json
 
                {
-                 "hierarchy_definition": ["system", "family", "device", "field", "subfield"],
-                 "naming_pattern": "{system}:{family}[{device}]:{field}:{subfield}",
+                 "hierarchy": {
+                   "levels": [
+                     {"name": "system", "type": "tree"},
+                     {"name": "family", "type": "tree"},
+                     {"name": "device", "type": "instances"},
+                     {"name": "field", "type": "tree"},
+                     {"name": "subfield", "type": "tree"}
+                   ],
+                   "naming_pattern": "{system}:{family}[{device}]:{field}:{subfield}"
+                 },
                  "tree": { /* nested structure */ }
                }
 
-            **hierarchy_definition**: An ordered list of level names. The LLM navigates these levels in sequence. Five levels is typical for accelerator facilities, but you can adapt this to your system (e.g., three levels for simpler systems).
+            **hierarchy**: Configuration combining level definitions and naming pattern. This section includes:
 
-            **naming_pattern**: A template showing how to assemble complete channel names from navigation selections. Uses Python format string syntax with level names as placeholders.
+            - **levels**: Ordered array defining each hierarchy level. Each level specifies:
+
+              - ``name``: Level identifier used in navigation and naming pattern
+              - ``type``: Either ``"tree"`` (navigate through named semantic categories like MAG, VAC, RF) or ``"instances"`` (expand numbered/patterned instances like QF01, QF02 that share the same structure)
+
+              Define as many or as few levels as your system needs—three levels for simple systems, five for typical accelerators, ten or more for complex facilities.
+
+            - **naming_pattern**: Template for assembling complete channel names from navigation selections. Uses Python format string syntax with level names as placeholders (e.g., ``{system}:{device}:{field}``). All placeholders must reference defined level names.
+
+            .. dropdown:: Advanced Hierarchy Patterns (v0.9.6+)
+               :color: info
+               :icon: versions
+
+               Three advanced features enable flexible hierarchical organization for diverse control system naming conventions:
+
+               .. tab-set::
+
+                  .. tab-item:: Navigation-Only Levels
+
+                     **Use Case**: Provide semantic navigation context without cluttering channel names. Perfect when your PV names are self-contained but benefit from hierarchical browsing.
+
+                     **How It Works**: Not all hierarchy levels need to appear in the naming pattern. Omit levels from ``naming_pattern`` to use them for navigation only.
+
+                     **Example** (JLab CEBAF pattern):
+
+                     .. code-block:: json
+
+                        {
+                          "hierarchy": {
+                            "levels": [
+                              {"name": "system", "type": "tree"},      // Navigation only
+                              {"name": "family", "type": "tree"},      // Navigation only
+                              {"name": "location", "type": "tree"},    // Navigation only
+                              {"name": "pv", "type": "tree"}           // Used in pattern ✓
+                            ],
+                            "naming_pattern": "{pv}"
+                          },
+                          "tree": {
+                            "Magnets": {
+                              "Skew Quads": {
+                                "North Linac": {
+                                  "MQS1L02.S": {"_description": "Current Setpoint"},
+                                  "MQS1L02M": {"_description": "Current Readback"}
+                                }
+                              }
+                            }
+                          }
+                        }
+
+                     **Navigation Path**: ``Magnets → Skew Quads → North Linac → MQS1L02.S``
+
+                     **Generated Channel**: ``MQS1L02.S``
+
+                     **Benefits**:
+
+                     - Clean semantic navigation through system hierarchy
+                     - Channel names stay concise (just the PV string)
+                     - Backward compatible with existing PV naming schemes
+                     - LLM gets rich context from navigation levels for better matching
+
+                     **Example Database**: ``hierarchical_jlab_style.json``
+
+                  .. tab-item:: Friendly Names
+
+                     **Use Case**: Use human-readable names for navigation while preserving technical naming conventions in channel names. Separate "what operators call it" from "what the control system needs".
+
+                     **How It Works**: Add ``_channel_part`` field to tree nodes to decouple the tree key (navigation) from the naming component (channel name).
+
+                     **Example**:
+
+                     .. code-block:: json
+
+                        {
+                          "hierarchy": {
+                            "levels": [
+                              {"name": "system", "type": "tree"},
+                              {"name": "device", "type": "tree"}
+                            ],
+                            "naming_pattern": "{system}:{device}"
+                          },
+                          "tree": {
+                            "Magnets": {
+                              "_channel_part": "MAG",
+                              "_description": "Magnet control system",
+                              "Skew Quadrupoles": {
+                                "_channel_part": "SK",
+                                "_description": "Skew quadrupole family"
+                              }
+                            }
+                          }
+                        }
+
+                     **Navigation Path**: ``Magnets → Skew Quadrupoles``
+
+                     **Generated Channel**: ``MAG:SK``
+
+                     **Key Features**:
+
+                     - ``_channel_part`` defaults to tree key (backward compatible)
+                     - Empty string ``_channel_part: ""`` creates navigation-only nodes
+                     - Mix and match: some levels with ``_channel_part``, some without
+                     - Works with instance expansion (``_expansion``)
+
+                     **Benefits**:
+
+                     - Operators navigate using familiar terminology
+                     - Channel names use facility-specific technical codes
+                     - Easier onboarding for new operators (friendly names in navigation)
+                     - Maintains compatibility with existing control systems
+
+                     **Example Database**: ``hierarchical_jlab_style.json``
+
+                  .. tab-item:: Optional Levels
+
+                     **Use Case**: Generate both base channels AND variants with additional suffixes/subdevices. Common for signals that have setpoint/readback pairs or channels that optionally include intermediate levels.
+
+                     **How It Works**: Mark levels as ``"optional": true`` in hierarchy definition. Nodes without children are automatically detected as leaves. Use ``_is_leaf: true`` ONLY on nodes that have children but are also complete channels themselves.
+
+                     **Example** (Signal with optional suffix):
+
+                     .. code-block:: json
+
+                        {
+                          "hierarchy": {
+                            "levels": [
+                              {"name": "system", "type": "tree"},
+                              {"name": "device", "type": "instances"},
+                              {"name": "signal", "type": "tree"},
+                              {"name": "suffix", "type": "tree", "optional": true}
+                            ],
+                            "naming_pattern": "{system}-{device}:{signal}_{suffix}"
+                          },
+                          "tree": {
+                            "SYSTEM": {
+                              "DEVICE": {
+                                "_expansion": {
+                                  "_type": "range",
+                                  "_pattern": "DEV-{:02d}",
+                                  "_range": [1, 10]
+                                },
+                                "SIGNAL-Y": {
+                                  "_is_leaf": true,
+                                  "_description": "Base signal - also has RB/SP variants (explicit _is_leaf needed)",
+                                  "RB": {
+                                    "_description": "Readback variant (already a leaf - no _is_leaf needed)"
+                                  },
+                                  "SP": {
+                                    "_description": "Setpoint variant (already a leaf - no _is_leaf needed)"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+
+                     **Generated Channels**:
+
+                     - ``SYSTEM-DEV-01:SIGNAL-Y`` (base, skips optional suffix)
+                     - ``SYSTEM-DEV-01:SIGNAL-Y_RB`` (with RB suffix)
+                     - ``SYSTEM-DEV-01:SIGNAL-Y_SP`` (with SP suffix)
+
+                     **Key Features**:
+
+                     - ``_is_leaf: true`` marks a node as a complete channel
+                     - Leaf nodes can still have children (for optional levels)
+                     - Automatic separator cleanup (removes ``::`` and trailing ``_``)
+                     - Multiple optional levels can be chained
+
+                     **Benefits**:
+
+                     - Single definition generates both base and variant channels
+                     - Handles complex naming conventions (e.g., with/without subdevices)
+                     - Explicit leaf marking makes intent clear
+                     - Supports gradual migration (some devices with sublevels, some without)
+
+                     **Example Database**: ``optional_levels.json`` (82 channels demonstrating optional levels and separator overrides)
+
+                  .. tab-item:: Custom Separators
+
+                     **Use Case**: Override default separators for specific nodes to match existing EPICS naming conventions that use different delimiters in different contexts.
+
+                     **How It Works**: Add ``_separator`` metadata to any tree node to customize the separator before its children, overriding the default from the naming pattern.
+
+                     **Simple Example**:
+
+                     Your naming pattern uses colons everywhere:
+
+                     .. code-block:: json
+
+                        {
+                          "hierarchy": {
+                            "naming_pattern": "{system}:{device}:{signal}:{suffix}"
+                          }
+                        }
+
+                     Default behavior (all colons):
+
+                     .. code-block:: text
+
+                        CTRL:DEV-01:Mode:RB       (colon before RB)
+                        CTRL:DEV-01:MOTOR:Position (colon before Position)
+
+                     But your facility's actual PV convention uses:
+
+                     - Underscore (``_``) for record field suffixes (RB, SP, CMD)
+                     - Dot (``.``) for motor subsystem navigation
+
+                     **Solution - Add separator overrides**:
+
+                     .. code-block:: json
+
+                        {
+                          "tree": {
+                            "CTRL": {
+                              "DEVICE": {
+                                "_expansion": {"_instances": ["DEV-01", "DEV-02"]},
+
+                                "Mode": {
+                                  "_separator": "_",
+                                  "_is_leaf": true,
+                                  "_description": "Operating mode",
+                                  "RB": {"_description": "Readback"},
+                                  "SP": {"_description": "Setpoint"}
+                                },
+
+                                "MOTOR": {
+                                  "_separator": ".",
+                                  "_description": "Motor subsystem",
+                                  "Position": {"_description": "Position"},
+                                  "Velocity": {"_description": "Velocity"}
+                                }
+                              }
+                            }
+                          }
+                        }
+
+                     **Result - Matches your convention**:
+
+                     .. code-block:: text
+
+                        CTRL:DEV-01:Mode_RB        (underscore from _separator)
+                        CTRL:DEV-01:Mode_SP        (underscore from _separator)
+                        CTRL:DEV-01:MOTOR.Position (dot from _separator)
+                        CTRL:DEV-01:MOTOR.Velocity (dot from _separator)
+
+                     **Why This Matters**:
+
+                     Many EPICS facilities have evolved naming conventions where:
+
+                     - Historical subsystems use dots: ``OLD:MOTOR.Speed``
+                     - Modern subsystems use colons: ``NEW:MOTOR:Speed``
+                     - Record fields always use underscores: ``DEV:Signal_RB``
+
+                     Without separator overrides, you'd need separate databases or complex restructuring. With overrides, each node declares its own separator independently.
+
+                     **Multiple Overrides in One Path**:
+
+                     Different nodes can override independently:
+
+                     .. code-block:: json
+
+                        "LEGACY": {
+                          "_separator": ".",
+                          "CTRL": {
+                            "_separator": "-",
+                            "Mode": {
+                              "_separator": "_",
+                              "RB": {...}
+                            }
+                          }
+                        }
+
+                     Generates: ``CTRL:LEGACY.CTRL-Mode_RB`` (colon, then dot, then dash, then underscore)
+
+                     **Key Features**:
+
+                     - Override works at **any** hierarchy level
+                     - Each node's ``_separator`` only affects its **immediate children**
+                     - Backward compatible (no ``_separator`` = use pattern default)
+                     - Combines with optional levels seamlessly
+
+                     **Common EPICS Patterns**:
+
+                     .. code-block:: json
+
+                        "Signal": {
+                          "_separator": "_",
+                          "RB": {...},   // Signal_RB
+                          "SP": {...}    // Signal_SP
+                        }
+
+                     .. code-block:: json
+
+                        "LegacyMotor": {
+                          "_separator": ".",
+                          "Speed": {...},     // LegacyMotor.Speed
+                          "Position": {...}   // LegacyMotor.Position
+                        }
+
+                     **Example Database**: ``optional_levels.json`` (shows separator overrides with optional levels)
 
             **tree**: The nested hierarchy structure with descriptions at every level (details below).
 
@@ -802,74 +1307,98 @@ That's it—no code changes required. The template includes complete implementat
 
             The tree follows a nested structure where each level contains:
 
-            - **System level** (root): Top-level systems with ``_description`` fields
+            .. tab-set::
 
-            .. code-block:: json
+               .. tab-item:: System
 
-               "tree": {
-                 "MAG": {
-                   "_description": "Magnet System (MAG): Controls beam trajectory and focusing...",
-                   /* families go here */
-                 },
-                 "VAC": {
-                   "_description": "Vacuum System (VAC): Maintains ultra-high vacuum...",
-                   /* families go here */
-                 }
-               }
+                  Top-level systems with ``_description`` fields:
 
-            - **Family level**: Device families within each system
+                  .. code-block:: json
 
-            .. code-block:: json
+                     "tree": {
+                       "MAG": {
+                         "_description": "Magnet System (MAG): Controls beam trajectory and focusing...",
+                         /* families go here */
+                       },
+                       "VAC": {
+                         "_description": "Vacuum System (VAC): Maintains ultra-high vacuum...",
+                         /* families go here */
+                       }
+                     }
 
-               "QF": {
-                 "_description": "Focusing Quadrupoles (QF): Positive gradient magnets...",
-                 "devices": { /* device definition */ },
-                 "fields": { /* field definitions */ }
-               }
+               .. tab-item:: Family
 
-            - **Device level**: Specify device instances using ranges or explicit lists
+                  Device families within each system:
 
-            .. code-block:: json
+                  .. code-block:: json
 
-               "devices": {
-                 "_type": "range",
-                 "_pattern": "QF{:02d}",
-                 "_range": [1, 16]
-               }
+                     "QF": {
+                       "_description": "Focusing Quadrupoles (QF): Positive gradient magnets...",
+                       "DEVICE": {
+                         "_expansion": { /* expansion definition */ },
+                         /* fields go here as direct children */
+                       }
+                     }
 
-            This generates QF01, QF02, ..., QF16 automatically. For explicit lists:
+               .. tab-item:: Device
 
-            .. code-block:: json
+                  Container with ``_expansion`` definition specifying instances:
 
-               "devices": {
-                 "_type": "list",
-                 "_instances": ["MAIN", "BACKUP"]
-               }
+                  .. code-block:: json
 
-            - **Field level**: Physical quantities or subsystems
+                     "DEVICE": {
+                       "_expansion": {
+                         "_type": "range",
+                         "_pattern": "QF{:02d}",
+                         "_range": [1, 16]
+                       },
+                       /* fields defined here */
+                     }
 
-            .. code-block:: json
+                  This generates QF01, QF02, ..., QF16 automatically. For explicit lists:
 
-               "fields": {
-                 "CURRENT": {
-                   "_description": "Excitation Current (Amperes): Current through coil windings...",
-                   "subfields": { /* subfield definitions */ }
-                 },
-                 "STATUS": {
-                   "_description": "Operational status indicators",
-                   "subfields": { /* subfield definitions */ }
-                 }
-               }
+                  .. code-block:: json
 
-            - **Subfield level**: Specific measurements or control points
+                     "DEVICE": {
+                       "_expansion": {
+                         "_type": "list",
+                         "_instances": ["MAIN", "BACKUP"]
+                       },
+                       /* fields defined here */
+                     }
 
-            .. code-block:: json
+               .. tab-item:: Field
 
-               "subfields": {
-                 "SP": {"_description": "Setpoint (read-write): Commanded current"},
-                 "RB": {"_description": "Readback (read-only): Measured current"},
-                 "GOLDEN": {"_description": "Golden reference value for optimal operation"}
-               }
+                  Physical quantities or subsystems (as direct children of DEVICE):
+
+                  .. code-block:: json
+
+                     "DEVICE": {
+                       "_expansion": { /* ... */ },
+                       "CURRENT": {
+                         "_description": "Excitation Current (Amperes): Current through coil windings...",
+                         "SP": {"_description": "Setpoint (read-write): Commanded current"},
+                         "RB": {"_description": "Readback (read-only): Measured current"}
+                       },
+                       "STATUS": {
+                         "_description": "Operational status indicators",
+                         "READY": {"_description": "Ready (read-only): Power supply ready"},
+                         "ON": {"_description": "On (read-only): Power supply energized"}
+                       }
+                     }
+
+               .. tab-item:: Subfield
+
+                  Specific measurements or control points (as direct children of each field):
+
+                  .. code-block:: json
+
+                     "CURRENT": {
+                       "_description": "Excitation Current (Amperes)...",
+                       "SP": {"_description": "Setpoint (read-write): Commanded current"},
+                       "RB": {"_description": "Readback (read-only): Measured current"},
+                       "GOLDEN": {"_description": "Golden reference value for optimal operation"}
+                     }
 
             **Step 3: Write Rich Descriptions**
 
@@ -881,20 +1410,29 @@ That's it—no code changes required. The template includes complete implementat
             4. **Units and ranges**: "(Amperes)", "Typically 0-200A"
             5. **Access mode**: "(read-write)" or "(read-only)"
 
-            **Example of excellent description depth:**
+            .. dropdown:: Example of excellent description depth
+               :color: info
 
-            .. code-block:: json
+               .. code-block:: json
 
-               "CURRENT": {
-                 "_description": "Quadrupole Excitation Current (Amperes): Current through QF coil windings. Proportional to positive field gradient. Typically 0-200A. Adjusted for tune correction and beam optics optimization.",
-                 "subfields": {
-                   "SP": {
-                     "_description": "Setpoint (read-write): Commanded focusing current for tune correction."
-                   }
-                 }
-               }
+                  "DEVICE": {
+                    "_expansion": {
+                      "_type": "range",
+                      "_pattern": "QF{:02d}",
+                      "_range": [1, 16]
+                    },
+                    "CURRENT": {
+                      "_description": "Quadrupole Excitation Current (Amperes): Current through QF coil windings. Proportional to positive field gradient. Typically 0-200A. Adjusted for tune correction and beam optics optimization.",
+                      "SP": {
+                        "_description": "Setpoint (read-write): Commanded focusing current for tune correction."
+                      },
+                      "RB": {
+                        "_description": "Readback (read-only): Measured focusing current from DCCT sensor."
+                      }
+                    }
+                  }
 
-            The more context you provide, the better the LLM can match user queries to the correct path.
+               The more context you provide, the better the LLM can match user queries to the correct path.
 
             **Step 4: Validate Your Database**
 
@@ -910,31 +1448,86 @@ That's it—no code changes required. The template includes complete implementat
 
             For hierarchical databases, validation checks:
 
-            - ✅ **JSON Structure**: Valid syntax, required top-level keys (hierarchy_definition, naming_pattern, tree)
-            - ✅ **Hierarchy Consistency**: All levels properly nested, device definitions valid
-            - ✅ **Database Loading**: Can be successfully loaded by ``HierarchicalChannelDatabase`` class
-            - ✅ **Channel Expansion**: Tree structure expands correctly to generate channel names
+            - **JSON Structure**: Valid syntax, required top-level keys (hierarchy, tree)
+            - **Schema Validation**: Naming pattern references exactly match level names (prevents typos and out-of-sync errors)
+            - **Level Configuration**: All levels have valid types (tree or instances), properly configured
+            - **Hierarchy Consistency**: All levels properly nested, instance expansion definitions valid
+            - **Database Loading**: Can be successfully loaded by ``HierarchicalChannelDatabase`` class
+            - **Channel Expansion**: Tree structure expands correctly to generate channel names
 
             If you encounter issues, the validator will report specific problems with line numbers or key paths to help you debug.
 
             **Step 5: Preview Database Presentation**
 
-            See how your database appears to the LLM during navigation:
+            See how your hierarchical database will be presented to the LLM during navigation:
 
             .. code-block:: bash
 
                # From my-control-assistant directory
+               # Quick overview (default: 3 levels, 10 items per level)
                python src/my_control_assistant/data/tools/preview_database.py
 
-               # Show full tree (not just summary)
-               python src/my_control_assistant/data/tools/preview_database.py --full
+               # Show 4 levels with statistics
+               python src/my_control_assistant/data/tools/preview_database.py --depth 4 --sections tree,stats
 
-            This displays:
+               # Complete view with all sections
+               python src/my_control_assistant/data/tools/preview_database.py --depth -1 --max-items -1 --sections all
 
-            - Tree structure with all levels visible
-            - Rich descriptions at each level
-            - Device instance counts and patterns
-            - Total channel counts by system
+               # Focus on specific subsystem
+               python src/my_control_assistant/data/tools/preview_database.py --focus M:QB --depth 4
+
+            .. dropdown:: Preview Tool Parameters (v0.9.6+)
+               :color: info
+               :icon: versions
+
+               The preview tool supports flexible display options for exploring large hierarchical databases without overwhelming your terminal.
+
+               **Display Control:**
+
+               - ``--depth N``: Maximum hierarchy depth to display (default: 3, use -1 for unlimited)
+               - ``--max-items N``: Maximum items to show per level (default: 10, use -1 for unlimited)
+               - ``--full``: Legacy flag, equivalent to ``--depth -1 --max-items -1``
+
+               **Section Selection:**
+
+               - ``--sections SECTIONS``: Comma-separated list of sections to display (default: tree)
+
+                 - ``tree``: Visual hierarchy tree with channel counts
+                 - ``stats``: Per-level unique value statistics
+                 - ``breakdown``: Channel count breakdown by path
+                 - ``samples``: Random sample channel names
+                 - ``all``: All of the above
+
+               **Focus & Filtering:**
+
+               - ``--focus PATH``: Zoom into specific subtree using colon-separated path (e.g., ``M:QB`` shows only QB family in M system)
+               - ``--path FILE``: Preview a specific database file, auto-detects type (overrides config)
+
+               **Example Workflows:**
+
+               .. code-block:: bash
+
+                  # Quick check of overall structure
+                  python preview_database.py --sections stats
+
+                  # Deep dive into magnet quadrupoles
+                  python preview_database.py --focus M:QF --depth 5 --max-items 15
+
+                  # Compare database files
+                  python preview_database.py --path examples/consecutive_instances.json --depth -1
+                  python preview_database.py --path examples/optional_levels.json --depth -1
+
+                  # Full analysis with all metrics
+                  python preview_database.py --depth -1 --max-items -1 --sections all
+
+               **Why These Parameters Matter:**
+
+               For large databases (1000+ channels), viewing the complete hierarchy can overwhelm your terminal. The preview tool helps you explore incrementally:
+
+               - Start with ``--depth 3`` to understand top-level structure
+               - Use ``--focus`` to zoom into specific subsystems
+               - Add ``--sections stats`` to see level distribution
+               - Finally use ``--depth -1 --max-items -1`` for complete view
 
             **Preview Output Example:**
 
@@ -965,8 +1558,8 @@ That's it—no code changes required. The template includes complete implementat
 
             .. code-block:: bash
 
-               # From project root directory
-               python -m my_control_assistant.services.channel_finder.cli
+               # From my-control-assistant directory
+               python src/my_control_assistant/services/channel_finder/cli.py
 
             This launches an interactive terminal where you can:
 
@@ -1018,13 +1611,13 @@ That's it—no code changes required. The template includes complete implementat
             .. code-block:: bash
 
                # Run all benchmark queries
-               python -m my_control_assistant.services.channel_finder.benchmarks.cli
+               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py
 
                # Test specific queries (useful during development)
-               python -m my_control_assistant.services.channel_finder.benchmarks.cli --queries 0,1
+               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py --queries 0,1
 
                # Compare model performance
-               python -m my_control_assistant.services.channel_finder.benchmarks.cli --model anthropic/claude-sonnet
+               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py --model anthropic/claude-sonnet
 
             **Benchmark Capabilities:**
 
@@ -1103,14 +1696,14 @@ That's it—no code changes required. The template includes complete implementat
             .. code-block:: bash
 
                # Use a different dataset
-               python -m my_control_assistant.services.channel_finder.benchmarks.cli \
+               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py \
                   --dataset src/my_control_assistant/data/benchmarks/datasets/custom_dataset.json
 
                # Run specific queries
-               python -m my_control_assistant.services.channel_finder.benchmarks.cli --queries 0,1,5,10
+               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py --queries 0,1,5,10
 
                # Show detailed logs
-               python -m my_control_assistant.services.channel_finder.benchmarks.cli --verbose
+               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py --verbose
 
             **When to use these tools:**
 
@@ -1129,26 +1722,490 @@ That's it—no code changes required. The template includes complete implementat
             6. **CLI First**: Use interactive CLI for rapid iteration before running full benchmarks
             7. **Document Patterns**: Keep notes on navigation patterns that work well for your facility
 
+            .. seealso::
+
+               **Next Step: Customize Prompts** — Edit ``facility_description.py`` with your facility's terminology to improve matching accuracy. See :ref:`part4-channel-finder-prompts`.
+
+   .. tab-item:: Middle Layer Pipeline
+
+      **Concept:** Agent explores database using query tools to find channels by function.
+
+      **Best for:** Large systems organized by function (Monitor, Setpoint) rather than naming patterns, facilities using MATLAB Middle Layer (MML) style organization, systems requiring device/sector filtering.
+
+      .. figure:: /_static/screenshots/channel_finder_middlelayer_cli.png
+         :alt: Middle Layer Channel Finder CLI in action
+         :align: center
+         :width: 100%
+
+         **Live Example**: Middle layer pipeline processing "What's the beam current?" using React agent with database query tools. Shows the agent calling list_systems(), list_families(), inspect_fields(), and list_channel_names() to explore the functional hierarchy (SR → DCCT → Monitor) and find ``SR:DCCT:Current``.
+
+
+      **Try It Now: Interactive Channel Finder**
+
+      The template includes a working example database (accelerator with Storage Ring, Booster, and Transfer Line).
+
+      .. code-block:: bash
+
+         # From my-control-assistant directory
+         cd my-control-assistant
+
+         # Switch to middle_layer pipeline
+         # Edit config.yml: set pipeline_mode to "middle_layer"
+
+         python src/my_control_assistant/services/channel_finder/cli.py
+
+      **Example queries to try:**
+
+      .. code-block:: text
+
+         🔍 Query: What's the beam current?
+         🔍 Query: Get me BPM X positions in sector 1
+
+      **How It Works:**
+
+      .. tab-set::
+
+         .. tab-item:: Pipeline Stages
+
+            The middle layer pipeline uses a React agent with database query tools to find channels through functional exploration.
+
+            **Stage 1: Query Splitting**
+
+            Identical to the other pipelines' query splitting stage, complex queries are decomposed into atomic sub-queries. Each atomic query then explores the database independently using the agent.
+
+            **Stage 2: Agent-Based Database Exploration**
+
+            The pipeline uses a LangGraph React agent with five database query tools. The agent autonomously explores the functional hierarchy (System → Family → Field → Subfield) to find matching channels.
+
+            **Available Tools:**
+
+            1. **list_systems()** - Get all available systems with descriptions
+            2. **list_families(system)** - Get device families within a system
+            3. **inspect_fields(system, family, field)** - Examine field structure and subfields
+            4. **list_channel_names(...)** - Retrieve actual PV addresses with optional filtering
+            5. **get_common_names(system, family)** - Get friendly device names
+
+            The agent follows this typical workflow:
+
+            Query: "What's the beam current?"
+
+            1. **Explore systems** → Calls ``list_systems()`` → Finds SR, VAC, BR, BTS
+            2. **Select relevant system** → Chooses SR (Storage Ring) based on description
+            3. **Explore families** → Calls ``list_families('SR')`` → Finds BPM, HCM, DCCT, etc.
+            4. **Identify beam current family** → Chooses DCCT (DC Current Transformer)
+            5. **Inspect fields** → Calls ``inspect_fields('SR', 'DCCT')`` → Finds Monitor, FastMonitor, Lifetime
+            6. **Retrieve channels** → Calls ``list_channel_names('SR', 'DCCT', 'Monitor')``
+            7. **Report results** → Returns ``SR:DCCT:Current``
+
+            **Key Features:**
+
+            - **Autonomous exploration**: Agent decides which tools to call and in what order
+            - **Description-aware**: Uses optional ``_description`` fields when available for better matching
+            - **Subfield navigation**: Automatically discovers nested structures (e.g., X/Y under BPM)
+            - **Device filtering**: Supports optional sector/device filtering when ``DeviceList`` metadata present
+
+            **Stage 3: Result Aggregation & Deduplication**
+
+            Results from all atomic queries are combined and deduplicated to provide a clean final result.
+
+         .. tab-item:: Database Format
+
+            **Functional Hierarchy Structure:**
+
+            The middle layer database organizes channels by function rather than naming pattern, following the MATLAB Middle Layer (MML) convention used at accelerator facilities:
+
+            .. code-block:: json
+
+               {
+                 "SR": {
+                   "_description": "Storage Ring: Main synchrotron light source...",
+                   "BPM": {
+                     "_description": "Beam Position Monitors: Non-invasive electrostatic pickups...",
+                     "X": {
+                       "_description": "Horizontal position readback in millimeters.",
+                       "ChannelNames": ["SR01C:BPM1:X", "SR01C:BPM2:X", "SR01C:BPM3:X", ...],
+                       "DataType": "Scalar",
+                       "Mode": "Online",
+                       "Units": "Hardware",
+                       "HWUnits": "mm",
+                       "PhysicsUnits": "Meters",
+                       "MemberOf": ["BPM", "Monitor", "PlotFamily", "Save", "Archive"]
+                     },
+                     "Y": {
+                       "_description": "Vertical position readback in millimeters.",
+                       "ChannelNames": ["SR01C:BPM1:Y", "SR01C:BPM2:Y", "SR01C:BPM3:Y", ...]
+                     },
+                     "setup": {
+                       "CommonNames": ["BPM 1-1", "BPM 1-2", "BPM 1-3", ...],
+                       "DeviceList": [[1, 1], [1, 2], [1, 3], ...]
+                     }
+                   },
+                   "HCM": {
+                     "_description": "Horizontal Corrector Magnets...",
+                     "Monitor": {
+                       "_description": "Current readback in Amperes.",
+                       "ChannelNames": ["SR01C:HCM1:Current", ...]
+                     },
+                     "Setpoint": {
+                       "_description": "Current setpoint in Amperes.",
+                       "ChannelNames": ["SR01C:HCM1:SetCurrent", ...]
+                     },
+                     "OnControl": {
+                       "_description": "Enable/disable control...",
+                       "ChannelNames": ["SR01C:HCM1:Enable", ...]
+                     }
+                   },
+                   "DCCT": {
+                     "_description": "DC Current Transformer: Measures beam current...",
+                     "Monitor": {
+                       "_description": "Beam current in milliamperes.",
+                       "ChannelNames": ["SR:DCCT:Current"]
+                     }
+                   }
+                 },
+                 "VAC": {
+                   "_description": "Vacuum System...",
+                   "IonPump": {
+                     "_description": "Ion Pumps for UHV pumping...",
+                     "Pressure": {
+                       "_description": "Vacuum Pressure readback (Torr).",
+                       "ChannelNames": ["SR01C:VAC:IP1:Pressure", ...]
+                     }
+                   }
+                 }
+               }
+
+            **Key features:**
+
+            - **Functional organization**: Systems → Families → Fields → ChannelNames
+            - **Retrieved addresses**: PV addresses stored in database (not built from patterns)
+            - **Optional descriptions**: ``_description`` fields at all levels provide semantic context
+            - **Optional metadata**: Preserve MML metadata (DataType, Mode, Units, MemberOf, etc.)
+            - **Device filtering**: Optional ``DeviceList`` enables sector/device number filtering
+            - **Common names**: Optional ``CommonNames`` for friendly device identifiers
+            - **Nested subfields**: Fields can have subfields (e.g., RF PowerMonitor has Forward/Reflected)
+
+            **Hierarchy Levels:**
+
+            - **System**: Top-level accelerator systems (SR=Storage Ring, BR=Booster, BTS=Transfer Line, VAC=Vacuum)
+            - **Family**: Device families within systems (BPM, HCM, VCM, DCCT, IonPump, etc.)
+            - **Field**: Functional categories (Monitor, Setpoint, X, Y, Pressure, Voltage, etc.)
+            - **Subfield** (optional): Nested functional organization (e.g., PowerMonitor → Forward/Reflected)
+            - **ChannelNames**: List of actual EPICS PV addresses
+
+         .. tab-item:: Build Your Database
+
+            **From MATLAB Middle Layer Exports**
+
+            If your facility already uses MATLAB Middle Layer (MML), you can convert existing MML data structures directly to the middle layer JSON format using the included converter utility.
+
+            .. dropdown:: AI-Assisted Database Building
+               :color: info
+               :icon: workflow
+
+               **Need help organizing functional hierarchy and writing descriptions?** Let an AI coding assistant guide you through the process.
+
+               **When to use this workflow:**
+
+               - Organizing channels by function (System → Family → Field)
+               - Writing descriptions that help the agent explore the database
+               - Converting from MATLAB Middle Layer or other middle layer formats
+               - Understanding what metadata to include for effective matching
+
+               **Example query to your AI assistant:**
+
+               .. code-block:: text
+
+                  @src/osprey/workflows/channel-finder-database-builder.md Help me build my Channel Finder database.
+
+                  I'm using the middle layer pipeline for an accelerator with functional organization.
+                  I have MATLAB Middle Layer exports and want to ensure rich descriptions at all levels.
+                  Guide me on writing descriptions that help the agent explore the database effectively.
+
+               .. note::
+                  First export workflows to your project: ``osprey workflows export``
+
+               For more information about AI-assisted development workflows, see :doc:`../contributing/03_ai-assisted-development`.
+
+            **Workflow Overview:**
+
+            .. code-block:: text
+
+               MML Python Export  →  mml_converter.py  →  Middle Layer JSON Database
+               (MML_ao_SR.py)        (conversion tool)     (optimized format)
+                                           ↓
+                                   validate_database.py
+                                   preview_database.py
+                                   (verify structure & presentation)
+
+            **Step 1: Export Your MML Data**
+
+            If you have MATLAB Middle Layer data, export the ``ao`` (accelerator object) structure to Python format. The structure typically contains system/family hierarchies with channel information.
+
+            **Step 2: Use the MML Converter**
+
+            The template includes a conversion utility that transforms MML Python exports into middle layer JSON format:
+
+            .. code-block:: bash
+
+               cd my-control-assistant
+
+               # Convert MML exports to JSON
+               python src/my_control_assistant/services/channel_finder/utils/mml_converter.py \
+                  --input path/to/mml_exports.py \
+                  --output src/my_control_assistant/data/channel_databases/middle_layer.json
+
+            **Using the Converter Programmatically:**
+
+            .. code-block:: python
+
+               from mml_converter import MMLConverter
+
+               # Import your MML exports
+               from my_facility_mml import MML_ao_SR, MML_ao_BR, MML_ao_VAC
+
+               # Create converter and add systems
+               converter = MMLConverter()
+               converter.add_system("SR", MML_ao_SR)
+               converter.add_system("BR", MML_ao_BR)
+               converter.add_system("VAC", MML_ao_VAC)
+
+               # Save to JSON
+               converter.save_json("my_facility.json")
+
+            **What the Converter Does:**
+
+            1. **Extracts hierarchy**: Preserves System → Family → Field → ChannelNames structure
+            2. **Preserves metadata**: Keeps DataType, Mode, Units, HWUnits, PhysicsUnits, MemberOf
+            3. **Handles subfields**: Detects nested field structures automatically
+            4. **Includes setup data**: Transfers CommonNames and DeviceList for filtering
+            5. **Validates structure**: Ensures all required fields present
+            6. **Reports statistics**: Shows channel counts and organization
+
+            .. admonition:: Collaboration Welcome
+               :class: outreach
+
+               The MML converter was developed and tested with the Advanced Light Source (ALS) MATLAB Middle Layer format. If your facility uses MATLAB Middle Layer or another middle layer solution with a different structure or export format, we'd love to add native support for it! Please open an issue on GitHub describing your middle layer system and we can work together to implement a converter for your facility's format.
+
+            **Alternative: Manual JSON Creation**
+
+            For facilities not using MML, create the JSON database manually following the structure shown in the "Database Format" tab:
+
+            1. **Define systems**: Top-level dictionary with system keys (SR, BR, VAC, etc.)
+            2. **Add families**: Device families within each system
+            3. **Specify fields**: Functional categories with ChannelNames lists
+            4. **Add descriptions** (optional): Include ``_description`` fields for better semantic matching
+            5. **Include metadata** (optional): Add setup information for filtering
+
+            **Step 3: Validate Your Database**
+
+            Check for structural issues and verify the database can be loaded:
+
+            .. code-block:: bash
+
+               # From my-control-assistant directory
+               python src/my_control_assistant/data/tools/validate_database.py \
+                  --database src/my_control_assistant/data/channel_databases/middle_layer.json
+
+               # Show detailed statistics
+               python src/my_control_assistant/data/tools/validate_database.py --verbose
+
+            **Validation Checks:**
+
+            - **Structure**: Valid JSON format, correct hierarchy levels
+            - **ChannelNames**: All terminal fields have ChannelNames lists
+            - **Metadata**: Optional fields properly formatted
+            - **Database Loading**: Can be loaded by ``MiddleLayerDatabase`` class
+            - **Statistics**: System/family/channel counts
+
+            **Step 4: Preview Database Presentation**
+
+            See how your database will be presented to the LLM agent during exploration:
+
+            .. code-block:: bash
+
+               # From my-control-assistant directory
+               python src/my_control_assistant/data/tools/preview_database.py
+
+            This shows you what information the agent sees at each level of exploration, helping you verify descriptions are clear and helpful.
+
+            **Preview Output Example:**
+
+            .. image:: ../_static/screenshots/channel_finder_db_preview_middlelayer.png
+               :alt: Middle Layer Database Preview
+               :align: center
+               :width: 90%
+
+            **Best Practices:**
+
+            1. **Rich Descriptions**: Write clear descriptions at all levels—these are the primary guide for the LLM agent
+            2. **Functional Organization**: Group channels by what they do (Monitor, Setpoint) not by location
+            3. **Complete Metadata**: Include Units, DataType, and other metadata from your control system
+            4. **Device Lists**: Add DeviceList metadata if you need sector/device filtering
+            5. **Common Names**: Include friendly device names for better user experience
+            6. **Consistent Structure**: Use same field names across families (e.g., always "Monitor" not "Readback")
+            7. **Test Incrementally**: Build one system at a time, test it, then add the next
+
+         .. tab-item:: Test Your Database
+
+            **Interactive Testing & Benchmarking**
+
+            Once your database is built and validated, test its functionality with the CLI for rapid iteration, then benchmark it for statistical evaluation.
+
+            **Interactive CLI: Rapid Development Testing**
+
+            Query your database interactively without running the full agent:
+
+            .. code-block:: bash
+
+               # From my-control-assistant directory
+               python src/my_control_assistant/services/channel_finder/cli.py
+
+            This launches an interactive terminal where you can:
+
+            - Test queries against your channel database in real-time
+            - Watch the agent explore the database with tool calls
+            - Verify which channels are matched and why
+            - Measure query execution time to optimize performance
+            - Iterate on your database and see results immediately
+
+            **Example queries to try:**
+
+            - **Simple lookups**: "What's the beam current?" → ``SR:DCCT:Current``
+            - **Functional queries**: "All BPM X positions" → All horizontal BPM readbacks
+            - **Filtered queries**: "BPM positions in sector 1" → Sector-filtered results
+            - **Multi-system**: "Vacuum pressure in booster" → ``BR`` system vacuum channels
+
+            The CLI shows the agent's tool calls and reasoning, making it easy to spot issues with descriptions or database organization.
+
+            **Benchmarking: Critical Validation Before Production**
+
+            Benchmark datasets are **essential** for validating your channel finder before deployment. A benchmark that performs well during development with developer-created queries may completely fail in production when users with different mental models start querying the system.
+
+            .. dropdown:: ⚠️ Critical Best Practice: Domain Expert Involvement
+               :color: warning
+
+               **DO NOT** rely solely on developer-created test queries. This is one of the most common failure modes in production systems:
+
+               - **The Problem**: Developers unconsciously create queries that match their mental model of the system and the database structure they built
+               - **The Result**: 95%+ accuracy in development, <60% accuracy in production when real users start querying
+               - **The Solution**: Gather test queries from multiple domain experts and operators **before** finalizing your database
+
+               **Why diverse queries matter:**
+
+               - Different users have different mental models of the control system
+               - Operators use different terminology than developers
+               - Production queries often target edge cases not obvious to developers
+               - Users query based on operational workflows, not database structure
+
+               **Best practices for building benchmark datasets:**
+
+               1. **Interview Domain Experts**: Talk to at least 3-5 different operators, physicists, or engineers who will use the system
+               2. **Capture Real Workflows**: Ask them to describe their typical queries in their own words
+               3. **Include Edge Cases**: Specifically ask about unusual or complex queries they might need
+               4. **Diverse Terminology**: Look for variations in how different experts refer to the same equipment
+               5. **Regular Updates**: Periodically add new queries from production usage to catch evolving patterns
+
+            Once your database is ready and you have a diverse benchmark dataset from domain experts, run systematic benchmarks to measure accuracy:
+
+            .. code-block:: bash
+
+               # Run all benchmark queries
+               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py
+
+               # Test specific queries (useful during development)
+               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py --queries 0,1
+
+               # Compare model performance
+               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py --model anthropic/claude-sonnet
+
+            **Benchmark Capabilities:**
+
+            - **Statistical metrics**: Precision (accuracy of matches), recall (completeness), and F1 scores (harmonic mean)
+            - **Success categorization**: Perfect matches (100% correct), partial matches (some correct), and failures
+            - **Parallel execution**: Runs 5 queries concurrently by default to speed up large benchmark sets
+            - **Incremental saves**: Results are saved after each query, so interruptions don't lose progress
+            - **Consistency tracking**: Measures whether repeated queries produce the same results
+
+            **Configuring Benchmarks:**
+
+            The benchmark system is configured in ``config.yml`` with both global settings and pipeline-specific datasets:
+
+            .. code-block:: yaml
+
+               channel_finder:
+                 # Active pipeline determines which benchmark dataset is used by default
+                 pipeline_mode: middle_layer
+
+                 pipelines:
+                   middle_layer:
+                     database:
+                       type: middle_layer
+                       path: src/my_control_assistant/data/channel_databases/middle_layer.json
+
+                  # Benchmark dataset for this pipeline
+                  benchmark:
+                    dataset_path: src/my_control_assistant/data/benchmarks/datasets/middle_layer_benchmark.json
+                    # Middle layer pipeline benchmark (35 queries)
+
+               # Global benchmarking configuration
+               benchmark:
+                 # Execution settings
+                 execution:
+                   runs_per_query: 1                 # Number of times to run each query
+                   delay_between_runs: 0             # Delay in seconds between runs
+                   continue_on_error: true           # Continue even if some queries fail
+                   max_concurrent_queries: 5         # Maximum parallel queries
+                   query_selection: all              # "all" or specific queries like [0,1,2]
+
+                 # Output settings
+                 output:
+                   results_dir: src/my_control_assistant/data/benchmarks/results
+                   save_incremental: true            # Save results after each query
+                   include_detailed_metrics: true    # Include detailed timing/cost metrics
+
+                 # Evaluation thresholds
+                 evaluation:
+                   exact_match_weight: 1.0
+                   partial_match_weight: 0.5
+
+            You can override the dataset and other settings via CLI:
+
+            .. code-block:: bash
+
+               # Use a different dataset
+               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py \
+                  --dataset src/my_control_assistant/data/benchmarks/datasets/custom_dataset.json
+
+               # Run specific queries
+               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py --queries 0,1,5,10
+
+               # Show detailed logs
+               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py --verbose
+
+            **When to use these tools:**
+
+            - **During development**: Use the CLI to rapidly test queries as you build your database
+            - **Before deployment**: Run full benchmarks with domain expert queries to validate accuracy meets production requirements (aim for >90% F1 score)
+            - **Model selection**: Compare different LLM models to balance cost, speed, and accuracy for your specific use case
+            - **Continuous validation**: Re-run benchmarks after database updates to ensure no regression in accuracy
+
+            **Best Practices:**
+
+            1. **Rich Descriptions**: Write detailed, semantic descriptions at all levels—they guide the agent
+            2. **Functional Grouping**: Organize by function (Monitor, Setpoint) not location
+            3. **Consistent Naming**: Use same field names across families for predictability
+            4. **Iterative Testing**: Test incrementally as you build each system
+            5. **Domain Expert Queries**: Gather test queries from multiple operators and experts
+            6. **Regular Benchmarking**: Re-run benchmarks after database changes to catch regressions
+            7. **CLI First**: Use interactive CLI for rapid iteration before running full benchmarks
+
+            .. seealso::
+
+               **Next Step: Customize Prompts** — Edit ``facility_description.py`` with your facility's terminology to improve matching accuracy. See :ref:`part4-channel-finder-prompts`.
+
 2.1: OSPREY Framework Integration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-.. admonition:: Capability Pattern Update (v0.9.2+)
-   :class: tip
-
-   This tutorial uses the **new instance method pattern** introduced in v0.9.2+.
-   If you have existing capabilities from v0.9.1 or earlier using static methods,
-   see the :doc:`../developer-guides/migration-guide-instance-methods` for a complete upgrade guide.
-
-   **New features in v0.9.2+:**
-
-   - Helper methods: ``self.get_required_contexts()``, ``self.store_output_context()``
-   - Automatic state injection via ``@capability_node`` decorator
-   - Simplified code with 50-60% less boilerplate
-
-   **Easiest migration path:** After upgrading to v0.9.2+, recreate the tutorial using
-   ``osprey init`` to generate fresh templates with the new pattern. Then cherry-pick
-   your custom business logic from the old capabilities into the new ones. This is often
-   faster than manual migration and ensures you get all the new patterns correctly.
 
 The channel finder integrates into OSPREY as a **capability**—a reusable component that the agent orchestrator can plan and execute. The capability acts as a thin orchestration layer that connects the framework to the service layer, while all channel finding logic lives in ``services/channel_finder/``. This separation makes the service independently testable via CLI and benchmarks before agent integration. The template provides a complete implementation in ``src/my_control_assistant/capabilities/channel_finding.py``.
 
@@ -1179,7 +2236,7 @@ The channel finder integrates into OSPREY as a **capability**—a reusable compo
 
 3. **Execution**: The capability calls the service layer (``ChannelFinderService``) to find matching channels
 4. **Context Storage**: Results are stored in the agent state as ``CHANNEL_ADDRESSES`` context
-5. **Downstream Use**: Other capabilities (like ``channel_value_retrieval``) consume the ``CHANNEL_ADDRESSES`` context
+5. **Downstream Use**: Other capabilities (like ``channel_read``) consume the ``CHANNEL_ADDRESSES`` context
 
 **Error Handling:**
 

@@ -439,7 +439,7 @@ This decomposition improves reliability by separating concerns and enabling vali
 Framework Patterns Reference
 ============================
 
-The ALS Accelerator Assistant demonstrates key production patterns for scaling the Alpha Berkeley Framework to complex scientific applications:
+The ALS Accelerator Assistant demonstrates key production patterns for scaling the Osprey Framework to complex scientific applications:
 
 .. tab-set::
 

@@ -17,16 +17,15 @@ from osprey.graph.graph_builder import (
 from osprey.utils.config import get_full_configuration
 from osprey.utils.logger import get_logger
 
-from .analyzer_node import create_analyzer_node
-from .approval_node import create_approval_node
+from .analysis import create_analyzer_node
+from .approval import create_approval_node
 from .config import PythonExecutorConfig
 from .exceptions import CodeRuntimeError
-from .executor_node import create_executor_node
-from .generator_node import create_generator_node
+from .execution import create_executor_node
+from .generation import create_generator_node
 from .models import PythonExecutionRequest, PythonExecutionState, PythonServiceResult
 
 logger = get_logger("python")
-
 
 
 class PythonExecutorService:
@@ -224,12 +223,14 @@ class PythonExecutorService:
 
         if isinstance(input_data, Command):
             logger.debug(f"Service ainvoke received input_data type: {type(input_data)}")
-            logger.debug(f"Service ainvoke input_data isinstance PythonExecutionRequest: {isinstance(input_data, PythonExecutionRequest)}")
+            logger.debug(
+                f"Service ainvoke input_data isinstance PythonExecutionRequest: {isinstance(input_data, PythonExecutionRequest)}"
+            )
 
             # This is a resume command (approval response)
-            if hasattr(input_data, 'resume') and input_data.resume:
+            if hasattr(input_data, "resume") and input_data.resume:
                 logger.info("Resuming Python service execution after approval")
-                approval_result = input_data.resume.get('approved', False)
+                approval_result = input_data.resume.get("approved", False)
                 logger.info(f"Approval result: {approval_result}")
                 logger.info(f"Full resume payload keys: {list(input_data.resume.keys())}")
 
@@ -239,24 +240,19 @@ class PythonExecutorService:
                 result = await compiled_graph.ainvoke(input_data, config)
 
                 # Check for execution failure and raise exception
-                if not result.get("is_successful", False):
-                    failure_reason = result.get("failure_reason") or result.get("execution_error", "Code execution failed")
-                    logger.error(f"Python execution failed: {failure_reason}")
-
-                    # Raise appropriate exception based on failure type
-                    raise CodeRuntimeError(
-                        message=f"Python code execution failed: {failure_reason}",
-                        traceback_info=result.get("execution_error", ""),
-                        execution_attempt=result.get("generation_attempt", 1)
-                    )
+                self._handle_execution_failure(result)
 
                 return result
             else:
-                raise ValueError("Invalid Command received by service - missing or invalid resume data")
+                raise ValueError(
+                    "Invalid Command received by service - missing or invalid resume data"
+                )
 
         elif isinstance(input_data, PythonExecutionRequest):
             logger.debug(f"Service ainvoke received input_data type: {type(input_data)}")
-            logger.debug(f"Service ainvoke input_data isinstance PythonExecutionRequest: {isinstance(input_data, PythonExecutionRequest)}")
+            logger.debug(
+                f"Service ainvoke input_data isinstance PythonExecutionRequest: {isinstance(input_data, PythonExecutionRequest)}"
+            )
 
             logger.debug("Converting PythonExecutionRequest to internal state")
             internal_state = self._create_internal_state(input_data)
@@ -268,23 +264,14 @@ class PythonExecutorService:
             result = await compiled_graph.ainvoke(internal_state, config)
 
             # Check for execution failure and raise exception
-            if not result.get("is_successful", False):
-                failure_reason = result.get("failure_reason") or result.get("execution_error", "Code execution failed")
-                logger.error(f"Python execution failed: {failure_reason}")
-
-                # Raise appropriate exception based on failure type
-                raise CodeRuntimeError(
-                    message=f"Python code execution failed: {failure_reason}",
-                    traceback_info=result.get("execution_error", ""),
-                    execution_attempt=result.get("generation_attempt", 1)
-                )
+            self._handle_execution_failure(result)
 
             # Transform to structured result - no more dict validation needed by capabilities!
             return PythonServiceResult(
                 execution_result=result["execution_result"],
                 generated_code=result.get("generated_code", ""),
                 generation_attempt=result.get("generation_attempt", 1),
-                analysis_warnings=result.get("analysis_warnings", [])
+                analysis_warnings=result.get("analysis_warnings", []),
             )
         else:
             # Clean API: Only accept defined input types
@@ -292,6 +279,24 @@ class PythonExecutorService:
             raise TypeError(
                 f"Python executor service received unsupported input type: {type(input_data).__name__}. "
                 f"Supported types: {', '.join(supported_types)}"
+            )
+
+    def _handle_execution_failure(self, result: dict) -> None:
+        """Check result and raise exception if execution failed.
+
+        :param result: Execution result dictionary to check
+        :type result: dict
+        :raises CodeRuntimeError: If execution was not successful
+        """
+        if not result.get("is_successful", False):
+            failure_reason = result.get("failure_reason") or result.get(
+                "execution_error", "Code execution failed"
+            )
+            logger.error(f"Python execution failed: {failure_reason}")
+            raise CodeRuntimeError(
+                message=f"Python code execution failed: {failure_reason}",
+                traceback_info=result.get("execution_error", ""),
+                execution_attempt=result.get("generation_attempt", 1),
             )
 
     def _build_and_compile_graph(self):
@@ -316,8 +321,8 @@ class PythonExecutorService:
                 "approve": "python_approval_node",
                 "retry": "python_code_generator",
                 "execute": "python_code_executor",
-                "__end__": "__end__"  # Handle permanent failures
-            }
+                "__end__": "__end__",  # Handle permanent failures
+            },
         )
         workflow.add_conditional_edges(
             "python_approval_node",
@@ -325,16 +330,13 @@ class PythonExecutorService:
             {
                 "approved": "python_code_executor",
                 "rejected": "__end__",
-                "retry": "python_code_generator"
-            }
+                "retry": "python_code_generator",
+            },
         )
         workflow.add_conditional_edges(
             "python_code_executor",
             self._executor_conditional_edge,
-            {
-                "retry": "python_code_generator",
-                "__end__": "__end__"
-            }
+            {"retry": "python_code_generator", "__end__": "__end__"},
         )
 
         # Compile with checkpointer for interrupt support - use same pattern as main graph
@@ -353,21 +355,17 @@ class PythonExecutorService:
         """
         return PythonExecutionState(
             request=request,  # Store serializable request data
-
             # Extract capability context data to top level for ContextManager compatibility
             capability_context_data=request.capability_context_data,
-
             # Initialize execution state
             generation_attempt=0,
             error_chain=[],
             current_stage="generation",
-
             # Approval state
             requires_approval=None,
             approval_interrupt_data=None,
             approval_result=None,
             approved=None,
-
             # Runtime state
             generated_code=None,
             analysis_result=None,
@@ -375,7 +373,6 @@ class PythonExecutorService:
             execution_failed=None,
             execution_result=None,
             execution_folder=None,
-
             # Control flags
             is_successful=False,
             is_failed=False,
@@ -383,23 +380,19 @@ class PythonExecutorService:
         )
 
     def _analyzer_conditional_edge(self, state: PythonExecutionState) -> str:
-        """Route after static analysis."""
+        """Route after static analysis.
+
+        Pure routing function - no state mutations.
+        Retry limit checking is done in the analyzer node itself.
+        """
+        # Check permanent failure first (set by nodes when retry limit exceeded)
         if state.get("is_failed", False):
             return "__end__"  # Permanently failed - don't retry
-        elif state.get("analysis_failed", False):
-            # Check retry limit to prevent infinite loops
-            generation_attempt = state.get("generation_attempt", 0)
-            max_retries = self.executor_config.max_generation_retries
 
-            if generation_attempt >= max_retries:
-                logger.error(f"Max retries ({max_retries}) exceeded for code generation")
-                # Force permanent failure instead of infinite retries
-                state["is_failed"] = True
-                state["failure_reason"] = f"Code generation failed after {max_retries} attempts"
-                return "__end__"
-            else:
-                logger.warning(f"⚠️ Retrying code generation (attempt {generation_attempt + 1}/{max_retries})")
-                return "retry"
+        # Route based on analysis results
+        elif state.get("analysis_failed", False):
+            # Node already checked retry limits and set is_failed if needed
+            return "retry"
         elif state.get("requires_approval", False):
             return "approve"
         else:
@@ -413,23 +406,21 @@ class PythonExecutorService:
             return "rejected"
 
     def _executor_conditional_edge(self, state: PythonExecutionState) -> str:
-        """Route after code execution."""
-        if state.get("execution_failed", False):
-            # Check retry limit to prevent infinite loops
-            generation_attempt = state.get("generation_attempt", 0)
-            max_retries = self.executor_config.max_execution_retries
+        """Route after code execution.
 
-            if generation_attempt >= max_retries:
-                logger.error(f"Max retries ({max_retries}) exceeded for code execution")
-                # Force permanent failure instead of infinite retries
-                state["is_failed"] = True
-                state["failure_reason"] = f"Code execution failed after {max_retries} attempts"
-                return "__end__"
-            else:
-                logger.warning(f"⚠️ Retrying code generation due to execution failure (attempt {generation_attempt + 1}/{max_retries})")
-                return "retry"
+        Pure routing function - no state mutations.
+        Retry limit checking is done in the executor node itself.
+        """
+        # Check permanent failure first (set by nodes when retry limit exceeded)
+        if state.get("is_failed", False):
+            return "__end__"  # Permanently failed - don't retry
+
+        # Route based on execution results
+        elif state.get("execution_failed", False):
+            # Node already checked retry limits and set is_failed if needed
+            return "retry"
         else:
-            return "__end__"  # Success or unknown state - end either way
+            return "__end__"  # Success - complete the workflow
 
     def _create_checkpointer(self):
         """Create checkpointer using same logic as main graph."""

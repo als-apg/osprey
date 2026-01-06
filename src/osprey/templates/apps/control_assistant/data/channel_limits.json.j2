@@ -1,0 +1,61 @@
+{
+  "_comment": "Channel Limits Database - defines safety limits and verification for runtime validation",
+  "_version": "1.0",
+  "_description": "This database configures automatic limits validation and verification for channel writes. The connector reads this configuration and applies it automatically - capabilities don't need to know about these details.",
+
+  "defaults": {
+    "_comment": "Default settings inherited by all channels unless overridden",
+    "writable": true,
+    "verification": {
+      "level": "callback",
+      "_comment": "Default verification: callback (fast, EPICS IOC confirmation)"
+    }
+  },
+
+  "MAG:HCM[H01]:CURRENT:SP": {
+    "_comment": "Example: Critical magnet with strict limits and readback verification",
+    "min_value": -10.0,
+    "max_value": 10.0,
+    "max_step": 2.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.1,
+      "_comment": "Readback verification with 0.1% tolerance (one per mil)"
+    }
+  },
+
+  "MAG:QF[QF01]:CURRENT:SP": {
+    "_comment": "Example: Read-only channel (writes blocked)",
+    "writable": false
+  },
+
+  "ElectronGunFilamentCurrentSetPoint": {
+    "_comment": "Example: Sensitive equipment with tight absolute tolerance",
+    "min_value": 0.0,
+    "max_value": 10.0,
+    "max_step": 0.5,
+    "verification": {
+      "level": "readback",
+      "tolerance_absolute": 0.01,
+      "_comment": "Absolute tolerance (±0.01 units) for precise control"
+    }
+  },
+
+  "TerminalVoltageSetValue": {
+    "_comment": "Example: Channel with limits but using default verification (callback from defaults)",
+    "min_value": 0.0,
+    "max_value": 100.0
+  },
+
+  "DIAGNOSTICS:TEMPERATURE:SP": {
+    "_comment": "Example: Low-criticality channel with no verification (fastest writes)",
+    "min_value": 0.0,
+    "max_value": 100.0,
+    "verification": {
+      "level": "none",
+      "_comment": "No verification - fastest write mode (use for non-critical channels)"
+    }
+  }
+
+}
+

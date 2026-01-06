@@ -23,42 +23,166 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         fetch-depth: 0  # Fetch full history including all tags
-        
-    - name: Debug version information
+
+    - name: Determine version and deployment path
+      id: version
       run: |
-        echo "🔍 GitHub Ref: $GITHUB_REF"
-        echo "🔍 GitHub Ref Name: $GITHUB_REF_NAME"
-        echo "🔍 GitHub Ref Type: $GITHUB_REF_TYPE"
-        echo "🔍 Latest git tag: $(git describe --tags --abbrev=0 2>/dev/null || echo 'No tags found')"
-        echo "🔍 All recent tags:"
-        git tag --sort=-version:refname | head -5 || echo "No tags found"
-      
+        if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+          # Building a specific version tag
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          DEPLOY_DIR="v${VERSION}"
+          IS_LATEST="true"
+          echo "Building version: ${VERSION}"
+        elif [[ "$GITHUB_REF" == "refs/heads/main" ]] || [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+          # Building from main branch - use latest tag or dev
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "dev")
+          VERSION="${LATEST_TAG}"
+          DEPLOY_DIR="latest"
+          IS_LATEST="true"
+          echo "Building latest from main: ${VERSION}"
+        else
+          # Pull request - just build, don't deploy
+          VERSION="dev"
+          DEPLOY_DIR="pr-${GITHUB_EVENT_NUMBER:-preview}"
+          IS_LATEST="false"
+          echo "Building PR preview"
+        fi
+
+        echo "version=${VERSION}" >> $GITHUB_OUTPUT
+        echo "deploy_dir=${DEPLOY_DIR}" >> $GITHUB_OUTPUT
+        echo "is_latest=${IS_LATEST}" >> $GITHUB_OUTPUT
+
+        echo "🔍 Version: ${VERSION}"
+        echo "🔍 Deploy Directory: ${DEPLOY_DIR}"
+        echo "🔍 Is Latest: ${IS_LATEST}"
+
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v6
       with:
         python-version: '3.11'
-        
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -e ".[docs]"
-        
+
     - name: Build documentation
       run: |
         cd docs
         make html
-        
+
+    - name: Download existing GitHub Pages (if exists)
+      if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+      continue-on-error: true
+      run: |
+        # Try to download existing gh-pages content
+        mkdir -p gh-pages-existing
+        cd gh-pages-existing
+
+        # Clone only the gh-pages branch
+        git clone --branch gh-pages --depth 1 https://github.com/${{ github.repository }}.git . || true
+
+        # If clone succeeded, we have existing content
+        if [ -d ".git" ]; then
+          echo "📥 Found existing GitHub Pages content"
+          rm -rf .git
+        else
+          echo "📝 No existing GitHub Pages content (first deployment)"
+        fi
+
+    - name: Prepare multi-version deployment
+      if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+      run: |
+        # Create deployment directory structure
+        mkdir -p deployment
+
+        # Copy existing versions if they exist
+        if [ -d "gh-pages-existing" ] && [ "$(ls -A gh-pages-existing 2>/dev/null)" ]; then
+          echo "📋 Copying existing versions..."
+          cp -r gh-pages-existing/* deployment/ || true
+        fi
+
+        # Copy new build to appropriate directory
+        DEPLOY_DIR="${{ steps.version.outputs.deploy_dir }}"
+        echo "📦 Deploying to: ${DEPLOY_DIR}"
+
+        # Remove old version of this directory if it exists
+        rm -rf "deployment/${DEPLOY_DIR}"
+
+        # Copy new build
+        cp -r docs/build/html "deployment/${DEPLOY_DIR}"
+
+        # If this is latest or a version tag, also update root
+        if [[ "${{ steps.version.outputs.is_latest }}" == "true" ]]; then
+          echo "🔄 Updating root redirect to ${DEPLOY_DIR}"
+          # Copy to root as well
+          cp -r docs/build/html/* deployment/ || true
+        fi
+
+    - name: Generate versions.json
+      if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+      run: |
+        cat > generate_versions.py << 'EOFPYTHON'
+        import json
+        import os
+        import subprocess
+        from pathlib import Path
+
+        # Get all version tags
+        result = subprocess.run(
+            ['git', 'tag', '--sort=-version:refname'],
+            capture_output=True,
+            text=True
+        )
+
+        tags = [tag.strip() for tag in result.stdout.split('\n') if tag.strip().startswith('v')]
+
+        versions = []
+
+        # Add latest stable version (at root)
+        if tags:
+            latest_version = tags[0].lstrip('v')
+            versions.append({
+                "name": f"v{latest_version} (stable)",
+                "version": latest_version,
+                "url": "https://als-apg.github.io/osprey/",
+                "preferred": True
+            })
+
+        # Only add development version if on main branch
+        # We don't add individual versioned directories since they don't exist yet
+        github_ref = os.environ.get('GITHUB_REF', '')
+        if github_ref == 'refs/heads/main':
+            versions.append({
+                "name": "latest (development)",
+                "version": "dev",
+                "url": "https://als-apg.github.io/osprey/latest/"
+            })
+
+        # Write versions.json
+        output_dir = Path('deployment/_static')
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        with open(output_dir / 'versions.json', 'w') as f:
+            json.dump(versions, f, indent=2)
+
+        print("✅ Generated versions.json:")
+        print(json.dumps(versions, indent=2))
+        EOFPYTHON
+
+        python generate_versions.py
+
     - name: Upload artifact
       if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-      uses: actions/upload-pages-artifact@v3
+      uses: actions/upload-pages-artifact@v4
       with:
-        path: docs/build/html
+        path: deployment
 
   deploy:
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'

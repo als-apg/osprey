@@ -84,17 +84,97 @@ Abstract base class defining the contract for all control system connectors (EPI
 Data Models
 -----------
 
-.. autoclass:: osprey.connectors.control_system.base.PVValue
+Read Operation Models
+~~~~~~~~~~~~~~~~~~~~~
+
+.. autoclass:: osprey.connectors.control_system.base.ChannelValue
    :members:
    :show-inheritance:
 
-Result container for process variable reads with value, timestamp, and metadata.
+Result container for channel reads with value, timestamp, and metadata.
 
-.. autoclass:: osprey.connectors.control_system.base.PVMetadata
+.. autoclass:: osprey.connectors.control_system.base.ChannelMetadata
    :members:
    :show-inheritance:
 
-Metadata about a process variable (units, precision, alarms, limits, etc.).
+Metadata about a control system channel (units, precision, alarms, limits, etc.).
+
+**Backward Compatibility:**
+
+.. deprecated:: 0.9.5
+   The classes ``PVValue`` and ``PVMetadata`` are deprecated and aliased to ``ChannelValue``
+   and ``ChannelMetadata`` respectively. The "PV" terminology is EPICS-specific; "channel"
+   is control-system agnostic and supports any control system (EPICS, Tango, LabVIEW, etc.).
+
+Write Operation Models
+~~~~~~~~~~~~~~~~~~~~~~
+
+.. autoclass:: osprey.connectors.control_system.base.ChannelWriteResult
+   :members:
+   :show-inheritance:
+
+Result container for channel write operations with success status, written value, and optional verification.
+
+**Fields:**
+
+- ``success`` (bool): Whether the write operation succeeded
+- ``written_value`` (Any): The value that was written to the channel
+- ``verification`` (Optional[WriteVerification]): Verification result if verification was requested
+
+**Example:**
+
+.. code-block:: python
+
+   # Automatic verification (uses per-channel or global config)
+   result = await connector.write_channel('BEAM:SETPOINT', 450.0)
+
+   if result.success and result.verification and result.verification.verified:
+       print(f"Write verified ({result.verification.level}): {result.written_value}")
+   elif result.success:
+       print(f"Write succeeded but not verified")
+   else:
+       print(f"Write failed")
+
+   # Manual override (optional)
+   result = await connector.write_channel(
+       'BEAM:SETPOINT',
+       450.0,
+       verification_level='readback',  # Override auto-config
+       tolerance=0.01
+   )
+
+.. autoclass:: osprey.connectors.control_system.base.WriteVerification
+   :members:
+   :show-inheritance:
+
+Verification result for channel write operations.
+
+**Fields:**
+
+- ``verification_level`` (str): Level of verification performed ('none', 'callback', 'readback')
+- ``verified`` (bool): Whether the write was successfully verified
+- ``readback_value`` (Optional[Any]): The value read back from the channel (readback mode only)
+- ``tolerance_check`` (Optional[bool]): Whether readback matched within tolerance (readback mode only)
+
+**Verification Levels:**
+
+1. **'none'**: No verification performed (``verified=False``)
+2. **'callback'**: Uses Channel Access callback to confirm write (EPICS only)
+3. **'readback'**: Reads back the value and compares with tolerance
+
+**Example:**
+
+.. code-block:: python
+
+   # Automatic verification (connector determines level from config)
+   result = await connector.write_channel('BEAM:CURRENT', 400.0)
+
+   if result.verification and result.verification.verified:
+       print(f"Verification: {result.verification.level}")
+       if result.verification.readback_value is not None:
+           print(f"Readback: {result.verification.readback_value}")
+   else:
+       print("Verification failed")
 
 Built-in Implementations
 ------------------------
@@ -191,27 +271,41 @@ Pattern Detection
 
 .. currentmodule:: osprey.services.python_executor.pattern_detection
 
-Static code analysis for detecting control system operations in generated code. Used by approval system to identify reads and writes.
+Static code analysis for detecting control system operations in generated code. **Critical security layer** that catches both approved API usage and circumvention attempts.
 
 .. autofunction:: detect_control_system_operations
 
-Analyzes Python code using configurable regex patterns to detect control system operations. Returns detection results including operation types and matched patterns.
+Analyzes Python code using framework-standard or custom patterns to detect control system operations.
+The framework provides comprehensive security-focused patterns by default - no configuration needed.
+
+**Security Purpose:** Detects both approved ``osprey.runtime`` API usage AND direct control system library
+calls that would bypass connector safety features (limits checking, verification, approval workflows).
 
 **Example:**
 
 .. code-block:: python
 
-   from osprey.services.python_executor.pattern_detection import detect_control_system_operations
+   from osprey.services.python_executor.analysis.pattern_detection import detect_control_system_operations
 
-   code = """
-   current = epics.caget('BEAM:CURRENT')
-   if current < 400:
-       epics.caput('ALARM:STATUS', 1)
-   """
-
-   result = detect_control_system_operations(code)
+   # Detects approved API
+   code_approved = "write_channel('BEAM:CURRENT', 500)"
+   result = detect_control_system_operations(code_approved)
    # result['has_writes'] == True
-   # result['has_reads'] == True
+
+   # Also detects circumvention attempts
+   code_circumvent = "epics.caput('BEAM:CURRENT', 500)"
+   result = detect_control_system_operations(code_circumvent)
+   # result['has_writes'] == True  # Caught by security layer!
+
+.. autofunction:: get_framework_standard_patterns
+
+Returns framework-standard security-focused patterns. These patterns detect:
+
+- ✅ Approved ``osprey.runtime`` API (with all safety features)
+- 🔒 EPICS direct calls (``epics.caput``, ``PV().put`` - bypasses safety)
+- 🔒 Tango direct calls (``DeviceProxy().write_attribute`` - bypasses safety)
+- 🔒 LabVIEW integration patterns (bypasses safety)
+- 🔒 Direct connector access (advanced use)
 
 Configuration Schema
 ====================
@@ -226,17 +320,15 @@ Control system connector configuration in ``config.yml``:
    control_system:
      type: mock | epics | labview | tango | custom
 
-     # Pattern detection for approval system
-     patterns:
-       <control_system_type>:
-         write:
-           - '<regex_pattern_1>'
-           - '<regex_pattern_2>'
-         read:
-           - '<regex_pattern_1>'
-           - '<regex_pattern_2>'
+     # Pattern detection is automatic - framework provides defaults
+     # Optional: Override for custom workflows (rarely needed)
+     # patterns:
+     #   write:
+     #     - 'custom_write_function\('
+     #   read:
+     #     - 'custom_read_function\('
 
-     # Type-specific configurations
+     # Type-specific connector configurations
      connector:
        mock:
          response_delay_ms: 10
@@ -296,12 +388,12 @@ Create and use a connector from global configuration:
    connector = await ConnectorFactory.create_control_system_connector()
 
    try:
-       # Read a PV
-       result = await connector.read_pv('BEAM:CURRENT')
+       # Read a channel
+       result = await connector.read_channel('BEAM:CURRENT')
        print(f"Current: {result.value} {result.metadata.units}")
 
-       # Read multiple PVs
-       results = await connector.read_multiple_pvs([
+       # Read multiple channels
+       results = await connector.read_multiple_channels([
            'BEAM:CURRENT',
            'BEAM:LIFETIME',
            'BEAM:ENERGY'
@@ -313,6 +405,36 @@ Create and use a connector from global configuration:
 
    finally:
        await connector.disconnect()
+
+Usage in Generated Python Code
+------------------------------
+
+When the Python execution service generates code that needs to interact with control systems, it uses the ``osprey.runtime`` module instead of direct connector imports. This provides a simple, synchronous API that works with any configured control system:
+
+.. code-block:: python
+
+   # In generated Python code
+   from osprey.runtime import write_channel, read_channel
+
+   # Read from control system (synchronous, like EPICS caget)
+   current = read_channel("BEAM:CURRENT")
+   print(f"Current: {current} mA")
+
+   # Write to control system (synchronous, like EPICS caput)
+   write_channel("MAGNET:SETPOINT", 5.0)
+
+**Key Benefits:**
+
+- **Control-System Agnostic**: Same code works with EPICS, Mock, LabVIEW, or any registered connector
+- **Automatic Configuration**: Uses control system settings from execution context (reproducible notebooks)
+- **Safety Integration**: All boundary checking, limits validation, and approval workflows happen automatically
+- **Simple API**: Synchronous functions (async handled internally)
+
+The runtime module is automatically configured by the execution wrapper and uses the same connector configuration shown above.
+
+.. seealso::
+   :doc:`../../../getting-started/control-assistant-part3-production`
+      Complete tutorial on how generated code interacts with control systems
 
 Custom Configuration
 --------------------
@@ -390,7 +512,7 @@ Detect control system operations in generated code:
 
 .. code-block:: python
 
-   from osprey.services.python_executor.pattern_detection import detect_control_system_operations
+   from osprey.services.python_executor.analysis.pattern_detection import detect_control_system_operations
 
    code = """
    # Read beam current

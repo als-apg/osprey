@@ -5,7 +5,7 @@ Python Execution
 Python code generation and execution service with LangGraph-based workflow, approval integration, and flexible deployment options.
 
 .. note::
-   For implementation tutorials and usage examples, see :doc:`../../../developer-guides/05_production-systems/03_python-execution-service`.
+   For implementation tutorials and usage examples, see :doc:`../../../developer-guides/05_production-systems/03_python-execution-service/index`.
 
 .. currentmodule:: osprey.services.python_executor
 
@@ -112,6 +112,11 @@ Exceptions
    :show-inheritance:
    :no-index:
 
+.. autoclass:: ChannelLimitsViolationError
+   :members:
+   :show-inheritance:
+   :no-index:
+
 .. autoclass:: ErrorCategory
    :members:
    :show-inheritance:
@@ -139,7 +144,7 @@ Serialization Utilities
 
 .. seealso::
 
-   :doc:`../../../developer-guides/05_production-systems/03_python-execution-service`
+   :doc:`../../../developer-guides/05_production-systems/03_python-execution-service/index`
        Complete implementation guide and examples
 
    :class:`osprey.capabilities.python.PythonCapability`

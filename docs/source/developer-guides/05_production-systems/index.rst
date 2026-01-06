@@ -9,7 +9,7 @@ Production Systems
 
    01_human-approval-workflows
    02_data-source-integration
-   03_python-execution-service
+   03_python-execution-service/index
    04_memory-storage-service
    05_container-and-deployment
    06_control-system-integration
@@ -57,13 +57,13 @@ Core Production Components
       Data retrieval from multiple sources with provider framework and intelligent discovery mechanisms.
 
    .. grid-item-card:: 🐍 Python Execution Service
-      :link: 03_python-execution-service
+      :link: 03_python-execution-service/index
       :link-type: doc
       :class-header: bg-warning text-white
       :class-body: text-center
       :shadow: md
 
-      Container and local execution with security analysis, Jupyter integration, and approval workflows.
+      Pluggable code generation (Basic LLM, Claude Code, Mock), security analysis, and flexible execution environments.
 
    .. grid-item-card:: 🧠 Memory Storage Service
       :link: 04_memory-storage-service
@@ -101,66 +101,70 @@ Production Integration Patterns
 
    .. tab-item:: Orchestrator Approval
 
-      High-level execution plan approval with planning mode integration:
+      High-level execution plan approval with planning mode:
 
       .. code-block:: python
 
-         # Planning mode enables strategic oversight
+         # User enables planning mode
          user_input = "/planning Analyze beam performance and adjust parameters"
 
-         # Orchestrator creates complete execution plan
-         execution_plan = await create_execution_plan(
-             task=current_task,
-             capabilities=active_capabilities
+         # Agent processes input
+         state_updates = await agent.ainvoke(
+             {"user_query": user_input},
+             config={"thread_id": "session_123"}
          )
 
-         # Human approval of entire plan before execution
-         interrupt_data = create_plan_approval_interrupt(
-             execution_plan=execution_plan,
-             step_objective=current_task
-         )
-         interrupt(interrupt_data)  # LangGraph native interrupt
+         # Orchestrator automatically:
+         # 1. Generates execution plan using LLM
+         # 2. Validates capabilities exist
+         # 3. Creates approval interrupt (planning mode enabled)
+         # 4. Waits for user approval
 
-      - **Strategic plan oversight** before capability execution begins
-      - **Multi-capability coordination** with human validation
-      - **LangGraph-native interrupts** with resumable workflow
-      - **Complete context** including capability dependencies and flow
+         # After approval, orchestrator executes planned steps
+
+      - **Automatic plan generation** using orchestrator LLM
+      - **LangGraph-native interrupts** for plan approval
+      - **Resumable workflow** after user approval/rejection
+      - **File-based plan storage** for review and editing
 
    .. tab-item:: Python Execution
 
-      Code-specific approval with EPICS analysis and container isolation:
+      Service-based Python execution with automatic approval handling:
 
       .. code-block:: python
 
-         # Security analysis determines approval requirements
-         analyzer = StaticCodeAnalyzer(configurable)
-         analysis = await analyzer.analyze_code(generated_code, context)
+         from osprey.registry import get_registry
+         from osprey.services.python_executor import PythonExecutionRequest
+         from osprey.approval import handle_service_with_interrupts
 
-         # Domain-specific approval policies
-         approval_evaluator = get_python_execution_evaluator()
-         decision = approval_evaluator.evaluate(
-             has_epics_writes=analysis.has_epics_writes,
-             has_epics_reads=analysis.has_epics_reads
+         # Get service from registry
+         registry = get_registry()
+         python_service = registry.get_service("python_executor")
+
+         # Create execution request
+         request = PythonExecutionRequest(
+             user_query="Read EPICS beam current and create plot",
+             task_objective="Analyze beam data",
+             capability_prompts=["Use pyepics for PV access"],
+             execution_folder_name="beam_analysis"
          )
 
-         if decision.needs_approval:
-             approval_result = await create_code_approval_interrupt(
-                 code=generated_code,
-                 analysis_details=analysis,
-                 execution_mode=execution_mode
-             )
-
-         # Container-isolated execution
-         result = await execute_python_code_in_container(
-             code=code,
-             endpoint=container_endpoint,
-             execution_folder=execution_folder
+         # Service handles generation, analysis, approval, execution
+         result = await handle_service_with_interrupts(
+             service=python_service,
+             request=request,
+             config=service_config,
+             logger=logger,
+             capability_name="BeamAnalysis"
          )
 
-      - **Code-level security analysis** with EPICS operation detection
-      - **Configurable approval modes** (disabled, epics_writes, all_code)
-      - **Container isolation** for secure execution environments
-      - **Domain-specific policies** for accelerator control systems
+         # Access results
+         data = result.execution_result.results
+
+      - **Pluggable code generators** (Basic LLM, Claude Code, Mock)
+      - **Automatic pattern detection** for control system reads/writes
+      - **Configurable approval modes** (disabled, control_writes, all_code)
+      - **Container or local execution** with seamless switching
 
    .. tab-item:: Data Integration
 

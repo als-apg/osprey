@@ -26,7 +26,8 @@ class TestExtendMode:
         # Create registry using helper (returns ExtendedRegistryConfig)
         registry_file = tmp_path / "app" / "registry.py"
         registry_file.parent.mkdir(parents=True)
-        registry_file.write_text("""
+        registry_file.write_text(
+            """
 from osprey.registry import (
     RegistryConfigProvider,
     extend_framework_registry,
@@ -48,7 +49,8 @@ class ExtendProvider(RegistryConfigProvider):
                 )
             ]
         )
-""")
+"""
+        )
 
         manager = RegistryManager(registry_path=str(registry_file))
 
@@ -67,7 +69,8 @@ class ExtendProvider(RegistryConfigProvider):
         """Test that extend mode uses framework initialization order."""
         registry_file = tmp_path / "app" / "registry.py"
         registry_file.parent.mkdir(parents=True)
-        registry_file.write_text("""
+        registry_file.write_text(
+            """
 from osprey.registry import RegistryConfigProvider, extend_framework_registry
 
 class ExtendProvider(RegistryConfigProvider):
@@ -76,7 +79,8 @@ class ExtendProvider(RegistryConfigProvider):
             capabilities=[],
             context_classes=[]
         )
-""")
+"""
+        )
 
         manager = RegistryManager(registry_path=str(registry_file))
 
@@ -84,6 +88,7 @@ class ExtendProvider(RegistryConfigProvider):
         # Note: actual order may vary based on framework config
         # Key assertion: order should match framework's order
         from osprey.registry.helpers import get_framework_defaults
+
         framework = get_framework_defaults()
 
         assert manager.config.initialization_order == framework.initialization_order
@@ -92,7 +97,8 @@ class ExtendProvider(RegistryConfigProvider):
         """Test that extend mode includes framework core nodes."""
         registry_file = tmp_path / "app" / "registry.py"
         registry_file.parent.mkdir(parents=True)
-        registry_file.write_text("""
+        registry_file.write_text(
+            """
 from osprey.registry import RegistryConfigProvider, extend_framework_registry
 
 class ExtendProvider(RegistryConfigProvider):
@@ -101,7 +107,8 @@ class ExtendProvider(RegistryConfigProvider):
             capabilities=[],
             context_classes=[]
         )
-""")
+"""
+        )
 
         manager = RegistryManager(registry_path=str(registry_file))
 
@@ -115,7 +122,8 @@ class ExtendProvider(RegistryConfigProvider):
         """Test extend mode properly adds application components."""
         registry_file = tmp_path / "app" / "registry.py"
         registry_file.parent.mkdir(parents=True)
-        registry_file.write_text("""
+        registry_file.write_text(
+            """
 from osprey.registry import (
     RegistryConfigProvider,
     extend_framework_registry,
@@ -157,7 +165,8 @@ class ExtendProvider(RegistryConfigProvider):
                 )
             ]
         )
-""")
+"""
+        )
 
         manager = RegistryManager(registry_path=str(registry_file))
 
@@ -182,7 +191,8 @@ class TestStandaloneMode:
         """Test that direct RegistryConfig use triggers standalone mode."""
         registry_file = tmp_path / "app" / "registry.py"
         registry_file.parent.mkdir(parents=True)
-        registry_file.write_text("""
+        registry_file.write_text(
+            """
 from osprey.registry import (
     RegistryConfigProvider,
     RegistryConfig,
@@ -273,7 +283,8 @@ class StandaloneProvider(RegistryConfigProvider):
                 )
             ]
         )
-""")
+"""
+        )
 
         manager = RegistryManager(registry_path=str(registry_file))
 
@@ -295,12 +306,14 @@ class StandaloneProvider(RegistryConfigProvider):
     def test_standalone_mode_validation_warnings(self, tmp_path, caplog):
         """Test that standalone mode validates required components."""
         import logging
+
         caplog.set_level(logging.WARNING)
 
         # Create minimal standalone registry missing required nodes
         registry_file = tmp_path / "app" / "registry.py"
         registry_file.parent.mkdir(parents=True)
-        registry_file.write_text("""
+        registry_file.write_text(
+            """
 from osprey.registry import (
     RegistryConfigProvider,
     RegistryConfig,
@@ -331,20 +344,25 @@ class IncompleteStandaloneProvider(RegistryConfigProvider):
                 )
             ]
         )
-""")
+"""
+        )
 
         # Load registry - should warn about missing components
         _ = RegistryManager(registry_path=str(registry_file))  # noqa: F841
 
         # Check that validation warnings were logged
-        assert any("missing framework infrastructure nodes" in record.message.lower()
-                   for record in caplog.records if record.levelname == "WARNING")
+        assert any(
+            "missing framework infrastructure nodes" in record.message.lower()
+            for record in caplog.records
+            if record.levelname == "WARNING"
+        )
 
     def test_standalone_mode_complete_registry(self, tmp_path):
         """Test standalone mode with complete, valid registry."""
         registry_file = tmp_path / "app" / "registry.py"
         registry_file.parent.mkdir(parents=True)
-        registry_file.write_text("""
+        registry_file.write_text(
+            """
 from osprey.registry import (
     RegistryConfigProvider,
     RegistryConfig,
@@ -421,7 +439,8 @@ class CompleteStandaloneProvider(RegistryConfigProvider):
                 )
             ]
         )
-""")
+"""
+        )
 
         manager = RegistryManager(registry_path=str(registry_file))
 
@@ -442,10 +461,7 @@ class TestModeDetection:
 
     def test_helper_returns_extended_config(self):
         """Test that extend_framework_registry returns ExtendedRegistryConfig."""
-        config = extend_framework_registry(
-            capabilities=[],
-            context_classes=[]
-        )
+        config = extend_framework_registry(capabilities=[], context_classes=[])
 
         assert isinstance(config, ExtendedRegistryConfig)
         assert isinstance(config, RegistryConfig)
@@ -455,18 +471,21 @@ class TestModeDetection:
         # Create extend mode registry
         extend_file = tmp_path / "extend_app" / "registry.py"
         extend_file.parent.mkdir(parents=True)
-        extend_file.write_text("""
+        extend_file.write_text(
+            """
 from osprey.registry import RegistryConfigProvider, extend_framework_registry
 
 class ExtendProvider(RegistryConfigProvider):
     def get_registry_config(self):
         return extend_framework_registry(capabilities=[], context_classes=[])
-""")
+"""
+        )
 
         # Create standalone mode registry
         standalone_file = tmp_path / "standalone_app" / "registry.py"
         standalone_file.parent.mkdir(parents=True)
-        standalone_file.write_text("""
+        standalone_file.write_text(
+            """
 from osprey.registry import RegistryConfigProvider, RegistryConfig
 
 class StandaloneProvider(RegistryConfigProvider):
@@ -476,7 +495,8 @@ class StandaloneProvider(RegistryConfigProvider):
             context_classes=[],
             core_nodes=[]
         )
-""")
+"""
+        )
 
         # Load extend mode
         extend_manager = RegistryManager(registry_path=str(extend_file))
@@ -496,4 +516,3 @@ class StandaloneProvider(RegistryConfigProvider):
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-

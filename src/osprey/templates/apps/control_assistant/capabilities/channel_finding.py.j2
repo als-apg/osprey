@@ -17,8 +17,6 @@ if TYPE_CHECKING:
     from osprey.state import AgentState
 
 from osprey.base.capability import BaseCapability
-
-# Framework imports
 from osprey.base.decorators import capability_node
 from osprey.base.errors import ErrorClassification, ErrorSeverity
 from osprey.base.examples import (
@@ -30,26 +28,37 @@ from osprey.base.examples import (
 )
 from osprey.base.planning import PlannedStep
 from osprey.registry import get_registry
-from osprey.state import StateManager
 
-# Application imports
 from ..context_classes import ChannelAddressesContext
 from ..services.channel_finder.service import ChannelFinderService
 
-logger = get_logger("channel_finding")
-
-registry = get_registry()
 
 
 # Available pipelines based on template configuration
-{% if enable_in_context and enable_hierarchical %}
-AVAILABLE_PIPELINES = ['in_context', 'hierarchical']
-{% elif enable_in_context %}
-AVAILABLE_PIPELINES = ['in_context']
-{% else %}
-AVAILABLE_PIPELINES = ['hierarchical']
-{% endif %}
+AVAILABLE_PIPELINES = [
+{%- if enable_in_context %}
+    'in_context',
+{%- endif %}
+{%- if enable_hierarchical %}
+    'hierarchical',
+{%- endif %}
+{%- if enable_middle_layer %}
+    'middle_layer',
+{%- endif %}
+]
 DEFAULT_PIPELINE = '{{ default_pipeline }}'
+
+
+# ===================================================================
+# Private Helper Functions
+# ===================================================================
+
+def _configure_service_logging(logger, package_name: str) -> None:
+    """Configure channel finder service to inherit framework log level."""
+    cf_root_logger = logging.getLogger(f"{package_name}.services.channel_finder")
+    current_level = logger.level if logger.level != 0 else logging.INFO
+    cf_root_logger.setLevel(current_level)
+    cf_root_logger.propagate = True
 
 
 # ===================================================================
@@ -122,17 +131,8 @@ class ChannelFindingCapability(BaseCapability):
         logger.info(f'Channel finding query: "{search_query}"')
         logger.status("Finding channel addresses...")
 
-        # Configure logging for channel finder service to show detailed pipeline logs
-        # This ensures the hierarchical navigation logs (Level: system, Selected, etc.) are visible
-        # The service uses __name__ for loggers, so we need to configure the full module path
-        cf_root_logger = logging.getLogger("{{ package_name }}.services.channel_finder")
-
-        # Get the current framework logger's level and apply it to all channel_finder submodules
-        current_level = logger.level if logger.level != 0 else logging.INFO
-        cf_root_logger.setLevel(current_level)
-
-        # Ensure all child loggers inherit this level and propagate to framework handlers
-        cf_root_logger.propagate = True
+        # Configure service logging to show pipeline details
+        _configure_service_logging(logger, "{{ package_name }}")
 
         try:
             # Initialize service (reads pipeline_mode from config.yml at runtime)
@@ -166,7 +166,6 @@ class ChannelFindingCapability(BaseCapability):
         # CRITICAL: Extract ADDRESSES, not channel names
         # These addresses are what we'll use for actual control system operations
         channel_list = [ch.address for ch in result.channels]
-        description = f"Found {result.total_channels} channel addresses for query: '{result.query}'. {result.processing_notes}"
 
         # Check if no channels were found and raise appropriate error for re-planning
         if not channel_list:
@@ -174,10 +173,12 @@ class ChannelFindingCapability(BaseCapability):
             logger.warning(f"Channel address not found: {error_msg}")
             raise ChannelNotFoundError(error_msg)
 
-        # Create framework context object
+        # Create framework context object with original query for semantic linking
+        # This allows downstream capabilities (like channel_write) to match
+        # natural language requests back to the correct channel addresses
         channel_context = ChannelAddressesContext(
             channels=channel_list,
-            description=description,
+            original_query=result.query,
         )
 
         logger.status("Channel finding complete")
@@ -286,7 +287,7 @@ class ChannelFindingCapability(BaseCapability):
 
                 **Dependencies and sequencing:**
                 - This step typically comes first when channel addresses are needed
-                - Results feed into subsequent "channel_value_retrieval" or "archiver_retrieval" steps
+                - Results feed into subsequent "channel_read", "channel_write", or "archiver_retrieval" steps
 
                 ALWAYS plan this step when any channel-related operations are needed.
                 """),
@@ -332,6 +333,11 @@ class ChannelFindingCapability(BaseCapability):
                     query="What's the beam current right now?",
                     result=True,
                     reason="The query asks for a value without a specific channel address, requiring channel finding first."
+                ),
+                ClassifierExample(
+                    query="Set the main quad current to 5 amps.",
+                    result=True,
+                    reason="Setting a value requires finding the correct channel address first."
                 ),
             ],
             actions_if_true=ClassifierActions()

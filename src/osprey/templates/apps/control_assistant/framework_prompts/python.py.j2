@@ -1,0 +1,107 @@
+"""Control System Python Prompt Builder
+
+Custom Python prompts for control system operations.
+Extends framework default with osprey.runtime utilities documentation.
+"""
+
+import textwrap
+
+from osprey.base import ClassifierExample, TaskClassifierGuide
+from osprey.prompts.defaults.python import DefaultPythonPromptBuilder
+
+
+class ControlSystemPythonPromptBuilder(DefaultPythonPromptBuilder):
+    """Python prompt builder with control system runtime utilities guidance.
+
+    Extends the framework's default Python prompts to teach LLMs how to
+    interact with control systems using osprey.runtime utilities.
+    """
+
+    def get_instructions(self) -> str:
+        """Get Python instructions with control system operations guidance."""
+        # Get base framework instructions
+        base_instructions = super().get_instructions()
+
+        # Add control system-specific guidance
+        control_system_guidance = textwrap.dedent("""
+
+            === CONTROL SYSTEM OPERATIONS ===
+            For reading/writing to control systems, use osprey.runtime utilities:
+
+            from osprey.runtime import write_channel, read_channel, write_channels
+
+            Examples:
+                # Write a calculated value
+                from osprey.runtime import write_channel
+                import math
+                voltage = math.sqrt(4150)
+                write_channel("TerminalVoltageSetPoint", voltage)
+                results = {"voltage_set": voltage}
+
+                # Read current value
+                from osprey.runtime import read_channel
+                current = read_channel("BeamCurrent")
+                print(f"Current: {current}")
+                results = {"beam_current": current}
+
+                # Multiple writes
+                from osprey.runtime import write_channels
+                write_channels({
+                    "Magnet01": 5.0,
+                    "Magnet02": 5.2
+                })
+                results = {"magnets_set": True}
+
+            These utilities work with ANY control system (EPICS, Mock, etc.) - you don't
+            need to know which one is configured. All safety checks (limits validation,
+            approval workflows) happen automatically.
+
+            IMPORTANT:
+            - Never use epics.caput() or epics.caget() directly - use osprey.runtime utilities
+            """).strip()
+
+        return base_instructions + "\n\n" + control_system_guidance
+
+    def get_classifier_guide(self) -> TaskClassifierGuide | None:
+        """Create classifier guide for Python capability with control system examples."""
+        # Get base classifier guide
+        base_guide = super().get_classifier_guide()
+
+        # Add control system-specific examples
+        control_system_examples = [
+            ClassifierExample(
+                query="Write a Python script to set the VOLTAGE channel to 75.5",
+                result=True,
+                reason="User explicitly requests Python script for control system operation."
+            ),
+            ClassifierExample(
+                query="Write code to read the BEAM:CURRENT channel",
+                result=True,
+                reason="User requests code generation for control system read operation."
+            ),
+            ClassifierExample(
+                query="Set the TEST:MAGNET to 5.0 volts using Python",
+                result=True,
+                reason="User explicitly requests Python for control system write."
+            ),
+            ClassifierExample(
+                query="Generate a Python script that reads three channels and calculates the average",
+                result=True,
+                reason="User requests Python script combining control system reads with calculation."
+            ),
+        ]
+
+        # Combine base examples with control system examples
+        all_examples = base_guide.examples + control_system_examples
+
+        # Update instructions to include control system operations
+        enhanced_instructions = (
+            base_guide.instructions +
+            " Also use Python for control system operations when the user explicitly requests Python code or scripts."
+        )
+
+        return TaskClassifierGuide(
+            instructions=enhanced_instructions,
+            examples=all_examples
+        )
+

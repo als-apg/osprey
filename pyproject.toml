@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "osprey-framework"
-version = "0.9.1"
+version = "0.9.10"
 description = "An open-source, domain-agnostic, capability-based architecture for building intelligent agents"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -40,7 +40,7 @@ dependencies = [
     # LangGraph dependencies - CRITICAL VERSION REQUIREMENTS
     "langgraph>=0.5.2",
     "langchain-core>=0.3.68",
-    "langgraph-sdk>=0.1.70,<0.2.0",
+    "langgraph-sdk>=0.1.70,<0.4.0",
 
     # Core framework dependencies
     "rich>=14.0.0",
@@ -67,6 +67,9 @@ dependencies = [
     "anthropic",
     "google-generativeai",
     "ollama>=0.5.1",
+
+    # Advanced code generation
+    "claude-agent-sdk>=0.0.20",  # Claude Code SDK for multi-turn agentic code generation
 
     # Data processing - required for archiver connectors and data handling
     # Archiver connectors return pandas DataFrames for time-series data
@@ -116,7 +119,7 @@ databases = [
 
 # PostgreSQL checkpointing (production persistence)
 postgres = [
-    "langgraph-checkpoint-postgres>=2.0.22,<3.0.0",
+    "langgraph-checkpoint-postgres>=2.0.22,<4.0.0",
     "psycopg[pool]>=3.1.0,<4.0.0",
     "psycopg-pool>=3.1.0,<4.0.0",
     "langchain-postgres>=0.0.12,<0.1.0",
@@ -132,6 +135,7 @@ memory = [
 dev = [
     "pytest",
     "pytest-asyncio",
+    "pytest-cov",  # Code coverage reporting
     "pytest-vcr",  # Optional: For recording/replaying API interactions
     "vcrpy",
     "black",
@@ -139,6 +143,7 @@ dev = [
     "mypy",
     "pre-commit",
     "ruff",
+    "pyepics",  # EPICS connector support for testing
 ]
 
 # Terminal User Interface
@@ -177,7 +182,6 @@ osprey = "osprey.cli.main:cli"
 # Legacy entry points (maintained for backward compatibility)
 alpha-berkeley = "osprey.interfaces.cli.direct_conversation:main"
 alpha-berkeley-deploy = "osprey.deployment.container_manager:main"
-alpha-berkeley-docs = "docs.launch_docs:main"
 
 # Package discovery configuration for src layout
 [tool.setuptools.packages.find]
@@ -200,6 +204,7 @@ include = ["osprey*"]
     "templates/**/*.css",
     "templates/**/*.js",
     "templates/**/*.json",
+    "workflows/*.md",  # AI workflow documentation files
 ]
 
 # Development tool configurations
@@ -307,7 +312,14 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # Allow unused imports in __init__.py
-"tests/*" = ["B011"]      # Allow assert False
+"tests/*" = ["B011", "B017", "B018"]  # Allow assert False, useless attribute access, assert blind exception
+"tests/e2e/conftest.py" = ["F811"]  # Allow pytest hook redefinition
+"tests/registry/test_registry_isolation.py" = ["F401"]  # Intentional unused import for testing
+"tests/documentation/test_workflow_autodoc.py" = ["E402"]  # Late imports after path manipulation
+"tests/services/channel_finder/test_registration.py" = ["E402"]  # Late imports after path manipulation
+"src/osprey/templates/apps/control_assistant/_agent_data/example_scripts/**/*.py" = ["E402"]  # Example scripts with late imports
+"src/osprey/templates/services/jupyter/startup_script.py" = ["F401"]  # Intentionally loaded in namespace
+"src/osprey/templates/apps/control_assistant/services/channel_finder/__init__.py" = ["E402"]  # Conditional imports
 
 [tool.ruff.lint.isort]
 known-first-party = ["osprey", "configs", "applications", "interfaces", "deployment"]

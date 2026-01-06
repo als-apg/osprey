@@ -61,7 +61,7 @@ class TestComponentLoggerBasic:
 class TestComponentLoggerStreaming:
     """Test ComponentLogger streaming functionality."""
 
-    @patch('langgraph.config.get_stream_writer')
+    @patch("langgraph.config.get_stream_writer")
     def test_logger_with_streaming_context(self, mock_get_stream_writer):
         """Test that logger streams events when LangGraph context available."""
         mock_writer = MagicMock()
@@ -79,7 +79,7 @@ class TestComponentLoggerStreaming:
         assert event["event_type"] == "status"
         assert event["component"] == "test_component"
 
-    @patch('langgraph.config.get_stream_writer')
+    @patch("langgraph.config.get_stream_writer")
     def test_status_method_streams_automatically(self, mock_get_stream_writer):
         """Test that status() method streams automatically."""
         mock_writer = MagicMock()
@@ -93,7 +93,7 @@ class TestComponentLoggerStreaming:
         assert event["event_type"] == "status"
         assert event["message"] == "Creating execution plan..."
 
-    @patch('langgraph.config.get_stream_writer')
+    @patch("langgraph.config.get_stream_writer")
     def test_error_streams_automatically(self, mock_get_stream_writer):
         """Test that error() method streams automatically."""
         mock_writer = MagicMock()
@@ -107,7 +107,7 @@ class TestComponentLoggerStreaming:
         assert event["event_type"] == "error"
         assert event["error"] is True
 
-    @patch('langgraph.config.get_stream_writer')
+    @patch("langgraph.config.get_stream_writer")
     def test_success_streams_by_default(self, mock_get_stream_writer):
         """Test that success() method streams by default."""
         mock_writer = MagicMock()
@@ -120,7 +120,7 @@ class TestComponentLoggerStreaming:
         event = mock_writer.call_args[0][0]
         assert event["event_type"] == "success"
 
-    @patch('langgraph.config.get_stream_writer')
+    @patch("langgraph.config.get_stream_writer")
     def test_warning_streams_by_default(self, mock_get_stream_writer):
         """Test that warning() method streams by default."""
         mock_writer = MagicMock()
@@ -134,7 +134,7 @@ class TestComponentLoggerStreaming:
         assert event["event_type"] == "warning"
         assert event["warning"] is True
 
-    @patch('langgraph.config.get_stream_writer')
+    @patch("langgraph.config.get_stream_writer")
     def test_info_does_not_stream_by_default(self, mock_get_stream_writer):
         """Test that info() does not stream by default."""
         mock_writer = MagicMock()
@@ -146,7 +146,7 @@ class TestComponentLoggerStreaming:
         # info() should not stream by default
         assert not mock_writer.called
 
-    @patch('langgraph.config.get_stream_writer')
+    @patch("langgraph.config.get_stream_writer")
     def test_info_with_explicit_stream_flag(self, mock_get_stream_writer):
         """Test that info(stream=True) streams explicitly."""
         mock_writer = MagicMock()
@@ -164,7 +164,7 @@ class TestComponentLoggerStreaming:
         event = mock_writer.call_args[0][0]
         assert event["message"] == "Message 2"
 
-    @patch('langgraph.config.get_stream_writer')
+    @patch("langgraph.config.get_stream_writer")
     def test_debug_does_not_stream_by_default(self, mock_get_stream_writer):
         """Test that debug() does not stream by default."""
         mock_writer = MagicMock()
@@ -176,19 +176,14 @@ class TestComponentLoggerStreaming:
         # debug() should not stream by default
         assert not mock_writer.called
 
-    @patch('langgraph.config.get_stream_writer')
+    @patch("langgraph.config.get_stream_writer")
     def test_metadata_passing(self, mock_get_stream_writer):
         """Test that custom metadata is passed to streaming events."""
         mock_writer = MagicMock()
         mock_get_stream_writer.return_value = mock_writer
 
         logger = get_logger("test_component", state={})
-        logger.status(
-            "Processing batch 2/5",
-            batch_num=2,
-            total_batches=5,
-            progress=0.4
-        )
+        logger.status("Processing batch 2/5", batch_num=2, total_batches=5, progress=0.4)
 
         assert mock_writer.called
         event = mock_writer.call_args[0][0]
@@ -200,7 +195,7 @@ class TestComponentLoggerStreaming:
 class TestStreamingGracefulDegradation:
     """Test graceful degradation when LangGraph unavailable."""
 
-    @patch('langgraph.config.get_stream_writer')
+    @patch("langgraph.config.get_stream_writer")
     def test_graceful_degradation_on_runtime_error(self, mock_get_stream_writer):
         """Test that logger handles RuntimeError gracefully (not in LangGraph context)."""
         mock_get_stream_writer.side_effect = RuntimeError("Not in LangGraph context")
@@ -212,7 +207,7 @@ class TestStreamingGracefulDegradation:
         logger.error("Error message")
         logger.success("Success message")
 
-    @patch('langgraph.config.get_stream_writer')
+    @patch("langgraph.config.get_stream_writer")
     def test_graceful_degradation_on_import_error(self, mock_get_stream_writer):
         """Test that logger handles ImportError gracefully (LangGraph not installed)."""
         mock_get_stream_writer.side_effect = ImportError("LangGraph not available")
@@ -231,7 +226,7 @@ class TestStreamingGracefulDegradation:
         assert logger._stream_writer_attempted is False
 
         # Trigger lazy initialization with a method that streams
-        with patch('langgraph.config.get_stream_writer') as mock_get_writer:
+        with patch("langgraph.config.get_stream_writer") as mock_get_writer:
             mock_writer = MagicMock()
             mock_get_writer.return_value = mock_writer
 
@@ -244,7 +239,7 @@ class TestStreamingGracefulDegradation:
 class TestStepInfoExtraction:
     """Test step info extraction from state."""
 
-    @patch('langgraph.config.get_stream_writer')
+    @patch("langgraph.config.get_stream_writer")
     def test_task_preparation_step_info(self, mock_get_stream_writer):
         """Test that task preparation components get hard-coded step info."""
         mock_writer = MagicMock()
@@ -259,8 +254,8 @@ class TestStepInfoExtraction:
         assert event["total_steps"] == 3
         assert event["phase"] == "Task Preparation"
 
-    @patch('langgraph.config.get_stream_writer')
-    @patch('osprey.state.state_manager.StateManager.get_current_step_index')
+    @patch("langgraph.config.get_stream_writer")
+    @patch("osprey.state.state_manager.StateManager.get_current_step_index")
     def test_execution_phase_step_info(self, mock_get_step_index, mock_get_stream_writer):
         """Test that execution phase components extract step info from state."""
         mock_writer = MagicMock()
@@ -269,11 +264,7 @@ class TestStepInfoExtraction:
 
         mock_state = {
             "planning_execution_plan": {
-                "steps": [
-                    {"capability": "step1"},
-                    {"capability": "step2"},
-                    {"capability": "step3"}
-                ]
+                "steps": [{"capability": "step1"}, {"capability": "step2"}, {"capability": "step3"}]
             }
         }
 
@@ -285,7 +276,7 @@ class TestStepInfoExtraction:
         assert event["total_steps"] == 3
         assert event["phase"] == "Execution"
 
-    @patch('langgraph.config.get_stream_writer')
+    @patch("langgraph.config.get_stream_writer")
     def test_no_step_info_when_no_plan(self, mock_get_stream_writer):
         """Test fallback when no execution plan in state."""
         mock_writer = MagicMock()
@@ -332,4 +323,3 @@ class TestBackwardCompatibility:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-

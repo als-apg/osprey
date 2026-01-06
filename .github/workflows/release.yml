@@ -1,0 +1,125 @@
+name: Release to PyPI
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Triggers on version tags like v0.9.8
+
+permissions:
+  contents: write  # Required for creating GitHub releases
+  id-token: write  # Required for trusted publishing to PyPI
+
+jobs:
+  build:
+    name: Build Distribution
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0  # Fetch all history for version detection
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.11'
+
+    - name: Verify version matches tag
+      run: |
+        TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+        # Extract version from __init__.py without importing
+        PACKAGE_VERSION=$(grep '__version__ = ' src/osprey/__init__.py | cut -d'"' -f2)
+        echo "Tag version: $TAG_VERSION"
+        echo "Package version: $PACKAGE_VERSION"
+        if [ "$TAG_VERSION" != "$PACKAGE_VERSION" ]; then
+          echo "❌ Version mismatch! Tag: $TAG_VERSION, Package: $PACKAGE_VERSION"
+          exit 1
+        fi
+        echo "✅ Version matches: $TAG_VERSION"
+
+    - name: Install build dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install build twine
+
+    - name: Build package
+      run: |
+        python -m build
+
+    - name: Check package
+      run: |
+        twine check dist/*
+
+    - name: List built artifacts
+      run: |
+        ls -lh dist/
+
+    - name: Upload distribution artifacts
+      uses: actions/upload-artifact@v6
+      with:
+        name: python-package-distributions
+        path: dist/
+
+  publish-to-pypi:
+    name: Publish to PyPI
+    needs: [build]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/osprey-framework/
+
+    steps:
+    - name: Download distribution artifacts
+      uses: actions/download-artifact@v7
+      with:
+        name: python-package-distributions
+        path: dist/
+
+    - name: Publish to PyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        verbose: true
+
+  create-github-release:
+    name: Create GitHub Release
+    needs: [publish-to-pypi]
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Extract version from tag
+      id: get_version
+      run: |
+        VERSION="${GITHUB_REF#refs/tags/v}"
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Version: $VERSION"
+
+    - name: Extract release notes from CHANGELOG
+      id: changelog
+      run: |
+        VERSION="${{ steps.get_version.outputs.version }}"
+        echo "Extracting release notes for version $VERSION"
+
+        # Extract section between [VERSION] and next [VERSION] or end
+        sed -n "/## \[$VERSION\]/,/## \[/p" CHANGELOG.md | sed '$d' > release_notes.md
+
+        # If empty, use a generic message
+        if [ ! -s release_notes.md ]; then
+          echo "See CHANGELOG.md for details." > release_notes.md
+        fi
+
+        cat release_notes.md
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        name: Release v${{ steps.get_version.outputs.version }}
+        body_path: release_notes.md
+        draft: false
+        prerelease: false
+

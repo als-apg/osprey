@@ -390,7 +390,7 @@ Test your data source integration:
    :doc:`04_memory-storage-service`
        Understand the user memory system
 
-   :doc:`03_python-execution-service`
+   :doc:`03_python-execution-service/index`
        Integrate with code execution
 
    :doc:`../03_core-framework-systems/03_registry-and-discovery`

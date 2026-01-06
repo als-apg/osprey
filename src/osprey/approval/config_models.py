@@ -78,18 +78,19 @@ class ApprovalMode(Enum):
 
     Available Modes:
         DISABLED: No approval required for any operations
-        EPICS_WRITES: Approval required only for operations that write to EPICS
+        CONTROL_WRITES: Approval required only for operations that write to control systems
+        EPICS_WRITES: (Deprecated) Alias for CONTROL_WRITES - kept for backward compatibility
         ALL_CODE: Approval required for all code execution operations
 
     Examples:
         Use in configuration::\n
-            >>> mode = ApprovalMode.EPICS_WRITES
+            >>> mode = ApprovalMode.CONTROL_WRITES
             >>> print(f"Mode value: {mode.value}")
             >>> print(f"Mode name: {mode.name}")
 
         Validate mode from string::\n
             >>> try:
-            ...     mode = ApprovalMode("epics_writes")
+            ...     mode = ApprovalMode("control_writes")
             ...     print(f"Valid mode: {mode}")
             ... except ValueError:
             ...     print("Invalid mode string")
@@ -98,13 +99,18 @@ class ApprovalMode(Enum):
        These modes are primarily used for Python execution approval but the
        pattern can be extended to other capabilities as needed.
 
+    .. deprecated:: 0.9.5
+       EPICS_WRITES is deprecated. Use CONTROL_WRITES instead for control-system-agnostic configuration.
+
     .. seealso::
        :class:`PythonExecutionApprovalConfig` : Configuration class that uses this enum
        :class:`PythonExecutionApprovalEvaluator` : Evaluator that processes these modes
        :class:`GlobalApprovalConfig` : Global configuration that can override mode settings
     """
+
     DISABLED = "disabled"
-    EPICS_WRITES = "epics_writes"
+    CONTROL_WRITES = "control_writes"
+    EPICS_WRITES = "epics_writes"  # Deprecated - kept for backward compatibility
     ALL_CODE = "all_code"
 
 
@@ -151,11 +157,12 @@ class PythonExecutionApprovalConfig:
        :class:`ApprovalManager` : Manager that provides instances of this configuration
        :meth:`from_dict` : Factory method for creating instances from dictionaries
     """
+
     enabled: bool
     mode: ApprovalMode
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'PythonExecutionApprovalConfig':
+    def from_dict(cls, data: dict) -> "PythonExecutionApprovalConfig":
         """Create configuration instance from dictionary with comprehensive validation.
 
         Factory method that creates a PythonExecutionApprovalConfig instance from
@@ -203,21 +210,40 @@ class PythonExecutionApprovalConfig:
             raise ValueError(f"Python execution approval config must be dict, got {type(data)}")
 
         # Default to secure mode (approval enabled) for safety
-        if 'enabled' not in data:
-            logger.warning("⚠️  Python execution approval 'enabled' not specified in config, defaulting to True")
-        enabled = data.get('enabled', True)
+        if "enabled" not in data:
+            logger.warning(
+                "⚠️  Python execution approval 'enabled' not specified in config, defaulting to True"
+            )
+        enabled = data.get("enabled", True)
         if not isinstance(enabled, bool):
-            raise ValueError(f"Python execution approval 'enabled' must be bool, got {type(enabled)}")
+            raise ValueError(
+                f"Python execution approval 'enabled' must be bool, got {type(enabled)}"
+            )
 
         # Default to most restrictive mode for security compliance
-        if 'mode' not in data:
-            logger.warning("⚠️  Python execution approval 'mode' not specified in config, defaulting to 'all_code'. Consider setting to 'epics_writes' for better performance.")
-        mode_str = data.get('mode', 'all_code')
+        if "mode" not in data:
+            logger.warning(
+                "⚠️  Python execution approval 'mode' not specified in config, defaulting to 'all_code'. Consider setting to 'control_writes' for better performance."
+            )
+        mode_str = data.get("mode", "all_code")
+
+        # Backward compatibility: map old mode names to new ones
+        if mode_str == "epics_writes":
+            logger.warning(
+                "⚠️  DEPRECATED: approval mode 'epics_writes' is deprecated. Please use 'control_writes' instead for control-system-agnostic configuration."
+            )
+            logger.info("   Automatically mapping 'epics_writes' → 'control_writes'")
+            mode_str = "control_writes"
+
         try:
             mode = ApprovalMode(mode_str)
-        except ValueError:
-            valid_modes = [m.value for m in ApprovalMode]
-            raise ValueError(f"Invalid approval mode '{mode_str}'. Valid modes: {valid_modes}")
+        except ValueError as e:
+            valid_modes = [
+                m.value for m in ApprovalMode if m != ApprovalMode.EPICS_WRITES
+            ]  # Hide deprecated mode
+            raise ValueError(
+                f"Invalid approval mode '{mode_str}'. Valid modes: {valid_modes}"
+            ) from e
 
         return cls(enabled=enabled, mode=mode)
 
@@ -250,10 +276,11 @@ class MemoryApprovalConfig:
        This is a frozen dataclass - instances cannot be modified after creation.
        The design allows for future extensions with additional fields.
     """
+
     enabled: bool
 
     @classmethod
-    def from_dict(cls, data: bool | dict) -> 'MemoryApprovalConfig':
+    def from_dict(cls, data: bool | dict) -> "MemoryApprovalConfig":
         """Create configuration instance from flexible input format with validation.
 
         Factory method that creates a MemoryApprovalConfig instance from either
@@ -298,9 +325,11 @@ class MemoryApprovalConfig:
             return cls(enabled=data)
         elif isinstance(data, dict):
             # Security-first default: enable approval when configuration is ambiguous
-            if 'enabled' not in data:
-                logger.warning("⚠️  Memory approval 'enabled' not specified in config, defaulting to True")
-            enabled = data.get('enabled', True)
+            if "enabled" not in data:
+                logger.warning(
+                    "⚠️  Memory approval 'enabled' not specified in config, defaulting to True"
+                )
+            enabled = data.get("enabled", True)
             if not isinstance(enabled, bool):
                 raise ValueError(f"Memory approval 'enabled' must be bool, got {type(enabled)}")
             return cls(enabled=enabled)
@@ -351,12 +380,13 @@ class GlobalApprovalConfig:
        The configuration hierarchy allows global modes to override capability
        settings when applied by the ApprovalManager.
     """
+
     global_mode: str  # "disabled" | "selective" | "all_capabilities"
     python_execution: PythonExecutionApprovalConfig
     memory: MemoryApprovalConfig
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'GlobalApprovalConfig':
+    def from_dict(cls, data: dict) -> "GlobalApprovalConfig":
         """Create global configuration instance from dictionary with comprehensive validation.
 
         Factory method that creates a GlobalApprovalConfig instance from a complete
@@ -408,31 +438,33 @@ class GlobalApprovalConfig:
             raise ValueError(f"Approval config must be dict, got {type(data)}")
 
         # Validate global mode
-        global_mode = data.get('global_mode', 'selective')
+        global_mode = data.get("global_mode", "selective")
         valid_modes = ["disabled", "selective", "all_capabilities"]
         if global_mode not in valid_modes:
             raise ValueError(f"Invalid global_mode '{global_mode}'. Valid modes: {valid_modes}")
 
         # Parse capabilities
-        capabilities = data.get('capabilities', {})
+        capabilities = data.get("capabilities", {})
         if not isinstance(capabilities, dict):
             raise ValueError(f"Approval capabilities must be dict, got {type(capabilities)}")
 
         # Parse Python execution config with explicit warning
-        if 'python_execution' not in capabilities:
-            logger.warning("⚠️  'python_execution' section missing from approval config, using defaults. This may cause unexpected approval behavior!")
-            logger.warning("⚠️  Consider adding: approval.capabilities.python_execution = {enabled: true, mode: 'epics_writes'}")
-        python_data = capabilities.get('python_execution', {'enabled': True, 'mode': 'all_code'})
+        if "python_execution" not in capabilities:
+            logger.warning(
+                "⚠️  'python_execution' section missing from approval config, using defaults. This may cause unexpected approval behavior!"
+            )
+            logger.warning(
+                "⚠️  Consider adding: approval.capabilities.python_execution = {enabled: true, mode: 'epics_writes'}"
+            )
+        python_data = capabilities.get("python_execution", {"enabled": True, "mode": "all_code"})
         python_config = PythonExecutionApprovalConfig.from_dict(python_data)
 
         # Memory approval config with secure defaults for data protection
-        if 'memory' not in capabilities:
-            logger.warning("⚠️  'memory' section missing from approval config, defaulting to enabled=True")
-        memory_data = capabilities.get('memory', {'enabled': True})
+        if "memory" not in capabilities:
+            logger.warning(
+                "⚠️  'memory' section missing from approval config, defaulting to enabled=True"
+            )
+        memory_data = capabilities.get("memory", {"enabled": True})
         memory_config = MemoryApprovalConfig.from_dict(memory_data)
 
-        return cls(
-            global_mode=global_mode,
-            python_execution=python_config,
-            memory=memory_config
-        )
+        return cls(global_mode=global_mode, python_execution=python_config, memory=memory_config)

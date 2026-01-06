@@ -56,8 +56,8 @@ from osprey.context.context_manager import ContextManager, recursively_summarize
 from osprey.prompts.loader import get_framework_prompts
 from osprey.registry import get_registry
 from osprey.services.python_executor import PythonServiceResult
-from osprey.services.python_executor.models import PythonExecutionRequest
-from osprey.state import AgentState, StateManager
+from osprey.services.python_executor.models import PlanningMode, PythonExecutionRequest
+from osprey.state import StateManager
 from osprey.utils.config import get_full_configuration
 from osprey.utils.logger import get_logger
 
@@ -65,12 +65,10 @@ from osprey.utils.logger import get_logger
 logger = get_logger("python")
 
 
-registry = get_registry()
-
-
 # ========================================================
 # Context Class
 # ========================================================
+
 
 class PythonResultsContext(CapabilityContext):
     """Context for Python execution results with comprehensive execution metadata.
@@ -154,13 +152,17 @@ class PythonResultsContext(CapabilityContext):
         return {
             "code": "Python code that was executed",
             "output": "Stdout/stderr logs from code execution",
-            "results": "Computed results dictionary from results.json" if self.results else "No computed results",
+            "results": (
+                "Computed results dictionary from results.json"
+                if self.results
+                else "No computed results"
+            ),
             "error": "Error message if execution failed" if self.error else "No errors",
             "execution_time": f"Execution time: {self.execution_time:.2f} seconds",
             "folder_path": "Path to execution folder",
             "notebook_link": "Jupyter notebook link for review",
             "access_pattern": f"context.{self.CONTEXT_TYPE}.{key}.results",
-            "example_usage": f"context.{self.CONTEXT_TYPE}.{key}.results gives the computed results dictionary"
+            "example_usage": f"context.{self.CONTEXT_TYPE}.{key}.results gives the computed results dictionary",
         }
 
     def get_summary(self) -> dict[str, Any]:
@@ -184,11 +186,11 @@ class PythonResultsContext(CapabilityContext):
         """
         summary = {
             "type": "Python Results",
-            "code_lines": len(self.code.split('\n')) if self.code else 0,
+            "code_lines": len(self.code.split("\n")) if self.code else 0,
             "execution_time": f"{self.execution_time:.2f}s",
             "notebook_available": bool(self.notebook_link),
             "figure_count": len(self.figure_paths) if self.figure_paths else 0,
-            "status": "Failed" if self.error else "Success"
+            "status": "Failed" if self.error else "Success",
         }
 
         # Include summarized execution data to prevent context overflow
@@ -197,7 +199,9 @@ class PythonResultsContext(CapabilityContext):
         if self.output:
             # Truncate large output logs
             if len(self.output) > 1000:
-                summary["output"] = f"{self.output[:500]}... (truncated from {len(self.output)} chars)"
+                summary["output"] = (
+                    f"{self.output[:500]}... (truncated from {len(self.output)} chars)"
+                )
             else:
                 summary["output"] = self.output
         if self.error:
@@ -205,11 +209,15 @@ class PythonResultsContext(CapabilityContext):
         if self.code:
             # Truncate large code blocks
             if len(self.code) > 2000:
-                lines = self.code.split('\n')
+                lines = self.code.split("\n")
                 if len(lines) > 50:
-                    summary["code"] = f"{chr(10).join(lines[:25])}... (truncated from {len(lines)} lines)"
+                    summary["code"] = (
+                        f"{chr(10).join(lines[:25])}... (truncated from {len(lines)} lines)"
+                    )
                 else:
-                    summary["code"] = f"{self.code[:1000]}... (truncated from {len(self.code)} chars)"
+                    summary["code"] = (
+                        f"{self.code[:1000]}... (truncated from {len(self.code)} chars)"
+                    )
             else:
                 summary["code"] = self.code
 
@@ -219,6 +227,7 @@ class PythonResultsContext(CapabilityContext):
 # ========================================================
 # Private Helper Functions
 # ========================================================
+
 
 def _create_python_context(service_result: PythonServiceResult) -> PythonResultsContext:
     """Create Python results context from structured service execution result.
@@ -258,11 +267,13 @@ def _create_python_context(service_result: PythonServiceResult) -> PythonResults
         folder_path=str(execution_result.folder_path),
         notebook_path=str(execution_result.notebook_path),
         notebook_link=execution_result.notebook_link,
-        figure_paths=execution_result.figure_paths
+        figure_paths=execution_result.figure_paths,
     )
 
 
-def _create_python_capability_prompts(task_objective: str, user_query: str, context_description: str = "") -> list[str]:
+def _create_python_capability_prompts(
+    task_objective: str, user_query: str, context_description: str = ""
+) -> list[str]:
     """Create capability-specific prompts for Python code generation and execution.
 
     Builds structured prompts that provide the Python executor service with
@@ -270,9 +281,8 @@ def _create_python_capability_prompts(task_objective: str, user_query: str, cont
     available data context. These prompts guide the LLM in generating
     appropriate Python code for the specific task.
 
-    The function creates focused prompts that distinguish between the specific
-    task objective, broader user context, and available data sources to enable
-    sophisticated code generation that leverages all available information.
+    This function now integrates with the prompt builder system to inject
+    domain-specific instructions from application-level prompt builders.
 
     :param task_objective: Specific task objective from the execution plan step
     :type task_objective: str
@@ -302,12 +312,24 @@ def _create_python_capability_prompts(task_objective: str, user_query: str, cont
     if context_description:
         prompts.append(f"CONTEXT ACCESS DESCRIPTION: {context_description}")
 
+    # Inject domain-specific instructions from prompt builder system
+    try:
+        python_builder = get_framework_prompts().get_python_prompt_builder()
+        domain_instructions = python_builder.get_instructions()
+        if domain_instructions:
+            prompts.append(domain_instructions)
+    except Exception as e:
+        # Graceful degradation if no custom prompts or prompt system not initialized
+        logger.debug(f"Could not load Python prompt builder instructions: {e}")
+        pass
+
     return prompts
 
 
 # ========================================================
 # Convention-Based Capability Implementation
 # ========================================================
+
 
 @capability_node
 class PythonCapability(BaseCapability):
@@ -403,7 +425,8 @@ class PythonCapability(BaseCapability):
 
         logger.status("Initializing Python executor service...")
 
-        # Get Python executor service from registry
+        # Get Python executor service from registry (call get_registry() at runtime, not module import time)
+        registry = get_registry()
         python_service = registry.get_service("python_executor")
 
         if not python_service:
@@ -417,7 +440,7 @@ class PythonCapability(BaseCapability):
             "configurable": {
                 **main_configurable,  # Pass all main graph configuration to service
                 "thread_id": f"python_service_{step.get('context_key', 'default')}",  # Override thread ID for service
-                "checkpoint_ns": "python_executor"  # Add checkpoint namespace for service
+                "checkpoint_ns": "python_executor",  # Add checkpoint namespace for service
             }
         }
 
@@ -425,9 +448,10 @@ class PythonCapability(BaseCapability):
         # APPROVAL CASE (handle first)
         # ========================================
 
-
         # Check if this is a resume from approval using centralized function
-        has_approval_resume, approved_payload = get_approval_resume_data(self._state, create_approval_type("python_executor"))
+        has_approval_resume, approved_payload = get_approval_resume_data(
+            self._state, create_approval_type("python_executor")
+        )
 
         if has_approval_resume:
             if approved_payload:
@@ -444,8 +468,7 @@ class PythonCapability(BaseCapability):
 
             # Resume the service with full configurable
             service_result = await python_service.ainvoke(
-                Command(resume=resume_response),
-                config=service_config
+                Command(resume=resume_response), config=service_config
             )
 
             logger.info("✅ Python executor service completed successfully after approval")
@@ -461,25 +484,26 @@ class PythonCapability(BaseCapability):
             # Create execution request
             # Build capability-specific prompts with task information
             user_query = self._state.get("input_output", {}).get("user_query", "")
-            task_objective = step.get("task_objective", "")
+            task_objective = self.get_task_objective(default="")
 
-            # Build capability-specific prompts
+            # Build capability-specific prompts using helper methods
+            step_inputs = self.get_step_inputs()
             context_manager = ContextManager(self._state)
-            context_description = context_manager.get_context_access_description(step.get('inputs', []))
+            context_description = context_manager.get_context_access_description(step_inputs)
 
             # Create capability-specific prompts
             capability_prompts = _create_python_capability_prompts(
                 task_objective=task_objective,
                 user_query=user_query,
-                context_description=context_description
+                context_description=context_description,
             )
 
-            if step.get('inputs', []):
-                logger.info(f"Added context access description for {len(step.get('inputs', []))} inputs")
+            if step_inputs:
+                logger.info(f"Added context access description for {len(step_inputs)} inputs")
 
             # Get main graph's context data (raw dictionary that contains context data)
             # Python service will recreate ContextManager from this dictionary data
-            capability_contexts = self._state.get('capability_context_data', {})
+            capability_contexts = self._state.get("capability_context_data", {})
 
             # DEBUG: Log context data availability
             logger.debug(f"capability_context_data keys: {list(capability_contexts.keys())}")
@@ -493,7 +517,8 @@ class PythonCapability(BaseCapability):
                 execution_folder_name="python_capability",
                 capability_context_data=capability_contexts,
                 config=self._state.get("config"),
-                retries=3
+                retries=3,
+                planning_mode=PlanningMode.GENERATOR_DRIVEN,
             )
 
             logger.status("Invoking Python executor service...")
@@ -504,7 +529,7 @@ class PythonCapability(BaseCapability):
                 request=execution_request,
                 config=service_config,
                 logger=logger,
-                capability_name="Python"
+                capability_name="Python",
             )
 
         # Process results - single path for both approval and normal execution
@@ -520,10 +545,7 @@ class PythonCapability(BaseCapability):
 
         # Store context using StateManager
         result_updates = StateManager.store_context(
-            self._state,
-            registry.context_types.PYTHON_RESULTS,
-            step.get("context_key"),
-            results_context
+            self._state, "PYTHON_RESULTS", step.get("context_key"), results_context
         )
 
         # Register figures in centralized UI registry
@@ -544,7 +566,7 @@ class PythonCapability(BaseCapability):
                         "execution_time": results_context.execution_time,
                         "context_key": step.get("context_key"),
                     },
-                    current_figures=accumulating_figures  # Pass accumulating list
+                    current_figures=accumulating_figures,  # Pass accumulating list
                 )
                 # Get the updated list for next iteration
                 accumulating_figures = figure_update["ui_captured_figures"]
@@ -565,8 +587,10 @@ class PythonCapability(BaseCapability):
                     "execution_folder": results_context.folder_path,
                     "execution_time": results_context.execution_time,
                     "context_key": step.get("context_key"),
-                    "code_lines": len(results_context.code.split('\n')) if results_context.code else 0,
-                }
+                    "code_lines": (
+                        len(results_context.code.split("\n")) if results_context.code else 0
+                    ),
+                },
             )
 
         # Combine all updates
@@ -607,7 +631,7 @@ class PythonCapability(BaseCapability):
         return ErrorClassification(
             severity=ErrorSeverity.RETRIABLE,
             user_message=f"Python execution service error: {exc}",
-            metadata={"technical_details": str(exc)}
+            metadata={"technical_details": str(exc)},
         )
 
     def _create_orchestrator_guide(self) -> OrchestratorGuide | None:
@@ -652,5 +676,3 @@ class PythonCapability(BaseCapability):
         python_builder = prompt_provider.get_python_prompt_builder()
 
         return python_builder.get_classifier_guide()
-
-

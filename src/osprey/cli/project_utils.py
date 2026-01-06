@@ -42,7 +42,7 @@ def resolve_project_path(project_arg: str | None = None) -> Path:
         return Path(project_arg).expanduser().resolve()
 
     # Priority 2: OSPREY_PROJECT environment variable
-    env_project = os.environ.get('OSPREY_PROJECT')
+    env_project = os.environ.get("OSPREY_PROJECT")
     if env_project:
         return Path(env_project).expanduser().resolve()
 
@@ -50,8 +50,7 @@ def resolve_project_path(project_arg: str | None = None) -> Path:
     return Path.cwd()
 
 
-def resolve_config_path(project_arg: str | None = None,
-                       config_arg: str | None = None) -> str:
+def resolve_config_path(project_arg: str | None = None, config_arg: str | None = None) -> str:
     """Resolve configuration file path.
 
     If --config is provided, uses it directly.
@@ -86,4 +85,3 @@ def resolve_config_path(project_arg: str | None = None,
     config_path = project_path / "config.yml"
 
     return str(config_path)
-

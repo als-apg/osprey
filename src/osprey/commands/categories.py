@@ -21,7 +21,9 @@ from typing import Any
 from rich.panel import Panel
 from rich.table import Table
 
-from osprey.cli.styles import Styles, console as themed_console
+from osprey.cli.styles import Styles
+from osprey.cli.styles import console as themed_console
+
 from .types import Command, CommandCategory, CommandContext, CommandExecutionError, CommandResult
 
 
@@ -67,9 +69,13 @@ def register_cli_commands(registry) -> None:
                 panel_content += cmd.help_text
 
                 if cmd.aliases:
-                    panel_content += f"\n\nAliases: {', '.join([f'/{alias}' for alias in cmd.aliases])}"
+                    panel_content += (
+                        f"\n\nAliases: {', '.join([f'/{alias}' for alias in cmd.aliases])}"
+                    )
 
-                panel = Panel(panel_content, title="Command Help", border_style=Styles.BORDER_ACCENT)
+                panel = Panel(
+                    panel_content, title="Command Help", border_style=Styles.BORDER_ACCENT
+                )
                 console.print(panel)
             else:
                 console.print(f"❌ Unknown command: /{args.strip()}", style=Styles.ERROR)
@@ -101,6 +107,7 @@ def register_cli_commands(registry) -> None:
     def clear_handler(args: str, context: CommandContext) -> CommandResult:
         """Clear the screen."""
         from prompt_toolkit.shortcuts import clear
+
         clear()
         return CommandResult.HANDLED
 
@@ -116,31 +123,39 @@ def register_cli_commands(registry) -> None:
 
         if context.config:
             # Handle both direct config and LangGraph base_config structure
-            config = context.config.get('configurable', context.config)
+            config = context.config.get("configurable", context.config)
 
             # SESSION INFORMATION
             session_info = []
-            if 'thread_id' in config:
-                thread_display = config['thread_id'][:16] + "..." if len(config['thread_id']) > 16 else config['thread_id']
+            if "thread_id" in config:
+                thread_display = (
+                    config["thread_id"][:16] + "..."
+                    if len(config["thread_id"]) > 16
+                    else config["thread_id"]
+                )
                 session_info.append(f"Thread ID: {thread_display}")
-            if 'session_id' in config and config['session_id']:
-                session_display = str(config['session_id'])[:16] + "..." if len(str(config['session_id'])) > 16 else str(config['session_id'])
+            if "session_id" in config and config["session_id"]:
+                session_display = (
+                    str(config["session_id"])[:16] + "..."
+                    if len(str(config["session_id"])) > 16
+                    else str(config["session_id"])
+                )
                 session_info.append(f"Session ID: {session_display}")
-            if 'interface_context' in config:
+            if "interface_context" in config:
                 session_info.append(f"Interface: {config['interface_context']}")
-            if 'user_id' in config and config['user_id']:
+            if "user_id" in config and config["user_id"]:
                 session_info.append(f"User ID: {config['user_id']}")
-            if 'chat_id' in config and config['chat_id']:
+            if "chat_id" in config and config["chat_id"]:
                 session_info.append(f"Chat ID: {config['chat_id']}")
 
             # MODEL CONFIGURATION
             model_info = []
-            if 'model_configs' in config:
-                models = config['model_configs']
+            if "model_configs" in config:
+                models = config["model_configs"]
                 for role, model_config in models.items():
-                    model_name = model_config.get('model_id', 'Unknown')
-                    provider = model_config.get('provider', 'Unknown')
-                    max_tokens = model_config.get('max_tokens', 'N/A')
+                    model_name = model_config.get("model_id", "Unknown")
+                    provider = model_config.get("provider", "Unknown")
+                    max_tokens = model_config.get("max_tokens", "N/A")
                     model_info.append(f"  {role}:")
                     model_info.append(f"    Model: {model_name}")
                     model_info.append(f"    Provider: {provider}")
@@ -148,100 +163,122 @@ def register_cli_commands(registry) -> None:
 
             # PROVIDER CONFIGURATION
             provider_info = []
-            if 'provider_configs' in config:
-                providers = config['provider_configs']
+            if "provider_configs" in config:
+                providers = config["provider_configs"]
                 for name, provider_config in providers.items():
-                    base_url = provider_config.get('base_url', 'N/A')
-                    timeout = provider_config.get('timeout', 'N/A')
+                    base_url = provider_config.get("base_url", "N/A")
+                    timeout = provider_config.get("timeout", "N/A")
                     provider_info.append(f"  {name}: {base_url} (timeout: {timeout}s)")
 
             # EXECUTION LIMITS
             execution_info = []
-            if 'execution_limits' in config:
-                limits = config['execution_limits']
+            if "execution_limits" in config:
+                limits = config["execution_limits"]
                 execution_info.append(f"Max Steps: {limits.get('max_steps', 'N/A')}")
-                execution_info.append(f"Max Reclassifications: {limits.get('max_reclassifications', 'N/A')}")
-                execution_info.append(f"Max Planning Attempts: {limits.get('max_planning_attempts', 'N/A')}")
+                execution_info.append(
+                    f"Max Reclassifications: {limits.get('max_reclassifications', 'N/A')}"
+                )
+                execution_info.append(
+                    f"Max Planning Attempts: {limits.get('max_planning_attempts', 'N/A')}"
+                )
                 execution_info.append(f"Max Step Retries: {limits.get('max_step_retries', 'N/A')}")
-                execution_info.append(f"Max Execution Time: {limits.get('max_execution_time_seconds', 'N/A')}s")
-                execution_info.append(f"Max Concurrent Classifications: {limits.get('max_concurrent_classifications', 'N/A')}")
+                execution_info.append(
+                    f"Max Execution Time: {limits.get('max_execution_time_seconds', 'N/A')}s"
+                )
+                execution_info.append(
+                    f"Max Concurrent Classifications: {limits.get('max_concurrent_classifications', 'N/A')}"
+                )
 
             # Check recursion_limit in base config
-            if 'recursion_limit' in context.config:
+            if "recursion_limit" in context.config:
                 execution_info.append(f"Graph Recursion Limit: {context.config['recursion_limit']}")
 
             # AGENT CONTROL
             agent_info = []
-            if 'agent_control_defaults' in config:
-                agent_control = config['agent_control_defaults']
+            if "agent_control_defaults" in config:
+                agent_control = config["agent_control_defaults"]
 
                 # Planning and bypass modes
-                planning = agent_control.get('planning_mode_enabled', False)
+                planning = agent_control.get("planning_mode_enabled", False)
                 agent_info.append(f"Planning Mode: {'✅ Enabled' if planning else '❌ Disabled'}")
 
-                task_bypass = agent_control.get('task_extraction_bypass_enabled', False)
-                agent_info.append(f"Task Extraction Bypass: {'✅ Enabled' if task_bypass else '❌ Disabled'}")
+                task_bypass = agent_control.get("task_extraction_bypass_enabled", False)
+                agent_info.append(
+                    f"Task Extraction Bypass: {'✅ Enabled' if task_bypass else '❌ Disabled'}"
+                )
 
-                caps_bypass = agent_control.get('capability_selection_bypass_enabled', False)
-                agent_info.append(f"Capability Selection Bypass: {'✅ Enabled' if caps_bypass else '❌ Disabled'}")
+                caps_bypass = agent_control.get("capability_selection_bypass_enabled", False)
+                agent_info.append(
+                    f"Capability Selection Bypass: {'✅ Enabled' if caps_bypass else '❌ Disabled'}"
+                )
 
                 # EPICS control
-                epics_writes = agent_control.get('epics_writes_enabled', False)
-                agent_info.append(f"EPICS Writes: {'✅ Enabled' if epics_writes else '❌ Disabled'}")
+                epics_writes = agent_control.get("epics_writes_enabled", False)
+                agent_info.append(
+                    f"EPICS Writes: {'✅ Enabled' if epics_writes else '❌ Disabled'}"
+                )
 
                 # Approval settings
-                approval_global = agent_control.get('approval_global_mode', 'N/A')
+                approval_global = agent_control.get("approval_global_mode", "N/A")
                 agent_info.append(f"Approval Global Mode: {approval_global}")
 
-                python_approval = agent_control.get('python_execution_approval_enabled', False)
-                agent_info.append(f"Python Approval: {'✅ Enabled' if python_approval else '❌ Disabled'}")
+                python_approval = agent_control.get("python_execution_approval_enabled", False)
+                agent_info.append(
+                    f"Python Approval: {'✅ Enabled' if python_approval else '❌ Disabled'}"
+                )
 
-                python_approval_mode = agent_control.get('python_execution_approval_mode', 'N/A')
+                python_approval_mode = agent_control.get("python_execution_approval_mode", "N/A")
                 agent_info.append(f"Python Approval Mode: {python_approval_mode}")
 
-                memory_approval = agent_control.get('memory_approval_enabled', False)
-                agent_info.append(f"Memory Approval: {'✅ Enabled' if memory_approval else '❌ Disabled'}")
+                memory_approval = agent_control.get("memory_approval_enabled", False)
+                agent_info.append(
+                    f"Memory Approval: {'✅ Enabled' if memory_approval else '❌ Disabled'}"
+                )
 
             # PYTHON EXECUTOR
             python_info = []
-            if 'python_executor' in config:
-                py_config = config['python_executor']
+            if "python_executor" in config:
+                py_config = config["python_executor"]
                 if py_config:
-                    jupyter_url = py_config.get('jupyter_url', 'N/A')
+                    jupyter_url = py_config.get("jupyter_url", "N/A")
                     python_info.append(f"Jupyter URL: {jupyter_url}")
-                    execution_mode = py_config.get('execution_mode', 'N/A')
+                    execution_mode = py_config.get("execution_mode", "N/A")
                     python_info.append(f"Execution Mode: {execution_mode}")
 
             # SERVICES
             service_info = []
-            if 'service_configs' in config:
-                services = config['service_configs']
+            if "service_configs" in config:
+                services = config["service_configs"]
                 for service_name in list(services.keys())[:5]:  # Show first 5 services
                     service_info.append(f"  {service_name}")
 
             # DEVELOPMENT SETTINGS
             dev_info = []
-            if 'development' in config:
-                dev = config['development']
+            if "development" in config:
+                dev = config["development"]
                 if dev:
-                    debug = dev.get('debug', False)
+                    debug = dev.get("debug", False)
                     dev_info.append(f"Debug Mode: {'✅ Enabled' if debug else '❌ Disabled'}")
 
-                    prompts = dev.get('prompts', {})
+                    prompts = dev.get("prompts", {})
                     if prompts:
-                        print_all = prompts.get('print_all', False)
-                        dev_info.append(f"Print Prompts: {'✅ Enabled' if print_all else '❌ Disabled'}")
+                        print_all = prompts.get("print_all", False)
+                        dev_info.append(
+                            f"Print Prompts: {'✅ Enabled' if print_all else '❌ Disabled'}"
+                        )
 
-                    raise_raw = dev.get('raise_raw_errors', False)
-                    dev_info.append(f"Raise Raw Errors: {'✅ Enabled' if raise_raw else '❌ Disabled'}")
+                    raise_raw = dev.get("raise_raw_errors", False)
+                    dev_info.append(
+                        f"Raise Raw Errors: {'✅ Enabled' if raise_raw else '❌ Disabled'}"
+                    )
 
             # PROJECT INFO
             project_info = []
-            if 'project_root' in config and config['project_root']:
+            if "project_root" in config and config["project_root"]:
                 project_info.append(f"Root: {config['project_root']}")
-            if 'current_application' in config and config['current_application']:
+            if "current_application" in config and config["current_application"]:
                 project_info.append(f"Application: {config['current_application']}")
-            if 'registry_path' in config and config['registry_path']:
+            if "registry_path" in config and config["registry_path"]:
                 project_info.append(f"Registry: {config['registry_path']}")
 
             # Build output
@@ -279,11 +316,13 @@ def register_cli_commands(registry) -> None:
                     "\n\n".join(output_parts),
                     title="Framework Configuration",
                     border_style=Styles.SUCCESS,
-                    padding=(1, 2)
+                    padding=(1, 2),
                 )
                 console.print(panel)
             else:
-                console.print("📋 Configuration loaded but no details available", style=Styles.WARNING)
+                console.print(
+                    "📋 Configuration loaded but no details available", style=Styles.WARNING
+                )
         else:
             console.print("❌ No configuration available", style=Styles.ERROR)
 
@@ -311,7 +350,11 @@ def register_cli_commands(registry) -> None:
             session_info = []
 
             if context.session_id:
-                session_display = context.session_id[:8] + "..." if len(context.session_id) > 8 else context.session_id
+                session_display = (
+                    context.session_id[:8] + "..."
+                    if len(context.session_id) > 8
+                    else context.session_id
+                )
                 session_info.append(f"Session ID: {session_display}")
 
             if context.gateway:
@@ -327,13 +370,13 @@ def register_cli_commands(registry) -> None:
                 try:
                     if isinstance(context.agent_state, dict):
                         # Count messages if available
-                        if 'messages' in context.agent_state:
-                            msg_count = len(context.agent_state['messages'])
+                        if "messages" in context.agent_state:
+                            msg_count = len(context.agent_state["messages"])
                             state_info += f" ({msg_count} messages)"
 
                         # Show execution status if available
-                        if 'execution_step_results' in context.agent_state:
-                            step_count = len(context.agent_state['execution_step_results'])
+                        if "execution_step_results" in context.agent_state:
+                            step_count = len(context.agent_state["execution_step_results"])
                             if step_count > 0:
                                 state_info += f", {step_count} execution steps"
                 except Exception:
@@ -347,7 +390,7 @@ def register_cli_commands(registry) -> None:
                 panel = Panel(
                     "\n".join(session_info),
                     title=f"Current Session ({context.interface_type})",
-                    border_style=Styles.BORDER_DIM
+                    border_style=Styles.BORDER_DIM,
                 )
                 console.print(panel)
 
@@ -358,51 +401,61 @@ def register_cli_commands(registry) -> None:
         return CommandResult.HANDLED
 
     # Register CLI commands
-    registry.register(Command(
-        name="help",
-        category=CommandCategory.CLI,
-        description="Show available commands or help for a specific command",
-        handler=help_handler,
-        aliases=["h", "?"],
-        help_text="Show available commands or help for a specific command.\n\nUsage:\n  /help          - Show all commands\n  /help <cmd>    - Show help for specific command",
-        interface_restrictions=["cli"]
-    ))
+    registry.register(
+        Command(
+            name="help",
+            category=CommandCategory.CLI,
+            description="Show available commands or help for a specific command",
+            handler=help_handler,
+            aliases=["h", "?"],
+            help_text="Show available commands or help for a specific command.\n\nUsage:\n  /help          - Show all commands\n  /help <cmd>    - Show help for specific command",
+            interface_restrictions=["cli"],
+        )
+    )
 
-    registry.register(Command(
-        name="clear",
-        category=CommandCategory.CLI,
-        description="Clear the terminal screen",
-        handler=clear_handler,
-        aliases=["cls", "c"],
-        help_text="Clear the terminal screen.",
-        interface_restrictions=["cli"]
-    ))
+    registry.register(
+        Command(
+            name="clear",
+            category=CommandCategory.CLI,
+            description="Clear the terminal screen",
+            handler=clear_handler,
+            aliases=["cls", "c"],
+            help_text="Clear the terminal screen.",
+            interface_restrictions=["cli"],
+        )
+    )
 
-    registry.register(Command(
-        name="exit",
-        category=CommandCategory.CLI,
-        description="Exit the CLI interface",
-        handler=exit_handler,
-        aliases=["quit", "bye", "q"],
-        help_text="Exit the CLI interface.",
-        interface_restrictions=["cli"]
-    ))
+    registry.register(
+        Command(
+            name="exit",
+            category=CommandCategory.CLI,
+            description="Exit the CLI interface",
+            handler=exit_handler,
+            aliases=["quit", "bye", "q"],
+            help_text="Exit the CLI interface.",
+            interface_restrictions=["cli"],
+        )
+    )
 
-    registry.register(Command(
-        name="config",
-        category=CommandCategory.CLI,
-        description="Show current framework configuration",
-        handler=config_handler,
-        help_text="Display the current framework configuration including LLM settings and capabilities."
-    ))
+    registry.register(
+        Command(
+            name="config",
+            category=CommandCategory.CLI,
+            description="Show current framework configuration",
+            handler=config_handler,
+            help_text="Display the current framework configuration including LLM settings and capabilities.",
+        )
+    )
 
-    registry.register(Command(
-        name="status",
-        category=CommandCategory.CLI,
-        description="Run comprehensive system health check and show status",
-        handler=status_handler,
-        help_text="Run a full framework health check including configuration validation, API connectivity, container status, and session information. Equivalent to 'osprey health --full'."
-    ))
+    registry.register(
+        Command(
+            name="status",
+            category=CommandCategory.CLI,
+            description="Run comprehensive system health check and show status",
+            handler=status_handler,
+            help_text="Run a full framework health check including configuration validation, API connectivity, container status, and session information. Equivalent to 'osprey health --full'.",
+        )
+    )
 
 
 def register_agent_control_commands(registry) -> None:
@@ -447,9 +500,7 @@ def register_agent_control_commands(registry) -> None:
             return {"planning_mode_enabled": False}
         else:
             raise CommandExecutionError(
-                f"Invalid option '{args}' for /planning",
-                "planning",
-                "Use 'on' or 'off'"
+                f"Invalid option '{args}' for /planning", "planning", "Use 'on' or 'off'"
             )
 
     def approval_handler(args: str, context: CommandContext) -> dict[str, Any]:
@@ -464,7 +515,7 @@ def register_agent_control_commands(registry) -> None:
             raise CommandExecutionError(
                 f"Invalid option '{args}' for /approval",
                 "approval",
-                "Use 'on', 'off', or 'selective'"
+                "Use 'on', 'off', or 'selective'",
             )
 
     def task_handler(args: str, context: CommandContext) -> dict[str, Any]:
@@ -475,9 +526,7 @@ def register_agent_control_commands(registry) -> None:
             return {"task_extraction_bypass_enabled": False}
         else:
             raise CommandExecutionError(
-                f"Invalid option '{args}' for /task",
-                "task",
-                "Use 'on' or 'off'"
+                f"Invalid option '{args}' for /task", "task", "Use 'on' or 'off'"
             )
 
     def caps_handler(args: str, context: CommandContext) -> dict[str, Any]:
@@ -488,48 +537,54 @@ def register_agent_control_commands(registry) -> None:
             return {"capability_selection_bypass_enabled": False}
         else:
             raise CommandExecutionError(
-                f"Invalid option '{args}' for /caps",
-                "caps",
-                "Use 'on' or 'off'"
+                f"Invalid option '{args}' for /caps", "caps", "Use 'on' or 'off'"
             )
 
     # Register agent control commands
-    registry.register(Command(
-        name="planning",
-        category=CommandCategory.AGENT_CONTROL,
-        description="Enable/disable planning mode",
-        handler=planning_handler,
-        valid_options=["on", "off", "enabled", "disabled", "true", "false"],
-        help_text="Control planning mode for the agent.\n\nOptions:\n  on/enabled/true  - Enable planning\n  off/disabled/false - Disable planning"
-    ))
+    registry.register(
+        Command(
+            name="planning",
+            category=CommandCategory.AGENT_CONTROL,
+            description="Enable/disable planning mode",
+            handler=planning_handler,
+            valid_options=["on", "off", "enabled", "disabled", "true", "false"],
+            help_text="Control planning mode for the agent.\n\nOptions:\n  on/enabled/true  - Enable planning\n  off/disabled/false - Disable planning",
+        )
+    )
 
-    registry.register(Command(
-        name="approval",
-        category=CommandCategory.AGENT_CONTROL,
-        description="Control approval workflows",
-        handler=approval_handler,
-        valid_options=["on", "off", "selective", "enabled", "disabled", "true", "false"],
-        help_text="Control approval workflows.\n\nOptions:\n  on/enabled - Enable all approvals\n  off/disabled - Disable approvals\n  selective - Selective approval mode"
-    ))
+    registry.register(
+        Command(
+            name="approval",
+            category=CommandCategory.AGENT_CONTROL,
+            description="Control approval workflows",
+            handler=approval_handler,
+            valid_options=["on", "off", "selective", "enabled", "disabled", "true", "false"],
+            help_text="Control approval workflows.\n\nOptions:\n  on/enabled - Enable all approvals\n  off/disabled - Disable approvals\n  selective - Selective approval mode",
+        )
+    )
 
-    registry.register(Command(
-        name="task",
-        category=CommandCategory.AGENT_CONTROL,
-        description="Control task extraction bypass",
-        handler=task_handler,
-        valid_options=["on", "off", "enabled", "disabled", "true", "false"],
-        help_text="Control task extraction bypass for performance.\n\nOptions:\n  on/enabled - Use task extraction (default)\n  off/disabled - Bypass task extraction (use full context)"
-    ))
+    registry.register(
+        Command(
+            name="task",
+            category=CommandCategory.AGENT_CONTROL,
+            description="Control task extraction bypass",
+            handler=task_handler,
+            valid_options=["on", "off", "enabled", "disabled", "true", "false"],
+            help_text="Control task extraction bypass for performance.\n\nOptions:\n  on/enabled - Use task extraction (default)\n  off/disabled - Bypass task extraction (use full context)",
+        )
+    )
 
-    registry.register(Command(
-        name="caps",
-        category=CommandCategory.AGENT_CONTROL,
-        description="Control capability selection bypass",
-        handler=caps_handler,
-        aliases=["capabilities"],
-        valid_options=["on", "off", "enabled", "disabled", "true", "false"],
-        help_text="Control capability selection bypass.\n\nOptions:\n  on/enabled - Use capability selection (default)\n  off/disabled - Bypass selection (activate all capabilities)"
-    ))
+    registry.register(
+        Command(
+            name="caps",
+            category=CommandCategory.AGENT_CONTROL,
+            description="Control capability selection bypass",
+            handler=caps_handler,
+            aliases=["capabilities"],
+            valid_options=["on", "off", "enabled", "disabled", "true", "false"],
+            help_text="Control capability selection bypass.\n\nOptions:\n  on/enabled - Use capability selection (default)\n  off/disabled - Bypass selection (activate all capabilities)",
+        )
+    )
 
 
 def register_service_commands(registry) -> None:
@@ -543,7 +598,7 @@ def register_service_commands(registry) -> None:
             return CommandResult.HANDLED
 
         # Delegate to service-specific log handling
-        if hasattr(context.service_instance, '_handle_log_command'):
+        if hasattr(context.service_instance, "_handle_log_command"):
             # This would be called by the service
             return CommandResult.HANDLED
         else:
@@ -551,11 +606,13 @@ def register_service_commands(registry) -> None:
             console.print("❌ Log viewer not implemented", style=Styles.ERROR)
             return CommandResult.HANDLED
 
-    registry.register(Command(
-        name="logs",
-        category=CommandCategory.SERVICE,
-        description="View service logs",
-        handler=logs_handler,
-        help_text="View and filter service logs.\n\nUsage varies by service implementation.",
-        interface_restrictions=["openwebui"]
-    ))
+    registry.register(
+        Command(
+            name="logs",
+            category=CommandCategory.SERVICE,
+            description="View service logs",
+            handler=logs_handler,
+            help_text="View and filter service logs.\n\nUsage varies by service implementation.",
+            interface_restrictions=["openwebui"],
+        )
+    )

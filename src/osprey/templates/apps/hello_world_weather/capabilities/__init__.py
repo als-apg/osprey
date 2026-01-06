@@ -37,9 +37,7 @@ Capability Overview:
 
 from .current_weather import CurrentWeatherCapability
 
-__all__ = [
-    'CurrentWeatherCapability'
-]
+__all__ = ["CurrentWeatherCapability"]
 """Explicit public API declaration for Hello World Weather capabilities.
 
 Defines the complete public interface for the weather capabilities module,

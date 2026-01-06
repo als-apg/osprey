@@ -59,12 +59,12 @@ Configure your approval system in ``config.yml`` with global modes and capabilit
    # Global approval configuration
    approval:
      global_mode: "selective"  # disabled, selective, all_capabilities
-     capabilities:
-       python_execution:
-         enabled: true
-         mode: "epics_writes"  # disabled, all_code, epics_writes
-       memory:
-         enabled: false
+   capabilities:
+     python_execution:
+       enabled: true
+       mode: "control_writes"  # disabled, all_code, control_writes
+     memory:
+       enabled: false
 
 **Configuration Modes:**
 
@@ -87,7 +87,11 @@ Configure your approval system in ``config.yml`` with global modes and capabilit
 
 - ``disabled``: No approval required for Python code
 - ``all_code``: Approve all Python code execution
-- ``epics_writes``: Approve only code that writes to EPICS control systems
+- ``control_writes``: Approve only code that writes to control systems (EPICS, Tango, etc.)
+
+.. note::
+   The old mode name ``epics_writes`` is deprecated but still supported for backward compatibility.
+   It is automatically mapped to ``control_writes``.
 
 Implementation Patterns
 =======================
@@ -127,29 +131,29 @@ Integrate approval workflows into capabilities using the framework's approval fu
 
            # Evaluate approval requirement
            evaluator = get_python_execution_evaluator()
-           has_epics_writes = self._analyze_for_epics_writes(generated_code)
+           has_control_writes = self._analyze_for_control_writes(generated_code)
 
            decision = evaluator.evaluate(
-               has_epics_writes=has_epics_writes,
-               has_epics_reads=False
+               has_control_writes=has_control_writes,
+               has_control_reads=False
            )
 
            if decision.needs_approval:
                # Create approval interrupt with rich context
                analysis_details = {
-                   'safety_level': 'medium' if has_epics_writes else 'low',
-                   'operations_detected': ['EPICS writes'] if has_epics_writes else [],
+                   'safety_level': 'medium' if has_control_writes else 'low',
+                   'operations_detected': ['control system writes'] if has_control_writes else [],
                    'risk_assessment': decision.reasoning
                }
 
                safety_concerns = []
-               if has_epics_writes:
-                   safety_concerns.append("Code modifies EPICS control system setpoints")
+               if has_control_writes:
+                   safety_concerns.append("Code modifies control system setpoints")
 
                interrupt_data = create_code_approval_interrupt(
                    code=generated_code,
                    analysis_details=analysis_details,
-                   execution_mode='write_access' if has_epics_writes else 'readonly',
+                   execution_mode='write_access' if has_control_writes else 'readonly',
                    safety_concerns=safety_concerns
                )
 
@@ -193,20 +197,22 @@ Implement domain-specific security analysis:
 
 .. code-block:: python
 
-   def _analyze_for_epics_writes(self, code: str) -> bool:
-       """Detect EPICS write operations in code."""
-       epics_write_patterns = [
-           'caput(',
-           '.put(',
-           'epics.caput',
-           'PV.put',
-           'setpoint'
-       ]
-       return any(pattern in code for pattern in epics_write_patterns)
+   def _analyze_for_control_writes(self, code: str) -> bool:
+       """Detect control system write operations in code.
+
+       Uses the pattern_detection module which handles both legacy EPICS
+       patterns (caput, PV.put) and the unified osprey.runtime API
+       (write_channel, write_channels).
+       """
+       from osprey.services.python_executor.analysis.pattern_detection import (
+           detect_control_system_operations
+       )
+       result = detect_control_system_operations(code)
+       return result['has_writes']
 
    def _assess_safety_level(self, security_analysis: dict) -> str:
        """Assess overall safety level based on detected operations."""
-       if security_analysis.get('has_epics_writes'):
+       if security_analysis.get('has_control_writes'):
            return 'high'
        elif security_analysis.get('has_file_operations'):
            return 'medium'
@@ -257,6 +263,82 @@ Different approval requirements based on context:
            return 'reduced_approval'
        else:
            return 'full_approval'
+
+Channel Write Approval
+======================
+
+Require human approval before executing control system channel writes.
+
+**Use Case:** Production environments where direct hardware writes require operator approval before execution.
+
+**Pattern:**
+
+.. code-block:: python
+
+   from osprey.approval import create_channel_write_approval_interrupt
+   from osprey.approval import get_approval_resume_data
+   from langgraph.types import interrupt
+
+   async def execute_channel_write(self, state: AgentState) -> dict:
+       """Execute channel writes with approval workflow."""
+
+       # Check if we're resuming from an approval interrupt
+       has_approval_resume, approved_payload = get_approval_resume_data(
+           state,
+           "channel_write"
+       )
+
+       if has_approval_resume:
+           if not approved_payload:
+               raise ChannelWriteAccessError("Write operation cancelled by user")
+           # User approved - continue with execution
+           logger.info("Resuming approved write operation")
+       else:
+           # First time execution - check if approval is needed
+           approval_evaluator = get_python_execution_evaluator()
+           decision = approval_evaluator.evaluate(has_control_writes=True)
+
+           if decision.needs_approval:
+               # Create approval interrupt
+               interrupt_data = create_channel_write_approval_interrupt(
+                   operations=write_operations,  # List of WriteOperation objects
+                   analysis_details={
+                       'operation_count': len(write_operations),
+                       'safety_level': 'high',
+                   },
+                   safety_concerns=[
+                       f"Direct hardware write: {op.channel_address} = {op.value}"
+                       for op in write_operations
+                   ],
+                   step_objective="Set beam current to target value"
+               )
+
+               # Pause for approval
+               interrupt(interrupt_data)
+
+       # Execute writes (after approval or if no approval needed)
+       results = await self._execute_writes(write_operations)
+       return {"write_results": results}
+
+**Configuration:**
+
+.. code-block:: yaml
+
+   approval:
+     capabilities:
+       python_execution:
+         mode: "control_writes"  # Triggers approval for control system writes
+
+**Interrupt Data Structure:**
+
+The channel write approval interrupt includes:
+
+- **operations**: List of pending write operations with channel addresses and values
+- **analysis_details**: Safety analysis and operation metadata
+- **safety_concerns**: Human-readable list of safety concerns
+- **step_objective**: Description of what the write operation accomplishes
+
+See the Control Assistant template for a complete implementation example.
 
 Testing and Validation
 ======================
@@ -320,7 +402,7 @@ Troubleshooting
 
    # Verify approval evaluator behavior
    evaluator = get_python_execution_evaluator()
-   decision = evaluator.evaluate(has_epics_writes=True, has_epics_reads=False)
+   decision = evaluator.evaluate(has_control_writes=True, has_control_reads=False)
    print(f"Approval decision: {decision}")
 
 .. seealso::
@@ -328,7 +410,7 @@ Troubleshooting
    :doc:`02_data-source-integration`
        Integrate approval with data source providers
 
-   :doc:`03_python-execution-service`
+   :doc:`03_python-execution-service/index`
        Advanced Python execution with approval
 
    :doc:`../../api_reference/03_production_systems/01_human-approval`

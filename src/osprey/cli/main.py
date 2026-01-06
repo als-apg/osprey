@@ -14,16 +14,39 @@ import sys
 
 import click
 
+# Fix Windows console encoding to support Unicode characters (✓, ✗, ⚠️, etc.)
+# This must be done before any output that uses Unicode characters
+if sys.platform == "win32":
+    try:
+        # Reconfigure stdout and stderr to use UTF-8 encoding
+        # This fixes the 'charmap' codec error on Windows when printing Unicode
+        import io
+
+        # Only reconfigure if not already UTF-8
+        if sys.stdout.encoding.lower() != "utf-8":
+            sys.stdout = io.TextIOWrapper(
+                sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True
+            )
+        if sys.stderr.encoding.lower() != "utf-8":
+            sys.stderr = io.TextIOWrapper(
+                sys.stderr.buffer, encoding="utf-8", errors="replace", line_buffering=True
+            )
+    except (AttributeError, OSError):
+        # If reconfiguration fails (e.g., no buffer attribute), continue
+        # The CLI should still work, just without fancy Unicode characters
+        pass
+
 # Import version from osprey package
 try:
     from osprey import __version__
 except ImportError:
-    __version__ = "0.9.1"
+    __version__ = "0.9.10"
 
 
 # PERFORMANCE OPTIMIZATION: Lazy command loading
 # Commands are imported only when invoked, not at module load time.
 # This keeps --help fast and avoids loading heavy dependencies unnecessarily.
+
 
 class LazyGroup(click.Group):
     """Click group that lazily loads subcommands only when invoked."""
@@ -32,13 +55,15 @@ class LazyGroup(click.Group):
         """Lazily import and return the command when it's invoked."""
         # Map command names to their module paths
         commands = {
-            'init': 'osprey.cli.init_cmd',
-            'deploy': 'osprey.cli.deploy_cmd',
-            'chat': 'osprey.cli.chat_cmd',
-            'export-config': 'osprey.cli.export_config_cmd',
-            'health': 'osprey.cli.health_cmd',
-            'generate': 'osprey.cli.generate_cmd',
-            'remove': 'osprey.cli.remove_cmd',
+            "init": "osprey.cli.init_cmd",
+            "deploy": "osprey.cli.deploy_cmd",
+            "chat": "osprey.cli.chat_cmd",
+            "config": "osprey.cli.config_cmd",
+            "export-config": "osprey.cli.export_config_cmd",  # DEPRECATED: kept for backward compat
+            "health": "osprey.cli.health_cmd",
+            "generate": "osprey.cli.generate_cmd",
+            "remove": "osprey.cli.remove_cmd",
+            "workflows": "osprey.cli.workflows_cmd",
         }
 
         if cmd_name not in commands:
@@ -46,11 +71,15 @@ class LazyGroup(click.Group):
 
         # Lazy import - only loads when command is actually used
         import importlib
+
         mod = importlib.import_module(commands[cmd_name])
 
         # Get the command function from the module
         # Convention: module name without _cmd suffix
-        if cmd_name == 'export-config':
+        if cmd_name == "config":
+            cmd_func = mod.config
+        elif cmd_name == "export-config":
+            # DEPRECATED: Show warning and redirect to new command
             cmd_func = mod.export_config
         else:
             cmd_func = getattr(mod, cmd_name)
@@ -59,7 +88,7 @@ class LazyGroup(click.Group):
 
     def list_commands(self, ctx):
         """Return list of available commands (for --help)."""
-        return ['init', 'deploy', 'chat', 'export-config', 'generate', 'remove', 'health']
+        return ["init", "config", "deploy", "chat", "generate", "remove", "health", "workflows"]
 
 
 @click.group(cls=LazyGroup, invoke_without_command=True)
@@ -78,17 +107,19 @@ def cli(ctx):
     \b
       osprey                          Launch interactive menu
       osprey init my-project          Create new project
+      osprey config                   Manage configuration (show, export, set)
       osprey generate capability ...  Generate capability from MCP server
       osprey generate mcp-server      Generate demo MCP server
       osprey remove capability ...    Remove capability from project
       osprey deploy up                Start services
       osprey chat                     Interactive conversation
       osprey health                   Check system health
-      osprey export-config            View osprey defaults
+      osprey workflows export         Export AI workflow files
     """
     # Initialize theme from config if available (best-effort, silent failure)
     try:
         from .styles import initialize_theme_from_config
+
         initialize_theme_from_config()
     except Exception:
         # Silent failure - default theme will be used
@@ -98,6 +129,7 @@ def cli(ctx):
     # NEW: If no command provided, launch interactive menu
     if ctx.invoked_subcommand is None:
         from .interactive_menu import launch_tui
+
         launch_tui()
 
 
@@ -115,4 +147,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

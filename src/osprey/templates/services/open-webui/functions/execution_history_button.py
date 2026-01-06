@@ -24,9 +24,7 @@ class Action:
         show_detailed_steps: bool = Field(
             default=True, description="Show detailed step information"
         )
-        show_timestamps: bool = Field(
-            default=True, description="Show execution timestamps"
-        )
+        show_timestamps: bool = Field(default=True, description="Show execution timestamps")
         show_step_results: bool = Field(
             default=False, description="Show detailed step results (may be verbose)"
         )
@@ -70,14 +68,14 @@ class Action:
         # Calculate step execution time (sum of individual step durations)
         step_duration = 0
         for record in execution_history:
-            start_time_str = record.get('start_time')
-            end_time_str = record.get('end_time')
+            start_time_str = record.get("start_time")
+            end_time_str = record.get("end_time")
             if start_time_str and end_time_str:
                 try:
-                    start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
-                    end_time = datetime.fromisoformat(end_time_str.replace('Z', '+00:00'))
+                    start_time = datetime.fromisoformat(start_time_str.replace("Z", "+00:00"))
+                    end_time = datetime.fromisoformat(end_time_str.replace("Z", "+00:00"))
                     step_duration += (end_time - start_time).total_seconds()
-                except:
+                except (ValueError, TypeError):
                     pass  # Skip if datetime parsing fails
 
         html += f"""
@@ -91,23 +89,23 @@ class Action:
 
         # Process each step
         for i, record in enumerate(execution_history, 1):
-            step = record.get('step', {})
-            result = record.get('result', {})
+            step = record.get("step", {})
+            result = record.get("result", {})
 
             # Step header with status
-            success = result.get('success', False)
+            success = result.get("success", False)
             status_emoji = "✅" if success else "❌"
             status_color = "#059669" if success else "#dc2626"
-            description = step.get('description', 'Unknown step')
+            description = step.get("description", "Unknown step")
 
             html += f"""
             <div style="margin-bottom: 24px; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
-                <div style="background: {'#f0f9ff' if success else '#fef2f2'}; padding: 16px; border-bottom: 1px solid #e2e8f0;">
+                <div style="background: {"#f0f9ff" if success else "#fef2f2"}; padding: 16px; border-bottom: 1px solid #e2e8f0;">
                     <h3 style="margin: 0; color: #1f2937; font-size: 16px; font-weight: 600;">
                         {status_emoji} Step {i}: {description}
                     </h3>
                     <div style="margin-top: 8px; font-size: 14px; font-weight: 500; color: {status_color};">
-                        {'✓ Success' if success else '✗ Failed'}
+                        {"✓ Success" if success else "✗ Failed"}
                     </div>
                 </div>
                 <div style="padding: 20px;">
@@ -130,16 +128,16 @@ class Action:
             html += f"""
                         <tr>
                             <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 500; color: #374151;">Node Type</td>
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; color: #1f2937; font-family: monospace;">{step.get('node_type', 'unknown')}</td>
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; color: #1f2937; font-family: monospace;">{step.get("node_type", "unknown")}</td>
                         </tr>
                         <tr>
                             <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 500; color: #374151;">Status</td>
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; color: {status_color}; font-weight: 600;">{status_emoji} {'Success' if success else 'Failed'}</td>
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; color: {status_color}; font-weight: 600;">{status_emoji} {"Success" if success else "Failed"}</td>
                         </tr>
             """
 
             # Success criteria
-            success_criteria = step.get('success_criteria')
+            success_criteria = step.get("success_criteria")
             if success_criteria:
                 html += f"""
                         <tr>
@@ -150,20 +148,20 @@ class Action:
 
             # Timestamps
             if user_valves.show_timestamps:
-                start_time_str = record.get('start_time')
+                start_time_str = record.get("start_time")
                 if start_time_str:
                     try:
-                        start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
+                        start_time = datetime.fromisoformat(start_time_str.replace("Z", "+00:00"))
                         html += f"""
                         <tr>
                             <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 500; color: #374151;">Start Time</td>
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; color: #1f2937;">{start_time.strftime('%H:%M:%S')}</td>
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; color: #1f2937;">{start_time.strftime("%H:%M:%S")}</td>
                         </tr>
                         """
 
-                        end_time_str = record.get('end_time')
+                        end_time_str = record.get("end_time")
                         if end_time_str:
-                            end_time = datetime.fromisoformat(end_time_str.replace('Z', '+00:00'))
+                            end_time = datetime.fromisoformat(end_time_str.replace("Z", "+00:00"))
                             duration = (end_time - start_time).total_seconds()
                             html += f"""
                         <tr>
@@ -171,25 +169,25 @@ class Action:
                             <td style="padding: 8px 12px; border: 1px solid #cbd5e1; color: #1f2937;">{duration:.2f}s</td>
                         </tr>
                             """
-                    except:
+                    except (ValueError, TypeError):
                         pass  # Skip if datetime parsing fails
 
-            html += '</tbody></table></div>'
+            html += "</tbody></table></div>"
 
             # Input requirements
-            input_requirements = step.get('input_requirements', [])
+            input_requirements = step.get("input_requirements", [])
             if input_requirements and user_valves.show_detailed_steps:
                 html += f"""
                 <div style="margin-bottom: 16px;">
                     <h5 style="margin: 0 0 8px 0; font-size: 14px; font-weight: 600; color: #374151;">📝 Input Requirements:</h5>
                     <div style="background: #f8fafc; padding: 12px; border-radius: 4px; border: 1px solid #e2e8f0; font-size: 13px; color: #1f2937;">
-                        {', '.join(input_requirements)}
+                        {", ".join(input_requirements)}
                     </div>
                 </div>
                 """
 
             # Parameters
-            parameters = step.get('parameters', {})
+            parameters = step.get("parameters", {})
             if parameters and user_valves.show_detailed_steps:
                 html += f"""
                 <div style="margin-bottom: 16px;">
@@ -202,21 +200,21 @@ class Action:
 
             # Error details if failed
             if not success:
-                error = result.get('error')
+                error = result.get("error")
                 if error:
                     html += f"""
                     <div style="margin-bottom: 16px; padding: 12px; background: #fef2f2; border-radius: 4px; border: 1px solid #fecaca;">
                         <h5 style="margin: 0 0 8px 0; font-size: 14px; font-weight: 600; color: #dc2626;">🚨 Error Details:</h5>
                         <div style="font-size: 13px; color: #7f1d1d; line-height: 1.4;">
-                            <div style="margin-bottom: 4px;"><strong>Message:</strong> {error.get('message', 'No error message')}</div>
-                            <div><strong>Severity:</strong> {error.get('severity', 'unknown')}</div>
+                            <div style="margin-bottom: 4px;"><strong>Message:</strong> {error.get("message", "No error message")}</div>
+                            <div><strong>Severity:</strong> {error.get("severity", "unknown")}</div>
                         </div>
                     </div>
                     """
 
             # Result data if requested and available
             if user_valves.show_step_results:
-                result_data = result.get('data')
+                result_data = result.get("data")
                 if result_data:
                     html += f"""
                     <div style="margin-bottom: 16px;">
@@ -227,7 +225,7 @@ class Action:
                     </div>
                     """
 
-            html += '</div></div>'
+            html += "</div></div>"
 
         return html
 
@@ -239,7 +237,9 @@ class Action:
         __event_call__=None,
     ) -> dict | None:
         """Display formatted execution history using a popup modal."""
-        logger.info(f"User - Name: {__user__['name']}, ID: {__user__['id']} - Requesting ALS Assistant execution history")
+        logger.info(
+            f"User - Name: {__user__['name']}, ID: {__user__['id']} - Requesting ALS Assistant execution history"
+        )
 
         user_valves = __user__.get("valves")
         if not user_valves:
@@ -254,11 +254,15 @@ class Action:
 
         try:
             # Log debug information about the request
-            logger.info(f"Processing execution history request for user {__user__.get('name', 'unknown')}")
+            logger.info(
+                f"Processing execution history request for user {__user__.get('name', 'unknown')}"
+            )
             logger.info(f"Message count: {len(body.get('messages', []))}")
 
             # Extract execution history from the last assistant message
-            execution_history = self.extract_execution_history_from_messages(body.get("messages", []))
+            execution_history = self.extract_execution_history_from_messages(
+                body.get("messages", [])
+            )
 
             if not execution_history:
                 logger.info("No execution history found in messages")
@@ -459,7 +463,9 @@ class Action:
                 }
             )
 
-            logger.info(f"User - Name: {__user__['name']}, ID: {__user__['id']} - Execution history popup displayed successfully ({len(execution_history)} steps)")
+            logger.info(
+                f"User - Name: {__user__['name']}, ID: {__user__['id']} - Execution history popup displayed successfully ({len(execution_history)} steps)"
+            )
 
         except Exception as e:
             logger.error(f"Error processing execution history: {e}")
@@ -559,6 +565,6 @@ actions = [
         "id": "als_assistant_execution_history",
         "name": "Execution History",
         "description": "View ALS Assistant execution history for the last response",
-        "icon_url": "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDJMMTMuMDkgOC4yNkwyMCA5TDEzLjA5IDE1Ljc0TDEyIDIyTDEwLjkxIDE1Ljc0TDQgOUwxMC45MSA4LjI2TDEyIDJaIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz4KPC9zdmc+"
+        "icon_url": "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDJMMTMuMDkgOC4yNkwyMCA5TDEzLjA5IDE1Ljc0TDEyIDIyTDEwLjkxIDE1Ljc0TDQgOUwxMC45MSA4LjI2TDEyIDJaIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz4KPC9zdmc+",
     }
 ]

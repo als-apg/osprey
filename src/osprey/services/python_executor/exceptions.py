@@ -45,7 +45,7 @@ clear separation between different types of errors.
 .. seealso::
    :class:`PythonExecutorService` : Service that raises and handles these exceptions
    :class:`ErrorCategory` : Enumeration of error categories for recovery logic
-   :func:`osprey.services.python_executor.analyzer_node` : Analysis node error handling
+   :func:`osprey.services.python_executor.analysis.node` : Analysis node error handling
 
 Examples:
     Catching and handling different error categories::
@@ -100,10 +100,11 @@ class ErrorCategory(Enum):
        :meth:`PythonExecutorException.should_retry_execution` : Infrastructure retry logic
        :meth:`PythonExecutorException.should_retry_code_generation` : Code regeneration logic
     """
+
     INFRASTRUCTURE = "infrastructure"  # Container/connectivity issues
-    CODE_RELATED = "code_related"      # Syntax/runtime/logic errors
-    WORKFLOW = "workflow"              # Approval, timeout, etc.
-    CONFIGURATION = "configuration"   # Config/setup issues
+    CODE_RELATED = "code_related"  # Syntax/runtime/logic errors
+    WORKFLOW = "workflow"  # Approval, timeout, etc.
+    CONFIGURATION = "configuration"  # Config/setup issues
 
 
 class PythonExecutorException(Exception):
@@ -142,7 +143,7 @@ class PythonExecutorException(Exception):
         message: str,
         category: ErrorCategory,
         technical_details: dict[str, Any] | None = None,
-        folder_path: Path | None = None
+        folder_path: Path | None = None,
     ):
         super().__init__(message)
         self.message = message
@@ -259,6 +260,7 @@ class PythonExecutorException(Exception):
 # INFRASTRUCTURE ERRORS (Container/Connectivity Issues)
 # =============================================================================
 
+
 class ContainerConnectivityError(PythonExecutorException):
     """Exception raised when Jupyter container is unreachable or connection fails.
 
@@ -300,11 +302,7 @@ class ContainerConnectivityError(PythonExecutorException):
     """
 
     def __init__(
-        self,
-        message: str,
-        host: str,
-        port: int,
-        technical_details: dict[str, Any] | None = None
+        self, message: str, host: str, port: int, technical_details: dict[str, Any] | None = None
     ):
         super().__init__(message, ErrorCategory.INFRASTRUCTURE, technical_details)
         self.host = host
@@ -343,6 +341,7 @@ class ContainerConfigurationError(PythonExecutorException):
 # CODE-RELATED ERRORS (Require Code Regeneration)
 # =============================================================================
 
+
 class CodeGenerationError(PythonExecutorException):
     """LLM failed to generate valid code"""
 
@@ -351,7 +350,7 @@ class CodeGenerationError(PythonExecutorException):
         message: str,
         generation_attempt: int,
         error_chain: list[str],
-        technical_details: dict[str, Any] | None = None
+        technical_details: dict[str, Any] | None = None,
     ):
         super().__init__(message, ErrorCategory.CODE_RELATED, technical_details)
         self.generation_attempt = generation_attempt
@@ -365,7 +364,7 @@ class CodeSyntaxError(PythonExecutorException):
         self,
         message: str,
         syntax_issues: list[str],
-        technical_details: dict[str, Any] | None = None
+        technical_details: dict[str, Any] | None = None,
     ):
         super().__init__(message, ErrorCategory.CODE_RELATED, technical_details)
         self.syntax_issues = syntax_issues
@@ -380,17 +379,129 @@ class CodeRuntimeError(PythonExecutorException):
         traceback_info: str,
         execution_attempt: int,
         technical_details: dict[str, Any] | None = None,
-        folder_path: Path | None = None
+        folder_path: Path | None = None,
     ):
         super().__init__(message, ErrorCategory.CODE_RELATED, technical_details, folder_path)
         self.traceback_info = traceback_info
         self.execution_attempt = execution_attempt
 
 
+class ChannelLimitsViolationError(PythonExecutorException):
+    """Raised when a channel write violates configured limits.
+
+    This code-related error indicates that generated or user code attempted to
+    write a value to a channel that violates safety limits defined in the
+    limits database. This includes min/max limit violations, read-only channel
+    writes, excessive step sizes, or writes to unlisted channels.
+
+    The error provides comprehensive details about the violation including the
+    channel address, attempted value, current value (for step violations), and the
+    configured limits to help users understand why the write was blocked.
+
+    :param channel_address: Channel address that was accessed
+    :type channel_address: str
+    :param value: The value that was attempted to be written
+    :type value: Any
+    :param violation_type: Type of violation (MIN_EXCEEDED, MAX_EXCEEDED, READ_ONLY_CHANNEL,
+                          UNLISTED_CHANNEL, MAX_STEP_EXCEEDED, STEP_CHECK_FAILED)
+    :type violation_type: str
+    :param violation_reason: Human-readable explanation of the violation
+    :type violation_reason: str
+    :param min_value: Configured minimum value for the channel
+    :type min_value: float, optional
+    :param max_value: Configured maximum value for the channel
+    :type max_value: float, optional
+    :param max_step: Configured maximum step size for the channel
+    :type max_step: float, optional
+    :param current_value: Current channel value (for step violations)
+    :type current_value: Any, optional
+
+    .. note::
+       This error is raised during code execution when runtime channel limits
+       checking is enabled and detects a safety violation.
+
+    .. seealso::
+       :class:`LimitsValidator` : Validation engine that raises this exception
+       :class:`ChannelLimitsConfig` : Configuration for channel limits
+
+    Examples:
+        Handling channel limits violations::
+
+            >>> try:
+            ...     await executor.execute_code(code)
+            ... except ChannelLimitsViolationError as e:
+            ...     logger.error(f"Safety violation: {e.violation_reason}")
+            ...     logger.error(f"Attempted to write {e.attempted_value} to {e.channel_address}")
+            ...     # Code should be regenerated with safer values
+    """
+
+    def __init__(
+        self,
+        channel_address: str,
+        value: Any,
+        violation_type: str,
+        violation_reason: str,
+        min_value: float | None = None,
+        max_value: float | None = None,
+        max_step: float | None = None,
+        current_value: Any | None = None,
+    ):
+        self.channel_address = channel_address
+        self.attempted_value = value
+        self.violation_type = violation_type
+        self.violation_reason = violation_reason
+        self.min_value = min_value
+        self.max_value = max_value
+        self.max_step = max_step
+        self.current_value = current_value
+
+        message = self._format_violation_message()
+
+        super().__init__(message=message, category=ErrorCategory.CODE_RELATED)
+
+    def _format_violation_message(self) -> str:
+        """Format a user-friendly violation message with all relevant details."""
+        msg = [
+            "\n" + "=" * 70,
+            "CHANNEL LIMITS VIOLATION DETECTED",
+            "=" * 70,
+            f"Channel Address: {self.channel_address}",
+            f"Attempted Value: {self.attempted_value}",
+        ]
+
+        # Include current value for step violations
+        if self.current_value is not None:
+            msg.append(f"Current Value: {self.current_value}")
+
+        msg.append(f"Violation: {self.violation_reason}")
+
+        # Show allowed range if available
+        if self.min_value is not None or self.max_value is not None:
+            msg.append(f"Allowed Range: [{self.min_value}, {self.max_value}]")
+
+        # Show max step if available
+        if self.max_step is not None:
+            msg.append(f"Maximum Step Size: {self.max_step}")
+
+        msg.extend(
+            [
+                "=" * 70,
+                "⚠️  Write operation BLOCKED for safety",
+                "=" * 70,
+            ]
+        )
+
+        return "\n".join(msg)
+
+
+# Backward compatibility aliases
+PVBoundaryViolationError = ChannelLimitsViolationError
+ChannelBoundaryViolationError = ChannelLimitsViolationError
+
+
 # =============================================================================
 # WORKFLOW ERRORS (Special Flow Control)
 # =============================================================================
-
 
 
 class ExecutionTimeoutError(PythonExecutorException):
@@ -400,7 +511,7 @@ class ExecutionTimeoutError(PythonExecutorException):
         self,
         timeout_seconds: int,
         technical_details: dict[str, Any] | None = None,
-        folder_path: Path | None = None
+        folder_path: Path | None = None,
     ):
         message = f"Python code execution timeout after {timeout_seconds} seconds"
         super().__init__(message, ErrorCategory.WORKFLOW, technical_details, folder_path)
@@ -416,7 +527,7 @@ class MaxAttemptsExceededError(PythonExecutorException):
         max_attempts: int,
         error_chain: list[str],
         technical_details: dict[str, Any] | None = None,
-        folder_path: Path | None = None
+        folder_path: Path | None = None,
     ):
         message = f"Maximum {operation_type} attempts ({max_attempts}) exceeded"
         super().__init__(message, ErrorCategory.WORKFLOW, technical_details, folder_path)
@@ -434,7 +545,7 @@ class WorkflowError(PythonExecutorException):
         stage: str,  # "code_generation", "static_analysis", "execution", "orchestration"
         original_exception: Exception | None = None,
         technical_details: dict[str, Any] | None = None,
-        folder_path: Path | None = None
+        folder_path: Path | None = None,
     ):
         super().__init__(message, ErrorCategory.WORKFLOW, technical_details, folder_path)
         self.stage = stage

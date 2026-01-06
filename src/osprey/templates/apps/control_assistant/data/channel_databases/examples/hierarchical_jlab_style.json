@@ -1,0 +1,156 @@
+{
+  "_comment": "JLab CEBAF-style Hierarchical Database - Demonstrates semantic tree navigation with friendly names throughout. Uses _channel_part to map friendly names to technical PV strings. All hierarchy levels provide semantic navigation; only the 'pv' level appears in the channel name.",
+  "hierarchy": {
+    "levels": [
+      {"name": "system", "type": "tree"},
+      {"name": "family", "type": "tree"},
+      {"name": "sector", "type": "tree"},
+      {"name": "device", "type": "tree"},
+      {"name": "pv", "type": "tree"}
+    ],
+    "naming_pattern": "{pv}",
+    "_description": "Navigation uses friendly names at all levels. The '_channel_part' field maps friendly names to technical PV strings. Example navigation: Magnets → Skew Quadrupoles → North Linac → MQS1L02 → Current Setpoint. Channel name: MQS1L02.S"
+  },
+  "tree": {
+    "Magnets": {
+      "_description": "Magnets. Power-supplied magnetic elements used to guide and focus the beam.",
+      "Skew Quadrupoles": {
+        "_description": "Skew quadrupole family. Includes ST, SK, QS families for coupled-plane correction.",
+        "North Linac": {
+          "_description": "North Linac (First pass). Overall area: North Linac region. PV names contain '1L'.",
+          "MQS1L02": {
+            "_description": "Skew Quad in North Linac Girder 02. Provides coupled-plane beam correction.",
+            "Current Setpoint": {
+              "_channel_part": "MQS1L02.S",
+              "_description": "Requested magnet excitation current for coupled correction (read-write)."
+            },
+            "Integrated Field": {
+              "_channel_part": "MQS1L02.BDL",
+              "_description": "∫B·dl along the beam path. Measure of integrated focusing strength (read-only)."
+            },
+            "Magnet Current": {
+              "_channel_part": "MQS1L02M",
+              "_description": "Measured excitation current from DCCT sensor (read-only)."
+            },
+            "Magnet Voltage": {
+              "_channel_part": "MQS1L02D.H",
+              "_description": "Measured supply voltage across magnet coil (read-only)."
+            }
+          },
+          "MQS1L03": {
+            "_description": "Skew Quad in North Linac Girder 03.",
+            "Current Setpoint": {
+              "_channel_part": "MQS1L03.S",
+              "_description": "Requested magnet excitation current (read-write)."
+            },
+            "Magnet Current": {
+              "_channel_part": "MQS1L03M",
+              "_description": "Measured excitation current (read-only)."
+            }
+          }
+        },
+        "East Arc": {
+          "_description": "East Arc (First pass). Recirculation arc region connecting linac passes. PV names contain '1A'.",
+          "MQSEP1A": {
+            "_description": "Skew Quad Septum in East Arc sector 1A. Injection region correction magnet.",
+            "Current Setpoint": {
+              "_channel_part": "MQSEP1A.S",
+              "_description": "Requested current for injection steering (read-write)."
+            },
+            "Magnet Current": {
+              "_channel_part": "MQSEP1AM",
+              "_description": "Measured current (read-only)."
+            }
+          }
+        }
+      },
+      "Main Quadrupoles": {
+        "_description": "Main quadrupole focusing magnets. Primary beam focusing elements in both horizontal and vertical planes.",
+        "North Linac": {
+          "_description": "North Linac (First pass).",
+          "MQA1L02": {
+            "_description": "Main Quad in North Linac Girder 02. Primary focusing element.",
+            "Current Setpoint": {
+              "_channel_part": "MQA1L02.S",
+              "_description": "Quadrupole excitation setpoint (read-write)."
+            },
+            "Magnet Current": {
+              "_channel_part": "MQA1L02M",
+              "_description": "Measured quadrupole current (read-only)."
+            },
+            "Integrated Field": {
+              "_channel_part": "MQA1L02.BDL",
+              "_description": "Integrated gradient strength (read-only)."
+            }
+          }
+        }
+      }
+    },
+    "Diagnostics": {
+      "_description": "Beam diagnostic instruments. Position monitors, profile monitors, and beam loss detectors.",
+      "Beam Position Monitors": {
+        "_description": "Beam Position Monitors. Measure transverse (X,Y) beam position with micron precision.",
+        "North Linac": {
+          "_description": "North Linac (First pass).",
+          "IPM1L02": {
+            "_description": "BPM in North Linac Girder 02.",
+            "Horizontal Position": {
+              "_channel_part": "IPM1L02X",
+              "_description": "Beam X position in mm relative to electrical center (read-only)."
+            },
+            "Vertical Position": {
+              "_channel_part": "IPM1L02Y",
+              "_description": "Beam Y position in mm relative to electrical center (read-only)."
+            },
+            "Horizontal RMS": {
+              "_channel_part": "IPM1L02.XRMS",
+              "_description": "RMS beam size in horizontal plane in mm (read-only)."
+            },
+            "Vertical RMS": {
+              "_channel_part": "IPM1L02.YRMS",
+              "_description": "RMS beam size in vertical plane in mm (read-only)."
+            }
+          }
+        }
+      }
+    },
+    "Vacuum": {
+      "_description": "Vacuum system. Ion pumps, gauges, and valves maintaining ultra-high vacuum.",
+      "Ion Pumps": {
+        "_description": "Ion pumps providing distributed pumping throughout accelerator.",
+        "North Linac": {
+          "_description": "North Linac (First pass).",
+          "VIP1L02": {
+            "_description": "Ion Pump in North Linac Girder 02.",
+            "Pump Voltage": {
+              "_channel_part": "VIP1L02V",
+              "_description": "Ion pump high voltage in kV. Indicates pump health (read-only)."
+            },
+            "Pump Current": {
+              "_channel_part": "VIP1L02I",
+              "_description": "Ion pump current in μA. Proportional to vacuum pressure (read-only)."
+            },
+            "Pump On Status": {
+              "_channel_part": "VIP1L02.ON",
+              "_description": "Enable/disable pump. 1=on, 0=off (read-write)."
+            }
+          }
+        }
+      },
+      "Pressure Gauges": {
+        "_description": "Vacuum pressure gauges monitoring chamber pressure.",
+        "North Linac": {
+          "_description": "North Linac (First pass).",
+          "VGC1L02": {
+            "_description": "Vacuum Gauge Controller in North Linac Girder 02.",
+            "Pressure Reading": {
+              "_channel_part": "VGC1L02P",
+              "_description": "Chamber pressure in Torr. Typically 1e-9 to 1e-10 (read-only)."
+            }
+          }
+        }
+      }
+    }
+  }
+}
+

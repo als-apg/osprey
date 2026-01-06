@@ -27,7 +27,7 @@ except (RuntimeError, ImportError):
 
 # Use standard logging (not get_logger) to avoid circular imports with logger.py
 # The short name 'CONFIG' enables easy filtering: quiet_logger(['REGISTRY', 'CONFIG'])
-logger = logging.getLogger('CONFIG')
+logger = logging.getLogger("CONFIG")
 
 
 class ConfigBuilder:
@@ -105,6 +105,7 @@ class ConfigBuilder:
         # This ensures environment variables are available for config resolution
         try:
             from dotenv import load_dotenv
+
             dotenv_path = Path.cwd() / ".env"
             if dotenv_path.exists():
                 load_dotenv(dotenv_path, override=False)  # Don't override existing env vars
@@ -134,7 +135,6 @@ class ConfigBuilder:
         # Pre-compute nested structures for efficient runtime access
         self.configurable = self._build_configurable()
 
-
     def _load_yaml_file(self, file_path: Path) -> dict[str, Any]:
         """Load and validate a YAML configuration file."""
         try:
@@ -157,7 +157,6 @@ class ConfigBuilder:
             logger.error(error_msg)
             raise yaml.YAMLError(error_msg) from e
 
-
     def _resolve_env_vars(self, data: Any) -> Any:
         """Recursively resolve environment variables in configuration data.
 
@@ -171,6 +170,7 @@ class ConfigBuilder:
         elif isinstance(data, list):
             return [self._resolve_env_vars(item) for item in data]
         elif isinstance(data, str):
+
             def replace_env_var(match):
                 # Pattern matches: ${VAR_NAME:-default} or ${VAR_NAME} or $VAR_NAME
                 if match.group(1):  # ${VAR_NAME:-default} or ${VAR_NAME}
@@ -187,13 +187,15 @@ class ConfigBuilder:
                         return default_value
                     else:
                         # Only log warning if not in quiet mode (e.g., from interactive menu subprocess)
-                        if not os.environ.get('OSPREY_QUIET'):
-                            logger.info(f"Environment variable '{var_name}' not found, keeping original value")
+                        if not os.environ.get("OSPREY_QUIET"):
+                            logger.info(
+                                f"Environment variable '{var_name}' not found, keeping original value"
+                            )
                         return match.group(0)
                 return env_value
 
             # Pattern matches ${VAR_NAME:-default}, ${VAR_NAME}, or $VAR_NAME
-            pattern = r'\$\{([^}:]+)(?::-(.*?))?\}|\$([A-Za-z_][A-Za-z0-9_]*)'
+            pattern = r"\$\{([^}:]+)(?::-(.*?))?\}|\$([A-Za-z_][A-Za-z0-9_]*)"
             return re.sub(pattern, replace_env_var, data)
         else:
             return data
@@ -219,7 +221,7 @@ class ConfigBuilder:
             dict: Approval configuration with global_mode and capabilities sections
         """
         # Try to get approval config from file
-        approval_config = self.get('approval', None)
+        approval_config = self.get("approval", None)
 
         # If approval section exists and has content, use it
         if approval_config:
@@ -231,16 +233,14 @@ class ConfigBuilder:
 
         # Sensible defaults for tutorial/development environments
         return {
-            'global_mode': 'selective',
-            'capabilities': {
-                'python_execution': {
-                    'enabled': True,
-                    'mode': 'epics_writes'
+            "global_mode": "selective",
+            "capabilities": {
+                "python_execution": {
+                    "enabled": True,
+                    "mode": "control_writes",  # Generic name for control-system-agnostic config
                 },
-                'memory': {
-                    'enabled': True
-                }
-            }
+                "memory": {"enabled": True},
+            },
         }
 
     def _get_execution_config(self) -> dict[str, Any]:
@@ -253,7 +253,7 @@ class ConfigBuilder:
             dict: Execution configuration including method, python_env_path, and modes
         """
         # Try to get execution config from file
-        execution_config = self.get('execution', None)
+        execution_config = self.get("execution", None)
 
         # If execution section exists and has content, use it
         if execution_config:
@@ -268,24 +268,52 @@ class ConfigBuilder:
 
         # Sensible defaults for tutorial environments (local execution only)
         return {
-            'execution_method': 'local',
-            'python_env_path': sys.executable,  # Use current Python interpreter
-            'modes': {
-                'read_only': {
-                    'kernel_name': 'python3-readonly',
-                    'gateway': 'read_only',
-                    'allows_writes': False,
-                    'environment': {}
+            "execution_method": "local",
+            "python_env_path": sys.executable,  # Use current Python interpreter
+            "code_generator": "basic",  # Use basic LLM code generator
+            "generators": {
+                "basic": {"model_config_name": "python_code_generator"}  # Reference models section
+            },
+            "modes": {
+                "read_only": {
+                    "kernel_name": "python3-readonly",
+                    "gateway": "read_only",
+                    "allows_writes": False,
+                    "environment": {},
                 },
-                'write_access': {
-                    'kernel_name': 'python3-write',
-                    'gateway': 'write_access',
-                    'allows_writes': True,
-                    'requires_approval': True,
-                    'environment': {}
-                }
-            }
+                "write_access": {
+                    "kernel_name": "python3-write",
+                    "gateway": "write_access",
+                    "allows_writes": True,
+                    "requires_approval": True,
+                    "environment": {},
+                },
+            },
         }
+
+    def _get_writes_enabled_with_fallback(self) -> bool:
+        """Get control system writes_enabled with backward compatibility.
+
+        Tries new location first (control_system.writes_enabled), then falls back
+        to deprecated location (execution_control.epics.writes_enabled) without warnings.
+
+        Returns:
+            bool: Whether control system writes are enabled
+        """
+        # Try new location first (silent check - no warning if missing)
+        writes_enabled = self.get("control_system.writes_enabled", None)
+
+        if writes_enabled is not None:
+            return writes_enabled
+
+        # Fall back to old location (silent check - no warning)
+        writes_enabled_old = self.get("execution_control.epics.writes_enabled", None)
+
+        if writes_enabled_old is not None:
+            return writes_enabled_old
+
+        # Neither location set - default to False (safe default)
+        return False
 
     def _get_python_executor_config(self) -> dict[str, Any]:
         """Get python executor configuration with sensible defaults.
@@ -297,7 +325,7 @@ class ConfigBuilder:
             dict: Python executor configuration with retry and timeout settings
         """
         # Try to get python_executor config from file
-        python_executor_config = self.get('python_executor', None)
+        python_executor_config = self.get("python_executor", None)
 
         # If python_executor section exists and has content, use it
         if python_executor_config:
@@ -305,9 +333,9 @@ class ConfigBuilder:
 
         # Otherwise, provide sensible defaults
         return {
-            'max_generation_retries': 3,
-            'max_execution_retries': 3,
-            'execution_timeout_seconds': 600
+            "max_generation_retries": 3,
+            "max_execution_retries": 3,
+            "execution_timeout_seconds": 600,
         }
 
     def _build_configurable(self) -> dict[str, Any]:
@@ -319,65 +347,69 @@ class ConfigBuilder:
             "session_id": None,
             "thread_id": None,
             "session_url": None,
-
             # ===== EXECUTION LIMITS =====
             "execution_limits": self._build_execution_limits(),
-
             # ===== AGENT CONTROL DEFAULTS =====
             "agent_control_defaults": self._build_agent_control_defaults(),
-
             # ===== COMPLEX NESTED STRUCTURES =====
             "model_configs": self._build_model_configs(),
             "provider_configs": self._build_provider_configs(),
             "service_configs": self._build_service_configs(),
-
             # ===== FRAMEWORK EXECUTION CONFIGURATION =====
             # Python execution settings and executor service configuration
             "execution": self._get_execution_config(),
             "python_executor": self._get_python_executor_config(),
-
             # ===== LOGGING CONFIGURATION =====
-            "logging": self.get('logging', {}),
-
+            "logging": self.get("logging", {}),
             # ===== SIMPLE FLAT CONFIGS =====
-            "development": self.get('development', {}),
-            "epics_config": self.get('execution.epics', {}),
+            "development": self.get("development", {}),
+            "epics_config": self.get("execution.epics", {}),
             "approval_config": self._get_approval_config(),
-
             # ===== PROJECT CONFIGURATION =====
             # Essential for absolute path resolution across deployment environments
-            "project_root": self.get('project_root'),
-
+            "project_root": self.get("project_root"),
             # ===== APPLICATION CONTEXT =====
-            "applications": self.get('applications', []),
+            "applications": self.get("applications", []),
             "current_application": self._get_current_application(),
-            "registry_path": self.get('registry_path'),
+            "registry_path": self.get("registry_path"),
         }
 
         return configurable
 
     def _build_model_configs(self) -> dict[str, Any]:
         """Get model configs from flat structure."""
-        return self.get('models', {})
+        return self.get("models", {})
 
     def _build_provider_configs(self) -> dict[str, Any]:
         """Build provider configs."""
-        return self.get('api.providers', {})
+        return self.get("api.providers", {})
 
     def _build_service_configs(self) -> dict[str, Any]:
         """Get service configs from flat structure."""
-        return self.get('services', {})
+        return self.get("services", {})
 
     def _build_execution_limits(self) -> dict[str, Any]:
         """Build execution limits"""
 
         return {
-            "graph_recursion_limit": self._require_config('execution_control.limits.graph_recursion_limit', 100),
-            "max_reclassifications": self._require_config('execution_control.limits.max_reclassifications', 1),
-            "max_planning_attempts": self._require_config('execution_control.limits.max_planning_attempts', 2),
-            "max_step_retries": self._require_config('execution_control.limits.max_step_retries', 0),
-            "max_execution_time_seconds": self._require_config('execution_control.limits.max_execution_time_seconds', 300),
-            "max_concurrent_classifications": self._require_config('execution_control.limits.max_concurrent_classifications', 5),
+            "graph_recursion_limit": self._require_config(
+                "execution_control.limits.graph_recursion_limit", 100
+            ),
+            "max_reclassifications": self._require_config(
+                "execution_control.limits.max_reclassifications", 1
+            ),
+            "max_planning_attempts": self._require_config(
+                "execution_control.limits.max_planning_attempts", 2
+            ),
+            "max_step_retries": self._require_config(
+                "execution_control.limits.max_step_retries", 0
+            ),
+            "max_execution_time_seconds": self._require_config(
+                "execution_control.limits.max_execution_time_seconds", 300
+            ),
+            "max_concurrent_classifications": self._require_config(
+                "execution_control.limits.max_concurrent_classifications", 5
+            ),
         }
 
     def _build_agent_control_defaults(self) -> dict[str, Any]:
@@ -386,27 +418,34 @@ class ConfigBuilder:
         return {
             # Planning control
             "planning_mode_enabled": False,
-
-            # EPICS control
-            "epics_writes_enabled": self._require_config('execution_control.epics.writes_enabled', False),
-
+            # Control system writes control (with backward compatibility)
+            "epics_writes_enabled": self._get_writes_enabled_with_fallback(),
+            "control_system_writes_enabled": self._get_writes_enabled_with_fallback(),
             # Approval control
-            "approval_global_mode": self._require_config('approval.global_mode', 'selective'),
-            "python_execution_approval_enabled": self._require_config('approval.capabilities.python_execution.enabled', True),
-            "python_execution_approval_mode": self._require_config('approval.capabilities.python_execution.mode', 'all_code'),
-            "memory_approval_enabled": self._require_config('approval.capabilities.memory.enabled', True),
-
+            "approval_global_mode": self._require_config("approval.global_mode", "selective"),
+            "python_execution_approval_enabled": self._require_config(
+                "approval.capabilities.python_execution.enabled", True
+            ),
+            "python_execution_approval_mode": self._require_config(
+                "approval.capabilities.python_execution.mode", "all_code"
+            ),
+            "memory_approval_enabled": self._require_config(
+                "approval.capabilities.memory.enabled", True
+            ),
             # Performance bypass configuration (configurable via YAML)
-            "task_extraction_bypass_enabled": self._require_config('execution_control.agent_control.task_extraction_bypass_enabled', False),
-            "capability_selection_bypass_enabled": self._require_config('execution_control.agent_control.capability_selection_bypass_enabled', False),
-
+            "task_extraction_bypass_enabled": self._require_config(
+                "execution_control.agent_control.task_extraction_bypass_enabled", False
+            ),
+            "capability_selection_bypass_enabled": self._require_config(
+                "execution_control.agent_control.capability_selection_bypass_enabled", False
+            ),
             # Note: Execution limits (max_reclassifications, max_planning_attempts, etc.)
             # are now centralized in get_execution_limits() utility function
         }
 
     def _get_current_application(self) -> str | None:
         """Get the current/primary application name."""
-        applications = self.get('applications', [])
+        applications = self.get("applications", [])
         if isinstance(applications, dict) and applications:
             return list(applications.keys())[0]
         elif isinstance(applications, list) and applications:
@@ -415,7 +454,7 @@ class ConfigBuilder:
 
     def get(self, path: str, default: Any = None) -> Any:
         """Get configuration value using dot notation path."""
-        keys = path.split('.')
+        keys = path.split(".")
         value = self.raw_config
 
         try:
@@ -471,7 +510,7 @@ def _get_config(config_path: str | None = None, set_as_default: bool = False) ->
     if config_path is None:
         if _default_config is None:
             # Check for environment variable override
-            config_file = os.environ.get('CONFIG_FILE')
+            config_file = os.environ.get("CONFIG_FILE")
             if config_file:
                 _default_config = ConfigBuilder(config_file)
             else:
@@ -500,7 +539,9 @@ def _get_config(config_path: str | None = None, set_as_default: bool = False) ->
     return _config_cache[resolved_path]
 
 
-def _get_configurable(config_path: str | None = None, set_as_default: bool = False) -> dict[str, Any]:
+def _get_configurable(
+    config_path: str | None = None, set_as_default: bool = False
+) -> dict[str, Any]:
     """Get configurable dict with automatic context detection.
 
     This function supports both LangGraph execution contexts and standalone execution,
@@ -539,6 +580,7 @@ def _get_configurable(config_path: str | None = None, set_as_default: bool = Fal
 # =============================================================================
 # CONTEXT-AWARE UTILITY FUNCTIONS
 # =============================================================================
+
 
 def get_model_config(model_name: str, config_path: str | None = None) -> dict[str, Any]:
     """
@@ -595,7 +637,9 @@ def get_provider_config(provider_name: str, config_path: str | None = None) -> d
     return provider_configs.get(provider_name, {})
 
 
-def get_framework_service_config(service_name: str, config_path: str | None = None) -> dict[str, Any]:
+def get_framework_service_config(
+    service_name: str, config_path: str | None = None
+) -> dict[str, Any]:
     """Get framework service configuration with automatic context detection.
 
     Args:
@@ -632,7 +676,7 @@ def get_pipeline_config(app_name: str = None) -> dict[str, Any]:
     config = _get_config()
 
     # Try new flat format first (single-config)
-    pipeline_config = config.get('pipeline', {})
+    pipeline_config = config.get("pipeline", {})
     if pipeline_config:
         return pipeline_config
 
@@ -690,6 +734,7 @@ def get_session_info() -> dict[str, Any]:
         "thread_id": configurable.get("thread_id"),
         "session_url": configurable.get("session_url"),
     }
+
 
 def get_interface_context() -> str:
     """
@@ -788,7 +833,9 @@ def get_agent_dir(sub_dir: str, host_path: bool = False) -> str:
 
                 if detected_container_root:
                     # Container environment detected - use container project root
-                    logger.debug(f"Container environment detected: using {detected_container_root} instead of {project_root}")
+                    logger.debug(
+                        f"Container environment detected: using {detected_container_root} instead of {project_root}"
+                    )
                     path = detected_container_root / agent_data_dir / sub_dir_path
                 else:
                     # Not in a known container environment - fall back to relative paths
@@ -811,6 +858,7 @@ def get_agent_dir(sub_dir: str, host_path: bool = False) -> str:
 # =============================================================================
 # LANGGRAPH NATIVE ACCESS
 # =============================================================================
+
 
 def get_config_value(path: str, default: Any = None, config_path: str | None = None) -> Any:
     """
@@ -844,7 +892,7 @@ def get_config_value(path: str, default: Any = None, config_path: str | None = N
     configurable = _get_configurable(config_path)
 
     # Navigate through dot-separated path in configurable dict
-    keys = path.split('.')
+    keys = path.split(".")
     value = configurable
 
     for key in keys:
@@ -875,11 +923,11 @@ def get_classification_config() -> dict[str, Any]:
     configurable = _get_configurable()
 
     # Get classification concurrency limit from execution_control.limits (consistent with other limits)
-    max_concurrent = configurable.get("execution_limits", {}).get("max_concurrent_classifications", 5)
+    max_concurrent = configurable.get("execution_limits", {}).get(
+        "max_concurrent_classifications", 5
+    )
 
-    return {
-        "max_concurrent_classifications": max_concurrent
-    }
+    return {"max_concurrent_classifications": max_concurrent}
 
 
 def get_full_configuration(config_path: str | None = None) -> dict[str, Any]:
@@ -917,11 +965,12 @@ def get_full_configuration(config_path: str | None = None) -> dict[str, Any]:
     set_as_default = config_path is not None
     return _get_configurable(config_path, set_as_default=set_as_default)
 
+
 # Initialize the global configuration on import (skip for documentation/tests)
 # This provides convenience for module-level logger initialization, but is not
 # strictly required since logger.py has graceful fallbacks for missing config.
 try:
-    if 'sphinx' not in sys.modules and not os.environ.get('SPHINX_BUILD'):
+    if "sphinx" not in sys.modules and not os.environ.get("SPHINX_BUILD"):
         _get_config()
 except FileNotFoundError:
     # Allow deferred initialization if config not available at import time

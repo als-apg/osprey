@@ -79,6 +79,7 @@ logger = get_logger("osprey")
 # FILE MANAGEMENT
 # =============================================================================
 
+
 class FileManager:
     """Comprehensive file system management service for Python execution workflows.
 
@@ -144,8 +145,8 @@ class FileManager:
         """
         self.configurable = configurable
         # Get agent data directory from configurable, fallback to _agent_data
-        agent_data_dir = self.configurable.get('agent_data_dir', '_agent_data')
-        self.base_dir = Path(agent_data_dir) / 'executed_scripts'
+        agent_data_dir = self.configurable.get("agent_data_dir", "_agent_data")
+        self.base_dir = Path(agent_data_dir) / "executed_scripts"
         self.base_dir = self.base_dir.resolve()
 
     def create_execution_folder(self, name: str = "python_executor") -> PythonExecutionContext:
@@ -226,9 +227,7 @@ class FileManager:
         folder_url = self._create_jupyter_url(folder_path)
 
         context = PythonExecutionContext(
-            folder_path=folder_path,
-            folder_url=folder_url,
-            attempts_folder=attempts_folder
+            folder_path=folder_path, folder_url=folder_url, attempts_folder=attempts_folder
         )
 
         logger.info(f"Created execution folder: {folder_path}")
@@ -270,20 +269,21 @@ class FileManager:
             if folder_path.is_relative_to(self.base_dir):
                 relative_path = folder_path.relative_to(self.base_dir)
                 # Get Jupyter configuration from configurable
-                service_configs = self.configurable.get('service_configs', {})
-                jupyter_config = service_configs.get('jupyter', {})
-                containers = jupyter_config.get('containers', {})
-                read_container = containers.get('read', {})
-                port = read_container.get('port_host', 8088)
+                service_configs = self.configurable.get("service_configs", {})
+                jupyter_config = service_configs.get("jupyter", {})
+                containers = jupyter_config.get("containers", {})
+                read_container = containers.get("read", {})
+                port = read_container.get("port_host", 8088)
                 # Always use localhost for external access, not container hostname
-                hostname = 'localhost'
-                return f"http://{hostname}:{port}/lab/tree/executed_scripts/{relative_path.as_posix()}"
+                hostname = "localhost"
+                return (
+                    f"http://{hostname}:{port}/lab/tree/executed_scripts/{relative_path.as_posix()}"
+                )
             else:
                 return folder_path.as_uri()
         except Exception as e:
             logger.warning(f"Failed to create Jupyter URL: {e}")
             return str(folder_path)
-
 
 
 def make_json_serializable(obj: Any) -> Any:
@@ -323,7 +323,7 @@ def make_json_serializable(obj: Any) -> Any:
             return obj.isoformat()
 
         # Handle numpy arrays first (they also have 'item' method)
-        elif hasattr(obj, 'tolist'):
+        elif hasattr(obj, "tolist"):
             try:
                 return obj.tolist()
             except (ValueError, AttributeError):
@@ -331,7 +331,7 @@ def make_json_serializable(obj: Any) -> Any:
                 pass
 
         # Handle numpy scalars (single-element arrays)
-        elif hasattr(obj, 'item'):
+        elif hasattr(obj, "item"):
             try:
                 return obj.item()
             except ValueError:
@@ -343,7 +343,7 @@ def make_json_serializable(obj: Any) -> Any:
             return _serialize_matplotlib_figure(obj)
 
         # Handle pandas DataFrames and Series
-        elif hasattr(obj, 'to_dict') and hasattr(obj, 'index'):
+        elif hasattr(obj, "to_dict") and hasattr(obj, "index"):
             return obj.to_dict()
 
         # Handle pathlib objects
@@ -359,7 +359,7 @@ def make_json_serializable(obj: Any) -> Any:
             return {"real": obj.real, "imag": obj.imag, "_type": "complex"}
 
         # Handle custom objects with to_dict method
-        elif hasattr(obj, 'to_dict') and callable(obj.to_dict):
+        elif hasattr(obj, "to_dict") and callable(obj.to_dict):
             return obj.to_dict()
 
         # Default to string representation with type info
@@ -367,8 +367,8 @@ def make_json_serializable(obj: Any) -> Any:
             return {
                 "value": str(obj),
                 "type": type(obj).__name__,
-                "module": getattr(type(obj), '__module__', 'unknown'),
-                "_serialization_note": "converted_to_string"
+                "module": getattr(type(obj), "__module__", "unknown"),
+                "_serialization_note": "converted_to_string",
             }
 
     # Use json.loads(json.dumps()) to leverage Python's built-in serialization
@@ -381,15 +381,13 @@ def make_json_serializable(obj: Any) -> Any:
             "_serialization_failed": True,
             "_original_type": type(obj).__name__,
             "_error": str(e),
-            "_string_representation": str(obj)
+            "_string_representation": str(obj),
         }
 
 
 def _is_matplotlib_figure(obj) -> bool:
     """Check if object is a matplotlib figure."""
-    return (hasattr(obj, 'savefig') and
-            hasattr(obj, 'get_axes') and
-            type(obj).__name__ == 'Figure')
+    return hasattr(obj, "savefig") and hasattr(obj, "get_axes") and type(obj).__name__ == "Figure"
 
 
 def _serialize_matplotlib_figure(fig) -> dict:
@@ -410,8 +408,16 @@ def _serialize_matplotlib_figure(fig) -> dict:
             lines_data = []
             for line in ax.get_lines():
                 line_data = {
-                    "xdata": line.get_xdata().tolist() if hasattr(line.get_xdata(), 'tolist') else list(line.get_xdata()),
-                    "ydata": line.get_ydata().tolist() if hasattr(line.get_ydata(), 'tolist') else list(line.get_ydata()),
+                    "xdata": (
+                        line.get_xdata().tolist()
+                        if hasattr(line.get_xdata(), "tolist")
+                        else list(line.get_xdata())
+                    ),
+                    "ydata": (
+                        line.get_ydata().tolist()
+                        if hasattr(line.get_ydata(), "tolist")
+                        else list(line.get_ydata())
+                    ),
                     "label": line.get_label(),
                 }
                 lines_data.append(line_data)
@@ -423,13 +429,13 @@ def _serialize_matplotlib_figure(fig) -> dict:
             "figure_size": fig.get_size_inches().tolist(),
             "dpi": fig.get_dpi(),
             "axes": axes_info,
-            "_note": "Matplotlib figure serialized with basic plot data"
+            "_note": "Matplotlib figure serialized with basic plot data",
         }
     except Exception as e:
         return {
             "_type": "matplotlib_figure",
             "_error": f"Failed to serialize figure: {str(e)}",
-            "_fallback": str(fig)
+            "_fallback": str(fig),
         }
 
 
@@ -459,7 +465,7 @@ def serialize_results_to_file(results: Any, file_path: str) -> dict:
         "success": False,
         "file_path": file_path,
         "error": None,
-        "serialization_warnings": []
+        "serialization_warnings": [],
     }
 
     try:
@@ -467,7 +473,7 @@ def serialize_results_to_file(results: Any, file_path: str) -> dict:
         serializable_results = make_json_serializable(results)
 
         # Save to file
-        with open(file_path, 'w', encoding='utf-8') as f:
+        with open(file_path, "w", encoding="utf-8") as f:
             json.dump(serializable_results, f, indent=2, ensure_ascii=False)
 
         metadata["success"] = True
@@ -482,9 +488,9 @@ def serialize_results_to_file(results: Any, file_path: str) -> dict:
             fallback_data = {
                 "_serialization_failed": True,
                 "_original_error": str(e),
-                "_fallback_representation": str(results)
+                "_fallback_representation": str(results),
             }
-            with open(file_path, 'w', encoding='utf-8') as f:
+            with open(file_path, "w", encoding="utf-8") as f:
                 json.dump(fallback_data, f, indent=2, ensure_ascii=False)
             metadata["fallback_saved"] = True
         except Exception as fallback_error:
@@ -496,6 +502,7 @@ def serialize_results_to_file(results: Any, file_path: str) -> dict:
 # =============================================================================
 # NOTEBOOK MANAGEMENT
 # =============================================================================
+
 
 class NotebookManager:
     """Comprehensive Jupyter notebook management service for Python execution workflows.
@@ -575,7 +582,7 @@ class NotebookManager:
         stage: str = "execution",
         error_context: str | None = None,
         approval_context: str | None = None,
-        silent: bool = False
+        silent: bool = False,
     ) -> Path:
         """
         Create a debugging notebook for an execution attempt.
@@ -609,11 +616,11 @@ class NotebookManager:
             code=code,
             error_context=error_context,
             approval_context=approval_context,
-            context_file_path=context.context_file_path
+            context_file_path=context.context_file_path,
         )
 
         # Save notebook
-        with open(notebook_path, 'w') as f:
+        with open(notebook_path, "w") as f:
             nbformat.write(notebook, f)
 
         # Track the attempt - use FileManager's URL generation
@@ -624,7 +631,7 @@ class NotebookManager:
             notebook_path=notebook_path,
             notebook_link=self._file_manager._create_jupyter_url(notebook_path),
             error_context=error_context,
-            created_at=datetime.now().isoformat()
+            created_at=datetime.now().isoformat(),
         )
         context.add_notebook_attempt(attempt)
 
@@ -638,7 +645,7 @@ class NotebookManager:
         code: str,
         results: dict[str, Any] | None = None,
         error_context: str | None = None,
-        figure_paths: list[Path] = None
+        figure_paths: list[Path] = None,
     ) -> Path:
         """
         Create the final notebook in the execution folder.
@@ -656,7 +663,9 @@ class NotebookManager:
         """
         # Ensure context.json exists (should already be there, but verify)
         if not context.context_file_path:
-            logger.warning("Context file not found when creating final notebook - this should not happen")
+            logger.warning(
+                "Context file not found when creating final notebook - this should not happen"
+            )
 
         notebook_path = context.folder_path / "notebook.ipynb"
 
@@ -667,11 +676,11 @@ class NotebookManager:
             error_context=error_context,
             context_file_path=context.context_file_path,
             figure_paths=figure_paths or [],
-            execution_folder=context.folder_path
+            execution_folder=context.folder_path,
         )
 
         # Save notebook
-        with open(notebook_path, 'w') as f:
+        with open(notebook_path, "w") as f:
             nbformat.write(notebook, f)
 
         logger.info(f"Created final notebook: {notebook_path}")
@@ -684,7 +693,7 @@ class NotebookManager:
         code: str,
         error_context: str | None = None,
         approval_context: str | None = None,
-        context_file_path: Path | None = None
+        context_file_path: Path | None = None,
     ) -> nbformat.NotebookNode:
         """Create notebook content for attempt notebooks."""
         cells = []
@@ -704,11 +713,17 @@ class NotebookManager:
 
         # Context loading if available
         if context_file_path:
-            context_code = textwrap.dedent("""
+            context_code = textwrap.dedent(
+                """
                 # Load execution context
                 from osprey.context import load_context
                 context = load_context('../context.json')
-                """)
+
+                # Configure runtime utilities from context
+                from osprey.runtime import configure_from_context
+                configure_from_context(context)
+                """
+            )
             cells.append(nbformat.v4.new_code_cell(context_code))
 
         # Main code
@@ -725,26 +740,36 @@ class NotebookManager:
         error_context: str | None = None,
         context_file_path: Path | None = None,
         figure_paths: list[Path] = None,
-        execution_folder: Path | None = None
+        execution_folder: Path | None = None,
     ) -> nbformat.NotebookNode:
         """Create notebook content for final notebooks."""
         cells = []
 
         # Header with detailed error information
         if error_context:
-            header = f"# Python Executor - Failed Execution\n\n## Error Context\n{error_context}\n\n"
+            header = (
+                f"# Python Executor - Failed Execution\n\n## Error Context\n{error_context}\n\n"
+            )
         else:
-            header = "# Python Executor - Successful Execution\n\nExecution completed successfully.\n\n"
+            header = (
+                "# Python Executor - Successful Execution\n\nExecution completed successfully.\n\n"
+            )
 
         cells.append(nbformat.v4.new_markdown_cell(header))
 
         # Context loading if available
         if context_file_path:
-            context_code = textwrap.dedent("""
+            context_code = textwrap.dedent(
+                """
                 # Load execution context
                 from osprey.context import load_context
                 context = load_context('context.json')
-                """)
+
+                # Configure runtime utilities from context
+                from osprey.runtime import configure_from_context
+                configure_from_context(context)
+                """
+            )
             cells.append(nbformat.v4.new_code_cell(context_code))
 
         # Main code
@@ -783,7 +808,9 @@ print(results)"""
                     figures_md += f"### Figure {i}\n![Figure {i}]({relative_path.as_posix()})\n\n"
                 except (ValueError, AttributeError):
                     # Fallback: use just the filename if relative_to fails
-                    fig_name = fig_path.name if hasattr(fig_path, 'name') else str(fig_path).split('/')[-1]
+                    fig_name = (
+                        fig_path.name if hasattr(fig_path, "name") else str(fig_path).split("/")[-1]
+                    )
                     figures_md += f"### Figure {i}\n![Figure {i}]({fig_name})\n\n"
             cells.append(nbformat.v4.new_markdown_cell(figures_md))
 

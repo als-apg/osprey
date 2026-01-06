@@ -6,5 +6,4 @@ centralizing all provider logic for both PydanticAI models and direct API calls.
 
 from .base import BaseProvider
 
-__all__ = ['BaseProvider']
-
+__all__ = ["BaseProvider"]

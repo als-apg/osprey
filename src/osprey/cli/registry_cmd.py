@@ -37,7 +37,7 @@ def display_registry_contents(verbose: bool = False):
         from osprey.utils.log_filter import quiet_logger
 
         # Get registry (initialize if needed) - suppress initialization logs
-        with quiet_logger(['REGISTRY', 'CONFIG']):
+        with quiet_logger(["REGISTRY", "CONFIG"]):
             registry = get_registry()
             if not registry._initialized:
                 console.print("\n[dim]Initializing registry...[/dim]")
@@ -48,40 +48,48 @@ def display_registry_contents(verbose: bool = False):
 
         # Display header
         console.print()
-        console.print(Panel(
-            Text("Registry Contents", style=Styles.HEADER),
-            border_style=ThemeConfig.get_border_style(),
-            expand=False
-        ))
+        console.print(
+            Panel(
+                Text("Registry Contents", style=Styles.HEADER),
+                border_style=ThemeConfig.get_border_style(),
+                expand=False,
+            )
+        )
         console.print()
 
         # Display summary
         console.print(f"[{Styles.HEADER}]Registry Summary[/{Styles.HEADER}]")
-        console.print(f"  [{Styles.ACCENT}]•[/{Styles.ACCENT}] Capabilities: {stats['capabilities']}")
+        console.print(
+            f"  [{Styles.ACCENT}]•[/{Styles.ACCENT}] Capabilities: {stats['capabilities']}"
+        )
         console.print(f"  [{Styles.ACCENT}]•[/{Styles.ACCENT}] Nodes: {stats['nodes']}")
-        console.print(f"  [{Styles.ACCENT}]•[/{Styles.ACCENT}] Context Classes: {stats['context_classes']}")
-        console.print(f"  [{Styles.ACCENT}]•[/{Styles.ACCENT}] Data Sources: {stats['data_sources']}")
+        console.print(
+            f"  [{Styles.ACCENT}]•[/{Styles.ACCENT}] Context Classes: {stats['context_classes']}"
+        )
+        console.print(
+            f"  [{Styles.ACCENT}]•[/{Styles.ACCENT}] Data Sources: {stats['data_sources']}"
+        )
         console.print(f"  [{Styles.ACCENT}]•[/{Styles.ACCENT}] Services: {stats['services']}")
         console.print()
 
         # Display capabilities
-        if stats['capability_names']:
+        if stats["capability_names"]:
             _display_capabilities_table(registry, verbose)
 
-        # Display nodes
-        if stats['node_names']:
+        # Display infrastructure nodes (filtered to exclude capability nodes)
+        if stats["node_names"]:
             _display_nodes_table(registry, verbose)
 
-        # Display context classes
-        if stats['context_types']:
+        # Display context classes (verbose only - redundant with Capabilities "Provides")
+        if verbose and stats["context_types"]:
             _display_context_classes_table(registry, verbose)
 
         # Display data sources
-        if stats['data_source_names']:
+        if stats["data_source_names"]:
             _display_data_sources_table(registry, verbose)
 
         # Display services
-        if stats['service_names']:
+        if stats["service_names"]:
             _display_services_table(registry, verbose)
 
         # Display providers
@@ -95,6 +103,7 @@ def display_registry_contents(verbose: bool = False):
         console.print(Messages.error(f"Error displaying registry: {e}"))
         if verbose:
             import traceback
+
             traceback.print_exc()
         return False
 
@@ -106,10 +115,7 @@ def _display_capabilities_table(registry, verbose: bool):
     console.print(f"[{Styles.HEADER}]Capabilities[/{Styles.HEADER}]\n")
 
     table = Table(
-        show_header=True,
-        header_style=Styles.HEADER,
-        border_style=Styles.DIM,
-        expand=False
+        show_header=True, header_style=Styles.HEADER, border_style=Styles.DIM, expand=False
     )
 
     table.add_column("Name", style=Styles.ACCENT, no_wrap=True)
@@ -121,43 +127,52 @@ def _display_capabilities_table(registry, verbose: bool):
 
     capabilities = registry.get_all_capabilities()
     for cap in sorted(capabilities, key=lambda c: c.name):
-        provides = ", ".join(cap.provides) if cap.provides else "-"
-        requires = ", ".join(cap.requires) if cap.requires else "-"
+        # Handle both strings and tuples in provides/requires
+        provides = (
+            ", ".join(str(p) if isinstance(p, tuple) else p for p in cap.provides)
+            if cap.provides
+            else "-"
+        )
+        requires = (
+            ", ".join(str(r) if isinstance(r, tuple) else r for r in cap.requires)
+            if cap.requires
+            else "-"
+        )
 
-        if verbose and hasattr(cap, 'description'):
-            table.add_row(
-                cap.name,
-                provides,
-                requires,
-                cap.description or ""
-            )
+        if verbose and hasattr(cap, "description"):
+            table.add_row(cap.name, provides, requires, cap.description or "")
         else:
-            table.add_row(
-                cap.name,
-                provides,
-                requires
-            )
+            table.add_row(cap.name, provides, requires)
 
     console.print(table)
     console.print()
 
 
 def _display_nodes_table(registry, verbose: bool):
-    """Display nodes in a formatted table."""
-    console.print(f"[{Styles.HEADER}]Nodes[/{Styles.HEADER}]\n")
+    """Display infrastructure nodes in a formatted table.
+
+    Filters out capability nodes to avoid duplication with the Capabilities table,
+    showing only framework infrastructure nodes (classifier, orchestrator, router, etc.).
+    """
+    console.print(f"[{Styles.HEADER}]Infrastructure Nodes[/{Styles.HEADER}]\n")
 
     table = Table(
-        show_header=True,
-        header_style=Styles.HEADER,
-        border_style=Styles.DIM,
-        expand=False
+        show_header=True, header_style=Styles.HEADER, border_style=Styles.DIM, expand=False
     )
 
     table.add_column("Name", style=Styles.ACCENT, no_wrap=True)
     table.add_column("Type", style=Styles.VALUE)
 
+    # Get capability names to filter them out
+    capability_names = {cap.name for cap in registry.get_all_capabilities()}
+
+    # Only show infrastructure nodes (non-capability nodes)
     nodes = registry.get_all_nodes()
-    for name, node in sorted(nodes.items()):
+    infrastructure_nodes = {
+        name: node for name, node in nodes.items() if name not in capability_names
+    }
+
+    for name, node in sorted(infrastructure_nodes.items()):
         node_type = type(node).__name__ if node else "Unknown"
         table.add_row(name, node_type)
 
@@ -170,10 +185,7 @@ def _display_context_classes_table(registry, verbose: bool):
     console.print(f"[{Styles.HEADER}]Context Classes[/{Styles.HEADER}]\n")
 
     table = Table(
-        show_header=True,
-        header_style=Styles.HEADER,
-        border_style=Styles.DIM,
-        expand=False
+        show_header=True, header_style=Styles.HEADER, border_style=Styles.DIM, expand=False
     )
 
     table.add_column("Context Type", style=Styles.ACCENT, no_wrap=True)
@@ -193,17 +205,14 @@ def _display_data_sources_table(registry, verbose: bool):
     console.print(f"[{Styles.HEADER}]Data Sources[/{Styles.HEADER}]\n")
 
     table = Table(
-        show_header=True,
-        header_style=Styles.HEADER,
-        border_style=Styles.DIM,
-        expand=False
+        show_header=True, header_style=Styles.HEADER, border_style=Styles.DIM, expand=False
     )
 
     table.add_column("Name", style=Styles.ACCENT, no_wrap=True)
     table.add_column("Type", style=Styles.VALUE)
 
     stats = registry.get_stats()
-    for name in sorted(stats['data_source_names']):
+    for name in sorted(stats["data_source_names"]):
         ds = registry.get_data_source(name)
         ds_type = type(ds).__name__ if ds else "Unknown"
         table.add_row(name, ds_type)
@@ -217,17 +226,14 @@ def _display_services_table(registry, verbose: bool):
     console.print(f"[{Styles.HEADER}]Services[/{Styles.HEADER}]\n")
 
     table = Table(
-        show_header=True,
-        header_style=Styles.HEADER,
-        border_style=Styles.DIM,
-        expand=False
+        show_header=True, header_style=Styles.HEADER, border_style=Styles.DIM, expand=False
     )
 
     table.add_column("Name", style=Styles.ACCENT, no_wrap=True)
     table.add_column("Type", style=Styles.VALUE)
 
     stats = registry.get_stats()
-    for name in sorted(stats['service_names']):
+    for name in sorted(stats["service_names"]):
         service = registry.get_service(name)
         service_type = type(service).__name__ if service else "Unknown"
         table.add_row(name, service_type)
@@ -241,10 +247,7 @@ def _display_providers_table(registry, providers: list, verbose: bool):
     console.print(f"[{Styles.HEADER}]AI Providers[/{Styles.HEADER}]\n")
 
     table = Table(
-        show_header=True,
-        header_style=Styles.HEADER,
-        border_style=Styles.DIM,
-        expand=False
+        show_header=True, header_style=Styles.HEADER, border_style=Styles.DIM, expand=False
     )
 
     table.add_column("Name", style=Styles.ACCENT, no_wrap=True)
@@ -260,8 +263,8 @@ def _display_providers_table(registry, providers: list, verbose: bool):
             # Try to get metadata from the class
             available = "✓" if provider_class else "✗"
 
-            if verbose and hasattr(provider_class, 'description'):
-                description = getattr(provider_class, 'description', '')
+            if verbose and hasattr(provider_class, "description"):
+                description = getattr(provider_class, "description", "")
                 table.add_row(provider_name, available, description)
             else:
                 table.add_row(provider_name, available)
@@ -301,6 +304,7 @@ def handle_registry_action(project_path: Path | None = None, verbose: bool = Fal
         console.print(f"\n{Messages.error(str(e))}")
         if verbose:
             import traceback
+
             traceback.print_exc()
     finally:
         # Restore original directory
@@ -311,4 +315,3 @@ def handle_registry_action(project_path: Path | None = None, verbose: bool = Fal
                 console.print(f"\n{Messages.warning(f'Could not restore directory: {e}')}")
 
     input("\nPress ENTER to continue...")
-

@@ -1,0 +1,1489 @@
+{
+  "SR": {
+    "_description": "Storage Ring: Main synchrotron light source operating at 1.9 GeV. Contains beam position monitors, corrector magnets, RF cavities, and beam diagnostics. 12-sector ring with 196.8m circumference.",
+    "BPM": {
+      "_description": "Beam Position Monitors: Non-invasive electrostatic pickups that measure beam position in horizontal (X) and vertical (Y) planes. Critical for orbit correction and beam stability. 96 BPMs distributed around ring (8 per sector).",
+      "X": {
+        "_description": "Horizontal position readback in millimeters. Measured using button electrode signals.",
+        "ChannelNames": [
+          "SR01C:BPM1:X", "SR01C:BPM2:X", "SR01C:BPM3:X", "SR01C:BPM4:X", "SR01C:BPM5:X", "SR01C:BPM6:X", "SR01C:BPM7:X", "SR01C:BPM8:X",
+          "SR02C:BPM1:X", "SR02C:BPM2:X", "SR02C:BPM3:X", "SR02C:BPM4:X", "SR02C:BPM5:X", "SR02C:BPM6:X", "SR02C:BPM7:X", "SR02C:BPM8:X",
+          "SR03C:BPM1:X", "SR03C:BPM2:X", "SR03C:BPM3:X", "SR03C:BPM4:X", "SR03C:BPM5:X", "SR03C:BPM6:X", "SR03C:BPM7:X", "SR03C:BPM8:X",
+          "SR04C:BPM1:X", "SR04C:BPM2:X", "SR04C:BPM3:X", "SR04C:BPM4:X", "SR04C:BPM5:X", "SR04C:BPM6:X", "SR04C:BPM7:X", "SR04C:BPM8:X",
+          "SR05C:BPM1:X", "SR05C:BPM2:X", "SR05C:BPM3:X", "SR05C:BPM4:X", "SR05C:BPM5:X", "SR05C:BPM6:X", "SR05C:BPM7:X", "SR05C:BPM8:X",
+          "SR06C:BPM1:X", "SR06C:BPM2:X", "SR06C:BPM3:X", "SR06C:BPM4:X", "SR06C:BPM5:X", "SR06C:BPM6:X", "SR06C:BPM7:X", "SR06C:BPM8:X",
+          "SR07C:BPM1:X", "SR07C:BPM2:X", "SR07C:BPM3:X", "SR07C:BPM4:X", "SR07C:BPM5:X", "SR07C:BPM6:X", "SR07C:BPM7:X", "SR07C:BPM8:X",
+          "SR08C:BPM1:X", "SR08C:BPM2:X", "SR08C:BPM3:X", "SR08C:BPM4:X", "SR08C:BPM5:X", "SR08C:BPM6:X", "SR08C:BPM7:X", "SR08C:BPM8:X",
+          "SR09C:BPM1:X", "SR09C:BPM2:X", "SR09C:BPM3:X", "SR09C:BPM4:X", "SR09C:BPM5:X", "SR09C:BPM6:X", "SR09C:BPM7:X", "SR09C:BPM8:X",
+          "SR10C:BPM1:X", "SR10C:BPM2:X", "SR10C:BPM3:X", "SR10C:BPM4:X", "SR10C:BPM5:X", "SR10C:BPM6:X", "SR10C:BPM7:X", "SR10C:BPM8:X",
+          "SR11C:BPM1:X", "SR11C:BPM2:X", "SR11C:BPM3:X", "SR11C:BPM4:X", "SR11C:BPM5:X", "SR11C:BPM6:X", "SR11C:BPM7:X", "SR11C:BPM8:X",
+          "SR12C:BPM1:X", "SR12C:BPM2:X", "SR12C:BPM3:X", "SR12C:BPM4:X", "SR12C:BPM5:X", "SR12C:BPM6:X", "SR12C:BPM7:X", "SR12C:BPM8:X"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "mm",
+        "PhysicsUnits": "Meters",
+        "MemberOf": ["BPM", "Monitor", "PlotFamily", "Save", "Archive"]
+      },
+      "Y": {
+        "_description": "Vertical position readback in millimeters. Measured using button electrode signals.",
+        "ChannelNames": [
+          "SR01C:BPM1:Y", "SR01C:BPM2:Y", "SR01C:BPM3:Y", "SR01C:BPM4:Y", "SR01C:BPM5:Y", "SR01C:BPM6:Y", "SR01C:BPM7:Y", "SR01C:BPM8:Y",
+          "SR02C:BPM1:Y", "SR02C:BPM2:Y", "SR02C:BPM3:Y", "SR02C:BPM4:Y", "SR02C:BPM5:Y", "SR02C:BPM6:Y", "SR02C:BPM7:Y", "SR02C:BPM8:Y",
+          "SR03C:BPM1:Y", "SR03C:BPM2:Y", "SR03C:BPM3:Y", "SR03C:BPM4:Y", "SR03C:BPM5:Y", "SR03C:BPM6:Y", "SR03C:BPM7:Y", "SR03C:BPM8:Y",
+          "SR04C:BPM1:Y", "SR04C:BPM2:Y", "SR04C:BPM3:Y", "SR04C:BPM4:Y", "SR04C:BPM5:Y", "SR04C:BPM6:Y", "SR04C:BPM7:Y", "SR04C:BPM8:Y",
+          "SR05C:BPM1:Y", "SR05C:BPM2:Y", "SR05C:BPM3:Y", "SR05C:BPM4:Y", "SR05C:BPM5:Y", "SR05C:BPM6:Y", "SR05C:BPM7:Y", "SR05C:BPM8:Y",
+          "SR06C:BPM1:Y", "SR06C:BPM2:Y", "SR06C:BPM3:Y", "SR06C:BPM4:Y", "SR06C:BPM5:Y", "SR06C:BPM6:Y", "SR06C:BPM7:Y", "SR06C:BPM8:Y",
+          "SR07C:BPM1:Y", "SR07C:BPM2:Y", "SR07C:BPM3:Y", "SR07C:BPM4:Y", "SR07C:BPM5:Y", "SR07C:BPM6:Y", "SR07C:BPM7:Y", "SR07C:BPM8:Y",
+          "SR08C:BPM1:Y", "SR08C:BPM2:Y", "SR08C:BPM3:Y", "SR08C:BPM4:Y", "SR08C:BPM5:Y", "SR08C:BPM6:Y", "SR08C:BPM7:Y", "SR08C:BPM8:Y",
+          "SR09C:BPM1:Y", "SR09C:BPM2:Y", "SR09C:BPM3:Y", "SR09C:BPM4:Y", "SR09C:BPM5:Y", "SR09C:BPM6:Y", "SR09C:BPM7:Y", "SR09C:BPM8:Y",
+          "SR10C:BPM1:Y", "SR10C:BPM2:Y", "SR10C:BPM3:Y", "SR10C:BPM4:Y", "SR10C:BPM5:Y", "SR10C:BPM6:Y", "SR10C:BPM7:Y", "SR10C:BPM8:Y",
+          "SR11C:BPM1:Y", "SR11C:BPM2:Y", "SR11C:BPM3:Y", "SR11C:BPM4:Y", "SR11C:BPM5:Y", "SR11C:BPM6:Y", "SR11C:BPM7:Y", "SR11C:BPM8:Y",
+          "SR12C:BPM1:Y", "SR12C:BPM2:Y", "SR12C:BPM3:Y", "SR12C:BPM4:Y", "SR12C:BPM5:Y", "SR12C:BPM6:Y", "SR12C:BPM7:Y", "SR12C:BPM8:Y"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "mm",
+        "PhysicsUnits": "Meters",
+        "MemberOf": ["BPM", "Monitor", "PlotFamily", "Save", "Archive"]
+      },
+      "SumSignal": {
+        "_description": "Total button signal intensity. Proportional to beam current.",
+        "ChannelNames": [
+          "SR01C:BPM1:Sum", "SR01C:BPM2:Sum", "SR01C:BPM3:Sum", "SR01C:BPM4:Sum", "SR01C:BPM5:Sum", "SR01C:BPM6:Sum", "SR01C:BPM7:Sum", "SR01C:BPM8:Sum",
+          "SR02C:BPM1:Sum", "SR02C:BPM2:Sum", "SR02C:BPM3:Sum", "SR02C:BPM4:Sum", "SR02C:BPM5:Sum", "SR02C:BPM6:Sum", "SR02C:BPM7:Sum", "SR02C:BPM8:Sum",
+          "SR03C:BPM1:Sum", "SR03C:BPM2:Sum", "SR03C:BPM3:Sum", "SR03C:BPM4:Sum", "SR03C:BPM5:Sum", "SR03C:BPM6:Sum", "SR03C:BPM7:Sum", "SR03C:BPM8:Sum",
+          "SR04C:BPM1:Sum", "SR04C:BPM2:Sum", "SR04C:BPM3:Sum", "SR04C:BPM4:Sum", "SR04C:BPM5:Sum", "SR04C:BPM6:Sum", "SR04C:BPM7:Sum", "SR04C:BPM8:Sum",
+          "SR05C:BPM1:Sum", "SR05C:BPM2:Sum", "SR05C:BPM3:Sum", "SR05C:BPM4:Sum", "SR05C:BPM5:Sum", "SR05C:BPM6:Sum", "SR05C:BPM7:Sum", "SR05C:BPM8:Sum",
+          "SR06C:BPM1:Sum", "SR06C:BPM2:Sum", "SR06C:BPM3:Sum", "SR06C:BPM4:Sum", "SR06C:BPM5:Sum", "SR06C:BPM6:Sum", "SR06C:BPM7:Sum", "SR06C:BPM8:Sum",
+          "SR07C:BPM1:Sum", "SR07C:BPM2:Sum", "SR07C:BPM3:Sum", "SR07C:BPM4:Sum", "SR07C:BPM5:Sum", "SR07C:BPM6:Sum", "SR07C:BPM7:Sum", "SR07C:BPM8:Sum",
+          "SR08C:BPM1:Sum", "SR08C:BPM2:Sum", "SR08C:BPM3:Sum", "SR08C:BPM4:Sum", "SR08C:BPM5:Sum", "SR08C:BPM6:Sum", "SR08C:BPM7:Sum", "SR08C:BPM8:Sum",
+          "SR09C:BPM1:Sum", "SR09C:BPM2:Sum", "SR09C:BPM3:Sum", "SR09C:BPM4:Sum", "SR09C:BPM5:Sum", "SR09C:BPM6:Sum", "SR09C:BPM7:Sum", "SR09C:BPM8:Sum",
+          "SR10C:BPM1:Sum", "SR10C:BPM2:Sum", "SR10C:BPM3:Sum", "SR10C:BPM4:Sum", "SR10C:BPM5:Sum", "SR10C:BPM6:Sum", "SR10C:BPM7:Sum", "SR10C:BPM8:Sum",
+          "SR11C:BPM1:Sum", "SR11C:BPM2:Sum", "SR11C:BPM3:Sum", "SR11C:BPM4:Sum", "SR11C:BPM5:Sum", "SR11C:BPM6:Sum", "SR11C:BPM7:Sum", "SR11C:BPM8:Sum",
+          "SR12C:BPM1:Sum", "SR12C:BPM2:Sum", "SR12C:BPM3:Sum", "SR12C:BPM4:Sum", "SR12C:BPM5:Sum", "SR12C:BPM6:Sum", "SR12C:BPM7:Sum", "SR12C:BPM8:Sum"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "MemberOf": ["BPM", "Monitor", "PlotFamily", "Archive"]
+      },
+      "XError": {
+        "_description": "Horizontal position error/uncertainty in micrometers. Statistical error from signal processing.",
+        "ChannelNames": [
+          "SR01C:BPM1:X:Error", "SR01C:BPM2:X:Error", "SR01C:BPM3:X:Error", "SR01C:BPM4:X:Error", "SR01C:BPM5:X:Error", "SR01C:BPM6:X:Error", "SR01C:BPM7:X:Error", "SR01C:BPM8:X:Error",
+          "SR02C:BPM1:X:Error", "SR02C:BPM2:X:Error", "SR02C:BPM3:X:Error", "SR02C:BPM4:X:Error", "SR02C:BPM5:X:Error", "SR02C:BPM6:X:Error", "SR02C:BPM7:X:Error", "SR02C:BPM8:X:Error",
+          "SR03C:BPM1:X:Error", "SR03C:BPM2:X:Error", "SR03C:BPM3:X:Error", "SR03C:BPM4:X:Error", "SR03C:BPM5:X:Error", "SR03C:BPM6:X:Error", "SR03C:BPM7:X:Error", "SR03C:BPM8:X:Error",
+          "SR04C:BPM1:X:Error", "SR04C:BPM2:X:Error", "SR04C:BPM3:X:Error", "SR04C:BPM4:X:Error", "SR04C:BPM5:X:Error", "SR04C:BPM6:X:Error", "SR04C:BPM7:X:Error", "SR04C:BPM8:X:Error",
+          "SR05C:BPM1:X:Error", "SR05C:BPM2:X:Error", "SR05C:BPM3:X:Error", "SR05C:BPM4:X:Error", "SR05C:BPM5:X:Error", "SR05C:BPM6:X:Error", "SR05C:BPM7:X:Error", "SR05C:BPM8:X:Error",
+          "SR06C:BPM1:X:Error", "SR06C:BPM2:X:Error", "SR06C:BPM3:X:Error", "SR06C:BPM4:X:Error", "SR06C:BPM5:X:Error", "SR06C:BPM6:X:Error", "SR06C:BPM7:X:Error", "SR06C:BPM8:X:Error",
+          "SR07C:BPM1:X:Error", "SR07C:BPM2:X:Error", "SR07C:BPM3:X:Error", "SR07C:BPM4:X:Error", "SR07C:BPM5:X:Error", "SR07C:BPM6:X:Error", "SR07C:BPM7:X:Error", "SR07C:BPM8:X:Error",
+          "SR08C:BPM1:X:Error", "SR08C:BPM2:X:Error", "SR08C:BPM3:X:Error", "SR08C:BPM4:X:Error", "SR08C:BPM5:X:Error", "SR08C:BPM6:X:Error", "SR08C:BPM7:X:Error", "SR08C:BPM8:X:Error",
+          "SR09C:BPM1:X:Error", "SR09C:BPM2:X:Error", "SR09C:BPM3:X:Error", "SR09C:BPM4:X:Error", "SR09C:BPM5:X:Error", "SR09C:BPM6:X:Error", "SR09C:BPM7:X:Error", "SR09C:BPM8:X:Error",
+          "SR10C:BPM1:X:Error", "SR10C:BPM2:X:Error", "SR10C:BPM3:X:Error", "SR10C:BPM4:X:Error", "SR10C:BPM5:X:Error", "SR10C:BPM6:X:Error", "SR10C:BPM7:X:Error", "SR10C:BPM8:X:Error",
+          "SR11C:BPM1:X:Error", "SR11C:BPM2:X:Error", "SR11C:BPM3:X:Error", "SR11C:BPM4:X:Error", "SR11C:BPM5:X:Error", "SR11C:BPM6:X:Error", "SR11C:BPM7:X:Error", "SR11C:BPM8:X:Error",
+          "SR12C:BPM1:X:Error", "SR12C:BPM2:X:Error", "SR12C:BPM3:X:Error", "SR12C:BPM4:X:Error", "SR12C:BPM5:X:Error", "SR12C:BPM6:X:Error", "SR12C:BPM7:X:Error", "SR12C:BPM8:X:Error"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "μm",
+        "MemberOf": ["BPM", "Monitor", "PlotFamily"]
+      },
+      "YError": {
+        "_description": "Vertical position error/uncertainty in micrometers. Statistical error from signal processing.",
+        "ChannelNames": [
+          "SR01C:BPM1:Y:Error", "SR01C:BPM2:Y:Error", "SR01C:BPM3:Y:Error", "SR01C:BPM4:Y:Error", "SR01C:BPM5:Y:Error", "SR01C:BPM6:Y:Error", "SR01C:BPM7:Y:Error", "SR01C:BPM8:Y:Error",
+          "SR02C:BPM1:Y:Error", "SR02C:BPM2:Y:Error", "SR02C:BPM3:Y:Error", "SR02C:BPM4:Y:Error", "SR02C:BPM5:Y:Error", "SR02C:BPM6:Y:Error", "SR02C:BPM7:Y:Error", "SR02C:BPM8:Y:Error",
+          "SR03C:BPM1:Y:Error", "SR03C:BPM2:Y:Error", "SR03C:BPM3:Y:Error", "SR03C:BPM4:Y:Error", "SR03C:BPM5:Y:Error", "SR03C:BPM6:Y:Error", "SR03C:BPM7:Y:Error", "SR03C:BPM8:Y:Error",
+          "SR04C:BPM1:Y:Error", "SR04C:BPM2:Y:Error", "SR04C:BPM3:Y:Error", "SR04C:BPM4:Y:Error", "SR04C:BPM5:Y:Error", "SR04C:BPM6:Y:Error", "SR04C:BPM7:Y:Error", "SR04C:BPM8:Y:Error",
+          "SR05C:BPM1:Y:Error", "SR05C:BPM2:Y:Error", "SR05C:BPM3:Y:Error", "SR05C:BPM4:Y:Error", "SR05C:BPM5:Y:Error", "SR05C:BPM6:Y:Error", "SR05C:BPM7:Y:Error", "SR05C:BPM8:Y:Error",
+          "SR06C:BPM1:Y:Error", "SR06C:BPM2:Y:Error", "SR06C:BPM3:Y:Error", "SR06C:BPM4:Y:Error", "SR06C:BPM5:Y:Error", "SR06C:BPM6:Y:Error", "SR06C:BPM7:Y:Error", "SR06C:BPM8:Y:Error",
+          "SR07C:BPM1:Y:Error", "SR07C:BPM2:Y:Error", "SR07C:BPM3:Y:Error", "SR07C:BPM4:Y:Error", "SR07C:BPM5:Y:Error", "SR07C:BPM6:Y:Error", "SR07C:BPM7:Y:Error", "SR07C:BPM8:Y:Error",
+          "SR08C:BPM1:Y:Error", "SR08C:BPM2:Y:Error", "SR08C:BPM3:Y:Error", "SR08C:BPM4:Y:Error", "SR08C:BPM5:Y:Error", "SR08C:BPM6:Y:Error", "SR08C:BPM7:Y:Error", "SR08C:BPM8:Y:Error",
+          "SR09C:BPM1:Y:Error", "SR09C:BPM2:Y:Error", "SR09C:BPM3:Y:Error", "SR09C:BPM4:Y:Error", "SR09C:BPM5:Y:Error", "SR09C:BPM6:Y:Error", "SR09C:BPM7:Y:Error", "SR09C:BPM8:Y:Error",
+          "SR10C:BPM1:Y:Error", "SR10C:BPM2:Y:Error", "SR10C:BPM3:Y:Error", "SR10C:BPM4:Y:Error", "SR10C:BPM5:Y:Error", "SR10C:BPM6:Y:Error", "SR10C:BPM7:Y:Error", "SR10C:BPM8:Y:Error",
+          "SR11C:BPM1:Y:Error", "SR11C:BPM2:Y:Error", "SR11C:BPM3:Y:Error", "SR11C:BPM4:Y:Error", "SR11C:BPM5:Y:Error", "SR11C:BPM6:Y:Error", "SR11C:BPM7:Y:Error", "SR11C:BPM8:Y:Error",
+          "SR12C:BPM1:Y:Error", "SR12C:BPM2:Y:Error", "SR12C:BPM3:Y:Error", "SR12C:BPM4:Y:Error", "SR12C:BPM5:Y:Error", "SR12C:BPM6:Y:Error", "SR12C:BPM7:Y:Error", "SR12C:BPM8:Y:Error"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "μm",
+        "MemberOf": ["BPM", "Monitor", "PlotFamily"]
+      },
+      "setup": {
+        "CommonNames": [
+          "BPM 1-1", "BPM 1-2", "BPM 1-3", "BPM 1-4", "BPM 1-5", "BPM 1-6", "BPM 1-7", "BPM 1-8",
+          "BPM 2-1", "BPM 2-2", "BPM 2-3", "BPM 2-4", "BPM 2-5", "BPM 2-6", "BPM 2-7", "BPM 2-8",
+          "BPM 3-1", "BPM 3-2", "BPM 3-3", "BPM 3-4", "BPM 3-5", "BPM 3-6", "BPM 3-7", "BPM 3-8",
+          "BPM 4-1", "BPM 4-2", "BPM 4-3", "BPM 4-4", "BPM 4-5", "BPM 4-6", "BPM 4-7", "BPM 4-8",
+          "BPM 5-1", "BPM 5-2", "BPM 5-3", "BPM 5-4", "BPM 5-5", "BPM 5-6", "BPM 5-7", "BPM 5-8",
+          "BPM 6-1", "BPM 6-2", "BPM 6-3", "BPM 6-4", "BPM 6-5", "BPM 6-6", "BPM 6-7", "BPM 6-8",
+          "BPM 7-1", "BPM 7-2", "BPM 7-3", "BPM 7-4", "BPM 7-5", "BPM 7-6", "BPM 7-7", "BPM 7-8",
+          "BPM 8-1", "BPM 8-2", "BPM 8-3", "BPM 8-4", "BPM 8-5", "BPM 8-6", "BPM 8-7", "BPM 8-8",
+          "BPM 9-1", "BPM 9-2", "BPM 9-3", "BPM 9-4", "BPM 9-5", "BPM 9-6", "BPM 9-7", "BPM 9-8",
+          "BPM 10-1", "BPM 10-2", "BPM 10-3", "BPM 10-4", "BPM 10-5", "BPM 10-6", "BPM 10-7", "BPM 10-8",
+          "BPM 11-1", "BPM 11-2", "BPM 11-3", "BPM 11-4", "BPM 11-5", "BPM 11-6", "BPM 11-7", "BPM 11-8",
+          "BPM 12-1", "BPM 12-2", "BPM 12-3", "BPM 12-4", "BPM 12-5", "BPM 12-6", "BPM 12-7", "BPM 12-8"
+        ],
+        "DeviceList": [
+          [1, 1], [1, 2], [1, 3], [1, 4], [1, 5], [1, 6], [1, 7], [1, 8],
+          [2, 1], [2, 2], [2, 3], [2, 4], [2, 5], [2, 6], [2, 7], [2, 8],
+          [3, 1], [3, 2], [3, 3], [3, 4], [3, 5], [3, 6], [3, 7], [3, 8],
+          [4, 1], [4, 2], [4, 3], [4, 4], [4, 5], [4, 6], [4, 7], [4, 8],
+          [5, 1], [5, 2], [5, 3], [5, 4], [5, 5], [5, 6], [5, 7], [5, 8],
+          [6, 1], [6, 2], [6, 3], [6, 4], [6, 5], [6, 6], [6, 7], [6, 8],
+          [7, 1], [7, 2], [7, 3], [7, 4], [7, 5], [7, 6], [7, 7], [7, 8],
+          [8, 1], [8, 2], [8, 3], [8, 4], [8, 5], [8, 6], [8, 7], [8, 8],
+          [9, 1], [9, 2], [9, 3], [9, 4], [9, 5], [9, 6], [9, 7], [9, 8],
+          [10, 1], [10, 2], [10, 3], [10, 4], [10, 5], [10, 6], [10, 7], [10, 8],
+          [11, 1], [11, 2], [11, 3], [11, 4], [11, 5], [11, 6], [11, 7], [11, 8],
+          [12, 1], [12, 2], [12, 3], [12, 4], [12, 5], [12, 6], [12, 7], [12, 8]
+        ],
+        "ElementList": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96],
+        "Status": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+      }
+    },
+    "HCM": {
+      "_description": "Horizontal Corrector Magnets: Small dipole steering magnets for fine horizontal beam position adjustments. Used in closed-orbit correction algorithms. 72 correctors total (6 per sector).",
+      "Monitor": {
+        "_description": "Current readback in Amperes. Actual measured corrector current from DCCT.",
+        "ChannelNames": [
+          "SR01C:HCM1:Current", "SR01C:HCM2:Current", "SR01C:HCM3:Current", "SR01C:HCM4:Current", "SR01C:HCM5:Current", "SR01C:HCM6:Current",
+          "SR02C:HCM1:Current", "SR02C:HCM2:Current", "SR02C:HCM3:Current", "SR02C:HCM4:Current", "SR02C:HCM5:Current", "SR02C:HCM6:Current",
+          "SR03C:HCM1:Current", "SR03C:HCM2:Current", "SR03C:HCM3:Current", "SR03C:HCM4:Current", "SR03C:HCM5:Current", "SR03C:HCM6:Current",
+          "SR04C:HCM1:Current", "SR04C:HCM2:Current", "SR04C:HCM3:Current", "SR04C:HCM4:Current", "SR04C:HCM5:Current", "SR04C:HCM6:Current",
+          "SR05C:HCM1:Current", "SR05C:HCM2:Current", "SR05C:HCM3:Current", "SR05C:HCM4:Current", "SR05C:HCM5:Current", "SR05C:HCM6:Current",
+          "SR06C:HCM1:Current", "SR06C:HCM2:Current", "SR06C:HCM3:Current", "SR06C:HCM4:Current", "SR06C:HCM5:Current", "SR06C:HCM6:Current",
+          "SR07C:HCM1:Current", "SR07C:HCM2:Current", "SR07C:HCM3:Current", "SR07C:HCM4:Current", "SR07C:HCM5:Current", "SR07C:HCM6:Current",
+          "SR08C:HCM1:Current", "SR08C:HCM2:Current", "SR08C:HCM3:Current", "SR08C:HCM4:Current", "SR08C:HCM5:Current", "SR08C:HCM6:Current",
+          "SR09C:HCM1:Current", "SR09C:HCM2:Current", "SR09C:HCM3:Current", "SR09C:HCM4:Current", "SR09C:HCM5:Current", "SR09C:HCM6:Current",
+          "SR10C:HCM1:Current", "SR10C:HCM2:Current", "SR10C:HCM3:Current", "SR10C:HCM4:Current", "SR10C:HCM5:Current", "SR10C:HCM6:Current",
+          "SR11C:HCM1:Current", "SR11C:HCM2:Current", "SR11C:HCM3:Current", "SR11C:HCM4:Current", "SR11C:HCM5:Current", "SR11C:HCM6:Current",
+          "SR12C:HCM1:Current", "SR12C:HCM2:Current", "SR12C:HCM3:Current", "SR12C:HCM4:Current", "SR12C:HCM5:Current", "SR12C:HCM6:Current"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "Ampere",
+        "PhysicsUnits": "Radian",
+        "MemberOf": ["HCM", "Magnet", "COR", "Monitor", "Save", "Archive"]
+      },
+      "Setpoint": {
+        "_description": "Current setpoint in Amperes. Commanded corrector current for orbit control.",
+        "ChannelNames": [
+          "SR01C:HCM1:SetCurrent", "SR01C:HCM2:SetCurrent", "SR01C:HCM3:SetCurrent", "SR01C:HCM4:SetCurrent", "SR01C:HCM5:SetCurrent", "SR01C:HCM6:SetCurrent",
+          "SR02C:HCM1:SetCurrent", "SR02C:HCM2:SetCurrent", "SR02C:HCM3:SetCurrent", "SR02C:HCM4:SetCurrent", "SR02C:HCM5:SetCurrent", "SR02C:HCM6:SetCurrent",
+          "SR03C:HCM1:SetCurrent", "SR03C:HCM2:SetCurrent", "SR03C:HCM3:SetCurrent", "SR03C:HCM4:SetCurrent", "SR03C:HCM5:SetCurrent", "SR03C:HCM6:SetCurrent",
+          "SR04C:HCM1:SetCurrent", "SR04C:HCM2:SetCurrent", "SR04C:HCM3:SetCurrent", "SR04C:HCM4:SetCurrent", "SR04C:HCM5:SetCurrent", "SR04C:HCM6:SetCurrent",
+          "SR05C:HCM1:SetCurrent", "SR05C:HCM2:SetCurrent", "SR05C:HCM3:SetCurrent", "SR05C:HCM4:SetCurrent", "SR05C:HCM5:SetCurrent", "SR05C:HCM6:SetCurrent",
+          "SR06C:HCM1:SetCurrent", "SR06C:HCM2:SetCurrent", "SR06C:HCM3:SetCurrent", "SR06C:HCM4:SetCurrent", "SR06C:HCM5:SetCurrent", "SR06C:HCM6:SetCurrent",
+          "SR07C:HCM1:SetCurrent", "SR07C:HCM2:SetCurrent", "SR07C:HCM3:SetCurrent", "SR07C:HCM4:SetCurrent", "SR07C:HCM5:SetCurrent", "SR07C:HCM6:SetCurrent",
+          "SR08C:HCM1:SetCurrent", "SR08C:HCM2:SetCurrent", "SR08C:HCM3:SetCurrent", "SR08C:HCM4:SetCurrent", "SR08C:HCM5:SetCurrent", "SR08C:HCM6:SetCurrent",
+          "SR09C:HCM1:SetCurrent", "SR09C:HCM2:SetCurrent", "SR09C:HCM3:SetCurrent", "SR09C:HCM4:SetCurrent", "SR09C:HCM5:SetCurrent", "SR09C:HCM6:SetCurrent",
+          "SR10C:HCM1:SetCurrent", "SR10C:HCM2:SetCurrent", "SR10C:HCM3:SetCurrent", "SR10C:HCM4:SetCurrent", "SR10C:HCM5:SetCurrent", "SR10C:HCM6:SetCurrent",
+          "SR11C:HCM1:SetCurrent", "SR11C:HCM2:SetCurrent", "SR11C:HCM3:SetCurrent", "SR11C:HCM4:SetCurrent", "SR11C:HCM5:SetCurrent", "SR11C:HCM6:SetCurrent",
+          "SR12C:HCM1:SetCurrent", "SR12C:HCM2:SetCurrent", "SR12C:HCM3:SetCurrent", "SR12C:HCM4:SetCurrent", "SR12C:HCM5:SetCurrent", "SR12C:HCM6:SetCurrent"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "Ampere",
+        "PhysicsUnits": "Radian",
+        "MemberOf": ["HCM", "Magnet", "COR", "Setpoint", "Save/Restore", "Archive"]
+      },
+      "OnControl": {
+        "_description": "Enable/disable control for corrector magnet power supply.",
+        "ChannelNames": [
+          "SR01C:HCM1:Enable", "SR01C:HCM2:Enable", "SR01C:HCM3:Enable", "SR01C:HCM4:Enable", "SR01C:HCM5:Enable", "SR01C:HCM6:Enable",
+          "SR02C:HCM1:Enable", "SR02C:HCM2:Enable", "SR02C:HCM3:Enable", "SR02C:HCM4:Enable", "SR02C:HCM5:Enable", "SR02C:HCM6:Enable",
+          "SR03C:HCM1:Enable", "SR03C:HCM2:Enable", "SR03C:HCM3:Enable", "SR03C:HCM4:Enable", "SR03C:HCM5:Enable", "SR03C:HCM6:Enable",
+          "SR04C:HCM1:Enable", "SR04C:HCM2:Enable", "SR04C:HCM3:Enable", "SR04C:HCM4:Enable", "SR04C:HCM5:Enable", "SR04C:HCM6:Enable",
+          "SR05C:HCM1:Enable", "SR05C:HCM2:Enable", "SR05C:HCM3:Enable", "SR05C:HCM4:Enable", "SR05C:HCM5:Enable", "SR05C:HCM6:Enable",
+          "SR06C:HCM1:Enable", "SR06C:HCM2:Enable", "SR06C:HCM3:Enable", "SR06C:HCM4:Enable", "SR06C:HCM5:Enable", "SR06C:HCM6:Enable",
+          "SR07C:HCM1:Enable", "SR07C:HCM2:Enable", "SR07C:HCM3:Enable", "SR07C:HCM4:Enable", "SR07C:HCM5:Enable", "SR07C:HCM6:Enable",
+          "SR08C:HCM1:Enable", "SR08C:HCM2:Enable", "SR08C:HCM3:Enable", "SR08C:HCM4:Enable", "SR08C:HCM5:Enable", "SR08C:HCM6:Enable",
+          "SR09C:HCM1:Enable", "SR09C:HCM2:Enable", "SR09C:HCM3:Enable", "SR09C:HCM4:Enable", "SR09C:HCM5:Enable", "SR09C:HCM6:Enable",
+          "SR10C:HCM1:Enable", "SR10C:HCM2:Enable", "SR10C:HCM3:Enable", "SR10C:HCM4:Enable", "SR10C:HCM5:Enable", "SR10C:HCM6:Enable",
+          "SR11C:HCM1:Enable", "SR11C:HCM2:Enable", "SR11C:HCM3:Enable", "SR11C:HCM4:Enable", "SR11C:HCM5:Enable", "SR11C:HCM6:Enable",
+          "SR12C:HCM1:Enable", "SR12C:HCM2:Enable", "SR12C:HCM3:Enable", "SR12C:HCM4:Enable", "SR12C:HCM5:Enable", "SR12C:HCM6:Enable"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "MemberOf": ["HCM", "Magnet", "Boolean Control", "Archive"]
+      },
+      "Ready": {
+        "_description": "Power supply ready status. 1=ready to accept commands, 0=fault or not ready.",
+        "ChannelNames": [
+          "SR01C:HCM1:Ready", "SR01C:HCM2:Ready", "SR01C:HCM3:Ready", "SR01C:HCM4:Ready", "SR01C:HCM5:Ready", "SR01C:HCM6:Ready",
+          "SR02C:HCM1:Ready", "SR02C:HCM2:Ready", "SR02C:HCM3:Ready", "SR02C:HCM4:Ready", "SR02C:HCM5:Ready", "SR02C:HCM6:Ready",
+          "SR03C:HCM1:Ready", "SR03C:HCM2:Ready", "SR03C:HCM3:Ready", "SR03C:HCM4:Ready", "SR03C:HCM5:Ready", "SR03C:HCM6:Ready",
+          "SR04C:HCM1:Ready", "SR04C:HCM2:Ready", "SR04C:HCM3:Ready", "SR04C:HCM4:Ready", "SR04C:HCM5:Ready", "SR04C:HCM6:Ready",
+          "SR05C:HCM1:Ready", "SR05C:HCM2:Ready", "SR05C:HCM3:Ready", "SR05C:HCM4:Ready", "SR05C:HCM5:Ready", "SR05C:HCM6:Ready",
+          "SR06C:HCM1:Ready", "SR06C:HCM2:Ready", "SR06C:HCM3:Ready", "SR06C:HCM4:Ready", "SR06C:HCM5:Ready", "SR06C:HCM6:Ready",
+          "SR07C:HCM1:Ready", "SR07C:HCM2:Ready", "SR07C:HCM3:Ready", "SR07C:HCM4:Ready", "SR07C:HCM5:Ready", "SR07C:HCM6:Ready",
+          "SR08C:HCM1:Ready", "SR08C:HCM2:Ready", "SR08C:HCM3:Ready", "SR08C:HCM4:Ready", "SR08C:HCM5:Ready", "SR08C:HCM6:Ready",
+          "SR09C:HCM1:Ready", "SR09C:HCM2:Ready", "SR09C:HCM3:Ready", "SR09C:HCM4:Ready", "SR09C:HCM5:Ready", "SR09C:HCM6:Ready",
+          "SR10C:HCM1:Ready", "SR10C:HCM2:Ready", "SR10C:HCM3:Ready", "SR10C:HCM4:Ready", "SR10C:HCM5:Ready", "SR10C:HCM6:Ready",
+          "SR11C:HCM1:Ready", "SR11C:HCM2:Ready", "SR11C:HCM3:Ready", "SR11C:HCM4:Ready", "SR11C:HCM5:Ready", "SR11C:HCM6:Ready",
+          "SR12C:HCM1:Ready", "SR12C:HCM2:Ready", "SR12C:HCM3:Ready", "SR12C:HCM4:Ready", "SR12C:HCM5:Ready", "SR12C:HCM6:Ready"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "MemberOf": ["HCM", "Magnet", "Boolean Monitor", "Archive"]
+      },
+      "setup": {
+        "CommonNames": [
+          "HCM 1-1", "HCM 1-2", "HCM 1-3", "HCM 1-4", "HCM 1-5", "HCM 1-6",
+          "HCM 2-1", "HCM 2-2", "HCM 2-3", "HCM 2-4", "HCM 2-5", "HCM 2-6",
+          "HCM 3-1", "HCM 3-2", "HCM 3-3", "HCM 3-4", "HCM 3-5", "HCM 3-6",
+          "HCM 4-1", "HCM 4-2", "HCM 4-3", "HCM 4-4", "HCM 4-5", "HCM 4-6",
+          "HCM 5-1", "HCM 5-2", "HCM 5-3", "HCM 5-4", "HCM 5-5", "HCM 5-6",
+          "HCM 6-1", "HCM 6-2", "HCM 6-3", "HCM 6-4", "HCM 6-5", "HCM 6-6",
+          "HCM 7-1", "HCM 7-2", "HCM 7-3", "HCM 7-4", "HCM 7-5", "HCM 7-6",
+          "HCM 8-1", "HCM 8-2", "HCM 8-3", "HCM 8-4", "HCM 8-5", "HCM 8-6",
+          "HCM 9-1", "HCM 9-2", "HCM 9-3", "HCM 9-4", "HCM 9-5", "HCM 9-6",
+          "HCM 10-1", "HCM 10-2", "HCM 10-3", "HCM 10-4", "HCM 10-5", "HCM 10-6",
+          "HCM 11-1", "HCM 11-2", "HCM 11-3", "HCM 11-4", "HCM 11-5", "HCM 11-6",
+          "HCM 12-1", "HCM 12-2", "HCM 12-3", "HCM 12-4", "HCM 12-5", "HCM 12-6"
+        ],
+        "DeviceList": [
+          [1, 1], [1, 2], [1, 3], [1, 4], [1, 5], [1, 6],
+          [2, 1], [2, 2], [2, 3], [2, 4], [2, 5], [2, 6],
+          [3, 1], [3, 2], [3, 3], [3, 4], [3, 5], [3, 6],
+          [4, 1], [4, 2], [4, 3], [4, 4], [4, 5], [4, 6],
+          [5, 1], [5, 2], [5, 3], [5, 4], [5, 5], [5, 6],
+          [6, 1], [6, 2], [6, 3], [6, 4], [6, 5], [6, 6],
+          [7, 1], [7, 2], [7, 3], [7, 4], [7, 5], [7, 6],
+          [8, 1], [8, 2], [8, 3], [8, 4], [8, 5], [8, 6],
+          [9, 1], [9, 2], [9, 3], [9, 4], [9, 5], [9, 6],
+          [10, 1], [10, 2], [10, 3], [10, 4], [10, 5], [10, 6],
+          [11, 1], [11, 2], [11, 3], [11, 4], [11, 5], [11, 6],
+          [12, 1], [12, 2], [12, 3], [12, 4], [12, 5], [12, 6]
+        ],
+        "ElementList": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72],
+        "Status": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+      }
+    },
+    "VCM": {
+      "_description": "Vertical Corrector Magnets: Small dipole steering magnets for fine vertical (Y) beam position adjustments. Work with BPMs in feedback loops to maintain desired orbit. 72 correctors total (6 per sector).",
+      "Monitor": {
+        "_description": "Current readback in Amperes. Bipolar current for vertical steering.",
+        "ChannelNames": [
+          "SR01C:VCM1:Current", "SR01C:VCM2:Current", "SR01C:VCM3:Current", "SR01C:VCM4:Current", "SR01C:VCM5:Current", "SR01C:VCM6:Current",
+          "SR02C:VCM1:Current", "SR02C:VCM2:Current", "SR02C:VCM3:Current", "SR02C:VCM4:Current", "SR02C:VCM5:Current", "SR02C:VCM6:Current",
+          "SR03C:VCM1:Current", "SR03C:VCM2:Current", "SR03C:VCM3:Current", "SR03C:VCM4:Current", "SR03C:VCM5:Current", "SR03C:VCM6:Current",
+          "SR04C:VCM1:Current", "SR04C:VCM2:Current", "SR04C:VCM3:Current", "SR04C:VCM4:Current", "SR04C:VCM5:Current", "SR04C:VCM6:Current",
+          "SR05C:VCM1:Current", "SR05C:VCM2:Current", "SR05C:VCM3:Current", "SR05C:VCM4:Current", "SR05C:VCM5:Current", "SR05C:VCM6:Current",
+          "SR06C:VCM1:Current", "SR06C:VCM2:Current", "SR06C:VCM3:Current", "SR06C:VCM4:Current", "SR06C:VCM5:Current", "SR06C:VCM6:Current",
+          "SR07C:VCM1:Current", "SR07C:VCM2:Current", "SR07C:VCM3:Current", "SR07C:VCM4:Current", "SR07C:VCM5:Current", "SR07C:VCM6:Current",
+          "SR08C:VCM1:Current", "SR08C:VCM2:Current", "SR08C:VCM3:Current", "SR08C:VCM4:Current", "SR08C:VCM5:Current", "SR08C:VCM6:Current",
+          "SR09C:VCM1:Current", "SR09C:VCM2:Current", "SR09C:VCM3:Current", "SR09C:VCM4:Current", "SR09C:VCM5:Current", "SR09C:VCM6:Current",
+          "SR10C:VCM1:Current", "SR10C:VCM2:Current", "SR10C:VCM3:Current", "SR10C:VCM4:Current", "SR10C:VCM5:Current", "SR10C:VCM6:Current",
+          "SR11C:VCM1:Current", "SR11C:VCM2:Current", "SR11C:VCM3:Current", "SR11C:VCM4:Current", "SR11C:VCM5:Current", "SR11C:VCM6:Current",
+          "SR12C:VCM1:Current", "SR12C:VCM2:Current", "SR12C:VCM3:Current", "SR12C:VCM4:Current", "SR12C:VCM5:Current", "SR12C:VCM6:Current"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "Ampere",
+        "PhysicsUnits": "Radian",
+        "MemberOf": ["VCM", "Magnet", "COR", "Monitor", "Save", "Archive"]
+      },
+      "Setpoint": {
+        "_description": "Current setpoint in Amperes. Commanded vertical corrector current.",
+        "ChannelNames": [
+          "SR01C:VCM1:SetCurrent", "SR01C:VCM2:SetCurrent", "SR01C:VCM3:SetCurrent", "SR01C:VCM4:SetCurrent", "SR01C:VCM5:SetCurrent", "SR01C:VCM6:SetCurrent",
+          "SR02C:VCM1:SetCurrent", "SR02C:VCM2:SetCurrent", "SR02C:VCM3:SetCurrent", "SR02C:VCM4:SetCurrent", "SR02C:VCM5:SetCurrent", "SR02C:VCM6:SetCurrent",
+          "SR03C:VCM1:SetCurrent", "SR03C:VCM2:SetCurrent", "SR03C:VCM3:SetCurrent", "SR03C:VCM4:SetCurrent", "SR03C:VCM5:SetCurrent", "SR03C:VCM6:SetCurrent",
+          "SR04C:VCM1:SetCurrent", "SR04C:VCM2:SetCurrent", "SR04C:VCM3:SetCurrent", "SR04C:VCM4:SetCurrent", "SR04C:VCM5:SetCurrent", "SR04C:VCM6:SetCurrent",
+          "SR05C:VCM1:SetCurrent", "SR05C:VCM2:SetCurrent", "SR05C:VCM3:SetCurrent", "SR05C:VCM4:SetCurrent", "SR05C:VCM5:SetCurrent", "SR05C:VCM6:SetCurrent",
+          "SR06C:VCM1:SetCurrent", "SR06C:VCM2:SetCurrent", "SR06C:VCM3:SetCurrent", "SR06C:VCM4:SetCurrent", "SR06C:VCM5:SetCurrent", "SR06C:VCM6:SetCurrent",
+          "SR07C:VCM1:SetCurrent", "SR07C:VCM2:SetCurrent", "SR07C:VCM3:SetCurrent", "SR07C:VCM4:SetCurrent", "SR07C:VCM5:SetCurrent", "SR07C:VCM6:SetCurrent",
+          "SR08C:VCM1:SetCurrent", "SR08C:VCM2:SetCurrent", "SR08C:VCM3:SetCurrent", "SR08C:VCM4:SetCurrent", "SR08C:VCM5:SetCurrent", "SR08C:VCM6:SetCurrent",
+          "SR09C:VCM1:SetCurrent", "SR09C:VCM2:SetCurrent", "SR09C:VCM3:SetCurrent", "SR09C:VCM4:SetCurrent", "SR09C:VCM5:SetCurrent", "SR09C:VCM6:SetCurrent",
+          "SR10C:VCM1:SetCurrent", "SR10C:VCM2:SetCurrent", "SR10C:VCM3:SetCurrent", "SR10C:VCM4:SetCurrent", "SR10C:VCM5:SetCurrent", "SR10C:VCM6:SetCurrent",
+          "SR11C:VCM1:SetCurrent", "SR11C:VCM2:SetCurrent", "SR11C:VCM3:SetCurrent", "SR11C:VCM4:SetCurrent", "SR11C:VCM5:SetCurrent", "SR11C:VCM6:SetCurrent",
+          "SR12C:VCM1:SetCurrent", "SR12C:VCM2:SetCurrent", "SR12C:VCM3:SetCurrent", "SR12C:VCM4:SetCurrent", "SR12C:VCM5:SetCurrent", "SR12C:VCM6:SetCurrent"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "Ampere",
+        "PhysicsUnits": "Radian",
+        "MemberOf": ["VCM", "Magnet", "COR", "Setpoint", "Save/Restore", "Archive"]
+      },
+      "Ready": {
+        "_description": "Power supply ready status. 1=ready to accept commands, 0=fault or not ready.",
+        "ChannelNames": [
+          "SR01C:VCM1:Ready", "SR01C:VCM2:Ready", "SR01C:VCM3:Ready", "SR01C:VCM4:Ready", "SR01C:VCM5:Ready", "SR01C:VCM6:Ready",
+          "SR02C:VCM1:Ready", "SR02C:VCM2:Ready", "SR02C:VCM3:Ready", "SR02C:VCM4:Ready", "SR02C:VCM5:Ready", "SR02C:VCM6:Ready",
+          "SR03C:VCM1:Ready", "SR03C:VCM2:Ready", "SR03C:VCM3:Ready", "SR03C:VCM4:Ready", "SR03C:VCM5:Ready", "SR03C:VCM6:Ready",
+          "SR04C:VCM1:Ready", "SR04C:VCM2:Ready", "SR04C:VCM3:Ready", "SR04C:VCM4:Ready", "SR04C:VCM5:Ready", "SR04C:VCM6:Ready",
+          "SR05C:VCM1:Ready", "SR05C:VCM2:Ready", "SR05C:VCM3:Ready", "SR05C:VCM4:Ready", "SR05C:VCM5:Ready", "SR05C:VCM6:Ready",
+          "SR06C:VCM1:Ready", "SR06C:VCM2:Ready", "SR06C:VCM3:Ready", "SR06C:VCM4:Ready", "SR06C:VCM5:Ready", "SR06C:VCM6:Ready",
+          "SR07C:VCM1:Ready", "SR07C:VCM2:Ready", "SR07C:VCM3:Ready", "SR07C:VCM4:Ready", "SR07C:VCM5:Ready", "SR07C:VCM6:Ready",
+          "SR08C:VCM1:Ready", "SR08C:VCM2:Ready", "SR08C:VCM3:Ready", "SR08C:VCM4:Ready", "SR08C:VCM5:Ready", "SR08C:VCM6:Ready",
+          "SR09C:VCM1:Ready", "SR09C:VCM2:Ready", "SR09C:VCM3:Ready", "SR09C:VCM4:Ready", "SR09C:VCM5:Ready", "SR09C:VCM6:Ready",
+          "SR10C:VCM1:Ready", "SR10C:VCM2:Ready", "SR10C:VCM3:Ready", "SR10C:VCM4:Ready", "SR10C:VCM5:Ready", "SR10C:VCM6:Ready",
+          "SR11C:VCM1:Ready", "SR11C:VCM2:Ready", "SR11C:VCM3:Ready", "SR11C:VCM4:Ready", "SR11C:VCM5:Ready", "SR11C:VCM6:Ready",
+          "SR12C:VCM1:Ready", "SR12C:VCM2:Ready", "SR12C:VCM3:Ready", "SR12C:VCM4:Ready", "SR12C:VCM5:Ready", "SR12C:VCM6:Ready"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "MemberOf": ["VCM", "Magnet", "Boolean Monitor", "Archive"]
+      },
+      "setup": {
+        "CommonNames": [
+          "VCM 1-1", "VCM 1-2", "VCM 1-3", "VCM 1-4", "VCM 1-5", "VCM 1-6",
+          "VCM 2-1", "VCM 2-2", "VCM 2-3", "VCM 2-4", "VCM 2-5", "VCM 2-6",
+          "VCM 3-1", "VCM 3-2", "VCM 3-3", "VCM 3-4", "VCM 3-5", "VCM 3-6",
+          "VCM 4-1", "VCM 4-2", "VCM 4-3", "VCM 4-4", "VCM 4-5", "VCM 4-6",
+          "VCM 5-1", "VCM 5-2", "VCM 5-3", "VCM 5-4", "VCM 5-5", "VCM 5-6",
+          "VCM 6-1", "VCM 6-2", "VCM 6-3", "VCM 6-4", "VCM 6-5", "VCM 6-6",
+          "VCM 7-1", "VCM 7-2", "VCM 7-3", "VCM 7-4", "VCM 7-5", "VCM 7-6",
+          "VCM 8-1", "VCM 8-2", "VCM 8-3", "VCM 8-4", "VCM 8-5", "VCM 8-6",
+          "VCM 9-1", "VCM 9-2", "VCM 9-3", "VCM 9-4", "VCM 9-5", "VCM 9-6",
+          "VCM 10-1", "VCM 10-2", "VCM 10-3", "VCM 10-4", "VCM 10-5", "VCM 10-6",
+          "VCM 11-1", "VCM 11-2", "VCM 11-3", "VCM 11-4", "VCM 11-5", "VCM 11-6",
+          "VCM 12-1", "VCM 12-2", "VCM 12-3", "VCM 12-4", "VCM 12-5", "VCM 12-6"
+        ],
+        "DeviceList": [
+          [1, 1], [1, 2], [1, 3], [1, 4], [1, 5], [1, 6],
+          [2, 1], [2, 2], [2, 3], [2, 4], [2, 5], [2, 6],
+          [3, 1], [3, 2], [3, 3], [3, 4], [3, 5], [3, 6],
+          [4, 1], [4, 2], [4, 3], [4, 4], [4, 5], [4, 6],
+          [5, 1], [5, 2], [5, 3], [5, 4], [5, 5], [5, 6],
+          [6, 1], [6, 2], [6, 3], [6, 4], [6, 5], [6, 6],
+          [7, 1], [7, 2], [7, 3], [7, 4], [7, 5], [7, 6],
+          [8, 1], [8, 2], [8, 3], [8, 4], [8, 5], [8, 6],
+          [9, 1], [9, 2], [9, 3], [9, 4], [9, 5], [9, 6],
+          [10, 1], [10, 2], [10, 3], [10, 4], [10, 5], [10, 6],
+          [11, 1], [11, 2], [11, 3], [11, 4], [11, 5], [11, 6],
+          [12, 1], [12, 2], [12, 3], [12, 4], [12, 5], [12, 6]
+        ],
+        "ElementList": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72],
+        "Status": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+      }
+    },
+    "QF": {
+      "_description": "Focusing Quadrupoles: Quadrupole magnets with positive gradient. Focus beam in horizontal plane, defocus in vertical plane. Part of tune correction system. 24 quadrupoles total (2 per sector).",
+      "Monitor": {
+        "_description": "Quadrupole Excitation Current readback (Amperes). Current through QF coil windings. Proportional to positive field gradient.",
+        "ChannelNames": [
+          "SR01C:QF1:Current", "SR01C:QF2:Current", "SR02C:QF1:Current", "SR02C:QF2:Current",
+          "SR03C:QF1:Current", "SR03C:QF2:Current", "SR04C:QF1:Current", "SR04C:QF2:Current",
+          "SR05C:QF1:Current", "SR05C:QF2:Current", "SR06C:QF1:Current", "SR06C:QF2:Current",
+          "SR07C:QF1:Current", "SR07C:QF2:Current", "SR08C:QF1:Current", "SR08C:QF2:Current",
+          "SR09C:QF1:Current", "SR09C:QF2:Current", "SR10C:QF1:Current", "SR10C:QF2:Current",
+          "SR11C:QF1:Current", "SR11C:QF2:Current", "SR12C:QF1:Current", "SR12C:QF2:Current"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "Ampere",
+        "PhysicsUnits": "m^-2",
+        "MemberOf": ["QF", "Magnet", "Quadrupole", "Monitor", "Save", "Archive"]
+      },
+      "Setpoint": {
+        "_description": "Quadrupole Excitation Current setpoint (Amperes). Commanded focusing current for tune correction.",
+        "ChannelNames": [
+          "SR01C:QF1:SetCurrent", "SR01C:QF2:SetCurrent", "SR02C:QF1:SetCurrent", "SR02C:QF2:SetCurrent",
+          "SR03C:QF1:SetCurrent", "SR03C:QF2:SetCurrent", "SR04C:QF1:SetCurrent", "SR04C:QF2:SetCurrent",
+          "SR05C:QF1:SetCurrent", "SR05C:QF2:SetCurrent", "SR06C:QF1:SetCurrent", "SR06C:QF2:SetCurrent",
+          "SR07C:QF1:SetCurrent", "SR07C:QF2:SetCurrent", "SR08C:QF1:SetCurrent", "SR08C:QF2:SetCurrent",
+          "SR09C:QF1:SetCurrent", "SR09C:QF2:SetCurrent", "SR10C:QF1:SetCurrent", "SR10C:QF2:SetCurrent",
+          "SR11C:QF1:SetCurrent", "SR11C:QF2:SetCurrent", "SR12C:QF1:SetCurrent", "SR12C:QF2:SetCurrent"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "Ampere",
+        "PhysicsUnits": "m^-2",
+        "MemberOf": ["QF", "Magnet", "Quadrupole", "Setpoint", "Save/Restore", "Archive"]
+      },
+      "Ready": {
+        "_description": "Power supply ready status for quadrupole magnets.",
+        "ChannelNames": [
+          "SR01C:QF1:Ready", "SR01C:QF2:Ready", "SR02C:QF1:Ready", "SR02C:QF2:Ready",
+          "SR03C:QF1:Ready", "SR03C:QF2:Ready", "SR04C:QF1:Ready", "SR04C:QF2:Ready",
+          "SR05C:QF1:Ready", "SR05C:QF2:Ready", "SR06C:QF1:Ready", "SR06C:QF2:Ready",
+          "SR07C:QF1:Ready", "SR07C:QF2:Ready", "SR08C:QF1:Ready", "SR08C:QF2:Ready",
+          "SR09C:QF1:Ready", "SR09C:QF2:Ready", "SR10C:QF1:Ready", "SR10C:QF2:Ready",
+          "SR11C:QF1:Ready", "SR11C:QF2:Ready", "SR12C:QF1:Ready", "SR12C:QF2:Ready"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "MemberOf": ["QF", "Magnet", "Boolean Monitor", "Archive"]
+      },
+      "setup": {
+        "CommonNames": [
+          "QF 1-1", "QF 1-2", "QF 2-1", "QF 2-2", "QF 3-1", "QF 3-2", "QF 4-1", "QF 4-2",
+          "QF 5-1", "QF 5-2", "QF 6-1", "QF 6-2", "QF 7-1", "QF 7-2", "QF 8-1", "QF 8-2",
+          "QF 9-1", "QF 9-2", "QF 10-1", "QF 10-2", "QF 11-1", "QF 11-2", "QF 12-1", "QF 12-2"
+        ],
+        "DeviceList": [
+          [1, 1], [1, 2], [2, 1], [2, 2], [3, 1], [3, 2], [4, 1], [4, 2],
+          [5, 1], [5, 2], [6, 1], [6, 2], [7, 1], [7, 2], [8, 1], [8, 2],
+          [9, 1], [9, 2], [10, 1], [10, 2], [11, 1], [11, 2], [12, 1], [12, 2]
+        ],
+        "ElementList": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+      }
+    },
+    "QD": {
+      "_description": "Defocusing Quadrupoles: Quadrupole magnets with negative gradient. Defocus beam in horizontal plane, focus in vertical plane. Work together with QF magnets for independent horizontal/vertical tune control. 24 quadrupoles total (2 per sector).",
+      "Monitor": {
+        "_description": "Quadrupole Excitation Current readback (Amperes). Proportional to negative field gradient.",
+        "ChannelNames": [
+          "SR01C:QD1:Current", "SR01C:QD2:Current", "SR02C:QD1:Current", "SR02C:QD2:Current",
+          "SR03C:QD1:Current", "SR03C:QD2:Current", "SR04C:QD1:Current", "SR04C:QD2:Current",
+          "SR05C:QD1:Current", "SR05C:QD2:Current", "SR06C:QD1:Current", "SR06C:QD2:Current",
+          "SR07C:QD1:Current", "SR07C:QD2:Current", "SR08C:QD1:Current", "SR08C:QD2:Current",
+          "SR09C:QD1:Current", "SR09C:QD2:Current", "SR10C:QD1:Current", "SR10C:QD2:Current",
+          "SR11C:QD1:Current", "SR11C:QD2:Current", "SR12C:QD1:Current", "SR12C:QD2:Current"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "Ampere",
+        "PhysicsUnits": "m^-2",
+        "MemberOf": ["QD", "Magnet", "Quadrupole", "Monitor", "Save", "Archive"]
+      },
+      "Setpoint": {
+        "_description": "Quadrupole Excitation Current setpoint (Amperes). Commanded defocusing current for tune correction.",
+        "ChannelNames": [
+          "SR01C:QD1:SetCurrent", "SR01C:QD2:SetCurrent", "SR02C:QD1:SetCurrent", "SR02C:QD2:SetCurrent",
+          "SR03C:QD1:SetCurrent", "SR03C:QD2:SetCurrent", "SR04C:QD1:SetCurrent", "SR04C:QD2:SetCurrent",
+          "SR05C:QD1:SetCurrent", "SR05C:QD2:SetCurrent", "SR06C:QD1:SetCurrent", "SR06C:QD2:SetCurrent",
+          "SR07C:QD1:SetCurrent", "SR07C:QD2:SetCurrent", "SR08C:QD1:SetCurrent", "SR08C:QD2:SetCurrent",
+          "SR09C:QD1:SetCurrent", "SR09C:QD2:SetCurrent", "SR10C:QD1:SetCurrent", "SR10C:QD2:SetCurrent",
+          "SR11C:QD1:SetCurrent", "SR11C:QD2:SetCurrent", "SR12C:QD1:SetCurrent", "SR12C:QD2:SetCurrent"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "Ampere",
+        "PhysicsUnits": "m^-2",
+        "MemberOf": ["QD", "Magnet", "Quadrupole", "Setpoint", "Save/Restore", "Archive"]
+      },
+      "Ready": {
+        "_description": "Power supply ready status for quadrupole magnets.",
+        "ChannelNames": [
+          "SR01C:QD1:Ready", "SR01C:QD2:Ready", "SR02C:QD1:Ready", "SR02C:QD2:Ready",
+          "SR03C:QD1:Ready", "SR03C:QD2:Ready", "SR04C:QD1:Ready", "SR04C:QD2:Ready",
+          "SR05C:QD1:Ready", "SR05C:QD2:Ready", "SR06C:QD1:Ready", "SR06C:QD2:Ready",
+          "SR07C:QD1:Ready", "SR07C:QD2:Ready", "SR08C:QD1:Ready", "SR08C:QD2:Ready",
+          "SR09C:QD1:Ready", "SR09C:QD2:Ready", "SR10C:QD1:Ready", "SR10C:QD2:Ready",
+          "SR11C:QD1:Ready", "SR11C:QD2:Ready", "SR12C:QD1:Ready", "SR12C:QD2:Ready"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "MemberOf": ["QD", "Magnet", "Boolean Monitor", "Archive"]
+      },
+      "setup": {
+        "CommonNames": [
+          "QD 1-1", "QD 1-2", "QD 2-1", "QD 2-2", "QD 3-1", "QD 3-2", "QD 4-1", "QD 4-2",
+          "QD 5-1", "QD 5-2", "QD 6-1", "QD 6-2", "QD 7-1", "QD 7-2", "QD 8-1", "QD 8-2",
+          "QD 9-1", "QD 9-2", "QD 10-1", "QD 10-2", "QD 11-1", "QD 11-2", "QD 12-1", "QD 12-2"
+        ],
+        "DeviceList": [
+          [1, 1], [1, 2], [2, 1], [2, 2], [3, 1], [3, 2], [4, 1], [4, 2],
+          [5, 1], [5, 2], [6, 1], [6, 2], [7, 1], [7, 2], [8, 1], [8, 2],
+          [9, 1], [9, 2], [10, 1], [10, 2], [11, 1], [11, 2], [12, 1], [12, 2]
+        ],
+        "ElementList": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+      }
+    },
+    "SF": {
+      "_description": "Focusing Sextupoles: Sextupole magnets with positive polarity for chromatic correction. Produce field that varies quadratically with radius. Compensate for energy-dependent focusing from quadrupoles. 24 sextupoles total (2 per sector).",
+      "Monitor": {
+        "_description": "Sextupole Excitation Current readback (Amperes). Proportional to sextupole field strength.",
+        "ChannelNames": [
+          "SR01C:SF1:Current", "SR01C:SF2:Current", "SR02C:SF1:Current", "SR02C:SF2:Current",
+          "SR03C:SF1:Current", "SR03C:SF2:Current", "SR04C:SF1:Current", "SR04C:SF2:Current",
+          "SR05C:SF1:Current", "SR05C:SF2:Current", "SR06C:SF1:Current", "SR06C:SF2:Current",
+          "SR07C:SF1:Current", "SR07C:SF2:Current", "SR08C:SF1:Current", "SR08C:SF2:Current",
+          "SR09C:SF1:Current", "SR09C:SF2:Current", "SR10C:SF1:Current", "SR10C:SF2:Current",
+          "SR11C:SF1:Current", "SR11C:SF2:Current", "SR12C:SF1:Current", "SR12C:SF2:Current"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "Ampere",
+        "PhysicsUnits": "m^-3",
+        "MemberOf": ["SF", "Magnet", "Sextupole", "Monitor", "Save", "Archive"]
+      },
+      "Setpoint": {
+        "_description": "Sextupole Excitation Current setpoint (Amperes). Commanded focusing sextupole current for chromaticity correction.",
+        "ChannelNames": [
+          "SR01C:SF1:SetCurrent", "SR01C:SF2:SetCurrent", "SR02C:SF1:SetCurrent", "SR02C:SF2:SetCurrent",
+          "SR03C:SF1:SetCurrent", "SR03C:SF2:SetCurrent", "SR04C:SF1:SetCurrent", "SR04C:SF2:SetCurrent",
+          "SR05C:SF1:SetCurrent", "SR05C:SF2:SetCurrent", "SR06C:SF1:SetCurrent", "SR06C:SF2:SetCurrent",
+          "SR07C:SF1:SetCurrent", "SR07C:SF2:SetCurrent", "SR08C:SF1:SetCurrent", "SR08C:SF2:SetCurrent",
+          "SR09C:SF1:SetCurrent", "SR09C:SF2:SetCurrent", "SR10C:SF1:SetCurrent", "SR10C:SF2:SetCurrent",
+          "SR11C:SF1:SetCurrent", "SR11C:SF2:SetCurrent", "SR12C:SF1:SetCurrent", "SR12C:SF2:SetCurrent"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "Ampere",
+        "PhysicsUnits": "m^-3",
+        "MemberOf": ["SF", "Magnet", "Sextupole", "Setpoint", "Save/Restore", "Archive"]
+      },
+      "setup": {
+        "CommonNames": [
+          "SF 1-1", "SF 1-2", "SF 2-1", "SF 2-2", "SF 3-1", "SF 3-2", "SF 4-1", "SF 4-2",
+          "SF 5-1", "SF 5-2", "SF 6-1", "SF 6-2", "SF 7-1", "SF 7-2", "SF 8-1", "SF 8-2",
+          "SF 9-1", "SF 9-2", "SF 10-1", "SF 10-2", "SF 11-1", "SF 11-2", "SF 12-1", "SF 12-2"
+        ],
+        "DeviceList": [
+          [1, 1], [1, 2], [2, 1], [2, 2], [3, 1], [3, 2], [4, 1], [4, 2],
+          [5, 1], [5, 2], [6, 1], [6, 2], [7, 1], [7, 2], [8, 1], [8, 2],
+          [9, 1], [9, 2], [10, 1], [10, 2], [11, 1], [11, 2], [12, 1], [12, 2]
+        ],
+        "ElementList": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+      }
+    },
+    "SD": {
+      "_description": "Defocusing Sextupoles: Sextupole magnets with negative polarity for chromatic correction. Work together with SF sextupoles to independently control horizontal and vertical chromaticity. 24 sextupoles total (2 per sector).",
+      "Monitor": {
+        "_description": "Sextupole Excitation Current readback (Amperes). Proportional to sextupole field strength with negative polarity.",
+        "ChannelNames": [
+          "SR01C:SD1:Current", "SR01C:SD2:Current", "SR02C:SD1:Current", "SR02C:SD2:Current",
+          "SR03C:SD1:Current", "SR03C:SD2:Current", "SR04C:SD1:Current", "SR04C:SD2:Current",
+          "SR05C:SD1:Current", "SR05C:SD2:Current", "SR06C:SD1:Current", "SR06C:SD2:Current",
+          "SR07C:SD1:Current", "SR07C:SD2:Current", "SR08C:SD1:Current", "SR08C:SD2:Current",
+          "SR09C:SD1:Current", "SR09C:SD2:Current", "SR10C:SD1:Current", "SR10C:SD2:Current",
+          "SR11C:SD1:Current", "SR11C:SD2:Current", "SR12C:SD1:Current", "SR12C:SD2:Current"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "Ampere",
+        "PhysicsUnits": "m^-3",
+        "MemberOf": ["SD", "Magnet", "Sextupole", "Monitor", "Save", "Archive"]
+      },
+      "Setpoint": {
+        "_description": "Sextupole Excitation Current setpoint (Amperes). Commanded defocusing sextupole current for chromaticity correction.",
+        "ChannelNames": [
+          "SR01C:SD1:SetCurrent", "SR01C:SD2:SetCurrent", "SR02C:SD1:SetCurrent", "SR02C:SD2:SetCurrent",
+          "SR03C:SD1:SetCurrent", "SR03C:SD2:SetCurrent", "SR04C:SD1:SetCurrent", "SR04C:SD2:SetCurrent",
+          "SR05C:SD1:SetCurrent", "SR05C:SD2:SetCurrent", "SR06C:SD1:SetCurrent", "SR06C:SD2:SetCurrent",
+          "SR07C:SD1:SetCurrent", "SR07C:SD2:SetCurrent", "SR08C:SD1:SetCurrent", "SR08C:SD2:SetCurrent",
+          "SR09C:SD1:SetCurrent", "SR09C:SD2:SetCurrent", "SR10C:SD1:SetCurrent", "SR10C:SD2:SetCurrent",
+          "SR11C:SD1:SetCurrent", "SR11C:SD2:SetCurrent", "SR12C:SD1:SetCurrent", "SR12C:SD2:SetCurrent"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "Ampere",
+        "PhysicsUnits": "m^-3",
+        "MemberOf": ["SD", "Magnet", "Sextupole", "Setpoint", "Save/Restore", "Archive"]
+      },
+      "setup": {
+        "CommonNames": [
+          "SD 1-1", "SD 1-2", "SD 2-1", "SD 2-2", "SD 3-1", "SD 3-2", "SD 4-1", "SD 4-2",
+          "SD 5-1", "SD 5-2", "SD 6-1", "SD 6-2", "SD 7-1", "SD 7-2", "SD 8-1", "SD 8-2",
+          "SD 9-1", "SD 9-2", "SD 10-1", "SD 10-2", "SD 11-1", "SD 11-2", "SD 12-1", "SD 12-2"
+        ],
+        "DeviceList": [
+          [1, 1], [1, 2], [2, 1], [2, 2], [3, 1], [3, 2], [4, 1], [4, 2],
+          [5, 1], [5, 2], [6, 1], [6, 2], [7, 1], [7, 2], [8, 1], [8, 2],
+          [9, 1], [9, 2], [10, 1], [10, 2], [11, 1], [11, 2], [12, 1], [12, 2]
+        ],
+        "ElementList": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+      }
+    },
+    "DCCT": {
+      "_description": "DC Current Transformer: Measures total stored beam current with high precision using magnetic flux detection. Primary diagnostic for beam lifetime and top-off injection monitoring.",
+      "Monitor": {
+        "_description": "Beam current in milliamperes. Total charge circulating in the storage ring.",
+        "ChannelNames": ["SR:DCCT:Current"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "mA",
+        "MemberOf": ["DCCT", "Monitor", "Save", "Archive"]
+      },
+      "FastMonitor": {
+        "_description": "Fast beam current readback for monitoring transients and injection. 10 kHz sampling rate.",
+        "ChannelNames": ["SR:DCCT:FastCurrent"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "mA",
+        "MemberOf": ["DCCT", "Monitor", "Archive"]
+      },
+      "Lifetime": {
+        "_description": "Calculated beam lifetime in hours based on current decay rate.",
+        "ChannelNames": ["SR:DCCT:Lifetime"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "hours",
+        "MemberOf": ["DCCT", "Monitor", "Archive"]
+      },
+      "setup": {
+        "CommonNames": ["Beam Current Monitor"],
+        "DeviceList": [[1, 1]],
+        "ElementList": [1]
+      }
+    },
+    "BEND": {
+      "_description": "Bending Dipole Magnets: Main dipole magnets that bend the beam around the ring. 36 bending magnets total (3 per sector). Operate in series on a single power supply but have individual shunt controls.",
+      "Monitor": {
+        "_description": "Dipole current readback in Amperes. Defines beam energy (1.9 GeV nominal).",
+        "ChannelNames": [
+          "SR01C:BEND1:Current", "SR01C:BEND2:Current", "SR01C:BEND3:Current",
+          "SR02C:BEND1:Current", "SR02C:BEND2:Current", "SR02C:BEND3:Current",
+          "SR03C:BEND1:Current", "SR03C:BEND2:Current", "SR03C:BEND3:Current",
+          "SR04C:BEND1:Current", "SR04C:BEND2:Current", "SR04C:BEND3:Current",
+          "SR05C:BEND1:Current", "SR05C:BEND2:Current", "SR05C:BEND3:Current",
+          "SR06C:BEND1:Current", "SR06C:BEND2:Current", "SR06C:BEND3:Current",
+          "SR07C:BEND1:Current", "SR07C:BEND2:Current", "SR07C:BEND3:Current",
+          "SR08C:BEND1:Current", "SR08C:BEND2:Current", "SR08C:BEND3:Current",
+          "SR09C:BEND1:Current", "SR09C:BEND2:Current", "SR09C:BEND3:Current",
+          "SR10C:BEND1:Current", "SR10C:BEND2:Current", "SR10C:BEND3:Current",
+          "SR11C:BEND1:Current", "SR11C:BEND2:Current", "SR11C:BEND3:Current",
+          "SR12C:BEND1:Current", "SR12C:BEND2:Current", "SR12C:BEND3:Current"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "Ampere",
+        "PhysicsUnits": "Radian",
+        "MemberOf": ["BEND", "Magnet", "Monitor", "Save", "Archive"]
+      },
+      "Setpoint": {
+        "_description": "Dipole current setpoint. Typically constant during operations.",
+        "ChannelNames": ["SR:BEND:SetCurrent"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "Ampere",
+        "PhysicsUnits": "Radian",
+        "MemberOf": ["BEND", "Magnet", "Setpoint", "Save/Restore", "Archive"]
+      },
+      "Ready": {
+        "_description": "Main dipole power supply ready status.",
+        "ChannelNames": ["SR:BEND:Ready"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "MemberOf": ["BEND", "Magnet", "Boolean Monitor", "Archive"]
+      },
+      "setup": {
+        "CommonNames": [
+          "BEND 1-1", "BEND 1-2", "BEND 1-3", "BEND 2-1", "BEND 2-2", "BEND 2-3",
+          "BEND 3-1", "BEND 3-2", "BEND 3-3", "BEND 4-1", "BEND 4-2", "BEND 4-3",
+          "BEND 5-1", "BEND 5-2", "BEND 5-3", "BEND 6-1", "BEND 6-2", "BEND 6-3",
+          "BEND 7-1", "BEND 7-2", "BEND 7-3", "BEND 8-1", "BEND 8-2", "BEND 8-3",
+          "BEND 9-1", "BEND 9-2", "BEND 9-3", "BEND 10-1", "BEND 10-2", "BEND 10-3",
+          "BEND 11-1", "BEND 11-2", "BEND 11-3", "BEND 12-1", "BEND 12-2", "BEND 12-3"
+        ],
+        "DeviceList": [
+          [1, 1], [1, 2], [1, 3], [2, 1], [2, 2], [2, 3],
+          [3, 1], [3, 2], [3, 3], [4, 1], [4, 2], [4, 3],
+          [5, 1], [5, 2], [5, 3], [6, 1], [6, 2], [6, 3],
+          [7, 1], [7, 2], [7, 3], [8, 1], [8, 2], [8, 3],
+          [9, 1], [9, 2], [9, 3], [10, 1], [10, 2], [10, 3],
+          [11, 1], [11, 2], [11, 3], [12, 1], [12, 2], [12, 3]
+        ],
+        "ElementList": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36],
+        "Status": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+      }
+    },
+    "Thermocouple": {
+      "_description": "Temperature Monitoring: Thermocouples mounted on vacuum chamber and insertion device beamlines. Critical for detecting excessive heat deposition from synchrotron radiation or beam losses. 10 sensors per instrumented sector.",
+      "Temperature": {
+        "_description": "Temperature readback in Celsius. Monitors absorber and chamber temperatures.",
+        "ChannelNames": [
+          "SR02S:TC1:Temp", "SR02S:TC2:Temp", "SR02S:TC3:Temp", "SR02S:TC4:Temp", "SR02S:TC5:Temp", "SR02S:TC6:Temp", "SR02S:TC7:Temp", "SR02S:TC8:Temp", "SR02S:TC9:Temp", "SR02S:TC10:Temp",
+          "SR05S:TC1:Temp", "SR05S:TC2:Temp", "SR05S:TC3:Temp", "SR05S:TC4:Temp", "SR05S:TC5:Temp", "SR05S:TC6:Temp", "SR05S:TC7:Temp", "SR05S:TC8:Temp", "SR05S:TC9:Temp", "SR05S:TC10:Temp",
+          "SR06S:TC1:Temp", "SR06S:TC2:Temp", "SR06S:TC3:Temp", "SR06S:TC4:Temp", "SR06S:TC5:Temp", "SR06S:TC6:Temp", "SR06S:TC7:Temp", "SR06S:TC8:Temp", "SR06S:TC9:Temp", "SR06S:TC10:Temp",
+          "SR07S:TC1:Temp", "SR07S:TC2:Temp", "SR07S:TC3:Temp", "SR07S:TC4:Temp", "SR07S:TC5:Temp", "SR07S:TC6:Temp", "SR07S:TC7:Temp", "SR07S:TC8:Temp", "SR07S:TC9:Temp", "SR07S:TC10:Temp",
+          "SR08S:TC1:Temp", "SR08S:TC2:Temp", "SR08S:TC3:Temp", "SR08S:TC4:Temp", "SR08S:TC5:Temp", "SR08S:TC6:Temp", "SR08S:TC7:Temp", "SR08S:TC8:Temp", "SR08S:TC9:Temp", "SR08S:TC10:Temp",
+          "SR09S:TC1:Temp", "SR09S:TC2:Temp", "SR09S:TC3:Temp", "SR09S:TC4:Temp", "SR09S:TC5:Temp", "SR09S:TC6:Temp", "SR09S:TC7:Temp", "SR09S:TC8:Temp", "SR09S:TC9:Temp", "SR09S:TC10:Temp",
+          "SR10S:TC1:Temp", "SR10S:TC2:Temp", "SR10S:TC3:Temp", "SR10S:TC4:Temp", "SR10S:TC5:Temp", "SR10S:TC6:Temp", "SR10S:TC7:Temp", "SR10S:TC8:Temp", "SR10S:TC9:Temp", "SR10S:TC10:Temp",
+          "SR11S:TC1:Temp", "SR11S:TC2:Temp", "SR11S:TC3:Temp", "SR11S:TC4:Temp", "SR11S:TC5:Temp", "SR11S:TC6:Temp", "SR11S:TC7:Temp", "SR11S:TC8:Temp", "SR11S:TC9:Temp", "SR11S:TC10:Temp",
+          "SR12S:TC1:Temp", "SR12S:TC2:Temp", "SR12S:TC3:Temp", "SR12S:TC4:Temp", "SR12S:TC5:Temp", "SR12S:TC6:Temp", "SR12S:TC7:Temp", "SR12S:TC8:Temp", "SR12S:TC9:Temp", "SR12S:TC10:Temp"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "°C",
+        "MemberOf": ["Thermocouple", "Temperature", "Monitor", "Archive"]
+      },
+      "Limit": {
+        "_description": "Temperature limit setpoint. Triggers interlock if exceeded to protect equipment.",
+        "ChannelNames": [
+          "SR02S:TC1:Limit", "SR02S:TC2:Limit", "SR02S:TC3:Limit", "SR02S:TC4:Limit", "SR02S:TC5:Limit", "SR02S:TC6:Limit", "SR02S:TC7:Limit", "SR02S:TC8:Limit", "SR02S:TC9:Limit", "SR02S:TC10:Limit",
+          "SR05S:TC1:Limit", "SR05S:TC2:Limit", "SR05S:TC3:Limit", "SR05S:TC4:Limit", "SR05S:TC5:Limit", "SR05S:TC6:Limit", "SR05S:TC7:Limit", "SR05S:TC8:Limit", "SR05S:TC9:Limit", "SR05S:TC10:Limit",
+          "SR06S:TC1:Limit", "SR06S:TC2:Limit", "SR06S:TC3:Limit", "SR06S:TC4:Limit", "SR06S:TC5:Limit", "SR06S:TC6:Limit", "SR06S:TC7:Limit", "SR06S:TC8:Limit", "SR06S:TC9:Limit", "SR06S:TC10:Limit",
+          "SR07S:TC1:Limit", "SR07S:TC2:Limit", "SR07S:TC3:Limit", "SR07S:TC4:Limit", "SR07S:TC5:Limit", "SR07S:TC6:Limit", "SR07S:TC7:Limit", "SR07S:TC8:Limit", "SR07S:TC9:Limit", "SR07S:TC10:Limit",
+          "SR08S:TC1:Limit", "SR08S:TC2:Limit", "SR08S:TC3:Limit", "SR08S:TC4:Limit", "SR08S:TC5:Limit", "SR08S:TC6:Limit", "SR08S:TC7:Limit", "SR08S:TC8:Limit", "SR08S:TC9:Limit", "SR08S:TC10:Limit",
+          "SR09S:TC1:Limit", "SR09S:TC2:Limit", "SR09S:TC3:Limit", "SR09S:TC4:Limit", "SR09S:TC5:Limit", "SR09S:TC6:Limit", "SR09S:TC7:Limit", "SR09S:TC8:Limit", "SR09S:TC9:Limit", "SR09S:TC10:Limit",
+          "SR10S:TC1:Limit", "SR10S:TC2:Limit", "SR10S:TC3:Limit", "SR10S:TC4:Limit", "SR10S:TC5:Limit", "SR10S:TC6:Limit", "SR10S:TC7:Limit", "SR10S:TC8:Limit", "SR10S:TC9:Limit", "SR10S:TC10:Limit",
+          "SR11S:TC1:Limit", "SR11S:TC2:Limit", "SR11S:TC3:Limit", "SR11S:TC4:Limit", "SR11S:TC5:Limit", "SR11S:TC6:Limit", "SR11S:TC7:Limit", "SR11S:TC8:Limit", "SR11S:TC9:Limit", "SR11S:TC10:Limit",
+          "SR12S:TC1:Limit", "SR12S:TC2:Limit", "SR12S:TC3:Limit", "SR12S:TC4:Limit", "SR12S:TC5:Limit", "SR12S:TC6:Limit", "SR12S:TC7:Limit", "SR12S:TC8:Limit", "SR12S:TC9:Limit", "SR12S:TC10:Limit"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "°C",
+        "MemberOf": ["Thermocouple", "Temperature", "Control", "Archive"]
+      },
+      "OverTemp": {
+        "_description": "Over-temperature flag. Boolean indicating if temperature exceeds safe limit.",
+        "ChannelNames": [
+          "SR02S:TC1:OverTemp", "SR02S:TC2:OverTemp", "SR02S:TC3:OverTemp", "SR02S:TC4:OverTemp", "SR02S:TC5:OverTemp", "SR02S:TC6:OverTemp", "SR02S:TC7:OverTemp", "SR02S:TC8:OverTemp", "SR02S:TC9:OverTemp", "SR02S:TC10:OverTemp",
+          "SR05S:TC1:OverTemp", "SR05S:TC2:OverTemp", "SR05S:TC3:OverTemp", "SR05S:TC4:OverTemp", "SR05S:TC5:OverTemp", "SR05S:TC6:OverTemp", "SR05S:TC7:OverTemp", "SR05S:TC8:OverTemp", "SR05S:TC9:OverTemp", "SR05S:TC10:OverTemp",
+          "SR06S:TC1:OverTemp", "SR06S:TC2:OverTemp", "SR06S:TC3:OverTemp", "SR06S:TC4:OverTemp", "SR06S:TC5:OverTemp", "SR06S:TC6:OverTemp", "SR06S:TC7:OverTemp", "SR06S:TC8:OverTemp", "SR06S:TC9:OverTemp", "SR06S:TC10:OverTemp",
+          "SR07S:TC1:OverTemp", "SR07S:TC2:OverTemp", "SR07S:TC3:OverTemp", "SR07S:TC4:OverTemp", "SR07S:TC5:OverTemp", "SR07S:TC6:OverTemp", "SR07S:TC7:OverTemp", "SR07S:TC8:OverTemp", "SR07S:TC9:OverTemp", "SR07S:TC10:OverTemp",
+          "SR08S:TC1:OverTemp", "SR08S:TC2:OverTemp", "SR08S:TC3:OverTemp", "SR08S:TC4:OverTemp", "SR08S:TC5:OverTemp", "SR08S:TC6:OverTemp", "SR08S:TC7:OverTemp", "SR08S:TC8:OverTemp", "SR08S:TC9:OverTemp", "SR08S:TC10:OverTemp",
+          "SR09S:TC1:OverTemp", "SR09S:TC2:OverTemp", "SR09S:TC3:OverTemp", "SR09S:TC4:OverTemp", "SR09S:TC5:OverTemp", "SR09S:TC6:OverTemp", "SR09S:TC7:OverTemp", "SR09S:TC8:OverTemp", "SR09S:TC9:OverTemp", "SR09S:TC10:OverTemp",
+          "SR10S:TC1:OverTemp", "SR10S:TC2:OverTemp", "SR10S:TC3:OverTemp", "SR10S:TC4:OverTemp", "SR10S:TC5:OverTemp", "SR10S:TC6:OverTemp", "SR10S:TC7:OverTemp", "SR10S:TC8:OverTemp", "SR10S:TC9:OverTemp", "SR10S:TC10:OverTemp",
+          "SR11S:TC1:OverTemp", "SR11S:TC2:OverTemp", "SR11S:TC3:OverTemp", "SR11S:TC4:OverTemp", "SR11S:TC5:OverTemp", "SR11S:TC6:OverTemp", "SR11S:TC7:OverTemp", "SR11S:TC8:OverTemp", "SR11S:TC9:OverTemp", "SR11S:TC10:OverTemp",
+          "SR12S:TC1:OverTemp", "SR12S:TC2:OverTemp", "SR12S:TC3:OverTemp", "SR12S:TC4:OverTemp", "SR12S:TC5:OverTemp", "SR12S:TC6:OverTemp", "SR12S:TC7:OverTemp", "SR12S:TC8:OverTemp", "SR12S:TC9:OverTemp", "SR12S:TC10:OverTemp"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "MemberOf": ["Thermocouple", "Boolean Monitor", "Interlock", "Archive"]
+      },
+      "setup": {
+        "CommonNames": [
+          "TC 2-1", "TC 2-2", "TC 2-3", "TC 2-4", "TC 2-5", "TC 2-6", "TC 2-7", "TC 2-8", "TC 2-9", "TC 2-10",
+          "TC 5-1", "TC 5-2", "TC 5-3", "TC 5-4", "TC 5-5", "TC 5-6", "TC 5-7", "TC 5-8", "TC 5-9", "TC 5-10",
+          "TC 6-1", "TC 6-2", "TC 6-3", "TC 6-4", "TC 6-5", "TC 6-6", "TC 6-7", "TC 6-8", "TC 6-9", "TC 6-10",
+          "TC 7-1", "TC 7-2", "TC 7-3", "TC 7-4", "TC 7-5", "TC 7-6", "TC 7-7", "TC 7-8", "TC 7-9", "TC 7-10",
+          "TC 8-1", "TC 8-2", "TC 8-3", "TC 8-4", "TC 8-5", "TC 8-6", "TC 8-7", "TC 8-8", "TC 8-9", "TC 8-10",
+          "TC 9-1", "TC 9-2", "TC 9-3", "TC 9-4", "TC 9-5", "TC 9-6", "TC 9-7", "TC 9-8", "TC 9-9", "TC 9-10",
+          "TC 10-1", "TC 10-2", "TC 10-3", "TC 10-4", "TC 10-5", "TC 10-6", "TC 10-7", "TC 10-8", "TC 10-9", "TC 10-10",
+          "TC 11-1", "TC 11-2", "TC 11-3", "TC 11-4", "TC 11-5", "TC 11-6", "TC 11-7", "TC 11-8", "TC 11-9", "TC 11-10",
+          "TC 12-1", "TC 12-2", "TC 12-3", "TC 12-4", "TC 12-5", "TC 12-6", "TC 12-7", "TC 12-8", "TC 12-9", "TC 12-10"
+        ],
+        "DeviceList": [
+          [2, 1], [2, 2], [2, 3], [2, 4], [2, 5], [2, 6], [2, 7], [2, 8], [2, 9], [2, 10],
+          [5, 1], [5, 2], [5, 3], [5, 4], [5, 5], [5, 6], [5, 7], [5, 8], [5, 9], [5, 10],
+          [6, 1], [6, 2], [6, 3], [6, 4], [6, 5], [6, 6], [6, 7], [6, 8], [6, 9], [6, 10],
+          [7, 1], [7, 2], [7, 3], [7, 4], [7, 5], [7, 6], [7, 7], [7, 8], [7, 9], [7, 10],
+          [8, 1], [8, 2], [8, 3], [8, 4], [8, 5], [8, 6], [8, 7], [8, 8], [8, 9], [8, 10],
+          [9, 1], [9, 2], [9, 3], [9, 4], [9, 5], [9, 6], [9, 7], [9, 8], [9, 9], [9, 10],
+          [10, 1], [10, 2], [10, 3], [10, 4], [10, 5], [10, 6], [10, 7], [10, 8], [10, 9], [10, 10],
+          [11, 1], [11, 2], [11, 3], [11, 4], [11, 5], [11, 6], [11, 7], [11, 8], [11, 9], [11, 10],
+          [12, 1], [12, 2], [12, 3], [12, 4], [12, 5], [12, 6], [12, 7], [12, 8], [12, 9], [12, 10]
+        ],
+        "ElementList": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90]
+      }
+    },
+    "RF": {
+      "_description": "Radio Frequency System: Provides energy to the beam through oscillating electromagnetic fields in RF cavities. Compensates for synchrotron radiation losses. Operating at 499.654 MHz (328th harmonic).",
+      "FrequencyMonitor": {
+        "_description": "RF cavity frequency readback in MHz. Must match harmonic of beam revolution frequency.",
+        "ChannelNames": ["SR:RF1:Freq", "SR:RF2:Freq"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "MHz",
+        "MemberOf": ["RF", "Monitor", "Save", "Archive"]
+      },
+      "FrequencySetpoint": {
+        "_description": "RF cavity frequency setpoint in MHz. Commanded RF frequency.",
+        "ChannelNames": ["SR:RF1:FreqSet", "SR:RF2:FreqSet"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "MHz",
+        "MemberOf": ["RF", "Setpoint", "Save/Restore", "Archive"]
+      },
+      "VoltageMonitor": {
+        "_description": "Cavity Gap Voltage readback in kilovolts. Peak RF voltage across accelerating gap. Determines energy gain per turn.",
+        "ChannelNames": ["SR:RF1:Volt", "SR:RF2:Volt"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "kV",
+        "MemberOf": ["RF", "Monitor", "Save", "Archive"]
+      },
+      "VoltageSetpoint": {
+        "_description": "Cavity Gap Voltage setpoint in kilovolts. Commanded cavity gap voltage.",
+        "ChannelNames": ["SR:RF1:VoltSet", "SR:RF2:VoltSet"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "kV",
+        "MemberOf": ["RF", "Setpoint", "Save/Restore", "Archive"]
+      },
+      "PowerMonitor": {
+        "Forward": {
+          "_description": "RF Forward Power in kilowatts. Power traveling from klystron toward cavity. Indicates RF drive strength.",
+          "ChannelNames": ["SR:RF1:PowerFwd", "SR:RF2:PowerFwd"],
+          "DataType": "Scalar",
+          "Mode": "Online",
+          "Units": "Hardware",
+          "HWUnits": "kW",
+          "MemberOf": ["RF", "Monitor", "Save", "Archive"]
+        },
+        "Reflected": {
+          "_description": "RF Reflected Power in kilowatts. Power bouncing back from cavity. Should be <5% of forward when tuned properly.",
+          "ChannelNames": ["SR:RF1:PowerRev", "SR:RF2:PowerRev"],
+          "DataType": "Scalar",
+          "Mode": "Online",
+          "Units": "Hardware",
+          "HWUnits": "kW",
+          "MemberOf": ["RF", "Monitor", "Save", "Archive"]
+        }
+      },
+      "PhaseMonitor": {
+        "_description": "RF Phase readback in degrees. Phase relationship between cavity and beam.",
+        "ChannelNames": ["SR:RF1:Phase", "SR:RF2:Phase"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "degrees",
+        "MemberOf": ["RF", "Monitor", "Archive"]
+      },
+      "PhaseSetpoint": {
+        "_description": "RF Phase setpoint in degrees. Controls synchronous phase.",
+        "ChannelNames": ["SR:RF1:PhaseSet", "SR:RF2:PhaseSet"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "degrees",
+        "MemberOf": ["RF", "Setpoint", "Save/Restore", "Archive"]
+      },
+      "CavityTemperature": {
+        "_description": "RF cavity body temperature in Celsius. Water-cooled to maintain resonance frequency.",
+        "ChannelNames": ["SR:RF1:Temp", "SR:RF2:Temp"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "°C",
+        "MemberOf": ["RF", "Temperature", "Monitor", "Archive"]
+      },
+      "setup": {
+        "CommonNames": ["RF Cavity 1", "RF Cavity 2"],
+        "DeviceList": [[1, 1], [1, 2]],
+        "ElementList": [1, 2],
+        "Status": [1, 1]
+      }
+    },
+    "ID": {
+      "_description": "Insertion Devices: Undulators and wigglers that produce intense, tunable X-ray beams for experiments. Located in straight sections. Gap controls photon energy spectrum.",
+      "GapMonitor": {
+        "_description": "Insertion device gap readback in millimeters. Smaller gaps produce higher energy photons.",
+        "ChannelNames": [
+          "SR02U:ID:Gap", "SR04U:ID1:Gap", "SR04U:ID2:Gap", "SR05U:ID:Gap",
+          "SR06U:ID:Gap", "SR07U:ID1:Gap", "SR07U:ID2:Gap", "SR08U:ID:Gap",
+          "SR09U:ID:Gap", "SR10U:ID:Gap", "SR11U:ID1:Gap", "SR11U:ID2:Gap", "SR12U:ID:Gap"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "mm",
+        "MemberOf": ["ID", "Insertion Device", "Monitor", "Save", "Archive"]
+      },
+      "GapSetpoint": {
+        "_description": "Insertion device gap setpoint in millimeters. User-requested gap for desired photon energy.",
+        "ChannelNames": [
+          "SR02U:ID:GapSet", "SR04U:ID1:GapSet", "SR04U:ID2:GapSet", "SR05U:ID:GapSet",
+          "SR06U:ID:GapSet", "SR07U:ID1:GapSet", "SR07U:ID2:GapSet", "SR08U:ID:GapSet",
+          "SR09U:ID:GapSet", "SR10U:ID:GapSet", "SR11U:ID1:GapSet", "SR11U:ID2:GapSet", "SR12U:ID:GapSet"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "mm",
+        "MemberOf": ["ID", "Insertion Device", "Setpoint", "Save/Restore", "Archive"]
+      },
+      "Moving": {
+        "_description": "Gap motion status. 1=moving, 0=stationary.",
+        "ChannelNames": [
+          "SR02U:ID:Moving", "SR04U:ID1:Moving", "SR04U:ID2:Moving", "SR05U:ID:Moving",
+          "SR06U:ID:Moving", "SR07U:ID1:Moving", "SR07U:ID2:Moving", "SR08U:ID:Moving",
+          "SR09U:ID:Moving", "SR10U:ID:Moving", "SR11U:ID1:Moving", "SR11U:ID2:Moving", "SR12U:ID:Moving"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "MemberOf": ["ID", "Insertion Device", "Boolean Monitor", "Archive"]
+      },
+      "PermissionGranted": {
+        "_description": "Beamline permission to move ID. Prevents unauthorized gap changes during user experiments.",
+        "ChannelNames": [
+          "SR02U:ID:Permission", "SR04U:ID1:Permission", "SR04U:ID2:Permission", "SR05U:ID:Permission",
+          "SR06U:ID:Permission", "SR07U:ID1:Permission", "SR07U:ID2:Permission", "SR08U:ID:Permission",
+          "SR09U:ID:Permission", "SR10U:ID:Permission", "SR11U:ID1:Permission", "SR11U:ID2:Permission", "SR12U:ID:Permission"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "MemberOf": ["ID", "Insertion Device", "Boolean Monitor", "Archive"]
+      },
+      "setup": {
+        "CommonNames": [
+          "ID 2", "ID 4-1", "ID 4-2", "ID 5", "ID 6", "ID 7-1", "ID 7-2",
+          "ID 8", "ID 9", "ID 10", "ID 11-1", "ID 11-2", "ID 12"
+        ],
+        "DeviceList": [
+          [2, 1], [4, 1], [4, 2], [5, 1], [6, 1], [7, 1], [7, 2],
+          [8, 1], [9, 1], [10, 1], [11, 1], [11, 2], [12, 1]
+        ],
+        "ElementList": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+        "Status": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+      }
+    },
+    "Tune": {
+      "_description": "Betatron Tune Measurement: Measures the number of transverse oscillations per revolution. Critical parameter for beam stability. Tunes must avoid resonances.",
+      "HorizontalMonitor": {
+        "_description": "Horizontal tune readback. Fractional part of betatron oscillations per turn.",
+        "ChannelNames": ["SR:Tune:X"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "MemberOf": ["Tune", "Monitor", "Archive"]
+      },
+      "VerticalMonitor": {
+        "_description": "Vertical tune readback. Fractional part of betatron oscillations per turn.",
+        "ChannelNames": ["SR:Tune:Y"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "MemberOf": ["Tune", "Monitor", "Archive"]
+      },
+      "HorizontalSetpoint": {
+        "_description": "Target horizontal tune. Adjusted via quadrupole currents.",
+        "ChannelNames": ["SR:Tune:X:Setpoint"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "MemberOf": ["Tune", "Setpoint", "Save/Restore"]
+      },
+      "VerticalSetpoint": {
+        "_description": "Target vertical tune. Adjusted via quadrupole currents.",
+        "ChannelNames": ["SR:Tune:Y:Setpoint"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "MemberOf": ["Tune", "Setpoint", "Save/Restore"]
+      },
+      "setup": {
+        "CommonNames": ["Tune Measurement System"],
+        "DeviceList": [[1, 1]],
+        "ElementList": [1]
+      }
+    },
+    "VAC": {
+      "_description": "Storage Ring Vacuum System: Maintains ultra-high vacuum (UHV) to minimize beam-gas scattering and maximize beam lifetime. Typical operating pressure: 10^-9 to 10^-10 Torr. Distributed system with 72 ion pumps and 24 gauges across all 12 sectors.",
+      "IonPump": {
+      "_description": "Ion Pumps: Sputter-ion pumps providing UHV pumping. Use high voltage to ionize and trap gas molecules. 6 pumps per sector for comprehensive coverage.",
+      "Pressure": {
+        "_description": "Vacuum Pressure readback (Torr). Local chamber pressure calculated from pump current. Target: <1×10^-9 Torr for good beam lifetime.",
+        "ChannelNames": [
+          "SR01C:VAC:IP1:Pressure", "SR01C:VAC:IP2:Pressure", "SR01C:VAC:IP3:Pressure", "SR01C:VAC:IP4:Pressure", "SR01C:VAC:IP5:Pressure", "SR01C:VAC:IP6:Pressure",
+          "SR02C:VAC:IP1:Pressure", "SR02C:VAC:IP2:Pressure", "SR02C:VAC:IP3:Pressure", "SR02C:VAC:IP4:Pressure", "SR02C:VAC:IP5:Pressure", "SR02C:VAC:IP6:Pressure",
+          "SR03C:VAC:IP1:Pressure", "SR03C:VAC:IP2:Pressure", "SR03C:VAC:IP3:Pressure", "SR03C:VAC:IP4:Pressure", "SR03C:VAC:IP5:Pressure", "SR03C:VAC:IP6:Pressure",
+          "SR04C:VAC:IP1:Pressure", "SR04C:VAC:IP2:Pressure", "SR04C:VAC:IP3:Pressure", "SR04C:VAC:IP4:Pressure", "SR04C:VAC:IP5:Pressure", "SR04C:VAC:IP6:Pressure",
+          "SR05C:VAC:IP1:Pressure", "SR05C:VAC:IP2:Pressure", "SR05C:VAC:IP3:Pressure", "SR05C:VAC:IP4:Pressure", "SR05C:VAC:IP5:Pressure", "SR05C:VAC:IP6:Pressure",
+          "SR06C:VAC:IP1:Pressure", "SR06C:VAC:IP2:Pressure", "SR06C:VAC:IP3:Pressure", "SR06C:VAC:IP4:Pressure", "SR06C:VAC:IP5:Pressure", "SR06C:VAC:IP6:Pressure",
+          "SR07C:VAC:IP1:Pressure", "SR07C:VAC:IP2:Pressure", "SR07C:VAC:IP3:Pressure", "SR07C:VAC:IP4:Pressure", "SR07C:VAC:IP5:Pressure", "SR07C:VAC:IP6:Pressure",
+          "SR08C:VAC:IP1:Pressure", "SR08C:VAC:IP2:Pressure", "SR08C:VAC:IP3:Pressure", "SR08C:VAC:IP4:Pressure", "SR08C:VAC:IP5:Pressure", "SR08C:VAC:IP6:Pressure",
+          "SR09C:VAC:IP1:Pressure", "SR09C:VAC:IP2:Pressure", "SR09C:VAC:IP3:Pressure", "SR09C:VAC:IP4:Pressure", "SR09C:VAC:IP5:Pressure", "SR09C:VAC:IP6:Pressure",
+          "SR10C:VAC:IP1:Pressure", "SR10C:VAC:IP2:Pressure", "SR10C:VAC:IP3:Pressure", "SR10C:VAC:IP4:Pressure", "SR10C:VAC:IP5:Pressure", "SR10C:VAC:IP6:Pressure",
+          "SR11C:VAC:IP1:Pressure", "SR11C:VAC:IP2:Pressure", "SR11C:VAC:IP3:Pressure", "SR11C:VAC:IP4:Pressure", "SR11C:VAC:IP5:Pressure", "SR11C:VAC:IP6:Pressure",
+          "SR12C:VAC:IP1:Pressure", "SR12C:VAC:IP2:Pressure", "SR12C:VAC:IP3:Pressure", "SR12C:VAC:IP4:Pressure", "SR12C:VAC:IP5:Pressure", "SR12C:VAC:IP6:Pressure"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "Torr",
+        "MemberOf": ["IonPump", "Vacuum", "Monitor", "Archive"]
+      },
+      "Voltage": {
+        "_description": "High Voltage Supply readback (Volts). Operating voltage for ion pump (typically 3-7 kV).",
+        "ChannelNames": [
+          "SR01C:VAC:IP1:HV", "SR01C:VAC:IP2:HV", "SR01C:VAC:IP3:HV", "SR01C:VAC:IP4:HV", "SR01C:VAC:IP5:HV", "SR01C:VAC:IP6:HV",
+          "SR02C:VAC:IP1:HV", "SR02C:VAC:IP2:HV", "SR02C:VAC:IP3:HV", "SR02C:VAC:IP4:HV", "SR02C:VAC:IP5:HV", "SR02C:VAC:IP6:HV",
+          "SR03C:VAC:IP1:HV", "SR03C:VAC:IP2:HV", "SR03C:VAC:IP3:HV", "SR03C:VAC:IP4:HV", "SR03C:VAC:IP5:HV", "SR03C:VAC:IP6:HV",
+          "SR04C:VAC:IP1:HV", "SR04C:VAC:IP2:HV", "SR04C:VAC:IP3:HV", "SR04C:VAC:IP4:HV", "SR04C:VAC:IP5:HV", "SR04C:VAC:IP6:HV",
+          "SR05C:VAC:IP1:HV", "SR05C:VAC:IP2:HV", "SR05C:VAC:IP3:HV", "SR05C:VAC:IP4:HV", "SR05C:VAC:IP5:HV", "SR05C:VAC:IP6:HV",
+          "SR06C:VAC:IP1:HV", "SR06C:VAC:IP2:HV", "SR06C:VAC:IP3:HV", "SR06C:VAC:IP4:HV", "SR06C:VAC:IP5:HV", "SR06C:VAC:IP6:HV",
+          "SR07C:VAC:IP1:HV", "SR07C:VAC:IP2:HV", "SR07C:VAC:IP3:HV", "SR07C:VAC:IP4:HV", "SR07C:VAC:IP5:HV", "SR07C:VAC:IP6:HV",
+          "SR08C:VAC:IP1:HV", "SR08C:VAC:IP2:HV", "SR08C:VAC:IP3:HV", "SR08C:VAC:IP4:HV", "SR08C:VAC:IP5:HV", "SR08C:VAC:IP6:HV",
+          "SR09C:VAC:IP1:HV", "SR09C:VAC:IP2:HV", "SR09C:VAC:IP3:HV", "SR09C:VAC:IP4:HV", "SR09C:VAC:IP5:HV", "SR09C:VAC:IP6:HV",
+          "SR10C:VAC:IP1:HV", "SR10C:VAC:IP2:HV", "SR10C:VAC:IP3:HV", "SR10C:VAC:IP4:HV", "SR10C:VAC:IP5:HV", "SR10C:VAC:IP6:HV",
+          "SR11C:VAC:IP1:HV", "SR11C:VAC:IP2:HV", "SR11C:VAC:IP3:HV", "SR11C:VAC:IP4:HV", "SR11C:VAC:IP5:HV", "SR11C:VAC:IP6:HV",
+          "SR12C:VAC:IP1:HV", "SR12C:VAC:IP2:HV", "SR12C:VAC:IP3:HV", "SR12C:VAC:IP4:HV", "SR12C:VAC:IP5:HV", "SR12C:VAC:IP6:HV"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "kV",
+        "MemberOf": ["IonPump", "Vacuum", "Monitor", "Archive"]
+      },
+      "Current": {
+        "_description": "Ion Pump Current readback (microAmperes). Current proportional to gas pumping rate. Low current (<1 μA) indicates good vacuum.",
+        "ChannelNames": [
+          "SR01C:VAC:IP1:Current", "SR01C:VAC:IP2:Current", "SR01C:VAC:IP3:Current", "SR01C:VAC:IP4:Current", "SR01C:VAC:IP5:Current", "SR01C:VAC:IP6:Current",
+          "SR02C:VAC:IP1:Current", "SR02C:VAC:IP2:Current", "SR02C:VAC:IP3:Current", "SR02C:VAC:IP4:Current", "SR02C:VAC:IP5:Current", "SR02C:VAC:IP6:Current",
+          "SR03C:VAC:IP1:Current", "SR03C:VAC:IP2:Current", "SR03C:VAC:IP3:Current", "SR03C:VAC:IP4:Current", "SR03C:VAC:IP5:Current", "SR03C:VAC:IP6:Current",
+          "SR04C:VAC:IP1:Current", "SR04C:VAC:IP2:Current", "SR04C:VAC:IP3:Current", "SR04C:VAC:IP4:Current", "SR04C:VAC:IP5:Current", "SR04C:VAC:IP6:Current",
+          "SR05C:VAC:IP1:Current", "SR05C:VAC:IP2:Current", "SR05C:VAC:IP3:Current", "SR05C:VAC:IP4:Current", "SR05C:VAC:IP5:Current", "SR05C:VAC:IP6:Current",
+          "SR06C:VAC:IP1:Current", "SR06C:VAC:IP2:Current", "SR06C:VAC:IP3:Current", "SR06C:VAC:IP4:Current", "SR06C:VAC:IP5:Current", "SR06C:VAC:IP6:Current",
+          "SR07C:VAC:IP1:Current", "SR07C:VAC:IP2:Current", "SR07C:VAC:IP3:Current", "SR07C:VAC:IP4:Current", "SR07C:VAC:IP5:Current", "SR07C:VAC:IP6:Current",
+          "SR08C:VAC:IP1:Current", "SR08C:VAC:IP2:Current", "SR08C:VAC:IP3:Current", "SR08C:VAC:IP4:Current", "SR08C:VAC:IP5:Current", "SR08C:VAC:IP6:Current",
+          "SR09C:VAC:IP1:Current", "SR09C:VAC:IP2:Current", "SR09C:VAC:IP3:Current", "SR09C:VAC:IP4:Current", "SR09C:VAC:IP5:Current", "SR09C:VAC:IP6:Current",
+          "SR10C:VAC:IP1:Current", "SR10C:VAC:IP2:Current", "SR10C:VAC:IP3:Current", "SR10C:VAC:IP4:Current", "SR10C:VAC:IP5:Current", "SR10C:VAC:IP6:Current",
+          "SR11C:VAC:IP1:Current", "SR11C:VAC:IP2:Current", "SR11C:VAC:IP3:Current", "SR11C:VAC:IP4:Current", "SR11C:VAC:IP5:Current", "SR11C:VAC:IP6:Current",
+          "SR12C:VAC:IP1:Current", "SR12C:VAC:IP2:Current", "SR12C:VAC:IP3:Current", "SR12C:VAC:IP4:Current", "SR12C:VAC:IP5:Current", "SR12C:VAC:IP6:Current"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "μA",
+        "MemberOf": ["IonPump", "Vacuum", "Monitor", "Archive"]
+      },
+      "setup": {
+        "CommonNames": [
+          "IP 1-1", "IP 1-2", "IP 1-3", "IP 1-4", "IP 1-5", "IP 1-6",
+          "IP 2-1", "IP 2-2", "IP 2-3", "IP 2-4", "IP 2-5", "IP 2-6",
+          "IP 3-1", "IP 3-2", "IP 3-3", "IP 3-4", "IP 3-5", "IP 3-6",
+          "IP 4-1", "IP 4-2", "IP 4-3", "IP 4-4", "IP 4-5", "IP 4-6",
+          "IP 5-1", "IP 5-2", "IP 5-3", "IP 5-4", "IP 5-5", "IP 5-6",
+          "IP 6-1", "IP 6-2", "IP 6-3", "IP 6-4", "IP 6-5", "IP 6-6",
+          "IP 7-1", "IP 7-2", "IP 7-3", "IP 7-4", "IP 7-5", "IP 7-6",
+          "IP 8-1", "IP 8-2", "IP 8-3", "IP 8-4", "IP 8-5", "IP 8-6",
+          "IP 9-1", "IP 9-2", "IP 9-3", "IP 9-4", "IP 9-5", "IP 9-6",
+          "IP 10-1", "IP 10-2", "IP 10-3", "IP 10-4", "IP 10-5", "IP 10-6",
+          "IP 11-1", "IP 11-2", "IP 11-3", "IP 11-4", "IP 11-5", "IP 11-6",
+          "IP 12-1", "IP 12-2", "IP 12-3", "IP 12-4", "IP 12-5", "IP 12-6"
+        ],
+        "DeviceList": [
+          [1, 1], [1, 2], [1, 3], [1, 4], [1, 5], [1, 6],
+          [2, 1], [2, 2], [2, 3], [2, 4], [2, 5], [2, 6],
+          [3, 1], [3, 2], [3, 3], [3, 4], [3, 5], [3, 6],
+          [4, 1], [4, 2], [4, 3], [4, 4], [4, 5], [4, 6],
+          [5, 1], [5, 2], [5, 3], [5, 4], [5, 5], [5, 6],
+          [6, 1], [6, 2], [6, 3], [6, 4], [6, 5], [6, 6],
+          [7, 1], [7, 2], [7, 3], [7, 4], [7, 5], [7, 6],
+          [8, 1], [8, 2], [8, 3], [8, 4], [8, 5], [8, 6],
+          [9, 1], [9, 2], [9, 3], [9, 4], [9, 5], [9, 6],
+          [10, 1], [10, 2], [10, 3], [10, 4], [10, 5], [10, 6],
+          [11, 1], [11, 2], [11, 3], [11, 4], [11, 5], [11, 6],
+          [12, 1], [12, 2], [12, 3], [12, 4], [12, 5], [12, 6]
+        ],
+        "ElementList": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72]
+      }
+    },
+    "Gauge": {
+      "_description": "Vacuum Pressure Gauges: Monitor vacuum pressure at critical locations. Independent measurement from ion pumps. Cold cathode or hot cathode ionization gauges. 2 gauges per sector for redundancy.",
+      "Pressure": {
+        "_description": "Measured Pressure readback (Torr). Direct pressure reading from ionization gauge. True measurement (not calculated like ion pump pressure).",
+        "ChannelNames": [
+          "SR01C:VAC:Gauge1", "SR01C:VAC:Gauge2", "SR02C:VAC:Gauge1", "SR02C:VAC:Gauge2",
+          "SR03C:VAC:Gauge1", "SR03C:VAC:Gauge2", "SR04C:VAC:Gauge1", "SR04C:VAC:Gauge2",
+          "SR05C:VAC:Gauge1", "SR05C:VAC:Gauge2", "SR06C:VAC:Gauge1", "SR06C:VAC:Gauge2",
+          "SR07C:VAC:Gauge1", "SR07C:VAC:Gauge2", "SR08C:VAC:Gauge1", "SR08C:VAC:Gauge2",
+          "SR09C:VAC:Gauge1", "SR09C:VAC:Gauge2", "SR10C:VAC:Gauge1", "SR10C:VAC:Gauge2",
+          "SR11C:VAC:Gauge1", "SR11C:VAC:Gauge2", "SR12C:VAC:Gauge1", "SR12C:VAC:Gauge2"
+        ],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "Torr",
+        "MemberOf": ["Gauge", "Vacuum", "Monitor", "Archive"]
+      },
+      "setup": {
+        "CommonNames": [
+          "Gauge 1-1", "Gauge 1-2", "Gauge 2-1", "Gauge 2-2", "Gauge 3-1", "Gauge 3-2",
+          "Gauge 4-1", "Gauge 4-2", "Gauge 5-1", "Gauge 5-2", "Gauge 6-1", "Gauge 6-2",
+          "Gauge 7-1", "Gauge 7-2", "Gauge 8-1", "Gauge 8-2", "Gauge 9-1", "Gauge 9-2",
+          "Gauge 10-1", "Gauge 10-2", "Gauge 11-1", "Gauge 11-2", "Gauge 12-1", "Gauge 12-2"
+        ],
+        "DeviceList": [
+          [1, 1], [1, 2], [2, 1], [2, 2], [3, 1], [3, 2], [4, 1], [4, 2],
+          [5, 1], [5, 2], [6, 1], [6, 2], [7, 1], [7, 2], [8, 1], [8, 2],
+          [9, 1], [9, 2], [10, 1], [10, 2], [11, 1], [11, 2], [12, 1], [12, 2]
+        ],
+        "ElementList": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+      }
+    }
+  },
+    "Scraper": {
+      "_description": "Storage Ring Beam Scrapers: Movable collimators that define beam aperture and protect vacuum chamber. Used for beam size measurements and controlled beam loss. 4 scrapers at strategic locations around the ring.",
+      "TopPosition": {
+        "_description": "Top scraper position readback in millimeters. Distance from beam center.",
+        "ChannelNames": ["SR01C:Scraper:Top", "SR03S:Scraper:Top", "SR06C:Scraper:Top", "SR12C:Scraper:Top"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "mm",
+        "MemberOf": ["Scraper", "Monitor", "Save", "Archive"]
+      },
+      "BottomPosition": {
+        "_description": "Bottom scraper position readback in millimeters. Distance from beam center.",
+        "ChannelNames": ["SR01C:Scraper:Bottom", "SR03S:Scraper:Bottom", "SR06C:Scraper:Bottom", "SR12C:Scraper:Bottom"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "mm",
+        "MemberOf": ["Scraper", "Monitor", "Save", "Archive"]
+      },
+      "TopSetpoint": {
+        "_description": "Top scraper position setpoint in millimeters.",
+        "ChannelNames": ["SR01C:Scraper:TopSet", "SR03S:Scraper:TopSet", "SR06C:Scraper:TopSet", "SR12C:Scraper:TopSet"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "mm",
+        "MemberOf": ["Scraper", "Setpoint", "Save/Restore"]
+      },
+      "BottomSetpoint": {
+        "_description": "Bottom scraper position setpoint in millimeters.",
+        "ChannelNames": ["SR01C:Scraper:BottomSet", "SR03S:Scraper:BottomSet", "SR06C:Scraper:BottomSet", "SR12C:Scraper:BottomSet"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "mm",
+        "MemberOf": ["Scraper", "Setpoint", "Save/Restore"]
+      },
+      "Moving": {
+        "_description": "Scraper motion status. 1=moving, 0=stationary.",
+        "ChannelNames": ["SR01C:Scraper:Moving", "SR03S:Scraper:Moving", "SR06C:Scraper:Moving", "SR12C:Scraper:Moving"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "MemberOf": ["Scraper", "Boolean Monitor", "Archive"]
+      },
+      "setup": {
+        "CommonNames": ["Scraper 1", "Scraper 3", "Scraper 6", "Scraper 12"],
+        "DeviceList": [[1, 1], [3, 1], [6, 1], [12, 1]],
+        "ElementList": [1, 2, 3, 4]
+      }
+    }
+  },
+  "BR": {
+    "_description": "Booster Ring: Accelerates electron beam from 150 MeV (linac) to 1.9 GeV before injection into storage ring. Operates at 1-10 Hz repetition rate. Compact ring with 4-fold symmetry.",
+    "BPM": {
+      "_description": "Beam Position Monitors in Booster Ring. Measure beam position during acceleration cycle. 8 BPMs for orbit measurement.",
+      "X": {
+        "_description": "Horizontal position readback in millimeters.",
+        "ChannelNames": ["BR:BPM1:X", "BR:BPM2:X", "BR:BPM3:X", "BR:BPM4:X", "BR:BPM5:X", "BR:BPM6:X", "BR:BPM7:X", "BR:BPM8:X"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "mm",
+        "MemberOf": ["BPM", "Monitor", "Archive"]
+      },
+      "Y": {
+        "_description": "Vertical position readback in millimeters.",
+        "ChannelNames": ["BR:BPM1:Y", "BR:BPM2:Y", "BR:BPM3:Y", "BR:BPM4:Y", "BR:BPM5:Y", "BR:BPM6:Y", "BR:BPM7:Y", "BR:BPM8:Y"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "mm",
+        "MemberOf": ["BPM", "Monitor", "Archive"]
+      },
+      "SumSignal": {
+        "_description": "BPM sum signal proportional to beam intensity.",
+        "ChannelNames": ["BR:BPM1:Sum", "BR:BPM2:Sum", "BR:BPM3:Sum", "BR:BPM4:Sum", "BR:BPM5:Sum", "BR:BPM6:Sum", "BR:BPM7:Sum", "BR:BPM8:Sum"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "MemberOf": ["BPM", "Monitor", "Archive"]
+      },
+      "setup": {
+        "CommonNames": ["BR BPM 1", "BR BPM 2", "BR BPM 3", "BR BPM 4", "BR BPM 5", "BR BPM 6", "BR BPM 7", "BR BPM 8"],
+        "DeviceList": [[1, 1], [1, 2], [1, 3], [1, 4], [1, 5], [1, 6], [1, 7], [1, 8]],
+        "ElementList": [1, 2, 3, 4, 5, 6, 7, 8]
+      }
+    },
+    "DCCT": {
+      "_description": "Beam current monitor in Booster Ring. Tracks current during acceleration cycle.",
+      "Monitor": {
+        "_description": "Beam current readback in milliamperes during booster cycle.",
+        "ChannelNames": ["BR:DCCT:Current"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "mA",
+        "MemberOf": ["DCCT", "Monitor", "Archive"]
+      },
+      "setup": {
+        "CommonNames": ["BR Beam Current"],
+        "DeviceList": [[1, 1]],
+        "ElementList": [1]
+      }
+    },
+    "Dipole": {
+      "_description": "Booster Ring Dipole Bending Magnets. Main bending magnets for booster orbit. Ramped during acceleration.",
+      "Monitor": {
+        "_description": "Dipole excitation current readback (Amperes). Ramped to increase beam energy.",
+        "ChannelNames": ["BR:B1:Current", "BR:B2:Current", "BR:B3:Current", "BR:B4:Current"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "Ampere",
+        "MemberOf": ["Dipole", "Magnet", "Monitor", "Archive"]
+      },
+      "Setpoint": {
+        "_description": "Dipole excitation current setpoint (Amperes). Programmed ramp for acceleration.",
+        "ChannelNames": ["BR:B1:SetCurrent", "BR:B2:SetCurrent", "BR:B3:SetCurrent", "BR:B4:SetCurrent"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "Ampere",
+        "MemberOf": ["Dipole", "Magnet", "Setpoint", "Archive"]
+      },
+      "setup": {
+        "CommonNames": ["BR Dipole 1", "BR Dipole 2", "BR Dipole 3", "BR Dipole 4"],
+        "DeviceList": [[1, 1], [1, 2], [1, 3], [1, 4]],
+        "ElementList": [1, 2, 3, 4]
+      }
+    },
+    "Quadrupole": {
+      "_description": "Booster Ring Quadrupoles. 8 quadrupoles for focusing during acceleration.",
+      "Monitor": {
+        "_description": "Quadrupole current readback during ramping cycle.",
+        "ChannelNames": ["BR:Q1:Current", "BR:Q2:Current", "BR:Q3:Current", "BR:Q4:Current", "BR:Q5:Current", "BR:Q6:Current", "BR:Q7:Current", "BR:Q8:Current"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "Ampere",
+        "MemberOf": ["Quadrupole", "Magnet", "Monitor"]
+      },
+      "Setpoint": {
+        "_description": "Quadrupole current setpoint. Programmed waveform for acceleration.",
+        "ChannelNames": ["BR:Q1:SetCurrent", "BR:Q2:SetCurrent", "BR:Q3:SetCurrent", "BR:Q4:SetCurrent", "BR:Q5:SetCurrent", "BR:Q6:SetCurrent", "BR:Q7:SetCurrent", "BR:Q8:SetCurrent"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "Ampere",
+        "MemberOf": ["Quadrupole", "Magnet", "Setpoint"]
+      },
+      "setup": {
+        "CommonNames": ["BR Q1", "BR Q2", "BR Q3", "BR Q4", "BR Q5", "BR Q6", "BR Q7", "BR Q8"],
+        "DeviceList": [[1, 1], [1, 2], [1, 3], [1, 4], [1, 5], [1, 6], [1, 7], [1, 8]],
+        "ElementList": [1, 2, 3, 4, 5, 6, 7, 8]
+      }
+    }
+  },
+  "BTS": {
+    "_description": "Booster-to-Storage transfer line: Beam transport line that guides accelerated beam from booster ring to storage ring. Includes steering magnets and diagnostics. ~35m beamline with 6 BPMs and 18 steering magnets.",
+    "BPM": {
+      "_description": "Transfer line Beam Position Monitors. Monitor beam trajectory during injection. 6 BPMs along transport line.",
+      "X": {
+        "_description": "Horizontal position in transfer line (millimeters).",
+        "ChannelNames": ["BTS:BPM1:X", "BTS:BPM2:X", "BTS:BPM3:X", "BTS:BPM4:X", "BTS:BPM5:X", "BTS:BPM6:X"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "mm",
+        "MemberOf": ["BPM", "Monitor", "Archive"]
+      },
+      "Y": {
+        "_description": "Vertical position in transfer line (millimeters).",
+        "ChannelNames": ["BTS:BPM1:Y", "BTS:BPM2:Y", "BTS:BPM3:Y", "BTS:BPM4:Y", "BTS:BPM5:Y", "BTS:BPM6:Y"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "mm",
+        "MemberOf": ["BPM", "Monitor", "Archive"]
+      },
+      "SumSignal": {
+        "_description": "BPM sum signal for beam intensity monitoring during transfer.",
+        "ChannelNames": ["BTS:BPM1:Sum", "BTS:BPM2:Sum", "BTS:BPM3:Sum", "BTS:BPM4:Sum", "BTS:BPM5:Sum", "BTS:BPM6:Sum"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "MemberOf": ["BPM", "Monitor", "Archive"]
+      },
+      "setup": {
+        "CommonNames": ["BTS BPM 1", "BTS BPM 2", "BTS BPM 3", "BTS BPM 4", "BTS BPM 5", "BTS BPM 6"],
+        "DeviceList": [[1, 1], [1, 2], [1, 3], [1, 4], [1, 5], [1, 6]],
+        "ElementList": [1, 2, 3, 4, 5, 6]
+      }
+    },
+    "HCM": {
+      "_description": "Horizontal steering magnets in transfer line. 9 correctors for trajectory control.",
+      "Monitor": {
+        "_description": "Horizontal corrector current readback in Amperes.",
+        "ChannelNames": ["BTS:HCM1:Current", "BTS:HCM2:Current", "BTS:HCM3:Current", "BTS:HCM4:Current", "BTS:HCM5:Current", "BTS:HCM6:Current", "BTS:HCM7:Current", "BTS:HCM8:Current", "BTS:HCM9:Current"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "Ampere",
+        "MemberOf": ["HCM", "Magnet", "Monitor", "Archive"]
+      },
+      "Setpoint": {
+        "_description": "Horizontal corrector current setpoint in Amperes.",
+        "ChannelNames": ["BTS:HCM1:SetCurrent", "BTS:HCM2:SetCurrent", "BTS:HCM3:SetCurrent", "BTS:HCM4:SetCurrent", "BTS:HCM5:SetCurrent", "BTS:HCM6:SetCurrent", "BTS:HCM7:SetCurrent", "BTS:HCM8:SetCurrent", "BTS:HCM9:SetCurrent"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "Ampere",
+        "MemberOf": ["HCM", "Magnet", "Setpoint", "Save/Restore"]
+      },
+      "Ready": {
+        "_description": "Power supply ready status for horizontal correctors.",
+        "ChannelNames": ["BTS:HCM1:Ready", "BTS:HCM2:Ready", "BTS:HCM3:Ready", "BTS:HCM4:Ready", "BTS:HCM5:Ready", "BTS:HCM6:Ready", "BTS:HCM7:Ready", "BTS:HCM8:Ready", "BTS:HCM9:Ready"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "MemberOf": ["HCM", "Boolean Monitor", "Archive"]
+      },
+      "setup": {
+        "CommonNames": ["BTS HCM 1", "BTS HCM 2", "BTS HCM 3", "BTS HCM 4", "BTS HCM 5", "BTS HCM 6", "BTS HCM 7", "BTS HCM 8", "BTS HCM 9"],
+        "DeviceList": [[1, 1], [1, 2], [1, 3], [1, 4], [1, 5], [1, 6], [1, 7], [1, 8], [1, 9]],
+        "ElementList": [1, 2, 3, 4, 5, 6, 7, 8, 9]
+      }
+    },
+    "VCM": {
+      "_description": "Vertical steering magnets in transfer line. 9 correctors for trajectory control.",
+      "Monitor": {
+        "_description": "Vertical corrector current readback in Amperes.",
+        "ChannelNames": ["BTS:VCM1:Current", "BTS:VCM2:Current", "BTS:VCM3:Current", "BTS:VCM4:Current", "BTS:VCM5:Current", "BTS:VCM6:Current", "BTS:VCM7:Current", "BTS:VCM8:Current", "BTS:VCM9:Current"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "Ampere",
+        "MemberOf": ["VCM", "Magnet", "Monitor", "Archive"]
+      },
+      "Setpoint": {
+        "_description": "Vertical corrector current setpoint in Amperes.",
+        "ChannelNames": ["BTS:VCM1:SetCurrent", "BTS:VCM2:SetCurrent", "BTS:VCM3:SetCurrent", "BTS:VCM4:SetCurrent", "BTS:VCM5:SetCurrent", "BTS:VCM6:SetCurrent", "BTS:VCM7:SetCurrent", "BTS:VCM8:SetCurrent", "BTS:VCM9:SetCurrent"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "Ampere",
+        "MemberOf": ["VCM", "Magnet", "Setpoint", "Save/Restore"]
+      },
+      "Ready": {
+        "_description": "Power supply ready status for vertical correctors.",
+        "ChannelNames": ["BTS:VCM1:Ready", "BTS:VCM2:Ready", "BTS:VCM3:Ready", "BTS:VCM4:Ready", "BTS:VCM5:Ready", "BTS:VCM6:Ready", "BTS:VCM7:Ready", "BTS:VCM8:Ready", "BTS:VCM9:Ready"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "MemberOf": ["VCM", "Boolean Monitor", "Archive"]
+      },
+      "setup": {
+        "CommonNames": ["BTS VCM 1", "BTS VCM 2", "BTS VCM 3", "BTS VCM 4", "BTS VCM 5", "BTS VCM 6", "BTS VCM 7", "BTS VCM 8", "BTS VCM 9"],
+        "DeviceList": [[1, 1], [1, 2], [1, 3], [1, 4], [1, 5], [1, 6], [1, 7], [1, 8], [1, 9]],
+        "ElementList": [1, 2, 3, 4, 5, 6, 7, 8, 9]
+      }
+    },
+    "Quadrupole": {
+      "_description": "Transfer line quadrupoles for beam matching. 11 quadrupoles shape beam for optimal injection.",
+      "Monitor": {
+        "_description": "Quadrupole current readback in Amperes.",
+        "ChannelNames": ["BTS:Q1:Current", "BTS:Q2:Current", "BTS:Q3:Current", "BTS:Q4:Current", "BTS:Q5:Current", "BTS:Q6:Current", "BTS:Q7:Current", "BTS:Q8:Current", "BTS:Q9:Current", "BTS:Q10:Current", "BTS:Q11:Current"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "Ampere",
+        "MemberOf": ["Quadrupole", "Magnet", "Monitor", "Archive"]
+      },
+      "Setpoint": {
+        "_description": "Quadrupole current setpoint in Amperes.",
+        "ChannelNames": ["BTS:Q1:SetCurrent", "BTS:Q2:SetCurrent", "BTS:Q3:SetCurrent", "BTS:Q4:SetCurrent", "BTS:Q5:SetCurrent", "BTS:Q6:SetCurrent", "BTS:Q7:SetCurrent", "BTS:Q8:SetCurrent", "BTS:Q9:SetCurrent", "BTS:Q10:SetCurrent", "BTS:Q11:SetCurrent"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "Ampere",
+        "MemberOf": ["Quadrupole", "Magnet", "Setpoint", "Save/Restore"]
+      },
+      "Ready": {
+        "_description": "Quadrupole power supply ready status.",
+        "ChannelNames": ["BTS:Q1:Ready", "BTS:Q2:Ready", "BTS:Q3:Ready", "BTS:Q4:Ready", "BTS:Q5:Ready", "BTS:Q6:Ready", "BTS:Q7:Ready", "BTS:Q8:Ready", "BTS:Q9:Ready", "BTS:Q10:Ready", "BTS:Q11:Ready"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "MemberOf": ["Quadrupole", "Boolean Monitor", "Archive"]
+      },
+      "setup": {
+        "CommonNames": ["BTS Q1", "BTS Q2", "BTS Q3", "BTS Q4", "BTS Q5", "BTS Q6", "BTS Q7", "BTS Q8", "BTS Q9", "BTS Q10", "BTS Q11"],
+        "DeviceList": [[1, 1], [1, 2], [1, 3], [1, 4], [1, 5], [1, 6], [1, 7], [1, 8], [1, 9], [1, 10], [1, 11]],
+        "ElementList": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+      }
+    },
+    "Kicker": {
+      "_description": "Injection kicker magnet: Fast pulsed magnet that deflects incoming beam from transfer line onto the storage ring orbit. Pulse width ~1 microsecond.",
+      "Monitor": {
+        "_description": "Kicker voltage readback (kilovolts). Actual pulse voltage during injection.",
+        "ChannelNames": ["BTS:KICKER:Voltage"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "kV",
+        "MemberOf": ["Kicker", "Monitor", "Archive"]
+      },
+      "Setpoint": {
+        "_description": "Kicker voltage setpoint (kilovolts). Commanded pulse voltage for optimal injection.",
+        "ChannelNames": ["BTS:KICKER:VoltSet"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "kV",
+        "MemberOf": ["Kicker", "Setpoint", "Save/Restore"]
+      },
+      "Timing": {
+        "_description": "Kicker pulse timing delay in microseconds. Synchronized with booster extraction.",
+        "ChannelNames": ["BTS:KICKER:Delay"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "μs",
+        "MemberOf": ["Kicker", "Timing", "Setpoint", "Archive"]
+      },
+      "setup": {
+        "CommonNames": ["BTS Injection Kicker"],
+        "DeviceList": [[1, 1]],
+        "ElementList": [1]
+      }
+    },
+    "Septum": {
+      "_description": "Injection septum magnet: Thin current sheet that separates injected beam from circulating beam. Creates strong local field for beam deflection without disturbing stored beam. Two septa for clean separation.",
+      "Monitor": {
+        "_description": "Septum current readback (Amperes). Measured current through septum conductor.",
+        "ChannelNames": ["BTS:SEPTUM1:Current", "BTS:SEPTUM2:Current"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "Ampere",
+        "MemberOf": ["Septum", "Monitor", "Archive"]
+      },
+      "Setpoint": {
+        "_description": "Septum current setpoint (Amperes). Commanded deflection current for injection trajectory.",
+        "ChannelNames": ["BTS:SEPTUM1:SetCurrent", "BTS:SEPTUM2:SetCurrent"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "Ampere",
+        "MemberOf": ["Septum", "Setpoint", "Save/Restore"]
+      },
+      "Ready": {
+        "_description": "Septum power supply ready status.",
+        "ChannelNames": ["BTS:SEPTUM1:Ready", "BTS:SEPTUM2:Ready"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "MemberOf": ["Septum", "Boolean Monitor", "Archive"]
+      },
+      "setup": {
+        "CommonNames": ["BTS Septum 1", "BTS Septum 2"],
+        "DeviceList": [[1, 1], [1, 2]],
+        "ElementList": [1, 2]
+      }
+    },
+    "TransferEfficiency": {
+      "_description": "Injection efficiency monitoring. Ratio of injected charge to extracted charge from booster.",
+      "Monitor": {
+        "_description": "Transfer efficiency as percentage. Target >95% for good injection.",
+        "ChannelNames": ["BTS:Efficiency"],
+        "DataType": "Scalar",
+        "Mode": "Online",
+        "Units": "Hardware",
+        "HWUnits": "%",
+        "MemberOf": ["Diagnostics", "Monitor", "Archive"]
+      },
+      "setup": {
+        "CommonNames": ["BTS Transfer Efficiency"],
+        "DeviceList": [[1, 1]],
+        "ElementList": [1]
+      }
+    }
+  }
+}

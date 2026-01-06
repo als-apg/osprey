@@ -69,12 +69,13 @@ class StreamWriter:
             source: (Deprecated) Source type - no longer needed with flat config structure
         """
         import warnings
+
         if source is not None:
             warnings.warn(
                 f"The 'source' parameter in StreamWriter('{source}', '{component}') is deprecated. "
                 f"Use StreamWriter('{component}') instead.",
                 DeprecationWarning,
-                stacklevel=2
+                stacklevel=2,
             )
 
         self.source = source or "osprey"  # Keep for event metadata
@@ -93,21 +94,21 @@ class StreamWriter:
             return TASK_PREPARATION_STEPS[component]
 
         # For execution phase components, use StateManager utilities
-        if state and hasattr(state, 'get'):
+        if state and hasattr(state, "get"):
             try:
                 from osprey.state.state_manager import StateManager
 
                 # Get execution plan and current step index
-                execution_plan = state.get('planning_execution_plan')
-                if execution_plan and execution_plan.get('steps'):
+                execution_plan = state.get("planning_execution_plan")
+                if execution_plan and execution_plan.get("steps"):
                     current_step_index = StateManager.get_current_step_index(state)
-                    total_steps = len(execution_plan.get('steps', []))
+                    total_steps = len(execution_plan.get("steps", []))
 
                     if total_steps > 0:
                         return {
                             "step": current_step_index + 1,  # Display as 1-based
                             "total_steps": total_steps,
-                            "phase": "Execution"
+                            "phase": "Execution",
                         }
             except Exception as e:
                 # Graceful degradation if StateManager unavailable
@@ -127,7 +128,7 @@ class StreamWriter:
             "component": self.component,
             "timestamp": time.time(),
             **self.step_info,
-            **kwargs
+            **kwargs,
         }
 
         # Clean up None values
@@ -202,7 +203,7 @@ def get_streamer(component: str, state: Any | None = None, *, source: str = None
         f"or get_logger('{component}', state=state) for automatic streaming support. "
         f"See ComponentLogger documentation for migration details.",
         DeprecationWarning,
-        stacklevel=2
+        stacklevel=2,
     )
 
     if source is not None:
@@ -210,7 +211,7 @@ def get_streamer(component: str, state: Any | None = None, *, source: str = None
             f"The 'source' parameter in get_streamer('{source}', '{component}') is deprecated. "
             f"Use get_streamer('{component}') instead.",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
 
     return StreamWriter(component, state, source=source)

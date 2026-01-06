@@ -39,8 +39,8 @@ class TemplateManager:
         self.template_root = self._get_template_root()
         self.jinja_env = Environment(
             loader=FileSystemLoader(str(self.template_root)),
-            autoescape=select_autoescape(['html', 'xml']),
-            keep_trailing_newline=True
+            autoescape=select_autoescape(["html", "xml"]),
+            keep_trailing_newline=True,
         )
 
     def _get_template_root(self) -> Path:
@@ -55,6 +55,7 @@ class TemplateManager:
         try:
             # Try to import osprey.templates to find its location
             import osprey.templates
+
             template_path = Path(osprey.templates.__file__).parent
             if template_path.exists():
                 return template_path
@@ -67,8 +68,7 @@ class TemplateManager:
             return fallback_path
 
         raise RuntimeError(
-            "Could not locate osprey templates directory. "
-            "Ensure osprey is properly installed."
+            "Could not locate osprey templates directory. Ensure osprey is properly installed."
         )
 
     def _detect_environment_variables(self) -> dict[str, str]:
@@ -89,14 +89,15 @@ class TemplateManager:
         """
         # List of environment variables we want to detect and potentially use
         env_vars_to_check = [
-            'CBORG_API_KEY',
-            'OPENAI_API_KEY',
-            'ANTHROPIC_API_KEY',
-            'GOOGLE_API_KEY',
-            'STANFORD_API_KEY',
-            'PROJECT_ROOT',
-            'LOCAL_PYTHON_VENV',
-            'TZ',
+            "CBORG_API_KEY",
+            "OPENAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "GOOGLE_API_KEY",
+            "ARGO_API_KEY",
+            "STANFORD_API_KEY",
+            "PROJECT_ROOT",
+            "LOCAL_PYTHON_VENV",
+            "TZ",
         ]
 
         detected = {}
@@ -122,10 +123,9 @@ class TemplateManager:
         if not apps_dir.exists():
             return []
 
-        return sorted([
-            d.name for d in apps_dir.iterdir()
-            if d.is_dir() and not d.name.startswith('_')
-        ])
+        return sorted(
+            [d.name for d in apps_dir.iterdir() if d.is_dir() and not d.name.startswith("_")]
+        )
 
     def render_template(self, template_path: str, context: dict[str, Any], output_path: Path):
         """Render a single template file.
@@ -143,7 +143,8 @@ class TemplateManager:
         rendered = template.render(**context)
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(rendered)
+        # Use UTF-8 encoding explicitly to support Unicode characters on Windows
+        output_path.write_text(rendered, encoding="utf-8")
 
     def create_project(
         self,
@@ -152,7 +153,7 @@ class TemplateManager:
         template_name: str = "minimal",
         registry_style: str = "extend",
         context: dict[str, Any] | None = None,
-        force: bool = False
+        force: bool = False,
     ) -> Path:
         """Create complete project from template.
 
@@ -213,6 +214,7 @@ class TemplateManager:
 
         # Detect current Python environment
         import sys
+
         current_python = sys.executable
 
         # Detect environment variables from the system
@@ -234,44 +236,50 @@ class TemplateManager:
             "template_name": template_name,  # Make template name available in config.yml
             # Add detected environment variables
             "env": detected_env_vars,
-            **(context or {})
+            **(context or {}),
         }
 
         # Derive channel finder configuration if control_assistant template
-        if template_name == 'control_assistant':
-            channel_finder_mode = ctx.get('channel_finder_mode', 'both')
+        if template_name == "control_assistant":
+            channel_finder_mode = ctx.get("channel_finder_mode", "all")
 
             # Derive boolean flags for conditional templates
-            enable_in_context = channel_finder_mode in ['in_context', 'both']
-            enable_hierarchical = channel_finder_mode in ['hierarchical', 'both']
+            enable_in_context = channel_finder_mode in ["in_context", "all"]
+            enable_hierarchical = channel_finder_mode in ["hierarchical", "all"]
+            enable_middle_layer = channel_finder_mode in ["middle_layer", "all"]
 
             # Determine default pipeline (for config.yml)
-            if channel_finder_mode == 'both':
-                default_pipeline = 'hierarchical'  # Default to more scalable option
+            if channel_finder_mode == "all":
+                default_pipeline = "hierarchical"  # Default to most scalable option
             else:
                 default_pipeline = channel_finder_mode
 
             # Add channel finder context variables
-            ctx.update({
-                'channel_finder_mode': channel_finder_mode,
-                'enable_in_context': enable_in_context,
-                'enable_hierarchical': enable_hierarchical,
-                'default_pipeline': default_pipeline,
-                'in_context_db_path': 'data/channel_databases/in_context.json',
-                'hierarchical_db_path': 'data/channel_databases/hierarchical.json',
-            })
+            ctx.update(
+                {
+                    "channel_finder_mode": channel_finder_mode,
+                    "enable_in_context": enable_in_context,
+                    "enable_hierarchical": enable_hierarchical,
+                    "enable_middle_layer": enable_middle_layer,
+                    "default_pipeline": default_pipeline,
+                    "in_context_db_path": "data/channel_databases/in_context.json",
+                    "hierarchical_db_path": "data/channel_databases/hierarchical.json",
+                    "middle_layer_db_path": "data/channel_databases/middle_layer.json",
+                }
+            )
 
         # 4. Create project structure
         self._create_project_structure(project_dir, template_name, ctx)
 
-        # 5. Copy services (skip for hello_world_weather as it doesn't use containers)
-        if template_name != 'hello_world_weather':
-            self.copy_services(project_dir)
+        # 5. Copy services
+        self.copy_services(project_dir)
 
         # 6. Create src directory and application code
         src_dir = project_dir / "src"
         src_dir.mkdir(parents=True, exist_ok=True)
-        self._create_application_code(src_dir, package_name, template_name, ctx, registry_style, project_dir)
+        self._create_application_code(
+            src_dir, package_name, template_name, ctx, registry_style, project_dir
+        )
 
         # 7. Create _agent_data directory structure
         self._create_agent_data_structure(project_dir, ctx)
@@ -305,7 +313,9 @@ class TemplateManager:
 
         for template_file, output_file in files_to_render:
             # Check if app template has its own version first (e.g., requirements.txt.j2)
-            app_specific_template = app_template_dir / (template_file + ".j2" if not template_file.endswith(".j2") else template_file)
+            app_specific_template = app_template_dir / (
+                template_file + ".j2" if not template_file.endswith(".j2") else template_file
+            )
             default_template = project_template_dir / template_file
 
             if app_specific_template.exists():
@@ -313,31 +323,31 @@ class TemplateManager:
                 self.render_template(
                     f"apps/{template_name}/{app_specific_template.name}",
                     ctx,
-                    project_dir / output_file
+                    project_dir / output_file,
                 )
             elif default_template.exists():
                 # Use default project template
-                self.render_template(
-                    f"project/{template_file}",
-                    ctx,
-                    project_dir / output_file
-                )
+                self.render_template(f"project/{template_file}", ctx, project_dir / output_file)
 
         # Create .env file only if API keys are detected
-        detected_env_vars = ctx.get('env', {})
-        api_keys = ['CBORG_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GOOGLE_API_KEY']
+        detected_env_vars = ctx.get("env", {})
+        api_keys = [
+            "CBORG_API_KEY",
+            "OPENAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "GOOGLE_API_KEY",
+            "ARGO_API_KEY",
+            "STANFORD_API_KEY",
+        ]
         has_api_keys = any(key in detected_env_vars for key in api_keys)
 
         if has_api_keys:
             env_template = project_template_dir / "env.j2"
             if env_template.exists():
-                self.render_template(
-                    "project/env.j2",
-                    ctx,
-                    project_dir / ".env"
-                )
+                self.render_template("project/env.j2", ctx, project_dir / ".env")
                 # Set proper permissions (owner read/write only)
                 import os
+
                 os.chmod(project_dir / ".env", 0o600)
 
         # Copy static files
@@ -350,6 +360,16 @@ class TemplateManager:
         gitignore_source = project_template_dir / "gitignore"
         if gitignore_source.exists():
             shutil.copy(gitignore_source, project_dir / ".gitignore")
+
+        # Render Claude generator config if code_generator is set to 'claude_code'
+        if ctx.get("code_generator") == "claude_code":
+            claude_config_template = app_template_dir / "claude_generator_config.yml.j2"
+            if claude_config_template.exists():
+                self.render_template(
+                    f"apps/{template_name}/claude_generator_config.yml.j2",
+                    ctx,
+                    project_dir / "claude_generator_config.yml",
+                )
 
     def copy_services(self, project_dir: Path):
         """Copy service configurations to project (flattened structure).
@@ -372,7 +392,7 @@ class TemplateManager:
         for item in src_services.iterdir():
             if item.is_dir():
                 shutil.copytree(item, dst_services / item.name, dirs_exist_ok=True)
-            elif item.is_file() and item.suffix in ['.j2', '.yml', '.yaml']:
+            elif item.is_file() and item.suffix in [".j2", ".yml", ".yaml"]:
                 # Copy docker-compose template/config files
                 shutil.copy(item, dst_services / item.name)
 
@@ -383,7 +403,7 @@ class TemplateManager:
         template_name: str,
         ctx: dict,
         registry_style: str = "extend",
-        project_root: Path = None
+        project_root: Path = None,
     ):
         """Create application code from template.
 
@@ -413,16 +433,25 @@ class TemplateManager:
             project_root = src_dir.parent
 
         # Add registry_style to context for templates that might use it
-        ctx['registry_style'] = registry_style
+        ctx["registry_style"] = registry_style
 
         # Project-level files that should only live at project root, not in src/
         # These are handled by _create_project_structure() and should be skipped here
         PROJECT_LEVEL_FILES = {
-            'config.yml.j2', 'config.yml',
-            'README.md.j2', 'README.md',
-            'env.example.j2', 'env.example', 'env.j2', '.env',
-            'requirements.txt.j2', 'requirements.txt',
-            'pyproject.toml.j2', 'pyproject.toml'
+            "config.yml.j2",
+            "config.yml",
+            "README.md.j2",
+            "README.md",
+            "env.example.j2",
+            "env.example",
+            "env.j2",
+            ".env",
+            "requirements.txt.j2",
+            "requirements.txt",
+            "pyproject.toml.j2",
+            "pyproject.toml",
+            "claude_generator_config.yml.j2",
+            "claude_generator_config.yml",
         }
 
         # Process all files in the template
@@ -454,11 +483,10 @@ class TemplateManager:
                 if registry_style == "standalone" and output_name == "registry.py":
                     self._generate_explicit_registry(output_path, ctx, template_name)
                 else:
-                    self.render_template(
-                        f"apps/{template_name}/{rel_path}",
-                        ctx,
-                        output_path
-                    )
+                    # Convert Windows backslashes to forward slashes for Jinja2
+                    # (harmless on Linux/macOS where paths already use forward slashes)
+                    template_path_str = f"apps/{template_name}/{rel_path}".replace("\\", "/")
+                    self.render_template(template_path_str, ctx, output_path)
             else:
                 # Static file - copy directly
                 output_path = base_output_dir / output_rel_path
@@ -473,6 +501,7 @@ class TemplateManager:
         """
         try:
             from osprey import __version__
+
             return __version__
         except (ImportError, AttributeError):
             return "0.7.0"
@@ -494,8 +523,8 @@ class TemplateManager:
             'WeatherApp'
         """
         # Convert snake_case to PascalCase
-        words = package_name.split('_')
-        class_name = ''.join(word.capitalize() for word in words)
+        words = package_name.split("_")
+        class_name = "".join(word.capitalize() for word in words)
         return class_name
 
     def _generate_explicit_registry(self, output_path: Path, ctx: dict, template_name: str):
@@ -526,7 +555,7 @@ class TemplateManager:
         context_classes = []
 
         # Parse CapabilityRegistration entries
-        capability_pattern = r'CapabilityRegistration\((.*?)\)'
+        capability_pattern = r"CapabilityRegistration\((.*?)\)"
         for match in re.finditer(capability_pattern, template_content, re.DOTALL):
             reg_content = match.group(1)
 
@@ -535,37 +564,41 @@ class TemplateManager:
             module_path_match = re.search(r'module_path\s*=\s*"([^"]+)"', reg_content)
             class_name_match = re.search(r'class_name\s*=\s*"([^"]+)"', reg_content)
             description_match = re.search(r'description\s*=\s*"([^"]+)"', reg_content)
-            provides_match = re.search(r'provides\s*=\s*\[([^\]]+)\]', reg_content)
-            requires_match = re.search(r'requires\s*=\s*\[([^\]]*)\]', reg_content)
+            provides_match = re.search(r"provides\s*=\s*\[([^\]]+)\]", reg_content)
+            requires_match = re.search(r"requires\s*=\s*\[([^\]]*)\]", reg_content)
 
             if name_match and module_path_match and class_name_match:
                 # Process provides list
                 provides = []
                 if provides_match:
                     provides_str = provides_match.group(1)
-                    provides = [item.strip().strip('"\'') for item in provides_str.split(',')]
+                    provides = [item.strip().strip("\"'") for item in provides_str.split(",")]
 
                 # Process requires list
                 requires = []
                 if requires_match and requires_match.group(1).strip():
                     requires_str = requires_match.group(1)
-                    requires = [item.strip().strip('"\'') for item in requires_str.split(',')]
+                    requires = [item.strip().strip("\"'") for item in requires_str.split(",")]
 
                 # Substitute template variables
-                module_path = module_path_match.group(1).replace('{{ package_name }}', ctx['package_name'])
+                module_path = module_path_match.group(1).replace(
+                    "{{ package_name }}", ctx["package_name"]
+                )
                 description = description_match.group(1) if description_match else ""
 
-                capabilities.append(CapabilityRegistration(
-                    name=name_match.group(1),
-                    module_path=module_path,
-                    class_name=class_name_match.group(1),
-                    description=description,
-                    provides=provides,
-                    requires=requires
-                ))
+                capabilities.append(
+                    CapabilityRegistration(
+                        name=name_match.group(1),
+                        module_path=module_path,
+                        class_name=class_name_match.group(1),
+                        description=description,
+                        provides=provides,
+                        requires=requires,
+                    )
+                )
 
         # Parse ContextClassRegistration entries
-        context_pattern = r'ContextClassRegistration\((.*?)\)'
+        context_pattern = r"ContextClassRegistration\((.*?)\)"
         for match in re.finditer(context_pattern, template_content, re.DOTALL):
             reg_content = match.group(1)
 
@@ -575,26 +608,31 @@ class TemplateManager:
 
             if context_type_match and module_path_match and class_name_match:
                 # Substitute template variables
-                module_path = module_path_match.group(1).replace('{{ package_name }}', ctx['package_name'])
+                module_path = module_path_match.group(1).replace(
+                    "{{ package_name }}", ctx["package_name"]
+                )
 
-                context_classes.append(ContextClassRegistration(
-                    context_type=context_type_match.group(1),
-                    module_path=module_path,
-                    class_name=class_name_match.group(1)
-                ))
+                context_classes.append(
+                    ContextClassRegistration(
+                        context_type=context_type_match.group(1),
+                        module_path=module_path,
+                        class_name=class_name_match.group(1),
+                    )
+                )
 
         # Generate the explicit registry code
         registry_code = generate_explicit_registry_code(
-            app_class_name=ctx['app_class_name'],
-            app_display_name=ctx['app_display_name'],
-            package_name=ctx['package_name'],
+            app_class_name=ctx["app_class_name"],
+            app_display_name=ctx["app_display_name"],
+            package_name=ctx["package_name"],
             capabilities=capabilities if capabilities else None,
-            context_classes=context_classes if context_classes else None
+            context_classes=context_classes if context_classes else None,
         )
 
         # Write to output file
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(registry_code)
+        # Use UTF-8 encoding explicitly to support Unicode characters on Windows
+        output_path.write_text(registry_code, encoding="utf-8")
 
     def _create_agent_data_structure(self, project_dir: Path, ctx: dict):
         """Create _agent_data directory structure for the project.
@@ -605,7 +643,7 @@ class TemplateManager:
 
         Args:
             project_dir: Root directory of the project
-            ctx: Template context variables (unused but kept for consistency)
+            ctx: Template context variables (used for conditional directory creation)
         """
         # Create main _agent_data directory
         agent_data_dir = project_dir / "_agent_data"
@@ -618,16 +656,64 @@ class TemplateManager:
             "user_memory",
             "registry_exports",
             "prompts",
-            "checkpoints"
+            "checkpoints",
+            "api_calls",
         ]
+
+        # Conditionally add example_scripts for control_assistant with claude_code generator
+        template_name = ctx.get("template_name", "")
+        code_generator = ctx.get("code_generator", "")
+        copy_example_scripts = (
+            template_name == "control_assistant" and code_generator == "claude_code"
+        )
+
+        if copy_example_scripts:
+            subdirs.append("example_scripts/plotting")
 
         for subdir in subdirs:
             subdir_path = agent_data_dir / subdir
             subdir_path.mkdir(parents=True, exist_ok=True)
 
-        console.print(f"  [success]✓[/success] Created agent data structure at [path]{agent_data_dir}[/path]")
+        # Copy example script files if using claude_code generator
+        if copy_example_scripts:
+            template_examples_dir = (
+                self.template_root
+                / "apps"
+                / "control_assistant"
+                / "_agent_data"
+                / "example_scripts"
+            )
+            if template_examples_dir.exists():
+                # Copy plotting examples
+                template_plotting = template_examples_dir / "plotting"
+                project_plotting = agent_data_dir / "example_scripts" / "plotting"
+
+                if template_plotting.exists():
+                    # Copy all Python and README files
+                    files_copied = 0
+                    for file_path in template_plotting.iterdir():
+                        if file_path.is_file() and (
+                            file_path.suffix == ".py" or file_path.name == "README.md"
+                        ):
+                            shutil.copy2(file_path, project_plotting / file_path.name)
+                            files_copied += 1
+
+                    if files_copied > 0:
+                        console.print(
+                            f"  [success]✓[/success] Copied {files_copied} example script(s) to [path]_agent_data/example_scripts/plotting/[/path]"
+                        )
+                else:
+                    console.print(
+                        f"  [warning]⚠[/warning] Template example scripts not found at {template_plotting}",
+                        style="yellow",
+                    )
+
+        console.print(
+            f"  [success]✓[/success] Created agent data structure at [path]{agent_data_dir}[/path]"
+        )
 
         # Create a README to explain the directory structure
+        # Base content for all projects
         readme_content = """# Agent Data Directory
 
 This directory contains runtime data generated by the Osprey Framework:
@@ -638,12 +724,42 @@ This directory contains runtime data generated by the Osprey Framework:
 - `registry_exports/`: Exported registry information
 - `prompts/`: Generated prompts (when debug mode enabled)
 - `checkpoints/`: LangGraph checkpoints for conversation state
+- `api_calls/`: Raw LLM API inputs/outputs (when API logging enabled)
+"""
 
+        # Add example_scripts section if using Claude Code generator
+        if template_name == "control_assistant" and code_generator == "claude_code":
+            readme_content += """- `example_scripts/`: Example code for Claude Code generator to learn from
+
+## Example Scripts
+
+The `example_scripts/` directory contains example code that the Claude Code generator
+can read and learn from when generating code. The framework has provided starter
+examples organized by category:
+
+- `example_scripts/plotting/`: Matplotlib visualization examples (included)
+  - Basic time series plotting
+  - Multi-subplot layouts
+  - Publication-quality figures
+  - Aligned multi-plot arrays
+
+- `example_scripts/analysis/`: Data analysis patterns (add your own)
+- `example_scripts/archiver/`: Archiver retrieval examples (add your own)
+
+**Security Note:** Claude Code can ONLY read files in these example directories.
+It cannot access your project configuration, secrets, or other sensitive files.
+The directories listed in `claude_generator_config.yml` are the only accessible paths.
+
+Add your own examples to help Claude generate better code for your specific use cases!
+
+"""
+
+        readme_content += """
 This directory is excluded from git (see .gitignore) but is required for
 proper framework operation, especially when using containerized services.
 """
 
         readme_path = agent_data_dir / "README.md"
-        with open(readme_path, 'w') as f:
+        # Use UTF-8 encoding explicitly to support Unicode characters on Windows
+        with open(readme_path, "w", encoding="utf-8") as f:
             f.write(readme_content)
-

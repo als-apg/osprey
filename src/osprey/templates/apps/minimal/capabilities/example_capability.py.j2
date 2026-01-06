@@ -1,7 +1,7 @@
 """
 Example Capability Template
 
-This is a complete example showing how to implement a capability in the Alpha Berkeley Framework.
+This is a complete example showing how to implement a capability in the Osprey Framework.
 Copy this file and modify it for your specific use case.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -48,34 +48,22 @@ Pattern C: Data Retrieval
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # STEP 1: Import required framework components
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-from typing import Dict, Any, Optional
 import textwrap
+from typing import Any, Dict, Optional
 
-# Core capability framework
-from osprey.base.decorators import capability_node
 from osprey.base.capability import BaseCapability
+from osprey.base.decorators import capability_node
 from osprey.base.errors import ErrorClassification, ErrorSeverity
+from osprey.context.context_manager import ContextManager
+from osprey.registry import get_registry
 from osprey.state import AgentState, StateManager
 
-# Registry for accessing context types
-from osprey.registry import get_registry
-
-# Context management for extracting inputs
-from osprey.context.context_manager import ContextManager
-
-# Import your context classes (defined in context_classes.py)
 from {{ package_name }}.context_classes import ExampleContext
-
-# Logging utilities
-from osprey.utils.logger import get_logger
 
 # Optional: Import your API client, external libraries, etc.
 # import your_api_client
 # import pandas as pd
 # import requests
-
-logger = get_logger("example_capability")
-registry = get_registry()
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

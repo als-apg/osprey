@@ -21,24 +21,30 @@ class DefaultClassificationPromptBuilder(FrameworkPromptBuilder):
 
     def get_instructions(self) -> str:
         """Get the classification instructions."""
-        return textwrap.dedent("""
+        return textwrap.dedent(
+            """
             Based on the instructions and examples, you must output a JSON object with a key "is_match": A boolean (true or false) indicating if the user's request matches the capability.
 
             Respond ONLY with the JSON object. Do not provide any explanation, preamble, or additional text.
-            """).strip()
+            """
+        ).strip()
 
-    def _get_dynamic_context(self,
-                          capability_instructions: str = "",
-                          classifier_examples: str = "",
-                          context: dict | None = None,
-                          previous_failure: str | None = None,
-                          **kwargs) -> str:
+    def _get_dynamic_context(
+        self,
+        capability_instructions: str = "",
+        classifier_examples: str = "",
+        context: dict | None = None,
+        previous_failure: str | None = None,
+        **kwargs,
+    ) -> str:
         """Build dynamic context with capability info and context."""
         sections = []
 
         # Capability instructions
         if capability_instructions:
-            sections.append(f"Here is the capability you need to assess:\n{capability_instructions}")
+            sections.append(
+                f"Here is the capability you need to assess:\n{capability_instructions}"
+            )
 
         # Examples
         if classifier_examples:
@@ -54,12 +60,14 @@ class DefaultClassificationPromptBuilder(FrameworkPromptBuilder):
 
         return "\n\n".join(sections)
 
-    def get_system_instructions(self,
-                          capability_instructions: str = "",
-                          classifier_examples: str = "",
-                          context: dict | None = None,
-                          previous_failure: str | None = None,
-                          **kwargs) -> str:
+    def get_system_instructions(
+        self,
+        capability_instructions: str = "",
+        classifier_examples: str = "",
+        context: dict | None = None,
+        previous_failure: str | None = None,
+        **kwargs,
+    ) -> str:
         """Get system instructions for task classification agent configuration."""
         sections = []
 
@@ -74,7 +82,7 @@ class DefaultClassificationPromptBuilder(FrameworkPromptBuilder):
             classifier_examples=classifier_examples,
             context=context,
             previous_failure=previous_failure,
-            **kwargs
+            **kwargs,
         )
         if dynamic_context:
             sections.append(dynamic_context)

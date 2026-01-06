@@ -44,7 +44,7 @@ Get productive immediately with the Osprey Framework's essential development pat
 
       **Start here - Essential commands**
 
-      Complete reference for framework init, deploy, chat, and export-config. Learn project creation and deployment workflows.
+      Complete reference for framework init, config, deploy, and chat. Learn project creation, configuration management, and deployment workflows.
 
       *10 minutes*
 

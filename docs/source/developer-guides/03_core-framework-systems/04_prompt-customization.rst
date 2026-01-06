@@ -119,6 +119,51 @@ All saved prompt files include comprehensive metadata for traceability:
    # File: /path/to/prompts/orchestrator_system_latest.md
    # Latest Only: true
 
+API Call Logging
+================
+
+Complementing prompt debugging, the framework can log complete LLM API interactions including raw inputs, outputs, and caller metadata. This provides full transparency into what's sent to and received from AI providers.
+
+Configuration
+-------------
+
+Enable API call logging in your ``config.yml``:
+
+.. code-block:: yaml
+
+   development:
+     # LLM API call logging
+     api_calls:
+       save_all: true             # Enable logging of all API calls
+       latest_only: true          # Keep only latest call per function
+       include_stack_trace: false # Include full Python stack trace
+
+Log File Organization
+---------------------
+
+API calls are by default saved to ``_agent_data/api_calls/`` with descriptive filenames based on the calling function:
+
+.. code-block:: text
+
+   _agent_data/api_calls/
+   ├── task_extraction_node__extract_task_latest.txt
+   ├── classification_node_CapabilityClassifier__perform_classification_python_latest.txt
+   ├── classification_node_CapabilityClassifier__perform_classification_memory_latest.txt
+   ├── orchestration_node_OrchestrationNode__create_execution_plan_latest.txt
+   └── generator_node_LLMCodeGenerator_generate_code_latest.txt
+
+Each log file contains:
+
+- **Caller metadata**: Function, module, class, file path, line number
+- **Model configuration**: Provider, model ID, tokens, temperature
+- **Complete input**: Full message sent to LLM including all context
+- **Complete output**: Raw response from LLM
+
+.. note::
+   - **Prompts directory** contains curated prompt templates
+   - **API calls directory** contains complete API request/response pairs with full context
+   - Use both together for comprehensive debugging of LLM interactions
+
 Provider Interface Implementation
 =================================
 

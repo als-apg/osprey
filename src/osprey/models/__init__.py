@@ -26,8 +26,6 @@ The module supports advanced features including:
 
 from .completion import get_chat_completion
 from .factory import get_model
+from .logging import set_api_call_context
 
-__all__ = [
-    'get_model',
-    'get_chat_completion'
-]
+__all__ = ["get_model", "get_chat_completion", "set_api_call_context"]
