@@ -119,6 +119,9 @@ class RespondCapability(BaseCapability):
             # Build prompt dynamically based on available information
             prompt = _get_base_system_prompt(response_context.current_task, response_context)
 
+            # Log prompt for TUI display
+            logger.info("LLM prompt built", llm_prompt=prompt, stream=False)
+
             # Single LLM call - run in thread pool to avoid blocking event loop for streaming
             response = await asyncio.to_thread(
                 get_chat_completion,
@@ -135,6 +138,9 @@ class RespondCapability(BaseCapability):
                 response_text = "\n".join(text_parts) if text_parts else str(response)
             else:
                 raise Exception("No response from LLM, please try again.")
+
+            # Log response for TUI display
+            logger.info("LLM response received", llm_response=response_text, stream=False)
 
             logger.status("Response generated")
 
