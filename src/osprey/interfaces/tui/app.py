@@ -25,7 +25,7 @@ from osprey.interfaces.tui.widgets import (
     ClassificationStep,
     CommandDropdown,
     CommandPalette,
-    ExecutionStepBlock,
+    ExecutionStep,
     OrchestrationBlock,
     OrchestrationStep,
     ProcessingBlock,
@@ -1066,18 +1066,7 @@ class OspreyTUI(App):
 
         # Create block if not exists (first event for this step)
         if block_key not in display._current_blocks:
-            # Get objective from cached plan if available, otherwise use message
-            objective = ""
-            if hasattr(self, "_cached_plan") and self._cached_plan:
-                steps = self._cached_plan.get("steps", [])
-                if 0 <= step_index < len(steps):
-                    objective = steps[step_index].get("task_objective", "")
-
-            block = ExecutionStepBlock(
-                step_number=step_num,
-                capability=component,
-                objective=objective if objective else message,
-            )
+            block = ExecutionStep(capability=component)
             display._current_blocks[block_key] = block
             display.mount(block)
             block.set_active()
@@ -1095,10 +1084,6 @@ class OspreyTUI(App):
                 update_step = TodoUpdateStep()
                 display.mount(update_step)
                 update_step.set_todos(display._plan_steps, display._plan_step_states)
-
-            # Store first message as potential input (if not using plan objective)
-            if not objective and message:
-                setattr(self, f"_step_{step_index}_first_msg", message)
 
         # Get block for LOG updates
         block = display._current_blocks.get(block_key)
@@ -1177,7 +1162,7 @@ class OspreyTUI(App):
         for i, step in enumerate(steps):
             block_key = f"execution_step_{i}"
             block = display._current_blocks.get(block_key)
-            if block and isinstance(block, ExecutionStepBlock):
+            if block and isinstance(block, ExecutionStep):
                 # Only finalize if still active (not already completed)
                 if block._status == "active":
                     # Use captured last message as output

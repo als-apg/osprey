@@ -1204,6 +1204,29 @@ class TodoUpdateStep(ProcessingStep):
             self._pending_todos = (steps, step_states)
 
 
+class ExecutionStep(ProcessingStep):
+    """Step widget for execution phase - same style as T/C/O steps.
+
+    Displays capability execution as a single-line step with:
+    - Title: Just the capability name (no "Step N:" prefix)
+    - Logs link: Opens modal with execution logs
+    - Prompt/response links: Only shown if step is LLM-driven
+    - Result: Shown as single line with "╰" prefix
+
+    Think of it as a "tool call" widget: tool name, input (from todo),
+    and output (result).
+    """
+
+    def __init__(self, capability: str, **kwargs):
+        """Initialize execution step.
+
+        Args:
+            capability: The capability name being executed.
+        """
+        super().__init__(capability, **kwargs)
+        self.capability = capability
+
+
 class TaskExtractionBlock(ProcessingBlock):
     """Block for task extraction phase (deprecated, use TaskExtractionStep)."""
 
@@ -1295,30 +1318,3 @@ class OrchestrationBlock(ProcessingBlock):
             lines.append(f"{i}. {objective} [{capability}]")
 
         self.set_output("\n".join(lines) if lines else "No steps")
-
-
-class ExecutionStepBlock(ProcessingBlock):
-    """Block for a single execution step in the plan."""
-
-    # Expanded header text (overrides base class)
-    EXPANDED_HEADER = "Execution result"
-
-    def __init__(self, step_number: int, capability: str, objective: str, **kwargs):
-        """Initialize execution step block.
-
-        Args:
-            step_number: The 1-based step number.
-            capability: The capability being executed.
-            objective: The task objective for this step.
-        """
-        super().__init__(f"Step {step_number}: {capability}", **kwargs)
-        self.step_number = step_number
-        self.capability = capability
-        self.objective = objective
-
-    def on_mount(self) -> None:
-        """Apply pending state and show objective as input."""
-        super().on_mount()
-        # Show objective as input when mounted
-        if self.objective:
-            self.set_input(self.objective)
