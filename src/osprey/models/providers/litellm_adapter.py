@@ -408,7 +408,7 @@ Respond ONLY with the JSON object, no additional text."""
         return result
     except Exception as e:
         raise ValueError(
-            f"Failed to parse structured output from Ollama: {e}\n" f"Response: {content[:200]}"
+            f"Failed to parse structured output from Ollama: {e}\nResponse: {content[:200]}"
         ) from e
 
 

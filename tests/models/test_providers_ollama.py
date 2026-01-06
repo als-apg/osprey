@@ -119,17 +119,18 @@ class TestOllamaTestConnection:
 
 
 class TestOllamaExecuteCompletion:
-    """Test Ollama completion execution via LiteLLM."""
+    """Test Ollama completion execution via direct API."""
 
-    @patch("osprey.models.providers.litellm_adapter.litellm.completion")
+    @patch("httpx.post")
     @patch.object(OllamaProviderAdapter, "_test_connection", return_value=True)
-    def test_execute_text_completion(self, mock_test, mock_completion):
-        """Test basic text completion."""
+    def test_execute_text_completion(self, mock_test, mock_post):
+        """Test basic text completion via direct Ollama API."""
         provider = OllamaProviderAdapter()
 
         mock_response = MagicMock()
-        mock_response.choices = [MagicMock(message=MagicMock(content="Test response"))]
-        mock_completion.return_value = mock_response
+        mock_response.json.return_value = {"message": {"content": "Test response"}}
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value = mock_response
 
         result = provider.execute_completion(
             message="Hello",
@@ -139,23 +140,25 @@ class TestOllamaExecuteCompletion:
         )
 
         assert result == "Test response"
-        mock_completion.assert_called_once()
-        call_kwargs = mock_completion.call_args[1]
-        assert call_kwargs["model"] == "ollama/mistral:7b"
+        mock_post.assert_called_once()
+        call_args = mock_post.call_args
+        assert call_args[0][0] == "http://localhost:11434/api/chat"
+        assert call_args[1]["json"]["model"] == "mistral:7b"
 
-    @patch("osprey.models.providers.litellm_adapter.litellm.completion")
+    @patch("httpx.post")
     @patch.object(
         OllamaProviderAdapter,
         "_test_connection",
         side_effect=[False, True],  # First fails, second succeeds
     )
-    def test_execute_completion_with_fallback(self, mock_test, mock_completion):
+    def test_execute_completion_with_fallback(self, mock_test, mock_post):
         """Test completion execution with fallback."""
         provider = OllamaProviderAdapter()
 
         mock_response = MagicMock()
-        mock_response.choices = [MagicMock(message=MagicMock(content="Response"))]
-        mock_completion.return_value = mock_response
+        mock_response.json.return_value = {"message": {"content": "Response"}}
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value = mock_response
 
         result = provider.execute_completion(
             message="Hello",

@@ -97,7 +97,12 @@ def get_available_providers_raw() -> dict[str, dict[str, Any]]:
     available = {}
 
     providers_to_check = [
-        ("anthropic", ["ANTHROPIC_API_KEY_o", "ANTHROPIC_API_KEY"], None, "claude-haiku-4-5-20251001"),
+        (
+            "anthropic",
+            ["ANTHROPIC_API_KEY_o", "ANTHROPIC_API_KEY"],
+            None,
+            "claude-haiku-4-5-20251001",
+        ),
         ("openai", ["OPENAI_API_KEY"], None, "gpt-4o-mini"),
         ("google", ["GOOGLE_API_KEY"], None, "gemini-2.0-flash"),
         ("cborg", ["CBORG_API_KEY"], "https://api.cborg.lbl.gov", "anthropic/claude-haiku"),
@@ -128,7 +133,9 @@ def get_available_providers_raw() -> dict[str, dict[str, Any]]:
             data = response.json()
             models = [m["name"] for m in data.get("models", [])]
             preferred = ["ministral-3:8b", "mistral:7b", "llama3.2:1b", "llama3.1:latest"]
-            default_model = next((m for m in preferred if m in models), models[0] if models else None)
+            default_model = next(
+                (m for m in preferred if m in models), models[0] if models else None
+            )
             if default_model:
                 available["ollama"] = {
                     "api_key": None,
@@ -154,7 +161,9 @@ def get_available_providers_raw() -> dict[str, dict[str, Any]]:
                     "default_model": models[0],
                 }
                 # Update MODEL_MATRIX with discovered models
-                MODEL_MATRIX["vllm"] = [(m, m.split("/")[-1].replace("-", "_")[:10]) for m in models]
+                MODEL_MATRIX["vllm"] = [
+                    (m, m.split("/")[-1].replace("-", "_")[:10]) for m in models
+                ]
     except Exception:
         pass
 
@@ -169,7 +178,9 @@ _AVAILABLE_OLLAMA_MODELS: list[str] = []
 try:
     import httpx
 
-    resp = httpx.get(f"{os.environ.get('OLLAMA_HOST', 'http://localhost:11434')}/api/tags", timeout=2.0)
+    resp = httpx.get(
+        f"{os.environ.get('OLLAMA_HOST', 'http://localhost:11434')}/api/tags", timeout=2.0
+    )
     if resp.status_code == 200:
         _AVAILABLE_OLLAMA_MODELS = [m["name"] for m in resp.json().get("models", [])]
 except Exception:
@@ -180,7 +191,9 @@ _AVAILABLE_VLLM_MODELS: list[str] = []
 try:
     import httpx
 
-    resp = httpx.get(f"{os.environ.get('VLLM_BASE_URL', 'http://localhost:8000/v1')}/models", timeout=2.0)
+    resp = httpx.get(
+        f"{os.environ.get('VLLM_BASE_URL', 'http://localhost:8000/v1')}/models", timeout=2.0
+    )
     if resp.status_code == 200:
         _AVAILABLE_VLLM_MODELS = [m["id"] for m in resp.json().get("data", [])]
 except Exception:
@@ -255,7 +268,12 @@ def setup_llm_test_environment(test_config, tmp_path):
     os.environ["CONFIG_FILE"] = str(test_config)
 
     # Remove proxy env vars that interfere with direct API calls
-    proxy_env_vars = ["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "OPENAI_BASE_URL", "OPENAI_API_BASE"]
+    proxy_env_vars = [
+        "ANTHROPIC_BASE_URL",
+        "ANTHROPIC_AUTH_TOKEN",
+        "OPENAI_BASE_URL",
+        "OPENAI_API_BASE",
+    ]
     saved_proxy_vars = {}
     for var in proxy_env_vars:
         if var in os.environ:
