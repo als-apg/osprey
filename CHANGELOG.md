@@ -81,6 +81,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - State inspection tools: session info, execution status, capability list, settings
   - State modification tools: clear session, modify agent settings
   - Registered as framework-level capability (/chat:state_manager)
+- **CLI**: Direct chat mode for conversational interaction with capabilities
+  - `/chat:<capability>` enters direct chat mode
+  - `/chat` lists available direct-chat capabilities
+  - `/exit` returns to normal mode (adds transition marker for context)
+  - Dynamic prompt shows current mode (normal vs capability name)
+  - Quieter logging during direct chat for cleaner experience
 - **Models**: LangChain model factory for full LangGraph ReAct agent support
   - `get_langchain_model()` creates BaseChatModel instances from osprey config
   - Supports all 8 providers: anthropic, openai, google, ollama, cborg, vllm, stanford, argo

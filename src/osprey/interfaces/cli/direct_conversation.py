@@ -40,7 +40,7 @@ from osprey.graph import create_graph
 from osprey.infrastructure.gateway import Gateway
 from osprey.registry import get_registry, initialize_registry
 from osprey.utils.config import get_full_configuration
-from osprey.utils.logger import get_logger
+from osprey.utils.logger import get_logger, quiet_logging
 
 # Load environment variables after imports
 load_dotenv()
@@ -169,6 +169,47 @@ class CLI:
             interface_type="cli", cli_instance=self, console=self.console
         )
         self.command_completer = UnifiedCommandCompleter(self.command_context)
+
+    def _get_prompt(self) -> HTML:
+        """Generate the prompt based on current mode (normal or direct chat).
+
+        :return: Formatted HTML prompt for prompt_toolkit
+        :rtype: HTML
+        """
+        try:
+            if self.graph and self.base_config:
+                current_state = self.graph.get_state(config=self.base_config)
+                if current_state and current_state.values:
+                    session_state = current_state.values.get("session_state", {})
+                    direct_chat_cap = session_state.get("direct_chat_capability")
+                    if direct_chat_cap:
+                        # In direct chat mode - show custom prompt
+                        return HTML(f"<prompt>🎯 {direct_chat_cap} > </prompt>")
+        except Exception:
+            pass  # Fall back to default prompt on any error
+
+        # Default prompt
+        return HTML("<prompt>👤 You: </prompt>")
+
+    def _is_in_direct_chat(self) -> bool:
+        """Check if the CLI is currently in direct chat mode.
+
+        Queries the graph state to determine if a direct chat capability
+        is currently active.
+
+        :returns: True if in direct chat mode, False otherwise
+        :rtype: bool
+        """
+        if not self.graph or not self.base_config:
+            return False
+        try:
+            current_state = self.graph.get_state(config=self.base_config)
+            if current_state and current_state.values:
+                session_state = current_state.values.get("session_state", {})
+                return session_state.get("direct_chat_capability") is not None
+        except Exception:
+            pass
+        return False
 
     def _create_key_bindings(self):
         """Create custom key bindings for advanced CLI functionality.
@@ -392,9 +433,9 @@ class CLI:
 
         while True:
             try:
-                # Use modern prompt with rich formatting and history
+                # Use dynamic prompt based on current mode (normal or direct chat)
                 user_input = await self.prompt_session.prompt_async(
-                    HTML("<prompt>👤 You: </prompt>"), style=self.prompt_style
+                    self._get_prompt(), style=self.prompt_style
                 )
                 user_input = user_input.strip()
 
@@ -433,6 +474,16 @@ class CLI:
                     if result == CommandResult.EXIT:
                         break
                     elif result in [CommandResult.HANDLED, CommandResult.AGENT_STATE_CHANGED]:
+                        continue
+                    elif isinstance(result, dict):
+                        # Command returned state updates (e.g., /exit clearing direct chat mode)
+                        # Apply the state update to the graph
+                        # Use router as the node since it's the central routing authority
+                        await self.graph.aupdate_state(
+                            config=self.base_config,
+                            values=result,
+                            as_node="router",
+                        )
                         continue
                     # If CONTINUE, fall through to normal processing
 
@@ -548,7 +599,22 @@ class CLI:
            :meth:`_show_final_result` : Final result display
            :meth:`_handle_streaming_update` : Streaming status display logic
         """
+        # Check if we're in direct chat mode for quieter logging
+        in_direct_chat = self._is_in_direct_chat()
 
+        # Use context manager to suppress INFO logs during direct chat
+        if in_direct_chat:
+            with quiet_logging():
+                await self._do_process_user_input(user_input)
+        else:
+            await self._do_process_user_input(user_input)
+
+    async def _do_process_user_input(self, user_input: str):
+        """Internal processing logic for user input.
+
+        This method contains the actual processing logic, separated from
+        _process_user_input to allow wrapping in quiet_logging context.
+        """
         self.console.print(f"[{Styles.INFO}]🔄 Processing: {user_input}[/{Styles.INFO}]")
 
         # Gateway handles all preprocessing
@@ -588,7 +654,7 @@ class CLI:
                     self.console.print(f"\n[{Styles.WARNING}]{user_message}[/{Styles.WARNING}]")
 
                     user_input = await self.prompt_session.prompt_async(
-                        HTML("<prompt>👤 You: </prompt>"), style=self.prompt_style
+                        self._get_prompt(), style=self.prompt_style
                     )
                     user_input = user_input.strip()
                     await self._process_user_input(user_input)
@@ -600,12 +666,23 @@ class CLI:
                 self.console.print(f"[{Styles.ERROR}]❌ Resume error: {e}[/{Styles.ERROR}]")
                 logger.exception("Error during resume execution")
         elif result.agent_state:
-            # Debug: Show execution step results count in fresh state
-            step_results = result.agent_state.get("execution_step_results", {})
-            self.console.print(
-                f"[{Styles.INFO}]🔄 Starting new conversation turn (execution_step_results: {len(step_results)} records)...[/{Styles.INFO}]"
-            )
-            await self._execute_result(result.agent_state)
+            # Check if this is a mode-switch only (session_state change, no messages)
+            has_messages = "messages" in result.agent_state and result.agent_state["messages"]
+            is_mode_switch = "session_state" in result.agent_state and not has_messages
+
+            if is_mode_switch:
+                # Apply session_state without executing the graph
+                self.graph.update_state(self.base_config, result.agent_state)
+                self.console.print(
+                    f"[{Styles.SUCCESS}]✓ Mode switched. Ready for your message.[/{Styles.SUCCESS}]"
+                )
+            else:
+                # Debug: Show execution step results count in fresh state
+                step_results = result.agent_state.get("execution_step_results", {})
+                self.console.print(
+                    f"[{Styles.INFO}]🔄 Starting new conversation turn (execution_step_results: {len(step_results)} records)...[/{Styles.INFO}]"
+                )
+                await self._execute_result(result.agent_state)
         else:
             self.console.print(f"[{Styles.WARNING}]⚠️  No action required[/{Styles.WARNING}]")
 
@@ -662,7 +739,6 @@ class CLI:
            :meth:`_handle_streaming_update` : Streaming status display logic
            :class:`langgraph.graph.StateGraph` : LangGraph streaming execution
         """
-
         try:
             # Use streaming for real-time updates
             async for chunk in self.graph.astream(
@@ -699,7 +775,7 @@ class CLI:
 
                 # Get user input for approval
                 user_input = await self.prompt_session.prompt_async(
-                    HTML("<prompt>👤 You: </prompt>"), style=self.prompt_style
+                    self._get_prompt(), style=self.prompt_style
                 )
                 user_input = user_input.strip()
 

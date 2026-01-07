@@ -18,6 +18,7 @@ provides specialized handlers with appropriate error handling and user feedback.
 
 from typing import Any
 
+from langchain_core.messages import SystemMessage
 from rich.panel import Panel
 from rich.table import Table
 
@@ -111,9 +112,40 @@ def register_cli_commands(registry) -> None:
         clear()
         return CommandResult.HANDLED
 
-    def exit_handler(args: str, context: CommandContext) -> CommandResult:
-        """Exit the CLI."""
+    def exit_handler(args: str, context: CommandContext) -> CommandResult | dict[str, Any]:
+        """Exit direct chat mode or the CLI session."""
         console = context.console or themed_console
+
+        # Check if we're in direct chat mode by checking agent_state
+        if context.agent_state:
+            session_state = context.agent_state.get("session_state", {})
+            if session_state.get("direct_chat_capability"):
+                capability_name = session_state["direct_chat_capability"]
+                console.print(
+                    f"✓ Exited direct chat with [bold]{capability_name}[/bold]",
+                    style=Styles.SUCCESS,
+                )
+                console.print("  Returning to normal mode\n", style=Styles.DIM)
+
+                # Create transition marker message for task extraction context
+                # This helps the LLM understand that previous messages were from a
+                # specialized direct chat session and new messages should be treated fresh
+                transition_message = SystemMessage(
+                    content=f"[End of direct chat session with '{capability_name}'. "
+                    f"The messages above were from a specialized mode. "
+                    f"New user messages should be processed as fresh requests.]"
+                )
+
+                # Return session state update and transition marker
+                return {
+                    "session_state": {
+                        "direct_chat_capability": None,
+                        "last_direct_chat_result": None,
+                    },
+                    "messages": [transition_message],
+                }
+
+        # Not in direct chat mode - exit CLI session
         console.print("👋 Goodbye!", style=Styles.WARNING)
         return CommandResult.EXIT
 
@@ -471,6 +503,7 @@ def register_agent_control_commands(registry) -> None:
         /approval:enabled|disabled|selective: Control human approval workflows
         /task:on|off: Control task extraction bypass for performance
         /caps:on|off: Control capability selection bypass for performance
+        /chat:<capability>: Enter direct chat mode with a capability's ReAct agent
 
     :param registry: Command registry instance for command registration
     :type registry: CommandRegistry
@@ -490,7 +523,87 @@ def register_agent_control_commands(registry) -> None:
             /approval:selective    # Enable selective approval
             /task:off             # Bypass task extraction for performance
             /caps:off             # Bypass capability selection for performance
+            /chat:weather_mcp     # Enter direct chat with weather_mcp capability
     """
+
+    def chat_mode_handler(args: str, context: CommandContext) -> CommandResult | dict[str, Any]:
+        """Enter direct chat mode with a capability's ReAct agent."""
+        from osprey.registry import get_registry
+
+        console = context.console or themed_console
+        reg = get_registry()
+
+        if not args.strip():
+            # Show available capabilities with ReAct agents (direct_chat_enabled)
+            direct_chat_capable = []
+            for cap_instance in reg.get_all_capabilities():
+                if getattr(cap_instance, "direct_chat_enabled", False):
+                    direct_chat_capable.append(
+                        {
+                            "name": getattr(cap_instance, "name", "unknown"),
+                            "description": getattr(cap_instance, "description", "N/A"),
+                        }
+                    )
+
+            if not direct_chat_capable:
+                console.print("❌ No capabilities support direct chat mode", style=Styles.ERROR)
+                console.print(
+                    "💡 Enable direct chat by setting direct_chat_enabled = True on a capability",
+                    style=Styles.DIM,
+                )
+                return CommandResult.HANDLED
+
+            # Display available capabilities
+            table = Table(title="Available Direct Chat Capabilities", show_header=True)
+            table.add_column("Capability", style=Styles.ACCENT)
+            table.add_column("Description", style=Styles.PRIMARY)
+
+            for cap in direct_chat_capable:
+                table.add_row(cap["name"], cap["description"])
+
+            console.print(table)
+            console.print("\n💡 Use /chat:<capability_name> to start", style=Styles.DIM)
+            return CommandResult.HANDLED
+
+        capability_name = args.strip()
+
+        # Validate capability exists
+        cap_instance = reg.get_capability(capability_name)
+        if cap_instance is None:
+            console.print(f"❌ Unknown capability: {capability_name}", style=Styles.ERROR)
+            console.print("💡 Use /chat to list available capabilities", style=Styles.DIM)
+            return CommandResult.HANDLED
+
+        # Validate capability supports direct chat
+        if not getattr(cap_instance, "direct_chat_enabled", False):
+            console.print(
+                f"❌ Capability '{capability_name}' does not support direct chat mode",
+                style=Styles.ERROR,
+            )
+            console.print(
+                "💡 Only capabilities with direct_chat_enabled = True support direct chat",
+                style=Styles.DIM,
+            )
+            return CommandResult.HANDLED
+
+        # Enter direct chat mode
+        console.print(
+            f"✓ Entering direct chat with [bold]{capability_name}[/bold]",
+            style=Styles.SUCCESS,
+        )
+        console.print("  Type /exit to return to normal mode", style=Styles.DIM)
+        # Show save tip only for regular capabilities, not for state_manager
+        if capability_name != "state_manager":
+            console.print("  💡 Say 'save that as <key>' to store results\n", style=Styles.DIM)
+        else:
+            console.print()  # Just add newline for state_manager
+
+        # Return session state change
+        return {
+            "session_state": {
+                "direct_chat_capability": capability_name,
+            }
+        }
 
     def planning_handler(args: str, context: CommandContext) -> dict[str, Any]:
         """Control planning mode."""
@@ -583,6 +696,37 @@ def register_agent_control_commands(registry) -> None:
             aliases=["capabilities"],
             valid_options=["on", "off", "enabled", "disabled", "true", "false"],
             help_text="Control capability selection bypass.\n\nOptions:\n  on/enabled - Use capability selection (default)\n  off/disabled - Bypass selection (activate all capabilities)",
+        )
+    )
+
+    registry.register(
+        Command(
+            name="chat",
+            category=CommandCategory.AGENT_CONTROL,
+            description="Enter direct chat mode with a capability",
+            handler=chat_mode_handler,
+            help_text="""Enter direct chat mode for conversational interaction with a capability's ReAct agent.
+
+Usage:
+  /chat                    - List available capabilities
+  /chat:<capability_name>  - Enter direct chat mode
+
+In direct chat mode:
+  - Your messages go directly to the capability's ReAct agent
+  - No task extraction, classification, or orchestration
+  - Say "save that as <key>" to store results in context
+  - Use /exit to return to normal mode
+
+Examples:
+  /chat:weather_mcp       # Chat with weather MCP capability
+  /chat:slack_mcp         # Chat with Slack MCP capability
+
+  # Inside chat mode:
+  > What's the weather in Tokyo?
+  [Agent responds]
+  > Save that as tokyo_weather
+  [Saved to context]""",
+            syntax="/chat[:<capability_name>]",
         )
     )
 
