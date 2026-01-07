@@ -72,6 +72,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Router detects direct chat mode and routes directly to capability
   - Gateway preserves message history in direct chat mode
   - Validates capability supports direct_chat_enabled before routing
+- **Capabilities**: Context management tools for ReAct agents
+  - read_context, list_available_context, save_result_to_context
+  - remove_context, clear_context_type, get_context_summary
+  - Enables agents to manage accumulated context during direct chat
 - **Models**: LangChain model factory for full LangGraph ReAct agent support
   - `get_langchain_model()` creates BaseChatModel instances from osprey config
   - Supports all 8 providers: anthropic, openai, google, ollama, cborg, vllm, stanford, argo
