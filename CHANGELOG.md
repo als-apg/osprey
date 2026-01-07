@@ -87,6 +87,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Graceful handling of API quota/rate limit errors (skips with warning instead of failing)
 
 ### Changed
+- **Logging**: Reduced verbose third-party logging for cleaner CLI output
+  - Added quiet_logging() context manager for temporary log suppression
+  - Suppressed LiteLLM debug messages
 - **Models**: Migrated all LLM provider implementations to LiteLLM unified interface (#23)
   - Replaced ~2,200 lines of custom provider code with ~700 lines using LiteLLM adapter
   - All 8 providers (anthropic, google, openai, ollama, cborg, stanford, argo, vllm) now use LiteLLM

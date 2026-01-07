@@ -32,12 +32,36 @@ Usage:
 """
 
 import logging
+from contextlib import contextmanager
 from typing import Any
 
 from rich.console import Console
 from rich.logging import RichHandler
 
 from osprey.utils.config import get_config_value
+
+
+@contextmanager
+def quiet_logging():
+    """Context manager to temporarily suppress INFO-level logs.
+
+    Temporarily raises the root logger level to WARNING, suppressing
+    INFO and DEBUG messages while preserving warnings and errors.
+    Used during direct chat mode for a cleaner conversational experience.
+
+    Example:
+        >>> with quiet_logging():
+        ...     # INFO logs are suppressed here
+        ...     await process_direct_chat()
+        # Normal logging restored after context exits
+    """
+    root_logger = logging.getLogger()
+    original_level = root_logger.level
+    root_logger.setLevel(logging.WARNING)
+    try:
+        yield
+    finally:
+        root_logger.setLevel(original_level)
 
 
 class ComponentLogger:
@@ -471,7 +495,7 @@ def _setup_rich_logging(level: int = logging.INFO) -> None:
     root_logger.addHandler(handler)
 
     # Reduce third-party library noise to focus on application-specific issues
-    for lib in ["httpx", "httpcore", "requests", "urllib3"]:
+    for lib in ["httpx", "httpcore", "requests", "urllib3", "LiteLLM"]:
         logging.getLogger(lib).setLevel(logging.WARNING)
 
 

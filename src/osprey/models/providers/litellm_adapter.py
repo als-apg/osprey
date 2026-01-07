@@ -19,6 +19,10 @@ from typing import Any
 import litellm
 from pydantic import BaseModel
 
+# Suppress LiteLLM's verbose logging
+litellm.set_verbose = False
+litellm.suppress_debug_info = True
+
 logger = logging.getLogger(__name__)
 
 
