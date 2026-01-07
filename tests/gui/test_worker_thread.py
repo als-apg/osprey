@@ -8,6 +8,10 @@ signal emission, error handling, and thread safety.
 from unittest.mock import Mock, patch
 
 import pytest
+
+# Skip if PyQt5 is not available
+pytest.importorskip("PyQt5")
+
 from PyQt5.QtCore import QThread
 
 from osprey.interfaces.pyqt.base_worker import BaseWorker
