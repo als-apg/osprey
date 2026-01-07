@@ -47,6 +47,9 @@ def similarity_calculator():
 @pytest.fixture
 def similarity_calculator_with_model(mock_sentence_transformer):
     """Create similarity calculator with mocked model."""
+    # Skip fixture if sentence-transformers not available
+    pytest.importorskip("sentence_transformers")
+    
     with patch("osprey.interfaces.pyqt.semantic_context_analyzer.EMBEDDINGS_AVAILABLE", True):
         with patch(
             "sentence_transformers.SentenceTransformer",
