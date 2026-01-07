@@ -5,23 +5,34 @@ This module contains common functions used across the GUI to reduce code duplica
 """
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
-from PyQt5.QtGui import QColor, QPalette
 
 from osprey.utils.logger import get_logger
+
+# Lazy import PyQt5 to allow non-GUI functions to work without PyQt5 installed
+if TYPE_CHECKING:
+    pass
 
 logger = get_logger("gui_utils")
 
 
-def create_dark_palette() -> QPalette:
+def create_dark_palette():
     """
     Create a consistent dark color palette for the GUI.
 
     Returns:
         QPalette configured with dark theme colors
+
+    Raises:
+        ImportError: If PyQt5 is not installed
     """
+    try:
+        from PyQt5.QtGui import QColor, QPalette
+    except ImportError as e:
+        raise ImportError("PyQt5 is required for create_dark_palette()") from e
+
     palette = QPalette()
     palette.setColor(QPalette.Window, QColor(45, 45, 48))
     palette.setColor(QPalette.WindowText, QColor(255, 255, 255))
