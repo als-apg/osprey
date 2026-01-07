@@ -49,7 +49,7 @@ def similarity_calculator_with_model(mock_sentence_transformer):
     """Create similarity calculator with mocked model."""
     with patch("osprey.interfaces.pyqt.semantic_context_analyzer.EMBEDDINGS_AVAILABLE", True):
         with patch(
-            "osprey.interfaces.pyqt.semantic_context_analyzer.SentenceTransformer",
+            "sentence_transformers.SentenceTransformer",
             return_value=mock_sentence_transformer,
         ):
             calc = SemanticSimilarityCalculator()
