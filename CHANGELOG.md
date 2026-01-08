@@ -136,6 +136,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Both regular text completion and structured output paths now respect temperature setting
 - **Code Generation**: Add simplicity guidance to prevent over-engineered solutions
   - LLM now prefers direct context usage over building complex systems to fetch data
+- **Documentation**: Fixed workflow file references to use correct `@src/osprey/workflows/` path for copy-paste into Claude Code and Cursor
+- **Gateway**: Mode switch handling for direct chat entry/exit
+  - Use `update_state()` for mode switches instead of `ainvoke()` to avoid full graph execution
+  - Correct field names (`planning_execution_plan`, `planning_current_step_index`)
+  - New `is_state_only_update` flag signals callers to use proper update method
+  - New `exit_interface` flag for `/exit` outside direct chat mode
+- **Commands**: New `gateway_handled` flag ensures state-affecting commands route through gateway
+  - /exit, /planning, /approval, /task, /caps, /chat marked as gateway_handled
+  - Ensures consistent behavior across all interfaces (CLI, OpenWebUI, API)
+- **CLI**: Proper routing for gateway_handled vs local commands
+  - Local commands (/help, /clear) handled directly for instant response
+  - State commands route through gateway for consistent state management
 
 ## [0.9.10] - 2025-01-03
 

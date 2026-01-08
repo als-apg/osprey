@@ -461,11 +461,13 @@ def register_cli_commands(registry) -> None:
         Command(
             name="exit",
             category=CommandCategory.CLI,
-            description="Exit the CLI interface",
+            description="Exit direct chat mode or CLI interface",
             handler=exit_handler,
             aliases=["quit", "bye", "q"],
-            help_text="Exit the CLI interface.",
-            interface_restrictions=["cli"],
+            help_text="Exit direct chat mode (returns to normal mode) or exit the CLI interface.",
+            # Gateway-handled: ensures consistent behavior for exiting direct chat mode
+            # Gateway will return exit_interface=True when not in direct chat
+            gateway_handled=True,
         )
     )
 
@@ -653,7 +655,7 @@ def register_agent_control_commands(registry) -> None:
                 f"Invalid option '{args}' for /caps", "caps", "Use 'on' or 'off'"
             )
 
-    # Register agent control commands
+    # Register agent control commands - all are gateway_handled for consistent state management
     registry.register(
         Command(
             name="planning",
@@ -662,6 +664,7 @@ def register_agent_control_commands(registry) -> None:
             handler=planning_handler,
             valid_options=["on", "off", "enabled", "disabled", "true", "false"],
             help_text="Control planning mode for the agent.\n\nOptions:\n  on/enabled/true  - Enable planning\n  off/disabled/false - Disable planning",
+            gateway_handled=True,
         )
     )
 
@@ -673,6 +676,7 @@ def register_agent_control_commands(registry) -> None:
             handler=approval_handler,
             valid_options=["on", "off", "selective", "enabled", "disabled", "true", "false"],
             help_text="Control approval workflows.\n\nOptions:\n  on/enabled - Enable all approvals\n  off/disabled - Disable approvals\n  selective - Selective approval mode",
+            gateway_handled=True,
         )
     )
 
@@ -684,6 +688,7 @@ def register_agent_control_commands(registry) -> None:
             handler=task_handler,
             valid_options=["on", "off", "enabled", "disabled", "true", "false"],
             help_text="Control task extraction bypass for performance.\n\nOptions:\n  on/enabled - Use task extraction (default)\n  off/disabled - Bypass task extraction (use full context)",
+            gateway_handled=True,
         )
     )
 
@@ -696,6 +701,7 @@ def register_agent_control_commands(registry) -> None:
             aliases=["capabilities"],
             valid_options=["on", "off", "enabled", "disabled", "true", "false"],
             help_text="Control capability selection bypass.\n\nOptions:\n  on/enabled - Use capability selection (default)\n  off/disabled - Bypass selection (activate all capabilities)",
+            gateway_handled=True,
         )
     )
 
@@ -727,6 +733,7 @@ Examples:
   > Save that as tokyo_weather
   [Saved to context]""",
             syntax="/chat[:<capability_name>]",
+            gateway_handled=True,
         )
     )
 

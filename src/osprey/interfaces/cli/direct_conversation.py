@@ -448,47 +448,50 @@ class CLI:
                 if not user_input:
                     continue
 
-                # Handle slash commands using centralized system
+                # Handle slash commands - determine if local or gateway-handled
                 if user_input.startswith("/"):
-                    # Update command context with current state
-                    self.command_context.config = self.base_config
-                    self.command_context.gateway = self.gateway
+                    # Parse command to check if it's gateway-handled
+                    from osprey.commands.registry import parse_command_line
 
-                    # Get current agent state from the graph
-                    try:
-                        if self.graph and self.base_config:
-                            current_state = self.graph.get_state(config=self.base_config)
-                            self.command_context.agent_state = (
-                                current_state.values if current_state else None
-                            )
-                        else:
-                            self.command_context.agent_state = None
-                    except Exception:
-                        self.command_context.agent_state = None
-
-                    self.command_context.session_id = self.thread_id
-
+                    parsed = parse_command_line(user_input)
                     registry = get_command_registry()
-                    result = await registry.execute(user_input, self.command_context)
+                    command = registry.get_command(parsed.command_name) if parsed.is_valid else None
 
-                    if result == CommandResult.EXIT:
-                        break
-                    elif result in [CommandResult.HANDLED, CommandResult.AGENT_STATE_CHANGED]:
-                        continue
-                    elif isinstance(result, dict):
-                        # Command returned state updates (e.g., /exit clearing direct chat mode)
-                        # Apply the state update to the graph
-                        # Use router as the node since it's the central routing authority
-                        await self.graph.aupdate_state(
-                            config=self.base_config,
-                            values=result,
-                            as_node="router",
-                        )
-                        continue
-                    # If CONTINUE, fall through to normal processing
+                    # Interface-only commands (gateway_handled=False) are handled locally
+                    # This includes: /help, /clear, /config, /status
+                    if command and not command.gateway_handled:
+                        # Update command context for local execution
+                        self.command_context.config = self.base_config
+                        self.command_context.gateway = self.gateway
+                        self.command_context.session_id = self.thread_id
 
-                # Process user input normally
-                await self._process_user_input(user_input)
+                        # Get current agent state from the graph
+                        try:
+                            if self.graph and self.base_config:
+                                current_state = self.graph.get_state(config=self.base_config)
+                                self.command_context.agent_state = (
+                                    current_state.values if current_state else None
+                                )
+                            else:
+                                self.command_context.agent_state = None
+                        except Exception:
+                            self.command_context.agent_state = None
+
+                        result = await registry.execute(user_input, self.command_context)
+
+                        if result == CommandResult.EXIT:
+                            break
+                        elif result in [CommandResult.HANDLED, CommandResult.AGENT_STATE_CHANGED]:
+                            continue
+                        # If CONTINUE, fall through to gateway processing
+
+                    # Gateway-handled commands (/chat, /exit, /planning, etc.) and
+                    # any remaining text go through gateway for consistent processing
+
+                # Process user input through gateway (handles gateway_handled commands + messages)
+                should_exit = await self._process_user_input(user_input)
+                if should_exit:
+                    break
 
             except KeyboardInterrupt:
                 self.console.print(f"\n[{Styles.WARNING}]👋 Goodbye![/{Styles.WARNING}]")
@@ -549,7 +552,7 @@ class CLI:
 
         self.console.print(f"[{Styles.INFO}]🔄 {status_msg}[/{Styles.INFO}]")
 
-    async def _process_user_input(self, user_input: str):
+    async def _process_user_input(self, user_input: str) -> bool:
         """Process user input through the Gateway and handle execution flow.
 
         Processes a single user message through the complete framework pipeline,
@@ -570,6 +573,8 @@ class CLI:
 
         :param user_input: Raw user message to process
         :type user_input: str
+        :returns: True if interface should exit, False otherwise
+        :rtype: bool
         :raises Exception: Processing errors are logged and displayed to user
 
         .. note::
@@ -605,25 +610,33 @@ class CLI:
         # Use context manager to suppress INFO logs during direct chat
         if in_direct_chat:
             with quiet_logging():
-                await self._do_process_user_input(user_input)
+                return await self._do_process_user_input(user_input)
         else:
-            await self._do_process_user_input(user_input)
+            return await self._do_process_user_input(user_input)
 
-    async def _do_process_user_input(self, user_input: str):
+    async def _do_process_user_input(self, user_input: str) -> bool:
         """Internal processing logic for user input.
 
         This method contains the actual processing logic, separated from
         _process_user_input to allow wrapping in quiet_logging context.
+
+        Returns:
+            True if interface should exit, False otherwise
         """
         self.console.print(f"[{Styles.INFO}]🔄 Processing: {user_input}[/{Styles.INFO}]")
 
         # Gateway handles all preprocessing
         result = await self.gateway.process_message(user_input, self.graph, self.base_config)
 
+        # Handle exit_interface signal (e.g., /exit outside direct chat mode)
+        if result.exit_interface:
+            self.console.print(f"[{Styles.WARNING}]👋 Goodbye![/{Styles.WARNING}]")
+            return True  # Signal to exit
+
         # Handle result
         if result.error:
             self.console.print(f"[{Styles.ERROR}]❌ Error: {result.error}[/{Styles.ERROR}]")
-            return
+            return False
 
         # Show slash command processing if any
         if result.slash_commands_processed:
@@ -666,12 +679,9 @@ class CLI:
                 self.console.print(f"[{Styles.ERROR}]❌ Resume error: {e}[/{Styles.ERROR}]")
                 logger.exception("Error during resume execution")
         elif result.agent_state:
-            # Check if this is a mode-switch only (session_state change, no messages)
-            has_messages = "messages" in result.agent_state and result.agent_state["messages"]
-            is_mode_switch = "session_state" in result.agent_state and not has_messages
-
-            if is_mode_switch:
-                # Apply session_state without executing the graph
+            # Check if this is a mode-switch only (entering/exiting direct chat with no message)
+            if result.is_state_only_update:
+                # Apply state update without executing the graph
                 self.graph.update_state(self.base_config, result.agent_state)
                 self.console.print(
                     f"[{Styles.SUCCESS}]✓ Mode switched. Ready for your message.[/{Styles.SUCCESS}]"
@@ -685,6 +695,8 @@ class CLI:
                 await self._execute_result(result.agent_state)
         else:
             self.console.print(f"[{Styles.WARNING}]⚠️  No action required[/{Styles.WARNING}]")
+
+        return False  # Don't exit interface
 
     async def _execute_result(self, input_data: Any):
         """Execute agent processing with real-time streaming and interrupt handling.

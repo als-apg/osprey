@@ -281,6 +281,12 @@ class Command:
     valid_options: list[str] | None = None
     interface_restrictions: list[str] | None = None  # ["cli", "openwebui"]
 
+    # Gateway routing - when True, command MUST go through Gateway for processing
+    # This ensures consistent behavior across all interfaces (CLI, OpenWebUI, API)
+    # Examples: /chat, /exit (in direct chat), /planning - these affect agent state
+    # Commands with gateway_handled=False are interface-specific (/help, /clear)
+    gateway_handled: bool = False
+
     # Display properties
     hidden: bool = False
     deprecated: bool = False
