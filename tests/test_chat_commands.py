@@ -4,8 +4,6 @@ This module tests the CLI commands for entering and exiting
 direct chat mode with capabilities.
 """
 
-import pytest
-
 
 class TestChatCommand:
     """Tests for /chat command handler function."""
