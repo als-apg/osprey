@@ -65,11 +65,15 @@ async def test_mcp_capability_generation_workflow(e2e_project_factory, llm_judge
     1. MCP server generation and launch
     2. Capability generation from live MCP server
     3. Automatic registry integration
-    4. End-to-end query execution using MCP capability
-    5. LLM judge verification of weather response
+    4. End-to-end query execution using MCP capability (orchestrated mode)
+    5. Direct chat mode with MCP capability (/chat:weather_mcp)
+    6. Context save functionality in direct chat mode
+    7. State manager capability for context verification
+    8. LLM judge verification of weather response
 
     This demonstrates the full developer experience for integrating
-    external services via MCP into an Osprey project.
+    external services via MCP into an Osprey project, including both
+    orchestrated and direct chat interaction modes.
     """
     # =========================================================================
     # Step 1: Create Control Assistant project
@@ -245,96 +249,122 @@ async def test_mcp_capability_generation_workflow(e2e_project_factory, llm_judge
         await project.initialize()
 
         # =====================================================================
-        # Step 7: Query for weather in San Francisco
+        # Step 7: Query for weather in San Francisco (orchestrated mode)
         # =====================================================================
         result = await project.query("What's the current weather in San Francisco?")
 
         # =====================================================================
-        # Step 8: Define expectations for LLM judge
+        # Step 8: Test direct chat mode with MCP capability
         # =====================================================================
-        expectations = """
-        The workflow should successfully complete the following:
+        # Enter direct chat mode and query weather for a different city
+        direct_result = await project.query("/chat:weather_mcp What's the weather like in Tokyo?")
 
-        1. **Query Classification**: Correctly identify this as a weather-related request
-           that should be handled by the weather_mcp capability.
-
-        2. **MCP Capability Execution**: Execute the weather_mcp capability which:
-           - Connects to the running MCP server
-           - Uses the ReAct agent to determine which MCP tools to call
-           - Calls appropriate weather tools (e.g., get_current_weather)
-           - Retrieves weather data for San Francisco
-
-        3. **Weather Data Retrieval**: Successfully retrieve weather information containing:
-           - Location confirmation (San Francisco)
-           - Temperature value (numeric)
-           - Weather conditions (e.g., "Sunny", "Cloudy", "Rainy")
-           - Additional weather details (optional: humidity, wind, etc.)
-
-        4. **User Response**: Provide a clear, coherent response that:
-           - Confirms this is weather information for San Francisco
-           - Includes temperature information
-           - Describes current weather conditions
-           - Reads like a natural weather report
-           - Does NOT say "I don't know" or "I cannot help"
-
-        5. **No Critical Errors**: The workflow should complete without:
-           - MCP connection failures
-           - Tool execution errors
-           - Registry initialization errors
-           - Framework routing errors
-           - Timeouts or crashes
-
-        6. **Context Creation**: Create appropriate WEATHERMCP_RESULTS context
-           with the retrieved weather data.
-
-        The KEY criterion for success is:
-        - The response MUST be about actual weather conditions
-        - The response MUST NOT be an error message or "I don't know" response
-        - The response should demonstrate that the MCP capability successfully
-          connected to the server, executed tools, and retrieved weather data
-
-        This test validates the complete MCP integration pipeline from server
-        generation through capability execution.
-        """
-
-        # =====================================================================
-        # Step 9: Evaluate with LLM judge
-        # =====================================================================
-        evaluation = await llm_judge.evaluate(result=result, expectations=expectations)
-
-        # =====================================================================
-        # Step 10: Assert success with detailed failure info
-        # =====================================================================
-        assert evaluation.passed, (
-            f"MCP capability generation workflow failed evaluation\n\n"
-            f"Confidence: {evaluation.confidence}\n\n"
-            f"Reasoning:\n{evaluation.reasoning}\n\n"
-            f"Warnings:\n" + "\n".join(f"  - {w}" for w in evaluation.warnings) + "\n\n"
-            f"Response preview:\n{result.response[:500]}\n\n"
-            f"Execution trace preview:\n{result.execution_trace[:1000]}"
+        # Deterministic checks for direct chat
+        assert direct_result.error is None, f"Direct chat mode failed: {direct_result.error}"
+        direct_response_lower = (direct_result.response + direct_result.execution_trace).lower()
+        assert "tokyo" in direct_response_lower, (
+            f"Direct chat mode did not process Tokyo query:\n{direct_result.response[:500]}"
         )
-
-        # Additional sanity checks
-        assert result.error is None, f"Workflow encountered error: {result.error}"
-
-        # Verify MCP capability was mentioned in trace
-        trace_lower = result.execution_trace.lower()
-        assert "weather" in trace_lower or "mcp" in trace_lower, (
-            f"Weather/MCP capability not executed - check trace:\n{result.execution_trace[:500]}"
-        )
-
-        # Verify San Francisco was mentioned
-        full_output = (result.execution_trace + result.response).lower()
-        assert "san francisco" in full_output, "San Francisco not mentioned in workflow output"
-
-        # Verify response contains temperature/weather info
-        response_lower = result.response.lower()
-        has_weather_keywords = any(
-            keyword in response_lower
+        # Verify weather data was returned
+        has_weather_info = any(
+            keyword in direct_response_lower
             for keyword in ["temperature", "weather", "sunny", "cloudy", "rain", "degrees", "°"]
         )
-        assert has_weather_keywords, (
-            f"Response does not contain weather information:\n{result.response}"
+        assert has_weather_info, (
+            f"Direct chat response does not contain weather information:\n{direct_result.response}"
+        )
+
+        # =====================================================================
+        # Step 9: Test context save in direct chat mode
+        # =====================================================================
+        # Ask the agent to save the Tokyo weather result
+        save_result = await project.query("Save that weather info as tokyo_weather")
+
+        # Deterministic checks for save operation
+        assert save_result.error is None, f"Context save failed: {save_result.error}"
+        save_response_lower = save_result.response.lower()
+        assert "tokyo_weather" in save_response_lower or "saved" in save_response_lower, (
+            f"Save operation did not confirm success:\n{save_result.response}"
+        )
+
+        # =====================================================================
+        # Step 10: Exit direct chat and verify via state_manager
+        # =====================================================================
+        # Exit direct chat mode
+        exit_result = await project.query("/exit")
+        assert exit_result.error is None, f"Exit failed: {exit_result.error}"
+
+        # Enter state_manager to verify context was saved
+        state_mgr_result = await project.query("/chat:state_manager What context data do we have?")
+        assert state_mgr_result.error is None, (
+            f"State manager query failed: {state_mgr_result.error}"
+        )
+
+        # Deterministic check: verify BOTH contexts are available
+        # 1. tokyo_weather from direct chat save operation
+        # 2. San Francisco weather from orchestrated query (WEATHERMCP_RESULTS)
+        state_response_lower = state_mgr_result.response.lower()
+        assert "tokyo_weather" in state_response_lower, (
+            f"State manager does not show saved tokyo_weather context:\n{state_mgr_result.response}"
+        )
+        # The orchestrated query should have stored weather results too
+        has_orchestrated_context = (
+            "weathermcp" in state_response_lower
+            or "san francisco" in state_response_lower
+            or "current_weather" in state_response_lower
+        )
+        assert has_orchestrated_context, (
+            f"State manager does not show orchestrated weather context:\n{state_mgr_result.response}"
+        )
+
+        # Exit state_manager for clean state
+        await project.query("/exit")
+
+        # =====================================================================
+        # Step 11: Single LLM judge evaluation - verify end-to-end integration
+        # =====================================================================
+        # The state_manager response is the proof that everything worked.
+        # If it shows BOTH contexts, the entire pipeline succeeded:
+        # - MCP capability generation worked
+        # - Orchestrated query worked (San Francisco → WEATHERMCP_RESULTS)
+        # - Direct chat worked (Tokyo weather)
+        # - Context save worked (tokyo_weather entry)
+        # - Both modes coexist in the same session
+        integration_expectations = """
+        IMPORTANT: Read the response carefully to find evidence of TWO weather contexts.
+
+        The state_manager response should show that BOTH of these exist:
+
+        1. **San Francisco weather** from the orchestrated query:
+           - Look for "current_weather_sf" or "san francisco" or similar
+           - This proves the normal orchestration pipeline worked
+
+        2. **Tokyo weather** saved from direct chat:
+           - Look for "tokyo_weather" as a saved context key
+           - This proves direct chat mode and context saving worked
+
+        SUCCESS CRITERIA:
+        - The response lists or mentions BOTH weather contexts
+        - This proves orchestrated mode and direct chat mode work together
+        - Both contexts coexist in the same agent session
+
+        If BOTH contexts are visible in the state_manager output, the test passes.
+        If only one or neither is visible, the test fails.
+        """
+
+        evaluation = await llm_judge.evaluate(
+            result=state_mgr_result, expectations=integration_expectations
+        )
+
+        # =====================================================================
+        # Step 12: Assert success with detailed failure info
+        # =====================================================================
+        assert evaluation.passed, (
+            f"E2E integration test failed - state_manager doesn't show both contexts\n\n"
+            f"Confidence: {evaluation.confidence}\n\n"
+            f"Reasoning:\n{evaluation.reasoning}\n\n"
+            f"State manager response:\n{state_mgr_result.response}\n\n"
+            f"Expected: Both 'current_weather_sf' (orchestrated) and 'tokyo_weather' (direct chat)"
         )
 
     finally:

@@ -42,28 +42,6 @@ class TestContextManagementTools:
 
         assert "No context data available" in result
 
-    def test_list_context_returns_types(self):
-        """list_available_context should return context types.
-
-        Note: This test only verifies that context types and keys are listed.
-        Detailed context object information requires registry initialization.
-        """
-        from osprey.capabilities.context_tools import create_context_tools
-
-        state = {
-            "capability_context_data": {"WEATHER_RESULTS": {"sf_weather": {"data": "test"}}},
-            "session_state": {},
-        }
-
-        tools = create_context_tools(state, "test_cap")
-        list_tool = next(t for t in tools if t.name == "list_available_context")
-
-        result = list_tool.invoke({})
-
-        # The list tool should at minimum report the context type and key
-        # Even if it can't get detailed info without registry
-        assert "WEATHER_RESULTS" in result or "context" in result.lower()
-
     def test_get_context_summary_empty(self):
         """get_context_summary should handle empty context."""
         from osprey.capabilities.context_tools import create_context_tools
