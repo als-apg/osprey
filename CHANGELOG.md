@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **TUI**: New Textual-based Terminal User Interface (`osprey chat --tui`)
+  - Full-screen terminal experience with real-time streaming of agent responses
+  - Step-by-step visualization: Task Extraction → Classification → Orchestration → Execution
+  - Welcome screen with ASCII banner and quick-start guidance
+  - Theme support with 15+ built-in themes and interactive theme picker (Ctrl+T)
+  - Command palette for quick access to all actions (Ctrl+P)
+  - Slash commands support (`/exit`, `/caps:on`, `/caps:off`, etc.)
+  - Query history navigation with up/down arrows
+  - Content viewer for prompts and responses with multi-tab support and markdown rendering
+  - Log viewer with live updates for debugging
+  - Todo list visualization showing agent planning progress
+  - Keyboard shortcuts for navigation (scroll, focus input, toggle help)
+  - Double Ctrl+C to quit for safety
+  - ~5,500 lines of new code across 17 files in `src/osprey/interfaces/tui/`
+- **Logging**: Enhanced logging system with TUI data extraction support
+  - New `_build_extra()` method embeds streaming event data into Python logs
+  - Enables TUI to receive all data through a single logging source
+  - Added `QueueLogHandler` for async log processing in TUI
 - **CLI**: New `osprey tasks` command for browsing AI assistant tasks
   - `osprey tasks` - Interactive task browser (default)
   - `osprey tasks list` - List all available tasks
@@ -25,8 +43,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Tests**: Comprehensive tests for `tasks_cmd.py` and `claude_cmd.py`
 
 ### Changed
+- **CLI**: `osprey chat` now supports `--tui` flag to launch the TUI interface
+  - Default behavior unchanged (CLI interface)
+  - TUI requires textual package: `pip install osprey-framework[tui]`
 - **CLI**: Deprecated `osprey workflows` command (use `osprey tasks` instead)
   - Command still works for backward compatibility but shows deprecation warning
+- **Code Generation**: Enhanced `claude_code_generator` with environment variable support
+  - Config template now supports custom environment variables via `claude_generator_config.yml`
+  - Added ARGO endpoint configuration to template
+  - Fixed default URL to use correct localhost link
 - **Documentation**: Updated workflow references to use new command structure
   - `osprey tasks list` for browsing tasks
   - `osprey claude install <task>` for installing Claude Code skills

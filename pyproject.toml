@@ -84,6 +84,9 @@ dependencies = [
     "charset-normalizer>=3.4.2",
     "idna>=3.10",
     "MarkupSafe>=3.0.2",
+
+    # Terminal User Interface (TUI) - Textual-based full-screen interface
+    "textual>=0.70.0",
 ]
 
 [project.optional-dependencies]

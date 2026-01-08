@@ -613,6 +613,7 @@ def get_project_menu_choices(exit_action: str = "exit") -> list[Choice]:
     """
     choices = [
         Choice("[>] chat        - Start CLI conversation", value="chat"),
+        Choice("[>] chat (tui)  - Start TUI conversation (experimental)", value="chat-tui"),
         Choice("[>] deploy      - Manage services (web UIs)", value="deploy"),
         Choice("[>] health      - Run system health check", value="health"),
         Choice("[>] generate    - Generate components", value="generate"),
@@ -1627,6 +1628,8 @@ def handle_project_selection(project_path: Path):
         # Execute the selected action with the project path
         if action == "chat":
             handle_chat_action(project_path=project_path)
+        elif action == "chat-tui":
+            handle_chat_tui_action(project_path=project_path)
         elif action == "deploy":
             handle_deploy_action(project_path=project_path)
         elif action == "health":
@@ -1786,6 +1789,107 @@ def handle_chat_action(project_path: Path | None = None):
         # No pause needed - user intentionally exited with Ctrl+C
     except Exception as e:
         console.print(f"\n{Messages.error(f'Chat error: {e}')}")
+        if os.environ.get("DEBUG"):
+            import traceback
+
+            traceback.print_exc()
+        input("\nPress ENTER to continue...")
+
+    # Return to menu (with pause only for actual errors)
+
+
+def handle_chat_tui_action(project_path: Path | None = None):
+    """Start TUI chat interface (experimental).
+
+    Args:
+        project_path: Optional project directory path (defaults to current directory)
+    """
+    try:
+        from osprey.interfaces.tui import run_tui
+    except ImportError as e:
+        console.print(f"\n{Messages.error('TUI not available')}")
+        console.print(f"[dim]{e}[/dim]\n")
+        console.print("The TUI requires the 'textual' package which is not installed.")
+        console.print("Install with: [bold cyan]pip install osprey-framework\\[tui][/bold cyan]\n")
+        input("\nPress ENTER to continue...")
+        return
+    except Exception as e:
+        error_msg = str(e)
+        console.print(f"\n{Messages.error(f'Dependency Error: {error_msg}')}\n")
+        console.print(Messages.warning("There was an error loading the TUI dependencies."))
+        console.print(
+            "Try reinstalling: [bold cyan]pip install osprey-framework\\[tui][/bold cyan]\n"
+        )
+
+        if os.environ.get("DEBUG"):
+            console.print("\n[dim]Full traceback:[/dim]")
+            import traceback
+
+            traceback.print_exc()
+
+        input("\nPress ENTER to continue...")
+        return
+
+    console.print(f"\n{Messages.header('Starting Osprey TUI interface (experimental)...')}")
+    console.print("   [dim]Press 'q' or double Ctrl+C to exit[/dim]\n")
+
+    try:
+        if project_path:
+            # When launching TUI in a specific project
+            config_path = str(project_path / "config.yml")
+
+            # Save original state
+            original_dir = Path.cwd()
+            original_config_env = os.environ.get("CONFIG_FILE")
+
+            try:
+                # Reset the global registry
+                from osprey.registry import reset_registry
+
+                reset_registry()
+
+                # Set up environment for the project
+                os.environ["CONFIG_FILE"] = config_path
+
+                try:
+                    os.chdir(project_path)
+                except (OSError, PermissionError) as e:
+                    console.print(f"\n{Messages.error(f'Cannot change to project directory: {e}')}")
+                    return
+
+                # Run TUI
+                asyncio.run(run_tui(config_path=config_path))
+
+            finally:
+                # Restore original state
+                try:
+                    os.chdir(original_dir)
+                except (OSError, PermissionError) as e:
+                    console.print(
+                        f"\n{Messages.warning(f'Could not restore original directory: {e}')}"
+                    )
+                    console.print(
+                        f"[dim]Current directory may have changed. Original was: {original_dir}[/dim]"
+                    )
+
+                if original_config_env is not None:
+                    os.environ["CONFIG_FILE"] = original_config_env
+                elif "CONFIG_FILE" in os.environ:
+                    del os.environ["CONFIG_FILE"]
+        else:
+            # Default behavior - run in current directory
+            from osprey.registry import reset_registry
+
+            reset_registry()
+
+            config_path = str(Path.cwd() / "config.yml")
+            os.environ["CONFIG_FILE"] = config_path
+            asyncio.run(run_tui(config_path=config_path))
+
+    except KeyboardInterrupt:
+        console.print(f"\n\n{Messages.warning('TUI session ended.')}")
+    except Exception as e:
+        console.print(f"\n{Messages.error(f'TUI error: {e}')}")
         if os.environ.get("DEBUG"):
             import traceback
 
@@ -2329,6 +2433,20 @@ def handle_help_action():
     console.print("  • Supports slash commands (type /help in chat for details)")
     console.print(
         f"  • [{Styles.DIM}]Perfect for: Testing your agent, exploring capabilities, debugging[/{Styles.DIM}]"
+    )
+    console.print()
+
+    # chat-tui
+    console.print(
+        f"[{Styles.HEADER}][>] chat (tui) - Start TUI conversation (experimental)[/{Styles.HEADER}]"
+    )
+    console.print()
+    console.print("  • Full-screen terminal interface built with Textual")
+    console.print("  • Real-time streaming with step-by-step visualization")
+    console.print("  • Theme support, command palette (Ctrl+P), slash commands")
+    console.print("  • Requires: pip install osprey-framework\\[tui]")
+    console.print(
+        f"  • [{Styles.DIM}]Perfect for: Visual debugging, monitoring agent reasoning[/{Styles.DIM}]"
     )
     console.print()
 
@@ -3259,6 +3377,8 @@ def navigation_loop():
                 break
         elif action == "chat":
             handle_chat_action()
+        elif action == "chat-tui":
+            handle_chat_tui_action()
         elif action == "deploy":
             handle_deploy_action()
         elif action == "health":
