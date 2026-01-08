@@ -639,7 +639,7 @@ Once deployed, services are available at:
 osprey chat
 ==============
 
-Start an interactive CLI conversation interface with your agent.
+Start an interactive conversation interface with your agent.
 
 Syntax
 ------
@@ -650,6 +650,17 @@ Syntax
 
 Options
 -------
+
+``--tui``
+   Launch the Terminal User Interface (TUI) instead of the default CLI.
+
+   .. admonition:: Experimental Feature (New in v0.10.0)
+      :class: warning
+
+      The TUI is an experimental feature available for testing. It provides a full-screen
+      terminal experience with real-time streaming and visual step tracking.
+
+   **Requirements:** ``pip install osprey-framework[tui]``
 
 ``--project PATH`` / ``-p PATH``
    Project directory to use. If not specified, uses ``FRAMEWORK_PROJECT`` environment variable or current directory.
@@ -666,21 +677,78 @@ Examples
 
 .. code-block:: bash
 
-   # Start chat in current directory
+   # Start CLI chat (default)
    osprey chat
+
+   # Start TUI chat (experimental)
+   osprey chat --tui
 
    # Start chat in specific project
    osprey chat --project ~/projects/my-agent
 
+   # TUI with specific project
+   osprey chat --tui --project ~/projects/my-agent
+
    # Use custom config
    osprey chat --config my-config.yml
-
-   # Combine project and config
-   osprey chat --project ~/agent --config custom.yml
 
    # Use environment variable for project
    export OSPREY_PROJECT=~/projects/my-agent
    osprey chat
+
+Terminal User Interface (TUI)
+-----------------------------
+
+.. admonition:: Experimental Feature (New in v0.10.0)
+   :class: warning
+
+   The TUI is experimental and available for testing. Feedback welcome!
+
+The TUI provides a full-screen terminal experience built with `Textual <https://textual.textualize.io/>`_:
+
+**Features:**
+
+- **Real-time Streaming**: Watch agent responses appear character-by-character
+- **Step Visualization**: See Task Extraction → Classification → Orchestration → Execution in real-time
+- **15+ Built-in Themes**: Switch themes instantly with ``Ctrl+T``
+- **Command Palette**: Quick access to all actions with ``Ctrl+P``
+- **Slash Commands**: ``/exit``, ``/caps:on``, ``/caps:off``, and more
+- **Query History**: Navigate previous queries with up/down arrows
+- **Content Viewer**: Multi-tab view for prompts and responses
+- **Todo Visualization**: See agent planning progress
+
+**Keyboard Shortcuts:**
+
+.. list-table::
+   :widths: 20 40
+   :header-rows: 1
+
+   * - Shortcut
+     - Action
+   * - ``Ctrl+P``
+     - Open command palette
+   * - ``Ctrl+T``
+     - Open theme picker
+   * - ``Ctrl+L``
+     - Focus input
+   * - ``Ctrl+H``
+     - Toggle help panel
+   * - ``Ctrl+C`` (twice)
+     - Exit TUI
+   * - ``Space``/``b``
+     - Scroll down/up
+   * - ``g``/``G``
+     - Go to top/bottom
+
+**Installation:**
+
+.. code-block:: bash
+
+   pip install osprey-framework[tui]
+
+**Interactive Menu:**
+
+The TUI is also accessible from the interactive menu as "chat (tui)"
 
 Usage
 -----
