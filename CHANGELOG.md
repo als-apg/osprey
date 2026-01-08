@@ -148,6 +148,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CLI**: Proper routing for gateway_handled vs local commands
   - Local commands (/help, /clear) handled directly for instant response
   - State commands route through gateway for consistent state management
+- **Router**: Suppress routing logs during state-only evaluations
+  - Mode switches no longer produce confusing "routing to task extraction" logs
+  - Uses `execution_start_time` to detect active vs state-only execution
 
 ## [0.9.10] - 2025-01-03
 

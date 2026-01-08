@@ -84,6 +84,10 @@ def router_conditional_edge(state: AgentState) -> str:
     # Get registry for node lookup
     registry = get_registry()
 
+    # Check if this is an active execution (vs state-only evaluation)
+    # State-only updates (mode switches) set execution_start_time to None
+    is_active_execution = state.get("execution_start_time") is not None
+
     # ==== HIGHEST PRIORITY: DIRECT CHAT MODE ====
     session_state = state.get("session_state", {})
     direct_chat_capability = session_state.get("direct_chat_capability")
@@ -240,19 +244,22 @@ def router_conditional_edge(state: AgentState) -> str:
     # Check if task extraction is needed first
     current_task = StateManager.get_current_task(state)
     if not current_task:
-        logger.key_info("No current task extracted, routing to task extraction")
+        if is_active_execution:
+            logger.key_info("No current task extracted, routing to task extraction")
         return "task_extraction"
 
     # Check if has active capabilities from prefixed state structure
     active_capabilities = state.get("planning_active_capabilities")
     if not active_capabilities:
-        logger.key_info("No active capabilities, routing to classifier")
+        if is_active_execution:
+            logger.key_info("No active capabilities, routing to classifier")
         return "classifier"
 
     # Check if has execution plan using StateManager utility
     execution_plan = StateManager.get_execution_plan(state)
     if not execution_plan:
-        logger.key_info("No execution plan, routing to orchestrator")
+        if is_active_execution:
+            logger.key_info("No execution plan, routing to orchestrator")
         return "orchestrator"
 
     # Check if more steps to execute using StateManager utility
@@ -275,9 +282,10 @@ def router_conditional_edge(state: AgentState) -> str:
     # PlannedStep is a TypedDict, so access it as a dictionary
     step_capability = current_step.get("capability", "respond")
 
-    logger.key_info(
-        f"Executing step {current_index + 1}/{len(plan_steps)} - capability: {step_capability}"
-    )
+    if is_active_execution:
+        logger.key_info(
+            f"Executing step {current_index + 1}/{len(plan_steps)} - capability: {step_capability}"
+        )
 
     # Validate that the capability exists as a registered node
     if not registry.get_node(step_capability):
