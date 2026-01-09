@@ -373,7 +373,9 @@ def router_conditional_edge(state: AgentState) -> str | list[Send]:
                     # Create Send command WITH step index in state
                     parallel_state = {**state, "planning_current_step_index": idx}
                     send_commands.append(Send(step_capability, parallel_state))
-                    logger.key_info(f"  → Dispatching step {idx + 1}/{len(plan_steps)}: {step_capability}")
+                    logger.key_info(
+                        f"  → Dispatching step {idx + 1}/{len(plan_steps)}: {step_capability}"
+                    )
 
                 if send_commands:
                     logger.key_info(
