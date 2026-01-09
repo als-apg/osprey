@@ -327,10 +327,20 @@ def router_conditional_edge(state: AgentState) -> str | list[Send]:
         executable_indices = _get_next_executable_batch(plan_steps, completed_indices)
 
         if len(executable_indices) == 0:
-            # All steps completed - this shouldn't happen as orchestrator ensures
-            # plans end with respond/clarify, but handle gracefully
-            logger.warning("No executable steps found but plan not complete - possible bug")
-            # Fall through to sequential mode which will handle completion
+            # Check if all steps are actually completed
+            if len(completed_indices) >= len(plan_steps):
+                # All steps completed - execution should end
+                logger.key_info(
+                    f"✅ All {len(plan_steps)} steps completed in parallel execution mode"
+                )
+                return "END"
+            else:
+                # No executable steps but plan not complete - possible dependency deadlock
+                logger.error(
+                    f"⚠️ Parallel execution deadlock: {len(completed_indices)}/{len(plan_steps)} "
+                    f"steps completed but no executable steps found. Check for circular dependencies."
+                )
+                return "error"
         elif len(executable_indices) > 1:
             # Multiple steps can execute in parallel
             # BUT: Never include respond/clarify in parallel batch - they must wait for all data
