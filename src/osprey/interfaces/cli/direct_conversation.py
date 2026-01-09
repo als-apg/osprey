@@ -208,6 +208,7 @@ class CLI:
                 session_state = current_state.values.get("session_state", {})
                 return session_state.get("direct_chat_capability") is not None
         except Exception:
+            # Safely fall back to "not in direct chat" on any state access error
             pass
         return False
 

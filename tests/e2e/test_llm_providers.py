@@ -92,6 +92,7 @@ def get_available_providers_raw() -> dict[str, dict[str, Any]]:
 
         load_dotenv()
     except ImportError:
+        # python-dotenv is optional; if unavailable, rely on existing environment variables
         pass
 
     available = {}
@@ -143,6 +144,7 @@ def get_available_providers_raw() -> dict[str, dict[str, Any]]:
                     "default_model": default_model,
                 }
     except Exception:
+        # Ollama is optional; ignore connectivity/timeout errors during provider detection
         pass
 
     # Check vLLM connectivity
@@ -165,6 +167,7 @@ def get_available_providers_raw() -> dict[str, dict[str, Any]]:
                     (m, m.split("/")[-1].replace("-", "_")[:10]) for m in models
                 ]
     except Exception:
+        # vLLM is optional; ignore connectivity/timeout errors during provider detection
         pass
 
     return available
@@ -184,6 +187,7 @@ try:
     if resp.status_code == 200:
         _AVAILABLE_OLLAMA_MODELS = [m["name"] for m in resp.json().get("models", [])]
 except Exception:
+    # Ollama is optional; ignore connectivity errors during model discovery
     pass
 
 # Cache vLLM models
@@ -197,6 +201,7 @@ try:
     if resp.status_code == 200:
         _AVAILABLE_VLLM_MODELS = [m["id"] for m in resp.json().get("data", [])]
 except Exception:
+    # vLLM is optional; ignore connectivity errors during model discovery
     pass
 
 
