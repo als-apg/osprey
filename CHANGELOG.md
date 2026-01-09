@@ -66,6 +66,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **Code Generation**: Fix `${VAR}` environment variable expansion in `claude_code_generator`
+- **CBORG Provider**: Add missing `temperature` parameter to API calls
+  - Fixes non-deterministic code generation behavior causing intermittent test failures
+  - Both regular text completion and structured output paths now respect temperature setting
+- **Code Generation**: Add simplicity guidance to prevent over-engineered solutions
+  - LLM now prefers direct context usage over building complex systems to fetch data
 
 ## [0.9.10] - 2025-01-03
 

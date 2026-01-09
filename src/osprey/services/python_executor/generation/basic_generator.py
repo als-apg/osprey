@@ -251,6 +251,8 @@ class BasicLLMCodeGenerator:
             1. Generate ONLY executable Python code (no markdown, no explanations)
             2. Store computed results in a dictionary variable named 'results'
             3. Include all necessary imports at the top
+            4. Use actual values from the provided 'context' object - NEVER simulate, hardcode, or fabricate data
+            5. Prefer direct, simple solutions - if data is available in context, use it directly rather than building complex systems to fetch or generate it
             """
             ).strip()
         )

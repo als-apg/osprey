@@ -107,6 +107,7 @@ class CBorgProviderAdapter(BaseProvider):
                 model=model_id,
                 messages=[{"role": "user", "content": message}],
                 max_tokens=max_tokens,
+                temperature=temperature,
                 response_format=output_format,
             )
             if not response.choices:
@@ -123,6 +124,7 @@ class CBorgProviderAdapter(BaseProvider):
                 model=model_id,
                 messages=[{"role": "user", "content": message}],
                 max_tokens=max_tokens,
+                temperature=temperature,
             )
             if not response.choices:
                 raise ValueError("CBORG API returned empty choices list")
