@@ -5,64 +5,7 @@ All notable changes to the Osprey Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.10.0] - 2026-01-08
-
-### Added
-- **TUI**: New Textual-based Terminal User Interface (`osprey chat --tui`)
-  - Full-screen terminal experience with real-time streaming of agent responses
-  - Step-by-step visualization: Task Extraction → Classification → Orchestration → Execution
-  - Welcome screen with ASCII banner and quick-start guidance
-  - Theme support with 15+ built-in themes and interactive theme picker (Ctrl+T)
-  - Command palette for quick access to all actions (Ctrl+P)
-  - Slash commands support (`/exit`, `/caps:on`, `/caps:off`, etc.)
-  - Query history navigation with up/down arrows
-  - Content viewer for prompts and responses with multi-tab support and markdown rendering
-  - Log viewer with live updates for debugging
-  - Todo list visualization showing agent planning progress
-  - Keyboard shortcuts for navigation (scroll, focus input, toggle help)
-  - Double Ctrl+C to quit for safety
-  - ~5,500 lines of new code across 17 files in `src/osprey/interfaces/tui/`
-- **Logging**: Enhanced logging system with TUI data extraction support
-  - New `_build_extra()` method embeds streaming event data into Python logs
-  - Enables TUI to receive all data through a single logging source
-  - Added `QueueLogHandler` for async log processing in TUI
-- **CLI**: New `osprey tasks` command for browsing AI assistant tasks
-  - `osprey tasks` - Interactive task browser (default)
-  - `osprey tasks list` - List all available tasks
-  - `osprey tasks show <task>` - Print task instructions to stdout
-  - `osprey tasks copy <task>` - Copy task to project's `.ai-tasks/` directory
-  - `osprey tasks path <task>` - Print path to task's instructions file
-- **CLI**: New `osprey claude` command for Claude Code skill management
-  - `osprey claude install <task>` - Install a task as a Claude Code skill
-  - `osprey claude list` - List installed and available skills
-- **Assist System**: General-purpose architecture for AI coding assistant integrations
-  - Tool-agnostic task instructions in `src/osprey/assist/tasks/`
-  - Tool-specific wrappers in `src/osprey/assist/integrations/`
-  - Pre-commit task for validating code before commits
-  - Migration task for upgrading downstream OSPREY projects
-- **Tests**: Comprehensive tests for `tasks_cmd.py` and `claude_cmd.py`
-
-### Changed
-- **CLI**: `osprey chat` now supports `--tui` flag to launch the TUI interface
-  - Default behavior unchanged (CLI interface)
-  - TUI requires textual package: `pip install osprey-framework[tui]`
-- **CLI**: Deprecated `osprey workflows` command (use `osprey tasks` instead)
-  - Command still works for backward compatibility but shows deprecation warning
-- **Code Generation**: Enhanced `claude_code_generator` with environment variable support
-  - Config template now supports custom environment variables via `claude_generator_config.yml`
-  - Added ARGO endpoint configuration to template
-  - Fixed default URL to use correct localhost link
-- **Documentation**: Updated workflow references to use new command structure
-  - `osprey tasks list` for browsing tasks
-  - `osprey claude install <task>` for installing Claude Code skills
-- **Documentation**: Updated release-workflow instructions with accurate test counts
-  - Unit tests: ~1850 tests (~1-2 min) instead of outdated ~370-380 tests (~5s)
-  - E2E tests: ~32 tests (~10-12 min) instead of outdated ~5 tests (~2-3 min)
-
-### Removed
-- **Workflows**: Removed duplicate workflow files from `src/osprey/workflows/`
-  - Content consolidated into `src/osprey/assist/tasks/{name}/instructions.md`
-  - Only `README.md` deprecation notice remains in workflows directory
+## [0.10.1] - 2026-01-09
 
 ### Added
 - **State**: Session state persistence for user preferences and mode tracking
@@ -159,6 +102,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Capabilities**: Context tool changes now persist to LangGraph state
   - State manager and MCP capabilities return `capability_context_data` in state updates
   - Fixes context save/remove operations having no effect in direct chat mode
+
+## [0.10.0] - 2026-01-08
+
+### Added
+- **TUI**: New Textual-based Terminal User Interface (`osprey chat --tui`)
+  - Full-screen terminal experience with real-time streaming of agent responses
+  - Step-by-step visualization: Task Extraction → Classification → Orchestration → Execution
+  - Welcome screen with ASCII banner and quick-start guidance
+  - Theme support with 15+ built-in themes and interactive theme picker (Ctrl+T)
+  - Command palette for quick access to all actions (Ctrl+P)
+  - Slash commands support (`/exit`, `/caps:on`, `/caps:off`, etc.)
+  - Query history navigation with up/down arrows
+  - Content viewer for prompts and responses with multi-tab support and markdown rendering
+  - Log viewer with live updates for debugging
+  - Todo list visualization showing agent planning progress
+  - Keyboard shortcuts for navigation (scroll, focus input, toggle help)
+  - Double Ctrl+C to quit for safety
+  - ~5,500 lines of new code across 17 files in `src/osprey/interfaces/tui/`
+- **Logging**: Enhanced logging system with TUI data extraction support
+  - New `_build_extra()` method embeds streaming event data into Python logs
+  - Enables TUI to receive all data through a single logging source
+  - Added `QueueLogHandler` for async log processing in TUI
+- **CLI**: New `osprey tasks` command for browsing AI assistant tasks
+  - `osprey tasks` - Interactive task browser (default)
+  - `osprey tasks list` - List all available tasks
+  - `osprey tasks show <task>` - Print task instructions to stdout
+  - `osprey tasks copy <task>` - Copy task to project's `.ai-tasks/` directory
+  - `osprey tasks path <task>` - Print path to task's instructions file
+- **CLI**: New `osprey claude` command for Claude Code skill management
+  - `osprey claude install <task>` - Install a task as a Claude Code skill
+  - `osprey claude list` - List installed and available skills
+- **Assist System**: General-purpose architecture for AI coding assistant integrations
+  - Tool-agnostic task instructions in `src/osprey/assist/tasks/`
+  - Tool-specific wrappers in `src/osprey/assist/integrations/`
+  - Pre-commit task for validating code before commits
+  - Migration task for upgrading downstream OSPREY projects
+- **Tests**: Comprehensive tests for `tasks_cmd.py` and `claude_cmd.py`
+
+### Changed
+- **CLI**: `osprey chat` now supports `--tui` flag to launch the TUI interface
+  - Default behavior unchanged (CLI interface)
+  - TUI requires textual package: `pip install osprey-framework[tui]`
+- **CLI**: Deprecated `osprey workflows` command (use `osprey tasks` instead)
+  - Command still works for backward compatibility but shows deprecation warning
+- **Code Generation**: Enhanced `claude_code_generator` with environment variable support
+  - Config template now supports custom environment variables via `claude_generator_config.yml`
+  - Added ARGO endpoint configuration to template
+  - Fixed default URL to use correct localhost link
+- **Documentation**: Updated workflow references to use new command structure
+  - `osprey tasks list` for browsing tasks
+  - `osprey claude install <task>` for installing Claude Code skills
+- **Documentation**: Updated release-workflow instructions with accurate test counts
+  - Unit tests: ~1850 tests (~1-2 min) instead of outdated ~370-380 tests (~5s)
+  - E2E tests: ~32 tests (~10-12 min) instead of outdated ~5 tests (~2-3 min)
+
+### Removed
+- **Workflows**: Removed duplicate workflow files from `src/osprey/workflows/`
+  - Content consolidated into `src/osprey/assist/tasks/{name}/instructions.md`
+  - Only `README.md` deprecation notice remains in workflows directory
 
 ## [0.9.10] - 2025-01-03
 

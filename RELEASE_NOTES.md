@@ -1,56 +1,56 @@
-# Osprey Framework - Latest Release (v0.10.0)
+# Osprey Framework - Latest Release (v0.10.1)
 
-🎉 **Terminal User Interface & AI Assistant Tasks** - Full-screen TUI experience and new developer tooling
+🎉 **Direct Chat Mode & LiteLLM Migration** - Conversational capability interaction and unified LLM provider interface
 
-## What's New in v0.10.0
+## What's New in v0.10.1
 
-### 🖥️ Terminal User Interface (TUI)
+### 💬 Direct Chat Mode
 
-A brand new full-screen terminal interface for interacting with your Osprey agents!
+A new way to interact with capabilities in a conversational flow!
 
-- **Launch with**: `osprey chat --tui` (or select "chat (tui)" from interactive menu)
-- **Real-time Streaming**: Watch agent responses appear character-by-character
-- **Step Visualization**: See Task Extraction → Classification → Orchestration → Execution in real-time
-- **15+ Built-in Themes**: Switch themes instantly with Ctrl+T
-- **Command Palette**: Quick access to all actions with Ctrl+P
-- **Slash Commands**: `/exit`, `/caps:on`, `/caps:off`, and more
-- **Query History**: Navigate previous queries with up/down arrows
-- **Content Viewer**: Multi-tab view for prompts and responses with markdown rendering
-- **Todo Visualization**: See agent planning progress as it happens
+- **Enter Direct Chat**: `/chat:<capability>` - Start chatting with a specific capability
+- **List Available**: `/chat` - See all direct-chat enabled capabilities
+- **Exit**: `/exit` - Return to normal orchestrated mode
+- **Dynamic Prompt**: See which mode you're in (normal vs capability name)
+- **Context Tools**: Save, read, and manage context during conversations
 
-**Install TUI support**: `pip install osprey-framework[tui]`
+**Built-in Direct Chat Capabilities:**
+- `state_manager` - Inspect and manage agent state
+- MCP-generated capabilities are direct-chat enabled by default
 
-### 🤖 AI Assistant Integration (Assist System)
+### ⚡ LiteLLM Migration (#23)
 
-New commands for working with AI coding assistants like Claude Code:
+Major backend simplification - all LLM providers now use a unified interface:
 
-#### `osprey tasks` - Browse AI Assistant Tasks
-- `osprey tasks` - Interactive task browser
-- `osprey tasks list` - List all available tasks
-- `osprey tasks show <task>` - Print task instructions
-- `osprey tasks copy <task>` - Copy task to project's `.ai-tasks/`
+- **~2,200 lines → ~700 lines** - Massive code reduction
+- **8 Providers**: anthropic, openai, google, ollama, cborg, stanford, argo, vllm
+- **100+ Models**: Access to all LiteLLM-supported providers
+- **Preserved Features**: Extended thinking, structured outputs, health checks
 
-#### `osprey claude` - Claude Code Skill Management
-- `osprey claude install <task>` - Install a task as a Claude Code skill
-- `osprey claude list` - List installed and available skills
+### 🆕 New Provider: vLLM
 
-#### Available Tasks
-- **pre-commit** - Validate code before commits
-- **migrate** - Upgrade downstream OSPREY projects
-- **release-workflow** - Guide through releases
-- **testing-workflow** - Smart test selection
-- **commit-organization** - Create atomic commits
-- And more!
+High-throughput local inference support:
 
-### 🔧 Code Generation Enhancements
+- OpenAI-compatible interface via LiteLLM
+- Auto-detects served models
+- Supports structured outputs
 
-- **Environment Variables**: `claude_code_generator` now supports custom env vars in config
-- **ARGO Support**: Added ARGO endpoint configuration to generator template
+### 🔧 LangChain Model Factory
 
-### 📋 Changed
+Native integration with LangGraph ReAct agents:
 
-- **CLI**: `osprey workflows` deprecated → use `osprey tasks` instead
-- **Logging**: Enhanced logging system embeds streaming data for TUI consumption
+```python
+from osprey.models import get_langchain_model
+
+model = get_langchain_model(provider="anthropic", model_id="claude-sonnet-4")
+# Use with create_react_agent, etc.
+```
+
+### 📚 Documentation Updates
+
+- CLI Reference: Direct chat mode commands and examples
+- Gateway Architecture: Message history preservation
+- Building First Capability: `direct_chat_enabled` attribute guide
 
 ---
 
@@ -66,36 +66,31 @@ Or install with all optional dependencies:
 pip install --upgrade "osprey-framework[all]"
 ```
 
-## Upgrading from v0.9.9
+## Upgrading from v0.10.0
 
-### Prompt Structure Migration
+### Direct Chat Mode
 
-If you've customized channel finder prompts:
-
-1. **Check your `system.py` files** - They now auto-combine modules
-2. **Move facility content** to `facility_description.py`
-3. **Move matching rules** to `matching_rules.py` (optional)
-
-The new structure makes future upgrades easier - framework updates won't overwrite your customizations.
-
-### Query Splitting
-
-If you have facility-specific terms being incorrectly split:
+No migration needed! Direct chat mode is opt-in:
 
 ```python
-# In your pipeline configuration
-pipeline = HierarchicalPipeline(
-    query_splitting=False  # Disable splitting for your facility
-)
+# Add to your capability to enable direct chat
+@capability_node
+class MyCapability(BaseCapability):
+    direct_chat_enabled = True  # New in 0.10.1
 ```
+
+### LiteLLM Migration
+
+The API remains the same - `get_chat_completion()` works exactly as before.
+Backend providers now use LiteLLM internally.
 
 ---
 
 ## What's Next?
 
 Check out our [documentation](https://als-apg.github.io/osprey) for:
-- Channel Finder prompt customization guide
-- AI-assisted development workflows
+- Direct chat mode tutorial
+- LangChain integration guide
 - Complete tutorial series
 
 ## Contributors
