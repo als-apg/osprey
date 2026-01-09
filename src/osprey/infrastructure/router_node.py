@@ -308,10 +308,6 @@ def router_conditional_edge(state: AgentState) -> str | list[Send]:
     agent_control = state.get("agent_control", {})
     parallel_enabled = agent_control.get("parallel_execution_enabled", False)
 
-    # Debug logging
-    logger.debug(f"Agent control keys: {list(agent_control.keys())}")
-    logger.debug(f"Parallel execution enabled: {parallel_enabled}")
-
     if parallel_enabled and Send is not None:
         # Determine which steps have been completed
         step_results = state.get("execution_step_results", {})
@@ -323,16 +319,8 @@ def router_conditional_edge(state: AgentState) -> str | list[Send]:
                 if step_idx is not None:
                     completed_indices.add(step_idx)
 
-        # Debug logging to understand what's happening
-        logger.debug(f"Parallel execution analysis:")
-        logger.debug(f"  - Total steps in plan: {len(plan_steps)}")
-        logger.debug(f"  - execution_step_results keys: {list(step_results.keys())}")
-        logger.debug(f"  - Completed step indices: {sorted(completed_indices)}")
-        logger.debug(f"  - Current step index: {current_index}")
-
         # Get next executable batch
         executable_indices = _get_next_executable_batch(plan_steps, completed_indices)
-        logger.debug(f"  - Executable step indices: {executable_indices}")
 
         if len(executable_indices) == 0:
             # Check if all steps are actually completed

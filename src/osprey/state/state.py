@@ -164,6 +164,11 @@ def merge_execution_step_results(
     This custom reducer enables multiple parallel capabilities to update
     execution_step_results simultaneously without conflicts. Each capability
     updates its own step key, so we can safely merge the dictionaries.
+    
+    CRITICAL: When new is an empty dict {}, it signals a fresh conversation turn
+    reset from StateManager.create_fresh_state(). In this case, we return the
+    empty dict to clear old step results from previous turns. This prevents
+    context_key collision when the orchestrator reuses the same keys across turns.
 
     :param existing: Existing execution step results from previous state
     :type existing: Optional[Dict[str, Any]]
@@ -174,6 +179,11 @@ def merge_execution_step_results(
     """
     if existing is None:
         return copy.deepcopy(new)
+    
+    # CRITICAL FIX: If new is empty dict, it's a fresh turn reset - return it directly
+    # This prevents old step results from previous turns from persisting
+    if not new:
+        return {}
 
     # Deep copy existing to avoid mutation
     result = copy.deepcopy(existing)
