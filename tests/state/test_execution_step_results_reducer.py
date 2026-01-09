@@ -80,14 +80,15 @@ def test_merge_execution_step_results_immutability():
 
 
 def test_merge_execution_step_results_empty_new():
-    """Test merging with empty new dictionary."""
+    """Test merging with empty new dictionary - signals fresh turn reset."""
     existing = {"step_0": {"result": "data1", "step_index": 0}}
     new = {}
 
     result = merge_execution_step_results(existing, new)
 
-    assert len(result) == 1
-    assert result["step_0"]["result"] == "data1"
+    # Empty dict signals fresh turn reset - should clear old results
+    assert len(result) == 0
+    assert result == {}
 
 
 def test_merge_execution_step_results_complex_data():
