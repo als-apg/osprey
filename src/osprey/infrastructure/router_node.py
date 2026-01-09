@@ -105,6 +105,10 @@ def _get_next_executable_batch(steps: list[PlannedStep], completed_indices: set[
         dependencies_satisfied = True
         inputs = step.get("inputs", [])
 
+        # Handle None inputs (orchestrator may set inputs to None for steps with no dependencies)
+        if inputs is None:
+            inputs = []
+
         for input_spec in inputs:
             # input_spec is a dict like {"PV_DATA": "step_0"}
             # Extract the context_key from the value
