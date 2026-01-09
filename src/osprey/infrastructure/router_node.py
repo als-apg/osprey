@@ -360,7 +360,7 @@ def router_conditional_edge(state: AgentState) -> str | list[Send]:
             # If we have multiple non-response steps, execute them in parallel
             if len(parallel_indices) > 1:
                 logger.key_info(
-                    f"Parallel execution: {len(parallel_indices)} steps can run simultaneously"
+                    f"🚀 Parallel execution: {len(parallel_indices)} steps will run concurrently"
                 )
 
                 # Create Send commands for each parallel step
@@ -377,9 +377,12 @@ def router_conditional_edge(state: AgentState) -> str | list[Send]:
                     # Create Send command WITH step index in state
                     parallel_state = {**state, "planning_current_step_index": idx}
                     send_commands.append(Send(step_capability, parallel_state))
-                    logger.key_info(f"  → Step {idx + 1}: {step_capability}")
+                    logger.key_info(f"  → Dispatching step {idx + 1}/{len(plan_steps)}: {step_capability}")
 
                 if send_commands:
+                    logger.key_info(
+                        f"✨ Dispatched {len(send_commands)} parallel tasks to LangGraph execution engine"
+                    )
                     return send_commands
                 # Fall through to sequential if no valid commands
             # If only 1 parallel step or only final step, use sequential execution below
