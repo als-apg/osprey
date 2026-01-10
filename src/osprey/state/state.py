@@ -352,6 +352,10 @@ class AgentState(MessagesState):
     control_validation_timestamp: float | None
 
     # UI result fields
+    ui_artifacts: list[dict[str, Any]]  # Unified artifact registry for all UI-displayable content
+
+    # Legacy UI fields (deprecated - use ui_artifacts instead)
+    # These are maintained for backward compatibility with existing interfaces
     ui_captured_notebooks: list[
         dict[str, Any]
     ]  # Centralized notebook registry for displaying notebooks in the UI

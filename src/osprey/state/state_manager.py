@@ -61,6 +61,7 @@ from osprey.context.context_manager import ContextManager
 from osprey.utils.config import get_agent_control_defaults as _get_agent_control_defaults
 from osprey.utils.logger import get_logger
 
+from .artifacts import ArtifactType, create_artifact
 from .messages import MessageUtils
 from .state import AgentState, StateUpdate
 
@@ -325,6 +326,8 @@ class StateManager:
             control_validation_context=None,
             control_validation_timestamp=None,
             # UI result fields - reset to defaults
+            ui_artifacts=[],  # Unified artifact registry
+            # Legacy fields (maintained for backward compatibility)
             ui_captured_notebooks=[],
             ui_captured_figures=[],
             ui_launchable_commands=[],
@@ -553,6 +556,97 @@ class StateManager:
                 "before routing to capabilities that need step extraction."
             )
 
+    # ===== UNIFIED ARTIFACT REGISTRATION =====
+
+    @staticmethod
+    def register_artifact(
+        state: AgentState,
+        artifact_type: ArtifactType,
+        capability: str,
+        data: dict[str, Any],
+        display_name: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        current_artifacts: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Register an artifact in the unified UI artifact registry.
+
+        This is the single entry point for all capabilities to register artifacts
+        for UI display. It replaces the separate figure/command/notebook registration
+        methods with a unified interface that supports any artifact type.
+
+        The method creates a properly structured artifact with a unique ID and timestamp,
+        then appends it to the artifact list. It supports accumulation for registering
+        multiple artifacts within a single node execution.
+
+        Args:
+            state: Current agent state
+            artifact_type: Type of artifact (IMAGE, NOTEBOOK, COMMAND, HTML, FILE)
+            capability: Name of the capability generating this artifact
+            data: Type-specific data payload (path, url, uri, etc.)
+            display_name: Optional human-readable name for the artifact
+            metadata: Optional additional metadata dictionary
+            current_artifacts: Optional list to accumulate artifacts (for multiple
+                registrations within same node). If None, reads from state.
+
+        Returns:
+            State update dictionary with ui_artifacts update
+
+        Examples:
+            Register an image artifact::
+
+                >>> update = StateManager.register_artifact(
+                ...     state,
+                ...     ArtifactType.IMAGE,
+                ...     "python_executor",
+                ...     {"path": "/path/to/plot.png", "format": "png"},
+                ...     display_name="Analysis Plot"
+                ... )
+                >>> return {**other_updates, **update}
+
+            Register multiple artifacts in one node::
+
+                >>> accumulating = None
+                >>> for path in figure_paths:
+                ...     update = StateManager.register_artifact(
+                ...         state,
+                ...         ArtifactType.IMAGE,
+                ...         "python_executor",
+                ...         {"path": str(path), "format": path.suffix[1:]},
+                ...         current_artifacts=accumulating
+                ...     )
+                ...     accumulating = update["ui_artifacts"]
+                >>> return update  # Contains all artifacts
+
+        .. seealso::
+           :class:`osprey.state.artifacts.ArtifactType` : Available artifact types
+           :func:`osprey.state.artifacts.create_artifact` : Artifact creation factory
+        """
+        # Create the artifact using the factory function
+        artifact = create_artifact(
+            artifact_type=artifact_type,
+            capability=capability,
+            data=data,
+            display_name=display_name,
+            metadata=metadata,
+        )
+
+        # Use provided current_artifacts or get from state
+        if current_artifacts is not None:
+            artifacts_list = current_artifacts
+        else:
+            artifacts_list = list(state.get("ui_artifacts", []))
+
+        artifacts_list.append(artifact)
+
+        logger.info(
+            f"StateManager: registered {artifact_type.value} artifact for {capability}: "
+            f"{display_name or data.get('path') or data.get('uri') or data.get('url', 'unknown')}"
+        )
+
+        return {"ui_artifacts": artifacts_list}
+
+    # ===== LEGACY REGISTRATION METHODS (delegate to register_artifact) =====
+
     @staticmethod
     def register_figure(
         state: AgentState,
@@ -561,13 +655,17 @@ class StateManager:
         display_name: str | None = None,
         metadata: dict[str, Any] | None = None,
         current_figures: list[dict[str, Any]] | None = None,
+        current_artifacts: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        """
-        Register a figure in the centralized UI registry.
+        """Register a figure in the UI registry.
 
-        This is the single point of entry for all capabilities to register figures
-        for UI display. Provides a capability-agnostic interface that works for
-        Python, R, Julia, or any other figure-generating capability.
+        .. deprecated::
+            Use :meth:`register_artifact` with ``ArtifactType.IMAGE`` instead.
+            This method is maintained for backward compatibility.
+
+        This method now delegates to register_artifact() for the unified artifact
+        system while maintaining the legacy ui_captured_figures field for backward
+        compatibility with existing interfaces (e.g., OpenWebUI pipeline).
 
         Args:
             state: Current agent state
@@ -575,61 +673,58 @@ class StateManager:
             figure_path: Path to the figure file (absolute or relative)
             display_name: Optional human-readable figure name
             metadata: Optional capability-specific metadata dictionary
-            current_figures: Optional list of current figures to accumulate (otherwise get from state)
+            current_figures: Optional list of current figures to accumulate
+            current_artifacts: Optional list of current artifacts to accumulate (for
+                multiple registrations in same node). If not provided but current_figures
+                is, artifacts from previous update are retrieved from state.
 
         Returns:
-            State update dictionary with ui_captured_figures update
-
-        Examples:
-            Basic figure registration::
-
-                >>> figure_update = StateManager.register_figure(
-                ...     state, "python_executor", "/path/to/plot.png"
-                ... )
-                >>> return {**other_updates, **figure_update}
-
-            Rich figure registration::
-
-                >>> figure_update = StateManager.register_figure(
-                ...     state,
-                ...     capability="python_executor",
-                ...     figure_path="figures/analysis.png",
-                ...     display_name="Performance Analysis",
-                ...     metadata={
-                ...         "execution_folder": "/path/to/execution",
-                ...         "notebook_link": "http://jupyter/notebook.ipynb"
-                ...         "figure_type": "matplotlib_png"
-                ...     }
-                ... )
+            State update dictionary with both ui_artifacts and ui_captured_figures updates
         """
         from datetime import datetime
+        from pathlib import Path
 
-        # Create figure entry with required fields
+        # Determine format from file extension
+        path = Path(figure_path)
+        format_ext = path.suffix[1:].lower() if path.suffix else "unknown"
+
+        # Determine current_artifacts for accumulation
+        # If current_figures is provided (accumulation mode), we need matching artifacts
+        if current_artifacts is None:
+            current_artifacts = list(state.get("ui_artifacts", []))
+
+        # Register in unified artifact system
+        artifact_update = StateManager.register_artifact(
+            state=state,
+            artifact_type=ArtifactType.IMAGE,
+            capability=capability,
+            data={"path": figure_path, "format": format_ext},
+            display_name=display_name,
+            metadata=metadata,
+            current_artifacts=current_artifacts,
+        )
+
+        # Also maintain legacy field for backward compatibility
         figure_entry = {
             "capability": capability,
             "figure_path": figure_path,
             "created_at": datetime.now().isoformat(),
         }
-
-        # Add optional fields only if provided
         if display_name:
             figure_entry["display_name"] = display_name
         if metadata:
             figure_entry["metadata"] = metadata
 
-        # Use provided current_figures or get from state
         if current_figures is not None:
-            # Use the accumulating list (for multiple registrations within same node)
             figures_list = current_figures
         else:
-            # Start from state (for single registration)
             figures_list = list(state.get("ui_captured_figures", []))
-
         figures_list.append(figure_entry)
 
         logger.info(f"StateManager: prepared figure registration for {capability}: {figure_path}")
 
-        return {"ui_captured_figures": figures_list}
+        # Return both unified and legacy updates
+        return {**artifact_update, "ui_captured_figures": figures_list}
 
     @staticmethod
     def register_command(
@@ -641,58 +736,52 @@ class StateManager:
         metadata: dict[str, Any] | None = None,
         current_commands: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        """
-        Register a launchable command in the centralized UI registry.
+        """Register a launchable command in the UI registry.
 
-        This method allows capabilities to register commands that users can execute
-        through the UI. Commands are typically external applications, web interfaces,
-        or desktop tools that can be launched via URIs.
+        .. deprecated::
+            Use :meth:`register_artifact` with ``ArtifactType.COMMAND`` instead.
+            This method is maintained for backward compatibility.
+
+        This method now delegates to register_artifact() for the unified artifact
+        system while maintaining the legacy ui_launchable_commands field for backward
+        compatibility with existing interfaces.
 
         Args:
             state: Current agent state
             capability: Name of the capability that generated this command
-            launch_uri: URI that can be used to launch the command (e.g., http://, file://, custom://)
+            launch_uri: URI that can be used to launch the command
             display_name: Optional human-readable name for the command
-            command_type: Optional type of command (e.g., 'web_app', 'desktop_app', 'viewer')
+            command_type: Optional type of command (e.g., 'web_app', 'desktop_app')
             metadata: Optional capability-specific metadata dictionary
-            current_commands: Optional list of current commands to accumulate (otherwise get from state)
+            current_commands: Optional list of current commands to accumulate
 
         Returns:
-            State update dictionary with ui_launchable_commands update
-
-        Examples:
-            Basic command registration::
-
-                >>> command_update = StateManager.register_command(
-                ...     state, "file_processor", "file:///path/to/results.html"
-                ... )
-                >>> return {**other_updates, **command_update}
-
-            Rich command registration::
-
-                >>> command_update = StateManager.register_command(
-                ...     state,
-                ...     capability="data_visualizer",
-                ...     launch_uri="http://localhost:8080/dashboard",
-                ...     display_name="Interactive Dashboard",
-                ...     command_type="web_app",
-                ...     metadata={
-                ...         "port": 8080,
-                ...         "data_source": "analysis_results",
-                ...         "chart_count": 3
-                ...     }
-                ... )
+            State update dictionary with both ui_artifacts and ui_launchable_commands updates
         """
         from datetime import datetime
 
-        # Create command entry with required fields (following register_figure pattern)
+        # Build data payload for artifact
+        data: dict[str, Any] = {"uri": launch_uri}
+        if command_type:
+            data["command_type"] = command_type
+
+        # Register in unified artifact system
+        artifact_update = StateManager.register_artifact(
+            state=state,
+            artifact_type=ArtifactType.COMMAND,
+            capability=capability,
+            data=data,
+            display_name=display_name,
+            metadata=metadata,
+            current_artifacts=list(state.get("ui_artifacts", [])),
+        )
+
+        # Also maintain legacy field for backward compatibility
         command_entry = {
             "capability": capability,
             "launch_uri": launch_uri,
             "created_at": datetime.now().isoformat(),
         }
-
-        # Add optional fields only if provided
         if display_name:
             command_entry["display_name"] = display_name
         if command_type:
@@ -700,21 +789,18 @@ class StateManager:
         if metadata:
             command_entry["metadata"] = metadata
 
-        # Use provided current_commands or get from state
         if current_commands is not None:
-            # Use the accumulating list (for multiple registrations within same node)
             commands_list = current_commands
         else:
-            # Start from state (for single registration)
             commands_list = list(state.get("ui_launchable_commands", []))
-
         commands_list.append(command_entry)
 
         logger.info(
             f"StateManager: prepared command registration for {capability}: {display_name or launch_uri}"
         )
 
-        return {"ui_launchable_commands": commands_list}
+        # Return both unified and legacy updates
+        return {**artifact_update, "ui_launchable_commands": commands_list}
 
     @staticmethod
     def register_notebook(
@@ -725,26 +811,39 @@ class StateManager:
         display_name: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """
-        Register a notebook in the centralized UI registry.
+        """Register a notebook in the UI registry.
 
-        This method provides notebook registration functionality that was being called
-        but didn't exist. It follows the same pattern as figure registration.
+        .. deprecated::
+            Use :meth:`register_artifact` with ``ArtifactType.NOTEBOOK`` instead.
+            This method is maintained for backward compatibility.
+
+        This method now delegates to register_artifact() for the unified artifact
+        system while maintaining the legacy ui_captured_notebooks field for backward
+        compatibility with existing interfaces.
 
         Args:
             state: Current agent state
-            capability: Capability identifier (e.g., "python_executor", "data_analysis")
+            capability: Capability identifier (e.g., "python_executor")
             notebook_path: Path to the notebook file
             notebook_link: Link to access the notebook
             display_name: Optional human-readable notebook name
             metadata: Optional capability-specific metadata dictionary
 
         Returns:
-            State update dictionary with ui_captured_notebooks update
+            State update dictionary with both ui_artifacts and ui_captured_notebooks updates
         """
+        # Register in unified artifact system
+        artifact_update = StateManager.register_artifact(
+            state=state,
+            artifact_type=ArtifactType.NOTEBOOK,
+            capability=capability,
+            data={"path": notebook_path, "url": notebook_link},
+            display_name=display_name,
+            metadata=metadata,
+            current_artifacts=list(state.get("ui_artifacts", [])),
+        )
 
-        # For now, maintain backward compatibility with simple notebook links
-        # In the future, this could be enhanced to store structured notebook objects
+        # Also maintain legacy field for backward compatibility
         notebook_links = list(state.get("ui_captured_notebooks", []))
         notebook_links.append(notebook_link)
 
@@ -752,7 +851,8 @@ class StateManager:
             f"StateManager: prepared notebook registration for {capability}: {display_name or notebook_path}"
         )
 
-        return {"ui_captured_notebooks": notebook_links}
+        # Return both unified and legacy updates
+        return {**artifact_update, "ui_captured_notebooks": notebook_links}
 
 
 def get_execution_steps_summary(state: AgentState) -> list[str]:

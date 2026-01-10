@@ -5,6 +5,19 @@ All notable changes to the Osprey Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **State**: Unified artifact system with `ArtifactType` enum and `register_artifact()` API
+  - Single source of truth (`ui_artifacts`) for all artifact types: IMAGE, NOTEBOOK, COMMAND, HTML, FILE
+  - Legacy methods (`register_figure`, `register_notebook`, `register_command`) delegate to new API
+  - `populate_legacy_fields_from_artifacts()` helper for backward compatibility at finalization
+
+### Changed
+- **Capabilities**: Python capability uses unified `register_artifact()` API directly
+  - Clean single-accumulation pattern for figures and notebooks
+  - Legacy fields populated at finalization rather than registration
+
 ## [0.10.1] - 2026-01-09
 
 ### Added
