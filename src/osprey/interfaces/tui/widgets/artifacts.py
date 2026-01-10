@@ -328,7 +328,9 @@ class ArtifactGallery(Static, can_focus=True):
         try:
             footer = self.query_one("#gallery-footer", Static)
             if focused:
-                footer.update("[dim]j/k[/] navigate · [dim]Enter[/] view · [dim]o[/] open · [dim]Esc[/] exit")
+                footer.update(
+                    "[dim]j/k[/] navigate · [dim]Enter[/] view · [dim]o[/] open · [dim]Esc[/] exit"
+                )
             else:
                 footer.update("[dim]Press [/]Ctrl+a[dim] to browse artifacts[/]")
         except Exception:

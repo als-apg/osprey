@@ -72,7 +72,7 @@ class TestArtifactItemWidget:
             {"path": "/plot.png"},
             display_name="My Custom Plot",
         )
-        item = ArtifactItem(artifact)
+        _item = ArtifactItem(artifact)  # noqa: F841 - verifies item can be created
 
         # display_name takes precedence in rendering
         assert artifact.get("display_name") == "My Custom Plot"

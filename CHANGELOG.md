@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Capabilities**: Python capability uses unified `register_artifact()` API directly
   - Clean single-accumulation pattern for figures and notebooks
   - Legacy fields populated at finalization rather than registration
+- **CLI**: Modernized artifact display to use unified `ui_artifacts` registry
+  - Single `_extract_artifacts_for_cli()` replaces three legacy extraction methods
+  - Supports all artifact types: IMAGE, NOTEBOOK, COMMAND, HTML, FILE
+  - Grouped display with type-specific formatting and icons
 
 ## [0.10.1] - 2026-01-09
 
