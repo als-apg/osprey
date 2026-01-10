@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Single source of truth (`ui_artifacts`) for all artifact types: IMAGE, NOTEBOOK, COMMAND, HTML, FILE
   - Legacy methods (`register_figure`, `register_notebook`, `register_command`) delegate to new API
   - `populate_legacy_fields_from_artifacts()` helper for backward compatibility at finalization
+- **TUI**: Artifact gallery and viewer widgets for interactive artifact browsing
+  - ArtifactGallery with keyboard navigation (Ctrl+a focus, j/k navigate, Enter view, o open external)
+  - ArtifactViewer modal with type-specific details and actions (copy path, open in system app)
+  - Native image rendering via textual-image (Sixel for iTerm2/WezTerm, Kitty Graphics Protocol)
+  - New/seen tracking with [NEW] badges for artifacts from current turn
 
 ### Changed
 - **Capabilities**: Python capability uses unified `register_artifact()` API directly
