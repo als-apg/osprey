@@ -926,3 +926,194 @@ ThemePicker {
     color: $text-muted;
     background: transparent;
 }
+
+/* =============================================================================
+   Artifact Gallery
+   ============================================================================= */
+
+ArtifactGallery {
+    width: 100%;
+    height: auto;
+    margin: 0 2 1 2;
+    padding: 0 2;
+    display: none;  /* Hidden until populated */
+    &:dark {
+        border: tall $surface-lighten-1;
+    }
+    &:light {
+        border: tall $surface-darken-1;
+    }
+}
+
+#gallery-header {
+    width: 100%;
+    height: 1;
+    color: $text;
+    margin-bottom: 1;
+}
+
+#gallery-items {
+    width: 100%;
+    height: auto;
+}
+
+#gallery-footer {
+    width: 100%;
+    height: 1;
+    color: $text-muted;
+    margin-top: 1;
+    text-align: right;
+}
+
+/* Individual artifact item */
+ArtifactItem {
+    width: 100%;
+    height: auto;
+    padding: 0 1;
+    margin-bottom: 1;
+}
+
+ArtifactItem:hover {
+    background: $surface;
+}
+
+ArtifactItem.artifact-selected {
+    background: $primary-muted;
+}
+
+/* Gallery focus state - show border when focused */
+ArtifactGallery:focus {
+    border: round $primary;
+}
+
+ArtifactGallery.gallery-focused {
+    border: round $primary;
+}
+
+/* Selected item gets a left indicator when gallery is focused */
+ArtifactGallery:focus ArtifactItem.artifact-selected {
+    background: $primary-muted;
+    border-left: thick $primary;
+}
+
+#artifact-name {
+    width: 100%;
+    color: $text;
+}
+
+#artifact-meta,
+.artifact-meta {
+    width: 100%;
+    color: $text-muted;
+}
+
+/* =============================================================================
+   Artifact Viewer Modal
+   ============================================================================= */
+
+ArtifactViewer {
+    align: center middle;
+    background: $background 80%;
+}
+
+#artifact-viewer-container {
+    width: 110;
+    height: auto;
+    max-height: 90%;
+    margin: 0;
+    padding: 1 4;
+    background: $surface;
+    border: none;
+}
+
+#artifact-viewer-header {
+    width: 100%;
+    height: auto;
+    margin-bottom: 1;
+}
+
+#artifact-viewer-title {
+    width: auto;
+    text-style: bold;
+}
+
+#artifact-header-spacer {
+    width: 1fr;
+}
+
+#artifact-viewer-dismiss-hint {
+    width: auto;
+    color: $text-muted;
+}
+
+#artifact-viewer-content {
+    width: 100%;
+    height: auto;
+    margin-bottom: 1;
+}
+
+#image-preview {
+    width: 100%;
+    height: auto;
+}
+
+#artifact-viewer-actions {
+    width: 100%;
+    height: auto;
+    margin: 1 0;
+}
+
+#artifact-viewer-actions Button {
+    margin-right: 1;
+}
+
+#artifact-viewer-footer {
+    width: 100%;
+    height: 1;
+    text-align: right;
+    color: $text-muted;
+}
+
+/* Detail rows in artifact viewer */
+.detail-row {
+    width: 100%;
+    height: auto;
+    margin-bottom: 0;
+}
+
+.detail-label {
+    width: 100%;
+    color: $text;
+    margin-top: 1;
+}
+
+.detail-value {
+    width: 100%;
+    color: $text-muted;
+    margin-bottom: 1;
+}
+
+.detail-path {
+    color: $primary;
+}
+
+.detail-url {
+    color: $accent;
+    text-style: underline;
+}
+
+.detail-separator {
+    width: 100%;
+    height: 1;
+    color: $surface;
+    margin: 1 0;
+}
+
+.detail-section-header {
+    color: $text;
+    margin-top: 1;
+}
+
+.detail-metadata {
+    color: $text-muted;
+}

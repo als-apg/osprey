@@ -20,7 +20,7 @@ from osprey.context.context_manager import ContextManager
 from osprey.models import get_chat_completion
 from osprey.prompts.loader import get_framework_prompts
 from osprey.registry import get_registry
-from osprey.state import AgentState, StateManager
+from osprey.state import AgentState, StateManager, populate_legacy_fields_from_artifacts
 from osprey.utils.config import get_model_config
 
 
@@ -166,8 +166,16 @@ class RespondCapability(BaseCapability):
                 )
             logger.info(f"Generated response for: '{task_objective}'")
 
+            # Populate legacy fields from unified artifacts for backward compatibility
+            # This ensures OpenWebUI and other interfaces can access figures/notebooks/commands
+            ui_artifacts = state.get("ui_artifacts", [])
+            legacy_updates = {}
+            if ui_artifacts:
+                legacy_updates = populate_legacy_fields_from_artifacts(ui_artifacts)
+
             # Return native LangGraph pattern: AIMessage added to messages list
-            return {"messages": [AIMessage(content=response_text)]}
+            # Include legacy field updates for backward compatibility
+            return {"messages": [AIMessage(content=response_text)], **legacy_updates}
 
         except Exception as e:
             logger.error(f"Error in response generation: {e}")
@@ -252,16 +260,23 @@ def _gather_information(state: AgentState, logger=None) -> ResponseContext:
         if logger:
             logger.info(f"Using technical response mode (context type: {response_mode})")
 
-    # Get figure information from centralized registry
-    ui_figures = state.get("ui_captured_figures", [])
+    # Populate legacy fields from unified artifacts (for backward compatibility)
+    # This derives ui_captured_figures, ui_launchable_commands, ui_captured_notebooks
+    # from the canonical ui_artifacts field
+    ui_artifacts = state.get("ui_artifacts", [])
+    if ui_artifacts:
+        legacy_fields = populate_legacy_fields_from_artifacts(ui_artifacts)
+        ui_figures = legacy_fields["ui_captured_figures"]
+        ui_commands = legacy_fields["ui_launchable_commands"]
+        ui_notebooks = legacy_fields["ui_captured_notebooks"]
+    else:
+        # Fall back to direct legacy field access (for old capabilities)
+        ui_figures = state.get("ui_captured_figures", [])
+        ui_commands = state.get("ui_launchable_commands", [])
+        ui_notebooks = state.get("ui_captured_notebooks", [])
+
     figures_available = len(ui_figures)
-
-    # Get command information from centralized registry
-    ui_commands = state.get("ui_launchable_commands", [])
     commands_available = len(ui_commands)
-
-    # Get notebook information from centralized registry
-    ui_notebooks = state.get("ui_captured_notebooks", [])
     notebooks_available = len(ui_notebooks)
 
     # Log notebook availability for debugging

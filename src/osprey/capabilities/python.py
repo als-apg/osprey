@@ -57,7 +57,7 @@ from osprey.prompts.loader import get_framework_prompts
 from osprey.registry import get_registry
 from osprey.services.python_executor import PythonServiceResult
 from osprey.services.python_executor.models import PlanningMode, PythonExecutionRequest
-from osprey.state import StateManager
+from osprey.state import ArtifactType, StateManager
 from osprey.utils.config import get_full_configuration
 from osprey.utils.logger import get_logger
 
@@ -548,40 +548,38 @@ class PythonCapability(BaseCapability):
             self._state, "PYTHON_RESULTS", step.get("context_key"), results_context
         )
 
-        # Register figures in centralized UI registry
-        figure_updates = {}
-        if results_context.figure_paths:
-            # Register figures using StateManager with proper accumulation
-            accumulating_figures = None  # Start with None for first registration
+        # Register artifacts using unified artifact system
+        # Single accumulation pattern - clean and simple
+        artifacts = None
 
-            for figure_path in results_context.figure_paths:
-                figure_update = StateManager.register_figure(
-                    self._state,
-                    capability="python_executor",
-                    figure_path=str(figure_path),
-                    display_name="Python Execution Figure",
-                    metadata={
-                        "execution_folder": results_context.folder_path,
-                        "notebook_link": results_context.notebook_link,
-                        "execution_time": results_context.execution_time,
-                        "context_key": step.get("context_key"),
-                    },
-                    current_figures=accumulating_figures,  # Pass accumulating list
-                )
-                # Get the updated list for next iteration
-                accumulating_figures = figure_update["ui_captured_figures"]
-
-            # Final state update with all accumulated figures
-            figure_updates = figure_update  # Last update contains all figures
-
-        # Register notebook in centralized UI registry
-        notebook_updates = {}
-        if results_context.notebook_link:
-            notebook_updates = StateManager.register_notebook(
+        # Register figures as IMAGE artifacts
+        for figure_path in results_context.figure_paths:
+            artifact_update = StateManager.register_artifact(
                 self._state,
+                artifact_type=ArtifactType.IMAGE,
                 capability="python_executor",
-                notebook_path=str(results_context.notebook_path),
-                notebook_link=results_context.notebook_link,
+                data={"path": str(figure_path), "format": figure_path.suffix[1:].lower()},
+                display_name="Python Execution Figure",
+                metadata={
+                    "execution_folder": results_context.folder_path,
+                    "notebook_link": results_context.notebook_link,
+                    "execution_time": results_context.execution_time,
+                    "context_key": step.get("context_key"),
+                },
+                current_artifacts=artifacts,
+            )
+            artifacts = artifact_update["ui_artifacts"]
+
+        # Register notebook as NOTEBOOK artifact
+        if results_context.notebook_link:
+            artifact_update = StateManager.register_artifact(
+                self._state,
+                artifact_type=ArtifactType.NOTEBOOK,
+                capability="python_executor",
+                data={
+                    "path": str(results_context.notebook_path),
+                    "url": results_context.notebook_link,
+                },
                 display_name="Python Execution Notebook",
                 metadata={
                     "execution_folder": results_context.folder_path,
@@ -591,13 +589,18 @@ class PythonCapability(BaseCapability):
                         len(results_context.code.split("\n")) if results_context.code else 0
                     ),
                 },
+                current_artifacts=artifacts,
             )
+            artifacts = artifact_update["ui_artifacts"]
+
+        # Build artifact updates (only ui_artifacts - legacy fields populated at finalization)
+        artifact_updates = {"ui_artifacts": artifacts} if artifacts else {}
 
         # Combine all updates
         if has_approval_resume:
-            return {**result_updates, **approval_cleanup, **figure_updates, **notebook_updates}
+            return {**result_updates, **approval_cleanup, **artifact_updates}
         else:
-            return {**result_updates, **figure_updates, **notebook_updates}
+            return {**result_updates, **artifact_updates}
 
     @staticmethod
     def classify_error(exc: Exception, context: dict) -> ErrorClassification:
