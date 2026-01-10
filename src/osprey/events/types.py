@@ -213,6 +213,7 @@ class LLMRequestEvent(BaseEvent):
         model: Model identifier (e.g., "gpt-4", "claude-3-opus")
         provider: Provider name (e.g., "openai", "anthropic")
         full_prompt: Complete prompt text for TUI display
+        key: Optional key for accumulating multiple prompts (e.g., capability name)
     """
 
     prompt_preview: str = ""
@@ -220,6 +221,7 @@ class LLMRequestEvent(BaseEvent):
     model: str = ""
     provider: str = ""
     full_prompt: str = ""
+    key: str = ""
 
 
 @dataclass
@@ -237,6 +239,7 @@ class LLMResponseEvent(BaseEvent):
         cost_usd: Estimated cost in USD
         duration_ms: How long the request took in milliseconds
         full_response: Complete response text for TUI display
+        key: Optional key for accumulating multiple responses (e.g., capability name)
     """
 
     response_preview: str = ""
@@ -247,6 +250,7 @@ class LLMResponseEvent(BaseEvent):
     cost_usd: float | None = None
     duration_ms: int = 0
     full_response: str = ""
+    key: str = ""
 
 
 # -----------------------------------------------------------------------------

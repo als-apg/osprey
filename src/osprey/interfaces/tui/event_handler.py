@@ -150,11 +150,11 @@ class TUIEventHandler:
                 await self._handle_error(err_type, msg, recoverable)
 
             # LLM events
-            case LLMRequestEvent(full_prompt=prompt, component=component):
-                await self._handle_llm_request(prompt, component)
+            case LLMRequestEvent(full_prompt=prompt, component=component, key=key):
+                await self._handle_llm_request(prompt, component, key)
 
-            case LLMResponseEvent(full_response=response, component=component):
-                await self._handle_llm_response(response, component)
+            case LLMResponseEvent(full_response=response, component=component, key=key):
+                await self._handle_llm_response(response, component, key)
 
             case _:
                 # Unknown event type - log and skip
@@ -457,27 +457,39 @@ class TUIEventHandler:
                     block.set_output(error_message, status="error")
                 break
 
-    async def _handle_llm_request(self, prompt: str, component: str) -> None:
-        """Handle LLM request event - set prompt in current block.
+    async def _handle_llm_request(self, prompt: str, component: str, key: str = "") -> None:
+        """Handle LLM request event - set or accumulate prompt in current block.
 
         Args:
             prompt: The full LLM prompt text
             component: Component that emitted the event
+            key: Optional key for accumulating multiple prompts (e.g., capability name)
         """
         block = self._find_block_for_component(component)
         if block and hasattr(block, "set_llm_prompt"):
-            block.set_llm_prompt(prompt)
+            if key:
+                # Accumulate into dict with key
+                block.set_llm_prompt({key: prompt})
+            else:
+                # Single prompt without key
+                block.set_llm_prompt(prompt)
 
-    async def _handle_llm_response(self, response: str, component: str) -> None:
-        """Handle LLM response event - set response in current block.
+    async def _handle_llm_response(self, response: str, component: str, key: str = "") -> None:
+        """Handle LLM response event - set or accumulate response in current block.
 
         Args:
             response: The full LLM response text
             component: Component that emitted the event
+            key: Optional key for accumulating multiple responses (e.g., capability name)
         """
         block = self._find_block_for_component(component)
         if block and hasattr(block, "set_llm_response"):
-            block.set_llm_response(response)
+            if key:
+                # Accumulate into dict with key
+                block.set_llm_response({key: response})
+            else:
+                # Single response without key
+                block.set_llm_response(response)
 
     def _find_block_for_component(self, component: str) -> Any | None:
         """Find the current block for a given component.

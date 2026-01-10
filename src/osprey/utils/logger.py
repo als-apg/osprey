@@ -257,11 +257,14 @@ class ComponentLogger:
 
         self._event_emitter.emit(event)
 
-    def emit_llm_request(self, prompt: str, model: str = "", provider: str = "") -> None:
+    def emit_llm_request(
+        self, prompt: str, key: str = "", model: str = "", provider: str = ""
+    ) -> None:
         """Emit LLMRequestEvent with full prompt for TUI display.
 
         Args:
             prompt: The complete LLM prompt text
+            key: Optional key for accumulating multiple prompts (e.g., capability name)
             model: Model identifier (e.g., "gpt-4", "claude-3-opus")
             provider: Provider name (e.g., "openai", "anthropic")
         """
@@ -274,12 +277,14 @@ class ComponentLogger:
             model=model,
             provider=provider,
             full_prompt=prompt,
+            key=key,
         )
         self._event_emitter.emit(event)
 
     def emit_llm_response(
         self,
         response: str,
+        key: str = "",
         duration_ms: int = 0,
         input_tokens: int = 0,
         output_tokens: int = 0,
@@ -288,6 +293,7 @@ class ComponentLogger:
 
         Args:
             response: The complete LLM response text
+            key: Optional key for accumulating multiple responses (e.g., capability name)
             duration_ms: How long the request took in milliseconds
             input_tokens: Number of input tokens
             output_tokens: Number of output tokens
@@ -302,6 +308,7 @@ class ComponentLogger:
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             full_response=response,
+            key=key,
         )
         self._event_emitter.emit(event)
 

@@ -338,12 +338,14 @@ class TestLLMRequestEvent:
             model="gpt-4",
             provider="openai",
             full_prompt=full_prompt,
+            key="weather",
         )
         assert event.prompt_preview == "What is the meaning of..."
         assert event.prompt_length == 100
         assert event.model == "gpt-4"
         assert event.provider == "openai"
         assert event.full_prompt == full_prompt
+        assert event.key == "weather"
 
     def test_default_values(self):
         """Test LLMRequestEvent default values."""
@@ -353,6 +355,17 @@ class TestLLMRequestEvent:
         assert event.model == ""
         assert event.provider == ""
         assert event.full_prompt == ""
+        assert event.key == ""
+
+    def test_key_for_multi_llm_accumulation(self):
+        """Test key field for accumulating multiple LLM prompts."""
+        # Simulate classification with multiple capabilities
+        event1 = LLMRequestEvent(full_prompt="Classify for weather", key="weather")
+        event2 = LLMRequestEvent(full_prompt="Classify for calculator", key="calculator")
+
+        assert event1.key == "weather"
+        assert event2.key == "calculator"
+        assert event1.full_prompt != event2.full_prompt
 
 
 class TestLLMResponseEvent:
@@ -370,12 +383,14 @@ class TestLLMResponseEvent:
             cost_usd=0.05,
             duration_ms=2000,
             full_response=full_response,
+            key="weather",
         )
         assert event.input_tokens == 50
         assert event.output_tokens == 200
         assert event.thinking_tokens == 100
         assert event.cost_usd == 0.05
         assert event.full_response == full_response
+        assert event.key == "weather"
 
     def test_default_values(self):
         """Test LLMResponseEvent default values."""
@@ -386,6 +401,17 @@ class TestLLMResponseEvent:
         assert event.thinking_tokens is None
         assert event.cost_usd is None
         assert event.full_response == ""
+        assert event.key == ""
+
+    def test_key_for_multi_llm_accumulation(self):
+        """Test key field for accumulating multiple LLM responses."""
+        # Simulate classification with multiple capabilities
+        event1 = LLMResponseEvent(full_response='{"is_match": true}', key="weather")
+        event2 = LLMResponseEvent(full_response='{"is_match": false}', key="calculator")
+
+        assert event1.key == "weather"
+        assert event2.key == "calculator"
+        assert event1.full_response != event2.full_response
 
 
 # =============================================================================
