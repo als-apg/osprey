@@ -50,6 +50,15 @@ if TYPE_CHECKING:
     pass  # For future type-only imports
 
 
+# Hard-coded step mapping for task preparation phases
+# (Moved from deprecated streaming.py module)
+TASK_PREPARATION_STEPS = {
+    "task_extraction": {"step": 1, "total_steps": 3, "phase": "Task Preparation"},
+    "classifier": {"step": 2, "total_steps": 3, "phase": "Task Preparation"},
+    "orchestrator": {"step": 3, "total_steps": 3, "phase": "Task Preparation"},
+}
+
+
 @contextmanager
 def quiet_logging():
     """Context manager to temporarily suppress INFO-level logs.
@@ -145,12 +154,6 @@ class ComponentLogger:
         - Execution phases extract from execution plan in state
         - Falls back to basic component info
         """
-        # Import the step mapping from streaming module
-        try:
-            from osprey.utils.streaming import TASK_PREPARATION_STEPS
-        except ImportError:
-            TASK_PREPARATION_STEPS = {}
-
         # Check if this is a task preparation component
         if self.component_name in TASK_PREPARATION_STEPS:
             return TASK_PREPARATION_STEPS[self.component_name]
@@ -363,10 +366,11 @@ class ComponentLogger:
         return extra
 
     def status(self, message: str, **kwargs) -> None:
-        """Status update - logs and streams automatically.
+        """Status update - emits StatusEvent.
 
-        Use for high-level progress updates that users should see in both
-        CLI and web interfaces.
+        User-facing output. Transport is automatic:
+        - During graph.astream(): LangGraph streaming
+        - Outside graph execution: fallback transport → TypedEventHandler
 
         Args:
             message: Status message
@@ -376,10 +380,6 @@ class ComponentLogger:
             logger.status("Creating execution plan...")
             logger.status("Processing batch 2/5", batch=2, total=5)
         """
-        style = f"bold {self.color}" if self.color != "white" else "bold white"
-        formatted = self._format_message(message, style, "")
-        extra = self._build_extra(message, "status", **kwargs)
-        self.base_logger.info(formatted, extra=extra)
         self._emit_stream_event(message, "status", **kwargs)
 
     def key_info(self, message: str, stream: bool = False, **kwargs) -> None:
@@ -438,54 +438,45 @@ class ComponentLogger:
         if stream:
             self._emit_stream_event(message, "debug", **kwargs)
 
-    def warning(self, message: str, stream: bool = True, **kwargs) -> None:
-        """Warning message - logs and optionally streams.
+    def warning(self, message: str, **kwargs) -> None:
+        """Warning message - emits StatusEvent with warning level.
 
-        Warnings stream by default since they're important for users to see.
+        User-facing output. Transport is automatic.
 
         Args:
             message: Warning message
-            stream: Whether to stream (default: True)
             **kwargs: Additional metadata for streaming event
         """
-        formatted = self._format_message(message, "bold yellow", "⚠️  ")
-        extra = self._build_extra(message, "warning", **kwargs)
-        self.base_logger.warning(formatted, extra=extra)
-
-        if stream:
-            self._emit_stream_event(message, "warning", warning=True, **kwargs)
+        self._emit_stream_event(message, "warning", warning=True, **kwargs)
 
     def error(self, message: str, exc_info: bool = False, **kwargs) -> None:
-        """Error message - always logs and streams.
+        """Error message - emits ErrorEvent.
 
-        Errors are important and should always be visible in both interfaces.
+        User-facing output. Transport is automatic.
 
         Args:
             message: Error message
-            exc_info: Whether to include exception traceback
+            exc_info: Whether to include exception traceback (for framework logging)
             **kwargs: Additional error metadata for streaming event
         """
-        formatted = self._format_message(message, "bold red", "❌ ")
-        extra = self._build_extra(message, "error", **kwargs)
-        self.base_logger.error(formatted, exc_info=exc_info, extra=extra)
+        # Emit typed event for UI
         self._emit_stream_event(message, "error", error=True, **kwargs)
 
-    def success(self, message: str, stream: bool = True, **kwargs) -> None:
-        """Success message - logs and optionally streams.
+        # Also log to framework logger for debugging/tracebacks
+        if exc_info:
+            formatted = self._format_message(message, "bold red", "❌ ")
+            self.base_logger.error(formatted, exc_info=exc_info)
 
-        Success messages stream by default to give users feedback.
+    def success(self, message: str, **kwargs) -> None:
+        """Success message - emits StatusEvent with success level.
+
+        User-facing output. Transport is automatic.
 
         Args:
             message: Success message
-            stream: Whether to stream (default: True)
             **kwargs: Additional metadata for streaming event
         """
-        formatted = self._format_message(message, "bold green", "✅ ")
-        extra = self._build_extra(message, "success", **kwargs)
-        self.base_logger.info(formatted, extra=extra)
-
-        if stream:
-            self._emit_stream_event(message, "success", **kwargs)
+        self._emit_stream_event(message, "success", **kwargs)
 
     def timing(self, message: str, stream: bool = False, **kwargs) -> None:
         """Timing information - logs and optionally streams.
@@ -502,39 +493,27 @@ class ComponentLogger:
         if stream:
             self._emit_stream_event(message, "timing", **kwargs)
 
-    def approval(self, message: str, stream: bool = True, **kwargs) -> None:
-        """Approval messages - logs and optionally streams.
+    def approval(self, message: str, **kwargs) -> None:
+        """Approval message - emits StatusEvent with approval level.
 
-        Approval requests stream by default so users see them in web UI.
+        User-facing output. Transport is automatic.
 
         Args:
             message: Approval message
-            stream: Whether to stream (default: True)
             **kwargs: Additional metadata for streaming event
         """
-        formatted = self._format_message(message, "bold yellow", "🔍⚠️ ")
-        extra = self._build_extra(message, "approval", **kwargs)
-        self.base_logger.info(formatted, extra=extra)
+        self._emit_stream_event(message, "approval", **kwargs)
 
-        if stream:
-            self._emit_stream_event(message, "approval", **kwargs)
+    def resume(self, message: str, **kwargs) -> None:
+        """Resume message - emits StatusEvent with resume level.
 
-    def resume(self, message: str, stream: bool = True, **kwargs) -> None:
-        """Resume messages - logs and optionally streams.
-
-        Resume messages stream by default to provide feedback.
+        User-facing output. Transport is automatic.
 
         Args:
             message: Resume message
-            stream: Whether to stream (default: True)
             **kwargs: Additional metadata for streaming event
         """
-        formatted = self._format_message(message, "bold green", "🔄 ")
-        extra = self._build_extra(message, "resume", **kwargs)
-        self.base_logger.info(formatted, extra=extra)
-
-        if stream:
-            self._emit_stream_event(message, "resume", **kwargs)
+        self._emit_stream_event(message, "resume", **kwargs)
 
     # Compatibility methods - delegate to base logger
     def critical(self, message: str, *args, **kwargs) -> None:

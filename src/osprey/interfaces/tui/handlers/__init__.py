@@ -1,7 +1,7 @@
 """TUI Handlers.
 
-Note: QueueLogHandler was removed as part of Phase 4 migration.
-TUI now relies solely on typed events via LangGraph streaming.
+Note: QueueLogHandler and log_handler.py were removed as part of Phase 4
+migration. TUI now relies solely on typed events via LangGraph streaming.
 See EVENT_STREAMING.md for architecture details.
 """
 

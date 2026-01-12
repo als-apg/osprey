@@ -23,14 +23,19 @@ from typing import TYPE_CHECKING
 from rich.console import Console
 
 from osprey.events import (
+    CapabilitiesSelectedEvent,
     CapabilityCompleteEvent,
     CapabilityStartEvent,
     ErrorEvent,
+    LLMRequestEvent,
+    LLMResponseEvent,
     OspreyEvent,
     PhaseCompleteEvent,
     PhaseStartEvent,
+    PlanCreatedEvent,
     ResultEvent,
     StatusEvent,
+    TaskExtractedEvent,
 )
 
 if TYPE_CHECKING:
@@ -98,6 +103,26 @@ class CLIEventHandler:
                 status = "[green]OK[/green]" if success else "[red]FAILED[/red]"
                 timing = f" ({duration}ms)" if self.show_timing else ""
                 self.console.print(f"[dim]   {display_name}: {status}{timing}[/dim]")
+
+            # Task preparation events (verbose only)
+            case TaskExtractedEvent(task=task) if self.verbose:
+                preview = task[:80] + "..." if len(task) > 80 else task
+                self.console.print(f"[dim cyan]   Task: {preview}[/dim cyan]")
+
+            case CapabilitiesSelectedEvent(capability_names=names) if self.verbose:
+                self.console.print(f"[dim cyan]   Capabilities: {', '.join(names)}[/dim cyan]")
+
+            case PlanCreatedEvent(steps=steps) if self.verbose:
+                self.console.print(f"[dim cyan]   Plan: {len(steps)} steps[/dim cyan]")
+
+            # LLM events (verbose only)
+            case LLMRequestEvent(prompt_preview=preview) if self.verbose:
+                short_preview = preview[:50] + "..." if len(preview) > 50 else preview
+                self.console.print(f"[dim]   LLM Request: {short_preview}[/dim]")
+
+            case LLMResponseEvent(response_preview=preview) if self.verbose:
+                short_preview = preview[:50] + "..." if len(preview) > 50 else preview
+                self.console.print(f"[dim]   LLM Response: {short_preview}[/dim]")
 
             # Capability execution events (always shown)
             case CapabilityStartEvent(
@@ -190,6 +215,26 @@ class CLIEventHandler:
                 status = "[green]OK[/green]" if success else "[red]FAILED[/red]"
                 timing = f" ({duration}ms)" if self.show_timing else ""
                 self.console.print(f"[dim]   {display_name}: {status}{timing}[/dim]")
+
+            # Task preparation events (verbose only)
+            case TaskExtractedEvent(task=task) if self.verbose:
+                preview = task[:80] + "..." if len(task) > 80 else task
+                self.console.print(f"[dim cyan]   Task: {preview}[/dim cyan]")
+
+            case CapabilitiesSelectedEvent(capability_names=names) if self.verbose:
+                self.console.print(f"[dim cyan]   Capabilities: {', '.join(names)}[/dim cyan]")
+
+            case PlanCreatedEvent(steps=steps) if self.verbose:
+                self.console.print(f"[dim cyan]   Plan: {len(steps)} steps[/dim cyan]")
+
+            # LLM events (verbose only)
+            case LLMRequestEvent(prompt_preview=preview) if self.verbose:
+                short_preview = preview[:50] + "..." if len(preview) > 50 else preview
+                self.console.print(f"[dim]   LLM Request: {short_preview}[/dim]")
+
+            case LLMResponseEvent(response_preview=preview) if self.verbose:
+                short_preview = preview[:50] + "..." if len(preview) > 50 else preview
+                self.console.print(f"[dim]   LLM Response: {short_preview}[/dim]")
 
             case CapabilityStartEvent(
                 capability_name=name, step_number=step, total_steps=total, description=desc

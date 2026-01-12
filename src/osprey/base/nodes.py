@@ -105,20 +105,14 @@ class BaseInfrastructureNode(ABC):
                 from osprey.utils.logger import get_logger
                 logger = get_logger("task_extraction")
 
-                # Use get_stream_writer() for pure LangGraph streaming
-                from langgraph.config import get_stream_writer
-                streaming = get_stream_writer()
-
-                if streaming:
-                    streaming({"event_type": "status", "message": "Extracting task", "progress": 0.3})
-
+                # Use logger.status() for typed event streaming
+                logger.status("Extracting task...")
                 logger.info("Starting task extraction")
 
                 # Extract and process task from flat state structure
                 task = state.get("task_current_task", "")
 
-                if streaming:
-                    streaming({"event_type": "status", "message": "Task extraction complete", "progress": 1.0, "complete": True})
+                logger.status("Task extraction complete")
 
                 # Return state updates for flat structure
                 return {

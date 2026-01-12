@@ -11,7 +11,6 @@ import logging
 from typing import Any
 
 from langchain_core.messages import AIMessage
-from langgraph.config import get_stream_writer
 from pydantic import BaseModel, Field
 
 from osprey.base import BaseCapability
@@ -90,18 +89,7 @@ class ClarifyCapability(BaseCapability):
 
         try:
             logger.info("Starting clarification generation")
-
-            # Use get_stream_writer() for pure LangGraph streaming
-            streaming = get_stream_writer()
-
-            if streaming:
-                streaming(
-                    {
-                        "event_type": "status",
-                        "message": "Analyzing query for clarification...",
-                        "progress": 0.2,
-                    }
-                )
+            logger.status("Analyzing query for clarification...")
 
             # Generate clarifying questions using LLM completion
             # Run sync function in thread pool to avoid blocking event loop for streaming
@@ -109,27 +97,12 @@ class ClarifyCapability(BaseCapability):
                 _generate_clarifying_questions, state, task_objective
             )
 
-            if streaming:
-                streaming(
-                    {
-                        "event_type": "status",
-                        "message": "Generating clarification questions...",
-                        "progress": 0.6,
-                    }
-                )
+            logger.status("Generating clarification questions...")
 
             # Format questions for user interaction
             formatted_questions = _format_questions_for_user(questions_response)
 
-            if streaming:
-                streaming(
-                    {
-                        "event_type": "status",
-                        "message": "Clarification ready",
-                        "progress": 1.0,
-                        "complete": True,
-                    }
-                )
+            logger.status("Clarification ready")
 
             logger.info(f"Generated {len(questions_response.questions)} clarifying questions")
 

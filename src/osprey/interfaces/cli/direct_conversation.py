@@ -36,11 +36,14 @@ from osprey.cli.styles import OspreyColors, Styles, console
 # Centralized command system
 from osprey.commands import CommandContext, CommandResult, get_command_registry
 from osprey.commands.completer import UnifiedCommandCompleter
+from osprey.events import parse_event
+from osprey.events.emitter import register_fallback_handler
 from osprey.graph import create_graph
 from osprey.infrastructure.gateway import Gateway
+from osprey.interfaces.cli.event_handler import CLIEventHandler
 from osprey.registry import get_registry, initialize_registry
 from osprey.utils.config import get_full_configuration
-from osprey.utils.logger import get_logger, quiet_logging
+from osprey.utils.logger import get_logger
 
 # Load environment variables after imports
 load_dotenv()
@@ -169,6 +172,29 @@ class CLI:
             interface_type="cli", cli_instance=self, console=self.console
         )
         self.command_completer = UnifiedCommandCompleter(self.command_context)
+
+        # TypedEventHandler for processing all events (both streaming and fallback)
+        self._event_handler = CLIEventHandler(
+            console=self.console,
+            verbose=self.show_streaming_updates
+        )
+
+        # Register fallback TRANSPORT for outside-graph events
+        # This routes events to the same TypedEventHandler used during streaming
+        self._unregister_fallback = register_fallback_handler(
+            self._route_fallback_event
+        )
+
+    def _route_fallback_event(self, event_dict: dict) -> None:
+        """Route events from fallback transport to TypedEventHandler.
+
+        This is the TRANSPORT mechanism for outside-graph events.
+        Events are parsed and sent to the same handler used during streaming.
+        """
+        event = parse_event(event_dict)
+        if event:
+            # Same handler processes events from both paths
+            self._event_handler.handle_sync(event)
 
     def _get_prompt(self) -> HTML:
         """Generate the prompt based on current mode (normal or direct chat).
@@ -505,53 +531,9 @@ class CLI:
                 logger.exception("Unexpected error during interaction")
                 continue
 
-    def _handle_streaming_update(self, chunk: dict[str, Any]):
-        """Process and display a streaming status update from the agent graph.
-
-        .. note::
-           TODO(#12): This streaming logic will be unified with the logging system.
-           See https://github.com/als-apg/osprey/issues/12 for details.
-
-        Extracts status information from a streaming chunk and displays it in a
-        formatted way if streaming updates are enabled. This centralizes the
-        streaming update logic used in both new executions and resume operations.
-
-        :param chunk: Streaming chunk from LangGraph custom stream mode
-        :type chunk: dict[str, Any]
-
-        .. note::
-           This method only displays updates if self.show_streaming_updates is True.
-           By default, streaming updates are disabled since Router provides step logging.
-        """
-        if not self.show_streaming_updates or chunk.get("event_type") != "status":
-            return
-
-        message = chunk.get("message", "Processing...")
-        step = chunk.get("step")
-        total_steps = chunk.get("total_steps")
-        component = chunk.get("component", "")
-        phase = chunk.get("phase", "")
-
-        # Format message with step info (no percentages - they don't represent real progress)
-        status_parts = []
-
-        # Add phase/component context
-        if phase and phase != component:
-            status_parts.append(f"{phase}")
-        elif component:
-            status_parts.append(f"{component.replace('_', ' ').title()}")
-
-        # Add step counter if available
-        if step and total_steps:
-            status_parts.append(f"({step}/{total_steps})")
-
-        # Build final status message
-        if status_parts:
-            status_msg = f"{': '.join(status_parts)} - {message}"
-        else:
-            status_msg = message
-
-        self.console.print(f"[{Styles.INFO}]🔄 {status_msg}[/{Styles.INFO}]")
+        # Cleanup: unregister fallback transport on exit
+        if self._unregister_fallback:
+            self._unregister_fallback()
 
     async def _process_user_input(self, user_input: str) -> bool:
         """Process user input through the Gateway and handle execution flow.
@@ -603,27 +585,9 @@ class CLI:
            :class:`osprey.infrastructure.gateway.Gateway` : Message processing
            :meth:`_execute_result` : Agent execution with streaming
            :meth:`_show_final_result` : Final result display
-           :meth:`_handle_streaming_update` : Streaming status display logic
         """
-        # Check if we're in direct chat mode for quieter logging
-        in_direct_chat = self._is_in_direct_chat()
-
-        # Use context manager to suppress INFO logs during direct chat
-        if in_direct_chat:
-            with quiet_logging():
-                return await self._do_process_user_input(user_input)
-        else:
-            return await self._do_process_user_input(user_input)
-
-    async def _do_process_user_input(self, user_input: str) -> bool:
-        """Internal processing logic for user input.
-
-        This method contains the actual processing logic, separated from
-        _process_user_input to allow wrapping in quiet_logging context.
-
-        Returns:
-            True if interface should exit, False otherwise
-        """
+        # Note: quiet_logging() was removed as part of unified event system.
+        # User-facing output now flows through typed events, not Python logging.
         self.console.print(f"[{Styles.INFO}]🔄 Processing: {user_input}[/{Styles.INFO}]")
 
         # Gateway handles all preprocessing
@@ -650,11 +614,19 @@ class CLI:
             self.console.print(f"[{Styles.INFO}]🔄 Resuming from interrupt...[/{Styles.INFO}]")
             # Resume commands come from gateway - execute with streaming
             try:
+                # Create typed event handler for resume execution
+                handler = CLIEventHandler(
+                    console=self.console,
+                    verbose=self.show_streaming_updates
+                )
+
                 async for chunk in self.graph.astream(
                     result.resume_command, config=self.base_config, stream_mode="custom"
                 ):
-                    # Handle streaming updates if enabled (centralized logic)
-                    self._handle_streaming_update(chunk)
+                    # Parse and handle typed events
+                    event = parse_event(chunk)
+                    if event:
+                        await handler.handle(event)
 
                 # After resuming, check if there are more interrupts or if execution completed
                 state = self.graph.get_state(config=self.base_config)
@@ -749,16 +721,23 @@ class CLI:
         .. seealso::
            :meth:`_process_user_input` : Recursive approval handling
            :meth:`_show_final_result` : Final result display formatting
-           :meth:`_handle_streaming_update` : Streaming status display logic
            :class:`langgraph.graph.StateGraph` : LangGraph streaming execution
         """
         try:
-            # Use streaming for real-time updates
+            # Create typed event handler for this execution
+            handler = CLIEventHandler(
+                console=self.console,
+                verbose=self.show_streaming_updates
+            )
+
+            # Stream events and process through handler
             async for chunk in self.graph.astream(
                 input_data, config=self.base_config, stream_mode="custom"
             ):
-                # Handle streaming updates if enabled (centralized logic)
-                self._handle_streaming_update(chunk)
+                # Parse and handle typed events
+                event = parse_event(chunk)
+                if event:
+                    await handler.handle(event)
 
             # After streaming completes, check for interrupts
             state = self.graph.get_state(config=self.base_config)
