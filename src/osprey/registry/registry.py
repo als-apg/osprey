@@ -316,6 +316,16 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     requires=[],
                     functional_node="python_node",
                 ),
+                # Optimization capability (framework-level)
+                CapabilityRegistration(
+                    name="optimization",
+                    module_path="osprey.capabilities.optimization",
+                    class_name="OptimizationCapability",
+                    description="Autonomous machine parameter optimization using XOpt",
+                    provides=["OPTIMIZATION_RESULT"],
+                    requires=[],
+                    functional_node="optimization_node",
+                ),
                 # Communication capabilities (framework-level) - always active
                 CapabilityRegistration(
                     name="respond",
@@ -367,6 +377,12 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     module_path="osprey.capabilities.python",
                     class_name="PythonResultsContext",
                 ),
+                # Optimization result context (framework-level)
+                ContextClassRegistration(
+                    context_type="OPTIMIZATION_RESULT",
+                    module_path="osprey.capabilities.optimization",
+                    class_name="OptimizationResultContext",
+                ),
             ],
             # Framework-level data sources
             data_sources=[
@@ -396,6 +412,23 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                         "python_approval_node",
                     ],
                 ),
+                # XOpt optimizer service (framework-level)
+                ServiceRegistration(
+                    name="xopt_optimizer",
+                    module_path="osprey.services.xopt_optimizer.service",
+                    class_name="XOptOptimizerService",
+                    description="XOpt-based autonomous machine optimization service",
+                    provides=["OPTIMIZATION_RESULT"],
+                    requires=[],
+                    internal_nodes=[
+                        "state_identification",
+                        "decision",
+                        "yaml_generation",
+                        "approval",
+                        "execution",
+                        "analysis",
+                    ],
+                ),
             ],
             # Framework prompt providers (defaults - typically overridden by applications)
             framework_prompt_providers=[
@@ -411,6 +444,7 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                         "memory_extraction": "DefaultMemoryExtractionPromptBuilder",
                         "time_range_parsing": "DefaultTimeRangeParsingPromptBuilder",
                         "python": "DefaultPythonPromptBuilder",
+                        "optimization": "DefaultOptimizationPromptBuilder",
                     },
                 )
             ],

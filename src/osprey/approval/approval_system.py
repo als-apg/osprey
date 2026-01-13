@@ -472,6 +472,110 @@ def create_code_approval_interrupt(
     }
 
 
+def create_xopt_approval_interrupt(
+    yaml_config: str,
+    strategy: str,
+    objective: str,
+    machine_state_details: dict[str, Any] | None = None,
+    step_objective: str = "Execute XOpt optimization",
+) -> dict[str, Any]:
+    """Create structured interrupt data for XOpt optimization approval.
+
+    Generates LangGraph-compatible interrupt data for XOpt configurations that
+    require human approval before execution. The interrupt provides comprehensive
+    context including the generated YAML, optimization strategy, and machine
+    state details.
+
+    :param yaml_config: Generated XOpt YAML configuration
+    :type yaml_config: str
+    :param strategy: Selected optimization strategy (exploration/optimization)
+    :type strategy: str
+    :param objective: Optimization objective description
+    :type objective: str
+    :param machine_state_details: Optional machine state assessment details
+    :type machine_state_details: Dict[str, Any], optional
+    :param step_objective: High-level objective for user context
+    :type step_objective: str
+    :return: Dictionary containing user_message and resume_payload for LangGraph
+    :rtype: Dict[str, Any]
+
+    Examples:
+        Basic XOpt approval::
+
+            >>> interrupt_data = create_xopt_approval_interrupt(
+            ...     yaml_config="xopt:\\n  generator: random",
+            ...     strategy="exploration",
+            ...     objective="Maximize injection efficiency",
+            ...     step_objective="Execute XOpt optimization"
+            ... )
+            >>> 'yes' in interrupt_data['user_message']
+            True
+
+    .. warning::
+       This function is used for security-critical approval decisions for
+       optimization operations that may affect machine parameters.
+    """
+    # Format machine state if available
+    machine_state_section = ""
+    if machine_state_details:
+        machine_state_section = f"""
+**Machine State Assessment:**
+```
+{_format_machine_state(machine_state_details)}
+```
+"""
+
+    user_message = f"""
+⚠️ **HUMAN APPROVAL REQUIRED** ⚠️
+
+**Task:** {step_objective}
+**Optimization Objective:** {objective}
+**Strategy:** {strategy.upper()}
+{machine_state_section}
+**Generated XOpt Configuration:**
+```yaml
+{yaml_config}
+```
+
+**Review the configuration above carefully.**
+
+**To proceed, respond with:**
+- **`yes`** to approve and execute the optimization
+- **`no`** to cancel this operation
+""".strip()
+
+    return {
+        "user_message": user_message,
+        "resume_payload": {
+            "approval_type": create_approval_type("xopt_optimizer"),
+            "step_objective": step_objective,
+            "yaml_config": yaml_config,
+            "strategy": strategy,
+            "objective": objective,
+            "machine_state_details": machine_state_details,
+        },
+    }
+
+
+def _format_machine_state(details: dict[str, Any]) -> str:
+    """Format machine state details for display.
+
+    :param details: Machine state details dictionary
+    :type details: Dict[str, Any]
+    :return: Formatted string for display
+    :rtype: str
+    """
+    lines = []
+    for key, value in details.items():
+        if isinstance(value, dict):
+            lines.append(f"{key}:")
+            for k, v in value.items():
+                lines.append(f"  {k}: {v}")
+        else:
+            lines.append(f"{key}: {value}")
+    return "\n".join(lines)
+
+
 # =============================================================================
 # STREAMLINED APPROVAL HELPERS
 # =============================================================================

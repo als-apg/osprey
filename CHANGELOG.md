@@ -20,6 +20,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **State**: Multi-iteration approval support with custom reducers
   - `overwrite_approval_bool` and `overwrite_approval_payload` reducers enable approval fields to be reset between iterations
   - Required for services like XOpt optimization that request approval multiple times per session
+- **Services**: XOpt Optimizer Service for autonomous machine parameter optimization
+  - State identification node assesses machine readiness using ReAct agent
+  - Strategy decision node selects exploration vs. optimization approach
+  - YAML generation agent creates XOpt configurations with ReAct pattern
+  - Approval node integrates with human-in-the-loop workflow
+  - Execution and analysis nodes for running and evaluating optimizations
+  - Configurable modes: `react` (LLM-powered) or `mock` (fast testing)
+- **Capabilities**: Optimization capability for routing optimization requests
+  - Provides `OPTIMIZATION_RESULT` context type for result handling
+- **Prompts**: Default optimization prompt builder for XOpt workflows
 
 ### Changed
 - **CLI**: Improved approval panel styling for multi-iteration approval flows

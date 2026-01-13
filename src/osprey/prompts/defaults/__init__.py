@@ -8,6 +8,7 @@ from .clarification import DefaultClarificationPromptBuilder
 from .classification import DefaultClassificationPromptBuilder
 from .error_analysis import DefaultErrorAnalysisPromptBuilder
 from .memory_extraction import DefaultMemoryExtractionPromptBuilder
+from .optimization import DefaultOptimizationPromptBuilder
 from .orchestrator import DefaultOrchestratorPromptBuilder
 from .python import DefaultPythonPromptBuilder
 from .response_generation import DefaultResponseGenerationPromptBuilder
@@ -35,6 +36,7 @@ class DefaultPromptProvider(FrameworkPromptProvider):
         self._memory_extraction_builder = DefaultMemoryExtractionPromptBuilder()
         self._time_range_parsing_builder = DefaultTimeRangeParsingPromptBuilder()
         self._python_builder = DefaultPythonPromptBuilder()
+        self._optimization_builder = DefaultOptimizationPromptBuilder()
 
     # =================================================================
     # Infrastructure prompts
@@ -71,6 +73,9 @@ class DefaultPromptProvider(FrameworkPromptProvider):
     def get_python_prompt_builder(self) -> "FrameworkPromptBuilder":
         return self._python_builder
 
+    def get_optimization_prompt_builder(self) -> "FrameworkPromptBuilder":
+        return self._optimization_builder
+
 
 __all__ = [
     "DefaultClassificationPromptBuilder",
@@ -81,6 +86,7 @@ __all__ = [
     "DefaultMemoryExtractionPromptBuilder",
     "DefaultTimeRangeParsingPromptBuilder",
     "DefaultPythonPromptBuilder",
+    "DefaultOptimizationPromptBuilder",
     "DefaultOrchestratorPromptBuilder",
     "DefaultPromptProvider",
     "TaskExtractionExample",
