@@ -76,6 +76,10 @@ class MongoDBArchiverConnector(ArchiverConnector):
             from pymongo import MongoClient
             from pymongo.errors import ConnectionFailure, ConfigurationError
 
+            # Store classes in self for lazy import pattern:
+            # 1. Allows module import even if pymongo isn't installed (fails only when connect() is called)
+            # 2. Makes classes available in exception handlers (import scope is local to this method)
+            # 3. Enables reuse in other methods if needed
             self._MongoClient = MongoClient
             self._ConnectionFailure = ConnectionFailure
             self._ConfigurationError = ConfigurationError
