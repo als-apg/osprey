@@ -393,6 +393,21 @@ class TestRegistryProvider(RegistryConfigProvider):
         "models": {
             "orchestrator": {"provider": "openai", "model_id": "gpt-4"},
             "python_code_generator": {"provider": "openai", "model_id": "gpt-4"},
+            "xopt_yaml_generation": {"provider": "openai", "model_id": "gpt-4"},
+            "xopt_decision": {"provider": "openai", "model_id": "gpt-4"},
+        },
+        "xopt_optimizer": {
+            "state_identification": {
+                "mode": "mock",  # Use mock for fast tests
+            },
+            "decision": {
+                "mode": "mock",  # Use mock for fast tests
+                "model_config_name": "xopt_decision",
+            },
+            "yaml_generation": {
+                "mode": "mock",  # Use mock for fast tests
+                "model_config_name": "xopt_yaml_generation",
+            },
         },
     }
 
@@ -488,6 +503,21 @@ class TestRegistryProvider(RegistryConfigProvider):
         "models": {
             "orchestrator": {"provider": "openai", "model_id": "gpt-4"},
             "python_code_generator": {"provider": "openai", "model_id": "gpt-4"},
+            "xopt_yaml_generation": {"provider": "openai", "model_id": "gpt-4"},
+            "xopt_decision": {"provider": "openai", "model_id": "gpt-4"},
+        },
+        "xopt_optimizer": {
+            "state_identification": {
+                "mode": "mock",  # Use mock for fast tests
+            },
+            "decision": {
+                "mode": "mock",  # Use mock for fast tests
+                "model_config_name": "xopt_decision",
+            },
+            "yaml_generation": {
+                "mode": "mock",  # Use mock for fast tests
+                "model_config_name": "xopt_yaml_generation",
+            },
         },
     }
 

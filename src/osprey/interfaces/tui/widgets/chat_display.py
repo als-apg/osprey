@@ -7,6 +7,7 @@ from typing import Any
 
 from textual.containers import ScrollableContainer
 
+from osprey.interfaces.tui.widgets.artifacts import ArtifactGallery
 from osprey.interfaces.tui.widgets.blocks import ProcessingBlock
 from osprey.interfaces.tui.widgets.debug import DebugBlock
 from osprey.interfaces.tui.widgets.messages import ChatMessage
@@ -36,6 +37,10 @@ class ChatDisplay(ScrollableContainer):
         # Plan progress tracking for flow-style updates
         self._plan_steps: list[dict] = []
         self._plan_step_states: list[str] = []
+        # Artifact gallery - tracks "new" vs "seen" across conversation turns
+        self._artifact_gallery: ArtifactGallery | None = None
+        # Seen artifact IDs persist across conversation turns (session-scoped)
+        self._seen_artifact_ids: set[str] = set()
 
     def start_new_query(self, user_query: str) -> None:
         """Reset blocks for a new query and add user message.
@@ -52,6 +57,9 @@ class ChatDisplay(ScrollableContainer):
         self._plan_step_states = []
         if self._debug_block:
             self._debug_block.clear()
+        # Hide artifact gallery for new query (will be shown when artifacts arrive)
+        if self._artifact_gallery:
+            self._artifact_gallery.display = False
         self.add_message(user_query, "user")
 
     def get_or_create_debug_block(self) -> DebugBlock | None:
@@ -78,3 +86,64 @@ class ChatDisplay(ScrollableContainer):
         message = ChatMessage(content, role, message_type=message_type)
         self.mount(message)
         self.scroll_end(animate=False)
+
+    # ===== ARTIFACT GALLERY METHODS =====
+
+    def get_artifact_gallery(self) -> ArtifactGallery | None:
+        """Get the artifact gallery widget if it exists.
+
+        Returns:
+            The artifact gallery widget, or None if not yet created
+        """
+        return self._artifact_gallery
+
+    def get_or_create_artifact_gallery(self) -> ArtifactGallery:
+        """Get or create the artifact gallery widget.
+
+        The gallery is lazily created on first use and reused across
+        conversation turns, maintaining "seen" state for artifact tracking.
+
+        Returns:
+            The artifact gallery widget
+        """
+        if not self._artifact_gallery:
+            self._artifact_gallery = ArtifactGallery(id="artifact-gallery")
+            # Transfer any previously seen IDs
+            self._artifact_gallery._seen_ids = self._seen_artifact_ids
+            self.mount(self._artifact_gallery)
+        return self._artifact_gallery
+
+    def update_artifacts(self, artifacts: list[dict[str, Any]]) -> None:
+        """Update the artifact gallery with artifacts from the current execution.
+
+        Marks artifacts as "new" if their ID hasn't been seen before in this session,
+        then adds all IDs to the seen set for future reference.
+
+        Args:
+            artifacts: List of artifact dictionaries from state.ui_artifacts
+        """
+        if not artifacts:
+            return
+
+        gallery = self.get_or_create_artifact_gallery()
+
+        # Mark new artifacts (before updating gallery's seen set)
+        for artifact in artifacts:
+            artifact_id = artifact.get("id", "")
+            artifact["_is_new"] = artifact_id not in self._seen_artifact_ids
+            if artifact_id:
+                self._seen_artifact_ids.add(artifact_id)
+
+        # Update gallery with marked artifacts
+        gallery._artifacts = artifacts
+        gallery._update_display()
+        self.scroll_end(animate=False)
+
+    def clear_artifact_history(self) -> None:
+        """Clear the seen artifacts history (e.g., on new session).
+
+        This resets the "new" tracking so all artifacts will appear as new.
+        """
+        self._seen_artifact_ids.clear()
+        if self._artifact_gallery:
+            self._artifact_gallery._seen_ids.clear()

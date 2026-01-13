@@ -83,6 +83,14 @@ Message handling::
    :mod:`osprey.infrastructure.gateway` : Main entry point for state processing
 """
 
+from .artifacts import (
+    Artifact,
+    ArtifactType,
+    create_artifact,
+    get_artifact_type_icon,
+    populate_legacy_fields_from_artifacts,
+    validate_artifact_data,
+)
 from .control import AgentControlState, apply_slash_commands_to_agent_control_state
 from .execution import ApprovalRequest  # Keep as dataclass
 from .messages import ChatHistoryFormatter, MessageUtils, UserMemories
@@ -102,6 +110,13 @@ __all__ = [
     "AgentState",
     "StateUpdate",
     "StateManager",
+    # Artifact system
+    "Artifact",
+    "ArtifactType",
+    "create_artifact",
+    "get_artifact_type_icon",
+    "populate_legacy_fields_from_artifacts",
+    "validate_artifact_data",
     # Utility functions
     "create_status_update",
     "create_progress_event",

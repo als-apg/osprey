@@ -1,5 +1,7 @@
 """TUI Widget components."""
 
+from osprey.interfaces.tui.widgets.artifact_viewer import ArtifactViewer
+from osprey.interfaces.tui.widgets.artifacts import ArtifactGallery, ArtifactItem
 from osprey.interfaces.tui.widgets.blocks import (
     ClassificationBlock,
     ClassificationStep,
@@ -34,12 +36,22 @@ from osprey.interfaces.tui.widgets.theme_picker import ThemePicker
 from osprey.interfaces.tui.widgets.welcome import WelcomeBanner, WelcomeScreen
 
 __all__ = [
+    # Artifact widgets
+    "ArtifactGallery",
+    "ArtifactItem",
+    "ArtifactViewer",
+    # Chat and display
     "ChatMessage",
+    "ChatDisplay",
+    "ChatInput",
+    # Modals
     "CommandPalette",
     "ContentViewer",
+    "LogViewer",
+    "ThemePicker",
+    # Processing blocks and steps
     "DebugBlock",
     "LogsLink",
-    "LogViewer",
     "ProcessingBlock",
     "ProcessingStep",
     "PromptLink",
@@ -54,13 +66,13 @@ __all__ = [
     "TodoList",
     "TodoUpdateStep",
     "ExecutionStep",
-    "ChatDisplay",
-    "ChatInput",
+    # Input widgets
     "StatusPanel",
     "CommandDropdown",
-    "ThemePicker",
+    # Welcome screen
     "WelcomeBanner",
     "WelcomeScreen",
+    # Utilities
     "WrappedLabel",
     "WrappedStatic",
 ]

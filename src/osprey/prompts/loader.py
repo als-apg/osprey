@@ -300,6 +300,28 @@ class FrameworkPromptProvider:
         """
         raise NotImplementedError
 
+    def get_optimization_prompt_builder(self) -> FrameworkPromptBuilder:
+        """Provide prompt builder for XOpt optimization capability.
+
+        This prompt builder is used by the optimization capability to
+        configure and execute autonomous machine optimization using XOpt.
+        It includes guidance for machine state assessment, YAML generation,
+        and strategy selection.
+
+        :return: Optimization capability prompt builder instance
+        :rtype: FrameworkPromptBuilder
+        :raises NotImplementedError: Must be implemented by concrete providers
+
+        .. note::
+           Optimization prompts should include facility-specific machine states,
+           historical YAML examples, and domain-specific optimization patterns.
+
+        .. seealso::
+           :class:`OptimizationCapability` : Framework capability that uses this prompt
+           :class:`XOptOptimizerService` : Optimization service infrastructure
+        """
+        raise NotImplementedError
+
 
 class FrameworkPromptLoader:
     """Global registry and dependency injection system for framework prompt providers.
