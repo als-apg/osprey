@@ -159,7 +159,11 @@ class MongoDBArchiverConnector(ArchiverConnector):
             ) from e
         except self._ConfigurationError as e:
             raise ConnectionError(f"MongoDB configuration error: {e}") from e
+        except (TimeoutError, OSError) as e:
+            raise ConnectionError(f"MongoDB connection failed: {e}") from e
         except Exception as e:
+            # Last resort - log and re-raise as ConnectionError
+            logger.error(f"Unexpected error connecting to MongoDB: {e}", exc_info=True)
             raise ConnectionError(f"MongoDB connection failed: {e}") from e
 
     async def disconnect(self) -> None:
@@ -292,10 +296,13 @@ class MongoDBArchiverConnector(ArchiverConnector):
 
         except TimeoutError as e:
             raise TimeoutError(f"MongoDB query timed out after {timeout}s") from e
+        except ConnectionError as e:
+            raise ConnectionError(f"Network connectivity issue with MongoDB: {e}") from e
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Error retrieving data from MongoDB: {e}") from e
         except Exception as e:
-            error_msg = str(e).lower()
-            if "connection" in error_msg or "network" in error_msg:
-                raise ConnectionError(f"Network connectivity issue with MongoDB: {e}") from e
+            # Log unexpected errors for debugging
+            logger.error(f"Unexpected error retrieving data: {e}", exc_info=True)
             raise ValueError(f"Error retrieving data from MongoDB: {e}") from e
 
     async def get_metadata(self, pv_name: str) -> ArchiverMetadata:
