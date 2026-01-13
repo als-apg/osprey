@@ -62,9 +62,9 @@ class MongoDBArchiverConnector(ArchiverConnector):
                 - port: MongoDB port (default: 27017)
                 - name: Database name (required)
                 - collection: Collection name (required)
-                - auth: Authentication database (optional)
-                - username: MongoDB username (optional)
-                - password_env: Environment variable name for password (optional)
+                - auth: Authentication database (required)
+                - username: MongoDB username (required)
+                - password_env: Environment variable name for password (required)
                 - timeout: Default timeout in seconds (default: 60)
 
         Raises:
@@ -105,31 +105,37 @@ class MongoDBArchiverConnector(ArchiverConnector):
         port = config.get("port", 27017)
         self._timeout = config.get("timeout", 60)
 
-        # Build connection URI
+        # Validate required authentication config
         username = config.get("username")
+        if not username:
+            raise ValueError("username is required for MongoDB archiver")
+
         password_env = config.get("password_env")
+        if not password_env:
+            raise ValueError("password_env is required for MongoDB archiver")
+
         auth_db = config.get("auth")
+        if not auth_db:
+            raise ValueError("auth (authentication database) is required for MongoDB archiver")
 
-        if username and password_env:
-            password = os.getenv(password_env)
-            if not password:
-                raise ValueError(
-                    f"Environment variable '{password_env}' not set. "
-                    "Password is required for MongoDB authentication."
-                )
-
-            # Build MongoDB URI with authentication
-            if auth_db:
-                uri = f"mongodb://{username}:{password}@{host}:{port}/{db_name}?authSource={auth_db}"
-            else:
-                uri = f"mongodb://{username}:{password}@{host}:{port}/{db_name}"
-        else:
-            # No authentication
-            uri = f"mongodb://{host}:{port}/{db_name}"
+        # Get password from environment variable
+        password = os.getenv(password_env)
+        if not password:
+            raise ValueError(
+                f"Environment variable '{password_env}' not set. "
+                "Password is required for MongoDB authentication."
+            )
 
         try:
-            # Create MongoDB client
-            self._client = self._MongoClient(uri, serverSelectionTimeoutMS=self._timeout * 1000)
+            # Create MongoDB client using direct parameter syntax (more readable than URI)
+            self._client = self._MongoClient(
+                host=host,
+                port=port,
+                username=username,
+                password=password,
+                authSource=auth_db,
+                serverSelectionTimeoutMS=self._timeout * 1000,
+            )
 
             # Test connection
             def test_connection():
