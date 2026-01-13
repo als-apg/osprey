@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Required for services like XOpt optimization that request approval multiple times per session
 
 ### Changed
+- **CLI**: Improved approval panel styling for multi-iteration approval flows
+  - Repeat approval requests now display in styled Panel matching first approval
+  - Consistent visual treatment improves UX for multi-iteration workflows
 - **Capabilities**: Python capability uses unified `register_artifact()` API directly
   - Clean single-accumulation pattern for figures and notebooks
   - Legacy fields populated at finalization rather than registration
