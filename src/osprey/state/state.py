@@ -128,6 +128,71 @@ def merge_session_state(existing: dict[str, Any] | None, new: dict[str, Any]) ->
     return result
 
 
+def overwrite_approval_bool(existing: bool | None, new: bool | None) -> bool | None:
+    """Overwrite approval boolean state for multi-iteration approval flows.
+
+    This custom reducer enables the approval_approved field to be overwritten
+    across multiple approval iterations. Without this reducer, LangGraph's
+    default LastValue channel throws an error when trying to set approval_approved
+    multiple times (e.g., in multi-iteration optimization workflows).
+
+    The reducer simply returns the new value, allowing clean overwrites between
+    approval cycles. This is essential for services that loop and request
+    approval for each iteration (like XOpt optimization).
+
+    :param existing: Existing approval state from previous writes
+    :type existing: Optional[bool]
+    :param new: New approval state to set
+    :type new: Optional[bool]
+    :return: The new approval state value
+    :rtype: Optional[bool]
+
+    .. note::
+       This reducer intentionally ignores the existing value. Each approval
+       cycle starts fresh, with the new value completely replacing the old.
+
+    Examples:
+        Multi-iteration approval flow::
+
+            >>> # Iteration 1: user approves
+            >>> result = overwrite_approval_bool(None, True)
+            >>> result
+            True
+            >>> # Iteration 2: user approves again (would fail without reducer)
+            >>> result = overwrite_approval_bool(True, True)
+            >>> result
+            True
+
+    .. seealso::
+       :class:`AgentState` : Main state class using this reducer
+       :func:`overwrite_approval_payload` : Companion reducer for approval payload
+    """
+    return new
+
+
+def overwrite_approval_payload(
+    existing: dict[str, Any] | None, new: dict[str, Any] | None
+) -> dict[str, Any] | None:
+    """Overwrite approval payload for multi-iteration approval flows.
+
+    This custom reducer enables the approved_payload field to be overwritten
+    across multiple approval iterations. Works in conjunction with
+    overwrite_approval_bool to support multi-iteration approval workflows.
+
+    :param existing: Existing approval payload from previous writes
+    :type existing: Optional[Dict[str, Any]]
+    :param new: New approval payload to set
+    :type new: Optional[Dict[str, Any]]
+    :return: The new approval payload value
+    :rtype: Optional[Dict[str, Any]]
+
+    .. seealso::
+       :class:`AgentState` : Main state class using this reducer
+       :func:`overwrite_approval_bool` : Companion reducer for approval boolean
+    """
+    return new
+
+
 def merge_capability_context_data(
     existing: dict[str, dict[str, dict[str, Any]]] | None, new: dict[str, dict[str, dict[str, Any]]]
 ) -> dict[str, dict[str, dict[str, Any]]]:
@@ -331,8 +396,14 @@ class AgentState(MessagesState):
     execution_total_time: float | None
 
     # Approval handling fields (for interrupt flows)
-    approval_approved: bool | None  # True/False/None for approved/rejected/no-approval
-    approved_payload: dict[str, Any] | None  # Direct payload access
+    # These use custom reducers to support multi-iteration approval workflows
+    # (e.g., XOpt optimization that requests approval for each iteration)
+    approval_approved: Annotated[
+        bool | None, overwrite_approval_bool
+    ]  # True/False/None for approved/rejected/no-approval
+    approved_payload: Annotated[
+        dict[str, Any] | None, overwrite_approval_payload
+    ]  # Direct payload access
 
     # Control flow fields
     control_reclassification_reason: str | None
