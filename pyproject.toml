@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "osprey-framework"
-version = "0.10.2"
+version = "0.10.3"
 description = "An open-source, domain-agnostic, capability-based architecture for building intelligent agents"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -63,7 +63,7 @@ dependencies = [
 
     # AI/ML provider integrations
     "litellm>=1.56.0",  # Unified LLM provider interface (100+ providers)
-    "openai",
+    "openai>=2",
     "anthropic",
     "google-generativeai",
     "ollama>=0.5.1",
@@ -147,11 +147,6 @@ dev = [
     "pyepics",  # EPICS connector support for testing
 ]
 
-# Terminal User Interface
-tui = [
-    "textual>=0.70.0",
-]
-
 # Natural language processing
 nlp = [
     "nltk>=3.8.1",
@@ -164,7 +159,7 @@ utils = [
 
 # All optional dependencies for complete installation
 all = [
-    "osprey-framework[docs,scientific,databases,postgres,memory,dev,tui,nlp,utils]"
+    "osprey-framework[docs,scientific,databases,postgres,memory,dev,nlp,utils]"
 ]
 
 [project.urls]
