@@ -1,8 +1,8 @@
-# Osprey Framework - Latest Release (v0.10.2)
+# Osprey Framework - Latest Release (v0.10.3)
 
 🎉 **Unified Artifact System & TUI Enhancements** - Streamlined artifact management and interactive browsing
 
-## What's New in v0.10.2
+## What's New in v0.10.3
 
 ### 🎨 Unified Artifact System
 
