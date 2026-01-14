@@ -16,7 +16,7 @@ import os
 import uuid
 from typing import Any
 
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
 from langgraph.checkpoint.memory import MemorySaver
 
 # Modern CLI dependencies
@@ -43,8 +43,9 @@ from osprey.state.artifacts import ArtifactType, get_artifact_type_icon
 from osprey.utils.config import get_full_configuration
 from osprey.utils.logger import get_logger, quiet_logging
 
-# Load environment variables after imports
-load_dotenv()
+# Load environment variables from current directory only (not parent directories)
+# This prevents python-dotenv from parsing shell config files like ~/.env
+load_dotenv(find_dotenv(usecwd=True))
 
 logger = get_logger("cli")
 
