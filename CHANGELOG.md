@@ -5,7 +5,7 @@ All notable changes to the Osprey Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.10.2] - 2026-01-14
 
 ### Added
 - **State**: Unified artifact system with `ArtifactType` enum and `register_artifact()` API
@@ -43,6 +43,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Templates**: Include deployment infrastructure config for all templates (#85)
   - Fixes `osprey deploy up` failures for hello_world_weather template
   - Jupyter kernel templates now render correctly with execution.modes section
+- **CLI**: Restrict `load_dotenv()` search to current directory only (#95)
+  - Prevents python-dotenv from parsing shell config files in parent directories
+  - Fixes warnings when users have `~/.env` as a Korn shell configuration file
 
 ## [0.10.1] - 2026-01-09
 

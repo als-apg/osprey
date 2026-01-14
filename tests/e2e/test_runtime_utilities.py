@@ -307,7 +307,9 @@ async def test_runtime_utilities_respects_channel_limits(e2e_project_factory, tm
                 assert "from osprey.runtime import" in generated_code, (
                     "Generated code doesn't use runtime utilities"
                 )
-                assert "write_channel" in generated_code, "Generated code doesn't use write_channel()"
+                assert "write_channel" in generated_code, (
+                    "Generated code doesn't use write_channel()"
+                )
 
             # 6. Check for execution metadata with error
             metadata_file = latest_execution / "execution_metadata.json"

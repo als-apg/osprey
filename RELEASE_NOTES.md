@@ -1,56 +1,53 @@
-# Osprey Framework - Latest Release (v0.10.1)
+# Osprey Framework - Latest Release (v0.10.2)
 
-🎉 **Direct Chat Mode & LiteLLM Migration** - Conversational capability interaction and unified LLM provider interface
+🎉 **Unified Artifact System & TUI Enhancements** - Streamlined artifact management and interactive browsing
 
-## What's New in v0.10.1
+## What's New in v0.10.2
 
-### 💬 Direct Chat Mode
+### 🎨 Unified Artifact System
 
-A new way to interact with capabilities in a conversational flow!
+A single source of truth for all artifacts produced during execution:
 
-- **Enter Direct Chat**: `/chat:<capability>` - Start chatting with a specific capability
-- **List Available**: `/chat` - See all direct-chat enabled capabilities
-- **Exit**: `/exit` - Return to normal orchestrated mode
-- **Dynamic Prompt**: See which mode you're in (normal vs capability name)
-- **Context Tools**: Save, read, and manage context during conversations
-
-**Built-in Direct Chat Capabilities:**
-- `state_manager` - Inspect and manage agent state
-- MCP-generated capabilities are direct-chat enabled by default
-
-### ⚡ LiteLLM Migration (#23)
-
-Major backend simplification - all LLM providers now use a unified interface:
-
-- **~2,200 lines → ~700 lines** - Massive code reduction
-- **8 Providers**: anthropic, openai, google, ollama, cborg, stanford, argo, vllm
-- **100+ Models**: Access to all LiteLLM-supported providers
-- **Preserved Features**: Extended thinking, structured outputs, health checks
-
-### 🆕 New Provider: vLLM
-
-High-throughput local inference support:
-
-- OpenAI-compatible interface via LiteLLM
-- Auto-detects served models
-- Supports structured outputs
-
-### 🔧 LangChain Model Factory
-
-Native integration with LangGraph ReAct agents:
+- **New `register_artifact()` API** - Single method to register any artifact type
+- **`ArtifactType` enum** - IMAGE, NOTEBOOK, COMMAND, HTML, FILE
+- **Backward compatible** - Legacy methods (`register_figure`, etc.) still work
+- **Clean accumulation** - No more duplicate registration issues
 
 ```python
-from osprey.models import get_langchain_model
+from osprey.state import register_artifact, ArtifactType
 
-model = get_langchain_model(provider="anthropic", model_id="claude-sonnet-4")
-# Use with create_react_agent, etc.
+# New unified API
+register_artifact(state, ArtifactType.IMAGE, path="/path/to/plot.png", label="Analysis Plot")
+
+# Legacy methods still work
+register_figure(state, path, label)  # Delegates to register_artifact
 ```
 
-### 📚 Documentation Updates
+### 🖼️ TUI Artifact Gallery
 
-- CLI Reference: Direct chat mode commands and examples
-- Gateway Architecture: Message history preservation
-- Building First Capability: `direct_chat_enabled` attribute guide
+Interactive artifact browsing in the terminal UI (`osprey chat --tui`):
+
+- **Artifact Gallery** - Browse all generated artifacts with keyboard navigation
+- **Keyboard shortcuts**: `Ctrl+a` focus, `j/k` navigate, `Enter` view, `o` open external
+- **Native image rendering** - Sixel (iTerm2/WezTerm), Kitty Graphics Protocol
+- **New/seen tracking** - `[NEW]` badges for artifacts from current turn
+- **Type-specific viewers** - Details and actions for each artifact type
+
+### 🔧 Tooling Consolidation
+
+Simplified developer tooling:
+
+- **Ruff only** - Consolidated formatting and linting (removed Black and Isort)
+- **Faster checks** - Single tool for both linting and formatting
+- **Updated templates** - All project templates use Ruff
+
+### 🐛 Bug Fixes
+
+- **Gateway**: `/chat` without arguments now correctly displays capabilities without triggering execution
+- **Orchestrator**: Fixed time range context key collision (similar date ranges no longer reuse wrong context)
+- **Approval**: Fixed KeyError when optional approval config keys are omitted
+- **Templates**: Deployment infrastructure config now included for all templates
+- **CLI**: Fixed `python-dotenv` warnings when users have shell config `~/.env` files (#95)
 
 ---
 
@@ -66,31 +63,43 @@ Or install with all optional dependencies:
 pip install --upgrade "osprey-framework[all]"
 ```
 
-## Upgrading from v0.10.0
+## Upgrading from v0.10.1
 
-### Direct Chat Mode
+### Artifact Registration
 
-No migration needed! Direct chat mode is opt-in:
+The new unified API is optional - existing code continues to work:
 
 ```python
-# Add to your capability to enable direct chat
-@capability_node
-class MyCapability(BaseCapability):
-    direct_chat_enabled = True  # New in 0.10.1
+# Old way (still works)
+register_figure(state, path, label)
+register_notebook(state, path, label)
+
+# New way (recommended)
+register_artifact(state, ArtifactType.IMAGE, path, label)
+register_artifact(state, ArtifactType.NOTEBOOK, path, label)
 ```
 
-### LiteLLM Migration
+### Tooling
 
-The API remains the same - `get_chat_completion()` works exactly as before.
-Backend providers now use LiteLLM internally.
+If you have local pre-commit hooks using Black or Isort, update to use Ruff:
+
+```bash
+# Old
+black src/ tests/
+isort src/ tests/
+
+# New
+ruff format src/ tests/
+ruff check src/ tests/
+```
 
 ---
 
 ## What's Next?
 
 Check out our [documentation](https://als-apg.github.io/osprey) for:
-- Direct chat mode tutorial
-- LangChain integration guide
+- TUI mode guide
+- Artifact system API reference
 - Complete tutorial series
 
 ## Contributors
