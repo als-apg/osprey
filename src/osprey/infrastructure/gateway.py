@@ -307,6 +307,21 @@ class Gateway:
                 agent_state=state_update, slash_commands_processed=processed_commands
             )
 
+        # Check if command was handled locally with no remaining message and no state changes
+        # This handles cases like "/chat" (without args) which displays info but shouldn't
+        # trigger graph execution
+        if (
+            user_input.startswith("/")
+            and not cleaned_message.strip()
+            and not slash_commands
+            and not session_state_changes
+        ):
+            self.logger.info("Command handled locally - no execution needed")
+            return GatewayResult(
+                slash_commands_processed=[user_input.split()[0]],  # Extract command name
+                is_state_only_update=True,
+            )
+
         # Normal mode: create completely fresh state (not partial updates)
         message_content = cleaned_message.strip() if cleaned_message.strip() else user_input
         fresh_state = StateManager.create_fresh_state(

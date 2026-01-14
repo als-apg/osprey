@@ -679,21 +679,24 @@ class CLI:
             except Exception as e:
                 self.console.print(f"[{Styles.ERROR}]❌ Resume error: {e}[/{Styles.ERROR}]")
                 logger.exception("Error during resume execution")
-        elif result.agent_state:
-            # Check if this is a mode-switch only (entering/exiting direct chat with no message)
-            if result.is_state_only_update:
-                # Apply state update without executing the graph
+        elif result.is_state_only_update:
+            # State-only update: command handled locally, no graph execution needed
+            if result.agent_state:
+                # Mode switch (e.g., /chat:capability_name) - apply state update
                 self.graph.update_state(self.base_config, result.agent_state)
                 self.console.print(
                     f"[{Styles.SUCCESS}]✓ Mode switched. Ready for your message.[/{Styles.SUCCESS}]"
                 )
-            else:
-                # Debug: Show execution step results count in fresh state
-                step_results = result.agent_state.get("execution_step_results", {})
-                self.console.print(
-                    f"[{Styles.INFO}]🔄 Starting new conversation turn (execution_step_results: {len(step_results)} records)...[/{Styles.INFO}]"
-                )
-                await self._execute_result(result.agent_state)
+            # else: Command handled locally (e.g., /chat without args) - no state update needed
+            # The command handler already displayed output, nothing more to do
+        elif result.agent_state:
+            # Normal execution: execute the graph with the provided state
+            # Debug: Show execution step results count in fresh state
+            step_results = result.agent_state.get("execution_step_results", {})
+            self.console.print(
+                f"[{Styles.INFO}]🔄 Starting new conversation turn (execution_step_results: {len(step_results)} records)...[/{Styles.INFO}]"
+            )
+            await self._execute_result(result.agent_state)
         else:
             self.console.print(f"[{Styles.WARNING}]⚠️  No action required[/{Styles.WARNING}]")
 

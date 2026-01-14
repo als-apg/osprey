@@ -5,6 +5,14 @@ All notable changes to the Osprey Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Gateway**: `/chat` without arguments no longer triggers graph execution
+  - Displays available capabilities table correctly, then returns immediately
+  - New check for locally-handled commands with no remaining message
+  - CLI handles state-only updates with no agent_state gracefully
+
 ## [0.10.1] - 2026-01-09
 
 ### Added
