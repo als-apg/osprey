@@ -18,6 +18,17 @@ Key features:
    :mod:`configs.config` : Provider configuration management
 """
 
+import warnings
+
+# Suppress Pydantic serialization warnings from LiteLLM response types.
+# LiteLLM's response objects have model_dump() but non-standard schemas that
+# cause harmless Pydantic validation warnings. Applied early to catch all cases.
+warnings.filterwarnings(
+    "ignore",
+    message=r"Pydantic serializer warnings.*",
+    category=UserWarning,
+)
+
 from .completion import get_chat_completion
 from .langchain import (
     SUPPORTED_PROVIDERS,
