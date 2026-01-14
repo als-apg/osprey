@@ -39,6 +39,7 @@ from osprey.commands.completer import UnifiedCommandCompleter
 from osprey.graph import create_graph
 from osprey.infrastructure.gateway import Gateway
 from osprey.registry import get_registry, initialize_registry
+from osprey.state.artifacts import ArtifactType, get_artifact_type_icon
 from osprey.utils.config import get_full_configuration
 from osprey.utils.logger import get_logger, quiet_logging
 
@@ -893,21 +894,11 @@ class CLI:
             # Fallback if no messages found
             self.console.print(f"[{Styles.SUCCESS}]✅ Execution completed[/{Styles.SUCCESS}]")
 
-        # Extract and display additional content
-        figures_output = self._extract_figures_for_cli(result)
-        if figures_output:
+        # Extract and display artifacts from unified registry
+        artifacts_output = self._extract_artifacts_for_cli(result)
+        if artifacts_output:
             self.console.print()  # Add spacing
-            self.console.print(f"[{Styles.INFO}]{figures_output}[/{Styles.INFO}]")
-
-        commands_output = self._extract_commands_for_cli(result)
-        if commands_output:
-            self.console.print()  # Add spacing
-            self.console.print(f"[{Styles.COMMAND}]{commands_output}[/{Styles.COMMAND}]")
-
-        notebooks_output = self._extract_notebooks_for_cli(result)
-        if notebooks_output:
-            self.console.print()  # Add spacing
-            self.console.print(f"[{Styles.INFO}]{notebooks_output}[/{Styles.INFO}]")
+            self.console.print(f"[{Styles.INFO}]{artifacts_output}[/{Styles.INFO}]")
 
     async def _handle_stream_event(self, event: dict[str, Any]):
         """Handle and display streaming events from LangGraph execution.
@@ -976,172 +967,138 @@ class CLI:
         # If no response found, show completion
         self.console.print(f"[{Styles.SUCCESS}]✅ Execution completed[/{Styles.SUCCESS}]")
 
-    def _extract_figures_for_cli(self, state: dict[str, Any]) -> str | None:
-        """Extract figures from centralized registry and format for CLI display.
+    def _extract_artifacts_for_cli(self, state: dict[str, Any]) -> str | None:
+        """Extract artifacts from unified registry and format for CLI display.
 
-        Extracts generated figures from the state and formats them for terminal
-        display with file paths and metadata. Unlike the OpenWebUI version that
-        converts to base64 images, this provides file paths that users can
-        access directly from their terminal.
+        Reads from the unified ui_artifacts field and formats all artifact types
+        for terminal display with appropriate icons and type-specific details.
 
-        :param state: Complete agent state containing figure registry
+        :param state: Complete agent state containing ui_artifacts
         :type state: dict[str, Any]
-        :return: Formatted string with figure information or None if no figures
+        :return: Formatted string with artifact information or None if no artifacts
         :rtype: str | None
 
         Examples:
-            Display figures in terminal::
+            Display artifacts in terminal::
 
                 📊 Generated Figures:
-                • /path/to/analysis_plot.png (created by python_executor at 2024-01-01 12:00:00)
-                • /path/to/data_visualization.jpg (created by data_analysis at 2024-01-01 12:01:00)
-        """
-        try:
-            # Get figures from centralized registry
-            ui_figures = state.get("ui_captured_figures", [])
-
-            if not ui_figures:
-                logger.debug("No figures found in ui_captured_figures registry")
-                return None
-
-            logger.info(
-                f"Processing {len(ui_figures)} figures from centralized registry for CLI display"
-            )
-            figure_lines = ["📊 Generated Figures:"]
-
-            for figure_entry in ui_figures:
-                try:
-                    # Extract figure information
-                    capability = figure_entry.get("capability", "unknown")
-                    figure_path = figure_entry["figure_path"]
-                    created_at = figure_entry.get("created_at", "unknown")
-
-                    # Format created_at if it's available
-                    created_at_str = (
-                        str(created_at)[:19]
-                        if created_at and created_at != "unknown"
-                        else "unknown time"
-                    )
-
-                    # Create CLI-friendly display
-                    figure_line = f"• {figure_path} (created by {capability} at {created_at_str})"
-                    figure_lines.append(figure_line)
-
-                except Exception as e:
-                    logger.warning(f"Failed to process figure entry {figure_entry}: {e}")
-                    # Continue processing other figures
-                    continue
-
-            if len(figure_lines) > 1:  # More than just the header
-                return "\n".join(figure_lines)
-
-            return None
-
-        except Exception as e:
-            logger.error(f"Critical error in CLI figure extraction: {e}")
-            return f"❌ Figure display error: {str(e)}"
-
-    def _extract_commands_for_cli(self, state: dict[str, Any]) -> str | None:
-        """Extract launchable commands from centralized registry and format for CLI display.
-
-        Extracts registered commands from the state and formats them for terminal
-        display with launch URIs and descriptions. Provides clickable links for
-        terminal emulators that support them, or copy-paste URLs for others.
-
-        :param state: Complete agent state containing command registry
-        :type state: dict[str, Any]
-        :return: Formatted string with command information or None if no commands
-        :rtype: str | None
-
-        Examples:
-            Display commands in terminal::
-
-                🚀 Executable Commands:
-                • Launch Jupyter Lab: http://localhost:8888/lab
-                • Open Dashboard: http://localhost:3000/dashboard
-        """
-        try:
-            # Get commands from centralized registry
-            ui_commands = state.get("ui_launchable_commands", [])
-
-            if not ui_commands:
-                logger.debug("No commands found in ui_launchable_commands registry")
-                return None
-
-            logger.info(
-                f"Processing {len(ui_commands)} commands from centralized registry for CLI display"
-            )
-            command_lines = ["🚀 Executable Commands:"]
-
-            for i, command_entry in enumerate(ui_commands, 1):
-                try:
-                    # Extract command information
-                    launch_uri = command_entry["launch_uri"]
-                    display_name = command_entry.get("display_name", f"Launch Command {i}")
-
-                    # Create CLI-friendly display
-                    command_line = f"• {display_name}: {launch_uri}"
-                    command_lines.append(command_line)
-
-                except Exception as e:
-                    logger.warning(f"Failed to process command entry {command_entry}: {e}")
-                    # Continue processing other commands
-                    continue
-
-            if len(command_lines) > 1:  # More than just the header
-                return "\n".join(command_lines)
-
-            return None
-
-        except Exception as e:
-            logger.error(f"Critical error in CLI command extraction: {e}")
-            return f"❌ Command display error: {str(e)}"
-
-    def _extract_notebooks_for_cli(self, state: dict[str, Any]) -> str | None:
-        """Extract notebook links from centralized registry and format for CLI display.
-
-        Extracts registered notebook links from the state and formats them for
-        terminal display. Provides direct URLs that users can copy-paste or
-        click in terminal emulators that support link clicking.
-
-        :param state: Complete agent state containing notebook registry
-        :type state: dict[str, Any]
-        :return: Formatted string with notebook information or None if no notebooks
-        :rtype: str | None
-
-        Examples:
-            Display notebooks in terminal::
+                  /path/to/plot.png (created by python_executor at 2024-01-01 12:00:00)
 
                 📓 Generated Notebooks:
-                • Jupyter Notebook 1: http://localhost:8888/notebooks/analysis.ipynb
-                • Jupyter Notebook 2: http://localhost:8888/notebooks/results.ipynb
+                  Execution Notebook: http://localhost:8888/notebooks/analysis.ipynb
+
+                🚀 Executable Commands:
+                  Launch Jupyter Lab: http://localhost:8888/lab
         """
         try:
-            # Get notebook links from centralized registry
-            ui_notebooks = state.get("ui_notebook_links", [])
+            ui_artifacts = state.get("ui_artifacts", [])
 
-            if not ui_notebooks:
-                logger.debug("No notebook links found in ui_notebook_links registry")
+            if not ui_artifacts:
+                logger.debug("No artifacts found in ui_artifacts registry")
                 return None
 
-            logger.info(
-                f"Processing {len(ui_notebooks)} notebook links from centralized registry for CLI display"
-            )
-            notebook_lines = ["📓 Generated Notebooks:"]
+            logger.info(f"Processing {len(ui_artifacts)} artifacts for CLI display")
 
-            for i, notebook_link in enumerate(ui_notebooks, 1):
-                # Create CLI-friendly display
-                notebook_line = f"• Jupyter Notebook {i}: {notebook_link}"
-                notebook_lines.append(notebook_line)
+            # Group artifacts by type for organized display
+            artifacts_by_type: dict[ArtifactType, list[dict[str, Any]]] = {}
+            for artifact in ui_artifacts:
+                try:
+                    artifact_type = ArtifactType(artifact.get("type", "file"))
+                    if artifact_type not in artifacts_by_type:
+                        artifacts_by_type[artifact_type] = []
+                    artifacts_by_type[artifact_type].append(artifact)
+                except ValueError:
+                    logger.warning(f"Unknown artifact type: {artifact.get('type')}")
+                    continue
 
-            if len(notebook_lines) > 1:  # More than just the header
-                return "\n".join(notebook_lines)
+            if not artifacts_by_type:
+                return None
 
-            return None
+            # Build output with type-specific formatting
+            output_lines: list[str] = []
+
+            # Define display order and headers
+            type_config = [
+                (ArtifactType.IMAGE, "Generated Figures"),
+                (ArtifactType.NOTEBOOK, "Generated Notebooks"),
+                (ArtifactType.COMMAND, "Executable Commands"),
+                (ArtifactType.HTML, "Interactive Content"),
+                (ArtifactType.FILE, "Generated Files"),
+            ]
+
+            for artifact_type, header in type_config:
+                if artifact_type not in artifacts_by_type:
+                    continue
+
+                artifacts = artifacts_by_type[artifact_type]
+                icon = get_artifact_type_icon(artifact_type)
+                output_lines.append(f"{icon} {header}:")
+
+                for artifact in artifacts:
+                    line = self._format_artifact_line(artifact, artifact_type)
+                    output_lines.append(line)
+
+                output_lines.append("")  # Blank line between sections
+
+            # Remove trailing blank line
+            if output_lines and output_lines[-1] == "":
+                output_lines.pop()
+
+            return "\n".join(output_lines) if output_lines else None
 
         except Exception as e:
-            logger.error(f"Critical error in CLI notebook extraction: {e}")
-            return f"❌ Notebook display error: {str(e)}"
+            logger.error(f"Critical error in CLI artifact extraction: {e}")
+            return f"❌ Artifact display error: {str(e)}"
+
+    def _format_artifact_line(self, artifact: dict[str, Any], artifact_type: ArtifactType) -> str:
+        """Format a single artifact for CLI display.
+
+        :param artifact: Artifact dictionary from ui_artifacts
+        :type artifact: dict[str, Any]
+        :param artifact_type: The artifact's type
+        :type artifact_type: ArtifactType
+        :return: Formatted line string
+        :rtype: str
+        """
+        data = artifact.get("data", {})
+        display_name = artifact.get("display_name", "")
+        capability = artifact.get("capability", "unknown")
+        created_at = artifact.get("created_at", "")
+
+        # Format timestamp
+        created_at_str = str(created_at)[:19] if created_at else "unknown time"
+
+        if artifact_type == ArtifactType.IMAGE:
+            path = data.get("path", "N/A")
+            return f"  • {path} (created by {capability} at {created_at_str})"
+
+        elif artifact_type == ArtifactType.NOTEBOOK:
+            # Prefer URL for notebooks, fallback to path
+            url = data.get("url", "")
+            path = data.get("path", "")
+            target = url if url else path if path else "N/A"
+            name = display_name if display_name else "Jupyter Notebook"
+            return f"  • {name}: {target}"
+
+        elif artifact_type == ArtifactType.COMMAND:
+            uri = data.get("uri", "N/A")
+            name = display_name if display_name else "Launch Command"
+            return f"  • {name}: {uri}"
+
+        elif artifact_type == ArtifactType.HTML:
+            url = data.get("url", "")
+            path = data.get("path", "")
+            target = url if url else path if path else "N/A"
+            name = display_name if display_name else "Interactive Content"
+            return f"  • {name}: {target}"
+
+        elif artifact_type == ArtifactType.FILE:
+            path = data.get("path", "N/A")
+            name = display_name if display_name else "File"
+            return f"  • {name}: {path}"
+
+        else:
+            return f"  • {display_name or 'Artifact'}: {data}"
 
 
 async def run_cli(config_path="config.yml", show_streaming_updates=False):

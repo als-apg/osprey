@@ -7,10 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **State**: Unified artifact system with `ArtifactType` enum and `register_artifact()` API
+  - Single source of truth (`ui_artifacts`) for all artifact types: IMAGE, NOTEBOOK, COMMAND, HTML, FILE
+  - Legacy methods (`register_figure`, `register_notebook`, `register_command`) delegate to new API
+  - `populate_legacy_fields_from_artifacts()` helper for backward compatibility at finalization
+- **TUI**: Artifact gallery and viewer widgets for interactive artifact browsing
+  - ArtifactGallery with keyboard navigation (Ctrl+a focus, j/k navigate, Enter view, o open external)
+  - ArtifactViewer modal with type-specific details and actions (copy path, open in system app)
+  - Native image rendering via textual-image (Sixel for iTerm2/WezTerm, Kitty Graphics Protocol)
+  - New/seen tracking with [NEW] badges for artifacts from current turn
+
 ### Changed
 - **Tooling**: Consolidated formatting/linting to Ruff, removed Black and Isort (#80)
   - Ruff now handles both linting and formatting as a single tool
   - Updated scripts, docs, and templates to reference only Ruff
+- **Capabilities**: Python capability uses unified `register_artifact()` API directly
+  - Clean single-accumulation pattern for figures and notebooks
+  - Legacy fields populated at finalization rather than registration
+- **CLI**: Modernized artifact display to use unified `ui_artifacts` registry
+  - Single `_extract_artifacts_for_cli()` replaces three legacy extraction methods
+  - Supports all artifact types: IMAGE, NOTEBOOK, COMMAND, HTML, FILE
+  - Grouped display with type-specific formatting and icons
 
 ### Fixed
 - **Gateway**: `/chat` without arguments no longer triggers graph execution

@@ -20,6 +20,8 @@ from osprey.infrastructure.gateway import Gateway
 from osprey.interfaces.tui.constants import EXEC_STEP_PATTERN, TASK_PREP_COMPONENTS
 from osprey.interfaces.tui.handlers import QueueLogHandler
 from osprey.interfaces.tui.widgets import (
+    ArtifactItem,
+    ArtifactViewer,
     ChatDisplay,
     ChatInput,
     ClassificationBlock,
@@ -72,6 +74,8 @@ class OspreyTUI(App):
         Binding("b", "scroll_up", "Scroll up", show=False),
         Binding("g", "scroll_home", "Go to top", show=False),
         Binding("G", "scroll_end_chat", "Go to bottom", show=False),
+        # Artifact gallery (priority=True to override TextArea's select-all)
+        Binding("ctrl+a", "focus_artifacts", "Artifacts", priority=True),
     ]
 
     def __init__(self, config_path: str = "config.yml"):
@@ -229,6 +233,14 @@ class OspreyTUI(App):
         except NoMatches:
             self.screen.mount(HelpPanel())
 
+    def on_artifact_item_selected(self, event: ArtifactItem.Selected) -> None:
+        """Handle artifact selection - open the artifact viewer modal.
+
+        Args:
+            event: The artifact selection event containing the artifact data.
+        """
+        self.push_screen(ArtifactViewer(event.artifact))
+
     def action_exit_app(self) -> None:
         """Exit the application."""
         self.exit()
@@ -256,6 +268,20 @@ class OspreyTUI(App):
         if not isinstance(self.focused, TextArea):
             chat = self.query_one("#chat-display", ChatDisplay)
             chat.scroll_end(animate=False)
+
+    def action_focus_artifacts(self) -> None:
+        """Focus the artifact gallery for keyboard navigation."""
+        try:
+            chat_display = self.query_one("#chat-display", ChatDisplay)
+            gallery = chat_display.get_artifact_gallery()
+            if gallery and gallery.display:
+                gallery.focus()
+                # Scroll to make gallery visible
+                chat_display.scroll_to_widget(gallery)
+            else:
+                self.notify("No artifacts available", severity="information")
+        except Exception:
+            self.notify("No artifacts available", severity="information")
 
     def _get_version(self) -> str:
         """Get the framework version."""
@@ -421,6 +447,9 @@ class OspreyTUI(App):
         chat_display._component_attempt_index = {}
         chat_display._retry_triggered = set()
         chat_display._pending_messages = {}
+        # Reset artifact gallery
+        chat_display._artifact_gallery = None
+        chat_display.clear_artifact_history()
 
     def _cmd_help(self, option: str | None) -> None:
         """Show help for commands.
@@ -1040,6 +1069,11 @@ class OspreyTUI(App):
 
             # Show final response
             self._show_final_response(state.values, chat_display)
+
+            # Show artifacts AFTER the response (so they appear below)
+            artifacts = state.values.get("ui_artifacts", [])
+            if artifacts:
+                chat_display.update_artifacts(artifacts)
 
         except Exception as e:
             chat_display.add_message(f"Error: {e}", "assistant", message_type="agent")
