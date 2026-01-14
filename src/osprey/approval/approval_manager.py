@@ -54,14 +54,13 @@ Examples:
        :func:`get_approval_manager` : Singleton access function
 """
 
-import logging
-
 from osprey.events import ErrorEvent, EventEmitter, StatusEvent
+from osprey.utils.logger import get_logger
 
 from .config_models import GlobalApprovalConfig, MemoryApprovalConfig, PythonExecutionApprovalConfig
 from .evaluators import MemoryApprovalEvaluator, PythonExecutionApprovalEvaluator
 
-logger = logging.getLogger(__name__)
+logger = get_logger("approval_manager")
 
 
 class ApprovalManager:

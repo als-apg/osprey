@@ -46,14 +46,14 @@ compatibility.
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from typing_extensions import TypedDict
 
 from osprey.utils.config import get_execution_limits
+from osprey.utils.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger("state_control")
 
 
 class AgentControlState(TypedDict, total=False):

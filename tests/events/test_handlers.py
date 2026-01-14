@@ -166,28 +166,19 @@ class TestCLIHandlerStatusEvents:
         assert "This is a warning" in printed
 
     @pytest.mark.asyncio
-    async def test_handle_status_info_only_in_verbose(self):
-        """Test that info level status is only shown in verbose mode."""
-        # Non-verbose - should not show
-        output1 = StringIO()
-        console1 = Console(file=output1, force_terminal=True)
-        handler1 = CLIEventHandler(console=console1, verbose=False)
+    async def test_handle_status_info_always_shown(self):
+        """Test that info level status is always shown (unified TypedEvent pipeline)."""
+        # In unified TypedEvent pipeline, all events are shown to the user
+        # (clients filter what they need, not the emitter)
+        output = StringIO()
+        console = Console(file=output, force_terminal=True)
+        handler = CLIEventHandler(console=console, verbose=False)
 
         event = StatusEvent(message="Info message", level="info")
-        await handler1.handle(event)
+        await handler.handle(event)
 
-        printed1 = output1.getvalue()
-        assert "Info message" not in printed1
-
-        # Verbose - should show
-        output2 = StringIO()
-        console2 = Console(file=output2, force_terminal=True)
-        handler2 = CLIEventHandler(console=console2, verbose=True)
-
-        await handler2.handle(event)
-
-        printed2 = output2.getvalue()
-        assert "Info message" in printed2
+        printed = output.getvalue()
+        assert "Info message" in printed
 
 
 # =============================================================================

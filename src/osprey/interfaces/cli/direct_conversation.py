@@ -43,7 +43,7 @@ from osprey.infrastructure.gateway import Gateway
 from osprey.interfaces.cli.event_handler import CLIEventHandler
 from osprey.registry import get_registry, initialize_registry
 from osprey.utils.config import get_full_configuration
-from osprey.utils.logger import get_logger, quiet_logging
+from osprey.utils.logger import get_logger
 
 # Load environment variables after imports
 load_dotenv()
@@ -614,15 +614,13 @@ class CLI:
                 # Create typed event handler for resume execution
                 handler = CLIEventHandler(console=self.console, verbose=self.show_streaming_updates)
 
-                # Suppress Python logging - TypedEvents are the only output channel
-                with quiet_logging():
-                    async for chunk in self.graph.astream(
-                        result.resume_command, config=self.base_config, stream_mode="custom"
-                    ):
-                        # Parse and handle typed events
-                        event = parse_event(chunk)
-                        if event:
-                            await handler.handle(event)
+                async for chunk in self.graph.astream(
+                    result.resume_command, config=self.base_config, stream_mode="custom"
+                ):
+                    # Parse and handle typed events
+                    event = parse_event(chunk)
+                    if event:
+                        await handler.handle(event)
 
                 # After resuming, check if there are more interrupts or if execution completed
                 state = self.graph.get_state(config=self.base_config)
@@ -724,15 +722,13 @@ class CLI:
             handler = CLIEventHandler(console=self.console, verbose=self.show_streaming_updates)
 
             # Stream events and process through handler
-            # Suppress Python logging - TypedEvents are the only output channel
-            with quiet_logging():
-                async for chunk in self.graph.astream(
-                    input_data, config=self.base_config, stream_mode="custom"
-                ):
-                    # Parse and handle typed events
-                    event = parse_event(chunk)
-                    if event:
-                        await handler.handle(event)
+            async for chunk in self.graph.astream(
+                input_data, config=self.base_config, stream_mode="custom"
+            ):
+                # Parse and handle typed events
+                event = parse_event(chunk)
+                if event:
+                    await handler.handle(event)
 
             # After streaming completes, check for interrupts
             state = self.graph.get_state(config=self.base_config)

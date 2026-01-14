@@ -155,9 +155,29 @@ class CLIEventHandler:
             case StatusEvent(message=msg, level="success"):
                 self.console.print(f"[green]   {msg}[/green]")
 
-            case StatusEvent(message=msg, level="info"):
-                # Show info messages (infrastructure, approval, etc.)
+            case StatusEvent(message=msg, level="status"):
+                # Primary status updates
                 self.console.print(f"[dim cyan]   {msg}[/dim cyan]")
+
+            case StatusEvent(message=msg, level="info"):
+                # Info messages - shown in verbose mode or always (design choice)
+                self.console.print(f"[dim]   {msg}[/dim]")
+
+            case StatusEvent(message=msg, level="debug") if self.verbose:
+                # Debug messages - only in verbose mode
+                self.console.print(f"[dim magenta]   🔍 {msg}[/dim magenta]")
+
+            case StatusEvent(message=msg, level="timing"):
+                # Timing information
+                self.console.print(f"[dim white]   🕒 {msg}[/dim white]")
+
+            case StatusEvent(message=msg, level="approval"):
+                # Approval-related messages
+                self.console.print(f"[yellow]   ⏸️  {msg}[/yellow]")
+
+            case StatusEvent(message=msg, level="resume"):
+                # Resume-related messages
+                self.console.print(f"[green]   ▶️  {msg}[/green]")
 
             case StatusEvent(message=msg, level=level):
                 # Show all other status updates

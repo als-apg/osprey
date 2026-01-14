@@ -58,13 +58,13 @@ Examples:
    settings will default to the most secure option (approval required).
 """
 
-import logging
 from dataclasses import dataclass
 from enum import Enum
 
 from osprey.events import EventEmitter, StatusEvent
+from osprey.utils.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger("config_models")
 
 
 class ApprovalMode(Enum):

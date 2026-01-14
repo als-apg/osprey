@@ -5,16 +5,17 @@ This provider uses LiteLLM as the backend while preserving ARGO-specific
 functionality like dynamic model list refresh.
 """
 
-import logging
 import os
 from typing import Any
 
 import httpx
 
+from osprey.utils.logger import get_logger
+
 from .base import BaseProvider
 from .litellm_adapter import check_litellm_health, execute_litellm_completion
 
-logger = logging.getLogger(__name__)
+logger = get_logger("argo")
 
 
 class ArgoProviderAdapter(BaseProvider):

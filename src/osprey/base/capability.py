@@ -711,28 +711,28 @@ class BaseCapability(ABC):
             async def execute(self) -> dict[str, Any]:
                 logger = self.get_logger()
 
-                # High-level status - logs + streams automatically
+                # Status updates - emits StatusEvent
                 logger.status("Creating execution plan...")
 
-                # Detailed info - logs only (unless explicitly requested)
+                # Info messages - emits StatusEvent with level="info"
                 logger.info(f"Active capabilities: {capabilities}")
 
-                # Explicit streaming for specific info
-                logger.info("Step 1 of 5 complete", stream=True, progress=0.2)
+                # Debug messages - emits StatusEvent with level="debug"
+                logger.debug("Detailed state information...")
 
-                # Errors always stream
+                # Errors - emits ErrorEvent
                 logger.error("Validation failed", validation_errors=[...])
 
-                # Success with metadata
+                # Success with metadata - emits StatusEvent with level="success"
                 logger.success("Plan created", steps=5, total_time=2.3)
 
                 return self.store_output_context(result)
             ```
 
         .. note::
-           The logger uses lazy initialization for streaming, so it gracefully
-           handles contexts where LangGraph streaming is not available (tests,
-           utilities, CLI-only execution).
+           All logger methods emit TypedEvents. The transport is handled automatically
+           via LangGraph streaming (during graph execution) or fallback handlers
+           (outside graph). Downstream clients (CLI, TUI) filter and render events.
 
         .. seealso::
            :class:`ComponentLogger` : Logger class with streaming methods

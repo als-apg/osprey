@@ -215,9 +215,9 @@ class ComponentLogger:
                     "warning": "warning",
                     "success": "success",
                     "key_info": "info",
-                    "timing": "info",
-                    "approval": "info",
-                    "resume": "info",
+                    "timing": "timing",
+                    "approval": "approval",
+                    "resume": "resume",
                 }
                 level = level_map.get(event_type, "info")
 
@@ -382,61 +382,43 @@ class ComponentLogger:
         """
         self._emit_stream_event(message, "status", **kwargs)
 
-    def key_info(self, message: str, stream: bool = False, **kwargs) -> None:
-        """Important operational information - logs and optionally streams.
+    def key_info(self, message: str, **kwargs) -> None:
+        """Important operational information - emits StatusEvent with info level.
+
+        User-facing output. Transport is automatic.
 
         Args:
             message: Info message
-            stream: Whether to also stream this message
             **kwargs: Additional metadata for streaming event
         """
-        style = f"bold {self.color}" if self.color != "white" else "bold white"
-        formatted = self._format_message(message, style, "")
-        extra = self._build_extra(message, "key_info", **kwargs)
-        self.base_logger.info(formatted, extra=extra)
+        self._emit_stream_event(message, "key_info", **kwargs)
 
-        if stream:
-            self._emit_stream_event(message, "key_info", **kwargs)
+    def info(self, message: str, **kwargs) -> None:
+        """Info message - emits StatusEvent with info level.
 
-    def info(self, message: str, stream: bool = False, **kwargs) -> None:
-        """Info message - logs always, streams optionally.
-
-        By default, info messages only go to CLI logs. Use stream=True
-        to also send to web interface.
+        User-facing output. Transport is automatic.
 
         Args:
             message: Info message
-            stream: Whether to also stream this message
             **kwargs: Additional metadata for streaming event
 
         Example:
-            logger.info("Active capabilities: [...]")  # CLI only
-            logger.info("Step completed", stream=True)  # CLI + stream
+            logger.info("Active capabilities: [...]")
+            logger.info("Step completed")
         """
-        formatted = self._format_message(message, self.color, "")
-        extra = self._build_extra(message, "info", **kwargs)
-        self.base_logger.info(formatted, extra=extra)
+        self._emit_stream_event(message, "info", **kwargs)
 
-        if stream:
-            self._emit_stream_event(message, "info", **kwargs)
+    def debug(self, message: str, **kwargs) -> None:
+        """Debug message - emits StatusEvent with debug level.
 
-    def debug(self, message: str, stream: bool = False, **kwargs) -> None:
-        """Debug message - logs only (never streams by default).
-
-        Debug messages are detailed technical info not meant for web UI.
+        User-facing output (filtered by client if not needed).
+        Transport is automatic.
 
         Args:
             message: Debug message
-            stream: Whether to stream (default: False)
             **kwargs: Additional metadata for streaming event
         """
-        style = f"dim {self.color}" if self.color != "white" else "dim white"
-        formatted = self._format_message(message, style, "🔍 ")
-        extra = self._build_extra(message, "debug", **kwargs)
-        self.base_logger.debug(formatted, extra=extra)
-
-        if stream:
-            self._emit_stream_event(message, "debug", **kwargs)
+        self._emit_stream_event(message, "debug", **kwargs)
 
     def warning(self, message: str, **kwargs) -> None:
         """Warning message - emits StatusEvent with warning level.
@@ -456,16 +438,16 @@ class ComponentLogger:
 
         Args:
             message: Error message
-            exc_info: Whether to include exception traceback (for framework logging)
+            exc_info: Whether to include exception traceback in ErrorEvent
             **kwargs: Additional error metadata for streaming event
         """
-        # Emit typed event for UI
-        self._emit_stream_event(message, "error", error=True, **kwargs)
+        # Include stack trace in ErrorEvent if exc_info=True
+        if exc_info and "stack_trace" not in kwargs:
+            import traceback
 
-        # Also log to framework logger for debugging/tracebacks
-        if exc_info:
-            formatted = self._format_message(message, "bold red", "❌ ")
-            self.base_logger.error(formatted, exc_info=exc_info)
+            kwargs["stack_trace"] = traceback.format_exc()
+
+        self._emit_stream_event(message, "error", error=True, **kwargs)
 
     def success(self, message: str, **kwargs) -> None:
         """Success message - emits StatusEvent with success level.
@@ -478,20 +460,16 @@ class ComponentLogger:
         """
         self._emit_stream_event(message, "success", **kwargs)
 
-    def timing(self, message: str, stream: bool = False, **kwargs) -> None:
-        """Timing information - logs and optionally streams.
+    def timing(self, message: str, **kwargs) -> None:
+        """Timing information - emits StatusEvent with timing level.
+
+        User-facing output. Transport is automatic.
 
         Args:
             message: Timing message
-            stream: Whether to stream (default: False)
             **kwargs: Additional metadata for streaming event
         """
-        formatted = self._format_message(message, "bold white", "🕒 ")
-        extra = self._build_extra(message, "timing", **kwargs)
-        self.base_logger.info(formatted, extra=extra)
-
-        if stream:
-            self._emit_stream_event(message, "timing", **kwargs)
+        self._emit_stream_event(message, "timing", **kwargs)
 
     def approval(self, message: str, **kwargs) -> None:
         """Approval message - emits StatusEvent with approval level.
@@ -515,17 +493,31 @@ class ComponentLogger:
         """
         self._emit_stream_event(message, "resume", **kwargs)
 
-    # Compatibility methods - delegate to base logger
-    def critical(self, message: str, *args, **kwargs) -> None:
-        formatted = self._format_message(message, "bold red", "❌ ")
-        self.base_logger.critical(formatted, *args, **kwargs)
+    def critical(self, message: str, **kwargs) -> None:
+        """Critical error - emits ErrorEvent.
 
-    def exception(self, message: str, *args, **kwargs) -> None:
-        formatted = self._format_message(message, "bold red", "❌ ")
-        self.base_logger.exception(formatted, *args, **kwargs)
+        User-facing output. Transport is automatic.
 
-    def log(self, level: int, message: str, *args, **kwargs) -> None:
-        self.base_logger.log(level, message, *args, **kwargs)
+        Args:
+            message: Critical error message
+            **kwargs: Additional error metadata for streaming event
+        """
+        self._emit_stream_event(message, "error", error=True, error_type="CriticalError", **kwargs)
+
+    def exception(self, message: str, **kwargs) -> None:
+        """Exception with traceback - emits ErrorEvent with stack trace.
+
+        User-facing output. Transport is automatic.
+
+        Args:
+            message: Exception message
+            **kwargs: Additional error metadata for streaming event
+        """
+        import traceback
+
+        if "stack_trace" not in kwargs:
+            kwargs["stack_trace"] = traceback.format_exc()
+        self._emit_stream_event(message, "error", error=True, **kwargs)
 
     # Properties for compatibility
     @property

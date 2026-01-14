@@ -7,7 +7,6 @@ intent before proceeding with technical operations.
 """
 
 import asyncio
-import logging
 from typing import Any
 
 from langchain_core.messages import AIMessage
@@ -21,7 +20,7 @@ from osprey.prompts.loader import get_framework_prompts
 from osprey.utils.config import get_model_config
 from osprey.utils.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger("clarify_node")
 
 
 # --- Pydantic Model for Clarifying Questions ---

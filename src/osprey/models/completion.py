@@ -17,13 +17,12 @@ Key capabilities include:
    :mod:`configs.config` : Provider configuration management
 """
 
-import logging
-
 from pydantic import BaseModel, Field, create_model
 
 from osprey.utils.config import get_provider_config
+from osprey.utils.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger("completion")
 
 
 def _is_typed_dict(cls) -> bool:

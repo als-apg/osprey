@@ -6,15 +6,16 @@ into the Osprey Agentic Framework. Data sources can include user memory, knowled
 databases, APIs, and custom user-defined sources.
 """
 
-import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional
 
+from osprey.utils.logger import get_logger
+
 if TYPE_CHECKING:
     from .request import DataSourceRequest
 
-logger = logging.getLogger(__name__)
+logger = get_logger("data_providers")
 
 
 @dataclass

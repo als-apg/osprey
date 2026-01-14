@@ -40,7 +40,6 @@ Examples:
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -51,8 +50,9 @@ from langgraph.types import interrupt
 
 from osprey.base.planning import ExecutionPlan
 from osprey.events import ErrorEvent, EventEmitter, StatusEvent
+from osprey.utils.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger("approval_system")
 
 
 # =============================================================================

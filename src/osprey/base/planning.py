@@ -46,15 +46,15 @@ throughout the execution lifecycle.
 """
 
 import json
-import logging
 from datetime import datetime
 from pathlib import Path
 
 from typing_extensions import TypedDict
 
 from osprey.events import EventEmitter, StatusEvent
+from osprey.utils.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger("planning")
 
 
 class PlannedStep(TypedDict, total=False):

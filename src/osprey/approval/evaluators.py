@@ -43,14 +43,14 @@ Examples:
    reused for multiple evaluations with the same configuration.
 """
 
-import logging
 from typing import NamedTuple
 
 from osprey.events import EventEmitter, StatusEvent
+from osprey.utils.logger import get_logger
 
 from .config_models import ApprovalMode, MemoryApprovalConfig, PythonExecutionApprovalConfig
 
-logger = logging.getLogger(__name__)
+logger = get_logger("evaluators")
 
 
 class ApprovalDecision(NamedTuple):

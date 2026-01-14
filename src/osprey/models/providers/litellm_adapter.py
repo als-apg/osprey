@@ -12,18 +12,19 @@ Key features:
 """
 
 import json
-import logging
 import os
 from typing import Any
 
 import litellm
 from pydantic import BaseModel
 
+from osprey.utils.logger import get_logger
+
 # Suppress LiteLLM's verbose logging
 litellm.set_verbose = False
 litellm.suppress_debug_info = True
 
-logger = logging.getLogger(__name__)
+logger = get_logger("litellm_adapter")
 
 
 def get_litellm_model_name(
