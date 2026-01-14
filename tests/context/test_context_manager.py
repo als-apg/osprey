@@ -741,3 +741,158 @@ def test_cardinality_with_soft_constraint_mode(context_manager, mock_state):
     # Should pass - ARCHIVER_DATA present and single
     assert "ARCHIVER_DATA" in contexts
     assert not isinstance(contexts["ARCHIVER_DATA"], list)
+
+
+# ===================================================================
+# Test Section 4.9: DictNamespace Utility Class
+# ===================================================================
+
+
+class TestDictNamespace:
+    """Test DictNamespace utility class for registry-free context access."""
+
+    def test_dot_access(self):
+        """Test attribute-style (dot) access."""
+        from osprey.context.context_manager import DictNamespace
+
+        ns = DictNamespace({"foo": "bar", "count": 42})
+
+        assert ns.foo == "bar"
+        assert ns.count == 42
+
+    def test_subscript_access(self):
+        """Test dictionary-style (subscript) access."""
+        from osprey.context.context_manager import DictNamespace
+
+        ns = DictNamespace({"foo": "bar", "count": 42})
+
+        assert ns["foo"] == "bar"
+        assert ns["count"] == 42
+
+    def test_nested_dict_access(self):
+        """Test nested dictionary conversion to DictNamespace."""
+        from osprey.context.context_manager import DictNamespace
+
+        ns = DictNamespace({"outer": {"inner": {"value": 123}}})
+
+        # Dot access through nesting
+        assert ns.outer.inner.value == 123
+
+        # Subscript access through nesting
+        assert ns["outer"]["inner"]["value"] == 123
+
+        # Mixed access
+        assert ns.outer["inner"].value == 123
+
+    def test_nested_list_conversion(self):
+        """Test lists with nested dicts are converted properly."""
+        from osprey.context.context_manager import DictNamespace
+
+        ns = DictNamespace(
+            {
+                "items": [
+                    {"name": "first", "value": 1},
+                    {"name": "second", "value": 2},
+                ]
+            }
+        )
+
+        assert len(ns.items) == 2
+        assert ns.items[0].name == "first"
+        assert ns.items[1].value == 2
+
+    def test_containment_check(self):
+        """Test 'in' operator for key existence."""
+        from osprey.context.context_manager import DictNamespace
+
+        ns = DictNamespace({"exists": True, "nested": {"inner": 1}})
+
+        assert "exists" in ns
+        assert "nested" in ns
+        assert "nonexistent" not in ns
+
+    def test_iteration_over_keys(self):
+        """Test iteration yields keys."""
+        from osprey.context.context_manager import DictNamespace
+
+        ns = DictNamespace({"a": 1, "b": 2, "c": 3})
+
+        keys = list(ns)
+        assert set(keys) == {"a", "b", "c"}
+
+    def test_keys_method(self):
+        """Test .keys() method."""
+        from osprey.context.context_manager import DictNamespace
+
+        ns = DictNamespace({"x": 10, "y": 20})
+
+        assert set(ns.keys()) == {"x", "y"}
+
+    def test_values_method(self):
+        """Test .values() method returns converted values."""
+        from osprey.context.context_manager import DictNamespace
+
+        ns = DictNamespace({"a": 1, "b": 2})
+
+        assert set(ns.values()) == {1, 2}
+
+    def test_items_method(self):
+        """Test .items() method."""
+        from osprey.context.context_manager import DictNamespace
+
+        ns = DictNamespace({"key1": "val1", "key2": "val2"})
+
+        items = dict(ns.items())
+        assert items == {"key1": "val1", "key2": "val2"}
+
+    def test_get_method_with_default(self):
+        """Test .get() method with default value."""
+        from osprey.context.context_manager import DictNamespace
+
+        ns = DictNamespace({"present": "value"})
+
+        assert ns.get("present") == "value"
+        assert ns.get("absent") is None
+        assert ns.get("absent", "default") == "default"
+
+    def test_repr(self):
+        """Test __repr__ for debugging."""
+        from osprey.context.context_manager import DictNamespace
+
+        ns = DictNamespace({"foo": "bar"})
+
+        repr_str = repr(ns)
+        assert "DictNamespace" in repr_str
+        assert "foo" in repr_str
+
+    def test_empty_dict(self):
+        """Test behavior with empty dictionary."""
+        from osprey.context.context_manager import DictNamespace
+
+        ns = DictNamespace({})
+
+        assert list(ns) == []
+        assert list(ns.keys()) == []
+        assert list(ns.values()) == []
+        assert list(ns.items()) == []
+        assert "anything" not in ns
+
+    def test_special_value_types(self):
+        """Test handling of None, bool, and numeric types."""
+        from osprey.context.context_manager import DictNamespace
+
+        ns = DictNamespace(
+            {
+                "none_val": None,
+                "bool_true": True,
+                "bool_false": False,
+                "int_val": 0,
+                "float_val": 3.14,
+            }
+        )
+
+        assert ns.none_val is None
+        assert ns.bool_true is True
+        assert ns.bool_false is False
+        assert ns.int_val == 0
+        assert ns.float_val == 3.14

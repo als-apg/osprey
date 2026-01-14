@@ -31,6 +31,67 @@ logger = get_logger("osprey")
 # ===================================================================
 
 
+class DictNamespace:
+    """A namespace that supports both dot access and subscript access.
+
+    Used as a fallback when context classes can't be loaded from the registry
+    (e.g., in subprocess execution environments). Provides dict-like access
+    patterns while also supporting attribute access.
+
+    Example:
+        >>> ns = DictNamespace({"foo": {"bar": 1}})
+        >>> ns.foo.bar  # Dot access
+        1
+        >>> ns["foo"]["bar"]  # Subscript access
+        1
+        >>> "foo" in ns  # Containment check
+        True
+    """
+
+    def __init__(self, data: dict):
+        self._data = data
+        for k, v in data.items():
+            setattr(self, k, self._convert(v))
+
+    def _convert(self, v):
+        if isinstance(v, dict):
+            return DictNamespace(v)
+        elif isinstance(v, list):
+            return [self._convert(item) for item in v]
+        return v
+
+    def __getitem__(self, key):
+        """Support subscript access: obj['key']"""
+        return getattr(self, key)
+
+    def __contains__(self, key):
+        """Support 'in' operator: 'key' in obj"""
+        return key in self._data
+
+    def __iter__(self):
+        """Support iteration over keys."""
+        return iter(self._data.keys())
+
+    def keys(self):
+        """Support .keys() method."""
+        return self._data.keys()
+
+    def values(self):
+        """Support .values() method."""
+        return [getattr(self, k) for k in self._data.keys()]
+
+    def items(self):
+        """Support .items() method."""
+        return [(k, getattr(self, k)) for k in self._data.keys()]
+
+    def get(self, key, default=None):
+        """Support .get() method."""
+        return getattr(self, key, default)
+
+    def __repr__(self):
+        return f"DictNamespace({self._data!r})"
+
+
 def recursively_summarize_data(data, max_depth: int = 3, current_depth: int = 0):
     """
     Recursively summarize data structures to prevent massive context overflow.
@@ -226,8 +287,11 @@ class ContextManager:
         # Get context class from registry
         context_class = self._get_context_class(context_type)
         if context_class is None:
-            logger.warning(f"Unknown context type: {context_type}")
-            return None
+            # Fallback: return raw dict data wrapped in a DictNamespace for both
+            # dot-access (obj.key) AND subscript access (obj["key"])
+            # This allows code to work without registry (e.g., subprocess execution)
+            logger.info(f"Using raw dict data for {context_type}.{key} (registry not available)")
+            return DictNamespace(raw_data)
 
         # Use Pydantic's model_validate for reconstruction
         try:
@@ -465,7 +529,7 @@ class ContextManager:
             context_type: The context type string
 
         Returns:
-            Context class or None if not found
+            Context class or None if not found (graceful fallback)
         """
         try:
             # Import registry here to avoid circular imports
@@ -474,10 +538,13 @@ class ContextManager:
             registry = get_registry()
             return registry.get_context_class(context_type)
         except Exception as e:
-            logger.error(f"Failed to get context class for {context_type}: {e}")
-            raise ValueError(
-                f"Registry not available, cannot get context class for {context_type}"
-            ) from e
+            # Graceful fallback: return None instead of raising
+            # This allows get_context() to return raw dict data when registry isn't available
+            # (e.g., in subprocess execution environments)
+            logger.warning(
+                f"Registry not available for {context_type}, will use raw dict data: {e}"
+            )
+            return None
 
     def extract_from_step(
         self,

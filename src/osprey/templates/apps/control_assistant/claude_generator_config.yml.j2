@@ -95,6 +95,45 @@ api_config:
 {% endif %}
 
 # =============================================================================
+# System Prompt Customization
+# =============================================================================
+# Customize the base system prompt sent to Claude Code.
+#
+# Options:
+#   system_prompt: Replace the entire base system prompt (advanced)
+#   system_prompt_extensions: Add domain-specific guidance AFTER the default prompt (recommended)
+#
+# The default system prompt defines Claude's role and basic rules (output format,
+# results dictionary, etc.). Extensions let you add domain-specific guidance
+# without losing the core behavior.
+#
+# Example - Add domain-specific guidance (RECOMMENDED):
+#
+# system_prompt_extensions: |
+#   CONTROL SYSTEM OPERATIONS:
+#   - Use osprey.runtime for all channel read/write operations
+#   - from osprey.runtime import write_channel, read_channel
+#   - NEVER use epics.caput() or epics.caget() directly
+#
+#   TIMESTAMP HANDLING:
+#   - Timestamps in context are ISO format strings
+#   - Convert with: datetime.fromisoformat(ts)
+#
+# Example - Replace entire system prompt (ADVANCED, use carefully):
+#
+# system_prompt: |
+#   You are a custom code generator for the ITS control system.
+#   ... your complete custom prompt ...
+
+# Default: Use built-in system prompt with control system extensions
+system_prompt_extensions: |
+  CONTROL SYSTEM OPERATIONS:
+  - Use osprey.runtime for all channel read/write operations
+  - from osprey.runtime import write_channel, read_channel, write_channels
+  - NEVER use epics.caput() or epics.caget() directly - use osprey.runtime utilities
+  - All safety checks (limits validation, approval workflows) happen automatically
+
+# =============================================================================
 # Phase Definitions (Reusable Building Blocks)
 # =============================================================================
 # These are the individual phases that can be composed into different workflows.
