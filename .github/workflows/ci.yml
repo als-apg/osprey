@@ -187,9 +187,120 @@ jobs:
       run: |
         pytest tests/e2e/ -v --tb=short
 
+  deploy-e2e:
+    name: Deploy E2E Test (Pipelines Container)
+    runs-on: ubuntu-latest
+    # Only run on PRs from same repo (secrets unavailable on forks)
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+
+    - name: Set up Docker Compose
+      uses: docker/setup-compose-action@v1
+
+    - name: Install osprey
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[dev]"
+
+    - name: Create hello_world_weather project
+      run: |
+        osprey init hello-weather-test --template hello_world_weather --provider cborg --model anthropic/claude-haiku
+        ls -la hello-weather-test/
+
+    - name: Configure API key for container
+      run: |
+        cd hello-weather-test
+        echo "CBORG_API_KEY=${{ secrets.CBORG_API_KEY }}" >> .env
+        cat .env
+
+    - name: Deploy pipelines container
+      run: |
+        cd hello-weather-test
+        osprey deploy up -d
+
+    - name: Wait for pipelines to be ready
+      run: |
+        echo "Waiting for pipelines container to install packages and start..."
+        for i in {1..30}; do
+          # Check if container is responding
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST http://localhost:9099/v1/chat/completions \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer 0p3n-w3bu!" \
+            -d '{"model":"osprey","messages":[{"role":"user","content":"ping"}],"stream":false}' \
+            --max-time 10 || echo "000")
+
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✅ Pipelines ready after $((i * 10)) seconds"
+            exit 0
+          fi
+
+          echo "Attempt $i/30: HTTP $HTTP_CODE - waiting 10s..."
+          sleep 10
+        done
+
+        echo "❌ Pipelines failed to become ready within 5 minutes"
+        docker logs pipelines || true
+        exit 1
+
+    - name: Test agent query
+      run: |
+        echo "Sending test query to agent..."
+        RESPONSE=$(curl -s -X POST http://localhost:9099/v1/chat/completions \
+          -H "Content-Type: application/json" \
+          -H "Authorization: Bearer 0p3n-w3bu!" \
+          -d '{"model":"osprey","messages":[{"role":"user","content":"What is the weather in San Francisco?"}],"stream":false}' \
+          --max-time 120)
+
+        echo "Response:"
+        echo "$RESPONSE" | head -c 2000
+
+        # Check for error in response
+        if echo "$RESPONSE" | grep -qi '"error"'; then
+          echo ""
+          echo "❌ Agent returned an error"
+          exit 1
+        fi
+
+        # Check we got some response content
+        if [ -z "$RESPONSE" ] || [ "$RESPONSE" = "{}" ]; then
+          echo ""
+          echo "❌ Empty response from agent"
+          exit 1
+        fi
+
+        echo ""
+        echo "✅ Agent responded successfully"
+
+    - name: Show container logs on failure
+      if: failure()
+      run: |
+        echo "=== Docker containers ==="
+        docker ps -a
+        echo ""
+        echo "=== Pipelines logs ==="
+        docker logs pipelines 2>&1 | tail -200 || true
+
+    - name: Cleanup
+      if: always()
+      run: |
+        cd hello-weather-test
+        osprey deploy down || true
+
   all-checks-passed:
     name: All CI Checks Passed
-    needs: [test, lint, docs, package, e2e-tests]
+    needs: [test, lint, docs, package, e2e-tests, deploy-e2e]
     runs-on: ubuntu-latest
     if: always()
 
@@ -220,6 +331,15 @@ jobs:
           echo "⏭️  E2E tests skipped (only run on PRs)"
         else
           echo "✅ E2E tests passed"
+        fi
+        # Deploy E2E: required on PRs, skipped on pushes
+        if [[ "${{ needs.deploy-e2e.result }}" == "failure" ]]; then
+          echo "❌ Deploy E2E test failed"
+          exit 1
+        elif [[ "${{ needs.deploy-e2e.result }}" == "skipped" ]]; then
+          echo "⏭️  Deploy E2E test skipped (only run on PRs)"
+        else
+          echo "✅ Deploy E2E test passed"
         fi
         echo "✅ All CI checks passed!"
 
