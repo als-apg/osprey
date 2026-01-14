@@ -184,7 +184,7 @@ class ArtifactGallery(Static, can_focus=True):
         try:
             header = self.query_one("#gallery-header", Static)
             items_container = self.query_one("#gallery-items", Vertical)
-            _footer = self.query_one("#gallery-footer", Static)  # noqa: F841 verify exists
+            self.query_one("#gallery-footer", Static)  # verify exists
         except Exception:
             # Children don't exist yet - will be updated in on_mount
             return
@@ -311,6 +311,7 @@ class ArtifactGallery(Static, can_focus=True):
                 else:
                     child.remove_class("artifact-selected")
         except Exception:
+            # Widget not yet mounted or children don't exist - safe to ignore
             pass
 
     def on_focus(self) -> None:
@@ -334,4 +335,5 @@ class ArtifactGallery(Static, can_focus=True):
             else:
                 footer.update("[dim]Press [/]Ctrl+a[dim] to browse artifacts[/]")
         except Exception:
+            # Footer widget not yet mounted - safe to ignore during initialization
             pass
