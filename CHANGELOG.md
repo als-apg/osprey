@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **CI**: Add E2E tests to GitHub Actions workflow
+  - Runs on PRs only (not pushes) to control API costs
+  - Skips fork PRs where secrets are unavailable
 - **Dependencies**: Move TUI (textual) from optional to base dependencies
   - Removes `[tui]` extras group since textual is now always installed
 
