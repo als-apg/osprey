@@ -361,14 +361,20 @@ class TemplateManager:
         if gitignore_source.exists():
             shutil.copy(gitignore_source, project_dir / ".gitignore")
 
-        # Render Claude generator config if code_generator is set to 'claude_code'
-        if ctx.get("code_generator") == "claude_code":
-            claude_config_template = app_template_dir / "claude_generator_config.yml.j2"
-            if claude_config_template.exists():
+        # Render code generator config based on selected generator
+        generator_configs = {
+            "claude_code": "claude_generator_config.yml",
+            "basic": "basic_generator_config.yml",
+        }
+        selected_generator = ctx.get("code_generator")
+        if selected_generator in generator_configs:
+            config_filename = generator_configs[selected_generator]
+            config_template = app_template_dir / f"{config_filename}.j2"
+            if config_template.exists():
                 self.render_template(
-                    f"apps/{template_name}/claude_generator_config.yml.j2",
+                    f"apps/{template_name}/{config_filename}.j2",
                     ctx,
-                    project_dir / "claude_generator_config.yml",
+                    project_dir / config_filename,
                 )
 
     def copy_services(self, project_dir: Path):
@@ -452,6 +458,8 @@ class TemplateManager:
             "pyproject.toml",
             "claude_generator_config.yml.j2",
             "claude_generator_config.yml",
+            "basic_generator_config.yml.j2",
+            "basic_generator_config.yml",
         }
 
         # Process all files in the template
