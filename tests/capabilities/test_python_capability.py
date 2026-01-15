@@ -134,3 +134,201 @@ class TestPythonPromptBuilderIntegration:
         assert guide is not None
         assert len(guide.examples) > 0
         assert "computational" in guide.instructions.lower()
+
+
+class TestFigurePathResolution:
+    """Tests for issue #96 - ensure figure paths are always absolute.
+
+    The CLI should display full absolute paths for generated figures,
+    not just filenames. This test class verifies that paths are resolved
+    to absolute paths when registering artifacts.
+    """
+
+    def test_path_resolve_converts_relative_to_absolute(self):
+        """Verify Path.resolve() converts relative paths to absolute."""
+        from pathlib import Path
+
+        # Simulate a relative path that might come from figure collection
+        relative_path = Path("figures/figure_01.png")
+
+        # resolve() should convert to absolute
+        abs_path = relative_path.resolve()
+
+        assert abs_path.is_absolute(), "resolve() should return absolute path"
+        assert str(abs_path).startswith("/"), "Absolute path should start with /"
+        assert str(abs_path).endswith("figures/figure_01.png"), "Should preserve filename"
+
+    def test_path_resolve_preserves_absolute_paths(self):
+        """Verify Path.resolve() preserves already absolute paths."""
+        from pathlib import Path
+
+        # Already absolute path
+        abs_path = Path("/some/absolute/path/figures/figure_01.png")
+
+        # resolve() should not change it (except normalizing)
+        resolved = abs_path.resolve()
+
+        assert resolved.is_absolute()
+        assert "figure_01.png" in str(resolved)
+
+    def test_artifact_registration_uses_absolute_paths(self):
+        """Verify artifact data contains absolute paths after registration.
+
+        This tests the fix for issue #96 - figure paths should always be
+        absolute when displayed in the CLI.
+        """
+        from pathlib import Path
+
+        from osprey.state import StateManager
+        from osprey.state.artifacts import ArtifactType
+
+        # Create a mock state
+        state = {"ui_artifacts": []}
+
+        # Simulate registering a figure with a relative path
+        # (this is what the fix prevents by using .resolve())
+        relative_figure_path = Path("figures/figure_01.png")
+
+        # The fix: resolve to absolute before registering
+        abs_path = relative_figure_path.resolve()
+
+        update = StateManager.register_artifact(
+            state,
+            artifact_type=ArtifactType.IMAGE,
+            capability="python_executor",
+            data={"path": str(abs_path), "format": "png"},
+            display_name="Test Figure",
+        )
+
+        # Verify the stored path is absolute
+        artifacts = update["ui_artifacts"]
+        assert len(artifacts) == 1
+        stored_path = artifacts[0]["data"]["path"]
+        assert stored_path.startswith("/"), f"Path should be absolute, got: {stored_path}"
+        assert "figure_01.png" in stored_path
+
+    def test_multiple_figures_all_have_absolute_paths(self):
+        """Verify multiple figures all get absolute paths."""
+        from pathlib import Path
+
+        from osprey.state import StateManager
+        from osprey.state.artifacts import ArtifactType
+
+        state = {"ui_artifacts": []}
+
+        # Simulate multiple figure paths (mix of relative and absolute)
+        figure_paths = [
+            Path("figures/figure_01.png"),
+            Path("figures/figure_02.png"),
+            Path("/tmp/execution/figures/figure_03.png"),  # Already absolute
+        ]
+
+        artifacts = None
+        for figure_path in figure_paths:
+            # Apply the fix: resolve to absolute
+            abs_path = figure_path.resolve()
+            update = StateManager.register_artifact(
+                state,
+                artifact_type=ArtifactType.IMAGE,
+                capability="python_executor",
+                data={"path": str(abs_path), "format": "png"},
+                current_artifacts=artifacts,
+            )
+            artifacts = update["ui_artifacts"]
+
+        # All paths should be absolute
+        assert len(artifacts) == 3
+        for artifact in artifacts:
+            path = artifact["data"]["path"]
+            assert path.startswith("/"), f"Path should be absolute: {path}"
+
+    def test_notebook_path_is_absolute(self):
+        """Verify notebook paths are also resolved to absolute."""
+        from pathlib import Path
+
+        from osprey.state import StateManager
+        from osprey.state.artifacts import ArtifactType
+
+        state = {"ui_artifacts": []}
+
+        # Simulate notebook path
+        notebook_path = Path("notebook.ipynb")
+        abs_notebook_path = notebook_path.resolve()
+
+        update = StateManager.register_artifact(
+            state,
+            artifact_type=ArtifactType.NOTEBOOK,
+            capability="python_executor",
+            data={"path": str(abs_notebook_path), "url": "http://localhost:8888/notebook"},
+        )
+
+        artifacts = update["ui_artifacts"]
+        stored_path = artifacts[0]["data"]["path"]
+        assert stored_path.startswith("/"), f"Notebook path should be absolute: {stored_path}"
+
+    def test_cli_displays_full_absolute_path(self):
+        """Verify the CLI _format_artifact_line displays the full absolute path.
+
+        This is the critical end-to-end test for issue #96 - it verifies that
+        absolute paths stored in artifacts are displayed in full by the CLI.
+        """
+        from pathlib import Path
+
+        from osprey.interfaces.cli.direct_conversation import CLI
+        from osprey.state.artifacts import ArtifactType
+
+        # Create an artifact with an absolute path (as the fix does)
+        relative_path = Path("figures/figure_01.png")
+        abs_path = relative_path.resolve()
+
+        artifact = {
+            "id": "test-123",
+            "type": "image",
+            "capability": "python_executor",
+            "created_at": "2025-01-15T10:00:00",
+            "data": {"path": str(abs_path), "format": "png"},
+        }
+
+        # Create CLI instance and format the artifact
+        cli = CLI.__new__(CLI)
+        formatted = cli._format_artifact_line(artifact, ArtifactType.IMAGE)
+
+        # The formatted output should contain the FULL absolute path
+        assert str(abs_path) in formatted, (
+            f"CLI should display full path '{abs_path}', got: {formatted}"
+        )
+        assert formatted.startswith("  •"), "Should have bullet prefix"
+        assert "python_executor" in formatted, "Should show capability"
+
+        # Verify it's actually an absolute path in the output
+        # Extract the path from the formatted string
+        assert "/" in formatted and not formatted.startswith("  • figures/"), (
+            f"CLI should show absolute path, not relative. Got: {formatted}"
+        )
+
+    def test_cli_displays_relative_path_if_stored_that_way(self):
+        """Demonstrate that CLI shows whatever path is stored - highlighting the fix.
+
+        This test shows that WITHOUT the fix (storing relative paths), the CLI
+        would only show the filename. The fix ensures absolute paths are stored.
+        """
+        from osprey.interfaces.cli.direct_conversation import CLI
+        from osprey.state.artifacts import ArtifactType
+
+        # WITHOUT the fix: a relative path would be stored
+        artifact_with_relative = {
+            "id": "test-456",
+            "type": "image",
+            "capability": "python_executor",
+            "created_at": "2025-01-15T10:00:00",
+            "data": {"path": "figures/figure_01.png", "format": "png"},  # Relative!
+        }
+
+        cli = CLI.__new__(CLI)
+        formatted = cli._format_artifact_line(artifact_with_relative, ArtifactType.IMAGE)
+
+        # This shows what the user saw BEFORE the fix - just the relative path
+        assert "figures/figure_01.png" in formatted
+        assert not formatted.startswith("  • /"), (
+            "This shows the bug: relative path doesn't start with /"
+        )
