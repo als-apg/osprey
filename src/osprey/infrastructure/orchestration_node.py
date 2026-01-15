@@ -461,7 +461,7 @@ class OrchestrationNode(BaseInfrastructureNode):
         logger.status("Generating execution plan...")
 
         # Call LLM directly for execution planning
-        logger.status("Creating execution plan with orchestrator LLM")
+        logger.key_info("Creating execution plan with orchestrator LLM")
         plan_start_time = time.time()
 
         # Get model configuration and call LLM
@@ -540,7 +540,7 @@ class OrchestrationNode(BaseInfrastructureNode):
 
         logger.status("Execution plan created")
 
-        logger.status("Orchestration processing completed")
+        logger.key_info("Orchestration processing completed")
 
         # Emit data event with execution plan
         logger.emit_event(PlanCreatedEvent(steps=execution_plan.get("steps", [])))
@@ -580,14 +580,14 @@ def _clear_error_state() -> dict[str, Any]:
 def _log_execution_plan(execution_plan: ExecutionPlan, logger):
     """Log execution plan with clean formatting."""
 
-    logger.status("=" * 50)
+    logger.key_info("=" * 50)
     for index, step in enumerate(execution_plan.get("steps", [])):
-        logger.status(f" << Step {index + 1}")
-        logger.status(f" << ├───── id: '{step.get('context_key', 'unknown')}'")
-        logger.status(f" << ├─── node: '{step.get('capability', 'unknown')}'")
-        logger.status(f" << ├─── task: '{step.get('task_objective', 'unknown')}'")
-        logger.status(f" << └─ inputs: '{step.get('inputs', [])}'")
-    logger.status("=" * 50)
+        logger.key_info(f" << Step {index + 1}")
+        logger.key_info(f" << ├───── id: '{step.get('context_key', 'unknown')}'")
+        logger.key_info(f" << ├─── node: '{step.get('capability', 'unknown')}'")
+        logger.key_info(f" << ├─── task: '{step.get('task_objective', 'unknown')}'")
+        logger.key_info(f" << └─ inputs: '{step.get('inputs', [])}'")
+    logger.key_info("=" * 50)
 
 
 def _save_execution_plan_to_file(

@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Osprey Debug UI</title>
+    <style>
+        :root {
+            --bg-primary: #1a1a2e;
+            --bg-secondary: #16213e;
+            --bg-tertiary: #0f3460;
+            --text-primary: #e8e8e8;
+            --text-secondary: #a0a0a0;
+            --accent-blue: #4fc3f7;
+            --accent-green: #66bb6a;
+            --accent-yellow: #ffca28;
+            --accent-red: #ef5350;
+            --accent-purple: #ab47bc;
+            --accent-cyan: #26c6da;
+            --accent-orange: #ffa726;
+            --border-color: #2a2a4a;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            background: var(--bg-secondary);
+            padding: 1rem 2rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            gap: 2rem;
+        }
+
+        header h1 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--accent-cyan);
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.85rem;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent-red);
+        }
+
+        .status-dot.connected {
+            background: var(--accent-green);
+        }
+
+        .main-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            width: 300px;
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .query-section {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .query-section label {
+            display: block;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+        }
+
+        .query-input {
+            width: 100%;
+            padding: 0.75rem;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 0.9rem;
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        .query-input:focus {
+            outline: none;
+            border-color: var(--accent-cyan);
+        }
+
+        .execute-btn {
+            width: 100%;
+            margin-top: 0.75rem;
+            padding: 0.75rem;
+            background: var(--accent-cyan);
+            color: var(--bg-primary);
+            border: none;
+            border-radius: 4px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        .execute-btn:hover {
+            opacity: 0.9;
+        }
+
+        .execute-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .filters-section {
+            padding: 1rem;
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .filters-section h3 {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.75rem;
+            text-transform: uppercase;
+        }
+
+        .filter-group {
+            margin-bottom: 1rem;
+        }
+
+        .filter-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.25rem 0;
+            font-size: 0.85rem;
+        }
+
+        .filter-item input[type="checkbox"] {
+            accent-color: var(--accent-cyan);
+        }
+
+        .event-timeline {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem;
+        }
+
+        .event-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            margin-bottom: 0.75rem;
+            overflow: hidden;
+        }
+
+        .event-header {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem 1rem;
+            gap: 0.75rem;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .event-header:hover {
+            background: var(--bg-tertiary);
+        }
+
+        .event-type {
+            font-size: 0.7rem;
+            font-weight: 600;
+            padding: 0.25rem 0.5rem;
+            border-radius: 3px;
+            text-transform: uppercase;
+        }
+
+        .event-type.status { background: var(--accent-blue); color: var(--bg-primary); }
+        .event-type.llm { background: var(--accent-purple); color: white; }
+        .event-type.phase { background: var(--accent-green); color: var(--bg-primary); }
+        .event-type.capability { background: var(--accent-orange); color: var(--bg-primary); }
+        .event-type.result { background: var(--accent-cyan); color: var(--bg-primary); }
+        .event-type.error { background: var(--accent-red); color: white; }
+        .event-type.data { background: var(--accent-yellow); color: var(--bg-primary); }
+        .event-type.system { background: var(--text-secondary); color: var(--bg-primary); }
+
+        .event-component {
+            font-size: 0.8rem;
+            color: var(--accent-cyan);
+            font-weight: 500;
+        }
+
+        .event-message {
+            flex: 1;
+            font-size: 0.85rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .event-time {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        .event-details {
+            display: none;
+            padding: 1rem;
+            background: var(--bg-tertiary);
+            border-top: 1px solid var(--border-color);
+            font-size: 0.8rem;
+        }
+
+        .event-card.expanded .event-details {
+            display: block;
+        }
+
+        .event-details pre {
+            background: var(--bg-primary);
+            padding: 0.75rem;
+            border-radius: 4px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .details-toolbar {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 0.5rem;
+        }
+
+        .copy-btn {
+            padding: 0.25rem 0.5rem;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 0.75rem;
+        }
+
+        .copy-btn:hover {
+            background: var(--accent-cyan);
+            color: var(--bg-primary);
+        }
+
+        .clear-btn {
+            position: fixed;
+            bottom: 1rem;
+            right: 1rem;
+            padding: 0.5rem 1rem;
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8rem;
+        }
+
+        .clear-btn:hover {
+            background: var(--accent-red);
+            border-color: var(--accent-red);
+        }
+
+        .stats {
+            padding: 0.75rem 1rem;
+            background: var(--bg-tertiary);
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            display: flex;
+            gap: 1.5rem;
+        }
+
+        .stats span {
+            color: var(--text-primary);
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .executing .status-dot {
+            animation: pulse 1s infinite;
+            background: var(--accent-yellow);
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Osprey Debug UI</h1>
+        <div class="status">
+            <div class="status-dot" id="statusDot"></div>
+            <span id="statusText">Disconnected</span>
+        </div>
+    </header>
+
+    <div class="main-container">
+        <div class="sidebar">
+            <div class="query-section">
+                <label>Query</label>
+                <textarea class="query-input" id="queryInput" placeholder="Enter your query...">What's the weather in San Francisco?</textarea>
+                <button class="execute-btn" id="executeBtn">Execute Query</button>
+            </div>
+
+            <div class="filters-section">
+                <h3>Filter by Type</h3>
+                <div class="filter-group" id="typeFilters">
+                    <!-- Populated dynamically -->
+                </div>
+
+                <h3>Filter by Component</h3>
+                <div class="filter-group" id="componentFilters">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+
+            <div class="stats">
+                Events: <span id="eventCount">0</span>
+            </div>
+        </div>
+
+        <div class="event-timeline" id="eventTimeline">
+            <!-- Events will be added here -->
+        </div>
+    </div>
+
+    <button class="clear-btn" id="clearBtn">Clear Events</button>
+
+    <script>
+        // State
+        let ws = null;
+        let events = [];
+        let typeFilters = new Set();
+        let componentFilters = new Set();
+        let allTypes = new Set();
+        let allComponents = new Set();
+
+        // DOM Elements
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        const queryInput = document.getElementById('queryInput');
+        const executeBtn = document.getElementById('executeBtn');
+        const eventTimeline = document.getElementById('eventTimeline');
+        const eventCount = document.getElementById('eventCount');
+        const clearBtn = document.getElementById('clearBtn');
+        const typeFiltersEl = document.getElementById('typeFilters');
+        const componentFiltersEl = document.getElementById('componentFilters');
+
+        // Event type categories
+        const typeCategories = {
+            'StatusEvent': 'status',
+            'LLMRequestEvent': 'llm',
+            'LLMResponseEvent': 'llm',
+            'PhaseStartEvent': 'phase',
+            'PhaseCompleteEvent': 'phase',
+            'CapabilityStartEvent': 'capability',
+            'CapabilityCompleteEvent': 'capability',
+            'ResultEvent': 'result',
+            'ErrorEvent': 'error',
+            'TaskExtractedEvent': 'data',
+            'CapabilitiesSelectedEvent': 'data',
+            'PlanCreatedEvent': 'data',
+            'connected': 'system',
+            'execution_started': 'system',
+            'execution_completed': 'system',
+            'execution_error': 'error',
+        };
+
+        // Connect to WebSocket
+        function connect() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/events`;
+
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                statusDot.classList.add('connected');
+                statusText.textContent = 'Connected';
+                executeBtn.disabled = false;
+            };
+
+            ws.onclose = () => {
+                statusDot.classList.remove('connected');
+                statusText.textContent = 'Disconnected';
+                executeBtn.disabled = true;
+                // Try to reconnect after 3 seconds
+                setTimeout(connect, 3000);
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleEvent(data);
+            };
+        }
+
+        // Handle incoming event
+        function handleEvent(data) {
+            events.push(data);
+            eventCount.textContent = events.length;
+
+            // Track types and components
+            if (data.type) {
+                allTypes.add(data.type);
+                updateTypeFilters();
+            }
+            if (data.component) {
+                allComponents.add(data.component);
+                updateComponentFilters();
+            }
+
+            // Add to timeline if not filtered
+            if (shouldShowEvent(data)) {
+                addEventToTimeline(data);
+            }
+
+            // Update executing state
+            if (data.type === 'execution_started') {
+                document.body.classList.add('executing');
+            } else if (data.type === 'execution_completed' || data.type === 'execution_error') {
+                document.body.classList.remove('executing');
+            }
+        }
+
+        // Check if event should be shown based on filters
+        function shouldShowEvent(data) {
+            if (typeFilters.size > 0 && !typeFilters.has(data.type)) {
+                return false;
+            }
+            if (componentFilters.size > 0 && data.component && !componentFilters.has(data.component)) {
+                return false;
+            }
+            return true;
+        }
+
+        // Add event to timeline
+        function addEventToTimeline(data) {
+            const card = document.createElement('div');
+            card.className = 'event-card';
+
+            const category = typeCategories[data.type] || 'status';
+            const message = getEventMessage(data);
+            const time = data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : '';
+            const jsonContent = JSON.stringify(data, null, 2);
+
+            card.innerHTML = `
+                <div class="event-header">
+                    <span class="event-type ${category}">${data.type}</span>
+                    ${data.component ? `<span class="event-component">${data.component}</span>` : ''}
+                    <span class="event-message">${escapeHtml(message)}</span>
+                    <span class="event-time">${time}</span>
+                </div>
+                <div class="event-details">
+                    <div class="details-toolbar">
+                        <button class="copy-btn" title="Copy to clipboard">Copy</button>
+                    </div>
+                    <pre>${escapeHtml(jsonContent)}</pre>
+                </div>
+            `;
+
+            // Only header triggers expand/collapse
+            const header = card.querySelector('.event-header');
+            header.onclick = () => card.classList.toggle('expanded');
+
+            // Details section doesn't propagate clicks (allows text selection)
+            const details = card.querySelector('.event-details');
+            details.onclick = (e) => e.stopPropagation();
+
+            // Copy button functionality
+            const copyBtn = card.querySelector('.copy-btn');
+            copyBtn.onclick = (e) => {
+                e.stopPropagation();
+                navigator.clipboard.writeText(jsonContent).then(() => {
+                    copyBtn.textContent = 'Copied!';
+                    setTimeout(() => copyBtn.textContent = 'Copy', 2000);
+                });
+            };
+
+            eventTimeline.insertBefore(card, eventTimeline.firstChild);
+        }
+
+        // Get display message from event
+        function getEventMessage(data) {
+            if (data.data) {
+                if (data.data.message) return data.data.message;
+                if (data.data.phase) return `Phase: ${data.data.phase}`;
+                if (data.data.capability_name) return `Capability: ${data.data.capability_name}`;
+                if (data.data.response) return data.data.response.substring(0, 100);
+                if (data.data.error_message) return data.data.error_message;
+            }
+            if (data.message) return data.message;
+            if (data.query) return `Query: ${data.query}`;
+            if (data.error) return data.error;
+            return JSON.stringify(data.data || data).substring(0, 100);
+        }
+
+        // Update type filter checkboxes
+        function updateTypeFilters() {
+            typeFiltersEl.innerHTML = Array.from(allTypes).sort().map(type => `
+                <label class="filter-item">
+                    <input type="checkbox" value="${type}"
+                           ${typeFilters.has(type) ? 'checked' : ''}
+                           onchange="toggleTypeFilter('${type}')">
+                    ${type}
+                </label>
+            `).join('');
+        }
+
+        // Update component filter checkboxes
+        function updateComponentFilters() {
+            componentFiltersEl.innerHTML = Array.from(allComponents).sort().map(comp => `
+                <label class="filter-item">
+                    <input type="checkbox" value="${comp}"
+                           ${componentFilters.has(comp) ? 'checked' : ''}
+                           onchange="toggleComponentFilter('${comp}')">
+                    ${comp}
+                </label>
+            `).join('');
+        }
+
+        // Toggle type filter
+        function toggleTypeFilter(type) {
+            if (typeFilters.has(type)) {
+                typeFilters.delete(type);
+            } else {
+                typeFilters.add(type);
+            }
+            refreshTimeline();
+        }
+
+        // Toggle component filter
+        function toggleComponentFilter(comp) {
+            if (componentFilters.has(comp)) {
+                componentFilters.delete(comp);
+            } else {
+                componentFilters.add(comp);
+            }
+            refreshTimeline();
+        }
+
+        // Refresh timeline with current filters
+        function refreshTimeline() {
+            eventTimeline.innerHTML = '';
+            events.filter(shouldShowEvent).forEach(addEventToTimeline);
+        }
+
+        // Execute query
+        function executeQuery() {
+            const query = queryInput.value.trim();
+            if (!query || !ws || ws.readyState !== WebSocket.OPEN) return;
+
+            ws.send(JSON.stringify({
+                action: 'execute',
+                query: query
+            }));
+        }
+
+        // Clear events
+        function clearEvents() {
+            events = [];
+            eventTimeline.innerHTML = '';
+            eventCount.textContent = '0';
+            allTypes.clear();
+            allComponents.clear();
+            typeFilters.clear();
+            componentFilters.clear();
+            updateTypeFilters();
+            updateComponentFilters();
+        }
+
+        // Escape HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Event listeners
+        executeBtn.onclick = executeQuery;
+        clearBtn.onclick = clearEvents;
+        queryInput.onkeydown = (e) => {
+            if (e.key === 'Enter' && e.ctrlKey) {
+                executeQuery();
+            }
+        };
+
+        // Connect on load
+        connect();
+    </script>
+</body>
+</html>
