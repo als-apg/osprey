@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Models**: Handle Python-style booleans in LLM JSON responses (#102)
+  - Some LLM providers (including Argo) return `True`/`False` instead of `true`/`false`
+  - `_clean_json_response()` now converts Python-style booleans to JSON-style
 - **CLI**: Display full absolute paths for plot files in artifact output (#96)
   - Figure and notebook paths now resolved to absolute before artifact registration
   - Ensures users can directly access generated files from CLI output
