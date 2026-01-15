@@ -78,7 +78,7 @@ MEDIUM   → Clean but not blocking (formatting, docs warnings, orphans)
 | Type hints | CRITICAL | `ruff check --select ANN src/` | No errors |
 | TODOs linked | HIGH | `git diff main...HEAD \| grep "TODO"` | All have issue # |
 | Coverage | HIGH | `pytest --cov=src/osprey` | ≥80% |
-| Formatting | MEDIUM | `black --check src/` | Already formatted |
+| Formatting | MEDIUM | `ruff format --check src/` | Already formatted |
 | Imports | MEDIUM | `ruff check --select F401,I src/` | No unused |
 
 ---
@@ -596,15 +596,13 @@ done
 
 **Check:**
 ```bash
-black --check src/ tests/ || echo "⚠ Black formatting needed"
-isort --check src/ tests/ || echo "⚠ isort needed"
+ruff format --check src/ tests/ || echo "⚠ Ruff formatting needed"
 ruff check src/ tests/ || echo "⚠ Ruff errors found"
 ```
 
 **Auto-fix all:**
 ```bash
-black src/ tests/
-isort src/ tests/
+ruff format src/ tests/
 ruff check --fix src/ tests/
 ```
 
@@ -633,16 +631,12 @@ repos:
       - id: check-merge-conflict
       - id: debug-statements  # Catches pdb, breakpoint, etc.
 
-  - repo: https://github.com/psf/black
-    rev: 23.12.1
-    hooks:
-      - id: black
-
-  - repo: https://github.com/charliermarsh/ruff-pre-commit
-    rev: v0.1.9
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.4
     hooks:
       - id: ruff
         args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
 
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.7.1
@@ -665,7 +659,7 @@ pre-commit run --files path/to/file.py  # Check specific file
 **Skip hooks (when necessary):**
 ```bash
 git commit --no-verify  # Skip all hooks (use sparingly!)
-SKIP=black,ruff git commit  # Skip specific hooks
+SKIP=ruff,ruff-format git commit  # Skip specific hooks
 ```
 
 **Benefits:**
@@ -759,10 +753,10 @@ fi
 
 # MEDIUM checks
 echo -e "\n=== MEDIUM ==="
-if black --check src/ tests/ >/dev/null 2>&1; then
-  echo "✓ Black formatted"
+if ruff format --check src/ tests/ >/dev/null 2>&1; then
+  echo "✓ Ruff formatted"
 else
-  echo "⚠ Black formatting needed"
+  echo "⚠ Ruff formatting needed"
 fi
 
 if ruff check src/ tests/ --quiet >/dev/null 2>&1; then
@@ -846,8 +840,8 @@ Before requesting merge, verify all items:
 - [ ] **Documentation builds**: Run `cd docs && make clean && make html`
   - No errors (warnings OK except critical ones)
   - New modules documented if public API
-- [ ] **Code formatted**: Run `black --check src/ tests/`
-  - Already formatted (or run `black src/ tests/`)
+- [ ] **Code formatted**: Run `ruff format --check src/ tests/`
+  - Already formatted (or run `ruff format src/ tests/`)
 - [ ] **Ruff clean**: Run `ruff check src/ tests/`
   - No linting errors (or run `ruff check --fix`)
 - [ ] **No temp files**: Run `git status --short`
@@ -905,7 +899,7 @@ Before requesting merge, verify all items:
 - Use `# pragma: no cover` for impossible states
 
 **"Formatting conflicts"**
-- Run formatters in order: `black` first, then `ruff check --fix`
+- Run formatters in order: `ruff format` first, then `ruff check --fix`
 - Check `pyproject.toml` for custom config
 
 ---

@@ -351,6 +351,9 @@ class ClaudeCodeGenerator:
                     "phases", {}
                 ),  # Phase definitions (scan, plan, generate, implement)
                 "api_config": full_config.get("api_config", {}),
+                # System prompt customization
+                "system_prompt": full_config.get("system_prompt"),
+                "system_prompt_extensions": full_config.get("system_prompt_extensions", ""),
             }
         else:
             # Inline configuration
@@ -370,6 +373,9 @@ class ClaudeCodeGenerator:
                 "codebase_guidance": {},
                 "phase_definitions": {},  # No phase definitions in inline mode
                 "api_config": self.model_config.get("api_config", {}),
+                # System prompt customization
+                "system_prompt": self.model_config.get("system_prompt"),
+                "system_prompt_extensions": self.model_config.get("system_prompt_extensions", ""),
             }
 
     def _get_workflow_model(self) -> str:
@@ -1464,19 +1470,8 @@ class ClaudeCodeGenerator:
 
         return {}
 
-    def _build_system_prompt(self, request: PythonExecutionRequest) -> str:
-        """Build system prompt for code generation.
-
-        Includes base instructions plus ALL guidance from codebase libraries.
-        Claude sees all available patterns and determines what's relevant.
-
-        Args:
-            request: Execution request with context
-
-        Returns:
-            System prompt string with base instructions + all library guidance
-        """
-        prompt = """You are an expert Python code generator for scientific computing and control systems.
+    # Default system prompt (used when not overridden in config)
+    DEFAULT_SYSTEM_PROMPT = """You are an expert Python code generator for scientific computing and control systems.
 
 Generate high-quality, executable Python code based on user requirements.
 
@@ -1490,6 +1485,34 @@ RULES:
 
 Your generated code will be analyzed for security, reviewed by humans (if needed),
 and executed in a secure environment."""
+
+    def _build_system_prompt(self, request: PythonExecutionRequest) -> str:
+        """Build system prompt for code generation.
+
+        Includes base instructions plus ALL guidance from codebase libraries.
+        Claude sees all available patterns and determines what's relevant.
+
+        The system prompt can be customized via config:
+        - system_prompt: Replace the entire base system prompt
+        - system_prompt_extensions: Add domain-specific guidance after the base prompt
+
+        Args:
+            request: Execution request with context
+
+        Returns:
+            System prompt string with base instructions + all library guidance
+        """
+        # Use custom system prompt if provided, otherwise use default
+        custom_prompt = self.config.get("system_prompt")
+        if custom_prompt:
+            prompt = custom_prompt.strip()
+        else:
+            prompt = self.DEFAULT_SYSTEM_PROMPT
+
+        # Add system prompt extensions (domain-specific guidance)
+        extensions = self.config.get("system_prompt_extensions", "")
+        if extensions:
+            prompt += f"\n\n{extensions.strip()}"
 
         # Append ALL guidance from codebase libraries
         codebase_guidance = self.config.get("codebase_guidance", {})

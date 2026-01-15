@@ -5,6 +5,78 @@ All notable changes to the Osprey Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Deployment**: Fix `--dev` mode failing when osprey is installed from PyPI (#86)
+  - Detect site-packages installation and show clear warning about editable mode requirement
+  - Add helpful error message when `build` package is missing
+  - Add `build` to dev dependencies for wheel building support
+- **Models**: Handle Python-style booleans in LLM JSON responses (#102)
+  - Some LLM providers (including Argo) return `True`/`False` instead of `true`/`false`
+  - `_clean_json_response()` now converts Python-style booleans to JSON-style
+- **CLI**: Display full absolute paths for plot files in artifact output (#96)
+  - Figure and notebook paths now resolved to absolute before artifact registration
+  - Ensures users can directly access generated files from CLI output
+
+## [0.10.4] - 2026-01-15
+
+### Fixed
+- **Dependencies**: Pin aiohttp>=3.10 for litellm compatibility (#87)
+  - Fixes `AttributeError: module aiohttp has no attribute ConnectionTimeoutError`
+  - `aiohttp.ConnectionTimeoutError` was added in aiohttp 3.10; litellm requires it but doesn't pin the version
+
+## [0.10.3] - 2026-01-14
+
+### Changed
+- **CI**: Add E2E tests to GitHub Actions workflow
+  - Runs on PRs only (not pushes) to control API costs
+  - Skips fork PRs where secrets are unavailable
+- **Dependencies**: Move TUI (textual) from optional to base dependencies
+  - Removes `[tui]` extras group since textual is now always installed
+
+## [0.10.2] - 2026-01-14
+
+### Added
+- **State**: Unified artifact system with `ArtifactType` enum and `register_artifact()` API
+  - Single source of truth (`ui_artifacts`) for all artifact types: IMAGE, NOTEBOOK, COMMAND, HTML, FILE
+  - Legacy methods (`register_figure`, `register_notebook`, `register_command`) delegate to new API
+  - `populate_legacy_fields_from_artifacts()` helper for backward compatibility at finalization
+- **TUI**: Artifact gallery and viewer widgets for interactive artifact browsing
+  - ArtifactGallery with keyboard navigation (Ctrl+a focus, j/k navigate, Enter view, o open external)
+  - ArtifactViewer modal with type-specific details and actions (copy path, open in system app)
+  - Native image rendering via textual-image (Sixel for iTerm2/WezTerm, Kitty Graphics Protocol)
+  - New/seen tracking with [NEW] badges for artifacts from current turn
+
+### Changed
+- **Tooling**: Consolidated formatting/linting to Ruff, removed Black and Isort (#80)
+  - Ruff now handles both linting and formatting as a single tool
+  - Updated scripts, docs, and templates to reference only Ruff
+- **Capabilities**: Python capability uses unified `register_artifact()` API directly
+  - Clean single-accumulation pattern for figures and notebooks
+  - Legacy fields populated at finalization rather than registration
+- **CLI**: Modernized artifact display to use unified `ui_artifacts` registry
+  - Single `_extract_artifacts_for_cli()` replaces three legacy extraction methods
+  - Supports all artifact types: IMAGE, NOTEBOOK, COMMAND, HTML, FILE
+  - Grouped display with type-specific formatting and icons
+
+### Fixed
+- **Gateway**: `/chat` without arguments no longer triggers graph execution
+  - Displays available capabilities table correctly, then returns immediately
+  - New check for locally-handled commands with no remaining message
+  - CLI handles state-only updates with no agent_state gracefully
+- **Orchestrator**: Use descriptive context keys to prevent incorrect time range reuse (#90)
+  - Similar time ranges (e.g., 12/5-12/10 vs 12/5-12/8) no longer incorrectly reuse old context
+  - Context keys now encode actual dates (tr_MMDD_MMDD format) for proper comparison
+- **Approval**: Fix KeyError when optional approval config keys are omitted (#79)
+  - Logger now uses initialized config object instead of raw dict keys
+- **Templates**: Include deployment infrastructure config for all templates (#85)
+  - Fixes `osprey deploy up` failures for hello_world_weather template
+  - Jupyter kernel templates now render correctly with execution.modes section
+- **CLI**: Restrict `load_dotenv()` search to current directory only (#95)
+  - Prevents python-dotenv from parsing shell config files in parent directories
+  - Fixes warnings when users have `~/.env` as a Korn shell configuration file
+
 ## [0.10.1] - 2026-01-09
 
 ### Added

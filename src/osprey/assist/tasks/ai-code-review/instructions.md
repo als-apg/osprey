@@ -618,7 +618,7 @@ pytest tests/ --ignore=tests/e2e -v
 
 # Check lints and formatting
 ruff check src/ tests/
-black --check src/ tests/
+ruff format --check src/ tests/
 
 # Verify no unused code
 ruff check --select F401,ARG,F841 src/

@@ -117,7 +117,6 @@ deployed_services:
   - open_webui
   - pipelines
 
-{% if template_name != 'hello_world_weather' %}
 # ============================================================
 # SAFETY CONTROLS
 # ============================================================
@@ -148,7 +147,6 @@ execution_control:
     graph_recursion_limit: 100        # LangGraph recursion limit
     max_concurrent_classifications: 5 # Maximum concurrent LLM classification requests
 
-{% endif %}
 
 # ============================================================
 # SYSTEM CONFIGURATION
@@ -195,7 +193,11 @@ execution:
       profile: "fast"    # Options: fast | robust (or custom profiles you define)
       # Advanced settings are in claude_generator_config.yml
 
-{% if template_name != 'hello_world_weather' %}
+  # --------------------------------------------------------------------------
+  # DEPLOYMENT INFRASTRUCTURE (required for deployed Jupyter/container services)
+  # These settings configure the container execution environment.
+  # --------------------------------------------------------------------------
+
   # EPICS infrastructure (for hardware control applications)
   epics:
     timeout: 5.0
@@ -207,7 +209,7 @@ execution:
         address: your-gateway.example.com  # Replace with your EPICS gateway address
         port: 5084
 
-  # Python/Jupyter execution modes
+  # Python/Jupyter execution modes (configures Jupyter kernel environments)
   modes:
     read_only:
       kernel_name: "python3-epics-readonly"
@@ -229,6 +231,7 @@ execution:
 # CONTROL SYSTEM CONFIGURATION
 # ============================================================
 # Control system type, write access, limits checking, and verification
+# Default: mock connector (no hardware required, safe for development)
 
 control_system:
   # Control system type - determines which runtime connector to use
@@ -288,7 +291,6 @@ python_executor:
   max_execution_retries: 3
   execution_timeout_seconds: 600
 
-{% endif %}
 
 # ============================================================
 # APPLICATION METADATA

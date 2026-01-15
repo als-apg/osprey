@@ -87,10 +87,10 @@ fi
 
 # MEDIUM checks
 echo -e "\n=== MEDIUM ==="
-if black --check src/ tests/ >/dev/null 2>&1; then
-  echo "✓ Black formatted"
+if ruff format --check src/ tests/ >/dev/null 2>&1; then
+  echo "✓ Ruff formatted"
 else
-  echo "⚠ Black formatting needed"
+  echo "⚠ Ruff formatting needed"
   WARNINGS=$((WARNINGS + 1))
 fi
 

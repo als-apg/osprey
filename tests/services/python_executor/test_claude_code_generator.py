@@ -683,3 +683,130 @@ class TestClaudeCodeGeneratorStructuredErrors:
         """Verify phased workflow prompt includes phase information."""
         # This is tested in e2e/test_code_generator_workflows.py
         pass
+
+
+# =============================================================================
+# SYSTEM PROMPT CUSTOMIZATION TESTS
+# =============================================================================
+
+
+class TestClaudeCodeGeneratorSystemPromptCustomization:
+    """Test system prompt customization features."""
+
+    def test_default_system_prompt_used(self):
+        """Verify DEFAULT_SYSTEM_PROMPT is used when no customization."""
+        generator = ClaudeCodeGenerator()
+
+        request = PythonExecutionRequest(
+            user_query="Test",
+            task_objective="Test",
+            execution_folder_name="test",
+        )
+
+        prompt = generator._build_system_prompt(request)
+
+        # Should contain key phrases from default prompt
+        assert "Python code generator" in prompt
+        assert "scientific computing" in prompt or "control systems" in prompt
+
+    def test_custom_system_prompt_replaces_default(self):
+        """Verify custom system_prompt completely replaces the default."""
+        custom_prompt = "You are a specialized quantum computing code generator."
+
+        generator = ClaudeCodeGenerator(model_config={"system_prompt": custom_prompt})
+
+        request = PythonExecutionRequest(
+            user_query="Test",
+            task_objective="Test",
+            execution_folder_name="test",
+        )
+
+        prompt = generator._build_system_prompt(request)
+
+        # Should use custom prompt, not default
+        assert "quantum computing" in prompt
+        # Default phrases should NOT be present
+        assert "scientific computing and control systems" not in prompt
+
+    def test_system_prompt_extensions_appended(self):
+        """Verify system_prompt_extensions are appended to base prompt."""
+        extensions = """
+CONTROL SYSTEM OPERATIONS:
+- Use osprey.runtime for all channel operations
+- NEVER use epics.caput() directly
+"""
+        generator = ClaudeCodeGenerator(model_config={"system_prompt_extensions": extensions})
+
+        request = PythonExecutionRequest(
+            user_query="Test",
+            task_objective="Test",
+            execution_folder_name="test",
+        )
+
+        prompt = generator._build_system_prompt(request)
+
+        # Should contain default prompt content
+        assert "Python code generator" in prompt
+        # AND should contain extensions
+        assert "osprey.runtime" in prompt
+        assert "NEVER use epics.caput()" in prompt
+
+    def test_custom_prompt_with_extensions(self):
+        """Verify extensions work with custom system_prompt too."""
+        custom_prompt = "You are a custom generator."
+        extensions = "CUSTOM EXTENSION MARKER"
+
+        generator = ClaudeCodeGenerator(
+            model_config={
+                "system_prompt": custom_prompt,
+                "system_prompt_extensions": extensions,
+            }
+        )
+
+        request = PythonExecutionRequest(
+            user_query="Test",
+            task_objective="Test",
+            execution_folder_name="test",
+        )
+
+        prompt = generator._build_system_prompt(request)
+
+        assert "custom generator" in prompt
+        assert "CUSTOM EXTENSION MARKER" in prompt
+
+    def test_empty_extensions_not_added(self):
+        """Verify empty extensions don't add extra whitespace."""
+        generator = ClaudeCodeGenerator(model_config={"system_prompt_extensions": ""})
+
+        request = PythonExecutionRequest(
+            user_query="Test",
+            task_objective="Test",
+            execution_folder_name="test",
+        )
+
+        prompt = generator._build_system_prompt(request)
+
+        # Should not have double newlines from empty extension
+        assert "\n\n\n" not in prompt
+
+    def test_config_loaded_into_generator_config(self):
+        """Verify system prompt config is stored in generator.config."""
+        custom_prompt = "Custom prompt"
+        extensions = "Custom extensions"
+
+        generator = ClaudeCodeGenerator(
+            model_config={
+                "system_prompt": custom_prompt,
+                "system_prompt_extensions": extensions,
+            }
+        )
+
+        assert generator.config.get("system_prompt") == custom_prompt
+        assert generator.config.get("system_prompt_extensions") == extensions
+
+    def test_default_system_prompt_constant_exists(self):
+        """Verify DEFAULT_SYSTEM_PROMPT class attribute exists and is valid."""
+        assert hasattr(ClaudeCodeGenerator, "DEFAULT_SYSTEM_PROMPT")
+        assert isinstance(ClaudeCodeGenerator.DEFAULT_SYSTEM_PROMPT, str)
+        assert len(ClaudeCodeGenerator.DEFAULT_SYSTEM_PROMPT) > 100  # Non-trivial content
+        assert "Python" in ClaudeCodeGenerator.DEFAULT_SYSTEM_PROMPT

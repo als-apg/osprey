@@ -11,7 +11,25 @@ import json
 import re
 from pathlib import Path
 
+import nbformat
 import pytest
+
+
+def _extract_code_from_notebook(notebook_path: Path) -> str:
+    """Extract the user-generated Python code from a notebook.
+
+    The notebook contains wrapper code (imports, context loading, etc.) and the
+    actual user code. This function extracts code cells and returns their content.
+
+    Args:
+        notebook_path: Path to the .ipynb file
+
+    Returns:
+        Combined source code from all code cells in the notebook
+    """
+    notebook = nbformat.read(notebook_path, as_version=4)
+    code_cells = [cell.source for cell in notebook.cells if cell.cell_type == "code"]
+    return "\n".join(code_cells)
 
 
 def _disable_capabilities(project, capability_names: list[str]):
@@ -134,27 +152,7 @@ async def test_runtime_utilities_basic_write(e2e_project_factory):
     # 2. Python capability was executed
     assert "python" in result.execution_trace.lower(), "Python capability not executed"
 
-    # 3. Find the generated Python code
-    code_files = [a for a in result.artifacts if str(a).endswith(".py")]
-    assert len(code_files) > 0, "No Python code files generated"
-
-    # Read the generated code
-    generated_code = Path(code_files[0]).read_text()
-
-    # 4. CRITICAL: Verify LLM used runtime utilities (not direct epics.caput)
-    assert "from osprey.runtime import" in generated_code, (
-        "Generated code doesn't import osprey.runtime - LLM didn't learn the API"
-    )
-    assert "write_channel" in generated_code, (
-        "Generated code doesn't use write_channel() - LLM didn't follow prompts"
-    )
-
-    # 5. Verify code doesn't use deprecated direct EPICS calls
-    assert "epics.caput" not in generated_code.lower(), (
-        "Generated code uses deprecated epics.caput instead of runtime utilities"
-    )
-
-    # 6. Verify context snapshot exists
+    # 3. Find execution folder and notebook
     executed_scripts_dir = project.project_dir / "_agent_data" / "executed_scripts"
 
     # Find execution folders (they're nested inside month folders like 2025-12/)
@@ -166,24 +164,38 @@ async def test_runtime_utilities_basic_write(e2e_project_factory):
     assert len(execution_folders) > 0, "No execution folders created"
 
     latest_execution = sorted(execution_folders)[-1]
-    context_file = latest_execution / "context.json"
 
+    # 4. Find the notebook and extract generated code
+    notebook_files = list(latest_execution.glob("**/*.ipynb"))
+    assert len(notebook_files) > 0, "No notebook generated"
+
+    generated_code = _extract_code_from_notebook(notebook_files[0])
+
+    # 5. CRITICAL: Verify LLM used runtime utilities (not direct epics.caput)
+    assert "from osprey.runtime import" in generated_code, (
+        "Generated code doesn't import osprey.runtime - LLM didn't learn the API"
+    )
+    assert "write_channel" in generated_code, (
+        "Generated code doesn't use write_channel() - LLM didn't follow prompts"
+    )
+
+    # 6. Verify code doesn't use deprecated direct EPICS calls
+    assert "epics.caput" not in generated_code.lower(), (
+        "Generated code uses deprecated epics.caput instead of runtime utilities"
+    )
+
+    # 7. Verify context snapshot exists
+    context_file = latest_execution / "context.json"
     assert context_file.exists(), f"context.json not created in {latest_execution}"
 
-    # 7. Verify context snapshot contains control system config
+    # 8. Verify context snapshot contains control system config
     context_data = json.loads(context_file.read_text())
     assert "_execution_config" in context_data, "Context doesn't contain execution config snapshot"
     assert "control_system" in context_data["_execution_config"], (
         "Context snapshot missing control_system config"
     )
 
-    # 8. Verify notebook includes runtime configuration
-    # Notebooks are in the attempts subdirectory
-    notebook_files = list(latest_execution.glob("**/*.ipynb"))
-    assert len(notebook_files) > 0, "No notebook generated"
-
-    import nbformat
-
+    # 9. Verify notebook includes runtime configuration
     notebook = nbformat.read(notebook_files[0], as_version=4)
     notebook_text = "\n".join(cell.source for cell in notebook.cells)
 
@@ -274,25 +286,32 @@ async def test_runtime_utilities_respects_channel_limits(e2e_project_factory, tm
         f"Trace: {result.execution_trace[:1000]}"
     )
 
-    # 4. Check generated code used runtime utilities
-    code_files = [a for a in result.artifacts if str(a).endswith(".py")]
-    if len(code_files) > 0:
-        generated_code = Path(code_files[0]).read_text()
-
-        # Verify LLM used runtime API
-        assert "from osprey.runtime import" in generated_code, (
-            "Generated code doesn't use runtime utilities"
-        )
-        assert "write_channel" in generated_code, "Generated code doesn't use write_channel()"
-
-    # 5. Find execution folder and check for error details
+    # 4. Find execution folder and check for error details
     executed_scripts_dir = project.project_dir / "_agent_data" / "executed_scripts"
     if executed_scripts_dir.exists():
-        execution_folders = [d for d in executed_scripts_dir.iterdir() if d.is_dir()]
+        # Find execution folders (nested inside month folders)
+        execution_folders = []
+        for month_dir in executed_scripts_dir.iterdir():
+            if month_dir.is_dir():
+                execution_folders.extend([d for d in month_dir.iterdir() if d.is_dir()])
+
         if len(execution_folders) > 0:
             latest_execution = sorted(execution_folders)[-1]
 
-            # Check for execution metadata with error
+            # 5. Check generated code used runtime utilities (from notebook)
+            notebook_files = list(latest_execution.glob("**/*.ipynb"))
+            if len(notebook_files) > 0:
+                generated_code = _extract_code_from_notebook(notebook_files[0])
+
+                # Verify LLM used runtime API
+                assert "from osprey.runtime import" in generated_code, (
+                    "Generated code doesn't use runtime utilities"
+                )
+                assert "write_channel" in generated_code, (
+                    "Generated code doesn't use write_channel()"
+                )
+
+            # 6. Check for execution metadata with error
             metadata_file = latest_execution / "execution_metadata.json"
             if metadata_file.exists():
                 metadata = json.loads(metadata_file.read_text())
@@ -386,20 +405,28 @@ async def test_runtime_utilities_within_limits_succeeds(e2e_project_factory, tmp
         f"Response doesn't indicate successful write: {result.response[:300]}"
     )
 
-    # 5. Verify generated code used runtime utilities
-    code_files = [a for a in result.artifacts if str(a).endswith(".py")]
-    assert len(code_files) > 0, "No code files generated"
+    # 5. Find execution folder and verify code
+    executed_scripts_dir = project.project_dir / "_agent_data" / "executed_scripts"
 
-    generated_code = Path(code_files[0]).read_text()
+    # Find execution folders (nested inside month folders)
+    execution_folders = []
+    for month_dir in executed_scripts_dir.iterdir():
+        if month_dir.is_dir():
+            execution_folders.extend([d for d in month_dir.iterdir() if d.is_dir()])
+
+    assert len(execution_folders) > 0, "No execution folders created"
+
+    latest_execution = sorted(execution_folders)[-1]
+
+    # 6. Verify generated code used runtime utilities (from notebook)
+    notebook_files = list(latest_execution.glob("**/*.ipynb"))
+    assert len(notebook_files) > 0, "No notebook generated"
+
+    generated_code = _extract_code_from_notebook(notebook_files[0])
     assert "from osprey.runtime import" in generated_code
     assert "write_channel" in generated_code
 
-    # 6. Verify execution succeeded
-    executed_scripts_dir = project.project_dir / "_agent_data" / "executed_scripts"
-    execution_folders = [d for d in executed_scripts_dir.iterdir() if d.is_dir()]
-    assert len(execution_folders) > 0
-
-    latest_execution = sorted(execution_folders)[-1]
+    # 7. Verify execution succeeded
     metadata_file = latest_execution / "execution_metadata.json"
 
     if metadata_file.exists():

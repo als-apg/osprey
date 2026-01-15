@@ -73,7 +73,7 @@
 
 <!-- Ensure all items are complete before requesting review -->
 
-- [ ] Code follows project style guidelines (Black, isort, ruff)
+- [ ] Code follows project style guidelines (ruff)
 - [ ] Self-review completed
 - [ ] Comments added for complex/non-obvious code
 - [ ] Documentation updated (or N/A)

@@ -13,7 +13,6 @@ dependencies = [
 dev = [
     "pytest",
     "pytest-asyncio",
-    "black",
     "ruff",
 ]
 
@@ -24,10 +23,6 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["{{ package_name }}*"]
-
-[tool.black]
-line-length = 100
-target-version = ['py311']
 
 [tool.ruff]
 line-length = 100

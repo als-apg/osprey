@@ -22,7 +22,6 @@ updates:
         patterns:
           - "pytest*"
           - "ruff"
-          - "black"
           - "mypy"
           - "pre-commit"
       sphinx-dependencies:

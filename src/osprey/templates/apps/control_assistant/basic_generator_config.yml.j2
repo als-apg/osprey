@@ -1,0 +1,115 @@
+# Basic LLM Code Generator Configuration
+# =======================================
+#
+# This file configures the Basic LLM code generator for Osprey's Python
+# executor service. It provides simple prompt customization for code generation.
+#
+# Quick Start:
+#   1. The default prompts work well for most use cases
+#   2. Customize system_prompt or system_prompt_extensions for domain-specific guidance
+#   3. Use extensions to ADD guidance without losing core requirements
+#
+# Configuration Structure:
+#   - system_role: The "You are..." statement defining the generator's identity
+#   - core_requirements: Critical output format requirements (modify carefully!)
+#   - system_prompt_extensions: Additional domain-specific guidance (recommended)
+#   - fallback_guidance: Used only if no capability_prompts provided
+#
+# Customization Approaches:
+#   1. RECOMMENDED: Add system_prompt_extensions for domain-specific guidance
+#   2. ADVANCED: Modify core_requirements (may break expected output format)
+#   3. FULL CONTROL: Replace entire system_role and core_requirements
+#
+# Save Prompts:
+#   - Set save_prompts: true to save all prompts and responses
+#   - Creates execution_folder/prompts/ with complete prompt history
+#   - Helps debug and understand what the LLM sees
+
+# =============================================================================
+# Model Configuration
+# =============================================================================
+# The model is configured in your main config.yml under models.python_code_generator
+# This file only controls prompts and behavior, not model selection.
+
+save_prompts: true  # Save prompts/responses for transparency (recommended)
+
+# =============================================================================
+# System Role
+# =============================================================================
+# Defines the generator's identity and expertise.
+# This is the "You are..." statement at the start of every prompt.
+
+system_role: |
+  You are an expert Python code generator.
+
+# =============================================================================
+# Core Requirements
+# =============================================================================
+# Critical constraints that ensure correct output format.
+# MODIFY WITH CAUTION - these ensure the generated code works with the executor.
+#
+# Key requirements:
+#   1. Output must be executable Python (no markdown in final output)
+#   2. Results must be stored in a 'results' dictionary
+#   3. Imports must be at the top
+#   4. Must use actual context data, not simulated values
+
+core_requirements: |
+  CRITICAL REQUIREMENTS:
+  1. Generate ONLY executable Python code (no markdown, no explanations)
+  2. Store computed results in a dictionary variable named 'results'
+  3. Include all necessary imports at the top
+  4. Use actual values from the provided 'context' object - NEVER simulate, hardcode, or fabricate data
+  5. Prefer direct, simple solutions - if data is available in context, use it directly rather than building complex systems to fetch or generate it
+
+# =============================================================================
+# System Prompt Extensions (RECOMMENDED FOR CUSTOMIZATION)
+# =============================================================================
+# Add domain-specific guidance here. This is appended AFTER core_requirements.
+# Use this for facility-specific conventions, data handling rules, etc.
+#
+# Examples of what to add:
+#   - Timestamp handling conventions
+#   - Control system operation guidance
+#   - Facility-specific coding standards
+#   - Available libraries and how to use them
+#
+# Leave empty or remove to use defaults without extensions.
+
+system_prompt_extensions: |
+  CONTROL SYSTEM OPERATIONS:
+  - Use osprey.runtime for all channel read/write operations
+  - from osprey.runtime import write_channel, read_channel, write_channels
+  - NEVER use epics.caput() or epics.caget() directly - use osprey.runtime utilities
+  - All safety checks (limits validation, approval workflows) happen automatically
+
+# =============================================================================
+# Fallback Guidance
+# =============================================================================
+# Used ONLY if no capability_prompts are provided in the request.
+# Normally, capability_prompts from the Python capability provide detailed guidance.
+# This is a safety net for edge cases.
+
+fallback_guidance: |
+  GUIDANCE:
+  - Write clean, working Python code for the task
+  - Use clear variable names and add comments
+  - Handle common edge cases appropriately
+
+# =============================================================================
+# Error Feedback Settings
+# =============================================================================
+# Controls how previous errors are presented for iterative improvement.
+
+error_feedback:
+  # How many previous errors to include in the prompt
+  max_errors: 2
+
+  # Header text for the error section
+  header: |
+    === PREVIOUS ATTEMPT(S) FAILED - LEARN FROM THESE ERRORS ===
+    Analyze what went wrong and fix the root cause, not just symptoms.
+
+  # Footer text after error details
+  footer: |
+    Generate IMPROVED code that fixes these issues.

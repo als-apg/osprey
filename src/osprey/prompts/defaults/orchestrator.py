@@ -209,10 +209,13 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
 
         return textwrap.dedent(
             f"""
-            **AVAILABLE CONTEXT:**
-            The following context data is already available for use in your execution plan:
-
+            **AVAILABLE CONTEXT (from previous queries):**
             {formatted_context}
+
+            **CONTEXT REUSE PRINCIPLE:**
+            - REUSE existing context only when user explicitly references previous results
+              ("same time range", "that data", "the plot above", etc.)
+            - CREATE NEW step if user specifies new values - compare against context keys above
             """
         ).strip()
 

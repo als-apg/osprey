@@ -148,7 +148,7 @@ After creating and activating the virtual environment, install the framework pac
 
    * **[scientific]**: SciPy, Seaborn, Scikit-learn, ipywidgets *(for advanced data analysis)*
    * **[docs]**: Sphinx and documentation tools
-   * **[dev]**: pytest, black, mypy, and development tools
+   * **[dev]**: pytest, ruff, mypy, and development tools
 
    .. note::
       The following packages are now included in the core installation:

@@ -1,56 +1,15 @@
-# Osprey Framework - Latest Release (v0.10.1)
+# Osprey Framework - Latest Release (v0.10.4)
 
-🎉 **Direct Chat Mode & LiteLLM Migration** - Conversational capability interaction and unified LLM provider interface
+**Dependency Fix** - litellm/aiohttp compatibility
 
-## What's New in v0.10.1
+## What's New in v0.10.4
 
-### 💬 Direct Chat Mode
+### Bug Fix
 
-A new way to interact with capabilities in a conversational flow!
-
-- **Enter Direct Chat**: `/chat:<capability>` - Start chatting with a specific capability
-- **List Available**: `/chat` - See all direct-chat enabled capabilities
-- **Exit**: `/exit` - Return to normal orchestrated mode
-- **Dynamic Prompt**: See which mode you're in (normal vs capability name)
-- **Context Tools**: Save, read, and manage context during conversations
-
-**Built-in Direct Chat Capabilities:**
-- `state_manager` - Inspect and manage agent state
-- MCP-generated capabilities are direct-chat enabled by default
-
-### ⚡ LiteLLM Migration (#23)
-
-Major backend simplification - all LLM providers now use a unified interface:
-
-- **~2,200 lines → ~700 lines** - Massive code reduction
-- **8 Providers**: anthropic, openai, google, ollama, cborg, stanford, argo, vllm
-- **100+ Models**: Access to all LiteLLM-supported providers
-- **Preserved Features**: Extended thinking, structured outputs, health checks
-
-### 🆕 New Provider: vLLM
-
-High-throughput local inference support:
-
-- OpenAI-compatible interface via LiteLLM
-- Auto-detects served models
-- Supports structured outputs
-
-### 🔧 LangChain Model Factory
-
-Native integration with LangGraph ReAct agents:
-
-```python
-from osprey.models import get_langchain_model
-
-model = get_langchain_model(provider="anthropic", model_id="claude-sonnet-4")
-# Use with create_react_agent, etc.
-```
-
-### 📚 Documentation Updates
-
-- CLI Reference: Direct chat mode commands and examples
-- Gateway Architecture: Message history preservation
-- Building First Capability: `direct_chat_enabled` attribute guide
+- **Dependencies**: Pin `aiohttp>=3.10` for litellm compatibility (#87)
+  - Fixes `AttributeError: module aiohttp has no attribute ConnectionTimeoutError`
+  - `aiohttp.ConnectionTimeoutError` was added in aiohttp 3.10; litellm requires it but doesn't pin the version
+  - This was causing Docker container deployment failures
 
 ---
 
@@ -66,31 +25,13 @@ Or install with all optional dependencies:
 pip install --upgrade "osprey-framework[all]"
 ```
 
-## Upgrading from v0.10.0
-
-### Direct Chat Mode
-
-No migration needed! Direct chat mode is opt-in:
-
-```python
-# Add to your capability to enable direct chat
-@capability_node
-class MyCapability(BaseCapability):
-    direct_chat_enabled = True  # New in 0.10.1
-```
-
-### LiteLLM Migration
-
-The API remains the same - `get_chat_completion()` works exactly as before.
-Backend providers now use LiteLLM internally.
-
 ---
 
 ## What's Next?
 
 Check out our [documentation](https://als-apg.github.io/osprey) for:
-- Direct chat mode tutorial
-- LangChain integration guide
+- TUI mode guide
+- Artifact system API reference
 - Complete tutorial series
 
 ## Contributors

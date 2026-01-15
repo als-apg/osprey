@@ -308,10 +308,8 @@ def get_approval_manager() -> ApprovalManager:
         try:
             _approval_manager = ApprovalManager(approval_config)
             logger.info("✅ Approval manager initialized successfully")
-            logger.info(f"   - Global mode: {approval_config['global_mode']}")
-            logger.info(
-                f"   - Capabilities configured: {list(approval_config['capabilities'].keys())}"
-            )
+            logger.info(f"   - Global mode: {_approval_manager.config.global_mode}")
+            logger.info("   - Capabilities configured: ['python_execution', 'memory']")
         except Exception as e:
             # Security-critical component failure requires immediate attention
             logger.error(f"Failed to initialize ApprovalManager with valid config: {e}")
