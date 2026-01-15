@@ -135,7 +135,7 @@ def create_app(
             - {"action": "ping"}: Heartbeat
         """
         await websocket.accept()
-        handler = WebEventHandler(websocket, include_raw=True)
+        handler = WebEventHandler(websocket)
 
         # Register as fallback handler for events outside graph execution
         unregister = register_fallback_handler(handler.create_fallback_handler())

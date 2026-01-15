@@ -24,20 +24,27 @@ class WebEventHandler:
     This handler converts OspreyEvent dataclasses to JSON-serializable
     dictionaries and sends them via WebSocket for real-time display.
 
+    Event payload structure:
+        {
+            "id": 1,                              # Sequence number
+            "type": "StatusEvent",                # Event class name
+            "received_at": "2024-01-14T...",      # When handler processed it
+            "created_at": "2024-01-14T...",       # When event was created
+            "component": "router",                # Source component
+            "data": {...}                         # Type-specific fields
+        }
+
     Attributes:
         websocket: The FastAPI WebSocket connection
-        include_raw: Whether to include raw event data in output
     """
 
-    def __init__(self, websocket: "WebSocket", include_raw: bool = False):
+    def __init__(self, websocket: "WebSocket"):
         """Initialize the web event handler.
 
         Args:
             websocket: FastAPI WebSocket connection to send events to
-            include_raw: Include raw dataclass dict in event payload
         """
         self.websocket = websocket
-        self.include_raw = include_raw
         self._event_count = 0
 
     async def handle(self, event: OspreyEvent) -> None:
@@ -51,20 +58,6 @@ class WebEventHandler:
         """
         self._event_count += 1
 
-        # Build event payload
-        event_data = {
-            "id": self._event_count,
-            "type": event.__class__.__name__,
-            "timestamp": datetime.now().isoformat(),
-            "component": getattr(event, "component", ""),
-        }
-
-        # Add event-specific fields based on type
-        event_dict = asdict(event)
-
-        # Remove common fields already in event_data
-        event_dict.pop("component", None)
-
         # Convert datetime objects to ISO strings for JSON serialization
         def serialize_value(v):
             if isinstance(v, datetime):
@@ -75,15 +68,27 @@ class WebEventHandler:
                 return [serialize_value(item) for item in v]
             return v
 
+        # Extract common fields with clear semantics
+        created_at = getattr(event, "timestamp", datetime.now())
+        if isinstance(created_at, datetime):
+            created_at = created_at.isoformat()
+        component = getattr(event, "component", "")
+
+        # Convert event to dict, remove common fields for data
+        event_dict = asdict(event)
+        event_dict.pop("timestamp", None)
+        event_dict.pop("component", None)
         event_dict = {k: serialize_value(v) for k, v in event_dict.items()}
 
-        # Add remaining fields
-        event_data["data"] = event_dict
-
-        # Optionally include raw event for debugging
-        if self.include_raw:
-            raw_dict = asdict(event)
-            event_data["raw"] = {k: serialize_value(v) for k, v in raw_dict.items()}
+        # Build event payload with clear timestamp semantics
+        event_data = {
+            "id": self._event_count,
+            "type": event.__class__.__name__,
+            "received_at": datetime.now().isoformat(),  # When handler got it
+            "created_at": created_at,                   # When event was created
+            "component": component,
+            "data": event_dict,                         # Type-specific fields
+        }
 
         try:
             await self.websocket.send_json(event_data)

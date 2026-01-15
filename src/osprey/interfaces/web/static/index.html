@@ -376,7 +376,7 @@
             const div = document.createElement('div');
             div.className = 'event';
             const msg = getMsg(data);
-            const time = data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : '';
+            const time = data.created_at ? new Date(data.created_at).toLocaleTimeString() : '';
             const json = JSON.stringify(data, null, 2);
 
             // Get component color from config
@@ -410,15 +410,67 @@
             timeline.appendChild(div);
         }
 
-        // Get message
-        function getMsg(data) {
-            if (data.data?.message) return data.data.message;
-            if (data.data?.phase) return `Phase: ${data.data.phase}`;
-            if (data.data?.capability_name) return data.data.capability_name;
-            if (data.message) return data.message;
-            if (data.query) return `Query: ${data.query}`;
-            if (data.error) return data.error;
-            return JSON.stringify(data.data || data).slice(0, 80);
+        // Get message preview based on event type
+        function getMsg(event) {
+            const d = event.data || {};
+            const type = event.type;
+
+            // Type-specific preview logic
+            switch (type) {
+                case 'StatusEvent':
+                    return d.message || d.level || '';
+                case 'PhaseStartEvent':
+                    return d.description || `Phase: ${d.phase}`;
+                case 'PhaseCompleteEvent':
+                    return `${d.phase} ${d.success ? '✓' : '✗'}`;
+                case 'TaskExtractedEvent':
+                    return d.task ? d.task.slice(0, 80) : '';
+                case 'CapabilitiesSelectedEvent':
+                    return d.capability_names?.join(', ') || '';
+                case 'PlanCreatedEvent':
+                    return d.steps ? `${d.steps.length} steps planned` : '';
+                case 'CapabilityStartEvent':
+                    return d.capability_name || d.description || '';
+                case 'CapabilityCompleteEvent':
+                    return `${d.capability_name} ${d.success ? '✓' : '✗'}`;
+                case 'LLMRequestEvent':
+                    return d.prompt_preview || `[${d.model}]`;
+                case 'LLMResponseEvent':
+                    return d.response_preview || `${d.output_tokens} tokens`;
+                case 'ToolUseEvent':
+                    return d.tool_name || '';
+                case 'ToolResultEvent':
+                    return d.result_preview || d.tool_name || '';
+                case 'CodeGeneratedEvent':
+                    return d.code_preview || `[${d.language}]`;
+                case 'CodeExecutedEvent':
+                    return d.success ? (d.output_preview || '✓') : (d.error_message || '✗');
+                case 'ApprovalRequiredEvent':
+                    return d.action_description || d.approval_type || '';
+                case 'ApprovalReceivedEvent':
+                    return `${d.approved ? '✓' : '✗'} ${d.user_message || ''}`.trim();
+                case 'ResultEvent':
+                    return d.response ? d.response.slice(0, 80) : (d.success ? '✓' : '✗');
+                case 'ErrorEvent':
+                    return d.error_message || d.error_type || '';
+                // System events (not TypedEvents - fields at top level)
+                case 'connected':
+                    return event.message || 'Connected';
+                case 'execution_started':
+                    return event.query ? `Query: ${event.query}` : 'Started';
+                case 'execution_completed':
+                    return `Completed (${event.event_count || 0} events)`;
+                case 'execution_error':
+                    return event.error || 'Error';
+                case 'pong':
+                    return 'Pong';
+                default:
+                    // Unknown types - check top-level fields first, then data
+                    if (event.message) return event.message;
+                    if (event.query) return `Query: ${event.query}`;
+                    if (event.error) return event.error;
+                    return Object.keys(d).length > 0 ? JSON.stringify(d).slice(0, 80) : '';
+            }
         }
 
         // Update filter dropdowns
