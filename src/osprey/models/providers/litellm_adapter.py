@@ -229,6 +229,8 @@ def _handle_structured_output(
 
         response = litellm.completion(**completion_kwargs)
         response_text = response.choices[0].message.content or ""
+        # Clean response even for native support (some models still return Python-style booleans)
+        response_text = _clean_json_response(response_text)
     else:
         # Prompt-based fallback for models without native support
         structured_message = f"""{message}
@@ -243,7 +245,7 @@ Respond ONLY with the JSON object, no additional text or markdown formatting."""
         response = litellm.completion(**completion_kwargs)
         response_text = response.choices[0].message.content or ""
 
-        # Clean up markdown code blocks
+        # Clean up markdown code blocks and fix common JSON issues
         response_text = _clean_json_response(response_text)
 
     # Parse and validate
@@ -291,11 +293,13 @@ def _supports_native_structured_output(provider: str, model_id: str) -> bool:
 
 
 def _clean_json_response(text: str) -> str:
-    """Clean markdown code blocks from JSON response.
+    """Clean markdown code blocks and fix common JSON issues from LLM response.
 
     :param text: Raw response text
     :return: Cleaned JSON string
     """
+    import re
+
     text = text.strip()
 
     if text.startswith("```json"):
@@ -306,7 +310,17 @@ def _clean_json_response(text: str) -> str:
     if text.endswith("```"):
         text = text[:-3]
 
-    return text.strip()
+    text = text.strip()
+
+    # Fix Python-style booleans (True/False) to JSON-style (true/false)
+    # Only replace when they appear as values (after : or ,) not inside strings
+    # Use word boundaries to avoid replacing inside strings
+    text = re.sub(r":\s*True\b", ": true", text)
+    text = re.sub(r":\s*False\b", ": false", text)
+    text = re.sub(r",\s*True\b", ", true", text)
+    text = re.sub(r",\s*False\b", ", false", text)
+
+    return text
 
 
 def _execute_ollama_completion(
