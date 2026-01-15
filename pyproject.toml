@@ -145,6 +145,7 @@ dev = [
     "pre-commit",
     "ruff",
     "pyepics",  # EPICS connector support for testing
+    "build",  # Required for 'osprey deploy up --dev' to build local wheel
 ]
 
 # Natural language processing

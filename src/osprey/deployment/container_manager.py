@@ -372,6 +372,11 @@ def _copy_local_framework_for_override(out_dir):
     The wheel is built using the standard Python build process and can be installed
     in containers to override the PyPI version during development and testing.
 
+    Note: This function only works when osprey is installed in editable/development mode
+    (e.g., `pip install -e .`). If osprey is installed from PyPI or via regular
+    `pip install .`, the source files are not available and containers will use
+    the installed PyPI version.
+
     :param out_dir: Container build output directory
     :type out_dir: str
     :return: True if osprey wheel was successfully built and copied, False otherwise
@@ -385,9 +390,31 @@ def _copy_local_framework_for_override(out_dir):
 
         import osprey
 
-        # Get the osprey source root
+        # Get the osprey module path
         osprey_module_path = Path(osprey.__file__).parent
-        osprey_source_root = osprey_module_path.parent.parent  # Go up from src/osprey to root
+
+        # Check if osprey is installed from source (editable mode) vs from site-packages
+        # If installed from site-packages, we can't build a wheel from the source
+        osprey_path_str = str(osprey_module_path)
+        if "site-packages" in osprey_path_str or "dist-packages" in osprey_path_str:
+            logger.warning(
+                "Osprey is installed from PyPI, not in editable mode. "
+                "The --dev flag requires an editable install to build a local wheel. "
+                "To use --dev, reinstall osprey with: pip install -e <path-to-osprey-repo>"
+            )
+            return False
+
+        # Get the osprey source root (go up from src/osprey to root)
+        osprey_source_root = osprey_module_path.parent.parent
+
+        # Verify this looks like a valid osprey source directory
+        pyproject_path = osprey_source_root / "pyproject.toml"
+        if not pyproject_path.exists():
+            logger.warning(
+                f"No pyproject.toml found at {osprey_source_root}, "
+                "cannot build wheel from source"
+            )
+            return False
 
         # Build the wheel package from local source
         logger.info("Building osprey wheel from local source...")
@@ -400,7 +427,14 @@ def _copy_local_framework_for_override(out_dir):
             )
 
             if result.returncode != 0:
-                logger.warning(f"Failed to build osprey wheel: {result.stderr}")
+                # Check for missing 'build' package
+                if "No module named build" in result.stderr:
+                    logger.warning(
+                        "The 'build' package is required for --dev mode. Install with: "
+                        'pip install ".[dev]" (editable) or pip install osprey-framework[dev]'
+                    )
+                else:
+                    logger.warning(f"Failed to build osprey wheel: {result.stderr}")
                 return False
 
             # Find the built wheel

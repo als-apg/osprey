@@ -5,6 +5,14 @@ All notable changes to the Osprey Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Deployment**: Fix `--dev` mode failing when osprey is installed from PyPI (#86)
+  - Detect site-packages installation and show clear warning about editable mode requirement
+  - Add helpful error message when `build` package is missing
+  - Add `build` to dev dependencies for wheel building support
+
 ## [0.10.3] - 2026-01-14
 
 ### Changed
