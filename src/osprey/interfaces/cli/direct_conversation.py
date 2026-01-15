@@ -350,7 +350,7 @@ class CLI:
         self.console.print()
 
         # Initialize configuration using LangGraph config
-        self.console.print(f"[{Styles.INFO}]🔄 Initializing configuration...[/{Styles.INFO}]")
+        self.console.print("[system]🔄 Initializing configuration...[/system]")
 
         # Create unique thread for this CLI session
         self.thread_id = f"cli_session_{uuid.uuid4().hex[:8]}"
@@ -378,7 +378,7 @@ class CLI:
         self.base_config = {"configurable": configurable, "recursion_limit": recursion_limit}
 
         # Initialize framework
-        self.console.print(f"[{Styles.INFO}]🔄 Initializing framework...[/{Styles.INFO}]")
+        self.console.print("[system]🔄 Initializing framework...[/system]")
         initialize_registry(config_path=self.config_path)
         registry = get_registry()
         checkpointer = MemorySaver()
@@ -585,7 +585,7 @@ class CLI:
         """
         # Note: quiet_logging() was removed as part of unified event system.
         # User-facing output now flows through typed events, not Python logging.
-        self.console.print(f"[{Styles.INFO}]🔄 Processing: {user_input}[/{Styles.INFO}]")
+        self.console.print(f"[system]🔄 Processing: {user_input}[/system]")
 
         # Gateway handles all preprocessing
         result = await self.gateway.process_message(user_input, self.graph, self.base_config)
@@ -608,7 +608,7 @@ class CLI:
 
         # Execute the result
         if result.resume_command:
-            self.console.print(f"[{Styles.INFO}]🔄 Resuming from interrupt...[/{Styles.INFO}]")
+            self.console.print("[system]🔄 Resuming from interrupt...[/system]")
             # Resume commands come from gateway - execute with streaming
             try:
                 # Create typed event handler for resume execution
@@ -657,7 +657,7 @@ class CLI:
                 # Debug: Show execution step results count in fresh state
                 step_results = result.agent_state.get("execution_step_results", {})
                 self.console.print(
-                    f"[{Styles.INFO}]🔄 Starting new conversation turn (execution_step_results: {len(step_results)} records)...[/{Styles.INFO}]"
+                    f"[system]🔄 Starting new conversation turn (execution_step_results: {len(step_results)} records)...[/system]"
                 )
                 await self._execute_result(result.agent_state)
         else:

@@ -272,6 +272,8 @@ def _build_rich_theme(theme: ColorTheme) -> Theme:
             "border": theme.border_default,
             "border_accent": theme.border_accent,
             "border_dim": theme.border_dim,
+            # System/framework messages (gray for neutral appearance)
+            "system": "bright_black",
         }
     )
 

@@ -7,7 +7,8 @@ The handler provides focused output for CLI usage - showing status messages,
 success confirmations, warnings, errors, and final results. Component colors
 are loaded from the logging.logging_colors config for visual consistency.
 
-Output format follows Python logging style: [component] message
+Output format uses fixed-width columns: Role      Message
+Uses Rich Table for proper text wrapping alignment.
 
 Usage:
     from osprey.events import parse_event
@@ -23,6 +24,7 @@ Usage:
 
 from rich.console import Console
 from rich.highlighter import ReprHighlighter
+from rich.table import Table
 from rich.text import Text
 
 from osprey.cli.styles import Styles
@@ -87,30 +89,22 @@ class CLIEventHandler:
         parts = component.split("_")
         return "_".join(part.capitalize() for part in parts)
 
-    def _format_role_prefix(self, component: str) -> str:
-        """Format role prefix with fixed width for alignment.
+    def _format_role_name(self, component: str) -> str:
+        """Format role name with truncation (no brackets).
 
-        Creates a fixed-width prefix like "[Orchestrator]    " that ensures
-        all messages align properly. Long names are truncated with "...".
+        Creates a role name for display, truncating long names with "...".
 
         Args:
             component: Component name to format
 
         Returns:
-            Fixed-width prefix string
+            Formatted role name (without brackets)
         """
         name = self._format_component_name(component)
-        prefix = f"[{name}]"
-
-        # Truncate long names with "..." to ensure at least 1 space after ljust
-        # Formula: "[" (1) + truncated_name + "...]" (4) <= ROLE_COLUMN_WIDTH - 1
-        max_prefix_len = self.ROLE_COLUMN_WIDTH - 1  # 17 chars max for prefix
-        if len(prefix) > max_prefix_len:
-            # Truncate name: total = 1 + name_len + 4, so name_len = max - 5
-            truncated_name = name[: max_prefix_len - 5]
-            prefix = f"[{truncated_name}...]"
-
-        return prefix.ljust(self.ROLE_COLUMN_WIDTH)
+        max_len = self.ROLE_COLUMN_WIDTH - 1  # Leave room for at least 1 space
+        if len(name) > max_len:
+            name = name[: max_len - 3] + "..."
+        return name
 
     def _get_component_color(self, component: str) -> str:
         """Get component color from config with caching.
@@ -132,25 +126,51 @@ class CLIEventHandler:
                 self._color_cache[component] = "white"
         return self._color_cache[component]
 
-    def _format_message(self, prefix: str, msg: str, style: str) -> Text:
-        """Format message with component color and data type highlighting.
+    def _print_aligned(
+        self,
+        role: str,
+        message: str,
+        role_style: str,
+        msg_style: str,
+        prefix: str = "",
+    ) -> None:
+        """Print message with proper column alignment using Rich Table.
 
-        Creates a Rich Text object with the component style applied to the entire
-        message, then applies ReprHighlighter to add data type highlighting on top.
-        Rich renders overlapping spans, with data type colors taking visual precedence.
+        Uses a borderless table to ensure:
+        - Role column has fixed width
+        - Message column wraps properly
+        - Wrapped lines align with message start, not role start
 
         Args:
-            prefix: Component prefix like "[comp] " or "✓ [comp] "
-            msg: The message content
-            style: Rich style string for the component color
-
-        Returns:
-            Rich Text object with both component style and data type highlighting
+            role: Component name (without brackets)
+            message: Message content
+            role_style: Style for role column
+            msg_style: Style for message column
+            prefix: Optional prefix like "✓ " or "⚠ "
         """
-        text = Text(f"{prefix}{msg}")
-        text.stylize(style)
-        self._highlighter.highlight(text)
-        return text
+        table = Table(
+            show_header=False,
+            show_edge=False,
+            show_footer=False,
+            padding=(0, 0),
+            collapse_padding=True,
+            pad_edge=False,
+            box=None,
+        )
+
+        # Role column: fixed width, no wrap
+        table.add_column(width=self.ROLE_COLUMN_WIDTH, no_wrap=True, style=role_style)
+
+        # Message column: flexible, wraps
+        table.add_column(overflow="fold", style=msg_style)
+
+        # Apply data highlighting to message
+        msg_text = Text(message)
+        self._highlighter.highlight(msg_text)
+
+        role_text = f"{prefix}{role}" if prefix else role
+        table.add_row(role_text, msg_text)
+        self.console.print(table)
 
     async def handle(self, event: OspreyEvent) -> None:
         """Process a typed event using pattern matching.
@@ -166,69 +186,66 @@ class CLIEventHandler:
             # StatusEvent - status level (most common - high-level progress)
             case StatusEvent(message=msg, level="status", component=comp):
                 color = self._get_component_color(comp)
-                prefix = self._format_role_prefix(comp)
-                text = self._format_message(prefix, msg, color)
-                self.console.print(text)
+                role = self._format_role_name(comp)
+                self._print_aligned(role, msg, color, color)
 
             # StatusEvent - key_info level (important info with bold styling)
             case StatusEvent(message=msg, level="key_info", component=comp):
                 color = self._get_component_color(comp)
-                prefix = self._format_role_prefix(comp)
-                text = self._format_message(prefix, msg, f"bold {color}")
-                self.console.print(text)
+                role = self._format_role_name(comp)
+                self._print_aligned(role, msg, f"bold {color}", f"bold {color}")
 
             # StatusEvent - info level (operational info)
             case StatusEvent(message=msg, level="info", component=comp):
                 color = self._get_component_color(comp)
-                prefix = self._format_role_prefix(comp)
-                text = self._format_message(prefix, msg, color)
-                self.console.print(text)
+                role = self._format_role_name(comp)
+                self._print_aligned(role, msg, color, color)
 
             # StatusEvent - success level (completion confirmations)
             case StatusEvent(message=msg, level="success", component=comp):
-                prefix = self._format_role_prefix(comp)
-                text = self._format_message(f"✓ {prefix}", msg, "bold green")
-                self.console.print(text)
+                role = self._format_role_name(comp)
+                self._print_aligned(role, msg, "bold green", "bold green", prefix="✓ ")
 
             # StatusEvent - warning level (warnings)
             case StatusEvent(message=msg, level="warning", component=comp):
-                prefix = self._format_role_prefix(comp)
-                text = self._format_message(f"⚠ {prefix}", msg, "yellow")
-                self.console.print(text)
+                role = self._format_role_name(comp)
+                self._print_aligned(role, msg, "yellow", "yellow", prefix="⚠ ")
 
             # StatusEvent - error level (errors)
             case StatusEvent(message=msg, level="error", component=comp):
-                prefix = self._format_role_prefix(comp)
-                text = self._format_message(f"✗ {prefix}", msg, "red")
-                self.console.print(text)
+                role = self._format_role_name(comp)
+                self._print_aligned(role, msg, "red", "red", prefix="✗ ")
 
             # StatusEvent - debug level (only in verbose mode)
             case StatusEvent(
                 message=msg, level="debug", component=comp
             ) if self.verbose:
                 color = self._get_component_color(comp)
-                prefix = self._format_role_prefix(comp)
-                text = self._format_message(f"🔍 {prefix}", msg, f"dim {color}")
-                self.console.print(text)
+                role = self._format_role_name(comp)
+                self._print_aligned(role, msg, f"dim {color}", f"dim {color}", prefix="🔍 ")
 
             # LLMRequestEvent - "LLM prompt built"
-            case LLMRequestEvent(component=comp, prompt_length=length):
+            case LLMRequestEvent(component=comp, prompt_length=length, key=key):
                 color = self._get_component_color(comp)
-                prefix = self._format_role_prefix(comp)
-                msg = f"LLM prompt built ({length} chars)"
-                text = self._format_message(prefix, msg, color)
-                self.console.print(text)
+                role = self._format_role_name(comp)
+                if key:
+                    msg = f"LLM prompt built for {key} ({length} chars)"
+                else:
+                    msg = f"LLM prompt built ({length} chars)"
+                self._print_aligned(role, msg, color, color)
 
             # LLMResponseEvent - "LLM response received"
             case LLMResponseEvent(
-                component=comp, response_length=length, duration_ms=dur
+                component=comp, response_length=length, duration_ms=dur, key=key
             ):
                 color = self._get_component_color(comp)
-                prefix = self._format_role_prefix(comp)
+                role = self._format_role_name(comp)
                 dur_sec = dur / 1000 if dur else 0
-                msg = f"LLM response received ({length} chars, {dur_sec:.2f}s)"
-                text = self._format_message(prefix, msg, color)
-                self.console.print(text)
+                if key:
+                    msg = f"LLM response for {key} ({length} chars, {dur_sec:.2f}s)"
+                else:
+                    msg = f"LLM response received ({length} chars, {dur_sec:.2f}s)"
+                self._print_aligned(role, msg, color, color)
 
             # ResultEvent - final response (success)
             case ResultEvent(response=response, success=True):
@@ -245,10 +262,10 @@ class CLIEventHandler:
             case ErrorEvent(
                 error_type=err_type, error_message=msg, component=comp
             ):
-                prefix = self._format_role_prefix(comp)
-                self.console.print(f"[error]✗ {prefix}{err_type}[/error]")
-                indent = " " * (self.ROLE_COLUMN_WIDTH + 2)
-                self.console.print(f"[error]{indent}{msg}[/error]")
+                role = self._format_role_name(comp)
+                self._print_aligned(role, err_type, "red", "red", prefix="✗ ")
+                # Error detail on next line, aligned with message column
+                self._print_aligned("", msg, "", "red")
 
             case _:
                 # All other events silently ignored (timing, approval, resume,
@@ -282,69 +299,66 @@ class CLIEventHandler:
             # StatusEvent - status level
             case StatusEvent(message=msg, level="status", component=comp):
                 color = self._get_component_color(comp)
-                prefix = self._format_role_prefix(comp)
-                text = self._format_message(prefix, msg, color)
-                self.console.print(text)
+                role = self._format_role_name(comp)
+                self._print_aligned(role, msg, color, color)
 
             # StatusEvent - key_info level (important info with bold styling)
             case StatusEvent(message=msg, level="key_info", component=comp):
                 color = self._get_component_color(comp)
-                prefix = self._format_role_prefix(comp)
-                text = self._format_message(prefix, msg, f"bold {color}")
-                self.console.print(text)
+                role = self._format_role_name(comp)
+                self._print_aligned(role, msg, f"bold {color}", f"bold {color}")
 
             # StatusEvent - info level
             case StatusEvent(message=msg, level="info", component=comp):
                 color = self._get_component_color(comp)
-                prefix = self._format_role_prefix(comp)
-                text = self._format_message(prefix, msg, color)
-                self.console.print(text)
+                role = self._format_role_name(comp)
+                self._print_aligned(role, msg, color, color)
 
             # StatusEvent - success level
             case StatusEvent(message=msg, level="success", component=comp):
-                prefix = self._format_role_prefix(comp)
-                text = self._format_message(f"✓ {prefix}", msg, "bold green")
-                self.console.print(text)
+                role = self._format_role_name(comp)
+                self._print_aligned(role, msg, "bold green", "bold green", prefix="✓ ")
 
             # StatusEvent - warning level
             case StatusEvent(message=msg, level="warning", component=comp):
-                prefix = self._format_role_prefix(comp)
-                text = self._format_message(f"⚠ {prefix}", msg, "yellow")
-                self.console.print(text)
+                role = self._format_role_name(comp)
+                self._print_aligned(role, msg, "yellow", "yellow", prefix="⚠ ")
 
             # StatusEvent - error level
             case StatusEvent(message=msg, level="error", component=comp):
-                prefix = self._format_role_prefix(comp)
-                text = self._format_message(f"✗ {prefix}", msg, "red")
-                self.console.print(text)
+                role = self._format_role_name(comp)
+                self._print_aligned(role, msg, "red", "red", prefix="✗ ")
 
             # StatusEvent - debug level (verbose only)
             case StatusEvent(
                 message=msg, level="debug", component=comp
             ) if self.verbose:
                 color = self._get_component_color(comp)
-                prefix = self._format_role_prefix(comp)
-                text = self._format_message(f"🔍 {prefix}", msg, f"dim {color}")
-                self.console.print(text)
+                role = self._format_role_name(comp)
+                self._print_aligned(role, msg, f"dim {color}", f"dim {color}", prefix="🔍 ")
 
             # LLMRequestEvent - "LLM prompt built"
-            case LLMRequestEvent(component=comp, prompt_length=length):
+            case LLMRequestEvent(component=comp, prompt_length=length, key=key):
                 color = self._get_component_color(comp)
-                prefix = self._format_role_prefix(comp)
-                msg = f"LLM prompt built ({length} chars)"
-                text = self._format_message(prefix, msg, color)
-                self.console.print(text)
+                role = self._format_role_name(comp)
+                if key:
+                    msg = f"LLM prompt built for {key} ({length} chars)"
+                else:
+                    msg = f"LLM prompt built ({length} chars)"
+                self._print_aligned(role, msg, color, color)
 
             # LLMResponseEvent - "LLM response received"
             case LLMResponseEvent(
-                component=comp, response_length=length, duration_ms=dur
+                component=comp, response_length=length, duration_ms=dur, key=key
             ):
                 color = self._get_component_color(comp)
-                prefix = self._format_role_prefix(comp)
+                role = self._format_role_name(comp)
                 dur_sec = dur / 1000 if dur else 0
-                msg = f"LLM response received ({length} chars, {dur_sec:.2f}s)"
-                text = self._format_message(prefix, msg, color)
-                self.console.print(text)
+                if key:
+                    msg = f"LLM response for {key} ({length} chars, {dur_sec:.2f}s)"
+                else:
+                    msg = f"LLM response received ({length} chars, {dur_sec:.2f}s)"
+                self._print_aligned(role, msg, color, color)
 
             # ResultEvent - success
             case ResultEvent(response=response, success=True):
@@ -361,10 +375,10 @@ class CLIEventHandler:
             case ErrorEvent(
                 error_type=err_type, error_message=msg, component=comp
             ):
-                prefix = self._format_role_prefix(comp)
-                self.console.print(f"[error]✗ {prefix}{err_type}[/error]")
-                indent = " " * (self.ROLE_COLUMN_WIDTH + 2)
-                self.console.print(f"[error]{indent}{msg}[/error]")
+                role = self._format_role_name(comp)
+                self._print_aligned(role, err_type, "red", "red", prefix="✗ ")
+                # Error detail on next line, aligned with message column
+                self._print_aligned("", msg, "", "red")
 
             case _:
                 pass
