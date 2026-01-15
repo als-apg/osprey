@@ -57,7 +57,15 @@
             background: var(--text-faint);
         }
         .status-dot.connected { background: #090; }
-        .status-dot.executing { background: #f90; }
+        .status-dot.connecting { background: #f90; }
+        .status-dot.streaming { background: #090; }
+        @keyframes breathing {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+        .status-dot.breathing {
+            animation: breathing 1.5s ease-in-out infinite;
+        }
         .theme-toggle {
             margin-left: auto;
             padding: 4px 8px;
@@ -190,8 +198,8 @@
     <div class="header">
         <h1>Osprey Debug</h1>
         <div class="status">
-            <div class="status-dot" id="statusDot"></div>
-            <span id="statusText">Disconnected</span>
+            <div class="status-dot connecting breathing" id="statusDot"></div>
+            <span id="statusText">Connecting...</span>
         </div>
         <button class="theme-toggle" id="themeToggle">Dark</button>
     </div>
@@ -273,6 +281,7 @@
         // Check if fully ready (colors + WebSocket)
         function checkReady() {
             if (colorsReady && wsReady) {
+                statusDot.classList.remove('connecting', 'breathing');
                 statusDot.classList.add('connected');
                 statusText.textContent = 'Ready';
                 executeBtn.disabled = false;
@@ -310,14 +319,22 @@
 
             ws.onopen = () => {
                 wsReady = true;
+                if (!colorsReady) {
+                    statusText.textContent = 'Initializing...';
+                }
                 checkReady();
             };
             ws.onclose = () => {
                 wsReady = false;
-                statusDot.classList.remove('connected', 'executing');
+                statusDot.classList.remove('connected', 'connecting', 'streaming', 'breathing');
                 statusText.textContent = 'Disconnected';
                 executeBtn.disabled = true;
-                setTimeout(connect, 3000);
+                // Restart connection with connecting state
+                setTimeout(() => {
+                    statusDot.classList.add('connecting', 'breathing');
+                    statusText.textContent = 'Connecting...';
+                    connect();
+                }, 3000);
             };
             ws.onmessage = (e) => handleEvent(JSON.parse(e.data));
         }
@@ -329,9 +346,13 @@
             updateFilterOptions();
 
             if (data.type === 'execution_started') {
-                statusDot.classList.add('executing');
+                statusDot.classList.remove('connecting');
+                statusDot.classList.add('streaming');
+                statusText.textContent = 'Streaming...';
             } else if (data.type === 'execution_completed' || data.type === 'execution_error') {
-                statusDot.classList.remove('executing');
+                statusDot.classList.remove('streaming', 'breathing');
+                statusDot.classList.add('connected');
+                statusText.textContent = 'Ready';
             }
 
             if (matchesFilters(data)) {
@@ -430,6 +451,10 @@
         function executeQuery() {
             const q = queryInput.value.trim();
             if (!q || !ws || ws.readyState !== WebSocket.OPEN) return;
+            // Immediate visual feedback
+            statusDot.classList.remove('connected');
+            statusDot.classList.add('connecting', 'breathing');
+            statusText.textContent = 'Executing...';
             ws.send(JSON.stringify({ action: 'execute', query: q }));
         }
 
