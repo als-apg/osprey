@@ -27,11 +27,13 @@ STEP 0A - Review CHANGELOG (CRITICAL - DO THIS FIRST):
 3. Verify the changelog accurately reflects all changes
 4. Confirm the release theme and title with me before proceeding
 
-STEP 0B - Pre-Release Testing:
-1. Check that venv is activated
-2. Run unit tests: pytest tests/ --ignore=tests/e2e -v
-3. Run e2e tests: pytest tests/e2e/ -v
-4. Verify all tests pass before proceeding
+STEP 0B - Pre-Release Testing (Clean Environment):
+1. Create a fresh venv: python -m venv .venv-release-test && source .venv-release-test/bin/activate
+2. Install from scratch: pip install -e ".[dev]"
+3. Run unit tests: pytest tests/ --ignore=tests/e2e -v
+4. Run e2e tests: pytest tests/e2e/ -v
+5. Verify all tests pass before proceeding
+6. Cleanup: deactivate && rm -rf .venv-release-test
 
 STEP 1 - Version Updates (BEFORE creating tag):
 1. Show me all files that need version updates
@@ -109,10 +111,20 @@ If any step fails, help me troubleshoot before continuing.
 
 **⚠️ IMPORTANT**: Always run tests before starting the release process.
 
-1. **Activate Virtual Environment**
+1. **Create Clean Virtual Environment (Dependency Verification)**
+
+   **⚠️ CRITICAL**: Your development venv may have packages installed that aren't in `pyproject.toml`. A clean venv catches missing dependencies before users encounter them.
+
    ```bash
-   source venv/bin/activate
+   # Create a fresh venv (don't delete your main one)
+   python -m venv .venv-release-test
+   source .venv-release-test/bin/activate
+
+   # Install osprey with dev dependencies from scratch
+   pip install -e ".[dev]"
    ```
+
+   **Why this matters**: We've had CI failures where tests passed locally but failed in CI because developers had manually installed packages (like `langchain-openai`, `fastmcp`) that weren't declared as dependencies.
 
 2. **Run Unit & Integration Tests**
    ```bash
@@ -164,6 +176,14 @@ If any step fails, help me troubleshoot before continuing.
    - If tests fail, fix issues first
    - Re-run tests until all pass
    - Commit fixes before proceeding
+
+6. **Cleanup Test Environment**
+   ```bash
+   # Return to your main development venv
+   deactivate
+   rm -rf .venv-release-test
+   source venv/bin/activate  # or your main venv
+   ```
 
 ### **Step 1: Pre-Release Version Updates (CRITICAL)**
 
