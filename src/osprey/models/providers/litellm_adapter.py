@@ -246,7 +246,7 @@ def _handle_structured_output(
     schema = output_format.model_json_schema()
 
     # Check if model supports native structured outputs using LiteLLM's detection
-    supports_native = _supports_native_structured_output(litellm_model)
+    supports_native = _supports_native_structured_output(litellm_model, provider)
 
     if supports_native:
         # Use LiteLLM's native structured output support
@@ -291,15 +291,22 @@ Respond ONLY with the JSON object, no additional text or markdown formatting."""
         ) from e
 
 
-def _supports_native_structured_output(litellm_model: str) -> bool:
-    """Check if a model supports native structured outputs using LiteLLM's detection.
+def _supports_native_structured_output(litellm_model: str, provider: str) -> bool:
+    """Check if a model supports native structured outputs.
 
-    This delegates to LiteLLM's built-in supports_response_schema() function,
-    which maintains an up-to-date list of model capabilities.
+    Uses LiteLLM's built-in supports_response_schema() for detection, with
+    fallback handling for OpenAI-compatible providers (CBORG, Stanford, ARGO, vLLM)
+    that support structured outputs via their proxy but aren't recognized by LiteLLM.
 
     :param litellm_model: LiteLLM-formatted model string (e.g., "anthropic/claude-sonnet-4")
+    :param provider: Osprey provider name
     :return: True if native structured output is supported
     """
+    # OpenAI-compatible providers support structured outputs via their API
+    # LiteLLM can't detect this since it sees the openai/ prefix, not the actual model
+    if provider in ("cborg", "stanford", "argo", "vllm"):
+        return True
+
     try:
         return litellm.supports_response_schema(model=litellm_model)
     except Exception:
