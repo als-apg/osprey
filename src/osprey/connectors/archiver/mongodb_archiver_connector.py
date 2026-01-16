@@ -48,7 +48,6 @@ class MongoDBArchiverConnector(ArchiverConnector):
     def __init__(self):
         self._connected = False
         self._client = None
-        self._db = None
         self._collection = None
         self._timeout = 60
 
@@ -143,9 +142,8 @@ class MongoDBArchiverConnector(ArchiverConnector):
 
             await asyncio.to_thread(test_connection)
 
-            # Get database and collection
-            self._db = self._client[db_name]
-            self._collection = self._db[collection_name]
+            # Get collection
+            self._collection = self._client[db_name][collection_name]
 
             self._connected = True
             logger.debug(
@@ -178,7 +176,6 @@ class MongoDBArchiverConnector(ArchiverConnector):
                 logger.warning(f"Error closing MongoDB connection: {e}")
 
         self._client = None
-        self._db = None
         self._collection = None
         self._connected = False
         logger.debug("MongoDB Archiver connector disconnected")
