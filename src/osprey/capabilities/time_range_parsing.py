@@ -43,9 +43,11 @@ type safety through Pydantic models and comprehensive error handling.
 """
 
 import asyncio
+import os
 import textwrap
 from datetime import UTC, datetime, timedelta
 from typing import Any, ClassVar
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -56,6 +58,13 @@ from osprey.base.examples import OrchestratorGuide, TaskClassifierGuide
 from osprey.context.base import CapabilityContext
 from osprey.prompts.loader import get_framework_prompts
 from osprey.utils.config import get_model_config
+
+# Get local timezone from TZ environment variable, default to America/Chicago if not set
+LOCAL_TIMEZONE = os.environ.get("TZ", "America/Chicago")
+
+# Get local time parsing preference from environment variable
+# Set TIME_PARSING_LOCAL=true in .env to use local timezone instead of UTC
+TIME_PARSING_LOCAL = os.environ.get("TIME_PARSING_LOCAL", "false").lower() in ("true", "1", "yes")
 
 # Import model completion - adapt based on your model system
 try:
@@ -339,7 +348,7 @@ class TimeRangeOutput(BaseModel):
 # ========================================================
 
 
-def _get_time_parsing_system_prompt(user_query: str) -> str:
+def _get_time_parsing_system_prompt(user_query: str, local: bool = False) -> str:
     """Create comprehensive system prompt for LLM-based time range parsing.
 
     Constructs a sophisticated system prompt that provides the LLM with complete
@@ -352,12 +361,15 @@ def _get_time_parsing_system_prompt(user_query: str) -> str:
 
     :param user_query: User query containing time expressions to parse
     :type user_query: str
+    :param local: If True, use local timezone (America/Chicago) instead of UTC
+    :type local: bool
     :return: Complete system prompt for LLM time parsing with examples and validation rules
     :rtype: str
 
     .. note::
-       Uses UTC timezone as reference and includes extensive examples with
-       current time calculations to ensure accurate relative time parsing.
+       Uses UTC timezone by default, or local timezone (America/Chicago) when local=True.
+       Includes extensive examples with current time calculations to ensure accurate
+       relative time parsing.
 
     .. warning::
        Includes critical validation rules to prevent future dates and
@@ -370,8 +382,14 @@ def _get_time_parsing_system_prompt(user_query: str) -> str:
        :class:`TimeRangeContext` : Final context object created from parsed results
     """
 
-    # Use UTC timezone to avoid confusion
-    now = datetime.now(UTC)
+    # Use local timezone or UTC based on parameter
+    if local:
+        local_tz = ZoneInfo(LOCAL_TIMEZONE)
+        now = datetime.now(local_tz)
+        timezone_info = f"LOCAL TIME, {LOCAL_TIMEZONE} timezone"
+    else:
+        now = datetime.now(UTC)
+        timezone_info = "UTC timezone"
     current_time_str = now.strftime("%Y-%m-%d %H:%M:%S")
     current_weekday = now.strftime("%A")
 
@@ -387,7 +405,7 @@ def _get_time_parsing_system_prompt(user_query: str) -> str:
         You are an expert time range parser. Your task is to extract time ranges from user queries and convert them to absolute datetime values.
 
         Current time context:
-        - Current datetime: {current_time_str}
+        - Current datetime: {current_time_str} ({timezone_info})
         - Current weekday: {current_weekday}
 
         CRITICAL REQUIREMENTS:
@@ -395,9 +413,11 @@ def _get_time_parsing_system_prompt(user_query: str) -> str:
         - Use format 'YYYY-MM-DD HH:MM:SS' (e.g., "{current_time_str}")
         - Return as datetime objects, not strings with extra text or descriptions
         - **CRITICAL**: start_date MUST be BEFORE end_date (start < end)
-        - **CRITICAL**: Use ONLY the current year {now.year} - NO future years like 2025, 2026, etc.
-        - **CRITICAL**: Current time is {current_time_str} - use this as reference
-        - For historical data requests, end_date should typically be close to current time
+        - **CRITICAL**: Dates must NOT be in the FUTURE (after {current_time_str})
+        - **CRITICAL**: Past years are ALLOWED (e.g., 2025, 2024, etc. are valid if before current time)
+        - **CRITICAL**: Current time is {current_time_str} ({timezone_info}) - use this as reference
+        - For historical data requests, end_date should typically be close to current time or the user-specified end date
+        - When user specifies dates like "10/12/25", interpret as October 12, 2025 (MM/DD/YY format)
 
         Instructions:
         1. Parse the user query to identify time range references
@@ -500,6 +520,10 @@ class TimeRangeParsingCapability(BaseCapability):
     provides = ["TIME_RANGE"]
     requires = []
 
+    # Configuration option: use local timezone instead of UTC
+    # Default is read from TIME_PARSING_LOCAL environment variable (set in .env)
+    local: bool = TIME_PARSING_LOCAL
+
     async def execute(self) -> dict[str, Any]:
         """Execute comprehensive time range parsing with LLM integration and validation.
 
@@ -553,10 +577,10 @@ class TimeRangeParsingCapability(BaseCapability):
         logger.info(f'[bold]Query:[/bold] "[italic]{task_objective}[/italic]"')
         logger.status("Parsing time range with LLM...")
 
-        # Build sophisticated system prompt
-        full_prompt = _get_time_parsing_system_prompt(task_objective)
+        # Build sophisticated system prompt (use local timezone if configured)
+        full_prompt = _get_time_parsing_system_prompt(task_objective, local=self.local)
 
-        logger.debug(f"Time parsing for task '{task_objective}': {task_objective}")
+        logger.debug(f"Time parsing for task '{task_objective}' (local={self.local}): {task_objective}")
 
         try:
             # Get model config from LangGraph configurable
@@ -609,17 +633,29 @@ class TimeRangeParsingCapability(BaseCapability):
                 f"Invalid date range: start_date ({response_data.start_date}) must be before end_date ({response_data.end_date})"
             )
 
-        # VALIDATION: Check for future years (likely LLM error)
-        current_year = datetime.now().year
-        if (
-            response_data.start_date.year > current_year
-            or response_data.end_date.year > current_year
-        ):
+        # VALIDATION: Check for future dates (likely LLM error)
+        # Use appropriate timezone for comparison
+        if self.local:
+            local_tz = ZoneInfo(LOCAL_TIMEZONE)
+            now_for_check = datetime.now(local_tz)
+        else:
+            now_for_check = datetime.now(UTC)
+
+        # Make response dates timezone-aware for comparison if they're naive
+        end_date_for_check = response_data.end_date
+        if end_date_for_check.tzinfo is None:
+            if self.local:
+                end_date_for_check = end_date_for_check.replace(tzinfo=ZoneInfo(LOCAL_TIMEZONE))
+            else:
+                end_date_for_check = end_date_for_check.replace(tzinfo=UTC)
+
+        # Allow 1 hour tolerance for edge cases
+        if end_date_for_check > now_for_check + timedelta(hours=1):
             logger.error(
-                f"⚠️ LLM returned FUTURE year: start={response_data.start_date}, end={response_data.end_date}, current_year={current_year}"
+                f"⚠️ LLM returned FUTURE date: end={response_data.end_date}, current_time={now_for_check}"
             )
             raise InvalidTimeFormatError(
-                f"Invalid date range: dates cannot be in future years (current year: {current_year})"
+                f"Invalid date range: end_date ({response_data.end_date}) cannot be in the future (current time: {now_for_check.strftime('%Y-%m-%d %H:%M:%S')})"
             )
 
         logger.status("Creating time range context...")
