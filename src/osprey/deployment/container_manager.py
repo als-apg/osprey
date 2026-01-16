@@ -411,8 +411,7 @@ def _copy_local_framework_for_override(out_dir):
         pyproject_path = osprey_source_root / "pyproject.toml"
         if not pyproject_path.exists():
             logger.warning(
-                f"No pyproject.toml found at {osprey_source_root}, "
-                "cannot build wheel from source"
+                f"No pyproject.toml found at {osprey_source_root}, cannot build wheel from source"
             )
             return False
 
