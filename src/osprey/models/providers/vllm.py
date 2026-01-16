@@ -61,6 +61,9 @@ class VLLMProviderAdapter(BaseProvider):
     ]
     api_key_note = "API key optional - set VLLM_API_KEY or use 'EMPTY' as placeholder"
 
+    # LiteLLM integration - vLLM is an OpenAI-compatible server
+    is_openai_compatible = True
+
     def execute_completion(
         self,
         message: str,

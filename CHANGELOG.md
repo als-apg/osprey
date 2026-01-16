@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **Docs**: Update ALS Assistant reference to published paper (Phys. Rev. Res. **8**, L012017)
+- **Models**: Decouple LiteLLM adapter from hardcoded provider checks
+  - Providers now declare LiteLLM routing via class attributes (`litellm_prefix`, `is_openai_compatible`)
+  - Structured output detection now uses LiteLLM's `supports_response_schema()` function
+  - Custom providers can integrate without modifying the adapter layer
+  - Maintains backward compatibility with fallback for existing code
 
 ### Fixed
 - **Deployment**: Fix `--dev` mode failing when osprey is installed from PyPI (#86)

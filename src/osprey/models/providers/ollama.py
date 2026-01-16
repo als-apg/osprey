@@ -33,6 +33,9 @@ class OllamaProviderAdapter(BaseProvider):
     api_key_instructions = []
     api_key_note = "Ollama runs locally and does not require an API key"
 
+    # LiteLLM integration
+    litellm_prefix = "ollama"
+
     @staticmethod
     def _get_fallback_urls(base_url: str) -> list[str]:
         """Generate fallback URLs for Ollama based on the current base URL."""

@@ -38,6 +38,9 @@ class GoogleProviderAdapter(BaseProvider):
     ]
     api_key_note = None
 
+    # LiteLLM integration - Google uses "gemini" prefix
+    litellm_prefix = "gemini"
+
     def execute_completion(
         self,
         message: str,

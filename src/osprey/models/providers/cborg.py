@@ -41,6 +41,9 @@ class CBorgProviderAdapter(BaseProvider):
     ]
     api_key_note = "Must have affiliation with Berkeley Lab to request an API key."
 
+    # LiteLLM integration - CBORG is an OpenAI-compatible proxy
+    is_openai_compatible = True
+
     def execute_completion(
         self,
         message: str,

@@ -34,6 +34,9 @@ class OpenAIProviderAdapter(BaseProvider):
     ]
     api_key_note = None
 
+    # LiteLLM integration - OpenAI models don't need a prefix in LiteLLM
+    litellm_prefix = ""
+
     def execute_completion(
         self,
         message: str,
