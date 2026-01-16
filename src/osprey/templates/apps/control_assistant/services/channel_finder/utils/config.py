@@ -1,42 +1,47 @@
 """
 Configuration utilities for Channel Finder service.
 
-This module has been migrated to use Osprey's centralized config system.
-All configuration is now loaded from the main Osprey config (config.yml at project root).
-
-For backward compatibility, we provide minimal stubs that redirect to Osprey's config.
+This module provides configuration access for the Channel Finder service,
+wrapping Osprey's centralized config system.
 """
 
 from pathlib import Path
 from typing import Any
 
-# Use Osprey's config system
-from osprey.utils.config import _get_config as get_osprey_config
+# Use Osprey's public config API
+from osprey.utils.config import get_config_builder
+from osprey.utils.config import load_config as osprey_load_config
 
 
 def get_config() -> dict[str, Any]:
     """
-    Get configuration dictionary.
+    Get default configuration dictionary.
 
-    DEPRECATED: This function is maintained for backward compatibility only.
-    New code should use Osprey's config system directly:
-        from osprey.utils.config import _get_config
-        config_builder = _get_config()
-        value = config_builder.get('some.path')
+    Returns the raw configuration dictionary from the default config file
+    (config.yml in project root or CONFIG_FILE environment variable).
 
     Returns:
-        Configuration dictionary (raw_config from Osprey's ConfigBuilder)
+        Configuration dictionary as loaded from YAML
     """
-    config_builder = get_osprey_config()
-    return config_builder.raw_config
+    return osprey_load_config()
+
+
+def load_config(config_path: str) -> dict[str, Any]:
+    """
+    Load configuration from a specific file path.
+
+    Args:
+        config_path: Path to the configuration YAML file
+
+    Returns:
+        Configuration dictionary as loaded from YAML
+    """
+    return osprey_load_config(config_path)
 
 
 def resolve_path(path_str: str) -> Path:
     """
     Resolve path relative to project root.
-
-    DEPRECATED: This function is maintained for backward compatibility only.
-    New code should use Osprey's config system for path resolution.
 
     Args:
         path_str: Path string (absolute or relative to project root)
@@ -44,7 +49,7 @@ def resolve_path(path_str: str) -> Path:
     Returns:
         Resolved absolute Path object
     """
-    config_builder = get_osprey_config()
+    config_builder = get_config_builder()
     project_root = Path(config_builder.get("project_root"))
     path = Path(path_str)
 

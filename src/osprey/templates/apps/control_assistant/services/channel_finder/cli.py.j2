@@ -32,7 +32,7 @@ from rich.table import Table
 from {{package_name}}.services.channel_finder.service import ChannelFinderService
 
 # Use Osprey's config system
-from osprey.utils.config import _get_config
+from osprey.utils.config import get_config_builder
 
 
 def _ensure_config_available():
@@ -70,7 +70,7 @@ def setup_logging(verbose: bool = False):
         verbose: If True, set to DEBUG level. Otherwise use config or INFO.
     """
     _ensure_config_available()
-    config_builder = _get_config()
+    config_builder = get_config_builder()
 
     # Get log level from config or environment
     if verbose or os.getenv("DEBUG"):
@@ -173,7 +173,7 @@ class ChannelFinderCLI:
         setup_logging(verbose=True)
 
         # Get facility name from config
-        config_builder = _get_config()
+        config_builder = get_config_builder()
         facility_name = config_builder.get('facility.name', 'Channel Finder')
 
         self.console.print(f"\n🔧 {facility_name}", style="bold cyan")

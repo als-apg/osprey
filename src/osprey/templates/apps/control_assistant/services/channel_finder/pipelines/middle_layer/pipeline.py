@@ -26,7 +26,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from osprey.models import get_chat_completion
-from osprey.utils.config import _get_config
+from osprey.utils.config import get_config_builder
 
 # LangGraph and LangChain imports
 try:
@@ -63,7 +63,7 @@ class ChannelSearchResult(BaseModel):
 
 def _save_prompt_to_file(prompt: str, stage: str, query: str = "") -> None:
     """Save prompt to temporary file for inspection."""
-    config_builder = _get_config()
+    config_builder = get_config_builder()
     if not config_builder.get("debug.save_prompts", False):
         return
 
@@ -129,7 +129,7 @@ class MiddleLayerPipeline(BasePipeline):
         self.query_splitting = query_splitting
 
         # Load query splitter prompt (only if enabled)
-        config_builder = _get_config()
+        config_builder = get_config_builder()
         prompts_module = load_prompts(
             config_builder.raw_config, require_query_splitter=query_splitting
         )

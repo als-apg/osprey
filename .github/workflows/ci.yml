@@ -223,7 +223,7 @@ jobs:
         CBORG_API_KEY: ${{ secrets.CBORG_API_KEY }}
       run: |
         cd hello-weather-test
-        osprey deploy up -d
+        osprey deploy up -d --dev
 
     - name: Wait for pipelines to be ready
       run: |
