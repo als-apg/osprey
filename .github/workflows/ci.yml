@@ -238,7 +238,7 @@ jobs:
             -X POST http://localhost:9099/v1/chat/completions \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer 0p3n-w3bu!" \
-            -d '{"model":"osprey","messages":[{"role":"user","content":"ping"}],"stream":false}' \
+            -d '{"model":"main","messages":[{"role":"user","content":"ping"}],"stream":false}' \
             --max-time 10 || echo "000")
 
           if [ "$HTTP_CODE" = "200" ]; then
@@ -260,7 +260,7 @@ jobs:
         RESPONSE=$(curl -s -X POST http://localhost:9099/v1/chat/completions \
           -H "Content-Type: application/json" \
           -H "Authorization: Bearer 0p3n-w3bu!" \
-          -d '{"model":"osprey","messages":[{"role":"user","content":"What is the weather in San Francisco?"}],"stream":false}' \
+          -d '{"model":"main","messages":[{"role":"user","content":"What is the weather in San Francisco?"}],"stream":false}' \
           --max-time 120)
 
         echo "Response:"
