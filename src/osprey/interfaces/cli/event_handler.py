@@ -187,7 +187,7 @@ class CLIEventHandler:
             case StatusEvent(message=msg, level="status", component=comp):
                 color = self._get_component_color(comp)
                 role = self._format_role_name(comp)
-                self._print_aligned(role, msg, color, color)
+                self._print_aligned(role, msg, f"bold {color}", f"bold {color}")
 
             # StatusEvent - key_info level (important info with bold styling)
             case StatusEvent(message=msg, level="key_info", component=comp):
@@ -300,7 +300,7 @@ class CLIEventHandler:
             case StatusEvent(message=msg, level="status", component=comp):
                 color = self._get_component_color(comp)
                 role = self._format_role_name(comp)
-                self._print_aligned(role, msg, color, color)
+                self._print_aligned(role, msg, f"bold {color}", f"bold {color}")
 
             # StatusEvent - key_info level (important info with bold styling)
             case StatusEvent(message=msg, level="key_info", component=comp):

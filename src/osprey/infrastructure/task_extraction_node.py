@@ -55,7 +55,7 @@ def _format_task_context(messages: list[BaseMessage], retrieval_result, logger) 
     if retrieval_result and retrieval_result.has_data:
         logger.debug(f"Bypass mode: including data sources: {retrieval_result.get_summary()}")
 
-    logger.status("Bypass mode: skipping LLM, using formatted context as task")
+    logger.info("Bypass mode: skipping LLM, using formatted context as task")
 
     # Format the chat history using native message formatter
     chat_formatted = ChatHistoryFormatter.format_for_llm(messages)
@@ -273,7 +273,7 @@ class TaskExtractionNode(BaseInfrastructureNode):
         bypass_enabled = state.get("agent_control", {}).get("task_extraction_bypass_enabled", False)
 
         if bypass_enabled:
-            logger.status("Task extraction bypass enabled - using full context with data sources")
+            logger.info("Task extraction bypass enabled - using full context with data sources")
         else:
             logger.status("Extracting actionable task from conversation")
         try:
@@ -308,22 +308,22 @@ class TaskExtractionNode(BaseInfrastructureNode):
                 )
 
             if bypass_enabled:
-                logger.status(
+                logger.info(
                     f" * Bypass mode: formatted context ({len(processed_task.task)} characters)"
                 )
-                logger.status(
+                logger.info(
                     f" * Builds on previous context: {processed_task.depends_on_chat_history}"
                 )
-                logger.status(f" * Uses memory context: {processed_task.depends_on_user_memory}")
+                logger.info(f" * Uses memory context: {processed_task.depends_on_user_memory}")
                 logger.success(
                     "Task extraction bypassed - full context ready", task=processed_task.task
                 )
             else:
-                logger.status(f" * Extracted: '{processed_task.task[:100]}...'")
-                logger.status(
+                logger.info(f" * Extracted: '{processed_task.task[:100]}...'")
+                logger.info(
                     f" * Builds on previous context: {processed_task.depends_on_chat_history}"
                 )
-                logger.status(f" * Uses memory context: {processed_task.depends_on_user_memory}")
+                logger.info(f" * Uses memory context: {processed_task.depends_on_user_memory}")
                 logger.success("Task extraction completed", task=processed_task.task)
 
             # Emit data event with extracted task output

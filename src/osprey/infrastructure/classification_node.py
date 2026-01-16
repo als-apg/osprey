@@ -188,7 +188,7 @@ class ClassificationNode(BaseInfrastructureNode):
         )
 
         if bypass_enabled:
-            logger.status("Capability selection bypass enabled - activating all capabilities")
+            logger.info("Capability selection bypass enabled - activating all capabilities")
 
             # Get all capability names directly from registry
             registry = get_registry()
@@ -234,7 +234,7 @@ class ClassificationNode(BaseInfrastructureNode):
         else:
             logger.status("Analyzing task requirements...")
 
-        logger.status(f"Classifying task: {current_task}")
+        logger.info(f"Classifying task: {current_task}")
 
         # Get available capabilities from capability registry
         registry = get_registry()
@@ -470,7 +470,7 @@ class CapabilityClassifier:
             self.logger.emit_llm_response(response_json, key=capability.name)
 
             result = self._process_classification_response(capability, response_data)
-            self.logger.status(f" >>> Capability '{capability.name}' >>> {result}")
+            self.logger.info(f" >>> Capability '{capability.name}' >>> {result}")
             return result
 
         except Exception as e:
@@ -595,5 +595,5 @@ async def select_capabilities(
             elif result is True:
                 active_capabilities.append(capability.name)
 
-    logger.status(f"{len(active_capabilities)} capabilities required: {active_capabilities}")
+    logger.info(f"{len(active_capabilities)} capabilities required: {active_capabilities}")
     return active_capabilities

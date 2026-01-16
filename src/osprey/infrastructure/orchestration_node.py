@@ -105,7 +105,7 @@ def _validate_and_fix_execution_plan(
         logger.error(error_msg)
         raise ValueError(error_msg)
 
-    logger.status("✅ All capabilities in execution plan exist in registry")
+    logger.info("✅ All capabilities in execution plan exist in registry")
 
     # =====================================================================
     # STEP 2: ENSURE PLAN ENDS WITH RESPOND OR CLARIFY
@@ -116,11 +116,11 @@ def _validate_and_fix_execution_plan(
     last_capability = last_step.get("capability", "").lower()
 
     if last_capability in ["respond", "clarify"]:
-        logger.status(f"Execution plan correctly ends with {last_capability} step")
+        logger.info(f"Execution plan correctly ends with {last_capability} step")
         return execution_plan
 
     # Plan doesn't end with respond/clarify - add respond step
-    logger.status(
+    logger.info(
         f"Execution plan ends with '{last_capability}' instead of respond/clarify - adding respond step"
     )
 
@@ -328,7 +328,7 @@ class OrchestrationNode(BaseInfrastructureNode):
         elif has_approval_resume:
             # Plan was rejected - clean up any pending files
             _cleanup_processed_plan_files(logger=logger)
-            logger.status("Execution plan was rejected by user")
+            logger.info("Execution plan was rejected by user")
 
         # =====================================================================
         # STEP 2: EXTRACT CURRENT TASK AND ACTIVE CAPABILITIES
@@ -375,7 +375,7 @@ class OrchestrationNode(BaseInfrastructureNode):
             )
             raise ValueError("No valid capability instances found for orchestration")
 
-        logger.status(f"Planning for task: {current_task}")
+        logger.info(f"Planning for task: {current_task}")
         logger.info(f"Available capabilities: {[cap.name for cap in active_capabilities]}")
 
         # =====================================================================
@@ -388,7 +388,7 @@ class OrchestrationNode(BaseInfrastructureNode):
 
         async def create_system_prompt() -> str:
             """Create orchestrator system prompt from capabilities and context."""
-            logger.status(f'Creating orchestrator prompt for task: "{current_task[:100]}..."')
+            logger.info(f'Creating orchestrator prompt for task: "{current_task[:100]}..."')
 
             # Extract capability names from active capabilities
             active_capability_names = [cap.name for cap in active_capabilities]
@@ -406,7 +406,7 @@ class OrchestrationNode(BaseInfrastructureNode):
                     error_context = classification.format_for_llm()
 
             if error_context:
-                logger.status(
+                logger.info(
                     "Error context detected - enabling replanning mode with failure analysis"
                 )
                 logger.debug(f"Error context for replanning: {error_context}")
@@ -490,7 +490,7 @@ class OrchestrationNode(BaseInfrastructureNode):
         )
 
         execution_time = time.time() - plan_start_time
-        logger.status(f"Orchestrator LLM execution time: {execution_time:.2f} seconds")
+        logger.info(f"Orchestrator LLM execution time: {execution_time:.2f} seconds")
 
         # Emit LLM response event for TUI display
         response_json = json.dumps(execution_plan, indent=2)
@@ -532,11 +532,11 @@ class OrchestrationNode(BaseInfrastructureNode):
         # =====================================================================
 
         if _is_planning_mode_enabled(state):
-            logger.status("PLANNING MODE DETECTED - entering approval workflow")
+            logger.info("PLANNING MODE DETECTED - entering approval workflow")
             # LangGraph handles caching automatically - no manual caching needed
             await _handle_planning_mode(execution_plan, current_task, state, logger)
         else:
-            logger.status("Planning mode not enabled - proceeding with normal execution")
+            logger.info("Planning mode not enabled - proceeding with normal execution")
 
         logger.status("Execution plan created")
 
@@ -583,10 +583,10 @@ def _log_execution_plan(execution_plan: ExecutionPlan, logger):
     logger.key_info("=" * 50)
     for index, step in enumerate(execution_plan.get("steps", [])):
         logger.key_info(f" << Step {index + 1}")
-        logger.key_info(f" << ├───── id: '{step.get('context_key', 'unknown')}'")
-        logger.key_info(f" << ├─── node: '{step.get('capability', 'unknown')}'")
-        logger.key_info(f" << ├─── task: '{step.get('task_objective', 'unknown')}'")
-        logger.key_info(f" << └─ inputs: '{step.get('inputs', [])}'")
+        logger.info(f" << ├───── id: '{step.get('context_key', 'unknown')}'")
+        logger.info(f" << ├─── node: '{step.get('capability', 'unknown')}'")
+        logger.info(f" << ├─── task: '{step.get('task_objective', 'unknown')}'")
+        logger.info(f" << └─ inputs: '{step.get('inputs', [])}'")
     logger.key_info("=" * 50)
 
 

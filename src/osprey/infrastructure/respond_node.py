@@ -164,7 +164,7 @@ class RespondCapability(BaseCapability):
                     if response_context.execution_history == []
                     else "technical query"
                 )
-            logger.status(f"Generated response for: '{task_objective}'")
+            logger.info(f"Generated response for: '{task_objective}'")
 
             # Return native LangGraph pattern: AIMessage added to messages list
             return {"messages": [AIMessage(content=response_text)]}
