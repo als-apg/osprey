@@ -212,7 +212,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
         """
         timeout = timeout or self._timeout
 
-        if not self._connected or not self._collection:
+        if not self._connected or self._collection is None:
             raise RuntimeError("MongoDB archiver not connected")
 
         # Validate inputs
@@ -321,7 +321,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
         Raises:
             RuntimeError: If archiver not connected
         """
-        if not self._connected or not self._collection:
+        if not self._connected or self._collection is None:
             raise RuntimeError("MongoDB archiver not connected")
 
         def check_pv():
@@ -356,7 +356,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
         Raises:
             RuntimeError: If archiver not connected
         """
-        if not self._connected or not self._collection:
+        if not self._connected or self._collection is None:
             raise RuntimeError("MongoDB archiver not connected")
 
         def check_pvs():
