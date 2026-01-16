@@ -580,7 +580,9 @@ class TimeRangeParsingCapability(BaseCapability):
         # Build sophisticated system prompt (use local timezone if configured)
         full_prompt = _get_time_parsing_system_prompt(task_objective, local=self.local)
 
-        logger.debug(f"Time parsing for task '{task_objective}' (local={self.local}): {task_objective}")
+        logger.debug(
+            f"Time parsing for task '{task_objective}' (local={self.local}): {task_objective}"
+        )
 
         try:
             # Get model config from LangGraph configurable
