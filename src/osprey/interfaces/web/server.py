@@ -125,6 +125,13 @@ def create_app(
                     if hex_val:
                         palette[color_name] = hex_val
 
+            # Add status level colors for special event styling
+            for status_color in ["green", "yellow", "red"]:
+                if status_color not in palette:
+                    hex_val = get_rich_color_hex(status_color)
+                    if hex_val:
+                        palette[status_color] = hex_val
+
             return {"colors": component_colors, "palette": palette}
         except Exception:
             return {"colors": {}, "palette": {}}

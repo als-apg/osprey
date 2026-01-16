@@ -234,6 +234,12 @@
             border-top: 1px solid var(--border);
             margin: 4px 0;
         }
+
+        /* Special status event styling */
+        .event.status-success { border: 2px solid var(--status-success-color, #090); }
+        .event.status-warning { border: 2px solid var(--status-warning-color, #f90); }
+        .event.status-error { border: 2px solid var(--status-error-color, #c00); }
+        .event.status-key-info { background: rgba(255, 255, 0, 0.15); }
     </style>
 </head>
 <body>
@@ -325,19 +331,13 @@
         };
         initTheme();
 
-        // Update component colors when theme changes
+        // Update component colors when theme changes (always use font color)
         function updateEventColors() {
-            const isDark = document.body.classList.contains('dark');
             document.querySelectorAll('.event-component').forEach(el => {
                 const color = el.dataset.color;
                 if (color) {
-                    if (isDark) {
-                        el.style.backgroundColor = 'transparent';
-                        el.style.color = color;
-                    } else {
-                        el.style.backgroundColor = color;
-                        el.style.color = '#333';
-                    }
+                    el.style.backgroundColor = 'transparent';
+                    el.style.color = color;
                 }
             });
         }
@@ -439,21 +439,34 @@
         function appendEvent(data) {
             const div = document.createElement('div');
             div.className = 'event';
+
+            // Add special styling for StatusEvent levels
+            if (data.type === 'StatusEvent' && data.data?.level) {
+                const level = data.data.level;
+                if (level === 'success') {
+                    div.classList.add('status-success');
+                    const color = colorPalette['green'] || '#090';
+                    div.style.setProperty('--status-success-color', color);
+                } else if (level === 'warning') {
+                    div.classList.add('status-warning');
+                    const color = colorPalette['yellow'] || '#f90';
+                    div.style.setProperty('--status-warning-color', color);
+                } else if (level === 'error') {
+                    div.classList.add('status-error');
+                    const color = colorPalette['red'] || '#c00';
+                    div.style.setProperty('--status-error-color', color);
+                } else if (level === 'key_info') {
+                    div.classList.add('status-key-info');
+                }
+            }
+
             const msg = getMsg(data);
             const time = data.created_at ? new Date(data.created_at).toLocaleTimeString() : '';
             const json = JSON.stringify(data, null, 2);
 
-            // Get component color from config - theme aware
+            // Get component color from config (always use font color)
             const compColor = getComponentColor(data.component);
-            const isDark = document.body.classList.contains('dark');
-            let compStyle = '';
-            if (compColor) {
-                if (isDark) {
-                    compStyle = `style="color: ${compColor}"`;
-                } else {
-                    compStyle = `style="background-color: ${compColor}; color: #333"`;
-                }
-            }
+            let compStyle = compColor ? `style="color: ${compColor}"` : '';
 
             div.innerHTML = `
                 <div class="event-row">
