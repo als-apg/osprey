@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 # Use Osprey's config system
-from osprey.utils.config import _get_config
+from osprey.utils.config import get_config_builder
 
 from ...core.base_pipeline import BasePipeline
 from ...core.models import (
@@ -38,7 +38,7 @@ def _save_prompt_to_file(prompt: str, stage: str, query: str = "", chunk_num: in
         query: Optional query identifier
         chunk_num: Optional chunk number
     """
-    config_builder = _get_config()
+    config_builder = get_config_builder()
     if not config_builder.get("debug.save_prompts", False):
         return
 
@@ -115,7 +115,7 @@ class InContextPipeline(BasePipeline):
         self.facility_description = facility_description
 
         # Load prompts dynamically based on configuration
-        config_builder = _get_config()
+        config_builder = get_config_builder()
         prompts_module = load_prompts(config_builder.raw_config)
         self.query_splitter = prompts_module.query_splitter
         self.channel_matcher = prompts_module.channel_matcher
@@ -562,7 +562,7 @@ class InContextPipeline(BasePipeline):
 
     def _save_database_preview_if_debug(self):
         """Save formatted database preview if debug mode is enabled."""
-        config_builder = _get_config()
+        config_builder = get_config_builder()
 
         # Check if debug mode and save_prompts are enabled
         if not config_builder.get("debug.save_prompts", False):

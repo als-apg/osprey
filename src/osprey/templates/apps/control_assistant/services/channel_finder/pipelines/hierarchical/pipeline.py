@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 # Use Osprey's config system
-from osprey.utils.config import _get_config
+from osprey.utils.config import get_config_builder
 
 from ...core.base_pipeline import BasePipeline
 from ...core.exceptions import HierarchicalNavigationError
@@ -34,7 +34,7 @@ def _save_prompt_to_file(prompt: str, stage: str, level: str = "", query: str = 
         level: Optional level name for hierarchical stages
         query: Optional query identifier
     """
-    config_builder = _get_config()
+    config_builder = get_config_builder()
     if not config_builder.get("debug.save_prompts", False):
         return
 
@@ -49,7 +49,7 @@ def _save_prompt_to_file(prompt: str, stage: str, level: str = "", query: str = 
         filename = "prompt_stage1_query_split.txt"
     elif stage == "level_selection" and level:
         # Dynamic level mapping based on hierarchy definition
-        config_builder = _get_config()
+        config_builder = get_config_builder()
         hierarchy_levels = config_builder.get(
             "channel_finder.pipelines.hierarchical.database.hierarchy_levels", []
         )
@@ -112,7 +112,7 @@ class HierarchicalPipeline(BasePipeline):
         self.query_splitting = query_splitting
 
         # Load query splitter from shared prompts (only if query splitting is enabled)
-        config_builder = _get_config()
+        config_builder = get_config_builder()
         prompts_module = load_prompts(
             config_builder.raw_config, require_query_splitter=query_splitting
         )

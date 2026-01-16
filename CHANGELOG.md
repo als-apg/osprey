@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Testing**: E2E test for LLM channel naming workflow (#103)
+
 ### Changed
 - **Docs**: Update ALS Assistant reference to published paper (Phys. Rev. Res. **8**, L012017)
 - **Models**: Decouple LiteLLM adapter from hardcoded provider checks
@@ -16,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Maintains backward compatibility with fallback for existing code
 
 ### Fixed
+- **Channel Finder**: Fix `load_config` not defined error in LLM channel namer (#103)
+  - Added `get_config_builder()` and `load_config()` as public API in `osprey.utils.config`
+  - Exposed `load_config` in channel finder config utilities
+  - Updated channel finder components to use public API instead of internal `_get_config`
 - **Deployment**: Fix `--dev` mode failing when osprey is installed from PyPI (#86)
   - Detect site-packages installation and show clear warning about editable mode requirement
   - Add helpful error message when `build` package is missing

@@ -578,6 +578,73 @@ def _get_configurable(
 
 
 # =============================================================================
+# PUBLIC CONFIGURATION ACCESS
+# =============================================================================
+
+
+def get_config_builder(
+    config_path: str | None = None, set_as_default: bool = False
+) -> ConfigBuilder:
+    """Get configuration builder instance for full config access.
+
+    This is the primary public API for accessing the configuration system.
+    Returns a ConfigBuilder instance that provides access to both raw configuration
+    data and pre-computed configurable structures.
+
+    Args:
+        config_path: Optional explicit path to configuration file. If provided,
+                    loads configuration from this path. If None, uses the default
+                    singleton (CONFIG_FILE env var or cwd/config.yml).
+        set_as_default: If True and config_path is provided, also set this config
+                       as the default singleton for future calls without config_path.
+
+    Returns:
+        ConfigBuilder instance with access to:
+        - .raw_config: The raw YAML configuration dictionary
+        - .configurable: Pre-computed configuration for LangGraph
+        - .get(path, default): Dot-notation access to config values
+
+    Examples:
+        >>> # Default configuration
+        >>> config = get_config_builder()
+        >>> timeout = config.get("execution.timeout", 30)
+
+        >>> # Load from specific path
+        >>> config = get_config_builder("/path/to/config.yml")
+        >>> raw = config.raw_config
+
+        >>> # Load and set as default for subsequent calls
+        >>> config = get_config_builder("/path/to/config.yml", set_as_default=True)
+    """
+    return _get_config(config_path, set_as_default)
+
+
+def load_config(config_path: str | None = None) -> dict[str, Any]:
+    """Load raw configuration dictionary from YAML file.
+
+    Convenience function that returns the raw configuration dictionary
+    as loaded from the YAML file, with environment variables resolved.
+
+    Args:
+        config_path: Optional path to configuration file. If None, uses the
+                    default configuration (CONFIG_FILE env var or cwd/config.yml).
+
+    Returns:
+        Raw configuration dictionary with all values from the YAML file.
+
+    Examples:
+        >>> # Load default configuration
+        >>> config = load_config()
+        >>> api_key = config.get("api", {}).get("key")
+
+        >>> # Load from specific path
+        >>> config = load_config("/path/to/config.yml")
+        >>> channels = config.get("channel_finder", {})
+    """
+    return _get_config(config_path).raw_config
+
+
+# =============================================================================
 # CONTEXT-AWARE UTILITY FUNCTIONS
 # =============================================================================
 
