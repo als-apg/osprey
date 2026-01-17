@@ -1166,13 +1166,16 @@ class TodoUpdateStep(ProcessingStep):
         # Hide output line initially
         output = self.query_one("#step-output", WrappedStatic)
         output.display = False
-        # Start breathing animation
-        self._start_breathing()
-        # Apply pending todos AFTER first layout pass
+
         if self._pending_todos:
+            # Todos already available - skip animation, apply immediately
+            # This avoids two-phase rendering (animation -> todos) that causes visual jump
             steps, states = self._pending_todos
             self._pending_todos = None
-            self.call_after_refresh(self._apply_todos, steps, states)
+            self._apply_todos(steps, states)
+        else:
+            # No todos yet - show breathing animation while waiting
+            self._start_breathing()
 
     def _apply_todos(self, steps: list[dict], states: list[str]) -> None:
         """Apply todos after widget is laid out.

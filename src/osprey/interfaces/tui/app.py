@@ -761,10 +761,11 @@ class OspreyTUI(App):
             if or_block._status != "error":
                 plan = state.get("planning_execution_plan", {})
                 steps = plan.get("steps", []) if plan else []
-                if steps:
+                # Only set plan if not already set (avoid re-render jump)
+                if steps and not or_block._plan_steps:
                     or_block.set_plan(steps)
-                else:
-                    # No plan and not already error - show generic message
+                elif not steps and not or_block._plan_steps:
+                    # No plan and not already set - show generic message
                     or_block.set_output("No execution plan")
 
             # Cache execution plan for step block creation during execution phase
