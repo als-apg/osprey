@@ -708,6 +708,14 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
                 shutil.copy2(global_pyproject, repo_src_pyproject)
                 logger.debug(f"Copied user pyproject.toml to {repo_src_pyproject}")
 
+            # Copy Claude Code generator config if present
+            # This file contains phase definitions needed for code generation in containers
+            claude_config = "claude_generator_config.yml"
+            if os.path.exists(claude_config):
+                dst_claude_config = os.path.join(out_dir, claude_config)
+                shutil.copy2(claude_config, dst_claude_config)
+                logger.debug(f"Copied {claude_config} to {dst_claude_config}")
+
             # Copy local osprey for development override (only in dev mode)
             # This will override the PyPI osprey after standard installation
             if dev_mode:
