@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Context**: Store task_objective metadata alongside capability context data (#108)
+  - ContextManager now accepts optional `task_objective` parameter in `set_context()`
+  - Metadata stored in `_meta` field, stripped before Pydantic validation
+  - New helper methods: `get_context_metadata()`, `get_all_context_metadata()`
+  - Orchestrator prompt displays task_objective for each available context
+  - Enables intelligent context reuse by showing what each context was created for
+
 ### Fixed
 - **Graph**: Propagate chat history to orchestrator and respond nodes (#111)
   - Orchestrator now receives full conversation context when `task_depends_on_chat_history=True`
