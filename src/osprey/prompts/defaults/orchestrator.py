@@ -2,9 +2,12 @@
 
 import textwrap
 
+from langchain_core.messages import BaseMessage
+
 from osprey.base import BaseCapability, OrchestratorExample
 from osprey.context import ContextManager
 from osprey.prompts.base import FrameworkPromptBuilder
+from osprey.state import ChatHistoryFormatter
 
 
 class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
@@ -69,6 +72,7 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
         task_depends_on_chat_history: bool = False,
         task_depends_on_user_memory: bool = False,
         error_context: str | None = None,
+        messages: list[BaseMessage] | None = None,
         **kwargs,
     ) -> str:
         """
@@ -80,6 +84,7 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
             task_depends_on_chat_history: Whether task builds on previous conversation context
             task_depends_on_user_memory: Whether task depends on user memory information
             error_context: Formatted error context from previous execution failure (for replanning)
+            messages: Chat history messages to include when task depends on conversation context
 
         Returns:
             Complete orchestrator prompt text
@@ -100,14 +105,21 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
         base_prompt = "\n\n".join(base_prompt_parts)
         prompt_sections.append(base_prompt)
 
-        # 2. Add context reuse guidance if task builds on previous context
+        # 2. Add chat history first (with visual separators) if task depends on conversation context
+        if task_depends_on_chat_history and messages:
+            chat_history_section = self._build_chat_history_section(messages)
+            if chat_history_section:
+                prompt_sections.append(chat_history_section)
+
+        # 3. Add context reuse guidance if task builds on previous context
+        # (kept together with available context section below for clarity)
         context_guidance = self._build_context_reuse_guidance(
             task_depends_on_chat_history, task_depends_on_user_memory
         )
         if context_guidance:
             prompt_sections.append(context_guidance)
 
-        # 3. Add error context for replanning if available
+        # 4. Add error context for replanning if available
         if error_context:
             error_section = textwrap.dedent(
                 f"""
@@ -127,13 +139,13 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
 
             prompt_sections.append(error_section)
 
-        # 4. Add context information if available
+        # 5. Add context information if available
         if context_manager and context_manager.get_raw_data():
             context_section = self._build_context_section(context_manager)
             if context_section:
                 prompt_sections.append(context_section)
 
-        # 5. Add capability-specific prompts with examples
+        # 6. Add capability-specific prompts with examples
         capability_sections = self._build_capability_sections(active_capabilities)
         prompt_sections.extend(capability_sections)
 
@@ -180,44 +192,93 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
             """
         ).strip()
 
+    def _build_chat_history_section(self, messages: list[BaseMessage]) -> str | None:
+        """Build the chat history section when task depends on conversation context.
+
+        This provides the orchestrator with visibility into the actual conversation,
+        enabling it to understand references like "the same time range" or
+        "what did I just ask" that require knowledge of previous messages.
+
+        Args:
+            messages: List of conversation messages
+
+        Returns:
+            Formatted chat history section or None if no messages
+        """
+        if not messages:
+            return None
+
+        # Format messages using the standard formatter for consistency
+        chat_formatted = ChatHistoryFormatter.format_for_llm(messages)
+
+        # Use visual separators to clearly delineate chat history from other prompt sections
+        return textwrap.dedent(
+            f"""
+            ════════════════════════════════════════════════════════════════════════════════
+            **CONVERSATION HISTORY**
+            The following is the conversation history that this task builds upon.
+            Use this context to understand references to previous queries, results, or time ranges.
+            ────────────────────────────────────────────────────────────────────────────────
+
+{chat_formatted}
+
+            ════════════════════════════════════════════════════════════════════════════════
+            """
+        ).strip()
+
     def _build_context_section(self, context_manager: ContextManager) -> str | None:
-        """Build the context section of the prompt."""
+        """Build the context section of the prompt.
+
+        Includes task_objective metadata when available to help the orchestrator
+        understand what each context was created for, enabling intelligent reuse.
+        """
         context_data = context_manager.get_raw_data()
         if not context_data:
             return None
 
-        # Create a simple dictionary showing context_type -> [list of available keys]
-        context_dict = {}
+        # Build context info with task_objective metadata when available
+        # This helps the orchestrator understand what each context was created for
+        formatted_lines = []
+
         for context_type, contexts in context_data.items():
-            context_dict[context_type] = list(contexts.keys())
+            if context_type.startswith("_"):
+                continue  # Skip internal keys like _execution_config
 
-        # Format as a clean dictionary representation
-        formatted_lines = ["["]
-        for context_type, keys in context_dict.items():
-            if len(keys) == 1:
-                formatted_lines.append(f'    "{context_type}": "{keys[0]}",')
-            else:
-                keys_str = ", ".join(f'"{key}"' for key in keys)
-                formatted_lines.append(f'    "{context_type}": [{keys_str}],')
+            for context_key, context_value in contexts.items():
+                # Extract task_objective from metadata if available
+                meta = context_value.get("_meta", {}) if isinstance(context_value, dict) else {}
+                task_objective = meta.get("task_objective")
 
-        # Remove trailing comma from last line and close brace
-        if len(formatted_lines) > 1:
-            formatted_lines[-1] = formatted_lines[-1].rstrip(",")
-        formatted_lines.append("]")
+                # Format as {"TYPE": "key"} to match execution plan input format
+                context_ref = f'{{"{context_type}": "{context_key}"}}'
+
+                if task_objective:
+                    # Include the task description for context reuse decisions
+                    formatted_lines.append(f'  - {context_ref}: "{task_objective}"')
+                else:
+                    # Fallback to just showing the key
+                    formatted_lines.append(f"  - {context_ref}")
+
+        if not formatted_lines:
+            return None
 
         formatted_context = "\n".join(formatted_lines)
 
-        return textwrap.dedent(
-            f"""
-            **AVAILABLE CONTEXT (from previous queries):**
-            {formatted_context}
-
-            **CONTEXT REUSE PRINCIPLE:**
-            - REUSE existing context only when user explicitly references previous results
-              ("same time range", "that data", "the plot above", etc.)
-            - CREATE NEW step if user specifies new values - compare against context keys above
-            """
-        ).strip()
+        # Build the section without textwrap.dedent to avoid indentation issues
+        return (
+            "**AVAILABLE CONTEXT (from previous queries):**\n"
+            "The following context data is already available from previous execution steps.\n"
+            "Each entry shows the context type, key, and what it was created for:\n\n"
+            f"{formatted_context}\n\n"
+            "**CONTEXT REUSE PRINCIPLE:**\n"
+            "- PREFER reusing existing context when the user's request involves the same data,\n"
+            "  channels, or time ranges - even if not explicitly stated\n"
+            "- The task descriptions above indicate what each context was created for;\n"
+            "  use semantic similarity to decide on reuse\n"
+            "- CREATE NEW retrieval step only when the user explicitly requests different\n"
+            "  parameters (different channels, different time range, etc.)\n"
+            '- Reference existing context in step inputs using: {"CONTEXT_TYPE": "context_key"}'
+        )
 
     def _build_capability_sections(self, active_capabilities: list[BaseCapability]) -> list[str]:
         """Build capability-specific sections with examples."""

@@ -32,6 +32,10 @@ class DefaultResponseGenerationPromptBuilder(FrameworkPromptBuilder):
         sections.append(f"CURRENT TASK: {current_task}")
 
         if info:
+            # Chat history section - critical for context-dependent tasks
+            if hasattr(info, "chat_history") and info.chat_history:
+                sections.append(self._get_chat_history_section(info.chat_history))
+
             # Context prioritization: Show specific context if available, otherwise show all execution context
             if hasattr(info, "relevant_context") and info.relevant_context:
                 # Specific execution context provided as input to response node - show only this
@@ -169,6 +173,23 @@ class DefaultResponseGenerationPromptBuilder(FrameworkPromptBuilder):
             f"""
             SYSTEM CAPABILITIES:
             {capabilities_overview}
+            """
+        ).strip()
+
+    def _get_chat_history_section(self, chat_history: str) -> str:
+        """Get chat history section for context-dependent responses.
+
+        This provides the respond capability with visibility into the conversation,
+        enabling it to answer questions like "What did I just ask?" or reference
+        previous interactions accurately.
+        """
+        return textwrap.dedent(
+            f"""
+            CONVERSATION HISTORY:
+            The following is the conversation history that this task builds upon.
+            Use this context to answer questions about previous messages or reference prior results.
+
+            {chat_history}
             """
         ).strip()
 

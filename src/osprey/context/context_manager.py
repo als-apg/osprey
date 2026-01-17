@@ -208,7 +208,12 @@ class ContextManager:
         )
 
     def set_context(
-        self, context_type: str, key: str, value: "CapabilityContext", skip_validation: bool = False
+        self,
+        context_type: str,
+        key: str,
+        value: "CapabilityContext",
+        skip_validation: bool = False,
+        task_objective: str | None = None,
     ) -> None:
         """Store context using Pydantic's built-in serialization.
 
@@ -217,6 +222,9 @@ class ContextManager:
             key: Unique key for this context instance
             value: CapabilityContext object to store
             skip_validation: Skip registry validation (useful for testing)
+            task_objective: Optional task description from execution plan step.
+                           Stored as metadata to help orchestrator understand
+                           what this context was created for (context reuse optimization).
         """
         # Validate using registry (unless skipped for testing)
         if not skip_validation:
@@ -252,7 +260,16 @@ class ContextManager:
         # Use Pydantic's built-in .model_dump() method for serialization
         if context_type not in self._data:
             self._data[context_type] = {}
-        self._data[context_type][key] = value.model_dump()
+
+        context_dict = value.model_dump()
+
+        # Store task_objective as metadata for orchestrator context reuse optimization
+        # This helps the orchestrator understand what each context was created for,
+        # enabling intelligent reuse decisions without exposing raw data
+        if task_objective:
+            context_dict["_meta"] = {"task_objective": task_objective}
+
+        self._data[context_type][key] = context_dict
 
         # Update cache
         if context_type not in self._object_cache:
@@ -295,7 +312,10 @@ class ContextManager:
 
         # Use Pydantic's model_validate for reconstruction
         try:
-            reconstructed_obj = context_class.model_validate(raw_data)
+            # Strip _meta from raw_data before Pydantic validation
+            # _meta contains framework metadata (task_objective) that isn't part of the context schema
+            data_for_validation = {k: v for k, v in raw_data.items() if k != "_meta"}
+            reconstructed_obj = context_class.model_validate(data_for_validation)
 
             # Cache the reconstructed object
             if context_type not in self._object_cache:
@@ -327,6 +347,40 @@ class ContextManager:
             if context_obj:
                 result[key] = context_obj
 
+        return result
+
+    def get_context_metadata(self, context_type: str, key: str) -> dict[str, Any] | None:
+        """Get metadata for a specific context (e.g., task_objective).
+
+        Args:
+            context_type: Type of context
+            key: Key of the context instance
+
+        Returns:
+            Metadata dictionary containing task_objective, or None if not found
+        """
+        raw_data = self._data.get(context_type, {}).get(key)
+        if raw_data is None:
+            return None
+        return raw_data.get("_meta")
+
+    def get_all_context_metadata(self) -> dict[str, dict[str, dict[str, Any]]]:
+        """Get metadata for all contexts, organized by type and key.
+
+        Returns:
+            Dictionary: {context_type: {key: {task_objective: "..."}}}
+            Only includes contexts that have metadata.
+        """
+        result: dict[str, dict[str, dict[str, Any]]] = {}
+        for context_type, contexts in self._data.items():
+            if context_type.startswith("_"):
+                continue  # Skip internal keys like _execution_config
+            for key, context_data in contexts.items():
+                meta = context_data.get("_meta")
+                if meta:
+                    if context_type not in result:
+                        result[context_type] = {}
+                    result[context_type][key] = meta
         return result
 
     def get_all(self) -> dict[str, Any]:

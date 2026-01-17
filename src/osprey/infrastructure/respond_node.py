@@ -20,7 +20,12 @@ from osprey.context.context_manager import ContextManager
 from osprey.models import get_chat_completion
 from osprey.prompts.loader import get_framework_prompts
 from osprey.registry import get_registry
-from osprey.state import AgentState, StateManager, populate_legacy_fields_from_artifacts
+from osprey.state import (
+    AgentState,
+    ChatHistoryFormatter,
+    StateManager,
+    populate_legacy_fields_from_artifacts,
+)
 from osprey.utils.config import get_model_config
 
 
@@ -59,6 +64,8 @@ class ResponseContext:
     :type notebooks_available: int
     :param interface_context: Interface type (openwebui, cli, etc.)
     :type interface_context: str
+    :param chat_history: Formatted chat history when task depends on conversation context
+    :type chat_history: Optional[str]
     """
 
     current_task: str
@@ -75,6 +82,7 @@ class ResponseContext:
     commands_available: int
     notebooks_available: int
     interface_context: str
+    chat_history: str | None = None
 
 
 # --- Convention-Based Capability Definition ---
@@ -288,6 +296,17 @@ def _gather_information(state: AgentState, logger=None) -> ResponseContext:
 
     interface_context = get_interface_context()
 
+    # Include chat history if task depends on conversation context
+    chat_history = None
+    if state.get("task_depends_on_chat_history", False):
+        messages = state.get("messages", [])
+        if messages:
+            chat_history = ChatHistoryFormatter.format_for_llm(messages)
+            if logger:
+                logger.info(
+                    f"Including chat history ({len(messages)} messages) for context-dependent task"
+                )
+
     return ResponseContext(
         current_task=state.get("task_current_task", "General information request"),
         execution_history=execution_history,
@@ -303,6 +322,7 @@ def _gather_information(state: AgentState, logger=None) -> ResponseContext:
         commands_available=commands_available,
         notebooks_available=notebooks_available,
         interface_context=interface_context,
+        chat_history=chat_history,
     )
 
 
