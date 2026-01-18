@@ -2,9 +2,12 @@
 
 import textwrap
 
+from langchain_core.messages import BaseMessage
+
 from osprey.base import BaseCapability, OrchestratorExample
 from osprey.context import ContextManager
 from osprey.prompts.base import FrameworkPromptBuilder
+from osprey.state import ChatHistoryFormatter
 
 
 class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
@@ -69,6 +72,7 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
         task_depends_on_chat_history: bool = False,
         task_depends_on_user_memory: bool = False,
         error_context: str | None = None,
+        messages: list[BaseMessage] | None = None,
         **kwargs,
     ) -> str:
         """
@@ -80,6 +84,7 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
             task_depends_on_chat_history: Whether task builds on previous conversation context
             task_depends_on_user_memory: Whether task depends on user memory information
             error_context: Formatted error context from previous execution failure (for replanning)
+            messages: Chat history messages to include when task depends on conversation context
 
         Returns:
             Complete orchestrator prompt text
@@ -107,7 +112,13 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
         if context_guidance:
             prompt_sections.append(context_guidance)
 
-        # 3. Add error context for replanning if available
+        # 3. Add chat history if task depends on conversation context
+        if task_depends_on_chat_history and messages:
+            chat_history_section = self._build_chat_history_section(messages)
+            if chat_history_section:
+                prompt_sections.append(chat_history_section)
+
+        # 4. Add error context for replanning if available
         if error_context:
             error_section = textwrap.dedent(
                 f"""
@@ -127,13 +138,13 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
 
             prompt_sections.append(error_section)
 
-        # 4. Add context information if available
+        # 5. Add context information if available
         if context_manager and context_manager.get_raw_data():
             context_section = self._build_context_section(context_manager)
             if context_section:
                 prompt_sections.append(context_section)
 
-        # 5. Add capability-specific prompts with examples
+        # 6. Add capability-specific prompts with examples
         capability_sections = self._build_capability_sections(active_capabilities)
         prompt_sections.extend(capability_sections)
 
@@ -177,6 +188,35 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
             f"""
             **CONTEXT REUSE GUIDANCE:**
             {guidance_text}
+            """
+        ).strip()
+
+    def _build_chat_history_section(self, messages: list[BaseMessage]) -> str | None:
+        """Build the chat history section when task depends on conversation context.
+
+        This provides the orchestrator with visibility into the actual conversation,
+        enabling it to understand references like "the same time range" or
+        "what did I just ask" that require knowledge of previous messages.
+
+        Args:
+            messages: List of conversation messages
+
+        Returns:
+            Formatted chat history section or None if no messages
+        """
+        if not messages:
+            return None
+
+        # Format messages using the standard formatter for consistency
+        chat_formatted = ChatHistoryFormatter.format_for_llm(messages)
+
+        return textwrap.dedent(
+            f"""
+            **CONVERSATION HISTORY:**
+            The following is the conversation history that this task builds upon.
+            Use this context to understand references to previous queries, results, or time ranges.
+
+            {chat_formatted}
             """
         ).strip()
 

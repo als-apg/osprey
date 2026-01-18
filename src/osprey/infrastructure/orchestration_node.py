@@ -371,12 +371,16 @@ class OrchestrationNode(BaseInfrastructureNode):
             prompt_provider = get_framework_prompts()
             orchestrator_builder = prompt_provider.get_orchestrator_prompt_builder()
 
+            # Get messages for chat history context (only used when task_depends_on_chat_history=True)
+            messages = state.get("messages", [])
+
             system_instructions = orchestrator_builder.get_system_instructions(
                 active_capabilities=active_capabilities,
                 context_manager=context_manager,
                 task_depends_on_chat_history=state.get("task_depends_on_chat_history", False),
                 task_depends_on_user_memory=state.get("task_depends_on_user_memory", False),
                 error_context=error_context,
+                messages=messages,
             )
 
             if not system_instructions:
@@ -394,10 +398,18 @@ class OrchestrationNode(BaseInfrastructureNode):
             raw_data = context_manager.get_raw_data()
             context_types = len(raw_data) if raw_data else 0
 
+            # Determine chat history inclusion status
+            task_depends_on_chat_history = state.get("task_depends_on_chat_history", False)
+            chat_history_included = task_depends_on_chat_history and bool(messages)
+            chat_history_count = len(messages) if chat_history_included else 0
+
             logger.info("Constructed orchestrator instructions using:")
             logger.info(f" - {len(active_capabilities)} capabilities")
             logger.info(f" - {total_examples} structured examples")
             logger.info(f" - {context_types} context types from state")
+            logger.info(
+                f" - Chat history included: {chat_history_included} ({chat_history_count} messages)"
+            )
             if error_context:
                 logger.info(" - Error context for replanning (previous failure analysis)")
 
