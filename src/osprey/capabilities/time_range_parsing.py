@@ -43,6 +43,7 @@ type safety through Pydantic models and comprehensive error handling.
 """
 
 import asyncio
+import os
 import textwrap
 from datetime import UTC, datetime, timedelta
 from typing import Any, ClassVar
@@ -335,6 +336,65 @@ class TimeRangeOutput(BaseModel):
 
 
 # ========================================================
+# Helper Functions
+# ========================================================
+
+
+def _get_timezone_info() -> tuple:
+    """Get timezone information for time parsing.
+
+    Returns a tuple of (local_tz, local_tz_name, now_local) based on configuration.
+    Uses ZoneInfo for proper DST handling when TIME_PARSING_LOCAL=true.
+
+    Returns:
+        tuple: (local_tz, local_tz_name, now_local) where:
+            - local_tz: timezone object (ZoneInfo or UTC)
+            - local_tz_name: string name of timezone (e.g., "CDT", "CST", "UTC")
+            - now_local: current datetime in the local timezone
+    """
+    # Get local time parsing preference from environment variable
+    TIME_PARSING_LOCAL = os.environ.get("TIME_PARSING_LOCAL", "false").lower() in (
+        "true",
+        "1",
+        "yes",
+    )
+
+    if TIME_PARSING_LOCAL:
+        try:
+            from zoneinfo import ZoneInfo
+
+            from osprey.utils.config import get_config_value
+
+            # Get timezone from config.yml (try multiple locations for backward compatibility)
+            tz_name = get_config_value("system.timezone", None)
+            if not tz_name:
+                tz_name = get_config_value("timezone", None)
+
+            if not tz_name:
+                # If timezone not configured, use system's local timezone
+                now_local = datetime.now().astimezone()
+                local_tz = now_local.tzinfo
+                local_tz_name = now_local.tzname() or str(local_tz)
+            else:
+                # Use configured timezone from config.yml
+                local_tz = ZoneInfo(tz_name)
+                now_local = datetime.now(local_tz)
+                local_tz_name = now_local.tzname() or str(local_tz)
+        except ImportError:
+            # Fallback for Python < 3.9
+            now_local = datetime.now().astimezone()
+            local_tz = now_local.tzinfo
+            local_tz_name = now_local.tzname() or str(local_tz)
+    else:
+        # Use UTC timezone (original behavior)
+        now_local = datetime.now(UTC)
+        local_tz = UTC
+        local_tz_name = "UTC"
+
+    return local_tz, local_tz_name, now_local
+
+
+# ========================================================
 # LLM Prompting System
 # ========================================================
 
@@ -369,49 +429,54 @@ def _get_time_parsing_system_prompt(user_query: str) -> str:
        :mod:`datetime` : Python module providing time calculation functionality
        :class:`TimeRangeContext` : Final context object created from parsed results
     """
+    # Get timezone information using helper function
+    local_tz, local_tz_name, now_local = _get_timezone_info()
 
-    # Use UTC timezone to avoid confusion
-    now = datetime.now(UTC)
-    current_time_str = now.strftime("%Y-%m-%d %H:%M:%S")
-    current_weekday = now.strftime("%A")
+    current_time_str = now_local.strftime("%Y-%m-%d %H:%M:%S")
+    current_weekday = now_local.strftime("%A")
 
-    # Calculate example dates for the prompt
-    two_hours_ago = (now - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")
-    yesterday_start = (now - timedelta(days=1)).strftime("%Y-%m-%d") + " 00:00:00"
-    yesterday_end = (now - timedelta(days=1)).strftime("%Y-%m-%d") + " 23:59:59"
-    twenty_four_hours_ago = (now - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
-    two_weeks_ago = (now - timedelta(days=14)).strftime("%Y-%m-%d %H:%M:%S")
+    # Calculate example dates for the prompt (in local time)
+    two_hours_ago = (now_local - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")
+    yesterday_start = (now_local - timedelta(days=1)).strftime("%Y-%m-%d") + " 00:00:00"
+    yesterday_end = (now_local - timedelta(days=1)).strftime("%Y-%m-%d") + " 23:59:59"
+    twenty_four_hours_ago = (now_local - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
+    two_weeks_ago = (now_local - timedelta(days=14)).strftime("%Y-%m-%d %H:%M:%S")
 
     prompt = textwrap.dedent(
         f"""
         You are an expert time range parser. Your task is to extract time ranges from user queries and convert them to absolute datetime values.
 
         Current time context:
-        - Current datetime: {current_time_str}
+        - Current datetime (local): {current_time_str}
         - Current weekday: {current_weekday}
+        - Local timezone: {local_tz_name}
 
-        CRITICAL REQUIREMENTS:
+        CRITICAL REQUIREMENTS FOR DATE INTERPRETATION:
+        - **IMPORTANT**: When users specify dates like "2025-10-10 to 2025-10-12", interpret these as LOCAL TIME ({local_tz_name}), NOT UTC
+        - **IMPORTANT**: Specific dates without times should use 00:00:00 as the start time and 23:59:59 as the end time IN LOCAL TIME
         - start_date and end_date must be valid datetime values in ISO format
         - Use format 'YYYY-MM-DD HH:MM:SS' (e.g., "{current_time_str}")
         - Return as datetime objects, not strings with extra text or descriptions
         - **CRITICAL**: start_date MUST be BEFORE end_date (start < end)
-        - **CRITICAL**: Use ONLY the current year {now.year} - NO future years like 2025, 2026, etc.
-        - **CRITICAL**: Current time is {current_time_str} - use this as reference
+        - **CRITICAL**: Dates must be in the current year ({now_local.year}) or earlier - NO future years beyond {now_local.year}
+        - **CRITICAL**: Current time is {current_time_str} ({local_tz_name}) - use this as reference
         - For historical data requests, end_date should typically be close to current time
 
         Instructions:
         1. Parse the user query to identify time range references
-        2. Convert relative time references to absolute datetime values
-        3. Set found=true if you can identify a time range, found=false if no time reference exists
-        4. If found=false, use current time for both start_date and end_date as placeholders
+        2. Convert relative time references to absolute datetime values IN LOCAL TIME ({local_tz_name})
+        3. For specific dates (e.g., "2025-10-10 to 2025-10-12"), interpret as LOCAL TIME dates
+        4. Set found=true if you can identify a time range, found=false if no time reference exists
+        5. If found=false, use current time for both start_date and end_date as placeholders
 
-        Common patterns and their conversions:
+        Common patterns and their conversions (all in LOCAL TIME {local_tz_name}):
         - "last X hours/minutes/days" → X time units BEFORE current time to NOW
         - "past X hours/minutes/days" → X time units BEFORE current time to NOW
-        - "yesterday" → previous day from 00:00:00 to 23:59:59
-        - "today" → current day from 00:00:00 to current time
-        - "this week" → from start of current week to now
-        - "last week" → previous week (Monday to Sunday)
+        - "yesterday" → previous day from 00:00:00 to 23:59:59 (LOCAL TIME)
+        - "today" → current day from 00:00:00 to current time (LOCAL TIME)
+        - "this week" → from start of current week to now (LOCAL TIME)
+        - "last week" → previous week (Monday to Sunday, LOCAL TIME)
+        - Specific date ranges like "2025-10-10 to 2025-10-12" → interpret as LOCAL TIME dates
         - Current/real-time requests → very recent time (last few minutes)
 
         CRITICAL CALCULATION RULES FOR RELATIVE TIMES:
@@ -437,9 +502,14 @@ def _get_time_parsing_system_prompt(user_query: str) -> str:
         - "past 24 hours" → start_date: "{twenty_four_hours_ago}", end_date: "{current_time_str}"
         - "past 2 weeks" → start_date: "{two_weeks_ago}", end_date: "{current_time_str}"
 
+        TIMEZONE HANDLING:
+        - Return all dates in LOCAL TIME ({local_tz_name}) using format 'YYYY-MM-DD HH:MM:SS'
+        - The system will handle conversion to UTC internally for archiver queries
+        - DO NOT convert to UTC yourself - return dates in the user's local timezone
+
         Respond with a JSON object containing start_date, end_date, and found.
         The start_date and end_date fields should be datetime values in YYYY-MM-DD HH:MM:SS format
-        that will be automatically converted to Python datetime objects.
+        in LOCAL TIME ({local_tz_name}) that will be automatically converted to Python datetime objects.
 
         User query to parse: {user_query}"""
     )
@@ -590,9 +660,19 @@ class TimeRangeParsingCapability(BaseCapability):
 
         logger.status("Validating parsed time range...")
 
+        # Get timezone information using helper function
+        local_tz, local_tz_name, _ = _get_timezone_info()
+
+        # Check if local time parsing is enabled
+        TIME_PARSING_LOCAL = os.environ.get("TIME_PARSING_LOCAL", "false").lower() in (
+            "true",
+            "1",
+            "yes",
+        )
+
         # Debug logging to see what LLM actually returned
         logger.debug(
-            f"LLM returned: start={response_data.start_date}, end={response_data.end_date}, found={response_data.found}"
+            f"LLM returned (local time): start={response_data.start_date}, end={response_data.end_date}, found={response_data.found}"
         )
 
         # Check if the LLM found a valid time range
@@ -600,23 +680,93 @@ class TimeRangeParsingCapability(BaseCapability):
             logger.warning(f"No time range found in query: '{task_objective}'")
             raise AmbiguousTimeReferenceError(f"No time range found in query: '{task_objective}'")
 
+        # Convert LLM response to UTC
+        if TIME_PARSING_LOCAL:
+            # The LLM returns naive datetime objects representing local time
+            start_naive = response_data.start_date
+            end_naive = response_data.end_date
+
+            # Add timezone info (interpret as local time)
+            # We need to create new datetime objects in the timezone to get correct DST handling
+            if start_naive.tzinfo is None:
+                # Create a new datetime in the local timezone (this handles DST correctly)
+                start_local = datetime(
+                    start_naive.year,
+                    start_naive.month,
+                    start_naive.day,
+                    start_naive.hour,
+                    start_naive.minute,
+                    start_naive.second,
+                    start_naive.microsecond,
+                    tzinfo=local_tz,
+                )
+            else:
+                start_local = start_naive
+
+            if end_naive.tzinfo is None:
+                # Create a new datetime in the local timezone (this handles DST correctly)
+                end_local = datetime(
+                    end_naive.year,
+                    end_naive.month,
+                    end_naive.day,
+                    end_naive.hour,
+                    end_naive.minute,
+                    end_naive.second,
+                    end_naive.microsecond,
+                    tzinfo=local_tz,
+                )
+            else:
+                end_local = end_naive
+
+            # Convert to UTC for internal use
+            start_utc = start_local.astimezone(UTC)
+            end_utc = end_local.astimezone(UTC)
+        else:
+            # LLM returns UTC times directly (original behavior)
+            start_utc = (
+                response_data.start_date
+                if response_data.start_date.tzinfo
+                else response_data.start_date.replace(tzinfo=UTC)
+            )
+            end_utc = (
+                response_data.end_date
+                if response_data.end_date.tzinfo
+                else response_data.end_date.replace(tzinfo=UTC)
+            )
+            start_local = start_utc
+            end_local = end_utc
+
+        logger.debug(f"Converted to UTC: start={start_utc}, end={end_utc}")
+
         # VALIDATION: Check for invalid date ranges
-        if response_data.start_date >= response_data.end_date:
+        # Allow 1-hour tolerance for DST transition edge cases
+        time_diff = (end_utc - start_utc).total_seconds()
+        DST_TOLERANCE_SECONDS = 3600  # 1 hour tolerance for DST transitions
+
+        if time_diff < -DST_TOLERANCE_SECONDS:
+            # Start is more than 1 hour after end - definitely invalid
             logger.error(
-                f"⚠️ LLM returned INVALID date range: start={response_data.start_date} >= end={response_data.end_date}"
+                f"⚠️ LLM returned INVALID date range: start={start_utc} is {abs(time_diff) / 3600:.1f} hours after end={end_utc}"
             )
             raise InvalidTimeFormatError(
-                f"Invalid date range: start_date ({response_data.start_date}) must be before end_date ({response_data.end_date})"
+                f"Invalid date range: start_date ({start_local}) must be before end_date ({end_local})"
+            )
+        elif -DST_TOLERANCE_SECONDS <= time_diff < 0:
+            # Within tolerance - likely DST transition, log warning but allow
+            logger.warning(
+                f"⚠️ Time range appears reversed by {abs(time_diff) / 60:.0f} minutes, likely due to DST transition. Allowing with tolerance."
+            )
+        elif time_diff == 0:
+            # Exact same time - log warning
+            logger.warning(
+                f"⚠️ Start and end times are identical: {start_utc}. This may indicate a parsing issue."
             )
 
         # VALIDATION: Check for future years (likely LLM error)
         current_year = datetime.now().year
-        if (
-            response_data.start_date.year > current_year
-            or response_data.end_date.year > current_year
-        ):
+        if start_local.year > current_year or end_local.year > current_year:
             logger.error(
-                f"⚠️ LLM returned FUTURE year: start={response_data.start_date}, end={response_data.end_date}, current_year={current_year}"
+                f"⚠️ LLM returned FUTURE year: start={start_local}, end={end_local}, current_year={current_year}"
             )
             raise InvalidTimeFormatError(
                 f"Invalid date range: dates cannot be in future years (current year: {current_year})"
@@ -624,18 +774,34 @@ class TimeRangeParsingCapability(BaseCapability):
 
         logger.status("Creating time range context...")
 
-        # Create rich context object
+        # Create rich context object with UTC times (for archiver compatibility)
         time_context = TimeRangeContext(
-            start_date=response_data.start_date,
-            end_date=response_data.end_date,
+            start_date=start_utc,
+            end_date=end_utc,
         )
 
         # Display parsed result with structured formatting
-        start_str = time_context.start_date.strftime("%Y-%m-%d %H:%M:%S")
-        end_str = time_context.end_date.strftime("%Y-%m-%d %H:%M:%S")
-        logger.info("[bold]Parsed time range:[/bold]")
-        logger.info(f"  Start: [cyan]{start_str}[/cyan]")
-        logger.info(f"  End:   [cyan]{end_str}[/cyan]")
+        start_str_utc = time_context.start_date.strftime("%Y-%m-%d %H:%M:%S")
+        end_str_utc = time_context.end_date.strftime("%Y-%m-%d %H:%M:%S")
+
+        if TIME_PARSING_LOCAL:
+            # Show both local and UTC when local parsing is enabled
+            # Get timezone names from the actual parsed dates (important for DST handling)
+            start_tz_name = start_local.tzname() or local_tz_name
+            end_tz_name = end_local.tzname() or local_tz_name
+
+            start_str_local = start_local.strftime("%Y-%m-%d %H:%M:%S")
+            end_str_local = end_local.strftime("%Y-%m-%d %H:%M:%S")
+            logger.info("[bold]Parsed time range:[/bold]")
+            logger.info(f"  Start (local {start_tz_name}): [cyan]{start_str_local}[/cyan]")
+            logger.info(f"  End (local {end_tz_name}):   [cyan]{end_str_local}[/cyan]")
+            logger.info(f"  Start (UTC): [dim]{start_str_utc}[/dim]")
+            logger.info(f"  End (UTC):   [dim]{end_str_utc}[/dim]")
+        else:
+            # Show only UTC when local parsing is disabled (original behavior)
+            logger.info("[bold]Parsed time range:[/bold]")
+            logger.info(f"  Start: [cyan]{start_str_utc}[/cyan]")
+            logger.info(f"  End:   [cyan]{end_str_utc}[/cyan]")
 
         # Store context using helper method
         logger.success("Time range parsing complete")
