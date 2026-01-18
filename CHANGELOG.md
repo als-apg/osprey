@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **CLI**: Add Claude Code skill for release workflow (`osprey claude install release-workflow`)
+  - Custom SKILL.md wrapper with quick reference for version files and commands
+  - Version consistency check command, pre-release testing steps, tag creation
 - **Orchestration**: Context key validation in execution plans
   - Validates that all input key references match actual context keys (existing or from earlier steps)
   - Detects ordering errors where a step references a key created by a later step
