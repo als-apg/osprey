@@ -825,6 +825,27 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
             # Recursively adjust all src/ paths in the config
             adjust_src_paths_recursive(flattened_config, is_pipelines_service)
 
+            # Handle claude_config_path: copy the file and adjust path for pipelines
+            # The config explicitly specifies which file to use, so we copy exactly that
+            # and update the reference to match where we put it
+            claude_generators = (
+                flattened_config.get("execution", {}).get("generators", {}).get("claude_code", {})
+            )
+            claude_config_path = claude_generators.get("claude_config_path")
+            if claude_config_path and os.path.exists(claude_config_path):
+                # Copy the config file to build directory
+                filename = os.path.basename(claude_config_path)
+                dst_path = os.path.join(out_dir, filename)
+                shutil.copy2(claude_config_path, dst_path)
+                logger.debug(f"Copied {claude_config_path} to {dst_path}")
+
+                # Update path in config: pipelines needs absolute path, others use filename
+                if is_pipelines_service:
+                    claude_generators["claude_config_path"] = f"/pipelines/{filename}"
+                    logger.debug(f"Updated claude_config_path for pipelines: /pipelines/{filename}")
+                else:
+                    claude_generators["claude_config_path"] = filename
+
             config_yml_dst = os.path.join(out_dir, "config.yml")
             with open(config_yml_dst, "w") as f:
                 yaml.dump(flattened_config, f, default_flow_style=False, sort_keys=False)
