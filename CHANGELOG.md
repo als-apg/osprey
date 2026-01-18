@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Orchestrator now receives full conversation context when `task_depends_on_chat_history=True`
   - Enables follow-up queries like "use the same time range" to resolve correctly
   - Chat history formatted with visual separators for clear delineation in prompts
+- **Deployment**: Fix Claude Code config path resolution in pipelines container
+  - Pipelines container has working directory `/app/` but files are mounted at `/pipelines/`
+  - Config file was copied but relative path `claude_generator_config.yml` couldn't be found
+  - Now reads `claude_config_path` from config, copies the file, and updates path to absolute `/pipelines/` for pipelines service
 
 ## [0.10.5] - 2026-01-16
 
