@@ -616,6 +616,45 @@ system.timezone
 - Propagated to all containers
 - Can use environment variable for host timezone: ``${TZ}``
 
+system.time_parsing_local
+--------------------------
+
+**Type:** Boolean
+
+**Location:** Root or framework ``config.yml``
+
+**Default:** ``false``
+
+**Purpose:** Enable local timezone mode for time range parsing capability.
+
+.. code-block:: yaml
+
+   system:
+     time_parsing_local: true
+     timezone: America/Chicago
+
+**Details:**
+
+- ``false`` (default) - Time parsing uses UTC mode (original behavior)
+- ``true`` - Time parsing interprets user time expressions in local timezone
+- When enabled, the LLM parses times in the configured ``system.timezone``
+- Parsed times are converted to UTC internally for archiver compatibility
+- Improves user experience by supporting local time references
+- Requires ``system.timezone`` to be configured when enabled
+
+**Example Use Case:**
+
+When a user at a facility in Chicago (America/Chicago timezone) says "show me data from yesterday",
+with ``time_parsing_local: true``, the system interprets "yesterday" as yesterday in Chicago time,
+not UTC. This makes time references more intuitive for users working in their local timezone.
+
+.. admonition:: New in v0.9.x
+   :class: version-09plus-change
+
+   Local timezone mode for time range parsing enables more intuitive time references for users
+   working in specific timezones. The system handles DST transitions automatically using Python's
+   ZoneInfo for proper timezone handling.
+
 File Paths Configuration
 ========================
 
