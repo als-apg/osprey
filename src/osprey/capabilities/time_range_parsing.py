@@ -930,7 +930,7 @@ class TimeRangeParsingCapability(BaseCapability):
             end_str_local = end_local.strftime("%Y-%m-%d %H:%M:%S")
             start_str_utc = time_context.start_date.strftime("%Y-%m-%d %H:%M:%S")
             end_str_utc = time_context.end_date.strftime("%Y-%m-%d %H:%M:%S")
-            
+
             logger.info("[bold]Parsed time range:[/bold]")
             logger.info(f"  Start (local {tz_name}): [cyan]{start_str_local}[/cyan]")
             logger.info(f"  End (local {tz_name}):   [cyan]{end_str_local}[/cyan]")
@@ -940,7 +940,7 @@ class TimeRangeParsingCapability(BaseCapability):
             # Show only UTC when local parsing is disabled (original behavior)
             start_str_utc = time_context.start_date.strftime("%Y-%m-%d %H:%M:%S")
             end_str_utc = time_context.end_date.strftime("%Y-%m-%d %H:%M:%S")
-            
+
             logger.info("[bold]Parsed time range:[/bold]")
             logger.info(f"  Start: [cyan]{start_str_utc}[/cyan]")
             logger.info(f"  End:   [cyan]{end_str_utc}[/cyan]")

@@ -16,8 +16,8 @@ This module contains all tests for the time range parsing capability:
 import inspect
 import re
 import threading
-from datetime import UTC, datetime, timedelta, timezone
-from unittest.mock import MagicMock, patch
+from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 import pytest
