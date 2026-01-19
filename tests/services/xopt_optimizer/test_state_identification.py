@@ -56,9 +56,7 @@ class TestReferenceFileTools:
 
     def test_real_mode_missing_path_returns_message(self):
         """Real mode with non-existent path should return error message."""
-        list_files = create_list_files_tool(
-            reference_path="/nonexistent/path", mock_mode=False
-        )
+        list_files = create_list_files_tool(reference_path="/nonexistent/path", mock_mode=False)
         result = list_files.invoke({})
 
         assert "does not exist" in result.lower()
@@ -95,9 +93,7 @@ class TestReferenceFileToolsWithRealPath:
         test_file = tmp_path / "test_criteria.md"
         test_file.write_text("# Test Criteria\nThis is a test file.")
 
-        list_files = create_list_files_tool(
-            reference_path=str(tmp_path), mock_mode=False
-        )
+        list_files = create_list_files_tool(reference_path=str(tmp_path), mock_mode=False)
         result = list_files.invoke({})
 
         assert "test_criteria.md" in result
@@ -109,9 +105,7 @@ class TestReferenceFileToolsWithRealPath:
         test_content = "# Test Criteria\nBeam current must be > 10 mA"
         test_file.write_text(test_content)
 
-        read_file = create_read_file_tool(
-            reference_path=str(tmp_path), mock_mode=False
-        )
+        read_file = create_read_file_tool(reference_path=str(tmp_path), mock_mode=False)
         result = read_file.invoke({"filename": "test_criteria.md"})
 
         assert "Test Criteria" in result
@@ -119,9 +113,7 @@ class TestReferenceFileToolsWithRealPath:
 
     def test_real_mode_prevents_path_traversal(self, tmp_path):
         """Real mode should prevent reading files outside reference path."""
-        read_file = create_read_file_tool(
-            reference_path=str(tmp_path), mock_mode=False
-        )
+        read_file = create_read_file_tool(reference_path=str(tmp_path), mock_mode=False)
 
         # Try to read parent directory file
         result = read_file.invoke({"filename": "../../../etc/passwd"})

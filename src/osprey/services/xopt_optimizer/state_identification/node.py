@@ -62,8 +62,7 @@ def _get_state_identification_config() -> dict[str, Any]:
             model_config = get_model_config("orchestrator")
     except Exception as e:
         logger.warning(
-            f"Could not load model config '{model_config_name}': {e}, "
-            "falling back to orchestrator"
+            f"Could not load model config '{model_config_name}': {e}, falling back to orchestrator"
         )
         model_config = get_model_config("orchestrator")
 

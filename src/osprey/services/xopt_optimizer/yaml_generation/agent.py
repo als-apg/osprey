@@ -196,9 +196,9 @@ def _create_file_tools(examples_path: Path) -> list[Any]:
             file_path = file_path.resolve()
             examples_resolved = examples_path.resolve()
             if not str(file_path).startswith(str(examples_resolved)):
-                return f"Error: Cannot read files outside examples directory."
+                return "Error: Cannot read files outside examples directory."
         except Exception:
-            return f"Error: Invalid file path."
+            return "Error: Invalid file path."
 
         if not file_path.exists():
             # Try searching subdirectories
@@ -362,9 +362,15 @@ class YamlGenerationAgent:
 **Optimization Objective:** {objective}
 **Strategy:** {strategy}
 
-{"First, use the tools to read available example configurations. " if self._has_examples else ""}Generate a complete, valid YAML configuration based on {
-    "what you learn from the examples" if self._has_examples else "your knowledge of XOpt configuration patterns"
-}.
+{
+            "First, use the tools to read available example configurations. "
+            if self._has_examples
+            else ""
+        }Generate a complete, valid YAML configuration based on {
+            "what you learn from the examples"
+            if self._has_examples
+            else "your knowledge of XOpt configuration patterns"
+        }.
 
 Remember:
 - Use generic parameter names unless specific names are provided
@@ -396,9 +402,7 @@ Remember:
             # Get the last message content
             last_message = messages[-1]
             content = (
-                last_message.content
-                if hasattr(last_message, "content")
-                else str(last_message)
+                last_message.content if hasattr(last_message, "content") else str(last_message)
             )
 
             # Extract YAML from response

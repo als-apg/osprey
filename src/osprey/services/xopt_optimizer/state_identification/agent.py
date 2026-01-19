@@ -247,9 +247,7 @@ Remember to check ALL relevant criteria before making your assessment.
             # Get the last message content
             last_message = messages[-1]
             content = (
-                last_message.content
-                if hasattr(last_message, "content")
-                else str(last_message)
+                last_message.content if hasattr(last_message, "content") else str(last_message)
             )
 
             # Parse the assessment from the response

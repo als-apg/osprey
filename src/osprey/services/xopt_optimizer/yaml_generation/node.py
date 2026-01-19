@@ -55,10 +55,14 @@ def _get_yaml_generation_config() -> dict[str, Any]:
         model_config = get_model_config(model_config_name)
         # Check if the model config is valid (has provider)
         if not model_config or not model_config.get("provider"):
-            logger.debug(f"Model '{model_config_name}' not configured, falling back to orchestrator")
+            logger.debug(
+                f"Model '{model_config_name}' not configured, falling back to orchestrator"
+            )
             model_config = get_model_config("orchestrator")
     except Exception as e:
-        logger.warning(f"Could not load model config '{model_config_name}': {e}, falling back to orchestrator")
+        logger.warning(
+            f"Could not load model config '{model_config_name}': {e}, falling back to orchestrator"
+        )
         model_config = get_model_config("orchestrator")
 
     return {

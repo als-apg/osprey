@@ -11,6 +11,39 @@ This will require:
 - Result artifact capture
 
 DO NOT add accelerator-specific execution logic without operator input.
+
+## Badger/XOpt Environment Integration
+
+XOpt/Badger uses an "Environment" abstraction that defines the optimization problem:
+- **variables**: Tunable parameters with bounds (e.g., magnet setpoints)
+- **observables**: Measurable outputs (e.g., beam position, emittance)
+
+The Environment communicates with the control system via an "Interface" that
+implements `get_values()` and `set_values()`. This maps naturally to Osprey's
+ConnectorFactory:
+
+```python
+# Example: Badger Interface using Osprey's ConnectorFactory
+from osprey.connectors.factory import ConnectorFactory
+
+class OspreyInterface(Interface):
+    name = "osprey"
+
+    async def get_values(self, channel_names):
+        connector = await ConnectorFactory.create_control_system_connector()
+        return {name: (await connector.read_channel(name)).value
+                for name in channel_names}
+
+    async def set_values(self, channel_inputs):
+        connector = await ConnectorFactory.create_control_system_connector()
+        for name, value in channel_inputs.items():
+            await connector.write_channel(name, value)
+```
+
+This allows XOpt to work with any control system backend (EPICS, mock, etc.)
+configured in Osprey's config.yml, including generated soft IOCs.
+
+See: https://github.com/xopt-org/Badger (Environment and Interface classes)
 """
 
 from typing import Any
@@ -30,9 +63,13 @@ async def _run_xopt_placeholder(yaml_config: str) -> dict[str, Any]:
     TODO: Replace with actual XOpt prototype integration.
     This will involve:
     - Parsing the YAML configuration
+    - Creating a Badger Environment with OspreyInterface (see module docstring)
     - Setting up XOpt with proper generator and evaluator
     - Running the optimization loop
     - Capturing results and artifacts
+
+    The Environment defines variables/observables; the OspreyInterface
+    bridges to Osprey's ConnectorFactory for control system access.
     """
     return {
         "status": "completed",

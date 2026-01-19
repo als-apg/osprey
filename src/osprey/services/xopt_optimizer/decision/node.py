@@ -35,9 +35,7 @@ class StrategyDecision(BaseModel):
     strategy: XOptStrategy = Field(
         description="The optimization strategy: 'exploration' or 'optimization'"
     )
-    reasoning: str = Field(
-        description="Brief explanation of why this strategy was selected"
-    )
+    reasoning: str = Field(description="Brief explanation of why this strategy was selected")
 
 
 # =============================================================================
@@ -109,8 +107,7 @@ def _get_decision_config() -> dict[str, Any]:
             model_config = get_model_config("orchestrator")
     except Exception as e:
         logger.warning(
-            f"Could not load model config '{model_config_name}': {e}, "
-            "falling back to orchestrator"
+            f"Could not load model config '{model_config_name}': {e}, falling back to orchestrator"
         )
         model_config = get_model_config("orchestrator")
 
