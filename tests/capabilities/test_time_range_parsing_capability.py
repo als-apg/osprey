@@ -195,6 +195,7 @@ class TestTimezoneConfig:
     @patch("osprey.capabilities.time_range_parsing.get_config_value")
     def test_local_mode_with_configured_timezone(self, mock_config):
         """Test local mode with configured timezone."""
+
         def config_side_effect(key, default=None):
             if key == "system.time_parsing_local":
                 return True
@@ -229,11 +230,14 @@ class TestTimeRangeParsingCapabilityExecution:
     @pytest.mark.asyncio
     async def test_execute_with_state_injection(self, mock_state, mock_step):
         """Test execute() accesses self._state and self._step correctly."""
-        with patch("osprey.capabilities.time_range_parsing.get_config_value") as mock_config, \
-             patch("osprey.capabilities.time_range_parsing.get_model_config") as mock_model, \
-             patch("osprey.capabilities.time_range_parsing.TimeRangeParsingCapability.store_output_context") as mock_store, \
-             patch("asyncio.to_thread") as mock_to_thread:
-
+        with (
+            patch("osprey.capabilities.time_range_parsing.get_config_value") as mock_config,
+            patch("osprey.capabilities.time_range_parsing.get_model_config") as mock_model,
+            patch(
+                "osprey.capabilities.time_range_parsing.TimeRangeParsingCapability.store_output_context"
+            ) as mock_store,
+            patch("asyncio.to_thread") as mock_to_thread,
+        ):
             mock_config.return_value = False
             mock_model.return_value = {"model": "gpt-4"}
             mock_store.return_value = {"capability_context_data": {}}
@@ -261,10 +265,11 @@ class TestTimeRangeParsingCapabilityExecution:
     @pytest.mark.asyncio
     async def test_no_time_reference_raises_error(self, mock_state, mock_step):
         """Test that queries without time references raise AmbiguousTimeReferenceError."""
-        with patch("osprey.capabilities.time_range_parsing.get_config_value") as mock_config, \
-             patch("osprey.capabilities.time_range_parsing.get_model_config") as mock_model, \
-             patch("asyncio.to_thread") as mock_to_thread:
-
+        with (
+            patch("osprey.capabilities.time_range_parsing.get_config_value") as mock_config,
+            patch("osprey.capabilities.time_range_parsing.get_model_config") as mock_model,
+            patch("asyncio.to_thread") as mock_to_thread,
+        ):
             mock_config.return_value = False
             mock_model.return_value = {"model": "gpt-4"}
 
@@ -289,10 +294,11 @@ class TestTimeRangeParsingCapabilityExecution:
     @pytest.mark.asyncio
     async def test_invalid_range_start_after_end_raises_error(self, mock_state, mock_step):
         """Test that start_date after end_date raises InvalidTimeFormatError."""
-        with patch("osprey.capabilities.time_range_parsing.get_config_value") as mock_config, \
-             patch("osprey.capabilities.time_range_parsing.get_model_config") as mock_model, \
-             patch("asyncio.to_thread") as mock_to_thread:
-
+        with (
+            patch("osprey.capabilities.time_range_parsing.get_config_value") as mock_config,
+            patch("osprey.capabilities.time_range_parsing.get_model_config") as mock_model,
+            patch("asyncio.to_thread") as mock_to_thread,
+        ):
             mock_config.return_value = False
             mock_model.return_value = {"model": "gpt-4"}
 
@@ -320,10 +326,11 @@ class TestTimeRangeParsingCapabilityExecution:
     @pytest.mark.asyncio
     async def test_future_end_date_raises_error(self, mock_state, mock_step):
         """Test that future end dates raise InvalidTimeFormatError."""
-        with patch("osprey.capabilities.time_range_parsing.get_config_value") as mock_config, \
-             patch("osprey.capabilities.time_range_parsing.get_model_config") as mock_model, \
-             patch("asyncio.to_thread") as mock_to_thread:
-
+        with (
+            patch("osprey.capabilities.time_range_parsing.get_config_value") as mock_config,
+            patch("osprey.capabilities.time_range_parsing.get_model_config") as mock_model,
+            patch("asyncio.to_thread") as mock_to_thread,
+        ):
             mock_config.return_value = False
             mock_model.return_value = {"model": "gpt-4"}
 
@@ -351,10 +358,11 @@ class TestTimeRangeParsingCapabilityExecution:
     @pytest.mark.asyncio
     async def test_future_year_raises_error(self, mock_state, mock_step):
         """Test that dates in future years raise InvalidTimeFormatError."""
-        with patch("osprey.capabilities.time_range_parsing.get_config_value") as mock_config, \
-             patch("osprey.capabilities.time_range_parsing.get_model_config") as mock_model, \
-             patch("asyncio.to_thread") as mock_to_thread:
-
+        with (
+            patch("osprey.capabilities.time_range_parsing.get_config_value") as mock_config,
+            patch("osprey.capabilities.time_range_parsing.get_model_config") as mock_model,
+            patch("asyncio.to_thread") as mock_to_thread,
+        ):
             mock_config.return_value = False
             mock_model.return_value = {"model": "gpt-4"}
 
@@ -382,10 +390,11 @@ class TestTimeRangeParsingCapabilityExecution:
     @pytest.mark.asyncio
     async def test_llm_exception_raises_time_parsing_error(self, mock_state, mock_step):
         """Test that LLM exceptions are wrapped in TimeParsingError."""
-        with patch("osprey.capabilities.time_range_parsing.get_config_value") as mock_config, \
-             patch("osprey.capabilities.time_range_parsing.get_model_config") as mock_model, \
-             patch("asyncio.to_thread") as mock_to_thread:
-
+        with (
+            patch("osprey.capabilities.time_range_parsing.get_config_value") as mock_config,
+            patch("osprey.capabilities.time_range_parsing.get_model_config") as mock_model,
+            patch("asyncio.to_thread") as mock_to_thread,
+        ):
             mock_config.return_value = False
             mock_model.return_value = {"model": "gpt-4"}
 
@@ -406,15 +415,19 @@ class TestTimeRangeParsingCapabilityExecution:
     @pytest.mark.asyncio
     async def test_invalid_llm_response_type_raises_error(self, mock_state, mock_step):
         """Test that non-TimeRangeOutput responses raise TimeParsingError."""
-        with patch("osprey.capabilities.time_range_parsing.get_config_value") as mock_config, \
-             patch("osprey.capabilities.time_range_parsing.get_model_config") as mock_model, \
-             patch("asyncio.to_thread") as mock_to_thread:
-
+        with (
+            patch("osprey.capabilities.time_range_parsing.get_config_value") as mock_config,
+            patch("osprey.capabilities.time_range_parsing.get_model_config") as mock_model,
+            patch("asyncio.to_thread") as mock_to_thread,
+        ):
             mock_config.return_value = False
             mock_model.return_value = {"model": "gpt-4"}
 
             async def async_mock(*args, **kwargs):
-                return {"start_date": "2025-01-01", "end_date": "2025-01-02"}  # Dict instead of TimeRangeOutput
+                return {
+                    "start_date": "2025-01-01",
+                    "end_date": "2025-01-02",
+                }  # Dict instead of TimeRangeOutput
 
             mock_to_thread.side_effect = async_mock
 
@@ -453,11 +466,12 @@ class TestTimeRangeParsingIntegration:
             stored_context["context"] = context
             return {"capability_context_data": {"TIME_RANGE": context.model_dump()}}
 
-        with patch("osprey.capabilities.time_range_parsing.get_config_value") as mock_config, \
-             patch("osprey.capabilities.time_range_parsing.get_model_config") as mock_model, \
-             patch.object(TimeRangeParsingCapability, "store_output_context", mock_store), \
-             patch("asyncio.to_thread") as mock_to_thread:
-
+        with (
+            patch("osprey.capabilities.time_range_parsing.get_config_value") as mock_config,
+            patch("osprey.capabilities.time_range_parsing.get_model_config") as mock_model,
+            patch.object(TimeRangeParsingCapability, "store_output_context", mock_store),
+            patch("asyncio.to_thread") as mock_to_thread,
+        ):
             mock_config.return_value = False
             mock_model.return_value = {"model": "gpt-4"}
 
@@ -497,11 +511,12 @@ class TestTimeRangeParsingIntegration:
             stored_context["context"] = context
             return {"capability_context_data": {"TIME_RANGE": context.model_dump()}}
 
-        with patch("osprey.capabilities.time_range_parsing.get_config_value") as mock_config, \
-             patch("osprey.capabilities.time_range_parsing.get_model_config") as mock_model, \
-             patch.object(TimeRangeParsingCapability, "store_output_context", mock_store), \
-             patch("asyncio.to_thread") as mock_to_thread:
-
+        with (
+            patch("osprey.capabilities.time_range_parsing.get_config_value") as mock_config,
+            patch("osprey.capabilities.time_range_parsing.get_model_config") as mock_model,
+            patch.object(TimeRangeParsingCapability, "store_output_context", mock_store),
+            patch("asyncio.to_thread") as mock_to_thread,
+        ):
             mock_config.return_value = False
             mock_model.return_value = {"model": "gpt-4"}
 
@@ -545,18 +560,19 @@ class TestTimeRangeParsingIntegration:
                 return "America/Chicago"
             return default
 
-        with patch("osprey.capabilities.time_range_parsing.get_config_value") as mock_config, \
-             patch("osprey.capabilities.time_range_parsing.get_model_config") as mock_model, \
-             patch.object(TimeRangeParsingCapability, "store_output_context", mock_store), \
-             patch("asyncio.to_thread") as mock_to_thread:
-
+        with (
+            patch("osprey.capabilities.time_range_parsing.get_config_value") as mock_config,
+            patch("osprey.capabilities.time_range_parsing.get_model_config") as mock_model,
+            patch.object(TimeRangeParsingCapability, "store_output_context", mock_store),
+            patch("asyncio.to_thread") as mock_to_thread,
+        ):
             mock_config.side_effect = config_side_effect
             mock_model.return_value = {"model": "gpt-4"}
 
             # Mock LLM response with naive datetime (as LLM would return for local time)
             mock_llm_response = TimeRangeOutput(
                 start_date=datetime(2025, 1, 10, 10, 0, 0),  # Naive datetime
-                end_date=datetime(2025, 1, 10, 14, 0, 0),    # Naive datetime
+                end_date=datetime(2025, 1, 10, 14, 0, 0),  # Naive datetime
                 found=True,
             )
 
@@ -593,11 +609,12 @@ class TestTimeRangeParsingIntegration:
                 return "America/Chicago"
             return default
 
-        with patch("osprey.capabilities.time_range_parsing.get_config_value") as mock_config, \
-             patch("osprey.capabilities.time_range_parsing.get_model_config") as mock_model, \
-             patch.object(TimeRangeParsingCapability, "store_output_context", mock_store), \
-             patch("asyncio.to_thread") as mock_to_thread:
-
+        with (
+            patch("osprey.capabilities.time_range_parsing.get_config_value") as mock_config,
+            patch("osprey.capabilities.time_range_parsing.get_model_config") as mock_model,
+            patch.object(TimeRangeParsingCapability, "store_output_context", mock_store),
+            patch("asyncio.to_thread") as mock_to_thread,
+        ):
             mock_config.side_effect = config_side_effect
             mock_model.return_value = {"model": "gpt-4"}
 
@@ -635,19 +652,24 @@ class TestTimeRangeParsingIntegration:
             stored_context["context"] = context
             return {"capability_context_data": {"TIME_RANGE": context.model_dump()}}
 
-        with patch("osprey.capabilities.time_range_parsing.get_config_value") as mock_config, \
-             patch("osprey.capabilities.time_range_parsing.get_model_config") as mock_model, \
-             patch.object(TimeRangeParsingCapability, "store_output_context", mock_store), \
-             patch("asyncio.to_thread") as mock_to_thread:
-
+        with (
+            patch("osprey.capabilities.time_range_parsing.get_config_value") as mock_config,
+            patch("osprey.capabilities.time_range_parsing.get_model_config") as mock_model,
+            patch.object(TimeRangeParsingCapability, "store_output_context", mock_store),
+            patch("asyncio.to_thread") as mock_to_thread,
+        ):
             mock_config.return_value = False
             mock_model.return_value = {"model": "gpt-4"}
 
             now = datetime.now(UTC)
             yesterday = now - timedelta(days=1)
             mock_llm_response = TimeRangeOutput(
-                start_date=datetime(yesterday.year, yesterday.month, yesterday.day, 0, 0, 0, tzinfo=UTC),
-                end_date=datetime(yesterday.year, yesterday.month, yesterday.day, 23, 59, 59, tzinfo=UTC),
+                start_date=datetime(
+                    yesterday.year, yesterday.month, yesterday.day, 0, 0, 0, tzinfo=UTC
+                ),
+                end_date=datetime(
+                    yesterday.year, yesterday.month, yesterday.day, 23, 59, 59, tzinfo=UTC
+                ),
                 found=True,
             )
 
@@ -724,9 +746,7 @@ class TestPromptInjectionPrevention:
         for pattern in patterns:
             sanitized = _sanitize_user_query(pattern)
             # Check that the injection pattern is neutralized
-            assert not re.search(
-                r"(?i)(ignore|forget|disregard)\s+(previous|above|all)", sanitized
-            )
+            assert not re.search(r"(?i)(ignore|forget|disregard)\s+(previous|above|all)", sanitized)
 
     def test_sanitize_limits_query_length(self):
         """Test that very long queries are truncated."""
@@ -1133,9 +1153,10 @@ class TestLLMDependencyCheck:
     @pytest.mark.asyncio
     async def test_missing_llm_raises_dependency_error(self, mock_state, mock_step):
         """Test that missing LLM interface raises TimeParsingDependencyError."""
-        with patch("osprey.capabilities.time_range_parsing.get_config_value") as mock_config, \
-             patch("osprey.capabilities.time_range_parsing.get_chat_completion", None):
-
+        with (
+            patch("osprey.capabilities.time_range_parsing.get_config_value") as mock_config,
+            patch("osprey.capabilities.time_range_parsing.get_chat_completion", None),
+        ):
             mock_config.return_value = False
 
             capability = TimeRangeParsingCapability()
@@ -1293,10 +1314,11 @@ class TestExceptionHandlingSpecificity:
     @pytest.mark.asyncio
     async def test_connection_error_wrapped_correctly(self, mock_state, mock_step):
         """Test that ConnectionError is wrapped in TimeParsingError."""
-        with patch("osprey.capabilities.time_range_parsing.get_config_value") as mock_config, \
-             patch("osprey.capabilities.time_range_parsing.get_model_config") as mock_model, \
-             patch("asyncio.to_thread") as mock_to_thread:
-
+        with (
+            patch("osprey.capabilities.time_range_parsing.get_config_value") as mock_config,
+            patch("osprey.capabilities.time_range_parsing.get_model_config") as mock_model,
+            patch("asyncio.to_thread") as mock_to_thread,
+        ):
             mock_config.return_value = False
             mock_model.return_value = {"model": "gpt-4"}
 
@@ -1315,10 +1337,11 @@ class TestExceptionHandlingSpecificity:
     @pytest.mark.asyncio
     async def test_timeout_error_wrapped_correctly(self, mock_state, mock_step):
         """Test that TimeoutError is wrapped in TimeParsingError."""
-        with patch("osprey.capabilities.time_range_parsing.get_config_value") as mock_config, \
-             patch("osprey.capabilities.time_range_parsing.get_model_config") as mock_model, \
-             patch("asyncio.to_thread") as mock_to_thread:
-
+        with (
+            patch("osprey.capabilities.time_range_parsing.get_config_value") as mock_config,
+            patch("osprey.capabilities.time_range_parsing.get_model_config") as mock_model,
+            patch("asyncio.to_thread") as mock_to_thread,
+        ):
             mock_config.return_value = False
             mock_model.return_value = {"model": "gpt-4"}
 
@@ -1337,10 +1360,11 @@ class TestExceptionHandlingSpecificity:
     @pytest.mark.asyncio
     async def test_value_error_wrapped_correctly(self, mock_state, mock_step):
         """Test that ValueError is wrapped in TimeParsingError."""
-        with patch("osprey.capabilities.time_range_parsing.get_config_value") as mock_config, \
-             patch("osprey.capabilities.time_range_parsing.get_model_config") as mock_model, \
-             patch("asyncio.to_thread") as mock_to_thread:
-
+        with (
+            patch("osprey.capabilities.time_range_parsing.get_config_value") as mock_config,
+            patch("osprey.capabilities.time_range_parsing.get_model_config") as mock_model,
+            patch("asyncio.to_thread") as mock_to_thread,
+        ):
             mock_config.return_value = False
             mock_model.return_value = {"model": "gpt-4"}
 
