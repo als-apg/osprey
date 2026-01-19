@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Time Range Parsing - Local Timezone Support**: Enhanced time range parsing capability to use user's local timezone from configuration
+  - Added timezone configuration to ConfigurationSystem documentation
+  - Time range parsing now respects `user.timezone` setting from config.yml
+  - Comprehensive test coverage for timezone-aware parsing behavior
+  - Updated CHANGELOG with new timezone feature
+
+### Fixed
+- **Time Range Parsing - DST Handling**: Fixed incorrect DST handling in timezone conversion
+  - Replaced `replace(tzinfo=)` with proper DST-aware localization using `fold` attribute
+  - Added round-trip validation through UTC to detect ambiguous/invalid times
+  - Removed DST tolerance hack (1-hour tolerance for reversed time ranges)
+  - Proper timezone-aware datetime construction now prevents DST-related bugs
+- **Time Range Parsing - Future Date Validation**: Added validation to reject future end dates
+  - End dates beyond current time (with 5-minute buffer for clock skew) now return error
+  - Prevents invalid archiver queries for data that doesn't exist yet
+- **Time Range Parsing - Code Quality**: Improved code quality and removed technical debt
+  - Created `TimezoneConfig` singleton to cache timezone configuration (avoids duplicate reads)
+  - Moved `ZoneInfo` import to module level (was inside function)
+  - Removed dead code: Python < 3.9 fallback (framework requires Python 3.11+)
+  - Extracted duplicate UTC conversion code into `_convert_to_utc()` method
+  - Fixed docstrings for `get_access_details()` and `get_summary()` to match actual parameters
+  - Fixed year validation to use consistent timezone reference (`now_local.year`)
+
+### Tests
+- **Time Range Parsing - Comprehensive Test Suites**: Added extensive test coverage
+  - Unit tests for `TimezoneConfig` singleton behavior
+  - Unit tests for DST spring-forward gap handling
+  - Unit tests for DST fall-back ambiguous time handling
+  - Unit tests for UTC conversion in both local and UTC modes
+  - Unit tests for future date rejection
+  - Unit tests for error classification
+  - Integration tests with mocked LLM for full parsing flow
+  - Integration tests for relative time queries ("last 24 hours", "yesterday")
+  - Integration tests for specific date ranges
+  - Integration tests for error conditions (no time reference, invalid range, future dates)
+  - Integration tests for local timezone handling with DST
+  - Integration tests for context summary and access details
+
 ## [0.10.6] - 2026-01-18
 
 ### Added
@@ -24,6 +63,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - New helper methods: `get_context_metadata()`, `get_all_context_metadata()`
   - Orchestrator prompt displays task_objective for each available context
   - Enables intelligent context reuse by showing what each context was created for
+- **Time Range Parsing - Tests**: Added comprehensive test suites
+  - Unit tests for `TimezoneConfig` singleton behavior
+  - Unit tests for DST spring-forward gap handling
+  - Unit tests for DST fall-back ambiguous time handling
+  - Unit tests for UTC conversion in both local and UTC modes
+  - Unit tests for future date rejection
+  - Unit tests for error classification
+  - Integration tests with mocked LLM for full parsing flow
+  - Integration tests for relative time queries ("last 24 hours", "yesterday")
+  - Integration tests for specific date ranges
+  - Integration tests for error conditions (no time reference, invalid range, future dates)
+  - Integration tests for local timezone handling with DST
+  - Integration tests for context summary and access details
 
 ### Fixed
 - **Graph**: Propagate chat history to orchestrator and respond nodes (#111)
@@ -34,6 +86,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Pipelines container has working directory `/app/` but files are mounted at `/pipelines/`
   - Config file was copied but relative path `claude_generator_config.yml` couldn't be found
   - Now reads `claude_config_path` from config, copies the file, and updates path to absolute `/pipelines/` for pipelines service
+- **Time Range Parsing - DST Handling**: Fixed incorrect DST handling in timezone conversion
+  - Replaced `replace(tzinfo=)` with proper DST-aware localization using `fold` attribute
+  - Added round-trip validation through UTC to detect ambiguous/invalid times
+  - Removed DST tolerance hack (1-hour tolerance for reversed time ranges)
+  - Proper timezone-aware datetime construction now prevents DST-related bugs
+- **Time Range Parsing - Future Date Validation**: Added validation to reject future end dates
+  - End dates beyond current time (with 5-minute buffer for clock skew) now return error
+  - Prevents invalid archiver queries for data that doesn't exist yet
+- **Time Range Parsing - Code Quality**: Improved code quality and removed technical debt
+  - Created `TimezoneConfig` singleton to cache timezone configuration (avoids duplicate reads)
+  - Moved `ZoneInfo` import to module level (was inside function)
+  - Removed dead code: Python < 3.9 fallback (framework requires Python 3.11+)
+  - Extracted duplicate UTC conversion code into `_convert_to_utc()` method
+  - Fixed docstrings for `get_access_details()` and `get_summary()` to match actual parameters
+  - Fixed year validation to use consistent timezone reference (`now_local.year`)
 
 ## [0.10.5] - 2026-01-16
 
