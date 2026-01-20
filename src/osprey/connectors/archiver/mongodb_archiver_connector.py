@@ -229,6 +229,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
             # Project only the fields we need: date and requested PVs
             projection = {"date": 1}
             for pv in pv_list:
+                query[pv] = {"$exists": True}
                 projection[pv] = 1
 
             # Query MongoDB collection
