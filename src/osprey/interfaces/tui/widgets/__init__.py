@@ -30,6 +30,7 @@ from osprey.interfaces.tui.widgets.input import (
 )
 from osprey.interfaces.tui.widgets.log_viewer import LogViewer
 from osprey.interfaces.tui.widgets.messages import ChatMessage
+from osprey.interfaces.tui.widgets.plan_progress import PlanProgressBar
 from osprey.interfaces.tui.widgets.theme_picker import ThemePicker
 from osprey.interfaces.tui.widgets.welcome import WelcomeBanner, WelcomeScreen
 
@@ -40,6 +41,7 @@ __all__ = [
     "DebugBlock",
     "LogsLink",
     "LogViewer",
+    "PlanProgressBar",
     "ProcessingBlock",
     "ProcessingStep",
     "PromptLink",

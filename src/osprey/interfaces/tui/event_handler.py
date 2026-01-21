@@ -301,10 +301,12 @@ class TUIEventHandler:
         Args:
             steps: List of execution steps (each a dict with capability_name, etc.)
         """
+        from osprey.interfaces.tui.widgets.plan_progress import PlanProgressBar
+
         # Update shared data for use by subsequent phases
         self.shared_data["steps"] = steps
 
-        # Initialize plan tracking for TodoUpdateStep during execution
+        # Initialize plan tracking for progress updates during execution
         self.display._plan_steps = steps
         self.display._plan_step_states = ["pending"] * len(steps)
 
@@ -322,6 +324,13 @@ class TUIEventHandler:
                 output = f"Plan: {' -> '.join(step_names)}"
                 block.set_output(output)
 
+        # Initialize the floating progress bar
+        try:
+            progress_bar = self.display.app.query_one("#plan-progress", PlanProgressBar)
+            progress_bar.set_plan(steps)
+        except Exception:
+            pass  # Progress bar may not exist in some contexts
+
     async def _handle_capability_start(
         self, name: str, step: int, total: int, description: str
     ) -> None:
@@ -333,7 +342,8 @@ class TUIEventHandler:
             total: Total number of steps
             description: Step description
         """
-        from osprey.interfaces.tui.widgets.blocks import ExecutionStep, TodoUpdateStep
+        from osprey.interfaces.tui.widgets.blocks import ExecutionStep
+        from osprey.interfaces.tui.widgets.plan_progress import PlanProgressBar
 
         # Update plan progress display if we have plan steps
         if hasattr(self.display, "_plan_steps") and self.display._plan_steps:
@@ -348,11 +358,12 @@ class TUIEventHandler:
             if step - 1 < len(self.display._plan_step_states):
                 self.display._plan_step_states[step - 1] = "current"
 
-            # Create TodoUpdateStep to show progress
-            # Note: auto_scroll is triggered by TodosRendered message when todos are rendered
-            update_step = TodoUpdateStep()
-            self.display.mount(update_step)
-            update_step.set_todos(self.display._plan_steps, self.display._plan_step_states)
+            # Update floating progress bar in-place (instead of creating TodoUpdateStep)
+            try:
+                progress_bar = self.display.app.query_one("#plan-progress", PlanProgressBar)
+                progress_bar.update_progress(self.display._plan_step_states)
+            except Exception:
+                pass  # Progress bar may not exist in some contexts
 
         # Create ExecutionStep block
         block = ExecutionStep(capability=name)
@@ -404,6 +415,25 @@ class TUIEventHandler:
             else:
                 output_text = error_message or "Execution failed"
             block.set_output(output_text, status=status)
+
+        # Mark current step as done in progress bar
+        if success and hasattr(self.display, "_plan_step_states"):
+            step_num = getattr(self, "_current_step_number", None)
+            if step_num and step_num <= len(self.display._plan_step_states):
+                self.display._plan_step_states[step_num - 1] = "done"
+
+                # Update floating progress bar
+                try:
+                    from osprey.interfaces.tui.widgets.plan_progress import (
+                        PlanProgressBar,
+                    )
+
+                    progress_bar = self.display.app.query_one(
+                        "#plan-progress", PlanProgressBar
+                    )
+                    progress_bar.update_progress(self.display._plan_step_states)
+                except Exception:
+                    pass  # Progress bar may not exist
 
         # Clear capability context (will be set again if another capability starts)
         self._current_capability = None
@@ -492,11 +522,15 @@ class TUIEventHandler:
     async def _handle_result(self, response: str, success: bool) -> None:
         """Handle result event - display final response.
 
+        Note: ResultEvent is not currently emitted by the backend, so this
+        method is not called. Todo completion is handled in
+        _handle_capability_complete() instead.
+
         Args:
             response: Final response text
             success: Whether execution was successful
         """
-        # This will be handled by the main app to display as assistant message
+        # ResultEvent is not currently emitted - this method is a no-op
         pass
 
     async def _handle_error(

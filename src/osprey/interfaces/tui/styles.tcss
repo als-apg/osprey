@@ -197,6 +197,30 @@ StatusPanel > .status-panel--description {
     color: $text-muted;
 }
 
+/* Plan progress bar - overlay floating above input */
+/* Styled to match command dropdown (overlay, no visible border) */
+#plan-progress {
+    width: 1fr;
+    height: auto;
+    max-height: 30vh;
+    padding: 0 2;
+    margin: 0 2 6 2;  /* margin-bottom: 6 to position above input */
+    background: $surface;
+    border: tall $background;
+    display: none;
+    overlay: screen;           /* Float above content, not in flow */
+    constrain: none inside;    /* Same as command-dropdown */
+}
+
+#plan-progress #progress-header {
+    color: $text-muted;
+    padding: 0 0 0 0;
+}
+
+#plan-progress #progress-todos {
+    padding: 0 0 0 2;
+}
+
 /* Banner "os" portion - muted */
 WelcomeBanner > .banner--muted {
     color: $text-muted;

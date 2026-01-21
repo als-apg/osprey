@@ -1001,6 +1001,8 @@ class TodoList(Vertical):
         """
         super().__init__(**kwargs)
         self._items: list[TodoItem] = []
+        self._todos: list[dict] = []
+        self._states: list[str] = []
 
     def set_todos(self, todos: list[dict], states: list[str]) -> None:
         """Set all todos, replacing existing items.
@@ -1009,20 +1011,46 @@ class TodoList(Vertical):
             todos: List of todo dicts with 'task_objective' key.
             states: List of states ("pending", "current", "done").
         """
+        # Store for later reference
+        self._todos = todos
+        self._states = states.copy()
+
         # Clear existing items
         for item in self._items:
             item.remove()
         self._items.clear()
 
-        # Add new items
-        for todo, state in zip(todos, states, strict=True):
-            text = todo.get("task_objective", "")
-            item = TodoItem(text, state)
-            self._items.append(item)
-            self.mount(item)
+        # Batch all mounts to avoid multiple layout passes
+        # This prevents the "expand then shrink" visual jump
+        with self.app.batch_update():
+            for todo, state in zip(todos, states, strict=True):
+                text = todo.get("task_objective", "")
+                item = TodoItem(text, state)
+                self._items.append(item)
+                self.mount(item)
+            # Show the list within the batch
+            self.display = True
 
-        # Show the list now that it has content
-        self.display = True
+    def update_states(self, states: list[str]) -> None:
+        """Update states in-place without rebuilding widgets.
+
+        Only updates items whose state has changed. More efficient than
+        calling set_todos() when the structure hasn't changed.
+
+        Args:
+            states: New list of states ("pending", "current", "done").
+        """
+        if len(states) != len(self._items):
+            # Mismatch - can't update in place
+            return
+
+        with self.app.batch_update():
+            for item, old_state, new_state in zip(
+                self._items, self._states, states, strict=True
+            ):
+                if old_state != new_state:
+                    item.set_state(new_state)
+        self._states = states.copy()
 
 
 class OrchestrationStep(ProcessingStep):

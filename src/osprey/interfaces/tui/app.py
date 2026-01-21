@@ -27,12 +27,12 @@ from osprey.interfaces.tui.widgets import (
     CommandPalette,
     ExecutionStep,
     OrchestrationStep,
+    PlanProgressBar,
     ProcessingBlock,
     ProcessingStep,
     StatusPanel,
     TaskExtractionStep,
     ThemePicker,
-    TodoUpdateStep,
     WelcomeScreen,
 )
 from osprey.registry import get_registry, initialize_registry
@@ -66,6 +66,8 @@ class OspreyTUI(App):
         ("ctrl+t", "switch_theme", "Switch theme"),
         # Help - toggle keys panel
         ("ctrl+h", "toggle_help_panel", "Toggle help"),
+        # Toggle plan progress bar
+        ("ctrl+o", "toggle_plan_progress", "Toggle plan"),
         # Chat body scrolling (when focus not on input)
         Binding("space", "scroll_down", "Scroll down", show=False),
         Binding("b", "scroll_up", "Scroll up", show=False),
@@ -108,6 +110,7 @@ class OspreyTUI(App):
         yield Vertical(
             ChatDisplay(id="chat-display"),
             CommandDropdown(id="command-dropdown"),
+            PlanProgressBar(id="plan-progress"),  # Floating todo progress bar
             ChatInput(id="chat-input", placeholder="Type your message here..."),
             StatusPanel(id="status-panel"),
             id="main-content",
@@ -227,6 +230,13 @@ class OspreyTUI(App):
             help_panel.remove()
         except NoMatches:
             self.screen.mount(HelpPanel())
+
+    def action_toggle_plan_progress(self) -> None:
+        """Toggle the plan progress bar visibility."""
+        progress_bar = self.query_one("#plan-progress", PlanProgressBar)
+        if progress_bar.has_plan():
+            progress_bar.display = not progress_bar.display
+            progress_bar.refresh()  # Force immediate UI update during streaming
 
     def action_exit_app(self) -> None:
         """Exit the application."""
@@ -633,6 +643,10 @@ class OspreyTUI(App):
         # Start new query - resets blocks and adds user message
         chat_display.start_new_query(user_input)
 
+        # Hide and reset plan progress bar from previous query
+        progress_bar = self.query_one("#plan-progress", PlanProgressBar)
+        progress_bar.clear()
+
         # Clear shared data and cached plan from previous query
         self._shared_data = {}
         self._cached_plan = None
@@ -800,6 +814,10 @@ class OspreyTUI(App):
             state: The final agent state.
             chat_display: The chat display to add the message to.
         """
+        # Hide the plan progress bar now that execution is complete
+        progress_bar = self.query_one("#plan-progress", PlanProgressBar)
+        progress_bar.clear()
+
         content = "(No response)"
         messages = state.get("messages", [])
         if messages:
