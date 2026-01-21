@@ -234,7 +234,18 @@ class OspreyTUI(App):
     def action_toggle_plan_progress(self) -> None:
         """Toggle the plan progress bar visibility."""
         progress_bar = self.query_one("#plan-progress", PlanProgressBar)
-        progress_bar.display = not progress_bar.display
+        new_display = not progress_bar.display
+
+        # If showing progress bar, hide command dropdown (mutual exclusivity)
+        if new_display:
+            try:
+                dropdown = self.query_one("#command-dropdown", CommandDropdown)
+                if dropdown.is_visible:
+                    dropdown.hide()
+            except Exception:
+                pass
+
+        progress_bar.display = new_display
         progress_bar.refresh()  # Force immediate UI update
 
     def action_exit_app(self) -> None:

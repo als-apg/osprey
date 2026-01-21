@@ -452,6 +452,17 @@ class CommandDropdown(OptionList):
         Args:
             prefix: The current input text (should start with /).
         """
+        # Hide plan progress bar (mutual exclusivity with overlays)
+        try:
+            from osprey.interfaces.tui.widgets.plan_progress import PlanProgressBar
+
+            progress_bar = self.app.query_one("#plan-progress", PlanProgressBar)
+            if progress_bar.display:
+                progress_bar.display = False
+                progress_bar.refresh()
+        except Exception:
+            pass  # Progress bar may not exist
+
         self.clear_options()
         prefix_lower = prefix.lower()
 

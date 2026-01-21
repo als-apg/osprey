@@ -37,6 +37,37 @@ class PlanProgressBar(Vertical):
         self._states: list[str] = []
         self._mounted = False
 
+    @property
+    def is_streaming(self) -> bool:
+        """Check if execution is actively streaming.
+
+        Returns:
+            True if any step has 'current' state, False otherwise.
+        """
+        return "current" in self._states
+
+    def _build_hint(self) -> str:
+        """Build the hint string with styled Ctrl-O (matches StatusPanel style)."""
+        return "[dim]([/dim][$text bold]Ctrl-O[/$text bold][dim] to hide)[/dim]"
+
+    def _build_header(self, status_text: str) -> str:
+        """Build header text with dynamic styling based on streaming state.
+
+        Args:
+            status_text: The status text (e.g., "0/5 complete", "No active plan").
+
+        Returns:
+            Rich markup string with appropriate styling.
+        """
+        hint = self._build_hint()
+
+        if self.is_streaming:
+            # Active streaming - bold + accent color (matches ProcessingBlock active style)
+            return f"[bold][$accent]Plan:[/$accent][/bold] {status_text}  {hint}"
+        else:
+            # Idle state - bold, regular color
+            return f"[bold]Plan:[/bold] {status_text}  {hint}"
+
     def compose(self) -> ComposeResult:
         """Compose the progress bar with header and todo list."""
         yield Static("", id="progress-header")
@@ -50,8 +81,7 @@ class PlanProgressBar(Vertical):
         todo_list.display = False
         # Initialize header with empty state
         header = self.query_one("#progress-header", Static)
-        hint = "[dim](Ctrl-O to hide)[/dim]"
-        header.update(f"Plan: No active plan  {hint}")
+        header.update(self._build_header("No active plan"))
 
     def set_plan(self, steps: list[dict]) -> None:
         """Initialize with plan steps (all pending).
@@ -65,6 +95,16 @@ class PlanProgressBar(Vertical):
         self._plan_steps = steps
         self._states = ["pending"] * len(steps)
 
+        # Hide command dropdown (mutual exclusivity with overlays)
+        try:
+            from osprey.interfaces.tui.widgets.input import CommandDropdown
+
+            dropdown = self.app.query_one("#command-dropdown", CommandDropdown)
+            if dropdown.is_visible:
+                dropdown.hide()
+        except Exception:
+            pass  # Dropdown may not exist
+
         if self._mounted:
             # Clear and rebuild todo list for new plan
             todo_list = self.query_one("#progress-todos", TodoList)
@@ -73,8 +113,7 @@ class PlanProgressBar(Vertical):
 
             # Update header
             header = self.query_one("#progress-header", Static)
-            hint = "[dim](Ctrl-O to hide)[/dim]"
-            header.update(f"Plan: 0/{len(steps)} complete  {hint}")
+            header.update(self._build_header(f"0/{len(steps)} complete"))
 
         self.display = True  # Show the bar
 
@@ -102,8 +141,7 @@ class PlanProgressBar(Vertical):
         done = self._states.count("done")
         total = len(self._states)
         header = self.query_one("#progress-header", Static)
-        hint = "[dim](Ctrl-O to hide)[/dim]"
-        header.update(f"Plan: {done}/{total} complete  {hint}")
+        header.update(self._build_header(f"{done}/{total} complete"))
 
         # Update todo list
         todo_list = self.query_one("#progress-todos", TodoList)
@@ -124,8 +162,7 @@ class PlanProgressBar(Vertical):
             todo_list.display = False
             # Update header to show empty state
             header = self.query_one("#progress-header", Static)
-            hint = "[dim](Ctrl-O to hide)[/dim]"
-            header.update(f"Plan: No active plan  {hint}")
+            header.update(self._build_header("No active plan"))
         self.refresh()  # Force immediate UI update
 
     def mark_complete(self) -> None:
@@ -136,8 +173,7 @@ class PlanProgressBar(Vertical):
                 # Update header to show finished state
                 total = len(self._plan_steps)
                 header = self.query_one("#progress-header", Static)
-                hint = "[dim](Ctrl-O to hide)[/dim]"
-                header.update(f"Plan: {total}/{total} complete ✓  {hint}")
+                header.update(self._build_header(f"{total}/{total} complete ✓"))
                 # Update todo list states
                 todo_list = self.query_one("#progress-todos", TodoList)
                 todo_list.update_states(self._states)
