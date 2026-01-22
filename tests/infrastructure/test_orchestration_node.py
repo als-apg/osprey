@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+from osprey.base.errors import InvalidContextKeyError
 from osprey.base.planning import ExecutionPlan, PlannedStep
 from osprey.infrastructure.orchestration_node import (
     OrchestrationNode,
@@ -22,13 +23,14 @@ class TestPlanValidation:
     def test_empty_plan_gets_default_respond_step(self):
         """Test that empty plan gets a default respond step."""
         empty_plan: ExecutionPlan = {"steps": []}
+        state = {"capability_context_data": {}}  # Empty state
         logger = Mock()
 
         with patch("osprey.infrastructure.orchestration_node.get_registry") as mock_registry:
             mock_reg = Mock()
             mock_registry.return_value = mock_reg
 
-            result = _validate_and_fix_execution_plan(empty_plan, "test task", logger)
+            result = _validate_and_fix_execution_plan(empty_plan, "test task", state, logger)
 
             assert len(result["steps"]) == 1
             assert result["steps"][0]["capability"] == "respond"
@@ -52,10 +54,11 @@ class TestPlanValidation:
                     task_objective="Respond",
                     expected_output="response",
                     success_criteria="Response given",
-                    inputs=[],
+                    inputs=[{"RESULT": "step1"}],  # Valid reference to earlier step
                 ),
             ]
         }
+        state = {"capability_context_data": {}}  # Empty state
         logger = Mock()
 
         with patch("osprey.infrastructure.orchestration_node.get_registry") as mock_registry:
@@ -63,7 +66,7 @@ class TestPlanValidation:
             mock_reg.get_node.return_value = Mock()  # All capabilities exist
             mock_registry.return_value = mock_reg
 
-            result = _validate_and_fix_execution_plan(valid_plan, "test task", logger)
+            result = _validate_and_fix_execution_plan(valid_plan, "test task", state, logger)
 
             # Should keep both steps
             assert len(result["steps"]) == 2
@@ -83,6 +86,7 @@ class TestPlanValidation:
                 ),
             ]
         }
+        state = {"capability_context_data": {}}  # Empty state
         logger = Mock()
 
         with patch("osprey.infrastructure.orchestration_node.get_registry") as mock_registry:
@@ -90,7 +94,9 @@ class TestPlanValidation:
             mock_reg.get_node.return_value = Mock()
             mock_registry.return_value = mock_reg
 
-            result = _validate_and_fix_execution_plan(plan_without_respond, "test task", logger)
+            result = _validate_and_fix_execution_plan(
+                plan_without_respond, "test task", state, logger
+            )
 
             # Should have original step plus respond
             assert len(result["steps"]) == 2
@@ -111,6 +117,7 @@ class TestPlanValidation:
                 ),
             ]
         }
+        state = {"capability_context_data": {}}  # Empty state
         logger = Mock()
 
         with patch("osprey.infrastructure.orchestration_node.get_registry") as mock_registry:
@@ -120,7 +127,7 @@ class TestPlanValidation:
             mock_registry.return_value = mock_reg
 
             with pytest.raises(ValueError) as exc_info:
-                _validate_and_fix_execution_plan(bad_plan, "test task", logger)
+                _validate_and_fix_execution_plan(bad_plan, "test task", state, logger)
 
             assert "hallucinated" in str(exc_info.value).lower()
 
@@ -138,6 +145,7 @@ class TestPlanValidation:
                 ),
             ]
         }
+        state = {"capability_context_data": {}}  # Empty state
         logger = Mock()
 
         with patch("osprey.infrastructure.orchestration_node.get_registry") as mock_registry:
@@ -145,11 +153,119 @@ class TestPlanValidation:
             mock_reg.get_node.return_value = Mock()
             mock_registry.return_value = mock_reg
 
-            result = _validate_and_fix_execution_plan(plan_with_clarify, "test task", logger)
+            result = _validate_and_fix_execution_plan(plan_with_clarify, "test task", state, logger)
 
             # Should not append respond since it ends with clarify
             assert len(result["steps"]) == 1
             assert result["steps"][0]["capability"] == "clarify"
+
+    def test_plan_with_invalid_context_key_raises_error(self):
+        """Test plan with invalid context key reference raises InvalidContextKeyError."""
+        bad_plan: ExecutionPlan = {
+            "steps": [
+                PlannedStep(
+                    context_key="step1",
+                    capability="python",
+                    task_objective="Run code",
+                    expected_output="result",
+                    success_criteria="Code runs",
+                    inputs=[],
+                ),
+                PlannedStep(
+                    context_key="step2",
+                    capability="respond",
+                    task_objective="Respond",
+                    expected_output="response",
+                    success_criteria="Response given",
+                    inputs=[{"DATA": "nonexistent_key"}],  # Invalid reference
+                ),
+            ]
+        }
+        state = {"capability_context_data": {}}  # Empty state
+        logger = Mock()
+
+        with patch("osprey.infrastructure.orchestration_node.get_registry") as mock_registry:
+            mock_reg = Mock()
+            mock_reg.get_node.return_value = Mock()  # All capabilities exist
+            mock_registry.return_value = mock_reg
+
+            with pytest.raises(InvalidContextKeyError) as exc_info:
+                _validate_and_fix_execution_plan(bad_plan, "test task", state, logger)
+
+            # Error message should mention the invalid key and available keys
+            assert "nonexistent_key" in str(exc_info.value)
+            assert "step1" in str(exc_info.value)  # Available key should be listed
+
+    def test_plan_with_forward_reference_raises_error(self):
+        """Test plan where step references a key from a later step raises error."""
+        bad_plan: ExecutionPlan = {
+            "steps": [
+                PlannedStep(
+                    context_key="step1",
+                    capability="python",
+                    task_objective="Run code",
+                    expected_output="result",
+                    success_criteria="Code runs",
+                    inputs=[{"DATA": "step2"}],  # Forward reference to later step
+                ),
+                PlannedStep(
+                    context_key="step2",
+                    capability="respond",
+                    task_objective="Respond",
+                    expected_output="response",
+                    success_criteria="Response given",
+                    inputs=[],
+                ),
+            ]
+        }
+        state = {"capability_context_data": {}}  # Empty state
+        logger = Mock()
+
+        with patch("osprey.infrastructure.orchestration_node.get_registry") as mock_registry:
+            mock_reg = Mock()
+            mock_reg.get_node.return_value = Mock()  # All capabilities exist
+            mock_registry.return_value = mock_reg
+
+            with pytest.raises(InvalidContextKeyError) as exc_info:
+                _validate_and_fix_execution_plan(bad_plan, "test task", state, logger)
+
+            # Error message should explain the ordering issue
+            assert "later" in str(exc_info.value).lower()
+
+    def test_plan_with_existing_context_key_passes(self):
+        """Test plan that references existing context from state passes validation."""
+        plan: ExecutionPlan = {
+            "steps": [
+                PlannedStep(
+                    context_key="step1",
+                    capability="python",
+                    task_objective="Run code",
+                    expected_output="result",
+                    success_criteria="Code runs",
+                    inputs=[{"DATA": "existing_data"}],  # Reference to existing context
+                ),
+                PlannedStep(
+                    context_key="step2",
+                    capability="respond",
+                    task_objective="Respond",
+                    expected_output="response",
+                    success_criteria="Response given",
+                    inputs=[],
+                ),
+            ]
+        }
+        # State has existing context that the plan references
+        state = {"capability_context_data": {"DATA": {"existing_data": {"some": "value"}}}}
+        logger = Mock()
+
+        with patch("osprey.infrastructure.orchestration_node.get_registry") as mock_registry:
+            mock_reg = Mock()
+            mock_reg.get_node.return_value = Mock()  # All capabilities exist
+            mock_registry.return_value = mock_reg
+
+            # Should pass validation without error
+            result = _validate_and_fix_execution_plan(plan, "test task", state, logger)
+            assert len(result["steps"]) == 2
 
 
 # =============================================================================
@@ -272,6 +388,16 @@ class TestOrchestrationErrorClassification:
 
         assert classification.severity.value == "reclassification"
         assert "reclassification" in classification.user_message.lower()
+
+    def test_classify_invalid_context_key_error(self):
+        """Test InvalidContextKeyError triggers replanning (not reclassification)."""
+        exc = InvalidContextKeyError("Invalid key 'bad_key' not found")
+        context = {"operation": "validation"}
+
+        classification = OrchestrationNode.classify_error(exc, context)
+
+        assert classification.severity.value == "replanning"
+        assert "context key" in classification.user_message.lower()
 
     def test_classify_unknown_error(self):
         """Test unknown errors default to critical."""

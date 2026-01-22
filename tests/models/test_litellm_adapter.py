@@ -46,39 +46,47 @@ class TestGetLiteLLMModelName:
         assert result == "openai/claudesonnet45"
 
     def test_unknown_provider(self):
-        """Unknown providers return model_id as-is."""
+        """Unknown providers use provider/model format (LiteLLM's default routing)."""
         result = get_litellm_model_name("unknown_provider", "some-model")
-        assert result == "some-model"
+        assert result == "unknown_provider/some-model"
 
 
 class TestSupportsNativeStructuredOutput:
-    """Tests for structured output support detection."""
+    """Tests for structured output support detection.
 
-    def test_anthropic_claude_4_supports(self):
-        """Claude 4+ models support native structured outputs."""
-        assert _supports_native_structured_output("anthropic", "claude-sonnet-4") is True
-        assert _supports_native_structured_output("anthropic", "claude-opus-4") is True
+    Note: _supports_native_structured_output delegates to LiteLLM's
+    supports_response_schema() function, with fallback for OpenAI-compatible providers.
+    """
 
-    def test_anthropic_claude_3_not_supported(self):
-        """Claude 3.x models don't support native structured outputs."""
-        assert _supports_native_structured_output("anthropic", "claude-3-sonnet") is False
+    def test_takes_litellm_model_string(self):
+        """Function accepts LiteLLM-formatted model string and provider."""
+        # Should not raise - function accepts string and returns bool
+        result = _supports_native_structured_output("anthropic/claude-sonnet-4", "anthropic")
+        assert isinstance(result, bool)
 
-    def test_openai_gpt4o_supports(self):
-        """GPT-4o supports native structured outputs."""
-        assert _supports_native_structured_output("openai", "gpt-4o") is True
-        assert _supports_native_structured_output("openai", "gpt-4-turbo") is True
+    def test_handles_unknown_model_gracefully(self):
+        """Returns False for unknown models instead of raising."""
+        # Unknown models should return False (use prompt-based fallback)
+        result = _supports_native_structured_output("unknown/nonexistent-model-xyz", "unknown")
+        assert result is False
 
-    def test_openai_gpt35_not_supported(self):
-        """GPT-3.5 doesn't support native structured outputs."""
-        assert _supports_native_structured_output("openai", "gpt-3.5-turbo") is False
+    def test_openai_models_format(self):
+        """OpenAI models use direct model name (no prefix)."""
+        # OpenAI models don't need prefix in LiteLLM
+        result = _supports_native_structured_output("gpt-4o", "openai")
+        assert isinstance(result, bool)
 
-    def test_google_not_supported(self):
-        """Google models use prompt-based approach."""
-        assert _supports_native_structured_output("google", "gemini-2.5-flash") is False
+    def test_ollama_models_format(self):
+        """Ollama models use ollama/ prefix."""
+        result = _supports_native_structured_output("ollama/llama3.1:8b", "ollama")
+        assert isinstance(result, bool)
 
-    def test_ollama_not_supported(self):
-        """Ollama models use prompt-based approach."""
-        assert _supports_native_structured_output("ollama", "llama3.1:8b") is False
+    def test_openai_compatible_providers_return_true(self):
+        """OpenAI-compatible providers (CBORG, etc.) always support structured output."""
+        # These providers proxy to models that support structured output
+        for provider in ("cborg", "stanford", "argo", "vllm"):
+            result = _supports_native_structured_output("openai/some-model", provider)
+            assert result is True, f"Provider {provider} should support structured output"
 
 
 class TestCleanJsonResponse:

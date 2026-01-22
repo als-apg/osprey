@@ -464,9 +464,15 @@ async def test_custom_pipeline_initialization(temp_config_file, monkeypatch):
 
     import osprey.utils.config as config_module
 
-    monkeypatch.setattr(service_module, "_get_config", mock_get_config)
+    monkeypatch.setattr(service_module, "get_config_builder", mock_get_config)
     monkeypatch.setattr(service_module, "get_provider_config", mock_get_provider_config)
     monkeypatch.setattr(config_module, "_get_configurable", mock_get_configurable)
+
+    # Mock get_config_value for base_pipeline (used for explicit_validation_mode)
+    def mock_get_config_value(key, default=None, config_path=None):
+        return default
+
+    monkeypatch.setattr(config_module, "get_config_value", mock_get_config_value)
 
     # Mock prompt loader
     mock_prompts = Mock()
@@ -559,14 +565,20 @@ async def test_custom_database_with_builtin_pipeline(temp_config_file, monkeypat
 
     import osprey.utils.config as config_module
 
-    monkeypatch.setattr(service_module, "_get_config", mock_get_config)
+    monkeypatch.setattr(service_module, "get_config_builder", mock_get_config)
     monkeypatch.setattr(service_module, "get_provider_config", mock_get_provider_config)
     monkeypatch.setattr(config_module, "_get_configurable", mock_get_configurable)
 
-    # Also patch config at pipeline level (InContextPipeline imports _get_config)
+    # Mock get_config_value for base_pipeline (used for explicit_validation_mode)
+    def mock_get_config_value(key, default=None, config_path=None):
+        return default
+
+    monkeypatch.setattr(config_module, "get_config_value", mock_get_config_value)
+
+    # Also patch config at pipeline level (InContextPipeline imports get_config_builder)
     import services.channel_finder.pipelines.in_context.pipeline as pipeline_module
 
-    monkeypatch.setattr(pipeline_module, "_get_config", mock_get_config)
+    monkeypatch.setattr(pipeline_module, "get_config_builder", mock_get_config)
 
     # Mock prompt loader
 
@@ -649,7 +661,7 @@ def test_unknown_pipeline_error(temp_config_file, monkeypatch):
 
     import osprey.utils.config as config_module
 
-    monkeypatch.setattr(service_module, "_get_config", lambda: mock_config_builder)
+    monkeypatch.setattr(service_module, "get_config_builder", lambda: mock_config_builder)
     monkeypatch.setattr(service_module, "get_provider_config", lambda p: {})
     monkeypatch.setattr(
         config_module,
@@ -714,7 +726,7 @@ def test_unknown_database_error(temp_config_file, monkeypatch):
 
     import osprey.utils.config as config_module
 
-    monkeypatch.setattr(service_module, "_get_config", lambda: mock_config_builder)
+    monkeypatch.setattr(service_module, "get_config_builder", lambda: mock_config_builder)
     monkeypatch.setattr(service_module, "get_provider_config", lambda p: {})
     monkeypatch.setattr(service_module, "load_prompts", lambda c: Mock())
     monkeypatch.setattr(

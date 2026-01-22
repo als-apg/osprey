@@ -23,7 +23,12 @@ from osprey.approval.approval_system import (
     get_approval_resume_data,
 )
 from osprey.base.decorators import infrastructure_node
-from osprey.base.errors import ErrorClassification, ErrorSeverity, ReclassificationRequiredError
+from osprey.base.errors import (
+    ErrorClassification,
+    ErrorSeverity,
+    InvalidContextKeyError,
+    ReclassificationRequiredError,
+)
 from osprey.base.nodes import BaseInfrastructureNode
 from osprey.base.planning import ExecutionPlan, PlannedStep
 from osprey.context.context_manager import ContextManager
@@ -46,22 +51,22 @@ if TYPE_CHECKING:
 
 
 def _validate_and_fix_execution_plan(
-    execution_plan: ExecutionPlan, current_task: str, logger
+    execution_plan: ExecutionPlan, current_task: str, state: AgentState, logger
 ) -> ExecutionPlan:
-    """Validate and fix execution plan to ensure all capabilities exist and it ends with respond or clarify step.
+    """Validate and fix execution plan to ensure correctness.
 
     This is the primary validation mechanism to:
     1. Check that all capabilities in the plan exist in the registry
-    2. Ensure users always get a response by ending with respond/clarify
-
-    If hallucinated capabilities are found, raises ValueError for re-planning.
-    If the execution plan doesn't end with a respond or clarify step, we append a respond step.
+    2. Validate that input key references match actual context keys
+    3. Ensure users always get a response by ending with respond/clarify
 
     :param execution_plan: The execution plan to validate
     :param current_task: The current task for context
+    :param state: Current agent state (for checking existing context keys)
     :param logger: Logger instance
     :return: Fixed execution plan that ends with respond or clarify
-    :raises ValueError: If hallucinated capabilities are found requiring re-planning
+    :raises ValueError: If hallucinated capabilities are found (triggers reclassification)
+    :raises InvalidContextKeyError: If invalid context key references found (triggers replanning)
     """
     # Get fresh registry instance (not module-level cached)
     registry = get_registry()
@@ -99,7 +104,7 @@ def _validate_and_fix_execution_plan(
             hallucinated_capabilities.append(capability_name)
             logger.error(f"Step {i + 1}: Capability '{capability_name}' not found in registry")
 
-    # If hallucinated capabilities found, trigger re-planning
+    # If hallucinated capabilities found, trigger reclassification
     if hallucinated_capabilities:
         error_msg = f"Orchestrator hallucinated non-existent capabilities: {hallucinated_capabilities}. Available capabilities: {registry.get_stats()['capability_names']}"
         logger.error(error_msg)
@@ -108,7 +113,84 @@ def _validate_and_fix_execution_plan(
     logger.debug("✅ All capabilities in execution plan exist in registry")
 
     # =====================================================================
-    # STEP 2: ENSURE PLAN ENDS WITH RESPOND OR CLARIFY
+    # STEP 2: VALIDATE INPUT CONTEXT KEY REFERENCES
+    # =====================================================================
+
+    # Build map of available keys: context_key -> (step_number, capability_name)
+    # Step 0 means "existing context" (from previous execution or state)
+    available_keys: dict[str, tuple[int, str]] = {}
+
+    # Keys from existing context in state
+    existing_context = state.get("capability_context_data", {})
+    for _context_type, contexts in existing_context.items():
+        if isinstance(contexts, dict):
+            for key in contexts.keys():
+                available_keys[key] = (0, "existing_context")
+
+    # Keys that will be created by steps in this plan (in order)
+    for i, step in enumerate(steps):
+        context_key = step.get("context_key")
+        if context_key:
+            available_keys[context_key] = (i + 1, step.get("capability", "unknown"))
+
+    # Validate each step's input references
+    for i, step in enumerate(steps):
+        step_inputs = step.get("inputs") or []
+        capability_name = step.get("capability", "unknown")
+
+        for input_ref in step_inputs:
+            if not isinstance(input_ref, dict):
+                continue
+
+            for context_type, ref_key in input_ref.items():
+                if ref_key not in available_keys:
+                    # Build helpful error message
+                    error_lines = [
+                        f"Step {i + 1} ({capability_name}) references invalid context key.",
+                        "",
+                        "**Invalid Input Reference:**",
+                        f'  {{"{context_type}": "{ref_key}"}}',
+                        "",
+                        "**Available Context Keys:**",
+                    ]
+
+                    # Sort keys by step number for clarity
+                    sorted_keys = sorted(available_keys.items(), key=lambda x: x[1][0])
+                    for key, (step_num, cap_name) in sorted_keys:
+                        if step_num == 0:
+                            error_lines.append(f'  - "{key}" (from existing context)')
+                        else:
+                            error_lines.append(
+                                f'  - "{key}" (created by step {step_num}: {cap_name})'
+                            )
+
+                    error_lines.extend(
+                        [
+                            "",
+                            "**Guidance:** Each step's input references must exactly match a context_key",
+                            "from an earlier step or existing context. Check for typos or inconsistent naming.",
+                        ]
+                    )
+
+                    error_msg = "\n".join(error_lines)
+                    logger.error(f"Context key validation failed:\n{error_msg}")
+                    raise InvalidContextKeyError(error_msg)
+
+                # Also check that referenced key comes from an EARLIER step (not same or later)
+                ref_step_num = available_keys[ref_key][0]
+                if ref_step_num > i:  # Key is created by a later step
+                    error_msg = (
+                        f"Step {i + 1} ({capability_name}) references key '{ref_key}' "
+                        f"which is created by step {ref_step_num} (later in the plan). "
+                        f"Steps can only reference keys from earlier steps or existing context."
+                    )
+                    logger.error(f"Context key ordering error: {error_msg}")
+                    raise InvalidContextKeyError(error_msg)
+
+    logger.debug("✅ All input context key references are valid")
+
+    # =====================================================================
+    # STEP 3: ENSURE PLAN ENDS WITH RESPOND OR CLARIFY
     # =====================================================================
 
     # Check if last step is respond or clarify
@@ -209,6 +291,18 @@ class OrchestrationNode(BaseInfrastructureNode):
                 severity=ErrorSeverity.RECLASSIFICATION,
                 user_message=f"Task needs reclassification: {str(exc)}",
                 metadata={"technical_details": str(exc)},
+            )
+
+        # Handle invalid context key references - trigger replanning
+        # The capability selection was correct, only the key references need fixing
+        if isinstance(exc, InvalidContextKeyError):
+            return ErrorClassification(
+                severity=ErrorSeverity.REPLANNING,
+                user_message="Execution plan has invalid context key references",
+                metadata={
+                    "technical_details": str(exc),
+                    "replanning_reason": "Invalid context key reference in execution plan",
+                },
             )
 
         # Only explicitly known errors should be RETRIABLE
@@ -371,12 +465,16 @@ class OrchestrationNode(BaseInfrastructureNode):
             prompt_provider = get_framework_prompts()
             orchestrator_builder = prompt_provider.get_orchestrator_prompt_builder()
 
+            # Get messages for chat history context (only used when task_depends_on_chat_history=True)
+            messages = state.get("messages", [])
+
             system_instructions = orchestrator_builder.get_system_instructions(
                 active_capabilities=active_capabilities,
                 context_manager=context_manager,
                 task_depends_on_chat_history=state.get("task_depends_on_chat_history", False),
                 task_depends_on_user_memory=state.get("task_depends_on_user_memory", False),
                 error_context=error_context,
+                messages=messages,
             )
 
             if not system_instructions:
@@ -394,10 +492,18 @@ class OrchestrationNode(BaseInfrastructureNode):
             raw_data = context_manager.get_raw_data()
             context_types = len(raw_data) if raw_data else 0
 
+            # Determine chat history inclusion status
+            task_depends_on_chat_history = state.get("task_depends_on_chat_history", False)
+            chat_history_included = task_depends_on_chat_history and bool(messages)
+            chat_history_count = len(messages) if chat_history_included else 0
+
             logger.info("Constructed orchestrator instructions using:")
             logger.info(f" - {len(active_capabilities)} capabilities")
             logger.info(f" - {total_examples} structured examples")
             logger.info(f" - {context_types} context types from state")
+            logger.info(
+                f" - Chat history included: {chat_history_included} ({chat_history_count} messages)"
+            )
             if error_context:
                 logger.info(" - Error context for replanning (previous failure analysis)")
 
@@ -457,8 +563,10 @@ class OrchestrationNode(BaseInfrastructureNode):
         # =====================================================================
 
         try:
-            # Validate that all capabilities exist and plan ends with respond/clarify
-            execution_plan = _validate_and_fix_execution_plan(execution_plan, current_task, logger)
+            # Validate capabilities, context key references, and plan structure
+            execution_plan = _validate_and_fix_execution_plan(
+                execution_plan, current_task, state, logger
+            )
 
             # Log final validated execution plan (after any modifications)
             _log_execution_plan(execution_plan, logger)
@@ -468,11 +576,22 @@ class OrchestrationNode(BaseInfrastructureNode):
                 steps=execution_plan.get("steps", []),
             )
 
+        except InvalidContextKeyError as e:
+            # Invalid context key reference - trigger replanning (not reclassification)
+            # The capability selection was correct, only the key references need fixing
+            logger.error(f"Context key validation failed: {e}")
+            logger.warning("Triggering replanning due to invalid context key reference")
+            logger.status("Replanning due to invalid context key...")
+
+            # Re-raise with error info that will trigger REPLANNING severity
+            # The classify_error method will handle this appropriately
+            raise
+
         except ValueError as e:
-            # Orchestrator hallucinated non-existent capabilities - trigger re-classification
+            # Orchestrator hallucinated non-existent capabilities - trigger reclassification
             logger.error(f"Execution plan validation failed: {e}")
-            logger.warning("Triggering re-classification due to hallucinated capabilities")
-            logger.status("Re-planning due to invalid capabilities...")
+            logger.warning("Triggering reclassification due to hallucinated capabilities")
+            logger.status("Reclassifying due to invalid capabilities...")
 
             # Raise exception to trigger reclassification through error system
             raise ReclassificationRequiredError(f"Orchestrator validation failed: {e}") from e

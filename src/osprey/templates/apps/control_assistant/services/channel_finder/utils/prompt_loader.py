@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 # Use Osprey's config system for path resolution
-from osprey.utils.config import _get_config
+from osprey.utils.config import get_config_builder
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +88,7 @@ def _try_load_prompts_directly(
     """
     try:
         # Build path to prompts using Osprey config
-        config_builder = _get_config()
+        config_builder = get_config_builder()
         project_root = Path(config_builder.get("project_root"))
         prompts_path_obj = Path(prompts_path)
 
@@ -170,7 +170,7 @@ def _try_load_facility_prompts(facility_path: str, pipeline_mode: str = "in_cont
     """
     try:
         # Build path to facility prompts using Osprey config
-        config_builder = _get_config()
+        config_builder = get_config_builder()
         project_root = Path(config_builder.get("project_root"))
         facility_path_obj = Path(facility_path)
 

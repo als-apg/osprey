@@ -49,6 +49,9 @@ class StanfordProviderAdapter(BaseProvider):
     ]
     api_key_note = "Access restricted to Stanford community"
 
+    # LiteLLM integration - Stanford is an OpenAI-compatible proxy
+    is_openai_compatible = True
+
     def execute_completion(
         self,
         message: str,

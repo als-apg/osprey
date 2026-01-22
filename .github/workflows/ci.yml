@@ -218,16 +218,12 @@ jobs:
         osprey init hello-weather-test --template hello_world_weather --provider cborg --model anthropic/claude-haiku
         ls -la hello-weather-test/
 
-    - name: Configure API key for container
-      run: |
-        cd hello-weather-test
-        echo "CBORG_API_KEY=${{ secrets.CBORG_API_KEY }}" >> .env
-        cat .env
-
     - name: Deploy pipelines container
+      env:
+        CBORG_API_KEY: ${{ secrets.CBORG_API_KEY }}
       run: |
         cd hello-weather-test
-        osprey deploy up -d
+        osprey deploy up -d --dev
 
     - name: Wait for pipelines to be ready
       run: |
@@ -238,7 +234,7 @@ jobs:
             -X POST http://localhost:9099/v1/chat/completions \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer 0p3n-w3bu!" \
-            -d '{"model":"osprey","messages":[{"role":"user","content":"ping"}],"stream":false}' \
+            -d '{"model":"main","messages":[{"role":"user","content":"ping"}],"stream":false}' \
             --max-time 10 || echo "000")
 
           if [ "$HTTP_CODE" = "200" ]; then
@@ -260,7 +256,7 @@ jobs:
         RESPONSE=$(curl -s -X POST http://localhost:9099/v1/chat/completions \
           -H "Content-Type: application/json" \
           -H "Authorization: Bearer 0p3n-w3bu!" \
-          -d '{"model":"osprey","messages":[{"role":"user","content":"What is the weather in San Francisco?"}],"stream":false}' \
+          -d '{"model":"main","messages":[{"role":"user","content":"What is the weather in San Francisco?"}],"stream":false}' \
           --max-time 120)
 
         echo "Response:"

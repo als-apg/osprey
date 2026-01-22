@@ -7,7 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.6] - 2026-01-18
+
+### Added
+- **CLI**: Add Claude Code skill for release workflow (`osprey claude install release-workflow`)
+  - Custom SKILL.md wrapper with quick reference for version files and commands
+  - Version consistency check command, pre-release testing steps, tag creation
+- **Orchestration**: Context key validation in execution plans
+  - Validates that all input key references match actual context keys (existing or from earlier steps)
+  - Detects ordering errors where a step references a key created by a later step
+  - Triggers replanning (not reclassification) with helpful error context listing available keys
+  - New `InvalidContextKeyError` exception for distinguishing from capability hallucination
+- **Context**: Store task_objective metadata alongside capability context data (#108)
+  - ContextManager now accepts optional `task_objective` parameter in `set_context()`
+  - Metadata stored in `_meta` field, stripped before Pydantic validation
+  - New helper methods: `get_context_metadata()`, `get_all_context_metadata()`
+  - Orchestrator prompt displays task_objective for each available context
+  - Enables intelligent context reuse by showing what each context was created for
+
 ### Fixed
+- **Graph**: Propagate chat history to orchestrator and respond nodes (#111)
+  - Orchestrator now receives full conversation context when `task_depends_on_chat_history=True`
+  - Enables follow-up queries like "use the same time range" to resolve correctly
+  - Chat history formatted with visual separators for clear delineation in prompts
+- **Deployment**: Fix Claude Code config path resolution in pipelines container
+  - Pipelines container has working directory `/app/` but files are mounted at `/pipelines/`
+  - Config file was copied but relative path `claude_generator_config.yml` couldn't be found
+  - Now reads `claude_config_path` from config, copies the file, and updates path to absolute `/pipelines/` for pipelines service
+
+## [0.10.5] - 2026-01-16
+
+### Added
+- **Testing**: E2E test for LLM channel naming workflow (#103)
+
+### Changed
+- **Docs**: Update ALS Assistant reference to published paper (Phys. Rev. Res. **8**, L012017)
+- **Models**: Decouple LiteLLM adapter from hardcoded provider checks
+  - Providers now declare LiteLLM routing via class attributes (`litellm_prefix`, `is_openai_compatible`)
+  - Structured output detection now uses LiteLLM's `supports_response_schema()` function
+  - Custom providers can integrate without modifying the adapter layer
+  - Maintains backward compatibility with fallback for existing code
+
+### Fixed
+- **CI**: Fix deploy-e2e test to actually test PR code by using `--dev` mode
+  - Container was installing osprey from PyPI instead of the PR branch
+  - Now builds and installs local wheel so the test validates actual changes
+- **Channel Finder**: Fix `load_config` not defined error in LLM channel namer (#103)
+  - Added `get_config_builder()` and `load_config()` as public API in `osprey.utils.config`
+  - Exposed `load_config` in channel finder config utilities
+  - Updated channel finder components to use public API instead of internal `_get_config`
 - **Deployment**: Fix `--dev` mode failing when osprey is installed from PyPI (#86)
   - Detect site-packages installation and show clear warning about editable mode requirement
   - Add helpful error message when `build` package is missing
@@ -18,6 +66,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CLI**: Display full absolute paths for plot files in artifact output (#96)
   - Figure and notebook paths now resolved to absolute before artifact registration
   - Ensures users can directly access generated files from CLI output
+- **Packaging**: Include TUI styles.tcss in package data (#97)
+  - Textual CSS file was missing from PyPI releases since TUI was introduced in 0.10.0
+  - Issue went unnoticed because editable installs (`pip install -e .`) symlink to source
 
 ## [0.10.4] - 2026-01-15
 

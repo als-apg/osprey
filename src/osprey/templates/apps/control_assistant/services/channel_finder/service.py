@@ -9,7 +9,7 @@ import logging
 from pathlib import Path
 
 # Use Osprey's config system
-from osprey.utils.config import _get_config, get_provider_config
+from osprey.utils.config import get_config_builder, get_provider_config
 
 from .core.base_database import BaseDatabase
 from .core.base_pipeline import BasePipeline
@@ -217,7 +217,7 @@ class ChannelFinderService:
             ConfigurationError: If configuration is invalid
         """
         # Load configuration from Osprey
-        config_builder = _get_config()
+        config_builder = get_config_builder()
         config = config_builder.raw_config
 
         # Determine pipeline mode
@@ -304,7 +304,7 @@ class ChannelFinderService:
 
     def _resolve_path(self, path_str: str) -> str:
         """Resolve path relative to project root using Osprey config."""
-        config_builder = _get_config()
+        config_builder = get_config_builder()
         project_root = Path(config_builder.get("project_root"))
         path = Path(path_str)
 

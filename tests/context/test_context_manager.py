@@ -896,3 +896,184 @@ class TestDictNamespace:
         assert ns.bool_false is False
         assert ns.int_val == 0
         assert ns.float_val == 3.14
+
+
+# ===================================================================
+# Test Section 5: Context Metadata (task_objective storage)
+# ===================================================================
+
+
+class TestContextMetadata:
+    """Test context metadata storage for orchestrator context reuse optimization.
+
+    This tests the feature where task_objective from execution plan steps
+    is stored alongside context data to help the orchestrator make intelligent
+    reuse decisions.
+    """
+
+    def test_set_context_stores_task_objective_as_meta(self, context_manager):
+        """Task objective is stored in _meta when provided."""
+        context = PVAddressesContext(pvs=["PV1", "PV2"])
+        context_manager.set_context(
+            "PV_ADDRESSES",
+            "test_key",
+            context,
+            skip_validation=True,
+            task_objective="Find PV addresses for beam current monitoring",
+        )
+
+        # Check raw data includes _meta
+        raw_data = context_manager.get_raw_data()
+        assert "_meta" in raw_data["PV_ADDRESSES"]["test_key"]
+        assert raw_data["PV_ADDRESSES"]["test_key"]["_meta"]["task_objective"] == (
+            "Find PV addresses for beam current monitoring"
+        )
+
+    def test_set_context_without_task_objective_has_no_meta(self, context_manager):
+        """No _meta is stored when task_objective is not provided."""
+        context = PVAddressesContext(pvs=["PV1", "PV2"])
+        context_manager.set_context(
+            "PV_ADDRESSES",
+            "test_key",
+            context,
+            skip_validation=True,
+        )
+
+        # Check raw data does not include _meta
+        raw_data = context_manager.get_raw_data()
+        assert "_meta" not in raw_data["PV_ADDRESSES"]["test_key"]
+
+    def test_get_context_strips_meta_before_pydantic_validation(self, context_manager):
+        """get_context() properly reconstructs object without _meta interference."""
+        context = TimeRangeContext(start="2025-01-01", end="2025-01-02")
+        context_manager.set_context(
+            "TIME_RANGE",
+            "range1",
+            context,
+            skip_validation=True,
+            task_objective="Parse time range: last 24 hours",
+        )
+
+        # Clear cache to force reconstruction from raw data
+        context_manager._object_cache.clear()
+
+        # Get context should work without Pydantic validation errors
+        retrieved = context_manager.get_context("TIME_RANGE", "range1")
+        assert retrieved is not None
+        assert retrieved.start == "2025-01-01"
+        assert retrieved.end == "2025-01-02"
+
+    def test_get_context_metadata_returns_meta(self, context_manager):
+        """get_context_metadata() returns the stored metadata."""
+        context = ArchiverDataContext(data=[1, 2, 3])
+        context_manager.set_context(
+            "ARCHIVER_DATA",
+            "archiver_key",
+            context,
+            skip_validation=True,
+            task_objective="Retrieve historical beam current data from archiver",
+        )
+
+        meta = context_manager.get_context_metadata("ARCHIVER_DATA", "archiver_key")
+        assert meta is not None
+        assert meta["task_objective"] == "Retrieve historical beam current data from archiver"
+
+    def test_get_context_metadata_returns_none_for_missing_meta(self, context_manager):
+        """get_context_metadata() returns None when no metadata exists."""
+        context = PVAddressesContext(pvs=["PV1"])
+        context_manager.set_context(
+            "PV_ADDRESSES",
+            "no_meta_key",
+            context,
+            skip_validation=True,
+        )
+
+        meta = context_manager.get_context_metadata("PV_ADDRESSES", "no_meta_key")
+        assert meta is None
+
+    def test_get_context_metadata_returns_none_for_nonexistent_context(self, context_manager):
+        """get_context_metadata() returns None for non-existent context."""
+        meta = context_manager.get_context_metadata("NONEXISTENT", "key")
+        assert meta is None
+
+    def test_get_all_context_metadata_returns_all_meta(self, context_manager):
+        """get_all_context_metadata() returns metadata for all contexts."""
+        # Store multiple contexts with different metadata
+        context_manager.set_context(
+            "PV_ADDRESSES",
+            "pv_key",
+            PVAddressesContext(pvs=["PV1"]),
+            skip_validation=True,
+            task_objective="Find PV addresses",
+        )
+        context_manager.set_context(
+            "TIME_RANGE",
+            "time_key",
+            TimeRangeContext(start="2025-01-01"),
+            skip_validation=True,
+            task_objective="Parse time range",
+        )
+        # One without metadata
+        context_manager.set_context(
+            "ARCHIVER_DATA",
+            "no_meta",
+            ArchiverDataContext(data=[]),
+            skip_validation=True,
+        )
+
+        all_meta = context_manager.get_all_context_metadata()
+
+        # Should include contexts with metadata
+        assert "PV_ADDRESSES" in all_meta
+        assert "pv_key" in all_meta["PV_ADDRESSES"]
+        assert all_meta["PV_ADDRESSES"]["pv_key"]["task_objective"] == "Find PV addresses"
+
+        assert "TIME_RANGE" in all_meta
+        assert "time_key" in all_meta["TIME_RANGE"]
+        assert all_meta["TIME_RANGE"]["time_key"]["task_objective"] == "Parse time range"
+
+        # Should NOT include context without metadata
+        assert "ARCHIVER_DATA" not in all_meta
+
+    def test_get_all_context_metadata_skips_internal_keys(self, context_manager):
+        """get_all_context_metadata() skips internal keys like _execution_config."""
+        context_manager.set_context(
+            "PV_ADDRESSES",
+            "key",
+            PVAddressesContext(pvs=["PV1"]),
+            skip_validation=True,
+            task_objective="Test task",
+        )
+
+        # Manually add internal key
+        context_manager._data["_execution_config"] = {"some": "config"}
+
+        all_meta = context_manager.get_all_context_metadata()
+
+        # Should have PV_ADDRESSES but not _execution_config
+        assert "PV_ADDRESSES" in all_meta
+        assert "_execution_config" not in all_meta
+
+    def test_metadata_preserved_across_multiple_contexts_same_type(self, context_manager):
+        """Metadata is preserved when storing multiple contexts of same type."""
+        context_manager.set_context(
+            "CURRENT_WEATHER",
+            "sf_weather",
+            CurrentWeatherContext(location="San Francisco", temp=18.0),
+            skip_validation=True,
+            task_objective="Get current weather for San Francisco",
+        )
+        context_manager.set_context(
+            "CURRENT_WEATHER",
+            "ny_weather",
+            CurrentWeatherContext(location="New York", temp=22.0),
+            skip_validation=True,
+            task_objective="Get current weather for New York",
+        )
+
+        # Both should have their respective metadata
+        sf_meta = context_manager.get_context_metadata("CURRENT_WEATHER", "sf_weather")
+        ny_meta = context_manager.get_context_metadata("CURRENT_WEATHER", "ny_weather")
+
+        assert sf_meta["task_objective"] == "Get current weather for San Francisco"
+        assert ny_meta["task_objective"] == "Get current weather for New York"

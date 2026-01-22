@@ -28,8 +28,8 @@ services:
       - DEV_MODE=${DEV_MODE:-false}
       # Point to config.yml for framework initialization
       - CONFIG_FILE=/pipelines/config.yml
-      # Default API key for local dev (can be changed)
-      - PIPELINES_API_KEY=0p3n-w3bu!
+      # API key for pipeline authentication (override via .env for production)
+      - PIPELINES_API_KEY=${PIPELINES_API_KEY:-0p3n-w3bu!}
       # Python executable path for local execution mode (container-specific override)
       - CONTAINER_PYTHON_ENV=/usr/local/bin/python3
       # User app in repo_src if needed

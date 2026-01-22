@@ -550,7 +550,10 @@ The Osprey framework provides a pipeline connection to integrate the agent frame
 The framework automatically configures the pipeline connection with these settings:
 
 - **URL**: ``http://pipelines:9099`` (default configuration)
-- **API Key**: ``0p3n-w3bu!`` (default, can be changed in ``services/osprey/pipelines/docker-compose.yml.j2`` under ``PIPELINES_API_KEY``)
+- **API Key**: ``0p3n-w3bu!`` (default for local development)
+
+.. note::
+   **Production Deployments**: The default ``PIPELINES_API_KEY`` is intended for local development only. For production or shared deployments, override it by adding ``PIPELINES_API_KEY=your-secure-key`` to your ``.env`` file. Use a strong, randomly generated key.
 
 **Note**: The URL uses ``pipelines:9099`` instead of ``localhost:9099`` because OpenWebUI runs inside a container and communicates with the pipelines service through the container network.
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "osprey-framework"
-version = "0.10.4"
+version = "0.10.6"
 description = "An open-source, domain-agnostic, capability-based architecture for building intelligent agents"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -88,10 +88,29 @@ dependencies = [
 
     # Terminal User Interface (TUI) - Textual-based full-screen interface
     "textual>=0.70.0",
+
+    # LangChain integration (required for channel finder middle layer pipeline)
+    "langchain-openai>=0.3.0",
+
+    # MCP server development (for building MCP servers)
+    "fastmcp>=2.0.0",
+    "langchain-mcp-adapters",  # LangChain/LangGraph MCP integration
+
+    # Scientific computing stack - for Python execution capability
+    "scipy>=1.15.3",
+    "seaborn",
+    "scikit-learn",
+    "ipywidgets",  # Interactive widgets for Jupyter notebooks
+
+    # Natural language processing
+    "nltk>=3.8.1",
+
+    # Utilities
+    "unique-namer>=0.1.0",
 ]
 
 [project.optional-dependencies]
-# Documentation dependencies
+# Documentation dependencies (for building docs only)
 docs = [
     "sphinx>=8.0.0",
     "pydata-sphinx-theme",
@@ -102,37 +121,6 @@ docs = [
     "sphinxcontrib-mermaid",
     "sphinxcontrib-jsmath>=1.0.1",
     "graphviz",
-]
-
-# Scientific computing stack - additional packages for Python execution capability
-# Note: pandas, numpy, and matplotlib are in base requirements (needed for core functionality)
-# These packages are available in the execution environment for advanced data analysis
-scientific = [
-    "scipy>=1.15.3",
-    "seaborn",
-    "scikit-learn",
-    "ipywidgets",  # Interactive widgets for Jupyter notebooks
-]
-
-# Database and storage
-databases = [
-    "pymongo",
-    "neo4j",
-    "qdrant-client",
-]
-
-# PostgreSQL checkpointing (production persistence)
-postgres = [
-    "langgraph-checkpoint-postgres>=2.0.22,<4.0.0",
-    "psycopg[pool]>=3.1.0,<4.0.0",
-    "psycopg-pool>=3.1.0,<4.0.0",
-    "langchain-postgres>=0.0.12,<0.1.0",
-]
-
-# Memory and vector storage
-memory = [
-    "mem0ai>=0.1.88",
-    "vecs>=0.4.5",
 ]
 
 # Development and testing
@@ -149,19 +137,26 @@ dev = [
     "build",  # Required for 'osprey deploy up --dev' to build local wheel
 ]
 
-# Natural language processing
-nlp = [
-    "nltk>=3.8.1",
-]
-
-# Utilities
-utils = [
-    "unique-namer>=0.1.0",
+# Storage backends (databases, PostgreSQL checkpointing, vector/memory storage)
+# Note: psycopg may require system PostgreSQL headers (libpq-dev) on some systems
+storage = [
+    # Database connectors
+    "pymongo",
+    "neo4j",
+    "qdrant-client",
+    # PostgreSQL checkpointing (production persistence)
+    "langgraph-checkpoint-postgres>=2.0.22,<4.0.0",
+    "psycopg[pool]>=3.1.0,<4.0.0",
+    "psycopg-pool>=3.1.0,<4.0.0",
+    "langchain-postgres>=0.0.12,<0.1.0",
+    # Memory and vector storage
+    "mem0ai>=0.1.88",
+    "vecs>=0.4.5",
 ]
 
 # All optional dependencies for complete installation
 all = [
-    "osprey-framework[docs,scientific,databases,postgres,memory,dev,nlp,utils]"
+    "osprey-framework[docs,dev,storage]"
 ]
 
 [project.urls]
@@ -189,6 +184,7 @@ include = ["osprey*"]
 # Include package data files
 [tool.setuptools.package-data]
 "*" = ["*.yml", "*.yaml", "*.json", "*.j2", "*.md", "*.txt", "*.cfg", "*.ini"]
+"osprey.interfaces.tui" = ["*.tcss"]
 "osprey" = [
     "config.yml",
     "templates/**/*",

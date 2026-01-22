@@ -1566,7 +1566,7 @@ After starting the services, configure OpenWebUI to connect to your agent:
 3. **Add External Model**:
 
    - Go to **Settings** → **Connections**
-   - Add your agent's pipeline endpoint: ``http://pipelines:9099`` and add the API key from ``services/pipelines/docker-compose.yml.j2`` under ``PIPELINES_API_KEY`` (default ``0p3n-w3bu!``)
+   - Add your agent's pipeline endpoint: ``http://pipelines:9099`` and add the API key (default ``0p3n-w3bu!``, or your custom key if you set ``PIPELINES_API_KEY`` in ``.env``)
    - The agent will appear in the model dropdown
 
 4. **Start Chatting**: Select your agent model and begin interacting

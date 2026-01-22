@@ -2484,10 +2484,10 @@ def _create_registry_from_config(config_path: str | None = None) -> RegistryMana
         # When using explicit config_path, ensure it becomes the default so components
         # being instantiated later can access it without passing config_path everywhere
         if config_path:
-            from osprey.utils.config import _get_configurable
+            from osprey.utils.config import get_config_builder
 
             # This loads the config and sets it as default for future config access
-            _get_configurable(config_path=config_path, set_as_default=True)
+            get_config_builder(config_path=config_path, set_as_default=True)
             logger.debug(f"Set {config_path} as default configuration")
 
         # Determine base path for resolving relative registry paths

@@ -408,3 +408,25 @@ class ReclassificationRequiredError(FrameworkError):
     """
 
     pass
+
+
+class InvalidContextKeyError(FrameworkError):
+    """Exception for invalid context key references in execution plans.
+
+    Raised when the orchestrator creates an execution plan where a step references
+    a context key that doesn't exist (neither in existing context nor created by
+    an earlier step). This triggers replanning (not reclassification) because the
+    capability selection was correct - only the key references need fixing.
+
+    This typically occurs when:
+    - Orchestrator uses inconsistent naming between context_key and input references
+    - A typo or permutation in the key name (e.g., 'horizontal_bpm' vs 'bpm_horizontal')
+    - Step references a key that was never created
+
+    The error message should include:
+    - Which step has the invalid reference
+    - What key was referenced
+    - What keys are actually available
+    """
+
+    pass

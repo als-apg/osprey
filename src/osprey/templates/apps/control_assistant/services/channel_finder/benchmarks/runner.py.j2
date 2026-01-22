@@ -17,7 +17,7 @@ from dataclasses import asdict
 from {{ package_name }}.services.channel_finder.service import ChannelFinderService
 
 # Use Osprey's config system
-from osprey.utils.config import _get_config
+from osprey.utils.config import get_config_builder
 
 # Use Osprey's styling system
 from osprey.cli.styles import console, Messages, Styles
@@ -41,7 +41,7 @@ class BenchmarkRunner:
         """Initialize benchmark runner from config."""
         console.print(f"  [{Styles.INFO}]🔧 Initializing benchmark runner...[/{Styles.INFO}]")
 
-        config_builder = _get_config()
+        config_builder = get_config_builder()
         self.config = config_builder.raw_config
         self.benchmark_config = self.config.get('channel_finder', {}).get('benchmark', {})
 
@@ -68,7 +68,7 @@ class BenchmarkRunner:
     def load_benchmark_dataset(self, dataset_path: str) -> List[QueryBenchmarkEntry]:
         """Load benchmark dataset from JSON file."""
         # Resolve path relative to project root
-        config_builder = _get_config()
+        config_builder = get_config_builder()
         project_root = Path(config_builder.get('project_root'))
         path_obj = Path(dataset_path)
         path = project_root / path_obj if not path_obj.is_absolute() else path_obj
@@ -695,7 +695,7 @@ class BenchmarkRunner:
         results_dir_str = output_config.get('results_dir', 'src/{{ package_name }}/data/benchmarks/results')
 
         # Resolve path relative to project root
-        config_builder = _get_config()
+        config_builder = get_config_builder()
         project_root = Path(config_builder.get('project_root'))
         results_dir = project_root / results_dir_str
         results_dir.mkdir(exist_ok=True, parents=True)
@@ -755,7 +755,7 @@ class BenchmarkRunner:
         results_dir_str = output_config.get('results_dir', 'src/{{ package_name }}/data/benchmarks/results')
 
         # Resolve path relative to project root
-        config_builder = _get_config()
+        config_builder = get_config_builder()
         project_root = Path(config_builder.get('project_root'))
         results_dir = project_root / results_dir_str
 
@@ -780,7 +780,7 @@ class BenchmarkRunner:
         results_dir_str = output_config.get('results_dir', 'src/{{ package_name }}/data/benchmarks/results')
 
         # Resolve path relative to project root
-        config_builder = _get_config()
+        config_builder = get_config_builder()
         project_root = Path(config_builder.get('project_root'))
         results_dir = project_root / results_dir_str
         results_dir.mkdir(exist_ok=True, parents=True)

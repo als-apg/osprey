@@ -49,6 +49,9 @@ class ArgoProviderAdapter(BaseProvider):
     ]
     api_key_note = None
 
+    # LiteLLM integration - ARGO is an OpenAI-compatible proxy
+    is_openai_compatible = True
+
     @classmethod
     def get_available_models(
         cls,

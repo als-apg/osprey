@@ -4,7 +4,7 @@ ALS Accelerator Assistant
 .. admonition:: Research Publication
    :class: note
 
-   This system is described in detail in the research paper `"Agentic AI for Multi-Stage Physics Experiments at a Large-Scale User Facility Particle Accelerator" <https://arxiv.org/abs/2509.17255>`_ (arXiv:2509.17255), which presents the first deployment of a language-model-driven agentic AI system executing multi-stage physics experiments on a production synchrotron light source.
+   This system is described in detail in the research paper `"Agentic artificial intelligence for multistage physics experiments at a large-scale user facility particle accelerator" <https://link.aps.org/doi/10.1103/jtqy-9jz1>`_ published in Physical Review Research **8**, L012017 (2026), which presents the first deployment of a language-model-driven agentic AI system executing multi-stage physics experiments on a production synchrotron light source.
 
 .. admonition:: 🎓 Learn by Building
    :class: tip

@@ -31,6 +31,13 @@ class BaseProvider(ABC):
         api_key_instructions: Step-by-step instructions for obtaining an API key
         api_key_note: Additional notes or requirements (e.g., "Requires affiliation")
 
+    LiteLLM Integration Attributes:
+        litellm_prefix: LiteLLM provider prefix (e.g., "anthropic", "gemini"). If None,
+            uses the provider name. Set to empty string "" if no prefix needed.
+        is_openai_compatible: True if this provider uses an OpenAI-compatible API
+            endpoint with custom base_url (e.g., CBORG, Stanford, ARGO, vLLM).
+            When True, LiteLLM routes via "openai/{model}" with api_base parameter.
+
     This interface ensures consistent provider behavior across the framework
     while allowing provider-specific implementations.
     """
@@ -53,6 +60,12 @@ class BaseProvider(ABC):
     api_key_url: str | None = None  # URL where users can obtain an API key
     api_key_instructions: list[str] = []  # Step-by-step instructions for obtaining the key
     api_key_note: str | None = None  # Additional notes or requirements
+
+    # LiteLLM integration configuration
+    # These attributes allow providers to declare their LiteLLM routing behavior,
+    # eliminating hardcoded provider checks in the adapter layer.
+    litellm_prefix: str | None = None  # LiteLLM prefix (e.g., "anthropic", "gemini")
+    is_openai_compatible: bool = False  # True for OpenAI-compatible endpoints (CBORG, etc.)
 
     @abstractmethod
     def execute_completion(

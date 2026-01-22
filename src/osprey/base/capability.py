@@ -664,6 +664,9 @@ class BaseCapability(ABC):
                 f"Step contents: {self._step}"
             )
 
+        # Extract task_objective for context metadata (enables orchestrator context reuse)
+        task_objective = self._step.get("task_objective")
+
         # Store each and merge updates
         merged: dict[str, Any] = {}
         for obj in context_objects:
@@ -683,7 +686,9 @@ class BaseCapability(ABC):
                     f"Available types: {', '.join(available)}"
                 ) from None
 
-            updates = StateManager.store_context(self._state, ctx_type, context_key, obj)
+            updates = StateManager.store_context(
+                self._state, ctx_type, context_key, obj, task_objective=task_objective
+            )
             merged = {**merged, **updates}
 
         return merged

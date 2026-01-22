@@ -21,7 +21,7 @@ from tqdm import tqdm
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 from osprey.models.completion import get_chat_completion
-from {{ package_name }}.services.channel_finder.utils.config import get_config
+from {{ package_name }}.services.channel_finder.utils.config import get_config, load_config
 
 logger = logging.getLogger(__name__)
 
