@@ -211,6 +211,66 @@ application:
         assert builder.get("registry_path") == "./src/my_app/registry.py"
         assert builder.get("application.registry_path") == "./src/other_app/registry.py"
 
+    def test_get_unexpanded_config_preserves_env_var_placeholders(self, tmp_path, monkeypatch):
+        """Test that get_unexpanded_config() preserves ${VAR} placeholders.
+
+        This is critical for deployment security - we must NOT write actual
+        API keys to config files in the build directory. Instead, ${VAR}
+        placeholders should be preserved and resolved at container runtime.
+
+        Fixes: https://github.com/als-apg/osprey/issues/118
+        """
+        # Set environment variable that would normally be expanded
+        monkeypatch.setenv("MY_SECRET_API_KEY", "actual-secret-value-12345")
+
+        config_file = tmp_path / "config.yml"
+        config_file.write_text(
+            """
+api:
+  providers:
+    cborg:
+      api_key: ${MY_SECRET_API_KEY}
+      base_url: https://api.cborg.lbl.gov/v1
+project_root: /test/project
+"""
+        )
+
+        builder = ConfigBuilder(str(config_file))
+
+        # raw_config should have the expanded (resolved) value
+        assert (
+            builder.raw_config["api"]["providers"]["cborg"]["api_key"]
+            == "actual-secret-value-12345"
+        )
+
+        # get_unexpanded_config() should preserve the ${VAR} placeholder
+        unexpanded = builder.get_unexpanded_config()
+        assert unexpanded["api"]["providers"]["cborg"]["api_key"] == "${MY_SECRET_API_KEY}"
+
+        # Non-env-var values should be the same in both
+        assert unexpanded["api"]["providers"]["cborg"]["base_url"] == "https://api.cborg.lbl.gov/v1"
+        assert unexpanded["project_root"] == "/test/project"
+
+    def test_get_unexpanded_config_returns_deep_copy(self, tmp_path):
+        """Test that get_unexpanded_config() returns a deep copy (mutations don't affect original)."""
+        config_file = tmp_path / "config.yml"
+        config_file.write_text(
+            """
+api:
+  key: ${SECRET}
+"""
+        )
+
+        builder = ConfigBuilder(str(config_file))
+
+        # Get unexpanded config and mutate it
+        unexpanded1 = builder.get_unexpanded_config()
+        unexpanded1["api"]["key"] = "MUTATED"
+
+        # Second call should return original value, not mutated
+        unexpanded2 = builder.get_unexpanded_config()
+        assert unexpanded2["api"]["key"] == "${SECRET}"
+
 
 class TestConfigGlobalAccess:
     """Test global configuration access functions."""

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Deployment**: Prevent API keys from being written to build config files (#118)
+  - `osprey deploy build` was expanding `${VAR}` placeholders to actual values in `build/services/pipelines/config.yml`
+  - Now preserves `${VAR}` placeholders; secrets are resolved at container runtime from environment variables
+
 ## [0.10.6] - 2026-01-18
 
 ### Added
