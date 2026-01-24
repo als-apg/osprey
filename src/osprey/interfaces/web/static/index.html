@@ -646,7 +646,12 @@
         function matchesFilters(data) {
             const json = JSON.stringify(data).toLowerCase();
             if (searchText && !json.includes(searchText.toLowerCase())) return false;
-            if (typeFilter && data.type !== typeFilter) return false;
+            // Handle "LLM Streaming" type filter to match streaming_token events
+            if (typeFilter === 'LLM Streaming') {
+                if (data.type !== 'streaming_token') return false;
+            } else if (typeFilter && data.type !== typeFilter) {
+                return false;
+            }
             if (componentFilter && data.component !== componentFilter) return false;
             return true;
         }
@@ -794,22 +799,178 @@
             const currentType = typeFilter;
             const currentComp = componentFilter;
 
+            // Replace streaming_token with "LLM Streaming" in display
             typeFilterEl.innerHTML = '<option value="">All</option>' +
-                types.map(t => `<option value="${t}" ${t === currentType ? 'selected' : ''}>${t}</option>`).join('');
+                types.map(t => {
+                    const displayName = t === 'streaming_token' ? 'LLM Streaming' : t;
+                    const value = t === 'streaming_token' ? 'LLM Streaming' : t;
+                    return `<option value="${value}" ${value === currentType ? 'selected' : ''}>${displayName}</option>`;
+                }).join('');
             componentFilterEl.innerHTML = '<option value="">All</option>' +
                 comps.map(c => `<option value="${c}" ${c === currentComp ? 'selected' : ''}>${c}</option>`).join('');
         }
 
-        // Refresh timeline
+        // Refresh timeline - rebuild grouped view for streaming tokens
         function refreshTimeline() {
             timeline.innerHTML = '';
-            events.filter(matchesFilters).forEach(appendEvent);
+
+            // Separate streaming tokens from other events
+            const streamingTokens = [];
+            const otherEvents = [];
+
+            events.forEach(e => {
+                if (e.type === 'streaming_token') {
+                    streamingTokens.push(e);
+                } else {
+                    otherEvents.push(e);
+                }
+            });
+
+            // Check if we're filtering for streaming tokens specifically
+            const filteringForStreaming = typeFilter === 'LLM Streaming';
+            const hasSearch = searchText.trim().length > 0;
+
+            // Filter streaming tokens for search (only match token content, not metadata)
+            const matchingStreamingTokens = streamingTokens.filter(t => {
+                if (hasSearch) {
+                    // Search only the actual token content, not metadata like node_name
+                    return (t.token || '').toLowerCase().includes(searchText.toLowerCase());
+                }
+                return true;
+            });
+
+            // Check if streaming group matches component filter
+            const streamingComponent = streamingTokens[0]?.node_name || 'respond';
+            const matchesComponentFilter = !componentFilter || componentFilter === streamingComponent;
+
+            // Build timeline: other events first (in order), then streaming group
+            // But we need to maintain event order, so interleave properly
+            let streamingIdx = 0;
+            let otherIdx = 0;
+            const allSorted = events.slice(); // Keep original order
+
+            for (const event of allSorted) {
+                if (event.type === 'streaming_token') {
+                    // Skip individual streaming tokens - we'll show grouped view
+                    continue;
+                }
+
+                // If we encounter the first non-streaming event after streaming tokens started,
+                // render the streaming group before it
+                if (streamingTokens.length > 0 && streamingIdx === 0) {
+                    // Check if there are streaming tokens before this event
+                    const eventIndex = events.indexOf(event);
+                    const firstStreamingIndex = events.indexOf(streamingTokens[0]);
+                    if (firstStreamingIndex < eventIndex && firstStreamingIndex >= 0) {
+                        // Render streaming group now (respecting both type and component filters)
+                        if ((filteringForStreaming || !typeFilter) && matchesComponentFilter) {
+                            appendStreamingGroup(matchingStreamingTokens, streamingTokens, hasSearch);
+                        }
+                        streamingIdx = streamingTokens.length; // Mark as rendered
+                    }
+                }
+
+                // Append non-streaming event if it matches filters
+                if (matchesFilters(event)) {
+                    appendEvent(event);
+                }
+            }
+
+            // If streaming tokens exist but weren't rendered yet (at end of timeline)
+            if (streamingTokens.length > 0 && streamingIdx === 0) {
+                if ((filteringForStreaming || !typeFilter) && matchesComponentFilter) {
+                    appendStreamingGroup(matchingStreamingTokens, streamingTokens, hasSearch);
+                }
+            }
+
             updateFilteredCount();
             timeline.scrollTop = timeline.scrollHeight;
         }
 
+        // Append streaming tokens as a grouped view
+        function appendStreamingGroup(matchingTokens, allTokens, hasSearch) {
+            if (allTokens.length === 0) return;
+            // Don't show empty group when searching with no matches
+            if (hasSearch && matchingTokens.length === 0) return;
+
+            // Use first token's data for group header
+            const firstToken = allTokens[0];
+            const lastToken = allTokens[allTokens.length - 1];
+            const startTime = new Date(firstToken.timestamp);
+            const endTime = new Date(lastToken.timestamp);
+            const duration = ((endTime - startTime) / 1000).toFixed(2);
+            const nodeName = firstToken.node_name || 'respond';
+
+            const group = document.createElement('div');
+            group.className = 'event-group';
+
+            // Determine which tokens to show as children
+            const tokensToShow = hasSearch ? matchingTokens : allTokens;
+            const summaryText = hasSearch
+                ? `${matchingTokens.length}/${allTokens.length} tokens match (${duration}s)`
+                : `${allTokens.length} tokens in ${duration}s`;
+
+            group.innerHTML = `
+                <div class="event event-parent">
+                    <div class="event-row">
+                        <span class="toggle-icon">▶</span>
+                        <span class="event-tag">LLM Streaming</span>
+                        <span class="event-component" style="color: ${getComponentColor(nodeName) || 'inherit'}">[${nodeName}]</span>
+                        <span class="event-msg streaming-summary">${summaryText}</span>
+                        <span class="event-time">${startTime.toLocaleTimeString()}</span>
+                    </div>
+                </div>
+                <div class="event-children"></div>
+            `;
+
+            const parentEl = group.querySelector('.event-parent');
+            const childrenEl = group.querySelector('.event-children');
+
+            parentEl.onclick = () => parentEl.classList.toggle('expanded');
+
+            // Add token children
+            tokensToShow.forEach(token => {
+                const child = document.createElement('div');
+                child.className = 'event-child';
+                const displayToken = escapeHtml(token.token).replace(/\n/g, '↵').replace(/ /g, '·');
+                child.innerHTML = `
+                    <span class="token-time">${new Date(token.timestamp).toLocaleTimeString('en-US', {hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3})}</span>
+                    Token ${token.token_index}: <span class="token-content">${displayToken}</span>
+                `;
+                childrenEl.appendChild(child);
+            });
+
+            timeline.appendChild(group);
+        }
+
         function updateFilteredCount() {
-            filteredCount.textContent = events.filter(matchesFilters).length;
+            // Count non-streaming events that match filters
+            const nonStreamingCount = events.filter(e =>
+                e.type !== 'streaming_token' && matchesFilters(e)
+            ).length;
+
+            // For streaming tokens, count as 1 group if any exist and match
+            const streamingTokens = events.filter(e => e.type === 'streaming_token');
+            const hasSearch = searchText.trim().length > 0;
+            const matchingStreamingTokens = streamingTokens.filter(t => {
+                if (hasSearch) {
+                    // Search only the actual token content, not metadata
+                    return (t.token || '').toLowerCase().includes(searchText.toLowerCase());
+                }
+                return true;
+            });
+
+            // Add 1 for streaming group if we're showing it (with matches and filters)
+            const filteringForStreaming = typeFilter === 'LLM Streaming';
+            const streamingComponent = streamingTokens[0]?.node_name || 'respond';
+            const matchesComponentFilter = !componentFilter || componentFilter === streamingComponent;
+
+            const streamingGroupCount = (streamingTokens.length > 0 &&
+                (filteringForStreaming || !typeFilter) &&
+                matchesComponentFilter &&
+                matchingStreamingTokens.length > 0) ? 1 : 0;
+
+            filteredCount.textContent = nonStreamingCount + streamingGroupCount;
         }
 
         // Execute
