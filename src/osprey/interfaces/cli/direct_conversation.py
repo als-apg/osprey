@@ -17,6 +17,7 @@ import uuid
 from typing import Any
 
 from dotenv import load_dotenv
+from langchain_core.messages import AIMessageChunk
 from langgraph.checkpoint.memory import MemorySaver
 
 # Modern CLI dependencies
@@ -628,6 +629,9 @@ class CLI:
                     elif mode == "messages":
                         # Handle LLM token streaming
                         message_chunk, _metadata = chunk
+                        # Only process AIMessageChunks (streaming tokens), skip full AIMessages
+                        if not isinstance(message_chunk, AIMessageChunk):
+                            continue
                         if hasattr(message_chunk, "content") and message_chunk.content:
                             if not streamed_response:
                                 self.console.print("\n[bold cyan]🤖 Assistant:[/bold cyan] ", end="")
@@ -763,6 +767,9 @@ class CLI:
                         # Handle LLM token streaming
                         # chunk is a tuple (message_chunk, metadata)
                         message_chunk, _metadata = chunk
+                        # Only process AIMessageChunks (streaming tokens), skip full AIMessages
+                        if not isinstance(message_chunk, AIMessageChunk):
+                            continue
                         if hasattr(message_chunk, "content") and message_chunk.content:
                             if not streamed_response:
                                 # Print header before first token

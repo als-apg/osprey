@@ -117,7 +117,7 @@ class ChatDisplay(ScrollableContainer):
 
     # --- Streaming Message Methods ---
 
-    def start_streaming_message(self) -> StreamingChatMessage:
+    async def start_streaming_message(self) -> StreamingChatMessage:
         """Create and mount a new streaming message widget with MarkdownStream.
 
         Uses Textual's MarkdownStream for efficient buffered token streaming.
@@ -131,11 +131,8 @@ class ChatDisplay(ScrollableContainer):
             The newly created StreamingChatMessage widget.
         """
         self._streaming_message = StreamingChatMessage(role="assistant")
-        self.mount(self._streaming_message)
+        await self.mount(self._streaming_message)  # Wait for mount+compose+on_mount
         self.scroll_end(animate=False)
-        # NOTE: Don't get MarkdownStream here - compose() hasn't run yet!
-        # The Markdown widget is created in compose() which runs after mount().
-        # Stream is lazily initialized on first write in append_to_streaming_message().
         return self._streaming_message
 
     async def append_to_streaming_message(self, content: str) -> None:
@@ -149,13 +146,10 @@ class ChatDisplay(ScrollableContainer):
         """
         if self._streaming_message:
             # Lazy initialization of MarkdownStream
-            # By now compose() has run, so the Markdown widget exists
+            # Use stored reference from on_mount() - guaranteed to exist post-mount
             if self._markdown_stream is None:
-                try:
-                    md_widget = self._streaming_message.query_one(Markdown)
-                    self._markdown_stream = Markdown.get_stream(md_widget)
-                except Exception:
-                    pass
+                md_widget = self._streaming_message.get_markdown_widget()
+                self._markdown_stream = Markdown.get_stream(md_widget)
 
             if self._markdown_stream:
                 await self._markdown_stream.write(content)
@@ -172,6 +166,16 @@ class ChatDisplay(ScrollableContainer):
         self._scroll_timer = None
         if self._streaming_message:
             self.scroll_to_widget(self._streaming_message, animate=False)
+
+    def get_streaming_content(self) -> str:
+        """Get the accumulated streaming content for the respond block.
+
+        Returns:
+            The full response text accumulated during streaming.
+        """
+        if self._streaming_message:
+            return "".join(self._streaming_message._content_buffer)
+        return ""
 
     async def finalize_streaming_message(self) -> None:
         """Finalize the streaming message and wait for rendering to complete.

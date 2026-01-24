@@ -45,10 +45,28 @@ class StreamingChatMessage(ChatMessage):
         # Initialize with empty content and 'streaming' message type
         super().__init__("", role, message_type="streaming", **kwargs)
         self._content_buffer: list[str] = []
+        self._markdown_widget: Markdown | None = None
 
     def compose(self) -> ComposeResult:
         """Compose the message with an empty Markdown widget for streaming updates."""
         yield Markdown("", classes="message-content")
+
+    def on_mount(self) -> None:
+        """Store reference to Markdown widget after compose() completes."""
+        self._markdown_widget = self.query_one(Markdown)
+
+    def get_markdown_widget(self) -> Markdown:
+        """Get the Markdown widget - guaranteed to exist post-mount.
+
+        Returns:
+            The child Markdown widget.
+
+        Raises:
+            RuntimeError: If called before widget is mounted.
+        """
+        if self._markdown_widget is None:
+            raise RuntimeError("StreamingChatMessage not yet mounted")
+        return self._markdown_widget
 
     def finalize(self) -> None:
         """Mark streaming as complete and update styling.

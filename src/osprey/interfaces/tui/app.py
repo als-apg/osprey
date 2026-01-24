@@ -728,7 +728,7 @@ class OspreyTUI(App):
                                 respond_block = chat_display.get_respond_execution_block()
                                 if respond_block:
                                     respond_block.set_partial_output("Response streaming...")
-                                chat_display.start_streaming_message()
+                                await chat_display.start_streaming_message()
                                 streamed_response = True
                             # Append token to streaming message (async for MarkdownStream)
                             await chat_display.append_to_streaming_message(message_chunk.content)
@@ -738,10 +738,14 @@ class OspreyTUI(App):
             finally:
                 # Finalize streaming message if we were streaming
                 if streamed_response:
-                    # Update respond block status
+                    # Update respond block status and set full response
                     respond_block = chat_display.get_respond_execution_block()
                     if respond_block:
                         respond_block.set_complete("success", "Response generated")
+                        # Set the full response for the Response link
+                        full_response = chat_display.get_streaming_content()
+                        if full_response:
+                            respond_block.set_llm_response(full_response)
                     # Await finalization - stream.stop() waits for all rendering
                     await chat_display.finalize_streaming_message()
                 # Cancel consumer when done
