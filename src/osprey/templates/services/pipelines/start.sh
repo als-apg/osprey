@@ -41,9 +41,3 @@ else
     echo "WARNING: Pipeline interface not found at $PIPELINES_DIR"
     echo "Make sure main.py was copied during project initialization"
 fi
-
-# Call the original pipelines start script
-echo "Starting pipelines server..."
-cd /app
-exec bash start.sh
-

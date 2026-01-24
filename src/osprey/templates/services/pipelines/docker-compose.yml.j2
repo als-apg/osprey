@@ -1,21 +1,17 @@
 services:
   pipelines:
-    image: ghcr.io/open-webui/pipelines:main
-    # build:
-    #   context: ./pipelines
-    #   dockerfile: Dockerfile
+    build:
+      context: ./pipelines
+      dockerfile: Dockerfile
     container_name: pipelines
     labels:
       osprey.project.name: "{{ osprey_labels.project_name }}"
       osprey.project.root: "{{ osprey_labels.project_root }}"
       osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
     restart: "no"
-    working_dir: /pipelines
-    entrypoint: ["/bin/bash", "/pipelines/start.sh"]
     ports:
       - {{services.pipelines.port_host}}:{{services.pipelines.port_container}} # Expose pipeline port
     volumes:
-      - ./pipelines:/pipelines
       - {{project_root}}/{{file_paths.agent_data_dir}}:/app/{{file_paths.agent_data_dir}}
     environment:
       # Tell pipelines where to find the scripts within the container
