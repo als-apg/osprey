@@ -635,12 +635,14 @@ class CLI:
                         if hasattr(message_chunk, "content") and message_chunk.content:
                             if not streamed_response:
                                 self.console.print("\n[bold cyan]🤖 Assistant:[/bold cyan] ", end="")
+                                handler.start_response_streaming()
                                 streamed_response = True
                             print(message_chunk.content, end="", flush=True)
 
                 # Print newline after streaming completes
                 if streamed_response:
                     print()
+                    handler.reset_suppression()
 
                 # After resuming, check if there are more interrupts or if execution completed
                 state = self.graph.get_state(config=self.base_config)
@@ -774,6 +776,7 @@ class CLI:
                             if not streamed_response:
                                 # Print header before first token
                                 self.console.print("\n[bold cyan]🤖 Assistant:[/bold cyan] ", end="")
+                                handler.start_response_streaming()
                                 streamed_response = True
                             # Print token directly to console (no newline, immediate flush)
                             print(message_chunk.content, end="", flush=True)
@@ -781,6 +784,7 @@ class CLI:
                 # Print newline after streaming completes
                 if streamed_response:
                     print()  # End the streamed response line
+                    handler.reset_suppression()
                 # Restore original logging level
                 root_logger.setLevel(original_level)
 

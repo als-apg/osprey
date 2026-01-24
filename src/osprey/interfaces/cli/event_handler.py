@@ -69,6 +69,20 @@ class CLIEventHandler:
         self.show_timing = show_timing
         self._color_cache: dict[str, str] = {}
         self._highlighter = ReprHighlighter()  # For data type highlighting
+        self._suppress_respond_events = False  # Suppress respond events after streaming
+
+    def start_response_streaming(self) -> None:
+        """Call when LLM streaming begins to suppress post-streaming respond events.
+
+        After streaming starts, completion events from the respond component
+        (like "Response generated") would appear after the full response,
+        which is jarring UX. This method enables suppression of those events.
+        """
+        self._suppress_respond_events = True
+
+    def reset_suppression(self) -> None:
+        """Reset respond event suppression for a new query."""
+        self._suppress_respond_events = False
 
     def _format_component_name(self, component: str) -> str:
         """Format component name to title case.
@@ -180,6 +194,11 @@ class CLIEventHandler:
         Args:
             event: The typed OspreyEvent to process
         """
+        # Suppress respond events after streaming starts (better UX)
+        if self._suppress_respond_events and hasattr(event, "component"):
+            if event.component == "respond":
+                return
+
         match event:
             # StatusEvent - status level (most common - high-level progress)
             case StatusEvent(message=msg, level="status", component=comp):
@@ -282,6 +301,11 @@ class CLIEventHandler:
         Args:
             event: The typed OspreyEvent to process
         """
+        # Suppress respond events after streaming starts (better UX)
+        if self._suppress_respond_events and hasattr(event, "component"):
+            if event.component == "respond":
+                return
+
         match event:
             # StatusEvent - status level
             case StatusEvent(message=msg, level="status", component=comp):
