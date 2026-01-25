@@ -290,7 +290,10 @@
         display: none;
         margin-left: 20px;
         border-left: 2px solid var(--border);
+        padding-top: 4px;
         padding-left: 8px;
+        /* padding-right: 8px; */
+        /* background: var(--bg-alt); */
       }
       .event-parent.expanded + .event-children {
         display: block;
@@ -392,7 +395,7 @@
         margin-bottom: 4px;
       }
       .meta-json {
-        font-size: 11px;
+        font-size: 12px;
         margin: 0;
         white-space: pre-wrap;
         color: var(--text-faint);
@@ -779,16 +782,23 @@
         const sessionId = currentStreamingSession.sessionId;
         const nodeName = data.node_name || "respond";
 
-        // Event structure example for debugging
-        const eventStructure = {
-          type: "streaming_token",
-          token: "...",
-          accumulated_response: "...",
-          token_index: 1,
-          node_name: nodeName,
-          session_id: sessionId,
-          timestamp: "2024-01-24T...",
-        };
+        // Explanatory text for developers building their own interface
+        const streamingExplanation = `LLM Token Streaming
+
+Streaming tokens come from LangGraph's "messages" stream mode (separate from typed events).
+
+Usage:
+  async for mode, chunk in graph.astream(..., stream_mode=["custom", "messages"]):
+      if mode == "messages":
+          message_chunk, metadata = chunk
+          token = message_chunk.content          # Token text
+          node = metadata.get("langgraph_node")  # Node name
+
+Raw structure:
+  message_chunk: AIMessageChunk  # from langchain_core.messages
+    .content = "${data.token || "Hello"}"
+  metadata: dict
+    {"langgraph_node": "${nodeName}", ...}`;
 
         const group = document.createElement("div");
         group.className = "event-group";
@@ -804,11 +814,11 @@
                 </div>
                 <div class="event-children">
                     <div class="details-actions">
-                        <button class="copy-btn" data-session-id="${sessionId}">Copy JSON</button>
+                        <button class="copy-btn" data-session-id="${sessionId}">Copy Text</button>
                     </div>
+                    <div class="meta-header">Original Event Format (for building your own interface):</div>
                     <div class="meta-info">
-                        <div class="meta-header">Event Structure (for debugging):</div>
-                        <pre class="meta-json">${escapeHtml(JSON.stringify(eventStructure, null, 2))}</pre>
+                        <pre class="meta-json">${escapeHtml(streamingExplanation)}</pre>
                     </div>
                     <div class="tokens-header">Tokens:</div>
                     <div class="tokens-container"></div>
@@ -829,7 +839,8 @@
         // Tooltip will be added after streaming completes (in finalizeStreamingSession)
 
         currentStreamingSession.parentEl = parentEl;
-        currentStreamingSession.groupId = group.id = `streaming-group-${Date.now()}`;
+        currentStreamingSession.groupId =
+          group.id = `streaming-group-${Date.now()}`;
         currentStreamingSession.childrenEl = childrenEl;
         currentStreamingSession.tokensContainer = tokensContainer;
 
@@ -894,7 +905,9 @@
         }
 
         // NOW add tooltip to the completed streaming group
-        const parentEl = document.getElementById(currentStreamingSession.groupId);
+        const parentEl = document.getElementById(
+          currentStreamingSession.groupId,
+        );
         if (parentEl) {
           const row = parentEl.querySelector(".event-row");
           if (row) {
@@ -1220,16 +1233,24 @@
         const nodeName = session.nodeName;
         const sessionId = session.sessionId;
 
-        // Event structure example for debugging
-        const eventStructure = {
-          type: "streaming_token",
-          token: "...",
-          accumulated_response: "...",
-          token_index: 1,
-          node_name: nodeName,
-          session_id: sessionId,
-          timestamp: "2024-01-24T...",
-        };
+        // Explanatory text for developers building their own interface
+        const firstToken = allTokens[0]?.token || "Hello";
+        const streamingExplanation = `LLM Token Streaming
+
+Streaming tokens come from LangGraph's "messages" stream mode (separate from typed events).
+
+Usage:
+  async for mode, chunk in graph.astream(..., stream_mode=["custom", "messages"]):
+      if mode == "messages":
+          message_chunk, metadata = chunk
+          token = message_chunk.content          # Token text
+          node = metadata.get("langgraph_node")  # Node name
+
+Raw structure:
+  message_chunk: AIMessageChunk  # from langchain_core.messages
+    .content = "${firstToken}"
+  metadata: dict
+    {"langgraph_node": "${nodeName}", ...}`;
 
         const group = document.createElement("div");
         group.className = "event-group";
@@ -1252,11 +1273,11 @@
                 </div>
                 <div class="event-children">
                     <div class="details-actions">
-                        <button class="copy-btn" data-session-id="${sessionId}">Copy JSON</button>
+                        <button class="copy-btn" data-session-id="${sessionId}">Copy Text</button>
                     </div>
                     <div class="meta-info">
-                        <div class="meta-header">Event Structure (for debugging):</div>
-                        <pre class="meta-json">${escapeHtml(JSON.stringify(eventStructure, null, 2))}</pre>
+                        <div class="meta-header">Original Event Format (for building your own interface):</div>
+                        <pre class="meta-json">${escapeHtml(streamingExplanation)}</pre>
                     </div>
                     <div class="tokens-header">Tokens (${allTokens.length}):</div>
                     <div class="tokens-container"></div>
@@ -1572,26 +1593,35 @@
         );
         if (!session) return;
 
-        // Build JSON with assembled_response instead of individual tokens
+        // Build assembled response from tokens
         const assembledResponse = session.tokens
           .map((t) => t.token || t.content || "")
           .join("");
-        const jsonData = {
-          type: "streaming_token",
-          node_name: session.nodeName,
-          session_id: session.sessionId,
-          assembled_response: assembledResponse,
-          token_count: session.tokens.length,
-          start_time: session.startTime.toISOString(),
-          end_time: session.endTime ? session.endTime.toISOString() : null,
-          duration_s: session.endTime
-            ? ((session.endTime - session.startTime) / 1000).toFixed(2)
-            : null,
-        };
+        const duration = session.endTime
+          ? ((session.endTime - session.startTime) / 1000).toFixed(2)
+          : "?";
 
-        navigator.clipboard.writeText(JSON.stringify(jsonData, null, 2));
+        // Developer-friendly format showing the response and how to capture it
+        const copyText = `# LLM Streaming Response
+# Node: ${session.nodeName}
+# Tokens: ${session.tokens.length}
+# Duration: ${duration}s
+
+## Assembled Response:
+${assembledResponse}
+
+## How to capture in your interface:
+async for mode, chunk in graph.astream(state, config, stream_mode=["custom", "messages"]):
+    if mode == "messages":
+        message_chunk, metadata = chunk
+        if hasattr(message_chunk, "content") and message_chunk.content:
+            # message_chunk.content is each token
+            # metadata["langgraph_node"] is the source node
+            yield message_chunk.content`;
+
+        navigator.clipboard.writeText(copyText);
         e.target.textContent = "Copied!";
-        setTimeout(() => (e.target.textContent = "Copy JSON"), 1500);
+        setTimeout(() => (e.target.textContent = "Copy Text"), 1500);
       }
 
       // Create a new streaming tab for a session
