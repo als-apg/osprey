@@ -430,7 +430,7 @@ def _copy_local_framework_for_override(out_dir):
                 if "No module named build" in result.stderr:
                     logger.warning(
                         "The 'build' package is required for --dev mode. Install with: "
-                        'pip install ".[dev]" (editable) or pip install osprey-framework[dev]'
+                        r'pip install build or pip install -e ".\[dev]"'
                     )
                 else:
                     logger.warning(f"Failed to build osprey wheel: {result.stderr}")

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Connectors**: Add unit tests for `EPICSArchiverConnector`
+  - 26 tests covering connect/disconnect, get_data, error handling, metadata, and factory integration
+  - Mock fixtures matching real `archivertools` library format (secs/nanos columns)
+
+### Fixed
+- **Connectors**: Fix `EPICSArchiverConnector` timestamp handling for real `archivertools` library
+  - Real library returns DataFrame with `secs`/`nanos` columns and RangeIndex
+  - Connector now properly converts secs/nanos to DatetimeIndex and removes those columns
+  - Fallback preserves backward compatibility for other DataFrame formats
+- **Deployment**: Fix `--dev` mode error message showing broken install instructions (#119)
+  - Rich markup was stripping `[dev]` from the message due to bracket interpretation
+  - Error now correctly shows: `pip install build or pip install -e ".[dev]"`
+
 ## [0.10.6] - 2026-01-18
 
 ### Added
