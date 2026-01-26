@@ -440,6 +440,10 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     module_path="osprey.models.providers.argo", class_name="ArgoProviderAdapter"
                 ),
                 ProviderRegistration(
+                    module_path="osprey.models.providers.asksage",
+                    class_name="AskSageProviderAdapter",
+                ),
+                ProviderRegistration(
                     module_path="osprey.models.providers.vllm", class_name="VLLMProviderAdapter"
                 ),
             ],

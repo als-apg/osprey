@@ -111,6 +111,17 @@ _OPENAI_COMPATIBLE_PROVIDERS = {
         "base_url_env": "ARGO_BASE_URL",
         "description": "ANL Argo proxy",
     },
+    "asksage": {
+        "default_base_url": "https://api.civ.asksage.ai/server/v1",
+        "api_key_env": "ASKSAGE_API_KEY",
+        "description": "AskSage proxy",
+        "model_kwargs": {
+            "system_prompt": "-",
+            "dataset": "none",
+            "live": 0,
+            "limit_references": 0,
+        }
+    },
 }
 
 # Combined list of all supported providers
@@ -402,6 +413,9 @@ def _create_openai_compatible_model(
                 f"API key required for '{provider}' provider. "
                 f"Set via provider_config, osprey config, or {api_key_env} environment variable."
             )
+
+    if config.get("model_kwargs"):
+        model_kwargs["model_kwargs"] = config["model_kwargs"]
 
     logger.debug(
         f"Creating OpenAI-compatible LangChain model: provider={provider}, "
