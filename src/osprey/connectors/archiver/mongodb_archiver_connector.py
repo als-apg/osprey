@@ -276,10 +276,10 @@ class MongoDBArchiverConnector(ArchiverConnector):
 
             # Apply downsampling based on precision_ms if needed
             # This is a simple approach - could be enhanced with more sophisticated downsampling
-            if precision_ms > 0 and len(df) > 0:
-                # Resample to approximate precision
-                freq = f"{precision_ms}ms"
-                df = df.resample(freq).mean()
+#            if precision_ms > 0 and len(df) > 0:
+#                # Resample to approximate precision
+#                freq = f"{precision_ms}ms"
+#                df = df.resample(freq).mean()
 
             return df
 
