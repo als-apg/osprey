@@ -11,10 +11,6 @@ if [ -f "/pipelines/repo_src/requirements.txt" ]; then
     echo "Installing project dependencies from requirements.txt..."
     pip install --no-cache-dir -r /pipelines/repo_src/requirements.txt
     echo "✓ Project dependencies installed successfully"
-else
-    echo "WARNING: /pipelines/repo_src/requirements.txt not found"
-    echo "Installing framework as fallback (includes Claude Code SDK)..."
-    pip install "osprey-framework>=0.9.6"
 fi
 
 # Development mode override - install local osprey AFTER everything else
