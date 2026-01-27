@@ -3,6 +3,9 @@ services:
     build:
       context: ./pipelines
       dockerfile: Dockerfile
+      args:
+        # Development mode flag - passed from host environment when --dev is used
+        DEV_MODE: ${DEV_MODE}
     container_name: pipelines
     labels:
       osprey.project.name: "{{ osprey_labels.project_name }}"
