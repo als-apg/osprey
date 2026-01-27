@@ -19,8 +19,6 @@ services:
       - PIPELINES_DIR=/pipelines
       - PROJECT_ROOT=/pipelines
       - AGENT_DATA_DIR={{file_paths.agent_data_dir}}
-      # Development mode flag for local osprey override
-      - DEV_MODE=${DEV_MODE:-false}
       # Point to config.yml for framework initialization
       - CONFIG_FILE=/pipelines/config.yml
       # API key for pipeline authentication (override via .env for production)
