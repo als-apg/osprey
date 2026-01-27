@@ -1200,12 +1200,6 @@ def deploy_up(config_path, detached=False, dev_mode=False):
     for compose_file in compose_files:
         cmd.extend(("-f", compose_file))
 
-    # Always rebuild the pipelines Docker image
-    # This ensures that the intended version of Osprey is used
-    # (e.g., the local version when --dev is used)
-    # and not another version of Osprey that was installed in a previously built Docker image
-    cmd.append("--build pipelines")
-
     # Only add --env-file if .env exists, otherwise let docker-compose use defaults
     from pathlib import Path
 
@@ -1219,6 +1213,12 @@ def deploy_up(config_path, detached=False, dev_mode=False):
         logger.info("To configure API keys: cp .env.example .env && edit .env")
 
     cmd.append("up")
+    # Always rebuild the pipelines Docker image in dev mode
+    # This ensures that the intended version of Osprey is used
+    # (e.g., the local version when --dev is used)
+    # and not another version of Osprey that was installed in a previously built Docker image
+    cmd.append("--build")
+    cmd.append("pipelines")
     if detached:
         cmd.append("-d")
 
