@@ -17,7 +17,6 @@ services:
       # Tell pipelines where to find the scripts within the container
       # Pipeline interface files (main.py, __init__.py) are copied to /pipelines during init
       - PIPELINES_DIR=/pipelines
-      - PIPELINES_REQUIREMENTS_PATH=/pipelines/repo_src/requirements.txt
       - PROJECT_ROOT=/pipelines
       - AGENT_DATA_DIR={{file_paths.agent_data_dir}}
       # Development mode flag for local osprey override
