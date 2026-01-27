@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Execution**: Fix channel limits database path resolution in subprocess execution
   - Relative paths in `control_system.limits_checking.database_path` now resolve against `project_root`
   - Fixes "Channel limits database not found" error when running Python code locally
+- **Connectors**: Fix EPICS connector PV cache to prevent soft IOC crashes
+  - Reuse PV objects instead of creating new ones per read
+  - Prevents subscription flood that causes caproto race condition (`deque mutated during iteration`)
+  - Adds thread-safe locking for PV cache access
 
 ## [0.10.6] - 2026-01-18
 
