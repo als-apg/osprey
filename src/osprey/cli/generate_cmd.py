@@ -1152,5 +1152,1178 @@ def claude_config(output_file: str, force: bool):
         raise click.Abort() from e
 
 
+# =============================================================================
+# Soft IOC Generator
+# =============================================================================
+
+
+def _get_channel_database_from_config(config_path: Path) -> str | None:
+    """Get channel database path from channel_finder section in config.yml.
+
+    Reads the active pipeline mode and extracts the database path from the
+    corresponding pipeline configuration.
+
+    Args:
+        config_path: Path to config.yml
+
+    Returns:
+        Channel database path string, or None if not found
+    """
+    import yaml
+
+    if not config_path.exists():
+        return None
+
+    with open(config_path, encoding="utf-8") as f:
+        config = yaml.safe_load(f) or {}
+
+    channel_finder = config.get("channel_finder", {})
+    if not channel_finder:
+        return None
+
+    # Get the active pipeline mode
+    pipeline_mode = channel_finder.get("pipeline_mode", "hierarchical")
+
+    # Get the database path from the active pipeline config
+    pipelines = channel_finder.get("pipelines", {})
+    pipeline_config = pipelines.get(pipeline_mode, {})
+    database_config = pipeline_config.get("database", {})
+
+    return database_config.get("path")
+
+
+def _generate_simulation_yaml_preview(sim_config: dict) -> str:
+    """Generate YAML preview for simulation section.
+
+    Args:
+        sim_config: Simulation configuration dict
+
+    Returns:
+        Formatted YAML string for preview
+    """
+    lines = ["simulation:"]
+
+    # Channel database
+    lines.append(f'  channel_database: "{sim_config["channel_database"]}"')
+
+    # IOC settings
+    lines.append("  ioc:")
+    lines.append(f'    name: "{sim_config["ioc"]["name"]}"')
+    lines.append(f"    port: {sim_config['ioc']['port']}")
+    lines.append(f'    output_dir: "{sim_config["ioc"]["output_dir"]}"')
+
+    # Backend settings
+    lines.append("  backend:")
+    lines.append(f'    type: "{sim_config["backend"]["type"]}"')
+    if sim_config["backend"]["type"] == "mock_style":
+        lines.append(f"    noise_level: {sim_config['backend']['noise_level']}")
+        lines.append(f"    update_rate: {sim_config['backend']['update_rate']}")
+
+    return "\n".join(lines)
+
+
+def _write_simulation_config(config_path: Path, sim_config: dict) -> Path:
+    """Write simulation section to config.yml with backup.
+
+    Args:
+        config_path: Path to config.yml
+        sim_config: Simulation configuration dict
+
+    Returns:
+        Path to backup file
+    """
+    import yaml
+
+    # Create backup
+    backup_path = config_path.with_suffix(".yml.bak")
+    backup_path.write_text(config_path.read_text(encoding="utf-8"), encoding="utf-8")
+
+    # Load existing config
+    with open(config_path, encoding="utf-8") as f:
+        config = yaml.safe_load(f) or {}
+
+    # Add/update simulation section
+    config["simulation"] = sim_config
+
+    # Write updated config
+    with open(config_path, "w", encoding="utf-8") as f:
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+
+    return backup_path
+
+
+async def _offer_simulation_config_setup(
+    config_path: Path,
+    force_init: bool = False,
+    dry_run: bool = False,
+) -> dict | None:
+    """Offer interactive setup for simulation config.
+
+    Args:
+        config_path: Path to config.yml
+        force_init: If True, always offer setup even if section exists
+        dry_run: If True, show preview but don't write config
+
+    Returns:
+        Simulation config dict if created/previewed, None if skipped
+    """
+    try:
+        import questionary
+
+        from .styles import get_questionary_style
+    except ImportError:
+        console.print(
+            f"\n[{Styles.WARNING}]questionary not installed. "
+            f"Add simulation section manually to config.yml[/{Styles.WARNING}]"
+        )
+        return None
+
+    console.print(f"\n[{Styles.HEADER}]Simulation Config Setup[/{Styles.HEADER}]\n")
+
+    # 1. Get channel database from channel_finder config section
+    channel_database = _get_channel_database_from_config(config_path)
+
+    if channel_database:
+        console.print(
+            f"  [{Styles.LABEL}]Using channel database from config:[/{Styles.LABEL}] "
+            f"[{Styles.VALUE}]{channel_database}[/{Styles.VALUE}]"
+        )
+        console.print()
+
+        # Confirm or allow override
+        use_detected = await questionary.confirm(
+            f"Use this channel database? ({channel_database})",
+            default=True,
+            style=get_questionary_style(),
+        ).ask_async()
+
+        if use_detected is None:
+            console.print(f"\n{Messages.warning('Setup cancelled')}")
+            return None
+
+        if not use_detected:
+            channel_database = await questionary.path(
+                "Enter channel database path:",
+                style=get_questionary_style(),
+            ).ask_async()
+            if not channel_database:
+                console.print(f"\n{Messages.warning('Setup cancelled')}")
+                return None
+    else:
+        # No channel_finder config - prompt for path
+        console.print(
+            f"  [{Styles.DIM}]No channel database found in channel_finder config[/{Styles.DIM}]"
+        )
+        console.print()
+        channel_database = await questionary.path(
+            "Enter channel database path:",
+            style=get_questionary_style(),
+        ).ask_async()
+        if not channel_database:
+            console.print(f"\n{Messages.warning('Setup cancelled')}")
+            return None
+
+    # 2. IOC Name - derive default from project name or config
+    default_ioc_name = Path.cwd().name.replace("-", "_").lower() + "_sim"
+    ioc_name = await questionary.text(
+        "IOC name:",
+        default=default_ioc_name,
+        style=get_questionary_style(),
+    ).ask_async()
+
+    if not ioc_name:
+        console.print(f"\n{Messages.warning('Setup cancelled')}")
+        return None
+
+    # 3. Port
+    port_str = await questionary.text(
+        "EPICS CA port:",
+        default="5064",
+        style=get_questionary_style(),
+    ).ask_async()
+
+    if not port_str:
+        console.print(f"\n{Messages.warning('Setup cancelled')}")
+        return None
+
+    try:
+        port = int(port_str)
+    except ValueError:
+        console.print(f"\n{Messages.error('Invalid port number')}")
+        return None
+
+    # 4. Output directory
+    output_dir = await questionary.text(
+        "Output directory:",
+        default="generated_iocs/",
+        style=get_questionary_style(),
+    ).ask_async()
+
+    if output_dir is None:
+        console.print(f"\n{Messages.warning('Setup cancelled')}")
+        return None
+
+    # 5. Backend type
+    backend_type = await questionary.select(
+        "Backend type:",
+        choices=[
+            "mock_style (recommended - archiver-style simulation)",
+            "passthrough (no simulation)",
+        ],
+        style=get_questionary_style(),
+    ).ask_async()
+
+    if not backend_type:
+        console.print(f"\n{Messages.warning('Setup cancelled')}")
+        return None
+
+    backend_type = "mock_style" if "mock_style" in backend_type else "passthrough"
+
+    # 6. Backend settings (for mock_style)
+    noise_level = 0.01
+    update_rate = 10.0
+
+    if backend_type == "mock_style":
+        noise_str = await questionary.text(
+            "Noise level (0.01 = 1%):",
+            default="0.01",
+            style=get_questionary_style(),
+        ).ask_async()
+
+        if noise_str:
+            try:
+                noise_level = float(noise_str)
+            except ValueError:
+                noise_level = 0.01
+
+        rate_str = await questionary.text(
+            "Update rate (Hz):",
+            default="10.0",
+            style=get_questionary_style(),
+        ).ask_async()
+
+        if rate_str:
+            try:
+                update_rate = float(rate_str)
+            except ValueError:
+                update_rate = 10.0
+
+    # Build config dict
+    sim_config = {
+        "channel_database": channel_database,
+        "ioc": {
+            "name": ioc_name,
+            "port": port,
+            "output_dir": output_dir,
+        },
+        "backend": {
+            "type": backend_type,
+            "noise_level": noise_level,
+            "update_rate": update_rate,
+        },
+    }
+
+    # Show preview
+    console.print(f"\n[{Styles.HEADER}]Preview of simulation config:[/{Styles.HEADER}]")
+    preview = _generate_simulation_yaml_preview(sim_config)
+    console.print(f"[{Styles.DIM}]{preview}[/{Styles.DIM}]")
+
+    if dry_run:
+        console.print(f"\n[{Styles.DIM}]Dry-run mode: config not written[/{Styles.DIM}]")
+        return sim_config
+
+    # Confirm and write
+    confirm = await questionary.confirm(
+        "Write this configuration to config.yml?",
+        default=True,
+        style=get_questionary_style(),
+    ).ask_async()
+
+    if not confirm:
+        console.print(f"\n{Messages.info('Configuration not written')}")
+        return None
+
+    try:
+        backup_path = _write_simulation_config(config_path, sim_config)
+        console.print(f"\n  {Messages.success(f'Updated {config_path}')}")
+        console.print(f"  [{Styles.DIM}]Backup saved to: {backup_path}[/{Styles.DIM}]")
+        return sim_config
+    except Exception as e:
+        error_msg = str(e).replace("[", "\\[").replace("]", "\\]")
+        console.print(f"\n{Messages.error(f'Failed to write config: {error_msg}')}")
+        return None
+
+
+def _load_simulation_config(config_path: str | None = None) -> dict:
+    """Load simulation configuration from config.yml.
+
+    Args:
+        config_path: Optional path to config file (default: config.yml in cwd)
+
+    Returns:
+        Simulation configuration dict
+
+    Raises:
+        click.ClickException: If config file not found or missing simulation section
+    """
+    import yaml
+
+    path = Path(config_path) if config_path else Path.cwd() / "config.yml"
+
+    if not path.exists():
+        raise click.ClickException(
+            f"Config file not found: {path}\nRun 'osprey init' to create one."
+        )
+
+    with open(path) as f:
+        config = yaml.safe_load(f)
+
+    if "simulation" not in config:
+        raise click.ClickException(
+            f"No 'simulation' section in {path}.\nAdd simulation configuration to generate soft IOCs."
+        )
+
+    sim_config = config["simulation"]
+
+    # Apply simple defaults
+    defaults = {
+        "ioc": {
+            "name": "soft_ioc",
+            "port": 5064,
+            "output_dir": "generated_iocs/",
+        },
+        "backend": {
+            "type": "mock_style",
+            "noise_level": 0.01,
+            "update_rate": 10.0,
+        },
+    }
+
+    # Merge defaults (shallow - keeps it simple)
+    for key, value in defaults.items():
+        if key not in sim_config:
+            sim_config[key] = value
+        elif isinstance(value, dict):
+            for k, v in value.items():
+                sim_config[key].setdefault(k, v)
+
+    return sim_config
+
+
+def _load_pairings(pairings_file: str | None) -> dict[str, str]:
+    """Load SP->RB pairings from JSON file.
+
+    Args:
+        pairings_file: Path to pairings JSON file, or None
+
+    Returns:
+        Dict mapping setpoint PV names to readback PV names.
+        Empty dict if no file provided.
+
+    Raises:
+        click.ClickException: If file not found or invalid format
+    """
+    if not pairings_file:
+        return {}
+
+    import json
+
+    path = Path(pairings_file)
+    if not path.exists():
+        raise click.ClickException(f"Pairings file not found: {path}")
+
+    with open(path) as f:
+        pairings = json.load(f)
+
+    # Pairings file is just a simple dict: {"SP_name": "RB_name", ...}
+    if not isinstance(pairings, dict):
+        raise click.ClickException(
+            f"Invalid pairings file format. Expected a JSON dict, got {type(pairings).__name__}"
+        )
+
+    return pairings
+
+
+def _validate_pairings(pairings: dict[str, str], channels: list[dict]) -> dict[str, str]:
+    """Validate pairings against channel database, warn and skip invalid ones.
+
+    Args:
+        pairings: Raw pairings dict from JSON file
+        channels: List of PV definitions from database
+
+    Returns:
+        Validated pairings dict (invalid entries removed)
+    """
+    # Build set of valid PV names for fast lookup
+    valid_pv_names = {ch["name"] for ch in channels}
+
+    validated = {}
+    for sp_name, rb_name in pairings.items():
+        # Check if SP exists
+        if sp_name not in valid_pv_names:
+            console.print(
+                f"[yellow]Warning:[/yellow] Pairing '{sp_name}' → '{rb_name}' skipped: "
+                f"'{sp_name}' not in channel database"
+            )
+            continue
+
+        # Check if RB exists
+        if rb_name not in valid_pv_names:
+            console.print(
+                f"[yellow]Warning:[/yellow] Pairing '{sp_name}' → '{rb_name}' skipped: "
+                f"'{rb_name}' not in channel database"
+            )
+            continue
+
+        validated[sp_name] = rb_name
+
+    skipped = len(pairings) - len(validated)
+    if skipped > 0:
+        console.print(f"[yellow]Skipped {skipped} invalid pairing(s)[/yellow]")
+
+    return validated
+
+
+def _load_channels_from_database(db_path: str | Path, db_type: str | None = None) -> list[dict]:
+    """Load ALL channels from any Osprey channel database.
+
+    Uses Channel Finder's database classes to support all 4 built-in database types
+    with a single code path.
+
+    Args:
+        db_path: Path to the database file (string or Path object)
+        db_type: Optional database type override. If None, auto-detects.
+                 Values: 'flat', 'template', 'hierarchical', 'middle_layer'
+
+    Returns:
+        List of PV definitions for caproto generation
+
+    Raises:
+        click.ClickException: If database has duplicate PV names
+        ValueError: If unknown database type specified
+    """
+    from osprey.generators.soft_ioc_template import sanitize_pv_name
+
+    # Ensure db_path is a Path object
+    db_path = Path(db_path)
+
+    if not db_path.exists():
+        raise click.ClickException(f"Channel database not found: {db_path}")
+
+    # Import Channel Finder database classes from TEMPLATE location
+    from osprey.templates.apps.control_assistant.services.channel_finder.databases import (
+        FlatChannelDatabase,
+        HierarchicalChannelDatabase,
+        MiddleLayerDatabase,
+        TemplateChannelDatabase,
+    )
+
+    # Auto-detect database type if not specified
+    if db_type is None:
+        db_type = _detect_database_type(db_path)
+
+    # Get database class (4 built-in types only for v1)
+    # Note: 'legacy' is an alias for 'flat' for backward compatibility
+    database_classes = {
+        "flat": FlatChannelDatabase,
+        "legacy": FlatChannelDatabase,
+        "template": TemplateChannelDatabase,
+        "hierarchical": HierarchicalChannelDatabase,
+        "middle_layer": MiddleLayerDatabase,
+    }
+
+    if db_type not in database_classes:
+        available = list(database_classes.keys())
+        raise click.ClickException(
+            f"Unknown database type: '{db_type}'. Available types: {', '.join(available)}"
+        )
+
+    # Load database using the appropriate class
+    db_class = database_classes[db_type]
+    database = db_class(str(db_path))
+
+    # Get ALL channels using the unified interface
+    # Note: Template databases return already-expanded channels
+    all_channels = database.get_all_channels()
+
+    # Check for duplicate PV names (error condition)
+    seen_names: dict[str, int] = {}  # name -> first occurrence index
+    for idx, channel in enumerate(all_channels):
+        pv_name = channel.get("channel", channel.get("address", ""))
+        if pv_name in seen_names:
+            raise click.ClickException(
+                f"Duplicate PV name '{pv_name}' found in channel database.\n"
+                f"  First occurrence: index {seen_names[pv_name]}\n"
+                f"  Duplicate: index {idx}\n"
+                f"Please remove duplicates before generating IOC."
+            )
+        seen_names[pv_name] = idx
+
+    # Convert to PV definitions for caproto
+    pvs = []
+    for channel in all_channels:
+        pv_name = channel.get("channel", channel.get("address", ""))
+        desc = channel.get("description", "")
+
+        # Infer PV type and access mode
+        is_readonly = _is_readonly_channel(pv_name, desc)
+        pv_type = _infer_pv_type_from_channel(pv_name, desc, channel)
+
+        pvs.append(
+            {
+                "name": pv_name,
+                "python_name": sanitize_pv_name(pv_name),  # For Python attribute
+                "type": pv_type,
+                "description": desc[:100] if desc else "",
+                "read_only": is_readonly,
+                "address": channel.get("address", pv_name),
+                **_get_pv_defaults(pv_type, channel),
+            }
+        )
+
+    return pvs
+
+
+def _detect_database_type(db_path: Path) -> str:
+    """Auto-detect database type from file structure.
+
+    Detection priority (first match wins):
+    1. hierarchical: Has 'hierarchy' + 'tree' or 'hierarchy_definition' + 'tree'
+    2. middle_layer: Has nested dicts with 'ChannelNames' keys (MML export format)
+    3. template: Has 'channels' array with at least one entry having 'template': true
+    4. flat: Default fallback (simple list or 'channels' array without templates)
+
+    Args:
+        db_path: Path to database file
+
+    Returns:
+        Database type string: 'hierarchical', 'template', 'middle_layer', or 'flat'
+    """
+    import json
+
+    with open(db_path) as f:
+        db = json.load(f)
+
+    # Hierarchical: has 'hierarchy' section with tree
+    if "hierarchy" in db and "tree" in db:
+        return "hierarchical"
+
+    # Legacy hierarchical format: has 'hierarchy_definition' and 'tree'
+    if "hierarchy_definition" in db and "tree" in db:
+        return "hierarchical"
+
+    # Middle Layer: has system keys with nested families containing ChannelNames
+    # Check this before 'channels' check since MML format is more specific
+    if isinstance(db, dict):
+        for key, value in db.items():
+            if key.startswith("_"):  # Skip metadata keys
+                continue
+            if isinstance(value, dict):
+                for _family_key, family_value in value.items():
+                    if isinstance(family_value, dict):
+                        # Check for MML structure: families have fields with ChannelNames
+                        for _field_key, field_value in family_value.items():
+                            if isinstance(field_value, dict) and "ChannelNames" in field_value:
+                                return "middle_layer"
+
+    # Template: has 'channels' array with template entries
+    if "channels" in db:
+        # Check if any entries are templates (have 'template': true)
+        has_templates = any(entry.get("template", False) for entry in db["channels"])
+        return "template" if has_templates else "flat"
+
+    # Default to flat (handles simple list format)
+    return "flat"
+
+
+def _is_readonly_channel(pv_name: str, description: str) -> bool:
+    """Determine if a channel is read-only based on naming conventions.
+
+    Args:
+        pv_name: Channel/PV name
+        description: Channel description
+
+    Returns:
+        True if channel should be read-only
+    """
+    name_upper = pv_name.upper()
+    desc_lower = description.lower() if description else ""
+
+    # Readback indicators (read-only)
+    readonly_patterns = ["RB", "READBACK", "MONITOR", "STATUS", "STATE", "IMAGE", "WAVEFORM"]
+    if any(pattern in name_upper for pattern in readonly_patterns):
+        return True
+
+    # Description-based detection
+    if "read-only" in desc_lower or "readback" in desc_lower or "read back" in desc_lower:
+        return True
+
+    # Setpoint indicators (read-write)
+    writable_patterns = ["SP", "SETPOINT", "SET", "CMD", "COMMAND", "MOTOR"]
+    if any(pattern in name_upper for pattern in writable_patterns):
+        return False
+
+    # Default: read-only (safer for testing)
+    return True
+
+
+def _infer_pv_type_from_channel(pv_name: str, description: str, channel: dict) -> str:
+    """Infer caproto PV type from channel information.
+
+    Args:
+        pv_name: Channel/PV name
+        description: Channel description
+        channel: Full channel dictionary (may contain 'DataType', 'Units', etc.)
+
+    Returns:
+        PV type string: 'float', 'int', 'enum', 'string', 'float_array', 'int_array'
+    """
+    name_upper = pv_name.upper()
+    desc_lower = description.lower() if description else ""
+
+    # Check for MML metadata (from middle_layer database)
+    if "DataType" in channel:
+        data_type = channel["DataType"]
+        if "Scalar" in str(data_type):
+            return "float"
+        if "Integer" in str(data_type):
+            return "int"
+
+    # Status and boolean indicators -> enum
+    enum_patterns = [
+        "STATUS",
+        "STATE",
+        "READY",
+        "FAULT",
+        "VALID",
+        "ALARM",
+        "CONNECTED",
+        "INTERLOCK",
+        "OPEN",
+        "CLOSED",
+        "ENABLED",
+    ]
+    if any(pattern in name_upper for pattern in enum_patterns):
+        return "enum"
+
+    # Waveforms/arrays/images
+    if "waveform" in desc_lower or "image" in desc_lower or "array" in desc_lower:
+        return "float_array"
+    if "IMAGE" in name_upper or "WAVEFORM" in name_upper:
+        return "float_array"
+
+    # String-like values
+    if "name" in desc_lower or "string" in desc_lower or "message" in desc_lower:
+        return "string"
+
+    # Measurement values -> float (most common)
+    return "float"
+
+
+def _get_pv_defaults(pv_type: str, channel: dict) -> dict:
+    """Get default parameters for PV type, incorporating any channel metadata.
+
+    Args:
+        pv_type: PV type string
+        channel: Channel dictionary (may contain units, limits, enum_strings, etc.)
+
+    Returns:
+        Dict of default parameters for the PV type
+    """
+    # Extract metadata if present (from MML exports or channel database)
+    units = channel.get("Units", channel.get("HWUnits", ""))
+    if isinstance(units, list):
+        units = units[0] if units else ""
+
+    # Check for custom enum_strings in channel metadata
+    custom_enum_strings = channel.get("enum_strings")
+
+    defaults = {
+        "float": {
+            "units": str(units),
+            "precision": 4,
+            "high_alarm": 100.0,
+            "low_alarm": 0.0,
+        },
+        "int": {
+            "units": str(units),
+        },
+        "enum": {
+            # Use custom enum_strings from channel metadata if provided,
+            # otherwise default to binary states
+            "enum_strings": custom_enum_strings or ["Off", "On"],
+        },
+        "string": {
+            "max_length": 256,
+        },
+        "float_array": {
+            "count": 128,
+        },
+        "int_array": {
+            "count": 128,
+        },
+    }
+    return defaults.get(pv_type, {})
+
+
+def _get_output_path(sim_config: dict) -> Path:
+    """Determine output file path from config.
+
+    Args:
+        sim_config: Simulation configuration dict
+
+    Returns:
+        Path object for output file
+    """
+    output_dir = Path(sim_config["ioc"]["output_dir"])
+    ioc_name = sim_config["ioc"]["name"]
+    return output_dir / f"{ioc_name}_ioc.py"
+
+
+def _write_ioc_file(output_path: Path, ioc_code: str) -> None:
+    """Write generated IOC code to file with backup.
+
+    Creates output directory if needed. Backs up existing file.
+
+    Args:
+        output_path: Path to output file
+        ioc_code: Generated Python code
+    """
+    output_path = Path(output_path)
+
+    # Create output directory if needed
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Backup existing file if present
+    if output_path.exists():
+        backup_path = output_path.with_suffix(".py.bak")
+        backup_path.write_text(output_path.read_text())
+        console.print(f"  [{Styles.DIM}]Backup saved to: {backup_path}[/{Styles.DIM}]")
+
+    # Write new file
+    output_path.write_text(ioc_code, encoding="utf-8")
+    output_path.chmod(0o755)  # Make executable
+    console.print(f"  {Messages.success(f'Generated: {output_path}')}")
+
+
+def _show_dry_run_summary(sim_config: dict, channels: list[dict], pairings: dict[str, str]) -> None:
+    """Display dry-run summary without writing files.
+
+    Args:
+        sim_config: Simulation configuration
+        channels: List of PV definitions
+        pairings: Validated SP->RB pairings
+    """
+    from rich.table import Table
+
+    console.print(f"\n[{Styles.HEADER}]Dry Run Summary[/{Styles.HEADER}]\n")
+
+    # Configuration table
+    table = Table(show_header=False, box=None)
+    table.add_column("Setting", style="cyan")
+    table.add_column("Value")
+
+    table.add_row("IOC Name", sim_config["ioc"]["name"])
+    table.add_row("Output", str(_get_output_path(sim_config)))
+    table.add_row("PV Count", str(len(channels)))
+    table.add_row("SP/RB Pairings", str(len(pairings)))
+    backend_info = (
+        f"{sim_config['backend']['type']} "
+        f"(noise={sim_config['backend']['noise_level']}, "
+        f"rate={sim_config['backend']['update_rate']} Hz)"
+    )
+    table.add_row("Backend", backend_info)
+    table.add_row("Port", str(sim_config["ioc"]["port"]))
+
+    console.print(table)
+
+    # Sample PVs
+    console.print(f"\n[{Styles.HEADER}]Sample PVs:[/{Styles.HEADER}]")
+    for pv in channels[:5]:
+        access = "read-only" if pv.get("read_only") else "writable"
+        console.print(f"  - {pv['name']} ({pv['type']}, {access})")
+    if len(channels) > 5:
+        console.print(f"  [{Styles.DIM}]... and {len(channels) - 5} more[/{Styles.DIM}]")
+
+    console.print(f"\n[{Styles.DIM}]No files written (dry-run mode)[/{Styles.DIM}]")
+
+
+async def _offer_control_system_config_update(ioc_name: str, port: int):
+    """Offer to update config.yml to connect to soft IOC.
+
+    Args:
+        ioc_name: Name of the IOC
+        port: EPICS CA port
+    """
+    try:
+        import questionary
+        import yaml
+
+        from .styles import get_questionary_style
+
+        # Find config file
+        config_path = Path.cwd() / "config.yml"
+        if not config_path.exists():
+            _print_manual_config_instructions(port)
+            return
+
+        # Ask user with styled prompt
+        console.print()
+        console.print(f"[{Styles.HEADER}]Config Integration:[/{Styles.HEADER}]")
+        console.print(f"  Found config: [{Styles.VALUE}]{config_path}[/{Styles.VALUE}]")
+        console.print()
+
+        update_config = await questionary.confirm(
+            "Update config.yml to connect to soft IOC for testing?",
+            default=True,
+            style=get_questionary_style(),
+        ).ask_async()
+
+        if not update_config:
+            console.print("\n  " + Messages.info("Skipped. You can configure manually if needed."))
+            _print_manual_config_instructions(port)
+            return
+
+        # Load config
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+
+        # Check if control_system section exists
+        if "control_system" not in config:
+            console.print(
+                f"\n[{Styles.WARNING}]⚠️  No 'control_system' section in config.yml[/{Styles.WARNING}]"
+            )
+            _print_manual_config_instructions(port)
+            return
+
+        # Show preview of changes
+        console.print(f"\n[{Styles.HEADER}]Preview of changes:[/{Styles.HEADER}]")
+        console.print("  control_system:")
+        console.print("    type: mock → epics")
+        console.print("    connector.epics.gateways.read_only:")
+        console.print("      address: ... → localhost")
+        console.print(f"      port: ... → {port}")
+
+        # Confirm
+        confirm = await questionary.confirm(
+            "Apply these changes to config.yml?",
+            default=True,
+            style=get_questionary_style(),
+        ).ask_async()
+
+        if not confirm:
+            console.print(
+                "\n  " + Messages.info("Changes not applied. Configure manually if needed.")
+            )
+            return
+
+        # Backup first
+        backup_path = config_path.with_suffix(".yml.bak")
+        backup_path.write_text(config_path.read_text())
+
+        # Update: type: mock -> epics, address: gateway -> localhost
+        config["control_system"]["type"] = "epics"
+
+        # Ensure the nested structure exists
+        if "connector" not in config["control_system"]:
+            config["control_system"]["connector"] = {}
+        if "epics" not in config["control_system"]["connector"]:
+            config["control_system"]["connector"]["epics"] = {}
+        if "gateways" not in config["control_system"]["connector"]["epics"]:
+            config["control_system"]["connector"]["epics"]["gateways"] = {}
+        if "read_only" not in config["control_system"]["connector"]["epics"]["gateways"]:
+            config["control_system"]["connector"]["epics"]["gateways"]["read_only"] = {}
+
+        config["control_system"]["connector"]["epics"]["gateways"]["read_only"]["address"] = (
+            "localhost"
+        )
+        config["control_system"]["connector"]["epics"]["gateways"]["read_only"]["port"] = port
+
+        # Write with UTF-8 encoding (consistent with other updaters)
+        with open(config_path, "w", encoding="utf-8") as f:
+            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+
+        console.print(f"\n  {Messages.success(f'Updated {config_path}')}")
+        console.print(f"  [{Styles.DIM}]Backup saved to: {backup_path}[/{Styles.DIM}]")
+        console.print()
+        console.print("  " + Messages.info(f"To restore: cp {backup_path} {config_path}"))
+
+    except ImportError:
+        # questionary not available
+        _print_manual_config_instructions(port)
+    except Exception as e:
+        # Escape the error message to prevent Rich markup interpretation
+        error_msg = str(e).replace("[", "\\[").replace("]", "\\]")
+        console.print(
+            f"\n[{Styles.WARNING}]⚠️  Could not update config: {error_msg}[/{Styles.WARNING}]"
+        )
+        _print_manual_config_instructions(port)
+
+
+def _print_manual_config_instructions(port: int):
+    """Print manual configuration instructions.
+
+    Args:
+        port: EPICS CA port
+    """
+    console.print(f"\n[{Styles.HEADER}]Manual Configuration:[/{Styles.HEADER}]")
+    console.print("  To connect to the soft IOC, update config.yml:")
+    console.print()
+    console.print("    control_system:")
+    console.print("      type: epics")
+    console.print("      connector:")
+    console.print("        epics:")
+    console.print("          gateways:")
+    console.print("            read_only:")
+    console.print("              address: localhost")
+    console.print(f"              port: {port}")
+    console.print()
+
+
+@generate.command(name="soft-ioc")
+@click.option(
+    "--config",
+    "-c",
+    "config_path",
+    type=click.Path(exists=True),
+    help="Config file path (default: config.yml)",
+)
+@click.option("--output", "-o", "output_file", help="Override output file path")
+@click.option("--dry-run", is_flag=True, help="Preview without writing files")
+@click.option(
+    "--init",
+    is_flag=True,
+    help="Force interactive setup (overwrites existing simulation config if confirmed)",
+)
+def soft_ioc(config_path: str | None, output_file: str | None, dry_run: bool, init: bool):
+    """Generate Python soft IOC for EPICS testing.
+
+    Creates a pure Python EPICS soft IOC using caproto. All settings are read
+    from the 'simulation' section in config.yml.
+
+    If no simulation section exists, or if --init is passed, an interactive
+    setup wizard will help create the configuration.
+
+    Examples:
+
+    \b
+      # Generate using config.yml settings
+      $ osprey generate soft-ioc
+
+      # Interactive setup for new simulation config
+      $ osprey generate soft-ioc --init
+
+      # Preview setup without writing config
+      $ osprey generate soft-ioc --init --dry-run
+
+      # Preview generation without writing IOC file
+      $ osprey generate soft-ioc --dry-run
+
+      # Override output location
+      $ osprey generate soft-ioc --output /tmp/test_ioc.py
+
+    Setup (manual):
+
+    \b
+      1. Add simulation section to config.yml
+      2. Create pairings.json (optional, for SP/RB tracking)
+      3. Generate: osprey generate soft-ioc
+      4. Install caproto: pip install caproto numpy
+      5. Run: python generated_iocs/<ioc_name>_ioc.py
+    """
+    import yaml
+
+    from osprey.generators.soft_ioc_template import generate_soft_ioc
+
+    console.print(f"\n[{Styles.HEADER}]🔧 Generating Soft IOC[/{Styles.HEADER}]\n")
+
+    try:
+        # Determine config file path
+        cfg_path = Path(config_path) if config_path else Path.cwd() / "config.yml"
+
+        # Check if config file exists
+        if not cfg_path.exists():
+            console.print(f"{Messages.error(f'Config file not found: {cfg_path}')}")
+            console.print()
+            console.print(
+                "  Run [accent]osprey init[/accent] to create a project, then run this command."
+            )
+            console.print()
+            raise click.Abort()
+
+        # Check if simulation section exists
+        with open(cfg_path, encoding="utf-8") as f:
+            existing_config = yaml.safe_load(f) or {}
+        has_simulation = "simulation" in existing_config
+
+        # Handle --init flag or missing simulation section
+        sim_config = None
+        if init:
+            # --init flag: Force interactive setup
+            if has_simulation and not dry_run:
+                console.print(
+                    f"[{Styles.WARNING}]Existing simulation config found. "
+                    f"Interactive setup will overwrite it if confirmed.[/{Styles.WARNING}]"
+                )
+
+            sim_config = asyncio.run(
+                _offer_simulation_config_setup(cfg_path, force_init=True, dry_run=dry_run)
+            )
+            if sim_config is None:
+                # User cancelled or setup failed
+                raise click.Abort()
+
+            if dry_run:
+                # In --init --dry-run mode, we only show the config preview
+                console.print(f"\n[{Styles.DIM}]Dry-run mode: no files written[/{Styles.DIM}]")
+                return
+
+        elif not has_simulation:
+            # No simulation section - offer to create one
+            console.print(
+                f"[{Styles.WARNING}]No 'simulation' section found in {cfg_path}[/{Styles.WARNING}]"
+            )
+            console.print()
+
+            try:
+                import questionary
+
+                from .styles import get_questionary_style
+
+                create_config = questionary.confirm(
+                    "Would you like to create a simulation configuration interactively?",
+                    default=True,
+                    style=get_questionary_style(),
+                ).ask()
+
+                if create_config:
+                    sim_config = asyncio.run(
+                        _offer_simulation_config_setup(cfg_path, force_init=False, dry_run=dry_run)
+                    )
+                    if sim_config is None:
+                        raise click.Abort()
+
+                    if dry_run:
+                        console.print(
+                            f"\n[{Styles.DIM}]Dry-run mode: no files written[/{Styles.DIM}]"
+                        )
+                        return
+                else:
+                    console.print()
+                    console.print(
+                        f"[{Styles.HEADER}]To add manually, add this to {cfg_path}:[/{Styles.HEADER}]"
+                    )
+                    console.print()
+                    console.print(f"[{Styles.DIM}]simulation:")
+                    console.print('  channel_database: "path/to/channel_database.json"')
+                    console.print("  ioc:")
+                    console.print('    name: "my_ioc"')
+                    console.print("    port: 5064")
+                    console.print('    output_dir: "generated_iocs/"')
+                    console.print("  backend:")
+                    console.print('    type: "mock_style"')
+                    console.print(f"    noise_level: 0.01[/{Styles.DIM}]")
+                    console.print()
+                    raise click.Abort()
+            except ImportError:
+                console.print("  Add a 'simulation' section to config.yml to generate soft IOCs.")
+                console.print("  See: osprey generate soft-ioc --help")
+                console.print()
+                raise click.Abort() from None
+
+        # Load configuration (either from setup or from file)
+        if sim_config is None:
+            with console.status("[dim]Loading configuration...[/dim]"):
+                sim_config = _load_simulation_config(str(cfg_path))
+
+        console.print(
+            f"  [{Styles.LABEL}]IOC Name:[/{Styles.LABEL}] "
+            f"[{Styles.VALUE}]{sim_config['ioc']['name']}[/{Styles.VALUE}]"
+        )
+        db_path = sim_config.get("channel_database", "not specified")
+        console.print(
+            f"  [{Styles.LABEL}]Database:[/{Styles.LABEL}] [{Styles.VALUE}]{db_path}[/{Styles.VALUE}]"
+        )
+        console.print(
+            f"  [{Styles.LABEL}]Backend:[/{Styles.LABEL}] "
+            f"[{Styles.VALUE}]{sim_config['backend']['type']}[/{Styles.VALUE}]"
+        )
+        console.print()
+
+        # Load channels from database (includes duplicate check)
+        with console.status("[dim]Loading channel database...[/dim]"):
+            channels = _load_channels_from_database(
+                sim_config["channel_database"],
+                db_type=sim_config.get("channel_database_type"),  # Optional type override
+            )
+
+        console.print(f"  {Messages.success(f'Loaded {len(channels)} channels from database')}")
+
+        # Load and validate pairings (warns and skips invalid entries)
+        raw_pairings = _load_pairings(sim_config.get("pairings_file"))
+        pairings = _validate_pairings(raw_pairings, channels)
+
+        if pairings:
+            console.print(f"  {Messages.success(f'Loaded {len(pairings)} SP/RB pairings')}")
+
+        if dry_run:
+            _show_dry_run_summary(sim_config, channels, pairings)
+            return
+
+        # Generate IOC code
+        with console.status("[dim]Generating IOC code...[/dim]"):
+            ioc_code = generate_soft_ioc(
+                config=sim_config,
+                channels=channels,
+                pairings=pairings,
+            )
+
+        console.print(f"  {Messages.success('Generated IOC code')}")
+        console.print()
+
+        # Write output file (with backup if exists)
+        output_path = Path(output_file) if output_file else _get_output_path(sim_config)
+        _write_ioc_file(output_path, ioc_code)
+
+        # Success summary
+        console.print()
+        console.print("=" * 60)
+        console.print(
+            f"[{Styles.BOLD_SUCCESS}]✅ Soft IOC Generated Successfully[/{Styles.BOLD_SUCCESS}]"
+        )
+        console.print("=" * 60)
+        console.print()
+
+        console.print(f"[{Styles.HEADER}]Next Steps:[/{Styles.HEADER}]")
+        console.print("  1. Install dependencies:")
+        console.print(f"     [{Styles.COMMAND}]pip install caproto numpy[/{Styles.COMMAND}]")
+        console.print()
+        console.print("  2. Start the IOC:")
+        console.print(f"     [{Styles.COMMAND}]python {output_path}[/{Styles.COMMAND}]")
+        console.print()
+        console.print("  3. Test with:")
+        console.print(f"     [{Styles.COMMAND}]caget SIM:HEARTBEAT[/{Styles.COMMAND}]")
+        console.print()
+
+        # Offer config integration
+        asyncio.run(
+            _offer_control_system_config_update(
+                ioc_name=sim_config["ioc"]["name"], port=sim_config["ioc"]["port"]
+            )
+        )
+
+    except click.ClickException:
+        raise
+    except KeyboardInterrupt:
+        console.print(f"\n{Messages.warning('Generation cancelled by user')}")
+        raise click.Abort() from None
+    except Exception as e:
+        console.print(f"\n{Messages.error(f'Generation failed: {e}')}")
+        import traceback
+
+        console.print(f"[dim]{traceback.format_exc()}[/dim]")
+        raise click.Abort() from e
+
+
 if __name__ == "__main__":
     generate()

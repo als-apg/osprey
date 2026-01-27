@@ -107,6 +107,9 @@ dependencies = [
 
     # Utilities
     "unique-namer>=0.1.0",
+
+    # Control system simulation (soft IOC generation)
+    "caproto",
 ]
 
 [project.optional-dependencies]

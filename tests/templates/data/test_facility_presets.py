@@ -12,6 +12,7 @@ def test_facility_presets_structure():
     """Test that facility presets have correct structure."""
     assert "aps" in FACILITY_PRESETS
     assert "als" in FACILITY_PRESETS
+    assert "simulation" in FACILITY_PRESETS
 
     # Check APS structure
     aps = FACILITY_PRESETS["aps"]
@@ -54,13 +55,14 @@ def test_list_facilities():
     assert isinstance(facilities, list)
     assert "aps" in facilities
     assert "als" in facilities
+    assert "simulation" in facilities
 
 
 def test_get_facility_choices():
     """Test getting facility choices for CLI."""
     choices = get_facility_choices()
     assert isinstance(choices, list)
-    assert len(choices) >= 2
+    assert len(choices) >= 3  # aps, als, simulation
 
     # Each choice is a tuple of (display_name, facility_id)
     for display_name, facility_id in choices:
@@ -85,3 +87,17 @@ def test_als_gateway_addresses():
     assert als["gateways"]["write_access"]["address"] == "cagw-alsdmz.als.lbl.gov"
     assert als["gateways"]["read_only"]["port"] == 5064
     assert als["gateways"]["write_access"]["port"] == 5084  # Different port for write
+
+
+def test_simulation_preset():
+    """Test simulation preset for local soft IOC."""
+    assert "simulation" in FACILITY_PRESETS
+
+    sim = get_facility_config("simulation")
+    assert sim is not None
+    assert sim["name"] == "Local Simulation"
+    assert "caproto" in sim["description"]
+    assert sim["gateways"]["read_only"]["address"] == "localhost"
+    assert sim["gateways"]["write_access"]["address"] == "localhost"
+    assert sim["gateways"]["read_only"]["port"] == 5064
+    assert sim["gateways"]["write_access"]["port"] == 5064  # Same port for simulation

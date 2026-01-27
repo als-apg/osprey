@@ -9,6 +9,7 @@ Related to Issue #18 - Control System Abstraction (Layer 2 - EPICS Implementatio
 
 import asyncio
 import os
+import threading
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any
@@ -70,6 +71,7 @@ class EPICSConnector(ControlSystemConnector):
         self._connected = False
         self._subscriptions: dict[str, Any] = {}
         self._pv_cache: dict[str, Any] = {}
+        self._pv_cache_lock = threading.Lock()  # Thread safety for PV cache
         self._epics_configured = False
         self._limits_validator = None  # Initialized during connect()
 
@@ -149,7 +151,15 @@ class EPICSConnector(ControlSystemConnector):
         for sub_id in list(self._subscriptions.keys()):
             await self.unsubscribe(sub_id)
 
-        self._pv_cache.clear()
+        # Disconnect and clear cached PVs
+        with self._pv_cache_lock:
+            for pv in self._pv_cache.values():
+                try:
+                    pv.disconnect()
+                except Exception:
+                    pass  # Best effort cleanup
+            self._pv_cache.clear()
+
         self._connected = False
         logger.info("EPICS connector disconnected")
 
@@ -178,8 +188,18 @@ class EPICSConnector(ControlSystemConnector):
         return pv_result
 
     def _read_channel_sync(self, pv_address: str, timeout: float) -> ChannelValue:
-        """Synchronous PV read (runs in thread pool)."""
-        pv = self._epics.PV(pv_address)
+        """Synchronous PV read (runs in thread pool).
+
+        Uses PV cache to reuse PV objects for the same channel address.
+        This prevents subscription floods when reading the same channel rapidly,
+        which can crash soft IOCs like caproto due to race conditions.
+        """
+        # Get or create cached PV object (thread-safe)
+        with self._pv_cache_lock:
+            if pv_address not in self._pv_cache:
+                self._pv_cache[pv_address] = self._epics.PV(pv_address)
+            pv = self._pv_cache[pv_address]
+
         pv.wait_for_connection(timeout=timeout)
 
         if not pv.connected:

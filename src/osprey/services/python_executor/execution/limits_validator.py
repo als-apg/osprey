@@ -69,6 +69,14 @@ class LimitsValidator:
                 )
                 return cls({}, {}, {})  # Empty DB = blocks all (failsafe)
 
+            # Resolve relative paths against project_root for subprocess compatibility
+            db_path_obj = Path(db_path)
+            if not db_path_obj.is_absolute():
+                project_root = get_config_value("project_root", None)
+                if project_root:
+                    db_path = str(Path(project_root) / db_path)
+                    logger.debug(f"Resolved limits database path: {db_path}")
+
             limits_db, raw_db = cls._load_limits_database(db_path)
             logger.debug(f"Loaded limits database with {len(limits_db)} channels")
 
