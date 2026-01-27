@@ -2,6 +2,8 @@ FROM ghcr.io/open-webui/pipelines:main
 
 # First install the latest PyPI release of Osprey and its dependencies
 # The intention is that this will be cached between different builds
+# To remove the cached version (e.g. when a new PyPI version is released)
+# use `docker builder prune -a`
 RUN pip install osprey-framework
 
 # Copy files that are needed to run this particular Osprey agent
