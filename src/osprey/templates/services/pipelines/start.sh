@@ -1,5 +1,5 @@
 #!/bin/bash
-# Pipelines startup wrapper - installs framework before starting server
+# Pipelines startup wrapper - installs framework
 set -e
 
 echo "=============================================="
@@ -11,10 +11,6 @@ if [ -f "/pipelines/repo_src/requirements.txt" ]; then
     echo "Installing project dependencies from requirements.txt..."
     pip install --no-cache-dir -r /pipelines/repo_src/requirements.txt
     echo "✓ Project dependencies installed successfully"
-else
-    echo "WARNING: /pipelines/repo_src/requirements.txt not found"
-    echo "Installing framework as fallback (includes Claude Code SDK)..."
-    pip install "osprey-framework>=0.9.6"
 fi
 
 # Development mode override - install local osprey AFTER everything else
@@ -32,18 +28,3 @@ if [ "$DEV_MODE" = "true" ]; then
 else
     echo "📦 Using PyPI osprey version"
 fi
-
-# Verify pipeline interface files exist
-if [ -n "$PIPELINES_DIR" ] && [ -f "$PIPELINES_DIR/main.py" ]; then
-    echo "✓ Pipeline interface found at $PIPELINES_DIR/main.py"
-    ls -la "$PIPELINES_DIR"
-else
-    echo "WARNING: Pipeline interface not found at $PIPELINES_DIR"
-    echo "Make sure main.py was copied during project initialization"
-fi
-
-# Call the original pipelines start script
-echo "Starting pipelines server..."
-cd /app
-exec bash start.sh
-
