@@ -1,5 +1,5 @@
 #!/bin/bash
-# Pipelines startup wrapper - installs framework before starting server
+# Pipelines startup wrapper - installs framework
 set -e
 
 echo "=============================================="
