@@ -967,6 +967,10 @@ def get_execution_mode_config_from_configurable(
                 technical_details={
                     "mode_name": mode_name,
                     "available_modes": list(modes_config.keys()),
+                    "execution_config_keys": list(execution_config.keys())
+                    if execution_config
+                    else [],
+                    "has_execution_in_configurable": "execution" in configurable,
                 },
             )
 
