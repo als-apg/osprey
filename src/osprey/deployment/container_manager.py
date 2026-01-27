@@ -1212,13 +1212,20 @@ def deploy_up(config_path, detached=False, dev_mode=False):
         )
         logger.info("To configure API keys: cp .env.example .env && edit .env")
 
+    # First, always rebuild the pipelines service
+    # This prevents from deploying a previously built image
+    # (which may not have the right configuration file, or may use another version of Osprey)
+    # In particular, this ensures that the intended version of Osprey is used when --dev is used.
+    build_cmd = cmd.copy()
+    build_cmd.append("build")
+    build_cmd.append("pipelines")
+    logger.info(f"Rebuilding pipelines service:\n    {' '.join(build_cmd)}")
+    result = subprocess.run(build_cmd, env=env)
+    if result.returncode != 0:
+        raise RuntimeError(f"Failed to rebuild pipelines service: {' '.join(build_cmd)}")
+
+    # Then start all services
     cmd.append("up")
-    # Always rebuild the pipelines Docker image in dev mode
-    # This ensures that the intended version of Osprey is used
-    # (e.g., the local version when --dev is used)
-    # and not another version of Osprey that was installed in a previously built Docker image
-    cmd.append("--build")
-    cmd.append("pipelines")
     if detached:
         cmd.append("-d")
 
