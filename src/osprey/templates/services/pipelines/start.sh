@@ -32,12 +32,3 @@ if [ "$DEV_MODE" = "true" ]; then
 else
     echo "📦 Using PyPI osprey version"
 fi
-
-# Verify pipeline interface files exist
-if [ -n "$PIPELINES_DIR" ] && [ -f "$PIPELINES_DIR/main.py" ]; then
-    echo "✓ Pipeline interface found at $PIPELINES_DIR/main.py"
-    ls -la "$PIPELINES_DIR"
-else
-    echo "WARNING: Pipeline interface not found at $PIPELINES_DIR"
-    echo "Make sure main.py was copied during project initialization"
-fi
