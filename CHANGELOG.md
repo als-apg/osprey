@@ -21,6 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Connectors**: Add unit tests for `EPICSArchiverConnector`
   - 26 tests covering connect/disconnect, get_data, error handling, metadata, and factory integration
   - Mock fixtures matching real `archivertools` library format (secs/nanos columns)
+- **Config**: Add "Local Simulation" preset to EPICS gateway configuration
+  - Select from interactive menu to connect to local soft IOC on localhost:5064
+  - Warns if no IOC is detected on the port with instructions to generate/run one
+  - Use with `osprey generate soft-ioc` for offline development and testing
+- **Tests**: Add unit tests for interactive menu simulation port check
+  - 5 tests covering port open/closed detection, timeout handling, and error cases
 
 ### Fixed
 - **Connectors**: Fix `EPICSArchiverConnector` timestamp handling for real `archivertools` library

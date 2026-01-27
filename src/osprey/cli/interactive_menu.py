@@ -2790,6 +2790,27 @@ def handle_set_control_system(project_path: Path | None = None) -> None:
     input("\nPress ENTER to continue...")
 
 
+def _check_simulation_ioc_running(host: str = "localhost", port: int = 5064) -> bool:
+    """Check if a simulation IOC is running on the specified port.
+
+    Args:
+        host: Host address to check
+        port: Port number to check
+
+    Returns:
+        True if port is open and accepting connections, False otherwise
+    """
+    import socket
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(1.0)
+            result = sock.connect_ex((host, port))
+            return result == 0
+    except OSError:
+        return False
+
+
 def handle_set_epics_gateway(project_path: Path | None = None) -> None:
     """Handle interactive EPICS gateway configuration."""
     from osprey.generators.config_updater import (
@@ -2881,6 +2902,20 @@ def handle_set_epics_gateway(project_path: Path | None = None) -> None:
     else:
         # Use preset
         new_content, preview = set_epics_gateway_config(config_path, facility)
+
+        # Check if simulation IOC is running when using simulation preset
+        if facility == "simulation":
+            preset = FACILITY_PRESETS[facility]
+            host = preset["gateways"]["read_only"]["address"]
+            port = preset["gateways"]["read_only"]["port"]
+
+            if not _check_simulation_ioc_running(host, port):
+                console.print(f"\n{Messages.warning(f'⚠ No IOC detected on {host}:{port}')}")
+                console.print(
+                    "\n[dim]To start the simulation IOC:[/dim]"
+                    "\n[dim]  1. Generate IOC: osprey generate soft-ioc[/dim]"
+                    "\n[dim]  2. Run IOC: python generated_iocs/<ioc_name>_ioc.py[/dim]"
+                )
 
     # Show preview
     console.print("\n" + preview)

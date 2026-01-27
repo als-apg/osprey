@@ -40,6 +40,22 @@ FACILITY_PRESETS = {
             },
         },
     },
+    "simulation": {
+        "name": "Local Simulation",
+        "description": "Simulated soft IOC (caproto) - run 'osprey generate soft-ioc' first",
+        "gateways": {
+            "read_only": {
+                "address": "localhost",
+                "port": 5064,
+                "use_name_server": False,
+            },
+            "write_access": {
+                "address": "localhost",
+                "port": 5064,
+                "use_name_server": False,
+            },
+        },
+    },
 }
 
 
