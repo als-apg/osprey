@@ -729,10 +729,12 @@ class CLI:
                             if node_name == "python_code_generator":
                                 # Handle code generation streaming
                                 if not code_gen_active:
-                                    code_gen_active = True  # Just mark as active, no header
+                                    # Add role prefix (like respond does)
+                                    self.console.print("\n[bold yellow]🤖 Assistant (Code Generator):[/bold yellow] ", end="")
+                                    code_gen_active = True
 
-                                # Stream token immediately (like respond)
-                                print(message_chunk.content, end="", flush=True)
+                                # Stream token with dim color (shows it's thinking/intermediate)
+                                self.console.print(f"[dim]{message_chunk.content}[/dim]", end="")
 
                                 # Buffer for final panel (keep for potential future use)
                                 code_gen_buffer += message_chunk.content
@@ -924,10 +926,12 @@ class CLI:
                             if node_name == "python_code_generator":
                                 # Handle code generation streaming
                                 if not code_gen_active:
-                                    code_gen_active = True  # Just mark as active, no header
+                                    # Add role prefix (like respond does)
+                                    self.console.print("\n[bold yellow]🤖 Assistant (Code Generator):[/bold yellow] ", end="")
+                                    code_gen_active = True
 
-                                # Stream token immediately (like respond)
-                                print(message_chunk.content, end="", flush=True)
+                                # Stream token with dim color (shows it's thinking/intermediate)
+                                self.console.print(f"[dim]{message_chunk.content}[/dim]", end="")
 
                                 # Buffer for final panel (keep for potential future use)
                                 code_gen_buffer += message_chunk.content
