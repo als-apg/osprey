@@ -1307,8 +1307,16 @@ async def _offer_simulation_config_setup(
                 style=get_questionary_style(),
             ).ask_async()
             if not channel_database:
-                console.print(f"\n{Messages.warning('Setup cancelled')}")
-                return None
+                # Offer empty IOC instead of cancelling
+                create_empty = await questionary.confirm(
+                    "No channel database provided. Create empty IOC (heartbeat only)?",
+                    default=True,
+                    style=get_questionary_style(),
+                ).ask_async()
+                if not create_empty:
+                    console.print(f"\n{Messages.warning('Setup cancelled')}")
+                    return None
+                channel_database = None  # Explicitly None for empty IOC
     else:
         # No channel_finder config - prompt for path
         console.print(
@@ -1320,8 +1328,16 @@ async def _offer_simulation_config_setup(
             style=get_questionary_style(),
         ).ask_async()
         if not channel_database:
-            console.print(f"\n{Messages.warning('Setup cancelled')}")
-            return None
+            # Offer empty IOC instead of cancelling
+            create_empty = await questionary.confirm(
+                "No channel database provided. Create empty IOC (heartbeat only)?",
+                default=True,
+                style=get_questionary_style(),
+            ).ask_async()
+            if not create_empty:
+                console.print(f"\n{Messages.warning('Setup cancelled')}")
+                return None
+            channel_database = None  # Explicitly None for empty IOC
 
     # 2. IOC Name - derive default from project name or config
     default_ioc_name = Path.cwd().name.replace("-", "_").lower() + "_sim"
@@ -2240,9 +2256,10 @@ def soft_ioc(config_path: str | None, output_file: str | None, dry_run: bool, in
             f"  [{Styles.LABEL}]IOC Name:[/{Styles.LABEL}] "
             f"[{Styles.VALUE}]{sim_config['ioc']['name']}[/{Styles.VALUE}]"
         )
-        db_path = sim_config.get("channel_database", "not specified")
+        db_path = sim_config.get("channel_database")
+        db_display = db_path if db_path else "none (empty IOC)"
         console.print(
-            f"  [{Styles.LABEL}]Database:[/{Styles.LABEL}] [{Styles.VALUE}]{db_path}[/{Styles.VALUE}]"
+            f"  [{Styles.LABEL}]Database:[/{Styles.LABEL}] [{Styles.VALUE}]{db_display}[/{Styles.VALUE}]"
         )
         console.print(
             f"  [{Styles.LABEL}]Backend:[/{Styles.LABEL}] "
@@ -2250,14 +2267,35 @@ def soft_ioc(config_path: str | None, output_file: str | None, dry_run: bool, in
         )
         console.print()
 
-        # Load channels from database (includes duplicate check)
-        with console.status("[dim]Loading channel database...[/dim]"):
-            channels = _load_channels_from_database(
-                sim_config["channel_database"],
-                db_type=sim_config.get("channel_database_type"),  # Optional type override
-            )
+        # Load channels from database (or use empty list for empty IOC)
+        if db_path:
+            with console.status("[dim]Loading channel database...[/dim]"):
+                channels = _load_channels_from_database(
+                    db_path,
+                    db_type=sim_config.get("channel_database_type"),
+                )
+            console.print(f"  {Messages.success(f'Loaded {len(channels)} channels from database')}")
+        else:
+            # No channel database - confirm empty IOC creation
+            try:
+                import questionary
 
-        console.print(f"  {Messages.success(f'Loaded {len(channels)} channels from database')}")
+                from .styles import get_questionary_style
+
+                create_empty = questionary.confirm(
+                    "No channel database configured. Create empty IOC (heartbeat only)?",
+                    default=True,
+                    style=get_questionary_style(),
+                ).ask()
+
+                if not create_empty:
+                    raise click.Abort()
+            except ImportError:
+                console.print(f"\n{Messages.error('No channel database configured')}")
+                raise click.Abort() from None
+
+            channels = []
+            console.print(f"  {Messages.info('Creating empty IOC (heartbeat only)')}")
 
         # Load and validate pairings (warns and skips invalid entries)
         raw_pairings = _load_pairings(sim_config.get("pairings_file"))
