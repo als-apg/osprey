@@ -30,6 +30,7 @@ from prompt_toolkit.shortcuts import clear
 from prompt_toolkit.styles import Style
 from rich.box import HEAVY
 from rich.panel import Panel
+from rich.syntax import Syntax
 
 # Centralized styles
 from osprey.cli.styles import OspreyColors, Styles, console
@@ -182,6 +183,66 @@ class CLI:
         # Register fallback TRANSPORT for outside-graph events
         # This routes events to the same TypedEventHandler used during streaming
         self._unregister_fallback = register_fallback_handler(self._route_fallback_event)
+
+    def _clean_code_fences(self, raw_code: str) -> str:
+        """Clean markdown code fences from generated code.
+
+        Mirrors BasicLLMCodeGenerator._clean_generated_code() logic.
+        Removes common LLM formatting artifacts like ```python and ```.
+
+        Args:
+            raw_code: Raw code string with potential markdown fences
+
+        Returns:
+            Cleaned Python code without markdown formatting
+        """
+        import re
+
+        cleaned = raw_code.strip()
+
+        # Pattern 1: ```python ... ```
+        markdown_pattern = r"^```\s*python\s*\n(.*?)\n```$"
+        match = re.match(markdown_pattern, cleaned, re.DOTALL | re.IGNORECASE)
+        if match:
+            cleaned = match.group(1).strip()
+
+        # Pattern 2: ``` ... ```
+        elif cleaned.startswith("```") and cleaned.endswith("```"):
+            lines = cleaned.split("\n")
+            if lines[0].strip() == "```" and lines[-1].strip() == "```":
+                cleaned = "\n".join(lines[1:-1]).strip()
+
+        # Pattern 3: Inline backticks
+        elif cleaned.count("`") >= 2:
+            if cleaned.startswith("`") and cleaned.endswith("`"):
+                cleaned = cleaned.strip("`").strip()
+
+        return cleaned
+
+    def _display_code_panel(self, code_buffer: str) -> None:
+        """Display generated code in syntax-highlighted panel.
+
+        Cleans markdown fences and displays code with syntax highlighting.
+
+        Args:
+            code_buffer: Raw code buffer from streaming tokens
+        """
+        # Clear progress line
+        self.console.print(" " * 50, end="\r")
+
+        # Clean markdown fences
+        cleaned_code = self._clean_code_fences(code_buffer)
+
+        # Display in syntax-highlighted panel
+        syntax = Syntax(cleaned_code, "python", theme="monokai", line_numbers=True)
+        panel = Panel(
+            syntax,
+            title="[bold yellow]Generated Code[/bold yellow]",
+            border_style="yellow",
+            padding=(1, 2)
+        )
+        self.console.print(panel)
+        self.console.print(f"[green]✓[/green] Generated {len(cleaned_code)} characters of Python code\n")
 
     def _route_fallback_event(self, event_dict: dict) -> None:
         """Route events from fallback transport to TypedEventHandler.
@@ -617,6 +678,13 @@ class CLI:
 
                 # Track if we've streamed LLM response tokens
                 streamed_response = False
+                # Track code generation streaming
+                code_gen_active = False
+                code_gen_buffer = ""
+                # Track node transitions to detect when code generation finishes
+                previous_node = None
+                # Track stream mode transitions to detect when code streaming ends
+                previous_mode = None
 
                 async for ns, mode, chunk in self.graph.astream(
                     result.resume_command,
@@ -629,10 +697,17 @@ class CLI:
                         continue
 
                     elif mode == "custom":
+                        # DETECT: messages → custom means streaming ended
+                        if previous_mode == "messages" and code_gen_active:
+                            print()  # Newline before custom event
+                            code_gen_active = False
+
                         # Parse and handle typed events
                         event = parse_event(chunk)
                         if event:
                             await handler.handle(event)
+
+                        previous_mode = "custom"  # Track mode
                     elif mode == "messages":
                         # Handle LLM token streaming
                         message_chunk, metadata = chunk
@@ -643,19 +718,45 @@ class CLI:
                             # Identify the source node from metadata
                             node_name = metadata.get("langgraph_node", "") if metadata else ""
 
-                            # Only stream respond tokens to console
-                            # Code generation tokens are suppressed (shown via events instead)
-                            if node_name != "python_code_generator":
+                            # Detect transition from code generation to another node
+                            if previous_node == "python_code_generator" and node_name != "python_code_generator":
+                                # Code generation just finished - add line break for separation
+                                if code_gen_active:
+                                    print()  # Line break after code streaming
+                                    code_gen_active = False
+
+                            # Route tokens by source node
+                            if node_name == "python_code_generator":
+                                # Handle code generation streaming
+                                if not code_gen_active:
+                                    code_gen_active = True  # Just mark as active, no header
+
+                                # Stream token immediately (like respond)
+                                print(message_chunk.content, end="", flush=True)
+
+                                # Buffer for final panel (keep for potential future use)
+                                code_gen_buffer += message_chunk.content
+                            else:
+                                # Handle response streaming (respond node)
                                 if not streamed_response:
                                     self.console.print("\n[bold cyan]🤖 Assistant:[/bold cyan] ", end="")
                                     handler.start_response_streaming()
                                     streamed_response = True
                                 print(message_chunk.content, end="", flush=True)
 
+                            # Track current node for next iteration
+                            previous_node = node_name
+
+                        previous_mode = "messages"  # Track mode
+
                 # Print newline after streaming completes
                 if streamed_response:
                     print()
                     handler.reset_suppression()
+
+                # Fallback: Add line break if code was streaming
+                if code_gen_active:
+                    print()  # Line break if streaming didn't complete
 
                 # After resuming, check if there are more interrupts or if execution completed
                 state = self.graph.get_state(config=self.base_config)
@@ -766,6 +867,13 @@ class CLI:
 
             # Track if we've streamed LLM response tokens
             streamed_response = False
+            # Track code generation streaming
+            code_gen_active = False
+            code_gen_buffer = ""
+            # Track node transitions to detect when code generation finishes
+            previous_node = None
+            # Track stream mode transitions to detect when code streaming ends
+            previous_mode = None
 
             try:
                 # Stream events using multi-mode: custom events + LLM message tokens + state updates
@@ -783,10 +891,17 @@ class CLI:
                         continue
 
                     elif mode == "custom":
+                        # DETECT: messages → custom means streaming ended
+                        if previous_mode == "messages" and code_gen_active:
+                            print()  # Newline before custom event
+                            code_gen_active = False
+
                         # Parse and handle typed events
                         event = parse_event(chunk)
                         if event:
                             await handler.handle(event)
+
+                        previous_mode = "custom"  # Track mode
                     elif mode == "messages":
                         # Handle LLM token streaming
                         # chunk is a tuple (message_chunk, metadata)
@@ -798,9 +913,26 @@ class CLI:
                             # Identify the source node from metadata
                             node_name = metadata.get("langgraph_node", "") if metadata else ""
 
-                            # Only stream respond tokens to console
-                            # Code generation tokens are suppressed (shown via events instead)
-                            if node_name != "python_code_generator":
+                            # Detect transition from code generation to another node
+                            if previous_node == "python_code_generator" and node_name != "python_code_generator":
+                                # Code generation just finished - add line break for separation
+                                if code_gen_active:
+                                    print()  # Line break after code streaming
+                                    code_gen_active = False
+
+                            # Route tokens by source node
+                            if node_name == "python_code_generator":
+                                # Handle code generation streaming
+                                if not code_gen_active:
+                                    code_gen_active = True  # Just mark as active, no header
+
+                                # Stream token immediately (like respond)
+                                print(message_chunk.content, end="", flush=True)
+
+                                # Buffer for final panel (keep for potential future use)
+                                code_gen_buffer += message_chunk.content
+                            else:
+                                # Handle response streaming (respond node)
                                 if not streamed_response:
                                     # Print header before first token
                                     self.console.print("\n[bold cyan]🤖 Assistant:[/bold cyan] ", end="")
@@ -808,11 +940,21 @@ class CLI:
                                     streamed_response = True
                                 # Print token directly to console (no newline, immediate flush)
                                 print(message_chunk.content, end="", flush=True)
+
+                            # Track current node for next iteration
+                            previous_node = node_name
+
+                        previous_mode = "messages"  # Track mode
             finally:
                 # Print newline after streaming completes
                 if streamed_response:
                     print()  # End the streamed response line
                     handler.reset_suppression()
+
+                # Fallback: Add line break if code was streaming
+                if code_gen_active:
+                    print()  # Line break if streaming didn't complete
+
                 # Restore original logging level
                 root_logger.setLevel(original_level)
 
