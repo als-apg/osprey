@@ -156,7 +156,7 @@ if __name__ == "__main__":
     Thread(target=delayed_info, daemon=True).start()
 
     # Run the server with SSE transport
-    mcp.run(transport="sse", host="0.0.0.0", port={port})
+    mcp.run(transport="sse", host="127.0.0.1", port={port})
 '''
 
     return server_code
