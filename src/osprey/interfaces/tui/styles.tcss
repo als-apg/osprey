@@ -620,6 +620,51 @@ TodoItem.todo-current {
 }
 
 /* =============================================================================
+   Collapsible Code Message - streaming code display in chat flow
+   ============================================================================= */
+
+CollapsibleCodeMessage {
+    width: 100%;
+    height: auto;
+    background: transparent;
+    margin-bottom: 1;
+    padding: 0;
+}
+
+CollapsibleCodeMessage .code-toggle-link {
+    width: auto;
+    color: $text-muted;
+    text-style: none;
+    padding: 0 6;
+}
+
+CollapsibleCodeMessage .code-toggle-link:hover,
+CollapsibleCodeMessage .code-toggle-link:focus {
+    color: $accent;
+    text-style: underline;
+}
+
+CollapsibleCodeMessage .code-content {
+    width: 100%;
+    height: auto;
+    margin: 0;
+    padding: 0;
+}
+
+/* Target rendered code blocks inside Markdown widget */
+CollapsibleCodeMessage .code-content MarkdownFence {
+    padding: 0;
+    margin: 0;
+    width: 1fr;
+}
+
+/* Increase horizontal padding to match standard indentation */
+CollapsibleCodeMessage .code-content MarkdownFence > Label {
+    padding: 1 6;
+    width: 1fr;
+}
+
+/* =============================================================================
    Log Viewer Modal
    ============================================================================= */
 

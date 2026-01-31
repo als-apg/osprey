@@ -11,7 +11,11 @@ class ChatMessage(Static):
     """A single chat message widget styled as a card/block."""
 
     def __init__(
-        self, content: str, role: str = "user", message_type: str = "", **kwargs
+        self,
+        content: str,
+        role: str = "user",
+        message_type: str = "",
+        **kwargs,
     ):
         """Initialize a chat message.
 
@@ -94,38 +98,17 @@ class CollapsibleCodeMessage(Static):
     the generated code anytime.
     """
 
-    DEFAULT_CSS = """
-    CollapsibleCodeMessage {
-        margin: 1 0;
-        padding: 0;
-    }
-
-    CollapsibleCodeMessage .code-toggle-link {
-        color: $text-muted;
-        text-style: none;
-    }
-
-    CollapsibleCodeMessage .code-toggle-link:hover {
-        text-style: underline;
-    }
-
-    CollapsibleCodeMessage .code-toggle-link:focus {
-        text-style: bold;
-    }
-
-    CollapsibleCodeMessage .code-content {
-        margin: 0;
-        padding: 0;
-    }
-    """
-
-    def __init__(self, **kwargs):
+    def __init__(self, attempt: int = 1, **kwargs):
         """Initialize a collapsible code message.
+
+        Args:
+            attempt: The retry attempt number (1 for first attempt, 2+ for retries).
 
         The message starts with content visible during streaming and
         transitions to collapsed state after finalization.
         """
         super().__init__(**kwargs)
+        self._attempt = attempt
         self._content_buffer: list[str] = []
         self._markdown_stream: Any = None
         self._is_collapsed = False
@@ -134,8 +117,16 @@ class CollapsibleCodeMessage(Static):
     def compose(self) -> ComposeResult:
         """Compose with link-style toggle and markdown content."""
         # Link-style toggle (like logs/prompt/response links)
+        # Show attempt number if > 1
+        label = (
+            f"code #{self._attempt}"
+            if self._attempt > 1
+            else "code"
+        )
         yield Static(
-            "code (streaming...)", classes="code-toggle-link", id="code-toggle"
+            f"{label} (streaming...)",
+            classes="code-toggle-link",
+            id="code-toggle",
         )
         # Content (Markdown widget, initially visible)
         yield Markdown("", classes="code-content", id="code-content")
@@ -187,7 +178,12 @@ class CollapsibleCodeMessage(Static):
         # Auto-collapse and update toggle text
         self._is_collapsed = True
         toggle = self.query_one("#code-toggle", Static)
-        toggle.update("code (click to show)")
+        label = (
+            f"code #{self._attempt}"
+            if self._attempt > 1
+            else "code"
+        )
+        toggle.update(f"{label} (click to show)")
 
         # Hide content
         content = self.query_one("#code-content", Markdown)
@@ -210,14 +206,19 @@ class CollapsibleCodeMessage(Static):
         """Toggle code visibility."""
         content = self.query_one("#code-content", Markdown)
         toggle = self.query_one("#code-toggle", Static)
+        label = (
+            f"code #{self._attempt}"
+            if self._attempt > 1
+            else "code"
+        )
 
         if self._is_collapsed:
             # Expand
             content.display = True
-            toggle.update("code (click to hide)")
+            toggle.update(f"{label} (click to hide)")
             self._is_collapsed = False
         else:
             # Collapse
             content.display = False
-            toggle.update("code (click to show)")
+            toggle.update(f"{label} (click to show)")
             self._is_collapsed = True

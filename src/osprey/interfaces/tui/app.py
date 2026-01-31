@@ -692,6 +692,7 @@ class OspreyTUI(App):
             streamed_response = False
             streamed_code = False  # Track code generation streaming
             previous_node = None  # Track node transitions for immediate finalization
+            previous_code_attempt = 0  # Track which attempt is being streamed
             # Track retry attempts from state updates
             current_generation_attempt = 1
 
@@ -746,17 +747,34 @@ class OspreyTUI(App):
                             # Route based on source node
                             if node_name == "python_code_generator":
                                 # CODE GENERATION STREAMING - Route to chat flow
-                                if not streamed_code:
+                                # Detect new attempt: either first time OR attempt number changed
+                                is_new_attempt = (
+                                    not streamed_code or
+                                    current_generation_attempt != previous_code_attempt
+                                )
+
+                                if is_new_attempt:
+                                    # Finalize previous widget if it exists
+                                    if streamed_code:
+                                        full_code = await chat_display.finalize_code_generation_message()
+                                        python_block = chat_display.get_python_execution_block()
+                                        if python_block:
+                                            line_count = len(full_code.split('\n')) if full_code else 0
+                                            python_block.set_complete("success", f"Code generated ({line_count} lines)")
+
                                     # Update ExecutionStep status (no preview)
                                     python_block = chat_display.get_python_execution_block()
                                     if python_block:
                                         python_block.set_partial_output("Generating code...")
 
                                     # Start collapsible code message in chat
-                                    await chat_display.start_code_generation_message()
+                                    await chat_display.start_code_generation_message(
+                                        attempt=current_generation_attempt
+                                    )
                                     streamed_code = True
+                                    previous_code_attempt = current_generation_attempt  # Track it
 
-                                # Append token to chat message
+                                # Append token to current attempt's widget
                                 await chat_display.append_to_code_generation_message(message_chunk.content)
                             else:
                                 # Response streaming (respond node or unknown source)

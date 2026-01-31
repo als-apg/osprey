@@ -205,7 +205,9 @@ class ChatDisplay(ScrollableContainer):
 
     # --- Code Generation Streaming Methods ---
 
-    async def start_code_generation_message(self) -> CollapsibleCodeMessage:
+    async def start_code_generation_message(
+        self, attempt: int = 1
+    ) -> CollapsibleCodeMessage:
         """Create and mount a new collapsible code message for streaming.
 
         Similar to start_streaming_message, but creates a CollapsibleCodeMessage
@@ -213,10 +215,13 @@ class ChatDisplay(ScrollableContainer):
         see the "thinking" process during code generation but keeps the chat flow
         clean afterward.
 
+        Args:
+            attempt: The retry attempt number (1 for first, 2+ for retries).
+
         Returns:
             The newly created CollapsibleCodeMessage widget.
         """
-        self._code_gen_message = CollapsibleCodeMessage()
+        self._code_gen_message = CollapsibleCodeMessage(attempt=attempt)
         await self.mount(self._code_gen_message)
         self.scroll_end(animate=False)
         return self._code_gen_message
