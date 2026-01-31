@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Channel Finder**: Fix string ChannelNames causing character-by-character iteration
+  - MATLAB Middle Layer exports may produce bare strings (e.g., `"SR:DCCT"`) instead of single-element arrays
+  - Without the fix, iterating over string produces `['S', 'R', ':', 'D', 'C', 'C', 'T']` instead of `['SR:DCCT']`
+  - Normalizes strings to lists in `_extract_channels_from_field()` and `list_channel_names()`
+
 ## [0.10.7] - 2026-01-31
 
 ### Added

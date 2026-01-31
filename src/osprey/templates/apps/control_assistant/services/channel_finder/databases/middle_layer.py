@@ -123,6 +123,9 @@ class MiddleLayerDatabase(BaseDatabase):
             # Check if this is a terminal field with ChannelNames
             if "ChannelNames" in value:
                 channel_names = value["ChannelNames"]
+                # Normalize string to list (MML exports may use string for single channels)
+                if isinstance(channel_names, str):
+                    channel_names = [channel_names]
                 field_path = path + [key]
 
                 # Extract metadata if present (preserve from MML exports)
@@ -410,6 +413,9 @@ class MiddleLayerDatabase(BaseDatabase):
             )
 
         channel_names = field_data["ChannelNames"]
+        # Normalize string to list (MML exports may use string for single channels)
+        if isinstance(channel_names, str):
+            channel_names = [channel_names]
 
         # Apply filtering if requested
         if sectors or devices:

@@ -251,6 +251,74 @@ class TestMiddleLayerToolIntegration:
         assert specific_channels[0] == "SR01C:BPM1:XSet"
 
 
+class TestStringChannelNamesNormalization:
+    """Test that string ChannelNames are correctly normalized to lists.
+
+    MATLAB Middle Layer exports may produce bare strings for single-channel
+    entries instead of single-element arrays. The code must handle both formats.
+    """
+
+    def test_string_channel_names_in_list_channel_names(
+        self, string_channel_names_pipeline
+    ) -> None:
+        """Test list_channel_names handles string ChannelNames correctly."""
+        pipeline = string_channel_names_pipeline
+        tools = pipeline._create_tools()
+
+        list_channel_names_tool = next(t for t in tools if t.name == "list_channel_names")
+
+        # DCCT has string ChannelNames "SR:DCCT" (not a list)
+        channels = list_channel_names_tool.func("SR", "DCCT", "Monitor")
+
+        # Should return ["SR:DCCT"], NOT ['S', 'R', ':', 'D', 'C', 'C', 'T']
+        assert isinstance(channels, list)
+        assert len(channels) == 1
+        assert channels[0] == "SR:DCCT"
+
+    def test_string_channel_names_in_channel_map(self, string_channel_names_pipeline) -> None:
+        """Test that string ChannelNames are correctly added to channel_map."""
+        pipeline = string_channel_names_pipeline
+        db = pipeline.database
+
+        # The channel should be in the map with correct metadata
+        channel_info = db.get_channel("SR:DCCT")
+        assert channel_info is not None
+        assert channel_info["channel"] == "SR:DCCT"
+        assert channel_info["system"] == "SR"
+        assert channel_info["family"] == "DCCT"
+        assert channel_info["field"] == "Monitor"
+
+    def test_string_channel_names_validation(self, string_channel_names_pipeline) -> None:
+        """Test that string ChannelNames pass validation."""
+        pipeline = string_channel_names_pipeline
+        db = pipeline.database
+
+        # Should validate successfully
+        assert db.validate_channel("SR:DCCT") is True
+        # Characters from string iteration should NOT be valid
+        assert db.validate_channel("S") is False
+        assert db.validate_channel("R") is False
+        assert db.validate_channel(":") is False
+
+    def test_mixed_string_and_list_channel_names(self, string_channel_names_pipeline) -> None:
+        """Test database with both string and list ChannelNames."""
+        pipeline = string_channel_names_pipeline
+        tools = pipeline._create_tools()
+
+        list_channel_names_tool = next(t for t in tools if t.name == "list_channel_names")
+
+        # BPM has list ChannelNames (normal case)
+        bpm_channels = list_channel_names_tool.func("SR", "BPM", "Monitor")
+        assert len(bpm_channels) == 2
+        assert "SR01C:BPM1:X" in bpm_channels
+        assert "SR01C:BPM1:Y" in bpm_channels
+
+        # DCCT has string ChannelNames (edge case)
+        dcct_channels = list_channel_names_tool.func("SR", "DCCT", "Monitor")
+        assert len(dcct_channels) == 1
+        assert dcct_channels[0] == "SR:DCCT"
+
+
 class TestMiddleLayerErrorHandling:
     """Test error handling in tool functions."""
 
@@ -456,6 +524,97 @@ def sample_middle_layer_pipeline(
         "provider": "anthropic",
         "model_id": "claude-haiku-4-5-20251001",
         "api_key": "test-key",  # Not used in tool tests
+        "max_tokens": 4096,
+    }
+
+    pipeline = MiddleLayerPipeline(
+        database=db,
+        model_config=model_config,
+        facility_name="Test Facility",
+        facility_description="Test accelerator facility",
+    )
+
+    return pipeline
+
+
+@pytest.fixture
+def string_channel_names_db_path(tmp_path) -> str:
+    """Create a database with string ChannelNames (not arrays) for testing.
+
+    This simulates MATLAB Middle Layer exports that produce bare strings
+    for single-channel entries instead of single-element arrays.
+    """
+    db_file = tmp_path / "test_string_channel_names.json"
+
+    # Database with string ChannelNames (the bug case)
+    test_data = {
+        "SR": {
+            "_description": "Storage Ring",
+            "BPM": {
+                "Monitor": {
+                    "ChannelNames": ["SR01C:BPM1:X", "SR01C:BPM1:Y"],  # Normal: list
+                },
+                "setup": {"CommonNames": ["BPM 1"]},
+            },
+            "DCCT": {
+                "_description": "DC Current Transformer",
+                "Monitor": {
+                    "_description": "Beam current readback",
+                    "ChannelNames": "SR:DCCT",  # Bug case: STRING, not list
+                },
+                "setup": {"CommonNames": ["Beam Current Monitor"]},
+            },
+            "RF": {
+                "Frequency": {
+                    "ChannelNames": "SR:RF:Freq",  # Another string case
+                },
+                "Power": {
+                    "ChannelNames": ["SR:RF:Pwr1", "SR:RF:Pwr2"],  # Normal list
+                },
+            },
+        },
+    }
+
+    with open(db_file, "w") as f:
+        json.dump(test_data, f, indent=2)
+
+    return str(db_file)
+
+
+@pytest.fixture
+def string_channel_names_pipeline(
+    string_channel_names_db_path, monkeypatch, tmp_path
+) -> "MiddleLayerPipeline":
+    """Create a pipeline with string ChannelNames for testing."""
+    config_data = {
+        "project_root": str(tmp_path),
+        "channel_finder": {"prompts": {"path": "prompts/middle_layer"}},
+    }
+
+    config_file = tmp_path / "config.yml"
+    with open(config_file, "w") as f:
+        yaml.dump(config_data, f)
+
+    monkeypatch.setenv("CONFIG_FILE", str(config_file))
+
+    mock_prompts = MagicMock()
+    mock_prompts.query_splitter = MagicMock()
+    mock_prompts.query_splitter.get_prompt = MagicMock(return_value="Mock query splitter prompt")
+
+    def mock_load_prompts(config, require_query_splitter=True):
+        return mock_prompts
+
+    monkeypatch.setattr(
+        "osprey.templates.apps.control_assistant.services.channel_finder.pipelines.middle_layer.pipeline.load_prompts",
+        mock_load_prompts,
+    )
+
+    db = MiddleLayerDatabase(string_channel_names_db_path)
+
+    model_config = {
+        "provider": "anthropic",
+        "model_id": "claude-haiku-4-5-20251001",
+        "api_key": "test-key",
         "max_tokens": 4096,
     }
 
