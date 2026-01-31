@@ -103,8 +103,8 @@ def _detect_project_settings(project_dir: Path) -> dict[str, Any]:
                 elif "capabilities" in config:
                     settings["template"] = "minimal"
                     settings["confidence"]["template"] = "medium"
-        except Exception:
-            pass
+        except Exception as e:
+            console.print(f"[dim]Warning: Could not parse config.yml: {e}[/dim]")
 
     # Try to detect from pyproject.toml
     pyproject_path = project_dir / "pyproject.toml"
@@ -129,8 +129,8 @@ def _detect_project_settings(project_dir: Path) -> dict[str, Any]:
                         settings["estimated_osprey_version"] = version
                         settings["confidence"]["osprey_version"] = "high"
                     break
-        except Exception:
-            pass
+        except Exception as e:
+            console.print(f"[dim]Warning: Could not parse pyproject.toml: {e}[/dim]")
 
     # Try to detect registry style from registry.py
     src_dir = project_dir / "src"
@@ -156,8 +156,10 @@ def _detect_project_settings(project_dir: Path) -> dict[str, Any]:
 
                         # Detect package name
                         settings["package_name"] = pkg_dir.name
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        console.print(
+                            f"[dim]Warning: Could not analyze registry file '{registry_path}': {e}[/dim]"
+                        )
                 break
 
     # Try to detect code generator from config file presence
@@ -351,8 +353,8 @@ def _recreate_vanilla_with_version(
             # Clean up temp venv (but not the output project)
             try:
                 shutil.rmtree(venv_dir)
-            except Exception:
-                pass
+            except Exception as e:
+                console.print(f"[dim]Warning: Could not remove temp venv {venv_dir}: {e}[/dim]")
     else:
         # Use current OSPREY version (approximate)
         manager = TemplateManager()
@@ -1060,5 +1062,5 @@ def migrate_run(project: Path, dry_run: bool, output: Path | None, use_current_v
         # Clean up temp directory
         try:
             shutil.rmtree(temp_dir)
-        except Exception:
-            pass
+        except Exception as e:
+            console.print(f"[dim]Warning: Could not remove temp directory {temp_dir}: {e}[/dim]")
