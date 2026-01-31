@@ -2581,6 +2581,23 @@ def show_generate_help():
     )
     console.print()
 
+    # soft-ioc option
+    console.print(
+        f"[{Styles.HEADER}][→] soft-ioc - Simulated control system for development[/{Styles.HEADER}]"
+    )
+    console.print()
+    console.print("  • Generates caproto-based EPICS soft IOC from channel database")
+    console.print("  • Uses channel database from your channel_finder config")
+    console.print("  • Auto-detects PV types and access modes from naming conventions")
+    console.print("  • Supports mock_style (simulated values) or passthrough backends")
+    console.print(
+        f"  • Ready to run: just [{Styles.VALUE}]pip install caproto && python <ioc>.py[/{Styles.VALUE}]"
+    )
+    console.print(
+        f"  • [{Styles.DIM}]Perfect for: Testing without real hardware, development mode[/{Styles.DIM}]"
+    )
+    console.print()
+
     input("Press ENTER to continue...")
 
 
@@ -2645,6 +2662,10 @@ def show_generate_menu() -> str | None:
             Choice(
                 "[→] claude-config  - Claude Code generator configuration",
                 value="generate_claude_config",
+            ),
+            Choice(
+                "[→] soft-ioc       - Simulated control system for development",
+                value="generate_soft_ioc",
             ),
             Choice("─" * 60, value=None, disabled=True),
             Choice("[?] help           - Detailed descriptions and usage guide", value="show_help"),
@@ -2769,6 +2790,27 @@ def handle_set_control_system(project_path: Path | None = None) -> None:
     input("\nPress ENTER to continue...")
 
 
+def _check_simulation_ioc_running(host: str = "localhost", port: int = 5064) -> bool:
+    """Check if a simulation IOC is running on the specified port.
+
+    Args:
+        host: Host address to check
+        port: Port number to check
+
+    Returns:
+        True if port is open and accepting connections, False otherwise
+    """
+    import socket
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(1.0)
+            result = sock.connect_ex((host, port))
+            return result == 0
+    except OSError:
+        return False
+
+
 def handle_set_epics_gateway(project_path: Path | None = None) -> None:
     """Handle interactive EPICS gateway configuration."""
     from osprey.generators.config_updater import (
@@ -2862,6 +2904,20 @@ def handle_set_epics_gateway(project_path: Path | None = None) -> None:
     else:
         # Use preset
         new_content, preview = set_epics_gateway_config(config_path, facility)
+
+        # Check if simulation IOC is running when using simulation preset
+        if facility == "simulation":
+            preset = FACILITY_PRESETS[facility]
+            host = preset["gateways"]["read_only"]["address"]
+            port = preset["gateways"]["read_only"]["port"]
+
+            if not _check_simulation_ioc_running(host, port):
+                console.print(f"\n{Messages.warning(f'⚠ No IOC detected on {host}:{port}')}")
+                console.print(
+                    "\n[dim]To start the simulation IOC:[/dim]"
+                    "\n[dim]  1. Generate IOC: osprey generate soft-ioc[/dim]"
+                    "\n[dim]  2. Run IOC: python generated_iocs/<ioc_name>_ioc.py[/dim]"
+                )
 
     # Show preview
     console.print("\n" + preview)
@@ -3002,6 +3058,8 @@ def handle_generate_action():
             handle_generate_mcp_server()
         elif action == "generate_claude_config":
             handle_generate_claude_config()
+        elif action == "generate_soft_ioc":
+            handle_generate_soft_ioc()
         elif action == "show_help":
             show_generate_help()
             # Loop continues - returns to generate menu after help
@@ -3366,6 +3424,71 @@ def handle_generate_claude_config():
         console.print(f"[dim]{traceback.format_exc()}[/dim]")
         console.print()
         input("Press ENTER to continue...")
+
+
+def handle_generate_soft_ioc():
+    """Handle interactive soft IOC generation."""
+    console.clear()
+    console.print(f"\n{Messages.header('Generate Soft IOC')}\n")
+    console.print("[dim]Creates a simulated control system from your channel database[/dim]\n")
+
+    from pathlib import Path
+
+    import click
+
+    from osprey.cli.generate_cmd import soft_ioc
+
+    # Check for config.yml
+    config_path = Path.cwd() / "config.yml"
+    if not config_path.exists():
+        console.print(f"\n{Messages.error('No config.yml found in current directory')}")
+        console.print()
+        console.print("  Run [accent]osprey init[/accent] to create a project first.")
+        console.print()
+        input("Press ENTER to continue...")
+        return
+
+    # Ask about options
+    use_init = questionary.confirm(
+        "Run interactive setup wizard?",
+        default=True,
+        style=custom_style,
+    ).ask()
+
+    if use_init is None:
+        return
+
+    dry_run = questionary.confirm(
+        "Dry-run mode (preview without writing files)?",
+        default=False,
+        style=custom_style,
+    ).ask()
+
+    if dry_run is None:
+        return
+
+    try:
+        # Build CLI args
+        args = []
+        if use_init:
+            args.append("--init")
+        if dry_run:
+            args.append("--dry-run")
+
+        # Invoke the command
+        ctx = click.Context(soft_ioc)
+        ctx.invoke(soft_ioc, config_path=None, output_file=None, dry_run=dry_run, init=use_init)
+
+    except click.Abort:
+        console.print(f"\n{Messages.info('Generation cancelled by user.')}")
+    except Exception as e:
+        console.print(f"\n{Messages.error(f'Generation failed: {e}')}")
+        import traceback
+
+        console.print(f"[dim]{traceback.format_exc()}[/dim]")
+
+    console.print()
+    input("Press ENTER to continue...")
 
 
 # ============================================================================

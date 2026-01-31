@@ -8,12 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Dependencies**: Add `caproto` to core dependencies for soft IOC generation
+- **CLI**: Add `osprey generate soft-ioc` command for generating Python soft IOCs
+  - Generates caproto-based EPICS soft IOCs from channel databases
+  - Supports all 4 channel database types (flat, template, hierarchical, middle_layer)
+  - Auto-detects database type, infers PV types and access modes from naming conventions
+  - Two simulation backends: `passthrough` (no-op) and `mock_style` (archiver-like behavior)
+  - Optional SP/RB pairings file for setpoint-readback tracking with noise
+  - Dry-run mode for previewing generation without writing files
+  - `--init` flag for interactive simulation config setup (uses channel database from `channel_finder` config)
+  - Auto-offers interactive setup when `simulation:` section is missing from config.yml
 - **Models**: Add AskSage provider for LLM access (#122)
   - OpenAI-compatible adapter with custom request parameters
   - Supports dynamic model discovery via API
 - **Connectors**: Add unit tests for `EPICSArchiverConnector`
   - 26 tests covering connect/disconnect, get_data, error handling, metadata, and factory integration
   - Mock fixtures matching real `archivertools` library format (secs/nanos columns)
+- **Config**: Add "Local Simulation" preset to EPICS gateway configuration
+  - Select from interactive menu to connect to local soft IOC on localhost:5064
+  - Warns if no IOC is detected on the port with instructions to generate/run one
+  - Use with `osprey generate soft-ioc` for offline development and testing
+- **Tests**: Add unit tests for interactive menu simulation port check
+  - 5 tests covering port open/closed detection, timeout handling, and error cases
 
 ### Fixed
 - **Security**: Bind docker/podman services to localhost by default (#126)
@@ -29,6 +45,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Deployment**: Fix `--dev` mode error message showing broken install instructions (#119)
   - Rich markup was stripping `[dev]` from the message due to bracket interpretation
   - Error now correctly shows: `pip install build or pip install -e ".[dev]"`
+- **Execution**: Fix channel limits database path resolution in subprocess execution
+  - Relative paths in `control_system.limits_checking.database_path` now resolve against `project_root`
+  - Fixes "Channel limits database not found" error when running Python code locally
+- **Connectors**: Fix EPICS connector PV cache to prevent soft IOC crashes
+  - Reuse PV objects instead of creating new ones per read
+  - Prevents subscription flood that causes caproto race condition (`deque mutated during iteration`)
+  - Adds thread-safe locking for PV cache access
 
 ## [0.10.6] - 2026-01-18
 
