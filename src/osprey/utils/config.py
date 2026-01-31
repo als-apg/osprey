@@ -130,7 +130,7 @@ class ConfigBuilder:
                 )
 
         self.config_path = Path(config_path)
-        self.raw_config = self._load_config()
+        self.raw_config, self._unexpanded_config = self._load_config()
 
         # Pre-compute nested structures for efficient runtime access
         self.configurable = self._build_configurable()
@@ -200,16 +200,42 @@ class ConfigBuilder:
         else:
             return data
 
-    def _load_config(self) -> dict[str, Any]:
-        """Load configuration from single file."""
+    def _load_config(self) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Load configuration from single file.
+
+        Returns:
+            Tuple of (expanded_config, unexpanded_config) where:
+            - expanded_config: Config with ${VAR} placeholders resolved to actual values
+            - unexpanded_config: Config with ${VAR} placeholders preserved (for deployment)
+        """
+        import copy
+
         # Load the config file
         config = self._load_yaml_file(self.config_path)
 
+        # Store unexpanded config for deployment use (deep copy to prevent mutations)
+        unexpanded_config = copy.deepcopy(config)
+
         # Apply environment variable substitution
-        config = self._resolve_env_vars(config)
+        expanded_config = self._resolve_env_vars(config)
 
         logger.info(f"Loaded configuration from {self.config_path}")
-        return config
+        return expanded_config, unexpanded_config
+
+    def get_unexpanded_config(self) -> dict[str, Any]:
+        """Get configuration with environment variable placeholders preserved.
+
+        Returns the configuration as loaded from YAML, without expanding
+        ${VAR_NAME} placeholders. This is useful for deployment scenarios
+        where secrets should NOT be written to disk - instead, the placeholders
+        are preserved and resolved at container runtime.
+
+        Returns:
+            dict: Configuration with ${VAR} placeholders intact
+        """
+        import copy
+
+        return copy.deepcopy(self._unexpanded_config)
 
     def _get_approval_config(self) -> dict[str, Any]:
         """Get approval configuration with sensible defaults.

@@ -45,6 +45,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Deployment**: Fix `--dev` mode error message showing broken install instructions (#119)
   - Rich markup was stripping `[dev]` from the message due to bracket interpretation
   - Error now correctly shows: `pip install build or pip install -e ".[dev]"`
+- **Deployment**: Fix `osprey deploy build` exposing API keys in build config files (#118)
+  - `osprey deploy build` was expanding `${VAR}` placeholders to actual values in `build/services/pipelines/config.yml`
+  - Now preserves `${VAR}` placeholders; secrets are resolved at container runtime from environment variables
 - **Execution**: Fix channel limits database path resolution in subprocess execution
   - Relative paths in `control_system.limits_checking.database_path` now resolve against `project_root`
   - Fixes "Channel limits database not found" error when running Python code locally
@@ -2482,4 +2485,3 @@ This release represents the framework's first complete domain-specific applicati
 ---
 
 *This is an early access release. We welcome feedback and contributions!*
-

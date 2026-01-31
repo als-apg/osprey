@@ -755,12 +755,14 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
 
         # Create flattened configuration file for container
         # This merges all imports and creates a complete config without import directives
+        # SECURITY: Use unexpanded config to prevent API keys from being written to disk
+        # The container will expand ${VAR} placeholders at runtime from environment variables
         try:
             with quiet_logger(["REGISTRY", "CONFIG"]):
                 global_config = ConfigBuilder()
                 flattened_config = (
-                    global_config.raw_config
-                )  # This contains the already-merged configuration
+                    global_config.get_unexpanded_config()
+                )  # Preserves ${VAR} placeholders - secrets not written to disk
 
             # Adjust paths for container environment
             # In containers, src/ is copied to repo_src/, so config paths must be updated
