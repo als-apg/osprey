@@ -286,7 +286,8 @@ def set_control_system_type(
     content = config_path.read_text()
 
     # Update control_system.type
-    control_pattern = r"(control_system:\s*\n\s*type:\s*)\w+"
+    # Pattern allows for comment lines between control_system: and type:
+    control_pattern = r"(control_system:\s*\n(?:.*\n)*?\s*type:\s*)\w+"
     control_replacement = rf"\1{control_type}"
     new_content = re.sub(control_pattern, control_replacement, content, flags=re.MULTILINE)
 
