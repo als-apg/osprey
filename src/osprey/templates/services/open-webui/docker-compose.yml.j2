@@ -13,7 +13,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     ports:
-      - "{{services.open_webui.port_host}}:{{services.open_webui.port_container}}"
+      - "{{ deployment.bind_address | default('127.0.0.1') }}:{{services.open_webui.port_host}}:{{services.open_webui.port_container}}"
     environment:
       # Timezone synchronization with host (from system configuration)
       - TZ={{system.timezone}}

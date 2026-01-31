@@ -2773,7 +2773,9 @@ def handle_set_epics_gateway(project_path: Path | None = None) -> None:
     """Handle interactive EPICS gateway configuration."""
     from osprey.generators.config_updater import (
         find_config_file,
+        get_control_system_type,
         get_facility_from_gateway_config,
+        set_control_system_type,
         set_epics_gateway_config,
     )
     from osprey.templates.data import FACILITY_PRESETS
@@ -2871,9 +2873,33 @@ def handle_set_epics_gateway(project_path: Path | None = None) -> None:
         # Use UTF-8 encoding explicitly to support Unicode characters on Windows
         config_path.write_text(new_content, encoding="utf-8")
         console.print(f"\n{Messages.success('✓ EPICS gateway configuration updated!')}")
-        console.print(
-            "\n[dim]Remember to also set control_system.type to 'epics' for production use[/dim]"
-        )
+
+        # Check if mode is still 'mock' and offer to switch
+        current_type = get_control_system_type(config_path)
+        if current_type in (None, "mock"):
+            # None means missing config key, treat same as mock
+            if questionary.confirm(
+                "\nYour control system is set to 'mock' mode. Switch to 'epics' to use this "
+                "gateway?",
+                default=True,
+                style=custom_style,
+            ).ask():
+                type_content, _ = set_control_system_type(config_path, "epics")
+                config_path.write_text(type_content, encoding="utf-8")
+                console.print(f"{Messages.success('✓ Switched to epics mode!')}")
+            else:
+                console.print(
+                    "\n[dim]Note: Gateway configured but mode is still 'mock'. "
+                    "Use 'set-control-system' to switch when ready.[/dim]"
+                )
+        elif current_type == "epics":
+            console.print("[dim]Control system already set to 'epics' mode.[/dim]")
+        else:
+            # Other types like 'tango', 'labview' - don't auto-switch
+            console.print(
+                f"[dim]Note: Control system is set to '{current_type}'. "
+                "This gateway config applies when using 'epics' mode.[/dim]"
+            )
     else:
         console.print(f"\n{Messages.warning('✗ Configuration not changed')}")
 

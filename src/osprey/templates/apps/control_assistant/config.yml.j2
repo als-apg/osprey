@@ -129,6 +129,19 @@ deployed_services:
   - pipelines
 
 # ============================================================
+# DEPLOYMENT CONFIGURATION
+# ============================================================
+# Security settings for container deployment
+
+deployment:
+  # Network bind address for exposed service ports
+  # Default: 127.0.0.1 (localhost only - SECURE, recommended for development)
+  # Use 0.0.0.0 to expose to all network interfaces (for cloud/production)
+  # WARNING: Setting to 0.0.0.0 exposes services to the network!
+  # Only use 0.0.0.0 when proper authentication is configured.
+  bind_address: "127.0.0.1"
+
+# ============================================================
 # SERVICE CONFIGURATION
 # ============================================================
 # Framework services for execution and user interface
