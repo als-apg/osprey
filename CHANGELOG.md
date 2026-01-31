@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Models**: Add AskSage provider for LLM access (#122)
+  - OpenAI-compatible adapter with custom request parameters
+  - Supports dynamic model discovery via API
 - **Connectors**: Add unit tests for `EPICSArchiverConnector`
   - 26 tests covering connect/disconnect, get_data, error handling, metadata, and factory integration
   - Mock fixtures matching real `archivertools` library format (secs/nanos columns)
