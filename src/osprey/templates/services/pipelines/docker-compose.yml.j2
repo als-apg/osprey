@@ -13,7 +13,7 @@ services:
     working_dir: /pipelines
     entrypoint: ["/bin/bash", "/pipelines/start.sh"]
     ports:
-      - {{services.pipelines.port_host}}:{{services.pipelines.port_container}} # Expose pipeline port
+      - "{{ deployment.bind_address | default('127.0.0.1') }}:{{services.pipelines.port_host}}:{{services.pipelines.port_container}}" # Expose pipeline port
     volumes:
       - ./pipelines:/pipelines
       - {{project_root}}/{{file_paths.agent_data_dir}}:/app/{{file_paths.agent_data_dir}}

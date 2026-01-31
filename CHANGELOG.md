@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Dry-run mode for previewing generation without writing files
   - `--init` flag for interactive simulation config setup (uses channel database from `channel_finder` config)
   - Auto-offers interactive setup when `simulation:` section is missing from config.yml
+- **Models**: Add AskSage provider for LLM access (#122)
+  - OpenAI-compatible adapter with custom request parameters
+  - Supports dynamic model discovery via API
 - **Connectors**: Add unit tests for `EPICSArchiverConnector`
   - 26 tests covering connect/disconnect, get_data, error handling, metadata, and factory integration
   - Mock fixtures matching real `archivertools` library format (secs/nanos columns)
@@ -29,6 +32,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 5 tests covering port open/closed detection, timeout handling, and error cases
 
 ### Fixed
+- **Security**: Bind docker/podman services to localhost by default (#126)
+  - Prevents unintended network exposure when generating server configurations with `osprey deploy up`
+  - Use `--expose` option to bind to public interfaces, if firewalling/authentification is set up properly
+- **CLI**: Auto-prompt to switch control system mode when configuring EPICS gateway
+  - After setting a production gateway (ALS, APS, custom), prompts user to switch from 'mock' to 'epics' mode
+  - Handles edge cases: missing config key, other control system types (tango, labview)
 - **Connectors**: Fix `EPICSArchiverConnector` timestamp handling for real `archivertools` library
   - Real library returns DataFrame with `secs`/`nanos` columns and RangeIndex
   - Connector now properly converts secs/nanos to DatetimeIndex and removes those columns
