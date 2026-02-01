@@ -328,8 +328,8 @@ class IOCServer:
         # Read port from file
         self.port = int(self.port_file.read_text().strip())
 
-        # Wait a bit more for server to fully initialize
-        time.sleep(0.5)
+        # Wait for server to fully initialize (longer for CI environments)
+        time.sleep(1.0)
 
         # Check if process is still running
         if self.process.poll() is not None:
@@ -366,7 +366,10 @@ class IOCServer:
         """
         if not self.log_file.exists():
             return []
-        return json.loads(self.log_file.read_text())
+        content = self.log_file.read_text()
+        if not content.strip():
+            return []
+        return json.loads(content)
 
     def get_context(self) -> Context:
         """Get or create a caproto client context.
@@ -393,12 +396,12 @@ class IOCServer:
             self._context = Context(broadcaster=broadcaster)
         return self._context
 
-    def get_pv(self, pv_name: str, timeout: float = 5.0) -> PV:
+    def get_pv(self, pv_name: str, timeout: float = 10.0) -> PV:
         """Get a PV object for the given name.
 
         Args:
             pv_name: PV name to connect to
-            timeout: Connection timeout in seconds
+            timeout: Connection timeout in seconds (default: 10s for CI environments)
 
         Returns:
             Connected PV object
@@ -406,12 +409,14 @@ class IOCServer:
         ctx = self.get_context()
         (pv,) = ctx.get_pvs(pv_name)
 
-        # Wait for connection
+        # Wait for connection with exponential backoff
         start = time.time()
+        sleep_time = 0.1
         while not pv.connected:
             if time.time() - start > timeout:
                 raise TimeoutError(f"Failed to connect to PV {pv_name}")
-            time.sleep(0.1)
+            time.sleep(sleep_time)
+            sleep_time = min(sleep_time * 1.5, 1.0)  # Cap at 1s
 
         return pv
 
@@ -1168,7 +1173,7 @@ class IOCServerWithBackends(IOCServer):
             time.sleep(0.1)
 
         self.port = int(self.port_file.read_text().strip())
-        time.sleep(0.5)
+        time.sleep(1.0)  # Wait for server to fully initialize (longer for CI)
 
         if self.process.poll() is not None:
             stdout, stderr = self.process.communicate()
