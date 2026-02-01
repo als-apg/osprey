@@ -500,9 +500,18 @@ class TestSoftIOCServer:
         assert ioc_server.process is not None
         assert ioc_server.process.poll() is None  # Still running
 
+        # Wait for initialize to be logged (CI environments may be slower)
+        calls = []
+        max_wait = 5.0
+        start = time.time()
+        while time.time() - start < max_wait:
+            calls = ioc_server.get_backend_calls()
+            if len(calls) >= 1:
+                break
+            time.sleep(0.2)
+
         # Verify initialize was called
-        calls = ioc_server.get_backend_calls()
-        assert len(calls) >= 1
+        assert len(calls) >= 1, f"Expected >= 1 backend call, got {len(calls)}"
         assert calls[0]["method"] == "initialize"
         assert calls[0]["pv_count"] > 0
 
