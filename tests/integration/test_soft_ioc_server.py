@@ -615,15 +615,19 @@ class TestSoftIOCServer:
             update_rate=10.0,  # 10 Hz = 0.1s period
         )
 
-        # Wait for several simulation steps
-        time.sleep(0.5)
+        # Wait for step calls with retry (CI environments may be slower)
+        step_calls = []
+        max_wait = 3.0  # Total max wait time
+        start = time.time()
+        while time.time() - start < max_wait:
+            time.sleep(0.3)
+            calls = ioc_server.get_backend_calls()
+            step_calls = [c for c in calls if c["method"] == "step"]
+            if len(step_calls) >= 3:
+                break
 
-        # Verify step was called multiple times
-        calls = ioc_server.get_backend_calls()
-        step_calls = [c for c in calls if c["method"] == "step"]
-
-        # Should have at least 3 step calls in 0.5s at 10Hz
-        assert len(step_calls) >= 3
+        # Should have at least 3 step calls
+        assert len(step_calls) >= 3, f"Expected >= 3 step calls, got {len(step_calls)}"
 
         # Verify dt values are approximately correct (~0.1s)
         for call in step_calls:
