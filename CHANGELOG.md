@@ -7,7 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Generators**: Add pluggable simulation backends for soft IOCs
+  - Runtime backend loading from `config.yml` - change behavior without regenerating IOC code
+  - Built-in backends: `passthrough` (no-op) and `mock_style` (archiver-like behavior)
+  - `ChainedBackend` for composing multiple backends (base + overrides)
+  - `SimulationBackend` protocol for custom physics implementations
+  - Documentation guide for custom backend development
+
 ### Fixed
+- **Generators**: Fix `config_updater` functions returning wrong type
+  - `set_control_system_type()`, `set_epics_gateway_config()`, `update_all_models()`, and `add_capability_react_to_config()` now return `(updated_content, preview)` tuple as expected by CLI callers
 - **Channel Finder**: Fix string ChannelNames causing character-by-character iteration
   - MATLAB Middle Layer exports may produce bare strings (e.g., `"SR:DCCT"`) instead of single-element arrays
   - Without the fix, iterating over string produces `['S', 'R', ':', 'D', 'C', 'C', 'T']` instead of `['SR:DCCT']`

@@ -12,6 +12,7 @@ Quick Start Patterns
    02_state-and-context-essentials
    03_running-and-testing
    04_mcp-capability-generation
+   05_soft-ioc-backends
 
 .. dropdown:: What You'll Learn
    :color: primary
@@ -25,6 +26,7 @@ Quick Start Patterns
    - Testing and debugging workflows using Gateway architecture
    - Registry-based component discovery and framework integration
    - Generating capabilities from MCP servers (prototype feature)
+   - Implementing custom physics simulation backends for soft IOCs
 
    **Prerequisites:** Python development experience and basic framework understanding
 
@@ -97,6 +99,19 @@ Get productive immediately with the Osprey Framework's essential development pat
       **Generate from MCP servers (Prototype)**
 
       Auto-generate capabilities from Model Context Protocol servers with ReAct agent patterns.
+
+      *20-30 minutes*
+
+   .. grid-item-card:: 🎛️ Soft IOC Custom Backends
+      :link: 05_soft-ioc-backends
+      :link-type: doc
+      :class-header: bg-dark text-white
+      :class-body: text-center
+      :shadow: md
+
+      **Physics simulation backends**
+
+      Implement custom simulation backends for soft IOCs using SimulationBackend and OverlayProtocol.
 
       *20-30 minutes*
 

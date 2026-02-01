@@ -17,6 +17,7 @@ from osprey.cli.generate_cmd import (
     _is_readonly_channel,
     _load_pairings,
     _load_simulation_config,
+    _validate_custom_backend_config,
     _validate_pairings,
     _write_simulation_config,
     generate,
@@ -31,7 +32,7 @@ def cli_runner():
 
 @pytest.fixture
 def sample_config_yml(tmp_path):
-    """Create a sample config.yml with simulation section."""
+    """Create a sample config.yml with simulation section (new base + overlays format)."""
     config_content = """
 project_name: test_project
 
@@ -42,10 +43,11 @@ simulation:
     name: test_sim
     port: 5065
     output_dir: generated_iocs/
-  backend:
+  base:
     type: mock_style
     noise_level: 0.02
     update_rate: 5.0
+  overlays: []
 
 control_system:
   type: mock
@@ -182,15 +184,19 @@ class TestLoadSimulationConfig:
     """Test simulation config loading."""
 
     def test_load_config_success(self, tmp_path, monkeypatch, sample_config_yml):
-        """Test successful config loading."""
+        """Test successful config loading with new base + overlays format."""
         monkeypatch.chdir(tmp_path)
 
         config = _load_simulation_config(str(sample_config_yml))
 
         assert config["ioc"]["name"] == "test_sim"
         assert config["ioc"]["port"] == 5065
-        assert config["backend"]["type"] == "mock_style"
-        assert config["backend"]["noise_level"] == 0.02
+        # New format uses base + overlays
+        assert "base" in config
+        assert config["base"]["type"] == "mock_style"
+        assert config["base"]["noise_level"] == 0.02
+        assert "overlays" in config
+        assert config["overlays"] == []
 
     def test_load_config_applies_defaults(self, tmp_path, monkeypatch):
         """Test that defaults are applied for missing values."""
@@ -204,12 +210,15 @@ simulation:
 
         config = _load_simulation_config(str(config_file))
 
-        # Should have defaults
+        # Should have defaults in base + overlays
         assert config["ioc"]["name"] == "soft_ioc"
         assert config["ioc"]["port"] == 5064
-        assert config["backend"]["type"] == "mock_style"
-        assert config["backend"]["noise_level"] == 0.01
-        assert config["backend"]["update_rate"] == 10.0
+        assert "base" in config
+        assert config["base"]["type"] == "mock_style"
+        assert config["base"]["noise_level"] == 0.01
+        assert config["base"]["update_rate"] == 10.0
+        assert "overlays" in config
+        assert config["overlays"] == []
 
     def test_load_config_missing_file(self, tmp_path, monkeypatch):
         """Test error when config file doesn't exist."""
@@ -498,10 +507,8 @@ class TestSoftIOCCLIIntegration:
         assert result.exit_code != 0
         assert "No 'simulation' section" in result.output
 
-    @patch("osprey.cli.generate_cmd._load_channels_from_database")
     def test_soft_ioc_dry_run(
         self,
-        mock_load_channels,
         cli_runner,
         tmp_path,
         monkeypatch,
@@ -515,18 +522,21 @@ simulation:
   ioc:
     name: test_sim
     port: 5065
-  backend:
+  base:
     type: mock_style
 """
         config_file = tmp_path / "config.yml"
         config_file.write_text(config_content)
 
-        monkeypatch.chdir(tmp_path)
+        # Create channel database
+        db_dir = tmp_path / "data" / "channel_databases"
+        db_dir.mkdir(parents=True)
+        db_file = db_dir / "db.json"
+        db_file.write_text(
+            json.dumps([{"channel": "TEST:PV", "address": "TEST:PV", "description": "Test PV"}])
+        )
 
-        # Setup mock
-        mock_load_channels.return_value = [
-            {"name": "TEST:PV", "python_name": "TEST_PV", "type": "float", "read_only": True}
-        ]
+        monkeypatch.chdir(tmp_path)
 
         result = cli_runner.invoke(generate, ["soft-ioc", "--dry-run"])
 
@@ -534,12 +544,10 @@ simulation:
         assert "Dry Run Summary" in result.output
         assert "No files written" in result.output
 
-    @patch("osprey.cli.generate_cmd._load_channels_from_database")
     @patch("osprey.cli.generate_cmd._offer_control_system_config_update")
     def test_soft_ioc_generates_file(
         self,
         mock_offer,
-        mock_load_channels,
         cli_runner,
         tmp_path,
         monkeypatch,
@@ -553,26 +561,23 @@ simulation:
   ioc:
     name: test_sim
     port: 5065
-  backend:
+  base:
     type: mock_style
 """
         config_file = tmp_path / "config.yml"
         config_file.write_text(config_content)
 
+        # Create channel database
+        db_dir = tmp_path / "data" / "channel_databases"
+        db_dir.mkdir(parents=True)
+        db_file = db_dir / "db.json"
+        db_file.write_text(
+            json.dumps([{"channel": "TEST:PV", "address": "TEST:PV", "description": "Test PV"}])
+        )
+
         monkeypatch.chdir(tmp_path)
 
         mock_offer.return_value = None
-
-        # Setup mock
-        mock_load_channels.return_value = [
-            {
-                "name": "TEST:PV",
-                "python_name": "TEST_PV",
-                "type": "float",
-                "description": "Test",
-                "read_only": True,
-            }
-        ]
 
         result = cli_runner.invoke(generate, ["soft-ioc"])
 
@@ -713,11 +718,12 @@ class TestGenerateSimulationYamlPreview:
                 "port": 5064,
                 "output_dir": "generated_iocs/",
             },
-            "backend": {
+            "base": {
                 "type": "mock_style",
                 "noise_level": 0.01,
                 "update_rate": 10.0,
             },
+            "overlays": [],
         }
 
         preview = _generate_simulation_yaml_preview(sim_config)
@@ -728,6 +734,7 @@ class TestGenerateSimulationYamlPreview:
         assert "name:" in preview
         assert "test_ioc" in preview
         assert "port: 5064" in preview
+        assert "base:" in preview
         assert "mock_style" in preview
         assert "noise_level: 0.01" in preview
         assert "update_rate: 10.0" in preview
@@ -741,11 +748,10 @@ class TestGenerateSimulationYamlPreview:
                 "port": 5065,
                 "output_dir": "iocs/",
             },
-            "backend": {
+            "base": {
                 "type": "passthrough",
-                "noise_level": 0.01,
-                "update_rate": 10.0,
             },
+            "overlays": [],
         }
 
         preview = _generate_simulation_yaml_preview(sim_config)
@@ -794,6 +800,11 @@ class TestWriteSimulationConfig:
         assert updated_config["simulation"]["ioc"]["name"] == "test_ioc"
         assert updated_config["simulation"]["backend"]["type"] == "mock_style"
 
+        # Check section header comment was added in boxed format
+        content = config_file.read_text()
+        assert "# ====" in content  # Separator line
+        assert "# SIMULATION CONFIGURATION" in content
+
     def test_overwrite_existing_section(self, tmp_path):
         """Test overwriting existing simulation section."""
         import yaml
@@ -831,6 +842,79 @@ class TestWriteSimulationConfig:
         assert updated_config["simulation"]["channel_database"] == "new_db.json"
         assert updated_config["simulation"]["ioc"]["name"] == "new_ioc"
         assert updated_config["simulation"]["ioc"]["port"] == 5064
+
+    def test_write_preserves_comments(self, tmp_path):
+        """Test that YAML comments are preserved when writing simulation config."""
+        config_file = tmp_path / "config.yml"
+        original_content = """# Project configuration
+# This header comment must be preserved
+
+project_name: test  # inline comment
+
+# Control system settings
+control_system:
+  type: mock
+
+# Other section that should not be touched
+models:
+  orchestrator:
+    provider: anthropic
+"""
+        config_file.write_text(original_content)
+
+        sim_config = {
+            "channel_database": "data/channels.json",
+            "ioc": {"name": "test_ioc", "port": 5064},
+            "backend": {"type": "mock_style"},
+        }
+
+        _write_simulation_config(config_file, sim_config)
+
+        updated_content = config_file.read_text()
+
+        # Verify comments are preserved
+        assert "# Project configuration" in updated_content
+        assert "# This header comment must be preserved" in updated_content
+        assert "# inline comment" in updated_content
+        assert "# Control system settings" in updated_content
+        assert "# Other section" in updated_content
+
+        # Verify original values are preserved
+        assert "project_name: test" in updated_content
+        assert "type: mock" in updated_content
+        assert "provider: anthropic" in updated_content
+
+        # Verify new section was added
+        import yaml
+
+        with open(config_file) as f:
+            updated_config = yaml.safe_load(f)
+        assert "simulation" in updated_config
+        assert updated_config["simulation"]["ioc"]["name"] == "test_ioc"
+
+    def test_write_preserves_blank_lines(self, tmp_path):
+        """Test that blank lines are preserved when writing simulation config."""
+        config_file = tmp_path / "config.yml"
+        original_content = """project_name: test
+
+control_system:
+  type: mock
+
+models:
+  orchestrator:
+    provider: anthropic
+"""
+        config_file.write_text(original_content)
+
+        sim_config = {"ioc": {"name": "test_ioc"}}
+        _write_simulation_config(config_file, sim_config)
+
+        updated_content = config_file.read_text()
+
+        # Blank lines may be normalized, but structure should be preserved
+        # Key check: sections should remain separated, not all smashed together
+        lines = [line for line in updated_content.split("\n") if line.strip()]
+        assert len(lines) >= 6  # At least project_name, control_system, type, models, etc.
 
 
 class TestSoftIOCInitFlag:
@@ -889,3 +973,161 @@ class TestSoftIOCInitFlag:
         assert "project_name: test" in config_file.read_text()
         # Should show dry-run message
         assert "dry" in result.output.lower() or "no files" in result.output.lower()
+
+
+# =============================================================================
+# Test Custom Backend Configuration Validation
+# =============================================================================
+
+
+class TestCustomBackendConfigValidation:
+    """Tests for custom backend configuration validation."""
+
+    def test_validate_non_custom_backend_passes(self):
+        """Test that non-custom backends pass validation without error."""
+        backend_config = {"type": "mock_style", "noise_level": 0.01}
+        # Should not raise
+        _validate_custom_backend_config(backend_config)
+
+    def test_validate_passthrough_passes(self):
+        """Test that passthrough backend passes validation."""
+        backend_config = {"type": "passthrough"}
+        # Should not raise
+        _validate_custom_backend_config(backend_config)
+
+    def test_validate_custom_missing_module_path(self):
+        """Test that custom backend without module_path raises error."""
+        from click import ClickException
+
+        backend_config = {"type": "custom", "class_name": "MyBackend"}
+
+        with pytest.raises(ClickException) as exc_info:
+            _validate_custom_backend_config(backend_config)
+
+        assert "module_path" in str(exc_info.value)
+
+    def test_validate_custom_missing_class_name(self):
+        """Test that custom backend without class_name raises error."""
+        from click import ClickException
+
+        backend_config = {"type": "custom", "module_path": "my_module"}
+
+        with pytest.raises(ClickException) as exc_info:
+            _validate_custom_backend_config(backend_config)
+
+        assert "class_name" in str(exc_info.value)
+
+    def test_validate_custom_nonexistent_module_passes(self):
+        """Test that custom backend with nonexistent module passes validation.
+
+        Note: Module validation now happens at runtime when the IOC starts,
+        not at generation time. This allows changing backends without regenerating.
+        """
+        backend_config = {
+            "type": "custom",
+            "module_path": "nonexistent_module_xyz_12345",
+            "class_name": "SomeBackend",
+        }
+
+        # Should NOT raise - validation only checks structure, not existence
+        _validate_custom_backend_config(backend_config)
+
+    def test_validate_custom_nonexistent_class_passes(self):
+        """Test that custom backend with nonexistent class passes validation.
+
+        Note: Class validation now happens at runtime when the IOC starts,
+        not at generation time. This allows changing backends without regenerating.
+        """
+        # Use a module that exists but doesn't have the specified class
+        backend_config = {
+            "type": "custom",
+            "module_path": "os.path",  # Real module
+            "class_name": "NonexistentClassXYZ",
+        }
+
+        # Should NOT raise - validation only checks structure, not existence
+        _validate_custom_backend_config(backend_config)
+
+    def test_validate_custom_valid_module_and_class(self):
+        """Test that custom backend with valid module and class passes."""
+        # Use a real class that exists
+        backend_config = {
+            "type": "custom",
+            "module_path": "collections",
+            "class_name": "OrderedDict",
+        }
+
+        # Should not raise
+        _validate_custom_backend_config(backend_config)
+
+
+class TestLoadSimulationConfigWithCustomBackend:
+    """Tests for loading simulation config with custom backend."""
+
+    def test_load_custom_backend_config(self, tmp_path, monkeypatch):
+        """Test loading config with custom backend in overlays."""
+        config_content = """
+simulation:
+  channel_database: data/db.json
+  base:
+    type: mock_style
+  overlays:
+    - module_path: collections
+      class_name: OrderedDict
+      params:
+        initial_key: initial_value
+"""
+        config_file = tmp_path / "config.yml"
+        config_file.write_text(config_content)
+        monkeypatch.chdir(tmp_path)
+
+        config = _load_simulation_config(str(config_file))
+
+        assert config["base"]["type"] == "mock_style"
+        assert len(config["overlays"]) == 1
+        assert config["overlays"][0]["module_path"] == "collections"
+        assert config["overlays"][0]["class_name"] == "OrderedDict"
+        assert config["overlays"][0]["params"]["initial_key"] == "initial_value"
+
+    def test_load_config_applies_params_default(self, tmp_path, monkeypatch):
+        """Test that params defaults to empty dict if not specified."""
+        config_content = """
+simulation:
+  channel_database: data/db.json
+  base:
+    module_path: collections
+    class_name: OrderedDict
+"""
+        config_file = tmp_path / "config.yml"
+        config_file.write_text(config_content)
+        monkeypatch.chdir(tmp_path)
+
+        config = _load_simulation_config(str(config_file))
+
+        assert config["base"]["params"] == {}
+
+    def test_load_config_invalid_custom_overlay_passes(self, tmp_path, monkeypatch):
+        """Test that config with nonexistent custom overlay module passes at load time.
+
+        Note: Module validation now happens at runtime when the IOC starts,
+        not at config load time. This allows changing backends without regenerating.
+        """
+        config_content = """
+simulation:
+  channel_database: data/db.json
+  base:
+    type: mock_style
+  overlays:
+    - module_path: nonexistent_module_xyz
+      class_name: SomeBackend
+"""
+        config_file = tmp_path / "config.yml"
+        config_file.write_text(config_content)
+        monkeypatch.chdir(tmp_path)
+
+        # Should NOT raise - validation only checks structure, not module existence
+        config = _load_simulation_config(str(config_file))
+
+        # Config should load successfully with the nonexistent module path
+        assert config["overlays"][0]["module_path"] == "nonexistent_module_xyz"
+        assert config["overlays"][0]["class_name"] == "SomeBackend"

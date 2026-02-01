@@ -1,14 +1,156 @@
 """Config auto-update helper for configuration management.
 
+This module is the single source of truth for all configuration file modifications.
 Provides utilities for updating config.yml programmatically:
+- Comment-preserving YAML updates via ruamel.yaml
 - MCP capability react model configuration
 - EPICS gateway configuration for production deployment
+- Control system type switching
+
+For read-only config access, use utils/config.py (ConfigBuilder, get_config_value).
 """
 
-import re
 from pathlib import Path
+from typing import Any
 
 import yaml
+
+# =============================================================================
+# COMMENT-PRESERVING YAML UTILITIES
+# =============================================================================
+
+
+def update_yaml_file(
+    file_path: Path,
+    updates: dict[str, Any],
+    create_backup: bool = True,
+    section_comments: dict[str, str] | None = None,
+) -> Path | None:
+    """Update a YAML file while preserving comments and formatting.
+
+    Uses ruamel.yaml to maintain comments, blank lines, and original formatting
+    when modifying YAML configuration files.
+
+    Args:
+        file_path: Path to the YAML file to update
+        updates: Dictionary of updates to apply. Supports nested paths using
+                dot notation in keys (e.g., {"control_system.type": "epics"})
+                or nested dictionaries that will be merged.
+        create_backup: If True, creates a .bak file before modifying
+        section_comments: Optional dict mapping top-level keys to comment headers.
+                         Comments are added with a blank line before them.
+                         Example: {"simulation": "Simulation Configuration"}
+
+    Returns:
+        Path to backup file if created, None otherwise
+
+    Examples:
+        >>> # Simple update
+        >>> update_yaml_file(Path("config.yml"), {"control_system.type": "epics"})
+
+        >>> # Nested update
+        >>> update_yaml_file(Path("config.yml"), {
+        ...     "control_system": {
+        ...         "type": "epics",
+        ...         "connector": {"epics": {"gateways": {"read_only": {"port": 5064}}}}
+        ...     }
+        ... })
+
+        >>> # With section comment
+        >>> update_yaml_file(Path("config.yml"), {"simulation": {...}},
+        ...     section_comments={"simulation": "Simulation Configuration"})
+    """
+    from ruamel.yaml import YAML, CommentedMap
+
+    yaml_handler = YAML()
+    yaml_handler.preserve_quotes = True
+    yaml_handler.width = 4096  # Prevent line wrapping
+
+    # Read existing content
+    with open(file_path, encoding="utf-8") as f:
+        data = yaml_handler.load(f)
+
+    if data is None:
+        data = CommentedMap()
+
+    # Create backup before modifying
+    backup_path = None
+    if create_backup:
+        backup_path = file_path.with_suffix(".yml.bak")
+        backup_path.write_text(file_path.read_text(encoding="utf-8"), encoding="utf-8")
+
+    # Track which keys are being added (for comment placement)
+    new_keys = set()
+    for key in updates:
+        top_key = key.split(".")[0] if "." in key else key
+        if top_key not in data:
+            new_keys.add(top_key)
+
+    # Apply updates
+    _apply_nested_updates(data, updates)
+
+    # Add section comments for new top-level keys
+    if section_comments:
+        for key, comment in section_comments.items():
+            if key in new_keys and key in data:
+                # Add boxed section header to match existing config style:
+                # # ============================================================
+                # # SECTION NAME
+                # # ============================================================
+                separator = "=" * 60
+                comment_text = f"\n{separator}\n{comment}\n{separator}"
+                data.yaml_set_comment_before_after_key(key, before=comment_text)
+
+    # Write back with preserved formatting
+    with open(file_path, "w", encoding="utf-8") as f:
+        yaml_handler.dump(data, f)
+
+    return backup_path
+
+
+def _apply_nested_updates(data: dict, updates: dict) -> None:
+    """Apply nested updates to a dictionary, supporting dot notation keys.
+
+    Args:
+        data: Target dictionary to update (modified in place)
+        updates: Updates to apply
+    """
+    for key, value in updates.items():
+        if "." in key:
+            # Dot notation path (e.g., "control_system.type")
+            _set_nested_value(data, key, value)
+        elif isinstance(value, dict) and key in data and isinstance(data[key], dict):
+            # Recursively merge nested dictionaries
+            _apply_nested_updates(data[key], value)
+        else:
+            # Direct assignment
+            data[key] = value
+
+
+def _set_nested_value(data: dict, path: str, value: Any) -> None:
+    """Set a value at a nested path using dot notation.
+
+    Args:
+        data: Target dictionary
+        path: Dot-separated path (e.g., "control_system.connector.epics.port")
+        value: Value to set
+    """
+    keys = path.split(".")
+    current = data
+
+    # Navigate/create intermediate dictionaries
+    for key in keys[:-1]:
+        if key not in current or not isinstance(current[key], dict):
+            current[key] = {}
+        current = current[key]
+
+    # Set the final value
+    current[keys[-1]] = value
+
+
+# =============================================================================
+# CONFIG FILE DISCOVERY
+# =============================================================================
 
 
 def find_config_file() -> Path | None:
@@ -99,48 +241,61 @@ def generate_capability_react_yaml(
 
 
 def add_capability_react_to_config(
-    config_path: Path, capability_name: str, template_config: dict | None = None
+    config_path: Path,
+    capability_name: str,
+    template_config: dict | None = None,
+    create_backup: bool = True,
 ) -> tuple[str, str]:
     """Add capability-specific react model to config.yml.
+
+    Uses comment-preserving YAML update via update_yaml_file().
 
     Args:
         config_path: Path to config.yml
         capability_name: Capability name (e.g., 'weather_demo')
         template_config: Optional model config to use as template
+        create_backup: If True, creates a .bak file before modifying
 
     Returns:
-        Tuple of (new_content, preview) where preview shows what was added
+        Tuple of (updated_content, preview) where updated_content is the new file content
     """
-    content = config_path.read_text()
+    # Build model config
+    if template_config:
+        provider = template_config["provider"]
+        model_id_val = template_config["model_id"]
+        max_tokens = template_config["max_tokens"]
+    else:
+        provider = "anthropic"
+        model_id_val = "claude-sonnet-4"
+        max_tokens = 4096
 
-    # Generate the capability-specific react configuration
-    capability_react_yaml = generate_capability_react_yaml(capability_name, template_config)
+    model_key = f"{capability_name}_react"
+    model_config = {
+        "provider": provider,
+        "model_id": model_id_val,
+        "max_tokens": max_tokens,
+    }
 
-    # Find the models section and add capability-specific react model
-    # Look for pattern: models:\n  <existing_models>
-    # We want to add after the last model entry
+    # Apply updates using comment-preserving YAML
+    update_yaml_file(
+        config_path,
+        {f"models.{model_key}": model_config},
+        create_backup=create_backup,
+    )
 
-    # Strategy: Find the models: section, then find where the next top-level key starts
-    # Insert capability_react before that next section
-
-    models_pattern = r"(models:\s*\n(?:  \w+:.*\n(?:    .*\n)*)+)"
-
-    def add_capability_react(match):
-        models_section = match.group(1)
-        # Add capability_react at the end of the models section
-        return f"{models_section}{capability_react_yaml}\n"
-
-    new_content = re.sub(models_pattern, add_capability_react, content, count=1)
+    # Read back the updated content
+    updated_content = config_path.read_text()
 
     # Create preview
+    capability_react_yaml = generate_capability_react_yaml(capability_name, template_config)
     preview = f"""
 [bold]{capability_name.title()} ReAct Model Configuration:[/bold]
 {capability_react_yaml}
 
-[dim]This will be added to the 'models' section of your config.yml[/dim]
+[dim]Added to the 'models' section of your config.yml[/dim]
 """
 
-    return new_content, preview
+    return updated_content, preview
 
 
 def get_config_preview(capability_name: str, template_config: dict | None = None) -> str:
@@ -166,51 +321,69 @@ If not configured, the capability falls back to using the 'orchestrator' model.[
 
 
 def remove_capability_react_from_config(
-    config_path: Path, capability_name: str
-) -> tuple[str, str, bool]:
+    config_path: Path,
+    capability_name: str,
+    create_backup: bool = True,
+) -> tuple[Path | None, str, bool]:
     """Remove capability-specific react model from config.yml.
+
+    Uses ruamel.yaml to preserve comments while removing the model entry.
 
     Args:
         config_path: Path to config.yml
         capability_name: Capability name (e.g., 'weather_demo')
+        create_backup: If True, creates a .bak file before modifying
 
     Returns:
-        Tuple of (new_content, preview, found) where:
-        - new_content: Updated config content
+        Tuple of (backup_path, preview, found) where:
+        - backup_path: Path to backup file, None if no backup created
         - preview: Human-readable description of what was removed
         - found: True if model was found and removed
     """
-    content = config_path.read_text()
+    from ruamel.yaml import YAML
+
     model_key = f"{capability_name}_react"
 
-    # Pattern to match the entire model entry including all its properties
-    # Matches:
-    #   capability_name_react:
-    #     provider: ...
-    #     model_id: ...
-    #     max_tokens: ...
-    model_pattern = rf"^  {re.escape(model_key)}:\s*\n(?:    .*\n)*"
+    yaml_handler = YAML()
+    yaml_handler.preserve_quotes = True
+    yaml_handler.width = 4096
 
-    match = re.search(model_pattern, content, flags=re.MULTILINE)
+    # Read existing content
+    with open(config_path, encoding="utf-8") as f:
+        data = yaml_handler.load(f)
 
-    if not match:
+    if data is None or "models" not in data or model_key not in data["models"]:
         preview = f"\n[dim]No config entry found for '{model_key}'[/dim]"
-        return content, preview, False
+        return None, preview, False
 
-    # Extract what we're removing for preview
-    removed_section = match.group(0).rstrip()
+    # Get the config being removed for preview
+    removed_config = data["models"][model_key]
+    removed_section = f"  {model_key}:\n"
+    for key, value in removed_config.items():
+        removed_section += f"    {key}: {value}\n"
+    removed_section = removed_section.rstrip()
 
-    # Remove the section
-    new_content = re.sub(model_pattern, "", content, flags=re.MULTILINE)
+    # Create backup before modifying
+    backup_path = None
+    if create_backup:
+        backup_path = config_path.with_suffix(".yml.bak")
+        backup_path.write_text(config_path.read_text(encoding="utf-8"), encoding="utf-8")
+
+    # Remove the model entry
+    del data["models"][model_key]
+
+    # Write back with preserved formatting
+    with open(config_path, "w", encoding="utf-8") as f:
+        yaml_handler.dump(data, f)
 
     # Generate preview
     preview = f"""
 [bold]{capability_name.title()} ReAct Model Configuration:[/bold]
-[red]- REMOVE:[/red]
+[red]- REMOVED:[/red]
 {removed_section}
 """
 
-    return new_content, preview, True
+    return backup_path, preview, True
 
 
 def get_capability_react_config(config_path: Path, capability_name: str) -> dict | None:
@@ -271,33 +444,35 @@ def get_control_system_type(config_path: Path, key: str = "control_system.type")
 
 
 def set_control_system_type(
-    config_path: Path, control_type: str, archiver_type: str | None = None
+    config_path: Path,
+    control_type: str,
+    archiver_type: str | None = None,
+    create_backup: bool = True,
 ) -> tuple[str, str]:
     """Update control system and optionally archiver type in config.yml.
+
+    Uses comment-preserving YAML update via update_yaml_file().
 
     Args:
         config_path: Path to config.yml
         control_type: 'mock' or 'epics'
         archiver_type: Optional archiver type ('mock_archiver', 'epics_archiver')
+        create_backup: If True, creates a .bak file before modifying
 
     Returns:
-        Tuple of (new_content, preview)
+        Tuple of (updated_content, preview) where updated_content is the new file content
     """
-    content = config_path.read_text()
+    # Build updates dict
+    updates: dict[str, Any] = {"control_system.type": control_type}
 
-    # Update control_system.type
-    # Pattern allows for comment lines between control_system: and type:
-    control_pattern = r"(control_system:\s*\n(?:.*\n)*?\s*type:\s*)\w+"
-    control_replacement = rf"\1{control_type}"
-    new_content = re.sub(control_pattern, control_replacement, content, flags=re.MULTILINE)
-
-    # Update archiver.type if specified
     if archiver_type:
-        archiver_pattern = r"(archiver:\s*\n(?:.*\n)*?\s*type:\s*)\w+"
-        archiver_replacement = rf"\1{archiver_type}"
-        new_content = re.sub(
-            archiver_pattern, archiver_replacement, new_content, flags=re.MULTILINE
-        )
+        updates["archiver.type"] = archiver_type
+
+    # Apply updates using comment-preserving YAML
+    update_yaml_file(config_path, updates, create_backup=create_backup)
+
+    # Read back the updated content
+    updated_content = config_path.read_text()
 
     # Create preview
     preview_lines = [
@@ -308,11 +483,11 @@ def set_control_system_type(
     if archiver_type:
         preview_lines.append(f"archiver.type: {archiver_type}")
 
-    preview_lines.append("\n[dim]This will update your config.yml[/dim]")
+    preview_lines.append("\n[dim]Updated config.yml[/dim]")
 
     preview = "\n".join(preview_lines)
 
-    return new_content, preview
+    return updated_content, preview
 
 
 # ============================================================================
@@ -321,24 +496,29 @@ def set_control_system_type(
 
 
 def set_epics_gateway_config(
-    config_path: Path, facility: str, custom_config: dict | None = None
+    config_path: Path,
+    facility: str,
+    custom_config: dict | None = None,
+    create_backup: bool = True,
 ) -> tuple[str, str]:
     """Update EPICS gateway configuration in config.yml.
 
     Updates the control_system.connector.epics.gateways section with
     facility-specific or custom gateway settings.
 
+    Uses comment-preserving YAML update via update_yaml_file().
+
     Args:
         config_path: Path to config.yml
         facility: 'aps', 'als', or 'custom'
         custom_config: For 'custom', dict with 'read_only' and 'write_access' gateways
+        create_backup: If True, creates a .bak file before modifying
 
     Returns:
-        Tuple of (new_content, preview) where preview shows what will be changed
+        Tuple of (updated_content, preview) where updated_content is the new file content
 
     Example:
         >>> new_content, preview = set_epics_gateway_config(config_path, 'aps')
-        >>> config_path.write_text(new_content)
     """
     from osprey.templates.data import get_facility_config
 
@@ -354,31 +534,27 @@ def set_epics_gateway_config(
         gateway_config = preset["gateways"]
         facility_name = preset["name"]
 
-    content = config_path.read_text()
+    # Apply updates using comment-preserving YAML
+    update_yaml_file(
+        config_path,
+        {"control_system.connector.epics.gateways": gateway_config},
+        create_backup=create_backup,
+    )
 
-    # Build replacement gateway section
+    # Read back the updated content
+    updated_content = config_path.read_text()
+
+    # Build preview string
     gateway_yaml = _format_gateway_yaml(gateway_config)
-
-    # Find and replace the gateways section within control_system.connector.epics
-    # Pattern: Look for the gateways: section under epics:
-    pattern = r"(epics:\s*\n\s*timeout:.*?\n\s*gateways:\s*\n)((?:\s+\w+:\s*\n(?:\s+.*\n)*)*)"
-
-    def replace_gateways(match):
-        header = match.group(1)  # Keep "epics:\n  timeout: X\n  gateways:\n"
-        return header + gateway_yaml
-
-    new_content = re.sub(pattern, replace_gateways, content, flags=re.MULTILINE)
-
-    # Create preview
     preview = f"""
 [bold]EPICS Gateway Configuration - {facility_name}[/bold]
 
 {gateway_yaml.rstrip()}
 
-[dim]This will update control_system.connector.epics.gateways in config.yml[/dim]
+[dim]Updated control_system.connector.epics.gateways in config.yml[/dim]
 """
 
-    return new_content, preview
+    return updated_content, preview
 
 
 def _format_gateway_yaml(gateway_config: dict) -> str:
@@ -494,27 +670,32 @@ def get_all_model_configs(config_path: Path) -> dict | None:
     return None
 
 
-def update_all_models(config_path: Path, provider: str, model_id: str) -> tuple[str, str]:
+def update_all_models(
+    config_path: Path,
+    provider: str,
+    model_id: str,
+    create_backup: bool = True,
+) -> tuple[str, str]:
     """Update all model configurations in config.yml with new provider/model.
 
     This updates ALL model entries in the models section to use the same
     provider and model_id, while preserving any custom max_tokens settings.
 
+    Uses comment-preserving YAML update via update_yaml_file().
+
     Args:
         config_path: Path to config.yml
         provider: Provider name (e.g., 'openai', 'anthropic', 'cborg')
         model_id: Model ID (e.g., 'gpt-4', 'claude-sonnet-4')
+        create_backup: If True, creates a .bak file before modifying
 
     Returns:
-        Tuple of (new_content, preview) where preview shows what will be changed
+        Tuple of (updated_content, preview) where updated_content is the new file content
 
     Example:
         >>> new_content, preview = update_all_models(config_path, 'openai', 'gpt-4')
-        >>> config_path.write_text(new_content)
     """
-    content = config_path.read_text()
-
-    # Get current models to show what's changing
+    # Get current models to build updates and preview
     try:
         with open(config_path) as f:
             config = yaml.safe_load(f)
@@ -522,23 +703,17 @@ def update_all_models(config_path: Path, provider: str, model_id: str) -> tuple[
     except Exception:
         current_models = {}
 
-    # Pattern to match provider and model_id in any model entry
-    # Matches:   provider: <value>
-    #            model_id: <value>
-    # Under the models: section (with 2-space indentation for role names)
+    # Build updates for each model, preserving max_tokens
+    updates: dict[str, Any] = {}
+    for model_name in current_models:
+        updates[f"models.{model_name}.provider"] = provider
+        updates[f"models.{model_name}.model_id"] = model_id
 
-    # Update all provider entries under models section
-    provider_pattern = r"(models:(?:\s*\n  \w+:(?:\s*\n    (?:provider|model_id|max_tokens):.*)*)*)"
+    # Apply updates using comment-preserving YAML
+    update_yaml_file(config_path, updates, create_backup=create_backup)
 
-    def update_models_section(match):
-        section = match.group(0)
-        # Replace provider: <anything>
-        section = re.sub(r"(\n    provider:\s*)\S+", rf"\1{provider}", section)
-        # Replace model_id: <anything>
-        section = re.sub(r"(\n    model_id:\s*)\S+", rf"\1{model_id}", section)
-        return section
-
-    new_content = re.sub(provider_pattern, update_models_section, content, flags=re.MULTILINE)
+    # Read back the updated content
+    updated_content = config_path.read_text()
 
     # Create preview showing changes
     model_count = len(current_models)
@@ -547,10 +722,10 @@ def update_all_models(config_path: Path, provider: str, model_id: str) -> tuple[
         "[bold]Model Configuration Update[/bold]\n",
         f"Provider: [value]{provider}[/value]",
         f"Model ID: [value]{model_id}[/value]",
-        f"\nThis will update [bold]{model_count}[/bold] model configuration(s):",
+        f"\nUpdated [bold]{model_count}[/bold] model configuration(s):",
     ]
 
-    # List the models that will be updated
+    # List the models that were updated
     for model_name in sorted(current_models.keys()):
         current = current_models[model_name]
         current_provider = current.get("provider", "unknown")
@@ -563,8 +738,8 @@ def update_all_models(config_path: Path, provider: str, model_id: str) -> tuple[
         else:
             preview_lines.append(f"  • {model_name}: [dim](no change)[/dim]")
 
-    preview_lines.append("\n[dim]Note: max_tokens settings will be preserved[/dim]")
+    preview_lines.append("\n[dim]Note: max_tokens settings were preserved[/dim]")
 
     preview = "\n".join(preview_lines)
 
-    return new_content, preview
+    return updated_content, preview

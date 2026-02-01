@@ -1,12 +1,14 @@
-"""Tests for soft IOC template generator."""
+"""Tests for soft IOC template generator.
+
+Note: Backend class generation tests have been moved to test_ioc_backends.py
+since backends are now loaded at runtime from the osprey.generators.ioc_backends module.
+"""
 
 import pytest
 
 from osprey.generators.soft_ioc_template import (
-    _generate_backend_code,
     _generate_pairings_literal,
     _generate_pv_definitions,
-    _get_backend_instantiation,
     _to_class_name,
     generate_soft_ioc,
     sanitize_pv_name,
@@ -283,65 +285,6 @@ class TestGeneratePairingsLiteral:
 
 
 # =============================================================================
-# Test _generate_backend_code
-# =============================================================================
-
-
-class TestGenerateBackendCode:
-    """Test backend code generation."""
-
-    def test_passthrough_backend(self):
-        """Test passthrough backend generation."""
-        code = _generate_backend_code("passthrough", {}, 0.01, 10.0)
-
-        assert "class PassthroughBackend" in code
-        assert "def initialize" in code
-        assert "def on_write" in code
-        assert "def step" in code
-        assert "return {}" in code  # No-op returns
-
-    def test_mock_style_backend(self):
-        """Test mock-style backend generation."""
-        code = _generate_backend_code("mock_style", {}, 0.01, 10.0)
-
-        assert "class MockStyleBackend" in code
-        assert "def initialize" in code
-        assert "def on_write" in code
-        assert "def step" in code
-        assert "noise_level" in code
-        assert "0.01" in code  # Noise level should be embedded
-
-    def test_mock_style_with_custom_noise(self):
-        """Test mock-style backend with custom noise level."""
-        code = _generate_backend_code("mock_style", {}, 0.05, 10.0)
-        assert "0.05" in code
-
-
-# =============================================================================
-# Test _get_backend_instantiation
-# =============================================================================
-
-
-class TestGetBackendInstantiation:
-    """Test backend instantiation code generation."""
-
-    def test_passthrough(self):
-        """Test passthrough instantiation."""
-        result = _get_backend_instantiation("passthrough", 0.01)
-        assert result == "PassthroughBackend()"
-
-    def test_mock_style(self):
-        """Test mock-style instantiation."""
-        result = _get_backend_instantiation("mock_style", 0.01)
-        assert result == "MockStyleBackend(noise_level=0.01)"
-
-    def test_mock_style_custom_noise(self):
-        """Test mock-style with custom noise."""
-        result = _get_backend_instantiation("mock_style", 0.05)
-        assert result == "MockStyleBackend(noise_level=0.05)"
-
-
-# =============================================================================
 # Test generate_soft_ioc (integration)
 # =============================================================================
 
@@ -351,16 +294,27 @@ class TestGenerateSoftIOC:
 
     @pytest.fixture
     def sample_config(self):
-        """Sample configuration for testing."""
+        """Sample configuration for testing (new base + overlays format)."""
         return {
             "ioc": {
                 "name": "test_ioc",
                 "port": 5064,
             },
-            "backend": {
+            "base": {
                 "type": "mock_style",
                 "noise_level": 0.01,
                 "update_rate": 10.0,
+            },
+            "overlays": [],
+        }
+
+    @pytest.fixture
+    def minimal_config(self):
+        """Minimal configuration (base defaults to mock_style)."""
+        return {
+            "ioc": {
+                "name": "test_ioc",
+                "port": 5064,
             },
         }
 
@@ -433,11 +387,20 @@ class TestGenerateSoftIOC:
         assert "PAIRINGS = {" in code
         assert "'QUAD:CURRENT:SP': 'QUAD:CURRENT:RB'" in code
 
-    def test_contains_backend(self, sample_config, sample_channels, sample_pairings):
-        """Test that code contains backend class."""
+    def test_imports_ioc_backends(self, sample_config, sample_channels, sample_pairings):
+        """Test that code imports from ioc_backends module."""
         code = generate_soft_ioc(sample_config, sample_channels, sample_pairings)
 
-        assert "class MockStyleBackend" in code
+        assert "from osprey.generators.ioc_backends import load_backends_from_config" in code
+
+    def test_loads_config_at_runtime(self, sample_config, sample_channels, sample_pairings):
+        """Test that code loads config at runtime."""
+        code = generate_soft_ioc(sample_config, sample_channels, sample_pairings)
+
+        # Should load config from file
+        assert "yaml.safe_load" in code
+        # Should call load_backends_from_config with config_dir
+        assert "load_backends_from_config(sim_config, PAIRINGS, config_dir=" in code
 
     def test_contains_heartbeat(self, sample_config, sample_channels, sample_pairings):
         """Test that code contains simulation heartbeat."""
@@ -454,13 +417,43 @@ class TestGenerateSoftIOC:
         assert "ioc_arg_parser" in code
         assert "run(ioc.pvdb" in code
 
-    def test_passthrough_backend(self, sample_config, sample_channels, sample_pairings):
-        """Test generation with passthrough backend."""
-        sample_config["backend"]["type"] = "passthrough"
+    def test_contains_config_argument(self, sample_config, sample_channels, sample_pairings):
+        """Test that code supports --config argument for runtime configuration."""
         code = generate_soft_ioc(sample_config, sample_channels, sample_pairings)
 
-        assert "class PassthroughBackend" in code
-        assert "PassthroughBackend()" in code
+        assert "--config" in code
+        assert "argparse" in code
+
+    def test_passthrough_backend_in_docstring(self, sample_channels, sample_pairings):
+        """Test generation with passthrough backend shows in docstring."""
+        config = {
+            "ioc": {"name": "test_ioc", "port": 5064},
+            "base": {"type": "passthrough"},
+            "overlays": [],
+        }
+        code = generate_soft_ioc(config, sample_channels, sample_pairings)
+
+        assert "Backend: passthrough" in code
+
+    def test_minimal_config(self, minimal_config, sample_channels, sample_pairings):
+        """Test that minimal config (no base/overlays) defaults to mock_style."""
+        code = generate_soft_ioc(minimal_config, sample_channels, sample_pairings)
+
+        # Should generate valid code
+        compile(code, "<generated>", "exec")
+        assert "Backend: mock_style" in code
+
+    def test_chained_backends_in_docstring(self, sample_channels, sample_pairings):
+        """Test generation with base + overlays shows chained in docstring."""
+        config = {
+            "ioc": {"name": "test_ioc", "port": 5064},
+            "base": {"type": "mock_style", "noise_level": 0.01, "update_rate": 10.0},
+            "overlays": [{"type": "passthrough"}],
+        }
+        code = generate_soft_ioc(config, sample_channels, sample_pairings)
+
+        # Backend info should show both base and overlay
+        assert "Backend: mock_style + passthrough" in code
 
     def test_empty_channels(self, sample_config):
         """Test generation with no channels."""
@@ -476,6 +469,21 @@ class TestGenerateSoftIOC:
         code = generate_soft_ioc(sample_config, sample_channels, {})
 
         assert "PAIRINGS = {}" in code
+
+    def test_custom_backend_in_docstring(self, sample_channels, sample_pairings):
+        """Test custom backend appears in docstring."""
+        config = {
+            "ioc": {"name": "test_ioc", "port": 5064},
+            "base": {
+                "module_path": "my_project.physics",
+                "class_name": "PhysicsBackend",
+            },
+            "overlays": [],
+        }
+        code = generate_soft_ioc(config, sample_channels, sample_pairings)
+
+        # Should include module::class in backend info
+        assert "my_project.physics::PhysicsBackend" in code
 
 
 # =============================================================================
@@ -511,3 +519,109 @@ class TestEdgeCases:
         # not arbitrary unicode
         assert "TEMP" in result
         assert ":" not in result  # Colon should be replaced
+
+
+# =============================================================================
+# Test SimulationBackend Protocol
+# =============================================================================
+
+
+class TestSimulationBackendProtocol:
+    """Tests for SimulationBackend protocol compliance."""
+
+    def test_protocol_is_importable(self):
+        """Test that the protocol can be imported."""
+        from osprey.generators.backend_protocol import SimulationBackend
+
+        assert SimulationBackend is not None
+
+    def test_protocol_is_runtime_checkable(self):
+        """Test that the protocol is runtime checkable."""
+        from osprey.generators.backend_protocol import SimulationBackend
+
+        # Create a mock backend that implements the interface
+        class MockBackend:
+            def initialize(self, pv_definitions):
+                return {}
+
+            def on_write(self, pv_name, value):
+                return {}
+
+            def step(self, dt):
+                return {}
+
+        backend = MockBackend()
+        assert isinstance(backend, SimulationBackend)
+
+    def test_protocol_rejects_incomplete_implementation(self):
+        """Test that incomplete implementations fail isinstance check."""
+        from osprey.generators.backend_protocol import SimulationBackend
+
+        class IncompleteBackend:
+            def initialize(self, pv_definitions):
+                return {}
+
+            # Missing on_write and step
+
+        backend = IncompleteBackend()
+        assert not isinstance(backend, SimulationBackend)
+
+
+# =============================================================================
+# Test ChainedBackend semantics
+# =============================================================================
+
+
+class TestChainedBackendSemantics:
+    """Tests for ChainedBackend on_write delegation semantics."""
+
+    def test_on_write_returns_none_for_delegation(self):
+        """Test that backends can return None to delegate to next in chain."""
+        from osprey.generators.backend_protocol import SimulationBackend
+
+        # A backend that only handles specific PVs and delegates others
+        class SelectiveBackend:
+            def __init__(self, handled_pvs):
+                self.handled_pvs = handled_pvs
+
+            def initialize(self, pv_definitions):
+                return {}
+
+            def on_write(self, pv_name, value):
+                if pv_name in self.handled_pvs:
+                    return {"handled": True}
+                return None  # Delegate
+
+            def step(self, dt):
+                return {}
+
+        backend = SelectiveBackend({"PV1"})
+        assert isinstance(backend, SimulationBackend)
+
+        # Should return dict for handled PV
+        result = backend.on_write("PV1", 100.0)
+        assert result is not None
+        assert result == {"handled": True}
+
+        # Should return None for non-handled PV (delegation)
+        result = backend.on_write("PV2", 200.0)
+        assert result is None
+
+    def test_step_always_returns_dict(self):
+        """Test that step() always returns a dict (no delegation)."""
+        from osprey.generators.backend_protocol import SimulationBackend
+
+        class TestBackend:
+            def initialize(self, pv_definitions):
+                return {}
+
+            def on_write(self, pv_name, value):
+                return {}
+
+            def step(self, dt):
+                return {"PV1": 100.0}  # Always return dict
+
+        backend = TestBackend()
+        assert isinstance(backend, SimulationBackend)
+        result = backend.step(0.1)
+        assert isinstance(result, dict)

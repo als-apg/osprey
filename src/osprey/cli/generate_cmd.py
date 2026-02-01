@@ -1212,18 +1212,45 @@ def _generate_simulation_yaml_preview(sim_config: dict) -> str:
     lines.append(f"    port: {sim_config['ioc']['port']}")
     lines.append(f'    output_dir: "{sim_config["ioc"]["output_dir"]}"')
 
-    # Backend settings
-    lines.append("  backend:")
-    lines.append(f'    type: "{sim_config["backend"]["type"]}"')
-    if sim_config["backend"]["type"] == "mock_style":
-        lines.append(f"    noise_level: {sim_config['backend']['noise_level']}")
-        lines.append(f"    update_rate: {sim_config['backend']['update_rate']}")
+    # Base backend (single dict, no dash)
+    base = sim_config.get("base", {"type": "mock_style"})
+    lines.append("  base:")
+    base_type = base.get("type", "mock_style")
+    lines.append(f'    type: "{base_type}"')
+    if base_type == "mock_style":
+        lines.append(f"    noise_level: {base.get('noise_level', 0.01)}")
+        lines.append(f"    update_rate: {base.get('update_rate', 10.0)}")
+    elif base.get("module_path"):
+        lines.append(f'    module_path: "{base["module_path"]}"')
+        lines.append(f'    class_name: "{base["class_name"]}"')
+        if base.get("params"):
+            lines.append("    params:")
+            for k, v in base["params"].items():
+                lines.append(f"      {k}: {repr(v)}")
+
+    # Overlays (list with dashes)
+    overlays = sim_config.get("overlays", [])
+    if overlays:
+        lines.append("  overlays:")
+        for overlay in overlays:
+            if overlay.get("module_path"):
+                lines.append(f'    - module_path: "{overlay["module_path"]}"')
+                lines.append(f'      class_name: "{overlay["class_name"]}"')
+                if overlay.get("params"):
+                    lines.append("      params:")
+                    for k, v in overlay["params"].items():
+                        lines.append(f"        {k}: {repr(v)}")
+            elif overlay.get("type"):
+                lines.append(f'    - type: "{overlay["type"]}"')
 
     return "\n".join(lines)
 
 
 def _write_simulation_config(config_path: Path, sim_config: dict) -> Path:
     """Write simulation section to config.yml with backup.
+
+    Uses comment-preserving YAML to maintain formatting and comments.
+    Adds a section header when creating a new simulation section.
 
     Args:
         config_path: Path to config.yml
@@ -1232,23 +1259,14 @@ def _write_simulation_config(config_path: Path, sim_config: dict) -> Path:
     Returns:
         Path to backup file
     """
-    import yaml
+    from osprey.generators.config_updater import update_yaml_file
 
-    # Create backup
-    backup_path = config_path.with_suffix(".yml.bak")
-    backup_path.write_text(config_path.read_text(encoding="utf-8"), encoding="utf-8")
-
-    # Load existing config
-    with open(config_path, encoding="utf-8") as f:
-        config = yaml.safe_load(f) or {}
-
-    # Add/update simulation section
-    config["simulation"] = sim_config
-
-    # Write updated config
-    with open(config_path, "w", encoding="utf-8") as f:
-        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-
+    backup_path = update_yaml_file(
+        config_path,
+        {"simulation": sim_config},
+        create_backup=True,
+        section_comments={"simulation": "SIMULATION CONFIGURATION"},
+    )
     return backup_path
 
 
@@ -1385,6 +1403,7 @@ async def _offer_simulation_config_setup(
         choices=[
             "mock_style (recommended - archiver-style simulation)",
             "passthrough (no simulation)",
+            "custom (your own physics backend)",
         ],
         style=get_questionary_style(),
     ).ask_async()
@@ -1393,11 +1412,19 @@ async def _offer_simulation_config_setup(
         console.print(f"\n{Messages.warning('Setup cancelled')}")
         return None
 
-    backend_type = "mock_style" if "mock_style" in backend_type else "passthrough"
+    if "mock_style" in backend_type:
+        backend_type = "mock_style"
+    elif "passthrough" in backend_type:
+        backend_type = "passthrough"
+    else:
+        backend_type = "custom"
 
-    # 6. Backend settings (for mock_style)
+    # 6. Backend settings
     noise_level = 0.01
     update_rate = 10.0
+    module_path = None
+    class_name = None
+    params = {}
 
     if backend_type == "mock_style":
         noise_str = await questionary.text(
@@ -1424,7 +1451,92 @@ async def _offer_simulation_config_setup(
             except ValueError:
                 update_rate = 10.0
 
-    # Build config dict
+    elif backend_type == "custom":
+        console.print()
+        console.print(
+            f"  [{Styles.DIM}]Custom backends must implement initialize(), on_write(), and step() methods."
+        )
+        console.print(f"  See: osprey.generators.backend_protocol.SimulationBackend[/{Styles.DIM}]")
+        console.print()
+
+        module_path = await questionary.text(
+            "Module path (e.g., my_project.simulation.backend):",
+            style=get_questionary_style(),
+        ).ask_async()
+
+        if not module_path:
+            console.print(f"\n{Messages.warning('Setup cancelled')}")
+            return None
+
+        class_name = await questionary.text(
+            "Class name (e.g., PyATBackend):",
+            style=get_questionary_style(),
+        ).ask_async()
+
+        if not class_name:
+            console.print(f"\n{Messages.warning('Setup cancelled')}")
+            return None
+
+        rate_str = await questionary.text(
+            "Update rate (Hz):",
+            default="10.0",
+            style=get_questionary_style(),
+        ).ask_async()
+
+        if rate_str:
+            try:
+                update_rate = float(rate_str)
+            except ValueError:
+                update_rate = 10.0
+
+        # Ask about constructor params
+        add_params = await questionary.confirm(
+            "Add constructor parameters to your backend?",
+            default=False,
+            style=get_questionary_style(),
+        ).ask_async()
+
+        if add_params:
+            console.print(
+                f"  [{Styles.DIM}]Enter params as 'key: value' (one per line, empty line to finish):[/{Styles.DIM}]"  # noqa: E501
+            )
+            while True:
+                param_line = await questionary.text(
+                    "  param:",
+                    style=get_questionary_style(),
+                ).ask_async()
+
+                if not param_line or not param_line.strip():
+                    break
+
+                if ":" in param_line:
+                    key, value = param_line.split(":", 1)
+                    key = key.strip()
+                    value = value.strip()
+                    # Try to parse as Python literal
+                    try:
+                        import ast
+
+                        params[key] = ast.literal_eval(value)
+                    except (ValueError, SyntaxError):
+                        # Keep as string
+                        params[key] = value
+
+    # Build base backend config
+    base_config = {
+        "type": backend_type,
+        "noise_level": noise_level,
+        "update_rate": update_rate,
+    }
+
+    # For custom backend as base, add module fields
+    if backend_type == "custom":
+        base_config["module_path"] = module_path
+        base_config["class_name"] = class_name
+        if params:
+            base_config["params"] = params
+
+    # Build config dict using base + overlays format
     sim_config = {
         "channel_database": channel_database,
         "ioc": {
@@ -1432,11 +1544,8 @@ async def _offer_simulation_config_setup(
             "port": port,
             "output_dir": output_dir,
         },
-        "backend": {
-            "type": backend_type,
-            "noise_level": noise_level,
-            "update_rate": update_rate,
-        },
+        "base": base_config,
+        "overlays": [],  # Empty by default, user can add later
     }
 
     # Show preview
@@ -1470,6 +1579,49 @@ async def _offer_simulation_config_setup(
         return None
 
 
+def _validate_custom_backend_config(backend_config: dict) -> None:
+    """Validate custom backend configuration structure.
+
+    Note: This only validates configuration structure, not whether the module
+    can be imported. Module validation happens at runtime when the IOC starts,
+    allowing backends to be changed without regenerating the IOC.
+
+    Args:
+        backend_config: A single backend configuration dict
+
+    Raises:
+        click.ClickException: If custom backend config is invalid
+    """
+    # Check if this is a custom backend (type=custom or has class_name without type)
+    is_custom = backend_config.get("type") == "custom"
+    has_class_name = backend_config.get("class_name") is not None
+
+    if not is_custom and not has_class_name:
+        return  # Built-in backend type, no validation needed
+
+    # For backends with class_name, require module_path
+    if has_class_name and not backend_config.get("module_path"):
+        raise click.ClickException(
+            "Backend with class_name requires 'module_path'.\n"
+            "Example: module_path: 'my_project.simulation.pyat_backend'"
+        )
+
+    # For type=custom, require both module_path and class_name
+    if is_custom:
+        if not backend_config.get("module_path"):
+            raise click.ClickException(
+                "Custom backend requires 'module_path'.\n"
+                "Example: module_path: 'my_project.simulation.pyat_backend'"
+            )
+        if not backend_config.get("class_name"):
+            raise click.ClickException(
+                "Custom backend requires 'class_name'.\nExample: class_name: 'PyATBackend'"
+            )
+
+    # Note: We no longer validate that the module can be imported at generation time.
+    # Backend validation happens at runtime, allowing changes without regeneration.
+
+
 def _load_simulation_config(config_path: str | None = None) -> dict:
     """Load simulation configuration from config.yml.
 
@@ -1501,27 +1653,48 @@ def _load_simulation_config(config_path: str | None = None) -> dict:
 
     sim_config = config["simulation"]
 
-    # Apply simple defaults
-    defaults = {
-        "ioc": {
-            "name": "soft_ioc",
-            "port": 5064,
-            "output_dir": "generated_iocs/",
-        },
-        "backend": {
-            "type": "mock_style",
-            "noise_level": 0.01,
-            "update_rate": 10.0,
-        },
+    # Apply ioc defaults
+    ioc_defaults = {
+        "name": "soft_ioc",
+        "port": 5064,
+        "output_dir": "generated_iocs/",
     }
+    if "ioc" not in sim_config:
+        sim_config["ioc"] = ioc_defaults
+    else:
+        for k, v in ioc_defaults.items():
+            sim_config["ioc"].setdefault(k, v)
 
-    # Merge defaults (shallow - keeps it simple)
-    for key, value in defaults.items():
-        if key not in sim_config:
-            sim_config[key] = value
-        elif isinstance(value, dict):
-            for k, v in value.items():
-                sim_config[key].setdefault(k, v)
+    # Parse base + overlays config structure
+    # New format: base (single dict) + overlays (list)
+    # Default base to mock_style if not specified
+    if "base" not in sim_config:
+        sim_config["base"] = {"type": "mock_style", "noise_level": 0.01, "update_rate": 10.0}
+
+    base = sim_config["base"]
+
+    # Apply defaults to base backend
+    if base.get("type") == "mock_style" or ("type" not in base and "class_name" not in base):
+        base.setdefault("type", "mock_style")
+        base.setdefault("noise_level", 0.01)
+        base.setdefault("update_rate", 10.0)
+    if base.get("type") == "custom" or base.get("class_name"):
+        base.setdefault("params", {})
+
+    # Validate base backend configuration
+    _validate_custom_backend_config(base)
+
+    # Default overlays to empty list if not specified
+    if "overlays" not in sim_config:
+        sim_config["overlays"] = []
+
+    overlays = sim_config["overlays"]
+
+    # Apply defaults and validate each overlay
+    for overlay in overlays:
+        if overlay.get("type") == "custom" or overlay.get("class_name"):
+            overlay.setdefault("params", {})
+        _validate_custom_backend_config(overlay)
 
     return sim_config
 
@@ -1943,12 +2116,24 @@ def _show_dry_run_summary(sim_config: dict, channels: list[dict], pairings: dict
     table.add_row("Output", str(_get_output_path(sim_config)))
     table.add_row("PV Count", str(len(channels)))
     table.add_row("SP/RB Pairings", str(len(pairings)))
-    backend_info = (
-        f"{sim_config['backend']['type']} "
-        f"(noise={sim_config['backend']['noise_level']}, "
-        f"rate={sim_config['backend']['update_rate']} Hz)"
+    # Get backend info from base + overlays
+    base = sim_config.get("base", {"type": "mock_style"})
+    overlays = sim_config.get("overlays", [])
+    base_type = base.get("type") or base.get("class_name", "custom")
+    backend_parts = [base_type]
+    if base.get("noise_level") is not None:
+        backend_parts.append(f"noise={base['noise_level']}")
+    if base.get("update_rate") is not None:
+        backend_parts.append(f"rate={base['update_rate']} Hz")
+    base_info = (
+        f"{backend_parts[0]} ({', '.join(backend_parts[1:])})"
+        if len(backend_parts) > 1
+        else backend_parts[0]
     )
-    table.add_row("Backend", backend_info)
+    table.add_row("Base", base_info)
+    if overlays:
+        overlay_names = [o.get("class_name") or o.get("type", "unknown") for o in overlays]
+        table.add_row("Overlays", ", ".join(overlay_names))
     table.add_row("Port", str(sim_config["ioc"]["port"]))
 
     console.print(table)
@@ -2000,7 +2185,7 @@ async def _offer_control_system_config_update(ioc_name: str, port: int):
             _print_manual_config_instructions(port)
             return
 
-        # Load config
+        # Load config to check structure
         with open(config_path) as f:
             config = yaml.safe_load(f)
 
@@ -2033,31 +2218,18 @@ async def _offer_control_system_config_update(ioc_name: str, port: int):
             )
             return
 
-        # Backup first
-        backup_path = config_path.with_suffix(".yml.bak")
-        backup_path.write_text(config_path.read_text())
+        # Use comment-preserving YAML update
+        from osprey.generators.config_updater import update_yaml_file
 
-        # Update: type: mock -> epics, address: gateway -> localhost
-        config["control_system"]["type"] = "epics"
-
-        # Ensure the nested structure exists
-        if "connector" not in config["control_system"]:
-            config["control_system"]["connector"] = {}
-        if "epics" not in config["control_system"]["connector"]:
-            config["control_system"]["connector"]["epics"] = {}
-        if "gateways" not in config["control_system"]["connector"]["epics"]:
-            config["control_system"]["connector"]["epics"]["gateways"] = {}
-        if "read_only" not in config["control_system"]["connector"]["epics"]["gateways"]:
-            config["control_system"]["connector"]["epics"]["gateways"]["read_only"] = {}
-
-        config["control_system"]["connector"]["epics"]["gateways"]["read_only"]["address"] = (
-            "localhost"
+        backup_path = update_yaml_file(
+            config_path,
+            {
+                "control_system.type": "epics",
+                "control_system.connector.epics.gateways.read_only.address": "localhost",
+                "control_system.connector.epics.gateways.read_only.port": port,
+            },
+            create_backup=True,
         )
-        config["control_system"]["connector"]["epics"]["gateways"]["read_only"]["port"] = port
-
-        # Write with UTF-8 encoding (consistent with other updaters)
-        with open(config_path, "w", encoding="utf-8") as f:
-            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
         console.print(f"\n  {Messages.success(f'Updated {config_path}')}")
         console.print(f"  [{Styles.DIM}]Backup saved to: {backup_path}[/{Styles.DIM}]")
@@ -2236,7 +2408,7 @@ def soft_ioc(config_path: str | None, output_file: str | None, dry_run: bool, in
                     console.print('    name: "my_ioc"')
                     console.print("    port: 5064")
                     console.print('    output_dir: "generated_iocs/"')
-                    console.print("  backend:")
+                    console.print("  base:")
                     console.print('    type: "mock_style"')
                     console.print(f"    noise_level: 0.01[/{Styles.DIM}]")
                     console.print()
@@ -2261,10 +2433,19 @@ def soft_ioc(config_path: str | None, output_file: str | None, dry_run: bool, in
         console.print(
             f"  [{Styles.LABEL}]Database:[/{Styles.LABEL}] [{Styles.VALUE}]{db_display}[/{Styles.VALUE}]"
         )
+        # Display backend info (base + overlays)
+        base = sim_config.get("base", {"type": "mock_style"})
+        overlays = sim_config.get("overlays", [])
+        base_info = base.get("type") or base.get("class_name", "custom")
         console.print(
-            f"  [{Styles.LABEL}]Backend:[/{Styles.LABEL}] "
-            f"[{Styles.VALUE}]{sim_config['backend']['type']}[/{Styles.VALUE}]"
+            f"  [{Styles.LABEL}]Base:[/{Styles.LABEL}] [{Styles.VALUE}]{base_info}[/{Styles.VALUE}]"
         )
+        if overlays:
+            overlay_names = [o.get("class_name") or o.get("type", "unknown") for o in overlays]
+            console.print(
+                f"  [{Styles.LABEL}]Overlays:[/{Styles.LABEL}] "
+                f"[{Styles.VALUE}]{', '.join(overlay_names)}[/{Styles.VALUE}]"
+            )
         console.print()
 
         # Load channels from database (or use empty list for empty IOC)

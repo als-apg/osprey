@@ -120,7 +120,7 @@ _OPENAI_COMPATIBLE_PROVIDERS = {
             "dataset": "none",
             "live": 0,
             "limit_references": 0,
-        }
+        },
     },
 }
 
