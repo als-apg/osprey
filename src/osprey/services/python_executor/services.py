@@ -499,6 +499,75 @@ def serialize_results_to_file(results: Any, file_path: str) -> dict:
         return metadata
 
 
+async def serialize_results_to_file_async(results: Any, file_path: str) -> dict:
+    """Async version of serialize_results_to_file for non-blocking JSON writing.
+
+    This function is designed to be called from async execution contexts to avoid
+    blocking the event loop during file I/O operations.
+
+    Args:
+        results: The results object to serialize
+        file_path: Path where to save the JSON file
+
+    Returns:
+        dict: Metadata about the serialization operation
+
+    Examples:
+        >>> # Called from async execution wrapper
+        >>> metadata = await serialize_results_to_file_async(results, 'results.json')
+        >>> if metadata['success']:
+        >>>     print(f"Results saved successfully to {metadata['file_path']}")
+        >>> else:
+        >>>     print(f"Serialization failed: {metadata['error']}")
+    """
+    import asyncio
+
+    import aiofiles
+
+    metadata = {
+        "success": False,
+        "file_path": file_path,
+        "error": None,
+        "serialization_warnings": [],
+    }
+
+    try:
+        # Convert to JSON-serializable format (CPU-bound, use to_thread)
+        serializable_results = await asyncio.to_thread(make_json_serializable, results)
+
+        # Save to file asynchronously
+        async with aiofiles.open(file_path, "w", encoding="utf-8") as f:
+            json_str = await asyncio.to_thread(
+                json.dumps, serializable_results, indent=2, ensure_ascii=False
+            )
+            await f.write(json_str)
+
+        metadata["success"] = True
+        return metadata
+
+    except Exception as e:
+        metadata["error"] = str(e)
+        metadata["error_type"] = type(e).__name__
+
+        # Try to save a minimal fallback
+        try:
+            fallback_data = {
+                "_serialization_failed": True,
+                "_original_error": str(e),
+                "_fallback_representation": str(results),
+            }
+            async with aiofiles.open(file_path, "w", encoding="utf-8") as f:
+                json_str = await asyncio.to_thread(
+                    json.dumps, fallback_data, indent=2, ensure_ascii=False
+                )
+                await f.write(json_str)
+            metadata["fallback_saved"] = True
+        except Exception as fallback_error:
+            metadata["fallback_error"] = str(fallback_error)
+
+        return metadata
+
+
 # =============================================================================
 # NOTEBOOK MANAGEMENT
 # =============================================================================

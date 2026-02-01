@@ -512,8 +512,11 @@ async def _create_analysis_failure_attempt_notebook(
 
 **Note:** This notebook contains the code that failed static analysis. Review the issues above and regenerate the code accordingly."""
 
-        # Create attempt notebook
-        notebook_path = notebook_manager.create_attempt_notebook(
+        # Create attempt notebook asynchronously
+        import asyncio
+
+        notebook_path = await asyncio.to_thread(
+            notebook_manager.create_attempt_notebook,
             context=execution_folder,
             code=code,
             stage="static_analysis_failed",
@@ -588,8 +591,11 @@ async def _create_syntax_error_attempt_notebook(
 
 **Note:** This notebook contains the code that has syntax errors. The code below will not execute properly and needs to be corrected."""
 
-        # Create attempt notebook
-        notebook_path = notebook_manager.create_attempt_notebook(
+        # Create attempt notebook asynchronously
+        import asyncio
+
+        notebook_path = await asyncio.to_thread(
+            notebook_manager.create_attempt_notebook,
             context=execution_folder,
             code=code,
             stage="syntax_error",
@@ -687,8 +693,11 @@ async def _create_pre_approval_notebook(
 **Next Steps:**
 Review the code below and approve/reject execution accordingly."""
 
-        # Create pre-approval notebook for user review
-        notebook_path = notebook_manager.create_attempt_notebook(
+        # Create pre-approval notebook for user review asynchronously
+        import asyncio
+
+        notebook_path = await asyncio.to_thread(
+            notebook_manager.create_attempt_notebook,
             context=execution_folder,
             code=code,
             stage="awaiting_approval",

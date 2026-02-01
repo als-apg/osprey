@@ -5,6 +5,7 @@ Executes validated Python code using clean exception handling.
 Transformed for LangGraph integration with TypedDict state management.
 """
 
+import asyncio
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -59,12 +60,21 @@ class LocalCodeExecutor:
         # Execute with automatic Python environment detection
         return await self._execute_with_subprocess(wrapped_code, execution_folder)
 
+    def _create_temp_script_file(self, wrapped_code: str) -> str:
+        """Synchronous helper for creating temp script file.
+
+        This method is called via asyncio.to_thread() to avoid blocking the event loop.
+        """
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(wrapped_code)
+            return f.name
+
     async def _execute_with_subprocess(
         self, wrapped_code: str, execution_folder: Path | None
     ) -> PythonExecutionSuccess:
         """Execute code using subprocess with automatic Python environment detection"""
-        import subprocess
-        import tempfile
         import time
 
         start_time = time.time()
@@ -73,10 +83,8 @@ class LocalCodeExecutor:
         python_path = self._detect_python_environment()
         logger.info(f"LOCAL EXECUTION: Using Python environment: {python_path}")
 
-        # Write code to temporary file
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-            f.write(wrapped_code)
-            temp_script = f.name
+        # Write code to temporary file asynchronously
+        temp_script = await asyncio.to_thread(self._create_temp_script_file, wrapped_code)
 
         try:
             # Set up environment with PYTHONPATH so subprocess can find framework modules
@@ -89,25 +97,42 @@ class LocalCodeExecutor:
                 else:
                     env["PYTHONPATH"] = src_path
 
-            # Execute using the specified Python environment
-            result = subprocess.run(
-                [python_path, temp_script],
-                capture_output=True,
-                text=True,
-                timeout=self.executor_config.execution_timeout_seconds,
-                cwd=execution_folder or Path.cwd(),
-                env=env,  # Pass environment with PYTHONPATH
+            # Execute using the specified Python environment asynchronously
+            process = await asyncio.create_subprocess_exec(
+                python_path,
+                temp_script,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(execution_folder or Path.cwd()),
+                env=env,
             )
+
+            try:
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=self.executor_config.execution_timeout_seconds,
+                )
+                stdout = stdout_bytes.decode("utf-8", errors="replace")
+                stderr = stderr_bytes.decode("utf-8", errors="replace")
+                returncode = process.returncode
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.wait()
+                raise CodeRuntimeError(
+                    message=f"Python execution timed out after {self.executor_config.execution_timeout_seconds} seconds",
+                    traceback_info="",
+                    execution_attempt=1,
+                )
 
             execution_time = time.time() - start_time
 
-            if result.returncode != 0:
+            if returncode != 0:
                 # Extract meaningful error from stderr
-                error_output = result.stderr.strip()
-                stdout_output = result.stdout.strip()
+                error_output = stderr.strip()
+                stdout_output = stdout.strip()
 
                 # Log the actual error output for debugging
-                logger.error(f"Python subprocess failed with exit code {result.returncode}")
+                logger.error(f"Python subprocess failed with exit code {returncode}")
                 logger.error(f"STDOUT: {stdout_output}")
                 logger.error(f"STDERR: {error_output}")
 
@@ -126,7 +151,7 @@ class LocalCodeExecutor:
                     # Sometimes errors are in stdout
                     error_msg = f"Python execution error: {stdout_output}"
                 else:
-                    error_msg = f"Python execution failed (exit code {result.returncode}) - no error output captured"
+                    error_msg = f"Python execution failed (exit code {returncode}) - no error output captured"
 
                 full_error_output = f"STDOUT:\n{stdout_output}\n\nSTDERR:\n{error_output}"
 
@@ -135,9 +160,9 @@ class LocalCodeExecutor:
                 )
 
             # Success case - but check execution metadata for actual success
-            full_output = result.stdout
-            if result.stderr:
-                full_output += f"\nSTDERR:\n{result.stderr}"
+            full_output = stdout
+            if stderr:
+                full_output += f"\nSTDERR:\n{stderr}"
 
             # ✅ PROPER FIX: Check execution metadata - fail if missing or shows failure
             metadata_path = (execution_folder or Path.cwd()) / "execution_metadata.json"
@@ -154,8 +179,11 @@ class LocalCodeExecutor:
             try:
                 import json
 
-                with open(metadata_path) as f:
-                    metadata = json.load(f)
+                import aiofiles
+
+                async with aiofiles.open(metadata_path, "r", encoding="utf-8") as f:
+                    content = await f.read()
+                    metadata = json.loads(content)
 
                 # Check if execution was actually successful
                 if metadata.get("results_save_error"):
@@ -200,16 +228,17 @@ class LocalCodeExecutor:
                 # Load actual results if available
                 results_path = (execution_folder or Path.cwd()) / "results.json"
                 results_data = {"execution_method": "local_subprocess", "python_env": python_path}
-                if results_path.exists():
+                if await asyncio.to_thread(results_path.exists):
                     try:
-                        with open(results_path) as f:
-                            results_data.update(json.load(f))
+                        async with aiofiles.open(results_path, "r", encoding="utf-8") as f:
+                            content = await f.read()
+                            results_data.update(json.loads(content))
                         logger.info(f"Loaded results from {results_path}")
                     except Exception as e:
                         logger.warning(f"Failed to load results.json: {e}")
 
                 # Collect figure files from execution directory (same logic as container mode)
-                figure_paths = self._collect_figure_files(execution_folder or Path.cwd())
+                figure_paths = await self._collect_figure_files_async(execution_folder or Path.cwd())
 
                 # Generate proper notebook link (use final notebook name)
                 notebook_path = (execution_folder or Path.cwd()) / "notebook.ipynb"
@@ -241,9 +270,9 @@ class LocalCodeExecutor:
                 ) from e
 
         finally:
-            # Clean up temporary file
+            # Clean up temporary file asynchronously
             try:
-                os.unlink(temp_script)
+                await asyncio.to_thread(os.unlink, temp_script)
             except Exception:
                 pass
 
@@ -296,8 +325,53 @@ class LocalCodeExecutor:
 
         return "unknown"
 
+    async def _collect_figure_files_async(self, execution_folder: Path) -> list[Path]:
+        """Collect all figure files asynchronously from execution directory and all subdirectories except attempts.
+
+        Scans for image files in the main execution directory and all subdirectories,
+        excluding the 'attempts' folder which contains failed execution artifacts.
+
+        Args:
+            execution_folder: Directory to scan for figure files
+
+        Returns:
+            List of Path objects pointing to discovered figure files
+        """
+        figure_paths = []
+
+        try:
+            # Common image file extensions (PNG is most common from matplotlib)
+            image_extensions = ["*.png", "*.jpg", "*.jpeg", "*.svg"]
+
+            def collect_figures():
+                """Synchronous helper for directory traversal."""
+                paths = []
+                # Scan main directory and all subdirectories except 'attempts'
+                for root_path in [execution_folder] + [
+                    d for d in execution_folder.iterdir() if d.is_dir() and d.name != "attempts"
+                ]:
+                    for extension in image_extensions:
+                        for figure_file in sorted(root_path.glob(extension)):
+                            if figure_file.is_file():
+                                paths.append(figure_file)
+                return paths
+
+            # Run directory traversal in thread pool to avoid blocking
+            figure_paths = await asyncio.to_thread(collect_figures)
+
+            if figure_paths:
+                logger.info(f"LOCAL EXECUTION: Collected {len(figure_paths)} figure files")
+            else:
+                logger.debug("LOCAL EXECUTION: No figure files found")
+
+            return figure_paths
+
+        except Exception as e:
+            logger.error(f"LOCAL EXECUTION: Failed to collect figure files: {e}")
+            return figure_paths
+
     def _collect_figure_files(self, execution_folder: Path) -> list[Path]:
-        """Collect all figure files from execution directory and all subdirectories except attempts.
+        """Synchronous version of figure collection (kept for backward compatibility).
 
         Scans for image files in the main execution directory and all subdirectories,
         excluding the 'attempts' folder which contains failed execution artifacts.
@@ -728,7 +802,8 @@ async def _create_final_notebook(
 ):
     """Create final notebook with results."""
     try:
-        return notebook_manager.create_final_notebook(
+        return await asyncio.to_thread(
+            notebook_manager.create_final_notebook,
             execution_folder,
             code,
             execution_result.to_dict() if hasattr(execution_result, "to_dict") else {},
@@ -744,8 +819,12 @@ async def _create_error_notebook(
 ):
     """Create error notebook for debugging execution failures."""
     try:
-        notebook_path = notebook_manager.create_attempt_notebook(
-            execution_folder, code, "execution_failed", error_context=error_context
+        notebook_path = await asyncio.to_thread(
+            notebook_manager.create_attempt_notebook,
+            execution_folder,
+            code,
+            "execution_failed",
+            error_context=error_context,
         )
         logger.info(f"📝 Created error notebook for execution failure: {notebook_path}")
         return notebook_path
