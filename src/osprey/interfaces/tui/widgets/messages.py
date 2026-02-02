@@ -113,6 +113,8 @@ class CollapsibleCodeMessage(Static):
         self._markdown_stream: Any = None
         self._is_collapsed = False
         self._markdown_widget: Markdown | None = None
+        self._fence_opened = False  # Track if code fence is open
+        self.language = "python"  # Language for syntax highlighting
 
     def compose(self) -> ComposeResult:
         """Compose with link-style toggle and markdown content."""
@@ -154,24 +156,45 @@ class CollapsibleCodeMessage(Static):
         Args:
             content: The token content to append.
         """
+        self._content_buffer.append(content)
+
         # Lazy initialization of MarkdownStream
         if self._markdown_stream is None:
             md_widget = self.get_markdown_widget()
             self._markdown_stream = Markdown.get_stream(md_widget)
 
         if self._markdown_stream:
-            await self._markdown_stream.write(content)
-            self._content_buffer.append(content)
+            # On first token: prepend fence opener to content BEFORE writing
+            # This ensures MarkdownStream sees fence + content together (same as when LLM includes it)
+            if not self._fence_opened:
+                # Check if LLM already included fence
+                if content.strip().startswith("```"):
+                    # LLM included fence - write as-is
+                    await self._markdown_stream.write(content)
+                else:
+                    # LLM didn't include fence - prepend it to first token
+                    await self._markdown_stream.write(f"```{self.language}\n{content}")
+                self._fence_opened = True
+            else:
+                # Subsequent tokens - write normally
+                await self._markdown_stream.write(content)
 
     async def finalize(self) -> None:
         """Finalize streaming and auto-collapse.
 
         This method:
-        1. Stops the MarkdownStream and waits for rendering to complete
-        2. Auto-collapses and updates toggle text
-        3. Hides the code content
+        1. Closes the code fence if opened (unless LLM already closed it)
+        2. Stops the MarkdownStream and waits for rendering to complete
+        3. Auto-collapses and updates toggle text
+        4. Hides the code content
         """
+        full_code = "".join(self._content_buffer)
+
         if self._markdown_stream:
+            # Close code fence if it was opened and LLM didn't close it
+            if self._fence_opened and not full_code.rstrip().endswith("```"):
+                await self._markdown_stream.write("\n```")
+
             await self._markdown_stream.stop()  # Wait for render to complete
             self._markdown_stream = None
 
@@ -183,7 +206,8 @@ class CollapsibleCodeMessage(Static):
             if self._attempt > 1
             else "code"
         )
-        toggle.update(f"{label} (click to show)")
+        line_count = len(full_code.split('\n')) if full_code else 0
+        toggle.update(f"{label} ({line_count} lines)")
 
         # Hide content
         content = self.query_one("#code-content", Markdown)

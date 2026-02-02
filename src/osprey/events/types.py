@@ -292,19 +292,22 @@ class ToolResultEvent(BaseEvent):
 
 @dataclass
 class CodeGeneratedEvent(BaseEvent):
-    """Code was generated.
+    """Code generation completed.
 
-    Emitted when code is generated (e.g., by an LLM).
+    Emitted after code generation finishes successfully.
+    Signals TUI to finalize widget (close stream, update title, auto-collapse).
 
     Attributes:
-        language: Programming language of the generated code
-        code_preview: First N characters of the code
-        code_length: Total length of the code in characters
+        code: Full generated code
+        attempt: Attempt number (1-based)
+        success: Whether generation was successful
+        language: Programming language (kept for backward compatibility)
     """
 
+    code: str = ""
+    attempt: int = 1
+    success: bool = True
     language: str = "python"
-    code_preview: str = ""
-    code_length: int = 0
 
 
 @dataclass
@@ -322,6 +325,26 @@ class CodeExecutedEvent(BaseEvent):
     success: bool = True
     output_preview: str = ""
     error_message: str | None = None
+
+
+@dataclass
+class CodeGenerationStartEvent(BaseEvent):
+    """Code generation attempt started.
+
+    Emitted BEFORE any LLM tokens are streamed to enable TUI to create
+    separate widgets per retry attempt without race conditions.
+
+    This event is emitted synchronously before model.astream() begins,
+    guaranteeing that the TUI can finalize the previous widget and create
+    a new CollapsibleCodeMessage widget before any code tokens arrive.
+
+    Attributes:
+        attempt: The retry attempt number (1 for first attempt, 2+ for retries)
+        is_retry: Whether this is a retry attempt (convenience flag)
+    """
+
+    attempt: int = 1
+    is_retry: bool = False
 
 
 # -----------------------------------------------------------------------------
@@ -423,6 +446,7 @@ OspreyEvent = (
     | ToolResultEvent
     | CodeGeneratedEvent
     | CodeExecutedEvent
+    | CodeGenerationStartEvent
     | ApprovalRequiredEvent
     | ApprovalReceivedEvent
     | ResultEvent

@@ -79,6 +79,7 @@ from .types import (
     CapabilityStartEvent,
     CodeExecutedEvent,
     CodeGeneratedEvent,
+    CodeGenerationStartEvent,
     ErrorEvent,
     LLMRequestEvent,
     LLMResponseEvent,
@@ -116,6 +117,7 @@ __all__ = [
     "ToolUseEvent",
     "ToolResultEvent",
     "CodeGeneratedEvent",
+    "CodeGenerationStartEvent",
     "CodeExecutedEvent",
     # Control Flow
     "ApprovalRequiredEvent",

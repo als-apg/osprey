@@ -25,6 +25,8 @@ from osprey.events import (
     CapabilitiesSelectedEvent,
     CapabilityCompleteEvent,
     CapabilityStartEvent,
+    CodeGeneratedEvent,
+    CodeGenerationStartEvent,
     ErrorEvent,
     LLMRequestEvent,
     LLMResponseEvent,
@@ -140,6 +142,12 @@ class TUIEventHandler:
                 capability_name=name, success=success, duration_ms=duration, error_message=err
             ):
                 await self._handle_capability_complete(name, success, duration, err)
+
+            case CodeGenerationStartEvent(attempt=attempt, is_retry=is_retry):
+                await self._handle_code_generation_start(attempt, is_retry)
+
+            case CodeGeneratedEvent(code=code, attempt=attempt, success=success):
+                await self._handle_code_generated(code, attempt, success)
 
             # Status updates (logs)
             case StatusEvent(
@@ -387,6 +395,55 @@ class TUIEventHandler:
         self._current_capability = name
         self._current_step_number = step
         self.current_phase = "execution"
+
+    async def _handle_code_generation_start(self, attempt: int, is_retry: bool) -> None:
+        """Handle code generation start - create CollapsibleCodeMessage widget.
+
+        Args:
+            attempt: The attempt number (1-based)
+            is_retry: Whether this is a retry attempt
+        """
+        # Finalize previous code generation widget if it exists
+        if self.display._code_gen_message:
+            full_code = await self.display.finalize_code_generation_message()
+            python_block = self.display.get_python_execution_block()
+            if python_block:
+                line_count = len(full_code.split('\n')) if full_code else 0
+                python_block.set_complete("success", f"Code generated ({line_count} lines)")
+
+        # Update ExecutionStep status
+        python_block = self.display.get_python_execution_block()
+        if python_block:
+            status_text = (
+                f"Generating code (attempt {attempt})..."
+                if is_retry
+                else "Generating code..."
+            )
+            python_block.set_partial_output(status_text)
+
+        # Create new collapsible code message
+        await self.display.start_code_generation_message(attempt=attempt)
+
+    async def _handle_code_generated(self, code: str, attempt: int, success: bool) -> None:
+        """Handle code generation completion - finalize widget.
+
+        This is called when code generation completes successfully, triggering
+        widget finalization with proper title update and auto-collapse.
+
+        Args:
+            code: The generated code
+            attempt: The attempt number (1-based)
+            success: Whether generation was successful
+        """
+        # Finalize code generation widget
+        if self.display._code_gen_message:
+            full_code = await self.display.finalize_code_generation_message()
+
+            # Update ExecutionStep status
+            python_block = self.display.get_python_execution_block()
+            if python_block:
+                line_count = len(full_code.split('\n')) if full_code else 0
+                python_block.set_partial_output(f"Code generated ({line_count} lines)")
 
     async def _handle_capability_complete(
         self, name: str, success: bool, duration_ms: int, error_message: str | None
