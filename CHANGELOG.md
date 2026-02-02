@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Skills**: Improve release workflow skill with full step-by-step guidance and CHANGELOG sanitization
 - **Generators**: Add pluggable simulation backends for soft IOCs
   - Runtime backend loading from `config.yml` - change behavior without regenerating IOC code
   - Built-in backends: `passthrough` (no-op) and `mock_style` (archiver-like behavior)
