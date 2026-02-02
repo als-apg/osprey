@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Documentation guide for custom backend development
 
 ### Fixed
+- **Templates**: Fix `pyproject.toml` template using wrong package search path
+  - Template creates `src/<package_name>/` layout but configured `where = ["."]`
+  - Changed to `where = ["src"]` so editable installs can find the package
 - **Generators**: Fix `config_updater` functions returning wrong type
   - `set_control_system_type()`, `set_epics_gateway_config()`, `update_all_models()`, and `add_capability_react_to_config()` now return `(updated_content, preview)` tuple as expected by CLI callers
 - **Channel Finder**: Fix string ChannelNames causing character-by-character iteration
