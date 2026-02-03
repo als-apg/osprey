@@ -22,6 +22,7 @@ Provider Integration:
 import json
 import logging
 import os
+import warnings
 from typing import TYPE_CHECKING, Any
 
 import litellm
@@ -33,6 +34,16 @@ if TYPE_CHECKING:
 # Suppress LiteLLM's verbose logging
 litellm.set_verbose = False
 litellm.suppress_debug_info = True
+
+# Suppress Pydantic serialization warnings from LiteLLM
+# These occur with vLLM/OpenAI-compatible providers that return fewer fields
+# than LiteLLM's response models expect (harmless - response is still valid)
+warnings.filterwarnings(
+    "ignore",
+    message="Pydantic serializer warnings:",
+    category=UserWarning,
+    module="pydantic.main",
+)
 
 logger = logging.getLogger(__name__)
 
