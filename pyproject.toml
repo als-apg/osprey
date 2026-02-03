@@ -139,6 +139,8 @@ dev = [
     "ruff",
     "pyepics",  # EPICS connector support for testing
     "build",  # Required for 'osprey deploy up --dev' to build local wheel
+    "testcontainers[postgres]>=4.0.0",  # Real PostgreSQL for integration tests
+    "docker>=7.0.0",  # Docker SDK for testcontainers availability check
 ]
 
 # Storage backends (databases, PostgreSQL checkpointing, vector/memory storage)
@@ -158,9 +160,20 @@ storage = [
     "vecs>=0.4.5",
 ]
 
+# ARIEL (Agentic Retrieval Interface for Electronic Logbooks)
+# See _ISSUES/MAJOR/ARIEL/ for specification
+ariel = [
+    # PostgreSQL with pgvector for vector similarity search
+    "psycopg[pool]>=3.1.0,<4.0.0",
+    "psycopg-pool>=3.1.0,<4.0.0",
+    # LangGraph for ReAct agent
+    "langgraph>=0.5.2",
+    "langchain-openai>=0.3.0",
+]
+
 # All optional dependencies for complete installation
 all = [
-    "osprey-framework[docs,dev,storage]"
+    "osprey-framework[docs,dev,storage,ariel]"
 ]
 
 [project.urls]

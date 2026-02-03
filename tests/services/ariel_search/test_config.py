@@ -1,0 +1,347 @@
+"""Tests for ARIEL configuration classes."""
+
+import pytest
+
+from osprey.services.ariel_search.config import (
+    ARIELConfig,
+    DatabaseConfig,
+    EmbeddingConfig,
+    EnhancementModuleConfig,
+    IngestionConfig,
+    ModelConfig,
+    ReasoningConfig,
+    SearchModuleConfig,
+)
+
+
+class TestModelConfig:
+    """Tests for ModelConfig."""
+
+    def test_basic_creation(self) -> None:
+        """Test basic ModelConfig creation."""
+        config = ModelConfig(name="nomic-embed-text", dimension=768)
+        assert config.name == "nomic-embed-text"
+        assert config.dimension == 768
+        assert config.max_input_tokens is None
+
+    def test_with_max_input_tokens(self) -> None:
+        """Test ModelConfig with max_input_tokens."""
+        config = ModelConfig(
+            name="nomic-embed-text",
+            dimension=768,
+            max_input_tokens=8192,
+        )
+        assert config.max_input_tokens == 8192
+
+    def test_from_dict(self) -> None:
+        """Test ModelConfig.from_dict()."""
+        data = {"name": "nomic-embed-text", "dimension": 768, "max_input_tokens": 8192}
+        config = ModelConfig.from_dict(data)
+        assert config.name == "nomic-embed-text"
+        assert config.dimension == 768
+        assert config.max_input_tokens == 8192
+
+    def test_from_dict_minimal(self) -> None:
+        """Test ModelConfig.from_dict() with minimal data."""
+        data = {"name": "test-model", "dimension": 512}
+        config = ModelConfig.from_dict(data)
+        assert config.name == "test-model"
+        assert config.dimension == 512
+        assert config.max_input_tokens is None
+
+
+class TestSearchModuleConfig:
+    """Tests for SearchModuleConfig."""
+
+    def test_basic_creation(self) -> None:
+        """Test basic SearchModuleConfig creation."""
+        config = SearchModuleConfig(enabled=True)
+        assert config.enabled is True
+        assert config.model is None
+        assert config.settings == {}
+
+    def test_with_model(self) -> None:
+        """Test SearchModuleConfig with model."""
+        config = SearchModuleConfig(enabled=True, model="nomic-embed-text")
+        assert config.model == "nomic-embed-text"
+
+    def test_from_dict(self) -> None:
+        """Test SearchModuleConfig.from_dict()."""
+        data = {
+            "enabled": True,
+            "model": "nomic-embed-text",
+            "settings": {"threshold": 0.7},
+        }
+        config = SearchModuleConfig.from_dict(data)
+        assert config.enabled is True
+        assert config.model == "nomic-embed-text"
+        assert config.settings == {"threshold": 0.7}
+
+    def test_from_dict_defaults(self) -> None:
+        """Test SearchModuleConfig.from_dict() with defaults."""
+        config = SearchModuleConfig.from_dict({})
+        assert config.enabled is False
+        assert config.model is None
+        assert config.settings == {}
+
+
+class TestEnhancementModuleConfig:
+    """Tests for EnhancementModuleConfig."""
+
+    def test_basic_creation(self) -> None:
+        """Test basic EnhancementModuleConfig creation."""
+        config = EnhancementModuleConfig(enabled=True)
+        assert config.enabled is True
+        assert config.models is None
+        assert config.settings == {}
+
+    def test_with_models(self) -> None:
+        """Test EnhancementModuleConfig with models."""
+        models = [
+            ModelConfig(name="nomic-embed-text", dimension=768),
+            ModelConfig(name="mxbai-embed-large", dimension=1024),
+        ]
+        config = EnhancementModuleConfig(enabled=True, models=models)
+        assert config.models == models
+        assert len(config.models) == 2
+
+    def test_from_dict(self) -> None:
+        """Test EnhancementModuleConfig.from_dict()."""
+        data = {
+            "enabled": True,
+            "models": [
+                {"name": "nomic-embed-text", "dimension": 768},
+                {"name": "mxbai-embed-large", "dimension": 1024},
+            ],
+            "settings": {"batch_size": 100},
+        }
+        config = EnhancementModuleConfig.from_dict(data)
+        assert config.enabled is True
+        assert config.models is not None
+        assert len(config.models) == 2
+        assert config.models[0].name == "nomic-embed-text"
+        assert config.settings == {"batch_size": 100}
+
+
+class TestIngestionConfig:
+    """Tests for IngestionConfig."""
+
+    def test_basic_creation(self) -> None:
+        """Test basic IngestionConfig creation."""
+        config = IngestionConfig(adapter="als_logbook")
+        assert config.adapter == "als_logbook"
+        assert config.source_url is None
+        assert config.poll_interval_seconds == 3600
+
+    def test_from_dict(self) -> None:
+        """Test IngestionConfig.from_dict()."""
+        data = {
+            "adapter": "als_logbook",
+            "source_url": "https://als.example.com/api",
+            "poll_interval_seconds": 1800,
+        }
+        config = IngestionConfig.from_dict(data)
+        assert config.adapter == "als_logbook"
+        assert config.source_url == "https://als.example.com/api"
+        assert config.poll_interval_seconds == 1800
+
+
+class TestDatabaseConfig:
+    """Tests for DatabaseConfig."""
+
+    def test_basic_creation(self) -> None:
+        """Test basic DatabaseConfig creation."""
+        config = DatabaseConfig(uri="postgresql://localhost:5432/ariel")
+        assert config.uri == "postgresql://localhost:5432/ariel"
+
+    def test_from_dict(self) -> None:
+        """Test DatabaseConfig.from_dict()."""
+        data = {"uri": "postgresql://localhost:5432/ariel"}
+        config = DatabaseConfig.from_dict(data)
+        assert config.uri == "postgresql://localhost:5432/ariel"
+
+
+class TestEmbeddingConfig:
+    """Tests for EmbeddingConfig."""
+
+    def test_defaults(self) -> None:
+        """Test EmbeddingConfig defaults."""
+        config = EmbeddingConfig()
+        assert config.provider == "ollama"
+
+    def test_from_dict(self) -> None:
+        """Test EmbeddingConfig.from_dict()."""
+        data = {"provider": "openai"}
+        config = EmbeddingConfig.from_dict(data)
+        assert config.provider == "openai"
+
+
+class TestReasoningConfig:
+    """Tests for ReasoningConfig."""
+
+    def test_defaults(self) -> None:
+        """Test ReasoningConfig defaults."""
+        config = ReasoningConfig()
+        assert config.max_iterations == 5
+        assert config.temperature == 0.1
+        assert config.tool_timeout_seconds == 30
+        assert config.total_timeout_seconds == 120
+
+    def test_from_dict(self) -> None:
+        """Test ReasoningConfig.from_dict()."""
+        data = {
+            "max_iterations": 10,
+            "temperature": 0.2,
+            "total_timeout_seconds": 180,
+        }
+        config = ReasoningConfig.from_dict(data)
+        assert config.max_iterations == 10
+        assert config.temperature == 0.2
+        assert config.total_timeout_seconds == 180
+
+
+class TestARIELConfig:
+    """Tests for ARIELConfig."""
+
+    @pytest.fixture
+    def minimal_config_dict(self) -> dict:
+        """Minimal valid configuration dictionary."""
+        return {
+            "database": {"uri": "postgresql://localhost:5432/ariel"},
+        }
+
+    @pytest.fixture
+    def full_config_dict(self) -> dict:
+        """Full configuration dictionary."""
+        return {
+            "database": {"uri": "postgresql://localhost:5432/ariel"},
+            "search_modules": {
+                "keyword": {"enabled": True},
+                "semantic": {"enabled": True, "model": "nomic-embed-text"},
+                "rag": {"enabled": True, "model": "nomic-embed-text"},
+            },
+            "enhancement_modules": {
+                "text_embedding": {
+                    "enabled": True,
+                    "models": [{"name": "nomic-embed-text", "dimension": 768}],
+                },
+                "semantic_processor": {"enabled": True},
+            },
+            "ingestion": {"adapter": "als_logbook"},
+            "reasoning": {"max_iterations": 10},
+            "embedding": {"provider": "ollama"},
+            "default_max_results": 20,
+            "cache_embeddings": False,
+        }
+
+    def test_from_dict_minimal(self, minimal_config_dict: dict) -> None:
+        """Test ARIELConfig.from_dict() with minimal config."""
+        config = ARIELConfig.from_dict(minimal_config_dict)
+        assert config.database.uri == "postgresql://localhost:5432/ariel"
+        assert config.search_modules == {}
+        assert config.enhancement_modules == {}
+        assert config.ingestion is None
+        assert config.default_max_results == 10
+
+    def test_from_dict_full(self, full_config_dict: dict) -> None:
+        """Test ARIELConfig.from_dict() with full config."""
+        config = ARIELConfig.from_dict(full_config_dict)
+        assert config.database.uri == "postgresql://localhost:5432/ariel"
+        assert len(config.search_modules) == 3
+        assert len(config.enhancement_modules) == 2
+        assert config.ingestion is not None
+        assert config.ingestion.adapter == "als_logbook"
+        assert config.reasoning.max_iterations == 10
+        assert config.default_max_results == 20
+        assert config.cache_embeddings is False
+
+    def test_is_search_module_enabled(self, full_config_dict: dict) -> None:
+        """Test is_search_module_enabled()."""
+        config = ARIELConfig.from_dict(full_config_dict)
+        assert config.is_search_module_enabled("keyword") is True
+        assert config.is_search_module_enabled("semantic") is True
+        assert config.is_search_module_enabled("rag") is True
+        assert config.is_search_module_enabled("vision") is False
+        assert config.is_search_module_enabled("nonexistent") is False
+
+    def test_get_enabled_search_modules(self, full_config_dict: dict) -> None:
+        """Test get_enabled_search_modules()."""
+        config = ARIELConfig.from_dict(full_config_dict)
+        enabled = config.get_enabled_search_modules()
+        assert "keyword" in enabled
+        assert "semantic" in enabled
+        assert "rag" in enabled
+        assert len(enabled) == 3
+
+    def test_is_enhancement_module_enabled(self, full_config_dict: dict) -> None:
+        """Test is_enhancement_module_enabled()."""
+        config = ARIELConfig.from_dict(full_config_dict)
+        assert config.is_enhancement_module_enabled("text_embedding") is True
+        assert config.is_enhancement_module_enabled("semantic_processor") is True
+        assert config.is_enhancement_module_enabled("figure_embedding") is False
+
+    def test_get_enabled_enhancement_modules(self, full_config_dict: dict) -> None:
+        """Test get_enabled_enhancement_modules()."""
+        config = ARIELConfig.from_dict(full_config_dict)
+        enabled = config.get_enabled_enhancement_modules()
+        assert "text_embedding" in enabled
+        assert "semantic_processor" in enabled
+        assert len(enabled) == 2
+
+    def test_validate_minimal(self, minimal_config_dict: dict) -> None:
+        """Test validate() with minimal valid config."""
+        config = ARIELConfig.from_dict(minimal_config_dict)
+        errors = config.validate()
+        assert errors == []
+
+    def test_validate_full(self, full_config_dict: dict) -> None:
+        """Test validate() with full valid config."""
+        config = ARIELConfig.from_dict(full_config_dict)
+        errors = config.validate()
+        assert errors == []
+
+    def test_validate_empty_uri(self) -> None:
+        """Test validate() catches empty database URI."""
+        config = ARIELConfig(database=DatabaseConfig(uri=""))
+        errors = config.validate()
+        assert "database.uri is required" in errors
+
+    def test_validate_semantic_without_model(self, minimal_config_dict: dict) -> None:
+        """Test validate() catches semantic search without model."""
+        minimal_config_dict["search_modules"] = {"semantic": {"enabled": True}}
+        config = ARIELConfig.from_dict(minimal_config_dict)
+        errors = config.validate()
+        assert any("semantic.model" in e for e in errors)
+
+    def test_validate_rag_without_model(self, minimal_config_dict: dict) -> None:
+        """Test validate() catches RAG search without model."""
+        minimal_config_dict["search_modules"] = {"rag": {"enabled": True}}
+        config = ARIELConfig.from_dict(minimal_config_dict)
+        errors = config.validate()
+        assert any("rag.model" in e for e in errors)
+
+    def test_validate_text_embedding_without_models(self, minimal_config_dict: dict) -> None:
+        """Test validate() catches text_embedding without models."""
+        minimal_config_dict["enhancement_modules"] = {"text_embedding": {"enabled": True}}
+        config = ARIELConfig.from_dict(minimal_config_dict)
+        errors = config.validate()
+        assert any("text_embedding.models" in e for e in errors)
+
+    def test_validate_invalid_reasoning(self, minimal_config_dict: dict) -> None:
+        """Test validate() catches invalid reasoning config."""
+        minimal_config_dict["reasoning"] = {"max_iterations": 0}
+        config = ARIELConfig.from_dict(minimal_config_dict)
+        errors = config.validate()
+        assert any("max_iterations" in e for e in errors)
+
+    def test_get_search_model(self, full_config_dict: dict) -> None:
+        """Test get_search_model()."""
+        config = ARIELConfig.from_dict(full_config_dict)
+        model = config.get_search_model()
+        assert model == "nomic-embed-text"
+
+    def test_get_search_model_disabled(self, minimal_config_dict: dict) -> None:
+        """Test get_search_model() when semantic not enabled."""
+        config = ARIELConfig.from_dict(minimal_config_dict)
+        model = config.get_search_model()
+        assert model is None

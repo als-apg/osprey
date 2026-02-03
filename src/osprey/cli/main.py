@@ -69,6 +69,7 @@ class LazyGroup(click.Group):
             "claude": "osprey.cli.claude_cmd",
             "eject": "osprey.cli.eject_cmd",
             "channel-finder": "osprey.cli.channel_finder_cmd",
+            "ariel": "osprey.cli.ariel",  # ARIEL search service
         }
 
         if cmd_name not in commands:
@@ -88,6 +89,8 @@ class LazyGroup(click.Group):
             cmd_func = mod.export_config
         elif cmd_name == "channel-finder":
             cmd_func = mod.channel_finder
+        elif cmd_name == "ariel":
+            cmd_func = mod.ariel_group
         else:
             cmd_func = getattr(mod, cmd_name)
 
@@ -109,6 +112,7 @@ class LazyGroup(click.Group):
             "channel-finder",
             "claude",
             "eject",
+            "ariel",
         ]
 
 

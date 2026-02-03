@@ -1,0 +1,62 @@
+[
+  {
+    "ID": "SNS-2024-0001",
+    "logbook": "SNS Operations",
+    "event_time": "2024-01-01T13:00:00Z",
+    "entry_time": "2024-01-01T13:15:00Z",
+    "author": "ops_lead",
+    "title": "Beam to target established",
+    "content": "1.4 MW beam delivered to first target station at 08:00 EST. Second target receiving 700 kW.",
+    "attachments": []
+  },
+  {
+    "ID": "SNS-2024-0002",
+    "logbook": "SNS Operations",
+    "event_time": "2024-01-01T15:00:00Z",
+    "entry_time": "2024-01-01T15:05:00Z",
+    "author": "rf_tech",
+    "title": "SCL cavity gradient adjustment",
+    "content": "Reduced gradient on SCL-5-2 by 0.5 MV/m due to field emission increase. Gradient optimization ongoing.",
+    "attachments": []
+  },
+  {
+    "ID": "SNS-2024-0003",
+    "logbook": "SNS Operations",
+    "event_time": "2024-01-01T17:30:00Z",
+    "entry_time": "2024-01-01T17:35:00Z",
+    "author": "ops_1",
+    "title": "Timing system glitch",
+    "content": "Brief timing system hiccup at 12:28. Machine tripped but recovered automatically. No beam downtime.",
+    "attachments": []
+  },
+  {
+    "ID": "SNS-2024-0004",
+    "logbook": "SNS Operations",
+    "event_time": "2024-01-01T21:00:00Z",
+    "entry_time": "2024-01-01T23:00:00Z",
+    "author": "cryo_eng",
+    "title": "Cryogenic plant maintenance complete",
+    "content": "Completed scheduled maintenance on He compressor #2. All parameters nominal. Ready for next run.",
+    "attachments": []
+  },
+  {
+    "ID": "SNS-2024-0005",
+    "logbook": "SNS Operations",
+    "event_time": "2024-01-02T01:00:00Z",
+    "entry_time": "2024-01-02T01:10:00Z",
+    "author": "ops_2",
+    "title": "Target temperature monitoring",
+    "content": "First target station mercury temperature stable at 125C. Proton beam window readings nominal.",
+    "attachments": []
+  },
+  {
+    "ID": "SNS-2024-0006",
+    "logbook": "SNS Operations",
+    "event_time": "2024-01-02T11:00:00Z",
+    "entry_time": "2024-01-02T11:30:00Z",
+    "author": "ops_lead",
+    "title": "Night shift summary",
+    "content": "Stable operations overnight. 1.4 MW average power. One minor timing glitch with auto-recovery. Neutron production on target.",
+    "attachments": []
+  }
+]

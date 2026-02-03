@@ -114,6 +114,9 @@ valves.json
 # Agent data directories
 _agent_data/*
 
+# Sample logbook data (large JSONL files)
+logbook_*.jsonl
+
 # Auto-generated documentation
 _autosummary/
 
@@ -128,4 +131,4 @@ CLAUDE.md
 # Tutorials and examples
 weather-agent/
 my-control-assistant/
-my-agent/
+my-agent/_audit/

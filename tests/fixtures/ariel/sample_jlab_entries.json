@@ -1,0 +1,72 @@
+[
+  {
+    "lognumber": "J20001",
+    "created": {"timestamp": "1704096000"},
+    "author": "operator1",
+    "title": "Beam delivery to Hall A",
+    "body": {"content": "Established 12 GeV beam delivery to Hall A at 08:00. Beam current 5uA, energy verified with arc measurement.", "format": "text"},
+    "books": ["CEBAF Operations"],
+    "tags": ["beam", "hall_a"],
+    "attachments": []
+  },
+  {
+    "lognumber": "J20002",
+    "created": {"timestamp": "1704105000"},
+    "author": "operator2",
+    "title": "Klystron fault in South Linac",
+    "body": {"content": "Klystron SL-5A faulted at 10:15. Reset successful. Cause under investigation.", "format": "text"},
+    "books": ["CEBAF Operations"],
+    "tags": ["klystron", "fault"],
+    "attachments": []
+  },
+  {
+    "lognumber": "J20003",
+    "created": {"timestamp": "1704117600"},
+    "author": "operator1",
+    "title": "Orbit correction applied",
+    "body": {"content": "Applied global orbit correction after beam steering drift observed. All BPMs now within 100um of golden orbit.", "format": "text"},
+    "books": ["CEBAF Operations"],
+    "tags": ["orbit", "correction"],
+    "attachments": []
+  },
+  {
+    "lognumber": "J20004",
+    "created": {"timestamp": "1704132000"},
+    "author": "operator3",
+    "title": "Shift summary",
+    "body": {"content": "Day shift summary: Beam delivered to Hall A and B. One klystron fault resolved. Machine stable at end of shift.", "format": "text"},
+    "books": ["CEBAF Operations"],
+    "tags": ["summary"],
+    "attachments": []
+  },
+  {
+    "lognumber": "J20005",
+    "created": {"timestamp": "1704139200"},
+    "author": "operator4",
+    "title": "Cryogenic temperature excursion",
+    "body": {"content": "C100-5 cavity temperature rose 0.2K above nominal. Heater power reduced, temperature stabilizing.", "format": "text"},
+    "books": ["CEBAF Operations"],
+    "tags": ["cryogenics", "temperature"],
+    "attachments": []
+  },
+  {
+    "lognumber": "J20006",
+    "created": {"timestamp": "1704160800"},
+    "author": "operator5",
+    "title": "Injector vacuum event",
+    "body": {"content": "Brief vacuum spike in injector region at 01:45. Ion pump current returned to normal. No beam interruption.", "format": "text"},
+    "books": ["CEBAF Operations"],
+    "tags": ["vacuum", "injector"],
+    "attachments": []
+  },
+  {
+    "lognumber": "J20007",
+    "created": {"timestamp": "1704175200"},
+    "author": "operator5",
+    "title": "Night shift handoff",
+    "body": {"content": "Owl shift complete. Machine stable. Hall A and B taking beam. All systems nominal.", "format": "text"},
+    "books": ["CEBAF Operations"],
+    "tags": ["summary"],
+    "attachments": []
+  }
+]

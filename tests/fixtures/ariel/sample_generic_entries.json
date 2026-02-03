@@ -1,0 +1,39 @@
+{
+  "entries": [
+    {
+      "id": "GEN-001",
+      "timestamp": "2024-01-01T08:00:00Z",
+      "author": "jdoe",
+      "text": "System startup completed successfully. All subsystems green.",
+      "tags": ["startup", "systems"]
+    },
+    {
+      "id": "GEN-002",
+      "timestamp": "2024-01-01T10:00:00Z",
+      "author": "asmith",
+      "text": "Calibration run for detector array complete. Results within 2% of expected values.",
+      "tags": ["calibration", "detector"]
+    },
+    {
+      "id": "GEN-003",
+      "timestamp": "2024-01-01T12:00:00Z",
+      "author": "bwong",
+      "text": "Temperature spike in cooling loop 2. Increased flow rate to compensate.",
+      "tags": ["temperature", "cooling"]
+    },
+    {
+      "id": "GEN-004",
+      "timestamp": "2024-01-01T14:00:00Z",
+      "author": "ckim",
+      "text": "Data acquisition system rebooted after software crash. All data recovered from buffer.",
+      "tags": ["DAQ", "fault"]
+    },
+    {
+      "id": "GEN-005",
+      "timestamp": "2024-01-01T16:00:00Z",
+      "author": "dlee",
+      "text": "Shift handoff complete. All systems stable. No outstanding issues.",
+      "tags": ["handoff", "summary"]
+    }
+  ]
+}
