@@ -543,6 +543,9 @@ class PythonCapability(BaseCapability):
         figure_count = len(results_context.figure_paths)
         logger.success(f"Python execution complete - {execution_time:.2f}s, {figure_count} figures")
 
+        # Also emit as key_info for final result display in TUI
+        logger.key_info(f"Python execution complete - {execution_time:.2f}s, {figure_count} figures")
+
         # Store context using StateManager
         result_updates = StateManager.store_context(
             self._state, "PYTHON_RESULTS", step.get("context_key"), results_context
