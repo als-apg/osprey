@@ -31,6 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ARIEL**: Add `osprey ariel web` command to launch web interface
 - **ARIEL**: Add `osprey ariel purge` command for database cleanup
 - **ARIEL**: Inline enhancement during ingestion (no separate enhance step)
+- **ARIEL**: Add PostgreSQL service template for `osprey deploy up`
+- **ARIEL**: Add ARIEL Web service template with REST API and static frontend
+- **ARIEL**: Enable ARIEL services by default in `control_assistant` template
 
 ### Changed
 - **Templates**: Simplify `control_assistant` template (~130 → ~40 files)

@@ -119,6 +119,20 @@ services:
     copy_src: true  # Copies user application from src/
     # additional_dirs: []  # Add custom directories to copy if needed
 
+  # PostgreSQL for ARIEL logbook search
+  postgresql:
+    path: ./services/postgresql
+    database_name: ariel
+    username: ariel
+    password: ariel
+    port_host: 5432
+
+  # ARIEL Web Interface
+  ariel_web:
+    path: ./services/ariel-web
+    port_host: 8085
+    port_container: 8085
+
 
 # ============================================================
 # DEPLOYED SERVICES
@@ -129,6 +143,8 @@ deployed_services:
   - jupyter
   - open_webui
   - pipelines
+  - postgresql
+  - ariel_web
 
 # ============================================================
 # SAFETY CONTROLS
@@ -451,3 +467,63 @@ api:
 #   PROJECT_ROOT={{ project_root | default("/path/to/project") }}
 #   LOCAL_PYTHON_VENV=/path/to/venv/bin/python
 #   TZ=America/Los_Angeles
+
+# ============================================================
+# ARIEL - Electronic Logbook Search
+# ============================================================
+# ARIEL provides semantic search over electronic logbooks.
+# Configure the logbook source and search/embedding options below.
+
+ariel:
+  database:
+    uri: postgresql://ariel:ariel@localhost:5432/ariel
+
+  default_max_results: 10
+
+  # Ingestion - ALS logbook adapter
+  ingestion:
+    adapter: als_logbook
+    source_url: /path/to/logbook.jsonl  # Update with your logbook path
+
+  # Search modules
+  search_modules:
+    keyword:
+      enabled: true
+    semantic:
+      enabled: true
+      model: nomic-embed-text
+    rag:
+      enabled: true
+      model: nomic-embed-text
+
+  # Enhancement modules
+  enhancement_modules:
+    # Semantic processor: LLM-based keyword extraction and summarization
+    # Enables better keyword search and RAG context
+    semantic_processor:
+      enabled: false  # Requires LLM API calls - enable to use
+      model:
+        provider: {{ default_provider | default("cborg") }}
+        model_id: {{ default_model | default("anthropic/claude-haiku") }}
+        max_tokens: 256
+
+    # Text embedding: Vector embeddings for semantic search
+    # Uses local Ollama - no API costs
+    text_embedding:
+      enabled: true
+      models:
+        - name: nomic-embed-text
+          dimension: 768
+
+  # Embedding provider
+  embedding:
+    provider: ollama
+
+  # ReAct agent configuration
+  reasoning:
+    llm_provider: openai  # Use OpenAI-compatible API
+    llm_model_id: anthropic/claude-haiku
+    base_url: https://api.cborg.lbl.gov/v1  # CBORG endpoint
+    max_iterations: 5
+    temperature: 0.1
+    total_timeout_seconds: 120
