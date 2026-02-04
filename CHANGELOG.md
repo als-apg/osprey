@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **CLI**: Add `--channel-finder-mode` and `--code-generator` options to `osprey init`
+  - Options are included in manifest's `reproducible_command` for full project recreation
+
 ## [0.10.8] - 2026-02-02
 
 ### Added

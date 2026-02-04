@@ -199,6 +199,97 @@ class TestCLIIntegration:
         assert "osprey deploy up" in result.output
         assert "osprey chat" in result.output
 
+    def test_init_command_with_channel_finder_mode(self, tmp_path):
+        """Test init command with --channel-finder-mode option."""
+        runner = CliRunner()
+
+        result = runner.invoke(
+            init,
+            [
+                "cf-app",
+                "--template",
+                "control_assistant",
+                "--channel-finder-mode",
+                "in_context",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
+
+        assert result.exit_code == 0
+
+        # Check manifest has the option
+        import json
+
+        manifest_path = tmp_path / "cf-app" / ".osprey-manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        assert manifest["init_args"]["channel_finder_mode"] == "in_context"
+        assert "--channel-finder-mode in_context" in manifest["reproducible_command"]
+
+    def test_init_command_with_code_generator(self, tmp_path):
+        """Test init command with --code-generator option."""
+        runner = CliRunner()
+
+        result = runner.invoke(
+            init,
+            [
+                "gen-app",
+                "--template",
+                "control_assistant",
+                "--code-generator",
+                "basic",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
+
+        assert result.exit_code == 0
+
+        # Check manifest has the option
+        import json
+
+        manifest_path = tmp_path / "gen-app" / ".osprey-manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        assert manifest["init_args"]["code_generator"] == "basic"
+        assert "--code-generator basic" in manifest["reproducible_command"]
+
+    def test_init_command_reproducible_command_complete(self, tmp_path):
+        """Test that reproducible_command includes all options."""
+        runner = CliRunner()
+
+        result = runner.invoke(
+            init,
+            [
+                "full-app",
+                "--template",
+                "control_assistant",
+                "--provider",
+                "cborg",
+                "--model",
+                "anthropic/claude-haiku",
+                "--channel-finder-mode",
+                "hierarchical",
+                "--code-generator",
+                "claude_code",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
+
+        assert result.exit_code == 0
+
+        import json
+
+        manifest_path = tmp_path / "full-app" / ".osprey-manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+
+        cmd = manifest["reproducible_command"]
+        assert "--template control_assistant" in cmd
+        assert "--provider cborg" in cmd
+        assert "--model anthropic/claude-haiku" in cmd
+        assert "--channel-finder-mode hierarchical" in cmd
+        assert "--code-generator claude_code" in cmd
+
 
 class TestGeneratorConfigRendering:
     """Test code generator config file rendering."""

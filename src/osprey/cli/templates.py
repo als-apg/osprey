@@ -920,6 +920,14 @@ proper framework operation, especially when using containerized services.
         if init_args.get("model"):
             parts.extend(["--model", init_args["model"]])
 
+        # Add channel_finder_mode if specified
+        if init_args.get("channel_finder_mode"):
+            parts.extend(["--channel-finder-mode", init_args["channel_finder_mode"]])
+
+        # Add code_generator if specified
+        if init_args.get("code_generator"):
+            parts.extend(["--code-generator", init_args["code_generator"]])
+
         return " ".join(parts)
 
     def _calculate_file_checksums(self, project_dir: Path) -> dict[str, str]:
