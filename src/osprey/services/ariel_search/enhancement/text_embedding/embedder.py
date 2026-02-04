@@ -110,7 +110,7 @@ class TextEmbeddingModule(BaseEnhancementModule):
                 model_name = model_config["name"]
 
                 # Truncate to model's max input (conservative estimate: 4 chars/token)
-                max_tokens = model_config.get("max_input_tokens", 8192)
+                max_tokens = model_config.get("max_input_tokens") or 8192
                 max_chars = max_tokens * CHARS_PER_TOKEN
                 text = raw_text[:max_chars]
 

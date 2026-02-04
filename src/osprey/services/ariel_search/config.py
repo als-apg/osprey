@@ -81,10 +81,18 @@ class EnhancementModuleConfig:
         models = None
         if "models" in data:
             models = [ModelConfig.from_dict(m) for m in data["models"]]
+
+        # Capture all extra keys as settings (not just explicit settings: block)
+        reserved_keys = {"enabled", "models", "settings"}
+        extra_settings = {k: v for k, v in data.items() if k not in reserved_keys}
+
+        # Merge explicit settings with extra keys (explicit takes precedence)
+        settings = {**extra_settings, **data.get("settings", {})}
+
         return cls(
             enabled=data.get("enabled", False),
             models=models,
-            settings=data.get("settings", {}),
+            settings=settings,
         )
 
 
@@ -151,6 +159,7 @@ class ReasoningConfig:
     Attributes:
         llm_model_id: LLM model identifier (default: "gpt-4o-mini")
         llm_provider: LLM provider name (default: "openai")
+        base_url: Optional base URL for OpenAI-compatible APIs (e.g., CBORG)
         max_iterations: Maximum ReAct cycles (default: 5)
         temperature: LLM temperature (default: 0.1)
         tool_timeout_seconds: Per-tool call timeout (default: 30) - V2
@@ -159,6 +168,7 @@ class ReasoningConfig:
 
     llm_model_id: str = "gpt-4o-mini"
     llm_provider: str = "openai"
+    base_url: str | None = None
     max_iterations: int = 5
     temperature: float = 0.1
     tool_timeout_seconds: int = 30
@@ -170,6 +180,7 @@ class ReasoningConfig:
         return cls(
             llm_model_id=data.get("llm_model_id", "gpt-4o-mini"),
             llm_provider=data.get("llm_provider", "openai"),
+            base_url=data.get("base_url"),
             max_iterations=data.get("max_iterations", 5),
             temperature=data.get("temperature", 0.1),
             tool_timeout_seconds=data.get("tool_timeout_seconds", 30),
@@ -306,7 +317,9 @@ class ARIELConfig:
         if self.is_search_module_enabled("semantic"):
             semantic_config = self.search_modules.get("semantic")
             if semantic_config and not semantic_config.model:
-                errors.append("search_modules.semantic.model is required when semantic search is enabled")
+                errors.append(
+                    "search_modules.semantic.model is required when semantic search is enabled"
+                )
 
         # Validate RAG search requires model
         if self.is_search_module_enabled("rag"):

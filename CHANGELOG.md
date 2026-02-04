@@ -69,6 +69,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `SimulationBackend` protocol for custom physics implementations
   - Documentation guide for custom backend development
 
+### Changed
+- **ARIEL**: Simplify full-text search to use raw_text field directly
+- **ARIEL**: Add base_url support for OpenAI-compatible APIs (CBORG, etc.)
+- **ARIEL**: Fix text embedding max_input_tokens None handling
+
 ### Fixed
 - **Templates**: Fix `pyproject.toml` template using wrong package search path
   - Template creates `src/<package_name>/` layout but configured `where = ["."]`

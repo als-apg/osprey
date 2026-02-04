@@ -97,6 +97,7 @@ class ARIELSearchService:
                     self._llm = ChatOpenAI(
                         model=model_id,
                         temperature=self.config.reasoning.temperature,
+                        base_url=self.config.reasoning.base_url,
                     )
                 except ImportError as err:
                     raise ConfigurationError(

@@ -186,9 +186,7 @@ async def keyword_search(
     if len(query) > MAX_QUERY_LENGTH:
         original_length = len(query)
         query = query[:MAX_QUERY_LENGTH]
-        logger.warning(
-            f"Query truncated from {original_length} to {MAX_QUERY_LENGTH} characters"
-        )
+        logger.warning(f"Query truncated from {original_length} to {MAX_QUERY_LENGTH} characters")
 
     # Parse the query
     search_text, field_filters, phrases = parse_query(query)
@@ -207,9 +205,9 @@ async def keyword_search(
             params.append(phrase)
 
         # Main FTS condition
+        # Note: Search is performed on raw_text which contains subject + details
         where_clauses.append(
-            "to_tsvector('english', raw_text || ' ' || COALESCE(summary, '')) @@ "
-            f"({build_tsquery(search_text, phrases)})"
+            f"to_tsvector('english', raw_text) @@ ({build_tsquery(search_text, phrases)})"
         )
 
     # Add field filters

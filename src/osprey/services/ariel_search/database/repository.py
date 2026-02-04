@@ -623,11 +623,12 @@ class ARIELRepository:
                     where_sql = " AND ".join(where_clauses) if where_clauses else "TRUE"
 
                     # Build query with FTS ranking
+                    # Note: raw_text contains subject + details merged by adapter
                     if include_highlights:
                         query = f"""
                             SELECT e.*,
                                    ts_rank(
-                                       to_tsvector('english', raw_text || ' ' || COALESCE(summary, '')),
+                                       to_tsvector('english', raw_text),
                                        plainto_tsquery('english', %s)
                                    ) AS rank,
                                    ts_headline('english', raw_text, plainto_tsquery('english', %s),
@@ -643,7 +644,7 @@ class ARIELRepository:
                         query = f"""
                             SELECT e.*,
                                    ts_rank(
-                                       to_tsvector('english', raw_text || ' ' || COALESCE(summary, '')),
+                                       to_tsvector('english', raw_text),
                                        plainto_tsquery('english', %s)
                                    ) AS rank,
                                    NULL AS headline
@@ -772,9 +773,7 @@ class ARIELRepository:
         try:
             async with self.pool.connection() as conn:
                 async with conn.cursor(row_factory=dict_row) as cur:
-                    where_clauses = [
-                        "1 - (emb.embedding <=> %s::vector) >= %s"
-                    ]
+                    where_clauses = ["1 - (emb.embedding <=> %s::vector) >= %s"]
                     params: list[Any] = [embedding_str, similarity_threshold]
 
                     if start_date:

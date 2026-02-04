@@ -194,14 +194,20 @@ async def rag_search(
     try:
         from osprey.models.completion import get_chat_completion
 
-        # Get RAG model config if specified
-        model_config = None
-        if rag_config and rag_config.model:
-            model_config = {"model": rag_config.model}
+        # Use reasoning config for LLM provider/model
+        # Note: rag_config.model is the embedding model name, not the LLM
+        llm_kwargs: dict = {}
+        if config and config.reasoning:
+            reasoning = config.reasoning
+            llm_kwargs["provider"] = reasoning.llm_provider
+            llm_kwargs["model_id"] = reasoning.llm_model_id
+            if reasoning.base_url:
+                llm_kwargs["base_url"] = reasoning.base_url
+            llm_kwargs["temperature"] = reasoning.temperature
 
         response = get_chat_completion(
             message=prompt,
-            model_config=model_config,
+            **llm_kwargs,
         )
 
         # Handle different response types
