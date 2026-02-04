@@ -75,9 +75,9 @@ def get_litellm_model_name(
             return model_id
         return f"{prefix}/{model_id}"
 
-    # Fallback: return as-is
-    logger.warning(f"Unknown provider '{provider}', using model_id as-is: {model_id}")
-    return model_id
+    # Unknown provider - use provider name as prefix (LiteLLM's default behavior)
+    logger.debug(f"Unknown provider '{provider}', using default routing: {provider}/{model_id}")
+    return f"{provider}/{model_id}"
 
 
 def execute_litellm_completion(
