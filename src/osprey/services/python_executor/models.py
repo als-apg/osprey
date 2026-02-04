@@ -53,7 +53,7 @@ from __future__ import annotations
 import ast
 import dataclasses
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import Enum, StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, TypedDict
 
@@ -444,7 +444,7 @@ class PythonExecutionContext:
         return len(self.notebook_attempts) + 1
 
 
-class PlanningMode(str, Enum):
+class PlanningMode(StrEnum):
     """Code generation planning mode for Python executor.
 
     Determines how code generation planning is approached:

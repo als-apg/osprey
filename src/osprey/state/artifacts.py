@@ -29,11 +29,11 @@ should use `ui_artifacts` exclusively.
    :class:`osprey.state.AgentState` : State structure containing ui_artifacts
 """
 
-from enum import Enum
+from enum import StrEnum
 from typing import Any, TypedDict
 
 
-class ArtifactType(str, Enum):
+class ArtifactType(StrEnum):
     """Enumeration of supported artifact types.
 
     Each artifact type corresponds to a specific category of generated content
