@@ -4,32 +4,21 @@ This module provides a unified interface to 100+ LLM providers through LiteLLM,
 replacing Osprey's custom provider implementations with a single adapter layer.
 
 Key features:
-- Model name mapping using provider-declared attributes (litellm_prefix, is_openai_compatible)
-- Structured output detection via LiteLLM's supports_response_schema()
-- Extended thinking support via LiteLLM's standardized interface
+- Model name mapping from Osprey format to LiteLLM format
+- Extended thinking support for Anthropic and Google
+- Structured output handling (native and prompt-based fallback)
 - HTTP proxy configuration
 - Health check utilities
-
-Provider Integration:
-    Providers declare their LiteLLM routing behavior via class attributes:
-    - litellm_prefix: The LiteLLM prefix (e.g., "anthropic", "gemini")
-    - is_openai_compatible: True for OpenAI-compatible endpoints (CBORG, vLLM, etc.)
-
-    This eliminates hardcoded provider checks and allows custom providers to integrate
-    without modifying this adapter.
 """
 
 import json
 import logging
 import os
 import warnings
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import litellm
 from pydantic import BaseModel
-
-if TYPE_CHECKING:
-    from .base import BaseProvider
 
 # Suppress LiteLLM's verbose logging
 litellm.set_verbose = False
@@ -52,7 +41,6 @@ def get_litellm_model_name(
     provider: str,
     model_id: str,
     base_url: str | None = None,
-    provider_class: "type[BaseProvider] | None" = None,
 ) -> str:
     """Map Osprey provider/model to LiteLLM model string.
 
@@ -62,51 +50,34 @@ def get_litellm_model_name(
     - ollama/llama3.1:8b for Ollama
     - openai/{model} with api_base for OpenAI-compatible endpoints
 
-    This function reads provider-declared attributes (litellm_prefix, is_openai_compatible)
-    to determine the correct routing, eliminating hardcoded provider checks.
-
     :param provider: Osprey provider name
     :param model_id: Model identifier
     :param base_url: Custom API endpoint URL (for OpenAI-compatible providers)
-    :param provider_class: Optional provider class with LiteLLM configuration attributes
     :return: LiteLLM-formatted model string
     """
-    # If provider class is available, use its declared attributes
-    if provider_class is not None:
-        # OpenAI-compatible providers use openai/ prefix with custom api_base
-        if getattr(provider_class, "is_openai_compatible", False):
-            return f"openai/{model_id}"
-
-        # Use provider-declared LiteLLM prefix
-        litellm_prefix = getattr(provider_class, "litellm_prefix", None)
-        if litellm_prefix is not None:
-            # Empty string means no prefix (like OpenAI native)
-            if litellm_prefix == "":
-                return model_id
-            return f"{litellm_prefix}/{model_id}"
-
-    # Fallback for backwards compatibility when provider_class is not provided
-    # This allows the adapter to work even without the provider class
-    _fallback_prefixes = {
-        "anthropic": "anthropic",
-        "google": "gemini",
-        "openai": "",  # No prefix for OpenAI
-        "ollama": "ollama",
-    }
-    _openai_compatible = {"cborg", "stanford", "argo", "vllm"}
-
-    if provider in _openai_compatible:
+    # OpenAI-compatible providers (CBORG, Stanford, ARGO, vLLM)
+    # These use the openai/ prefix with a custom api_base
+    if provider in ("cborg", "stanford", "argo", "vllm"):
         return f"openai/{model_id}"
 
-    prefix = _fallback_prefixes.get(provider)
-    if prefix is not None:
-        if prefix == "":
+    # Native LiteLLM providers
+    provider_prefixes = {
+        "anthropic": "anthropic",
+        "google": "gemini",
+        "openai": "openai",
+        "ollama": "ollama",
+    }
+
+    prefix = provider_prefixes.get(provider)
+    if prefix:
+        # OpenAI models don't need prefix in LiteLLM
+        if provider == "openai":
             return model_id
         return f"{prefix}/{model_id}"
 
-    # Unknown provider - use provider name as prefix (LiteLLM's default behavior)
-    logger.debug(f"Provider '{provider}' using default LiteLLM routing: {provider}/{model_id}")
-    return f"{provider}/{model_id}"
+    # Fallback: return as-is
+    logger.warning(f"Unknown provider '{provider}', using model_id as-is: {model_id}")
+    return model_id
 
 
 def execute_litellm_completion(
@@ -256,8 +227,8 @@ def _handle_structured_output(
 
     schema = output_format.model_json_schema()
 
-    # Check if model supports native structured outputs using LiteLLM's detection
-    supports_native = _supports_native_structured_output(litellm_model, provider)
+    # Check if model supports native structured outputs
+    supports_native = _supports_native_structured_output(provider, model_id)
 
     if supports_native:
         # Use LiteLLM's native structured output support
@@ -273,14 +244,24 @@ def _handle_structured_output(
         response_text = _clean_json_response(response_text)
     else:
         # Prompt-based fallback for models without native support
-        structured_message = f"""{message}
+        # Use system message + strong instruction for better compliance (especially with Claude via Argo)
+        system_message = (
+            "You are a JSON-only response assistant. You MUST respond with valid JSON only. "
+            "Never include explanations, markdown, or any text outside the JSON object."
+        )
+        structured_message = f"""Extract the requested information and respond with ONLY a JSON object.
 
-You must respond with valid JSON that matches this schema:
+REQUEST: {message}
+
+REQUIRED JSON SCHEMA:
 {json.dumps(schema, indent=2)}
 
-Respond ONLY with the JSON object, no additional text or markdown formatting."""
+CRITICAL: Output ONLY the JSON object. No markdown, no explanations, no code blocks. Just the raw JSON."""
 
-        completion_kwargs["messages"] = [{"role": "user", "content": structured_message}]
+        completion_kwargs["messages"] = [
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": structured_message},
+        ]
 
         response = litellm.completion(**completion_kwargs)
         response_text = response.choices[0].message.content or ""
@@ -302,27 +283,40 @@ Respond ONLY with the JSON object, no additional text or markdown formatting."""
         ) from e
 
 
-def _supports_native_structured_output(litellm_model: str, provider: str) -> bool:
+def _supports_native_structured_output(provider: str, model_id: str) -> bool:
     """Check if a model supports native structured outputs.
 
-    Uses LiteLLM's built-in supports_response_schema() for detection, with
-    fallback handling for OpenAI-compatible providers (CBORG, Stanford, ARGO, vLLM)
-    that support structured outputs via their proxy but aren't recognized by LiteLLM.
-
-    :param litellm_model: LiteLLM-formatted model string (e.g., "anthropic/claude-sonnet-4")
-    :param provider: Osprey provider name
+    :param provider: Provider name
+    :param model_id: Model identifier
     :return: True if native structured output is supported
     """
-    # OpenAI-compatible providers support structured outputs via their API
-    # LiteLLM can't detect this since it sees the openai/ prefix, not the actual model
-    if provider in ("cborg", "stanford", "argo", "vllm"):
-        return True
+    if provider == "anthropic":
+        # Claude 4+ models support native structured outputs
+        return "claude-sonnet-4" in model_id or "claude-opus-4" in model_id
 
-    try:
-        return litellm.supports_response_schema(model=litellm_model)
-    except Exception:
-        # If LiteLLM can't determine support, fall back to False (use prompt-based)
+    if provider == "openai":
+        # GPT-4o and newer support structured outputs
+        return "gpt-4o" in model_id or "gpt-4-turbo" in model_id
+
+    # OpenAI-compatible providers (CBORG, Stanford, ARGO) support native structured outputs
+    # CBORG proxies to underlying providers and supports structured output for all models
+    if provider == "cborg":
+        return True  # CBORG supports structured outputs via OpenAI-compatible API
+
+    # Argo API (apps-dev.inside.anl.gov) does NOT support response_format parameter
+    # It ignores json_schema and returns markdown. Must use prompt-based fallback.
+    if provider == "argo":
         return False
+
+    if provider == "stanford":
+        # Stanford may support structured outputs for some models
+        return "gpt-4o" in model_id or "claude-sonnet-4" in model_id or "claude-opus-4" in model_id
+
+    # vLLM supports structured outputs for most models
+    if provider == "vllm":
+        return True  # vLLM handles json_schema natively
+
+    return False
 
 
 def _clean_json_response(text: str) -> str:
