@@ -177,9 +177,14 @@ ariel-proxy = [
     "aiohttp-socks>=0.8.0",
 ]
 
+# ARIEL Web Interface - FastAPI server for web-based search
+web = [
+    "uvicorn[standard]>=0.27.0",
+]
+
 # All optional dependencies for complete installation
 all = [
-    "osprey-framework[docs,dev,storage,ariel]"
+    "osprey-framework[docs,dev,storage,ariel,web]"
 ]
 
 [project.urls]
