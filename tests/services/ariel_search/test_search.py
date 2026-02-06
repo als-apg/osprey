@@ -1,7 +1,10 @@
 """Tests for ARIEL search modules.
 
-Tests for keyword, semantic, and RAG search implementations.
+Tests for keyword and semantic search implementations.
+RAG is now implemented via the Pipeline abstraction.
 """
+
+from datetime import UTC
 
 import pytest
 
@@ -15,7 +18,6 @@ from osprey.services.ariel_search.search.keyword import (
     _balance_quotes,
     build_tsquery,
 )
-from osprey.services.ariel_search.search.rag import format_entry_for_context
 
 
 class TestSearchConstants:
@@ -76,9 +78,7 @@ class TestParseQuery:
 
     def test_combined_query(self):
         """Parses query with filters and phrases."""
-        search_text, filters, phrases = parse_query(
-            '"beam loss" author:smith vacuum'
-        )
+        search_text, filters, phrases = parse_query('"beam loss" author:smith vacuum')
         assert "vacuum" in search_text
         assert filters == {"author": "smith"}
         assert phrases == ["beam loss"]
@@ -116,74 +116,6 @@ class TestBuildTsquery:
         assert "plainto_tsquery" in result
 
 
-class TestFormatEntryForContext:
-    """Tests for RAG context formatting."""
-
-    def test_basic_formatting(self):
-        """Formats entry for RAG context."""
-        from datetime import datetime, timezone
-
-        entry = {
-            "entry_id": "entry-001",
-            "source_system": "ALS eLog",
-            "timestamp": datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
-            "author": "jsmith",
-            "raw_text": "Beam current stabilized at 500mA.",
-            "attachments": [],
-            "metadata": {"title": "Beam Update"},
-        }
-
-        result = format_entry_for_context(entry, 0.85)
-
-        # Spec uses ENTRY #id format (Section 5.5.2)
-        assert "ENTRY #entry-001" in result
-        assert "Author: jsmith" in result
-        assert "Beam Update" in result
-        assert "Beam current stabilized" in result
-
-    def test_truncates_long_content(self):
-        """Truncates content longer than 2000 chars (per spec Section 5.5.2)."""
-        from datetime import datetime, timezone
-
-        long_text = "x" * 3000
-        entry = {
-            "entry_id": "entry-002",
-            "source_system": "ALS eLog",
-            "timestamp": datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
-            "author": "jsmith",
-            "raw_text": long_text,
-            "attachments": [],
-            "metadata": {},
-        }
-
-        result = format_entry_for_context(entry, 0.5)
-
-        # Spec says 2000 chars/entry limit, content should be truncated
-        # Result includes header + truncated content + "..."
-        assert len(result) < 2200  # Header + 2000 chars + "..."
-        assert "..." in result
-
-    def test_handles_missing_metadata(self):
-        """Handles entry without title in metadata."""
-        from datetime import datetime, timezone
-
-        entry = {
-            "entry_id": "entry-003",
-            "source_system": "ALS eLog",
-            "timestamp": datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
-            "author": "jsmith",
-            "raw_text": "Simple entry.",
-            "attachments": [],
-            "metadata": {},
-        }
-
-        result = format_entry_for_context(entry, 0.5)
-
-        # Spec uses ENTRY #id format
-        assert "ENTRY #entry-003" in result
-        assert "Simple entry." in result
-
-
 class TestSearchModuleExports:
     """Tests for search module exports."""
 
@@ -199,12 +131,6 @@ class TestSearchModuleExports:
 
         assert callable(semantic_search)
 
-    def test_rag_search_exported(self):
-        """rag_search is exported from search module."""
-        from osprey.services.ariel_search.search import rag_search
-
-        assert callable(rag_search)
-
 
 class TestKeywordSearchFunction:
     """Tests for keyword_search function with mocked repository."""
@@ -214,10 +140,12 @@ class TestKeywordSearchFunction:
         """Create mock ARIEL config with keyword search enabled."""
         from osprey.services.ariel_search.config import ARIELConfig
 
-        return ARIELConfig.from_dict({
-            "database": {"uri": "postgresql://localhost/test"},
-            "search_modules": {"keyword": {"enabled": True}},
-        })
+        return ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost/test"},
+                "search_modules": {"keyword": {"enabled": True}},
+            }
+        )
 
     @pytest.fixture
     def mock_repository(self, mock_config):
@@ -300,7 +228,9 @@ class TestKeywordSearchFunction:
         # Verify the call was made with date params
         call_args = mock_repository.keyword_search.call_args
         assert call_args is not None
-        params = call_args.kwargs.get("params", call_args.args[1] if len(call_args.args) > 1 else [])
+        params = call_args.kwargs.get(
+            "params", call_args.args[1] if len(call_args.args) > 1 else []
+        )
         # Should contain date boundary values
         assert any("2024-01" in str(p) for p in params)
 
@@ -329,7 +259,9 @@ class TestKeywordSearchFunction:
         )
 
         call_args = mock_repository.keyword_search.call_args
-        params = call_args.kwargs.get("params", call_args.args[1] if len(call_args.args) > 1 else [])
+        params = call_args.kwargs.get(
+            "params", call_args.args[1] if len(call_args.args) > 1 else []
+        )
         # Should have next year for end boundary
         assert any("2025-01-01" in str(p) for p in params)
 
@@ -342,27 +274,31 @@ class TestSemanticSearchFunction:
         """Create mock ARIEL config with semantic search enabled."""
         from osprey.services.ariel_search.config import ARIELConfig
 
-        return ARIELConfig.from_dict({
-            "database": {"uri": "postgresql://localhost/test"},
-            "search_modules": {
-                "semantic": {
-                    "enabled": True,
-                    "model": "nomic-embed-text",
-                    "settings": {"similarity_threshold": 0.8},
+        return ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost/test"},
+                "search_modules": {
+                    "semantic": {
+                        "enabled": True,
+                        "model": "nomic-embed-text",
+                        "settings": {"similarity_threshold": 0.8},
+                    },
                 },
-            },
-            "embedding": {"provider": "ollama", "base_url": "http://localhost:11434"},
-        })
+                "embedding": {"provider": "ollama", "base_url": "http://localhost:11434"},
+            }
+        )
 
     @pytest.fixture
     def mock_config_no_model(self):
         """Create config without model configured."""
         from osprey.services.ariel_search.config import ARIELConfig
 
-        return ARIELConfig.from_dict({
-            "database": {"uri": "postgresql://localhost/test"},
-            "search_modules": {"semantic": {"enabled": True}},
-        })
+        return ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost/test"},
+                "search_modules": {"semantic": {"enabled": True}},
+            }
+        )
 
     @pytest.fixture
     def mock_repository(self, mock_config):
@@ -385,9 +321,7 @@ class TestSemanticSearchFunction:
         return embedder
 
     @pytest.mark.asyncio
-    async def test_empty_query_returns_empty(
-        self, mock_repository, mock_config, mock_embedder
-    ):
+    async def test_empty_query_returns_empty(self, mock_repository, mock_config, mock_embedder):
         """Empty query returns empty results."""
         from osprey.services.ariel_search.search.semantic import semantic_search
 
@@ -401,9 +335,7 @@ class TestSemanticSearchFunction:
         """Whitespace-only query returns empty results."""
         from osprey.services.ariel_search.search.semantic import semantic_search
 
-        result = await semantic_search(
-            "   ", mock_repository, mock_config, mock_embedder
-        )
+        result = await semantic_search("   ", mock_repository, mock_config, mock_embedder)
         assert result == []
 
     @pytest.mark.asyncio
@@ -422,9 +354,7 @@ class TestSemanticSearchFunction:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_embedding_generation_called(
-        self, mock_repository, mock_config, mock_embedder
-    ):
+    async def test_embedding_generation_called(self, mock_repository, mock_config, mock_embedder):
         """Embedding generation is called with query."""
         from osprey.services.ariel_search.search.semantic import semantic_search
 
@@ -440,9 +370,7 @@ class TestSemanticSearchFunction:
         assert call_args.kwargs["texts"] == ["test query"]
 
     @pytest.mark.asyncio
-    async def test_uses_config_threshold(
-        self, mock_repository, mock_config, mock_embedder
-    ):
+    async def test_uses_config_threshold(self, mock_repository, mock_config, mock_embedder):
         """Uses threshold from config when not provided."""
         from osprey.services.ariel_search.search.semantic import semantic_search
 
@@ -457,9 +385,7 @@ class TestSemanticSearchFunction:
         assert call_args.kwargs["similarity_threshold"] == 0.8
 
     @pytest.mark.asyncio
-    async def test_per_query_threshold_override(
-        self, mock_repository, mock_config, mock_embedder
-    ):
+    async def test_per_query_threshold_override(self, mock_repository, mock_config, mock_embedder):
         """Per-query threshold overrides config."""
         from osprey.services.ariel_search.search.semantic import semantic_search
 
@@ -493,9 +419,7 @@ class TestSemanticSearchFunction:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_empty_embedding_returns_empty(
-        self, mock_repository, mock_config, mock_embedder
-    ):
+    async def test_empty_embedding_returns_empty(self, mock_repository, mock_config, mock_embedder):
         """Returns empty when embedding is empty."""
         from osprey.services.ariel_search.search.semantic import semantic_search
 
@@ -511,329 +435,6 @@ class TestSemanticSearchFunction:
         assert result == []
 
 
-class TestRAGSearchFunction:
-    """Tests for rag_search function with mocked dependencies."""
-
-    @pytest.fixture
-    def mock_config(self):
-        """Create mock ARIEL config with RAG search enabled."""
-        from osprey.services.ariel_search.config import ARIELConfig
-
-        return ARIELConfig.from_dict({
-            "database": {"uri": "postgresql://localhost/test"},
-            "search_modules": {
-                "rag": {
-                    "enabled": True,
-                    "model": "llama3",
-                    "settings": {
-                        "max_entries_for_context": 3,
-                        "similarity_threshold": 0.6,
-                    },
-                },
-                "semantic": {
-                    "enabled": True,
-                    "model": "nomic-embed-text",
-                },
-            },
-            "embedding": {"provider": "ollama"},
-        })
-
-    @pytest.fixture
-    def mock_config_no_model(self):
-        """Create config without model configured."""
-        from osprey.services.ariel_search.config import ARIELConfig
-
-        return ARIELConfig.from_dict({
-            "database": {"uri": "postgresql://localhost/test"},
-            "search_modules": {"rag": {"enabled": True}},
-        })
-
-    @pytest.fixture
-    def mock_repository(self, mock_config):
-        """Create mock repository."""
-        from unittest.mock import AsyncMock, MagicMock
-
-        repo = MagicMock()
-        repo.config = mock_config
-        repo.semantic_search = AsyncMock(return_value=[])
-        return repo
-
-    @pytest.fixture
-    def mock_embedder(self):
-        """Create mock embedding provider."""
-        from unittest.mock import MagicMock
-
-        embedder = MagicMock()
-        embedder.default_base_url = "http://localhost:11434"
-        embedder.execute_embedding = MagicMock(return_value=[[0.1, 0.2, 0.3]])
-        return embedder
-
-    @pytest.mark.asyncio
-    async def test_empty_query_returns_message(
-        self, mock_repository, mock_config, mock_embedder
-    ):
-        """Empty query returns helpful message."""
-        from osprey.services.ariel_search.search.rag import rag_search
-
-        answer, entries = await rag_search(
-            "", mock_repository, mock_config, mock_embedder
-        )
-        assert "provide a question" in answer.lower()
-        assert entries == []
-
-    @pytest.mark.asyncio
-    async def test_no_model_returns_error_message(
-        self, mock_repository, mock_config_no_model, mock_embedder
-    ):
-        """Returns error message if no model configured."""
-        from osprey.services.ariel_search.search.rag import rag_search
-
-        answer, entries = await rag_search(
-            "test question",
-            mock_repository,
-            mock_config_no_model,
-            mock_embedder,
-        )
-        assert "not properly configured" in answer.lower()
-        assert entries == []
-
-    @pytest.mark.asyncio
-    async def test_no_results_returns_message(
-        self, mock_repository, mock_config, mock_embedder
-    ):
-        """Returns message when no relevant entries found."""
-        from osprey.services.ariel_search.search.rag import rag_search
-
-        mock_repository.semantic_search.return_value = []
-
-        answer, entries = await rag_search(
-            "obscure question",
-            mock_repository,
-            mock_config,
-            mock_embedder,
-        )
-        assert "don't have enough information" in answer.lower()
-        assert entries == []
-
-    @pytest.mark.asyncio
-    async def test_embedding_failure_returns_error(
-        self, mock_repository, mock_config, mock_embedder
-    ):
-        """Returns error on embedding failure."""
-        from osprey.services.ariel_search.search.rag import rag_search
-
-        mock_embedder.execute_embedding.side_effect = Exception("Ollama unavailable")
-
-        answer, entries = await rag_search(
-            "test question",
-            mock_repository,
-            mock_config,
-            mock_embedder,
-        )
-        assert "failed" in answer.lower()
-        assert entries == []
-
-    @pytest.mark.asyncio
-    async def test_uses_config_settings(
-        self, mock_repository, mock_config, mock_embedder
-    ):
-        """Uses settings from config."""
-        from osprey.services.ariel_search.search.rag import rag_search
-
-        await rag_search(
-            "test question",
-            mock_repository,
-            mock_config,
-            mock_embedder,
-        )
-
-        call_args = mock_repository.semantic_search.call_args
-        assert call_args.kwargs["max_results"] == 3
-        assert call_args.kwargs["similarity_threshold"] == 0.6
-
-    @pytest.mark.asyncio
-    async def test_per_query_settings_override(
-        self, mock_repository, mock_config, mock_embedder
-    ):
-        """Per-query settings override config."""
-        from osprey.services.ariel_search.search.rag import rag_search
-
-        await rag_search(
-            "test question",
-            mock_repository,
-            mock_config,
-            mock_embedder,
-            max_entries=7,
-            similarity_threshold=0.4,
-        )
-
-        call_args = mock_repository.semantic_search.call_args
-        assert call_args.kwargs["max_results"] == 7
-        assert call_args.kwargs["similarity_threshold"] == 0.4
-
-
-class TestFormatEntryAdditional:
-    """Additional tests for format_entry_for_context."""
-
-    def test_handles_none_timestamp(self):
-        """Handles entry with None timestamp."""
-        entry = {
-            "entry_id": "entry-004",
-            "source_system": "ALS eLog",
-            "timestamp": None,
-            "author": "jsmith",
-            "raw_text": "Entry without timestamp.",
-            "attachments": [],
-            "metadata": {},
-        }
-
-        result = format_entry_for_context(entry, 0.5)
-
-        # Spec uses ENTRY #id format
-        assert "ENTRY #entry-004" in result
-        assert "Unknown" in result
-
-    def test_handles_missing_author(self):
-        """Handles entry with missing author."""
-        from datetime import datetime, timezone
-
-        entry = {
-            "entry_id": "entry-005",
-            "source_system": "ALS eLog",
-            "timestamp": datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
-            "raw_text": "Entry without author.",
-            "attachments": [],
-            "metadata": {},
-        }
-
-        result = format_entry_for_context(entry, 0.5)
-
-        # Spec uses ENTRY #id format
-        assert "ENTRY #entry-005" in result
-        assert "Author: Unknown" in result
-
-    def test_handles_empty_content(self):
-        """Handles entry with empty content."""
-        from datetime import datetime, timezone
-
-        entry = {
-            "entry_id": "entry-006",
-            "source_system": "ALS eLog",
-            "timestamp": datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
-            "author": "jsmith",
-            "raw_text": "",
-            "attachments": [],
-            "metadata": {},
-        }
-
-        result = format_entry_for_context(entry, 0.5)
-
-        # Spec uses ENTRY #id format
-        assert "ENTRY #entry-006" in result
-        assert "Author: jsmith" in result
-
-
-class TestRAGSearchWithResults:
-    """Tests for RAG search when semantic search returns results."""
-
-    @pytest.fixture
-    def mock_config(self):
-        """Create mock ARIEL config with RAG search enabled."""
-        from osprey.services.ariel_search.config import ARIELConfig
-
-        return ARIELConfig.from_dict({
-            "database": {"uri": "postgresql://localhost/test"},
-            "search_modules": {
-                "rag": {
-                    "enabled": True,
-                    "model": "llama3",
-                    "settings": {
-                        "max_entries_for_context": 3,
-                        "similarity_threshold": 0.6,
-                    },
-                },
-                "semantic": {
-                    "enabled": True,
-                    "model": "nomic-embed-text",
-                },
-            },
-            "embedding": {"provider": "ollama"},
-        })
-
-    @pytest.fixture
-    def sample_entries(self):
-        """Sample entries for context."""
-        from datetime import datetime, timezone
-
-        return [
-            ({
-                "entry_id": "entry-001",
-                "source_system": "ALS eLog",
-                "timestamp": datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
-                "author": "jsmith",
-                "raw_text": "Beam current at 500mA. Operations stable.",
-                "attachments": [],
-                "metadata": {"title": "Beam Update"},
-            }, 0.95),
-            ({
-                "entry_id": "entry-002",
-                "source_system": "ALS eLog",
-                "timestamp": datetime(2024, 1, 15, 11, 0, 0, tzinfo=timezone.utc),
-                "author": "jdoe",
-                "raw_text": "RF cavity tuning completed successfully.",
-                "attachments": [],
-                "metadata": {"title": "RF Update"},
-            }, 0.88),
-        ]
-
-    @pytest.fixture
-    def mock_repository(self, mock_config, sample_entries):
-        """Create mock repository that returns entries."""
-        from unittest.mock import AsyncMock, MagicMock
-
-        repo = MagicMock()
-        repo.config = mock_config
-        repo.semantic_search = AsyncMock(return_value=sample_entries)
-        return repo
-
-    @pytest.fixture
-    def mock_embedder(self):
-        """Create mock embedding provider."""
-        from unittest.mock import MagicMock
-
-        embedder = MagicMock()
-        embedder.default_base_url = "http://localhost:11434"
-        embedder.execute_embedding = MagicMock(return_value=[[0.1, 0.2, 0.3]])
-        return embedder
-
-    @pytest.mark.asyncio
-    async def test_rag_with_date_filters(
-        self, mock_repository, mock_config, mock_embedder
-    ):
-        """RAG search passes date filters to semantic search."""
-        from datetime import datetime, timezone
-        from osprey.services.ariel_search.search.rag import rag_search
-
-        start_date = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        end_date = datetime(2024, 12, 31, tzinfo=timezone.utc)
-
-        # Temporarily set no entries to avoid LLM call
-        mock_repository.semantic_search.return_value = []
-
-        await rag_search(
-            "What is the beam status?",
-            mock_repository,
-            mock_config,
-            mock_embedder,
-            start_date=start_date,
-            end_date=end_date,
-        )
-
-        call_args = mock_repository.semantic_search.call_args
-        assert call_args.kwargs["start_date"] == start_date
-        assert call_args.kwargs["end_date"] == end_date
-
-
 class TestKeywordSearchWithResults:
     """Tests for keyword search when repository returns results."""
 
@@ -842,26 +443,32 @@ class TestKeywordSearchWithResults:
         """Create mock ARIEL config."""
         from osprey.services.ariel_search.config import ARIELConfig
 
-        return ARIELConfig.from_dict({
-            "database": {"uri": "postgresql://localhost/test"},
-            "search_modules": {"keyword": {"enabled": True}},
-        })
+        return ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost/test"},
+                "search_modules": {"keyword": {"enabled": True}},
+            }
+        )
 
     @pytest.fixture
     def sample_results(self):
         """Sample keyword search results."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         return [
-            ({
-                "entry_id": "entry-001",
-                "source_system": "ALS eLog",
-                "timestamp": datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
-                "author": "jsmith",
-                "raw_text": "Beam current stabilized at 500mA.",
-                "attachments": [],
-                "metadata": {},
-            }, 0.85, ["<mark>Beam</mark> current"]),
+            (
+                {
+                    "entry_id": "entry-001",
+                    "source_system": "ALS eLog",
+                    "timestamp": datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC),
+                    "author": "jsmith",
+                    "raw_text": "Beam current stabilized at 500mA.",
+                    "attachments": [],
+                    "metadata": {},
+                },
+                0.85,
+                ["<mark>Beam</mark> current"],
+            ),
         ]
 
     @pytest.fixture
@@ -893,11 +500,12 @@ class TestKeywordSearchWithResults:
     @pytest.mark.asyncio
     async def test_keyword_with_date_param(self, mock_repository, mock_config):
         """Keyword search passes date parameters to repository."""
-        from datetime import datetime, timezone
+        from datetime import datetime
+
         from osprey.services.ariel_search.search.keyword import keyword_search
 
-        start_date = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        end_date = datetime(2024, 12, 31, tzinfo=timezone.utc)
+        start_date = datetime(2024, 1, 1, tzinfo=UTC)
+        end_date = datetime(2024, 12, 31, tzinfo=UTC)
 
         await keyword_search(
             "beam",
@@ -920,15 +528,17 @@ class TestSemanticSearchWithDateFilters:
         """Create mock config."""
         from osprey.services.ariel_search.config import ARIELConfig
 
-        return ARIELConfig.from_dict({
-            "database": {"uri": "postgresql://localhost/test"},
-            "search_modules": {
-                "semantic": {
-                    "enabled": True,
-                    "model": "nomic-embed-text",
+        return ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost/test"},
+                "search_modules": {
+                    "semantic": {
+                        "enabled": True,
+                        "model": "nomic-embed-text",
+                    },
                 },
-            },
-        })
+            }
+        )
 
     @pytest.fixture
     def mock_repository(self, mock_config):
@@ -950,15 +560,14 @@ class TestSemanticSearchWithDateFilters:
         return embedder
 
     @pytest.mark.asyncio
-    async def test_semantic_with_date_filters(
-        self, mock_repository, mock_config, mock_embedder
-    ):
+    async def test_semantic_with_date_filters(self, mock_repository, mock_config, mock_embedder):
         """Semantic search passes date filters to repository."""
-        from datetime import datetime, timezone
+        from datetime import datetime
+
         from osprey.services.ariel_search.search.semantic import semantic_search
 
-        start_date = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        end_date = datetime(2024, 12, 31, tzinfo=timezone.utc)
+        start_date = datetime(2024, 1, 1, tzinfo=UTC)
+        end_date = datetime(2024, 12, 31, tzinfo=UTC)
 
         await semantic_search(
             "beam status",
@@ -972,198 +581,6 @@ class TestSemanticSearchWithDateFilters:
         call_args = mock_repository.semantic_search.call_args
         assert call_args.kwargs["start_date"] == start_date
         assert call_args.kwargs["end_date"] == end_date
-
-
-class TestRAGSearchLLMInvocation:
-    """Tests for RAG search LLM invocation paths."""
-
-    @pytest.fixture
-    def mock_config(self):
-        """Create config with RAG enabled."""
-        from osprey.services.ariel_search.config import ARIELConfig
-
-        return ARIELConfig.from_dict({
-            "database": {"uri": "postgresql://localhost/test"},
-            "search_modules": {
-                "rag": {
-                    "enabled": True,
-                    "model": "llama3",
-                    "settings": {"max_entries_for_context": 3},
-                },
-                "semantic": {
-                    "enabled": True,
-                    "model": "nomic-embed-text",
-                },
-            },
-        })
-
-    @pytest.fixture
-    def sample_entries(self):
-        """Sample entries for context."""
-        from datetime import datetime, timezone
-
-        return [
-            ({
-                "entry_id": "entry-001",
-                "source_system": "ALS eLog",
-                "timestamp": datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
-                "author": "jsmith",
-                "raw_text": "Beam current at 500mA. Operations stable.",
-                "attachments": [],
-                "metadata": {"title": "Beam Update"},
-            }, 0.95),
-        ]
-
-    @pytest.fixture
-    def mock_repository(self, mock_config, sample_entries):
-        """Create mock repository that returns entries."""
-        from unittest.mock import AsyncMock, MagicMock
-
-        repo = MagicMock()
-        repo.config = mock_config
-        repo.semantic_search = AsyncMock(return_value=sample_entries)
-        return repo
-
-    @pytest.fixture
-    def mock_embedder(self):
-        """Create mock embedding provider."""
-        from unittest.mock import MagicMock
-
-        embedder = MagicMock()
-        embedder.default_base_url = "http://localhost:11434"
-        embedder.execute_embedding = MagicMock(return_value=[[0.1, 0.2, 0.3]])
-        return embedder
-
-    @pytest.mark.asyncio
-    async def test_rag_with_results_invokes_llm(
-        self, mock_repository, mock_config, mock_embedder
-    ):
-        """RAG search invokes LLM when entries are found."""
-        from unittest.mock import patch, MagicMock
-        from osprey.services.ariel_search.search.rag import rag_search
-
-        # Create mock completion module
-        mock_completion = MagicMock()
-        mock_completion.get_chat_completion = MagicMock(
-            return_value="Based on entry-001, the beam current is 500mA."
-        )
-
-        # Mock the import
-        with patch.dict(
-            "sys.modules",
-            {"osprey.models.completion": mock_completion},
-        ):
-            answer, entries = await rag_search(
-                "What is the beam current?",
-                mock_repository,
-                mock_config,
-                mock_embedder,
-            )
-
-        # Should have called LLM and returned entries
-        assert len(entries) == 1
-        assert entries[0]["entry_id"] == "entry-001"
-
-    @pytest.mark.asyncio
-    async def test_rag_llm_import_error_fallback(
-        self, mock_repository, mock_config, mock_embedder
-    ):
-        """RAG search handles ImportError for completion module."""
-        from unittest.mock import patch
-        from osprey.services.ariel_search.search.rag import rag_search
-        import builtins
-
-        original_import = builtins.__import__
-
-        def mock_import(name, *args, **kwargs):
-            if name == "osprey.models.completion":
-                raise ImportError("Module not found")
-            return original_import(name, *args, **kwargs)
-
-        with patch.object(builtins, "__import__", mock_import):
-            answer, entries = await rag_search(
-                "What is the beam current?",
-                mock_repository,
-                mock_config,
-                mock_embedder,
-            )
-
-        # Should return fallback message
-        assert "LLM not available" in answer
-        assert len(entries) == 1
-
-    @pytest.mark.asyncio
-    async def test_rag_llm_error_handling(
-        self, mock_repository, mock_config, mock_embedder
-    ):
-        """RAG search handles LLM errors gracefully."""
-        from unittest.mock import patch, MagicMock
-        from osprey.services.ariel_search.search.rag import rag_search
-
-        # Create mock that raises error
-        mock_completion = MagicMock()
-        mock_completion.get_chat_completion = MagicMock(
-            side_effect=RuntimeError("LLM service unavailable")
-        )
-
-        with patch.dict(
-            "sys.modules",
-            {"osprey.models.completion": mock_completion},
-        ):
-            answer, entries = await rag_search(
-                "What is the beam current?",
-                mock_repository,
-                mock_config,
-                mock_embedder,
-            )
-
-        assert "Error" in answer
-        assert len(entries) == 1
-
-
-class TestFormatEntryForContextEdgeCases:
-    """Edge case tests for format_entry_for_context."""
-
-    def test_long_content_truncated(self):
-        """Long content is truncated to 2000 chars (per spec Section 5.5.2)."""
-        from datetime import datetime, timezone
-
-        long_text = "x" * 3000
-        entry = {
-            "entry_id": "entry-long",
-            "source_system": "ALS eLog",
-            "timestamp": datetime(2024, 1, 15, tzinfo=timezone.utc),
-            "author": "jsmith",
-            "raw_text": long_text,
-            "attachments": [],
-            "metadata": {},
-        }
-
-        result = format_entry_for_context(entry, 0.9)
-
-        # Should have 2000 chars + "..." (per spec)
-        assert "..." in result
-        assert len(result) < 2200  # Entry text truncated plus header
-
-    def test_entry_with_title(self):
-        """Entry with title includes title in header."""
-        from datetime import datetime, timezone
-
-        entry = {
-            "entry_id": "entry-titled",
-            "source_system": "ALS eLog",
-            "timestamp": datetime(2024, 1, 15, tzinfo=timezone.utc),
-            "author": "jsmith",
-            "raw_text": "Some content",
-            "attachments": [],
-            "metadata": {"title": "Important Update"},
-        }
-
-        result = format_entry_for_context(entry, 0.9)
-
-        assert "Important Update" in result
-        # Spec uses ENTRY #id format
-        assert "ENTRY #entry-titled" in result
 
 
 # === Security Tests (TEST-H001, TEST-H002, TEST-H003) ===
@@ -1180,10 +597,12 @@ class TestQuerySQLInjection:
         """Create mock ARIEL config with keyword search enabled."""
         from osprey.services.ariel_search.config import ARIELConfig
 
-        return ARIELConfig.from_dict({
-            "database": {"uri": "postgresql://localhost/test"},
-            "search_modules": {"keyword": {"enabled": True}},
-        })
+        return ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost/test"},
+                "search_modules": {"keyword": {"enabled": True}},
+            }
+        )
 
     @pytest.fixture
     def mock_repository(self, mock_config):
@@ -1306,10 +725,12 @@ class TestUnbalancedQuotes:
         from osprey.services.ariel_search.config import ARIELConfig
         from osprey.services.ariel_search.search.keyword import keyword_search
 
-        config = ARIELConfig.from_dict({
-            "database": {"uri": "postgresql://localhost/test"},
-            "search_modules": {"keyword": {"enabled": True}},
-        })
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost/test"},
+                "search_modules": {"keyword": {"enabled": True}},
+            }
+        )
 
         mock_repo = MagicMock()
         mock_repo.keyword_search = AsyncMock(return_value=[])
@@ -1335,10 +756,12 @@ class TestQueryLengthTruncation:
         from osprey.services.ariel_search.config import ARIELConfig
         from osprey.services.ariel_search.search.keyword import keyword_search
 
-        config = ARIELConfig.from_dict({
-            "database": {"uri": "postgresql://localhost/test"},
-            "search_modules": {"keyword": {"enabled": True}},
-        })
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost/test"},
+                "search_modules": {"keyword": {"enabled": True}},
+            }
+        )
 
         mock_repo = MagicMock()
         mock_repo.keyword_search = AsyncMock(return_value=[])
@@ -1358,10 +781,12 @@ class TestQueryLengthTruncation:
         from osprey.services.ariel_search.config import ARIELConfig
         from osprey.services.ariel_search.search.keyword import keyword_search
 
-        config = ARIELConfig.from_dict({
-            "database": {"uri": "postgresql://localhost/test"},
-            "search_modules": {"keyword": {"enabled": True}},
-        })
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost/test"},
+                "search_modules": {"keyword": {"enabled": True}},
+            }
+        )
 
         mock_repo = MagicMock()
         mock_repo.keyword_search = AsyncMock(return_value=[])
@@ -1380,10 +805,12 @@ class TestQueryLengthTruncation:
         from osprey.services.ariel_search.config import ARIELConfig
         from osprey.services.ariel_search.search.keyword import keyword_search
 
-        config = ARIELConfig.from_dict({
-            "database": {"uri": "postgresql://localhost/test"},
-            "search_modules": {"keyword": {"enabled": True}},
-        })
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost/test"},
+                "search_modules": {"keyword": {"enabled": True}},
+            }
+        )
 
         mock_repo = MagicMock()
         mock_repo.keyword_search = AsyncMock(return_value=[])
@@ -1417,11 +844,15 @@ class TestUnknownFieldPrefix:
         assert "author:smith" not in search_text
 
 
-# === RAG Tests (TEST-M001, TEST-M002, TEST-M003) ===
+# === RAG Tests moved to Pipeline Tests ===
 
 
 class TestRAGCitationValidation:
-    """Tests for RAG citation validation (TEST-M001)."""
+    """Tests for RAG citation validation (TEST-M001).
+
+    RAG is now implemented via Pipeline (SemanticRetriever + SingleLLMProcessor).
+    These tests verify the RAG prompt template.
+    """
 
     def test_citation_format_in_prompt(self):
         """RAG prompt template includes citation instructions."""
@@ -1429,99 +860,6 @@ class TestRAGCitationValidation:
 
         assert "[#12345]" in RAG_PROMPT_TEMPLATE
         assert "cite" in RAG_PROMPT_TEMPLATE.lower()
-
-    def test_entry_format_includes_id(self):
-        """Format entry includes entry ID for citation."""
-        from datetime import datetime, timezone
-
-        entry = {
-            "entry_id": "test-123",
-            "source_system": "ALS eLog",
-            "timestamp": datetime(2024, 1, 15, tzinfo=timezone.utc),
-            "author": "jsmith",
-            "raw_text": "Test content",
-            "attachments": [],
-            "metadata": {},
-        }
-
-        result = format_entry_for_context(entry, 0.9)
-
-        # Entry ID should be in the format for citation
-        assert "#test-123" in result
-
-
-class TestRAGContextTruncation:
-    """Tests for RAG context truncation (TEST-M002)."""
-
-    def test_max_total_context_chars_constant(self):
-        """MAX_TOTAL_CONTEXT_CHARS is 12000."""
-        from osprey.services.ariel_search.search.rag import MAX_TOTAL_CONTEXT_CHARS
-
-        assert MAX_TOTAL_CONTEXT_CHARS == 12000
-
-    def test_max_chars_per_entry_constant(self):
-        """MAX_CHARS_PER_ENTRY is 2000."""
-        from osprey.services.ariel_search.search.rag import MAX_CHARS_PER_ENTRY
-
-        assert MAX_CHARS_PER_ENTRY == 2000
-
-    def test_entry_content_truncation(self):
-        """Entry content longer than 2000 chars is truncated."""
-        from datetime import datetime, timezone
-
-        long_content = "a" * 3000
-        entry = {
-            "entry_id": "long-entry",
-            "source_system": "ALS eLog",
-            "timestamp": datetime(2024, 1, 15, tzinfo=timezone.utc),
-            "author": "jsmith",
-            "raw_text": long_content,
-            "attachments": [],
-            "metadata": {},
-        }
-
-        result = format_entry_for_context(entry, 0.9)
-
-        # Content should be truncated
-        assert "..." in result
-        # Result should not contain full 3000 chars of content
-        assert len(result) < 2500  # Header + 2000 chars + "..."
-
-
-class TestRAGNoInfoExactText:
-    """Tests for RAG no-info message (TEST-M003)."""
-
-    @pytest.mark.asyncio
-    async def test_no_results_message_format(self):
-        """RAG returns exact message when no entries found."""
-        from unittest.mock import AsyncMock, MagicMock
-        from osprey.services.ariel_search.config import ARIELConfig
-        from osprey.services.ariel_search.search.rag import rag_search
-
-        config = ARIELConfig.from_dict({
-            "database": {"uri": "postgresql://localhost/test"},
-            "search_modules": {
-                "semantic": {"enabled": True, "model": "test-model"},
-                "rag": {"enabled": True, "model": "test-model"},
-            },
-        })
-
-        mock_repo = MagicMock()
-        mock_repo.semantic_search = AsyncMock(return_value=[])
-
-        mock_embedder = MagicMock()
-        mock_embedder.default_base_url = "http://localhost:11434"
-        mock_embedder.execute_embedding = MagicMock(return_value=[[0.1, 0.2, 0.3]])
-
-        answer, entries = await rag_search(
-            "obscure question",
-            mock_repo,
-            config,
-            mock_embedder,
-        )
-
-        # Check for the expected "no info" message
-        assert "don't have enough information" in answer.lower()
 
 
 # === Validation Tests (TEST-H007, TEST-H008) ===
@@ -1535,24 +873,25 @@ class TestSemanticSearchValidation:
         """Create mock config with dimension specified."""
         from osprey.services.ariel_search.config import ARIELConfig
 
-        return ARIELConfig.from_dict({
-            "database": {"uri": "postgresql://localhost/test"},
-            "search_modules": {
-                "semantic": {
-                    "enabled": True,
-                    "model": "test-model",
-                    "settings": {"embedding_dimension": 384},
+        return ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost/test"},
+                "search_modules": {
+                    "semantic": {
+                        "enabled": True,
+                        "model": "test-model",
+                        "settings": {"embedding_dimension": 384},
+                    },
                 },
-            },
-        })
+            }
+        )
 
     @pytest.mark.asyncio
-    async def test_embedding_dimension_mismatch_warning(
-        self, mock_config, caplog
-    ):
+    async def test_embedding_dimension_mismatch_warning(self, mock_config, caplog):
         """Warning logged when embedding dimension mismatches config (TEST-H008)."""
         import logging
         from unittest.mock import AsyncMock, MagicMock
+
         from osprey.services.ariel_search.search.semantic import semantic_search
 
         mock_repo = MagicMock()
@@ -1587,19 +926,22 @@ class TestThreeTierThresholdResolution:
     async def test_param_overrides_config(self):
         """Per-query parameter overrides config value."""
         from unittest.mock import AsyncMock, MagicMock
+
         from osprey.services.ariel_search.config import ARIELConfig
         from osprey.services.ariel_search.search.semantic import semantic_search
 
-        config = ARIELConfig.from_dict({
-            "database": {"uri": "postgresql://localhost/test"},
-            "search_modules": {
-                "semantic": {
-                    "enabled": True,
-                    "model": "test-model",
-                    "settings": {"similarity_threshold": 0.8},
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost/test"},
+                "search_modules": {
+                    "semantic": {
+                        "enabled": True,
+                        "model": "test-model",
+                        "settings": {"similarity_threshold": 0.8},
+                    },
                 },
-            },
-        })
+            }
+        )
 
         mock_repo = MagicMock()
         mock_repo.semantic_search = AsyncMock(return_value=[])
@@ -1624,22 +966,25 @@ class TestThreeTierThresholdResolution:
     async def test_config_overrides_default(self):
         """Config value overrides hardcoded default."""
         from unittest.mock import AsyncMock, MagicMock
+
         from osprey.services.ariel_search.config import ARIELConfig
         from osprey.services.ariel_search.search.semantic import (
             DEFAULT_SIMILARITY_THRESHOLD,
             semantic_search,
         )
 
-        config = ARIELConfig.from_dict({
-            "database": {"uri": "postgresql://localhost/test"},
-            "search_modules": {
-                "semantic": {
-                    "enabled": True,
-                    "model": "test-model",
-                    "settings": {"similarity_threshold": 0.9},
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost/test"},
+                "search_modules": {
+                    "semantic": {
+                        "enabled": True,
+                        "model": "test-model",
+                        "settings": {"similarity_threshold": 0.9},
+                    },
                 },
-            },
-        })
+            }
+        )
 
         mock_repo = MagicMock()
         mock_repo.semantic_search = AsyncMock(return_value=[])
@@ -1663,13 +1008,16 @@ class TestFuzzyFallbackConditions:
     async def test_fuzzy_only_when_empty_and_enabled(self):
         """Fuzzy search only triggers when empty results AND fuzzy_fallback=True."""
         from unittest.mock import AsyncMock, MagicMock
+
         from osprey.services.ariel_search.config import ARIELConfig
         from osprey.services.ariel_search.search.keyword import keyword_search
 
-        config = ARIELConfig.from_dict({
-            "database": {"uri": "postgresql://localhost/test"},
-            "search_modules": {"keyword": {"enabled": True}},
-        })
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost/test"},
+                "search_modules": {"keyword": {"enabled": True}},
+            }
+        )
 
         mock_repo = MagicMock()
         mock_repo.keyword_search = AsyncMock(return_value=[])
@@ -1687,12 +1035,16 @@ class TestFuzzyFallbackConditions:
 
 
 class TestBoundaryValues:
-    """Tests for boundary value validation (EDGE-007, EDGE-008, EDGE-009)."""
+    """Tests for boundary value validation (EDGE-007, EDGE-008, EDGE-009).
+
+    Input validation tests using agent.executor schemas.
+    """
 
     def test_max_results_zero_invalid(self):
         """max_results=0 raises validation error (EDGE-007)."""
         from pydantic import ValidationError
-        from osprey.services.ariel_search.tools import KeywordSearchInput
+
+        from osprey.services.ariel_search.agent.executor import KeywordSearchInput
 
         with pytest.raises(ValidationError):
             KeywordSearchInput(query="test", max_results=0)
@@ -1700,7 +1052,8 @@ class TestBoundaryValues:
     def test_max_results_fifty_one_invalid(self):
         """max_results=51 raises validation error (EDGE-008)."""
         from pydantic import ValidationError
-        from osprey.services.ariel_search.tools import KeywordSearchInput
+
+        from osprey.services.ariel_search.agent.executor import KeywordSearchInput
 
         with pytest.raises(ValidationError):
             KeywordSearchInput(query="test", max_results=51)
@@ -1708,7 +1061,8 @@ class TestBoundaryValues:
     def test_similarity_negative_invalid(self):
         """similarity_threshold=-0.1 raises validation error (EDGE-009)."""
         from pydantic import ValidationError
-        from osprey.services.ariel_search.tools import SemanticSearchInput
+
+        from osprey.services.ariel_search.agent.executor import SemanticSearchInput
 
         with pytest.raises(ValidationError):
             SemanticSearchInput(query="test", similarity_threshold=-0.1)
@@ -1716,7 +1070,8 @@ class TestBoundaryValues:
     def test_similarity_above_one_invalid(self):
         """similarity_threshold=1.1 raises validation error (EDGE-009)."""
         from pydantic import ValidationError
-        from osprey.services.ariel_search.tools import SemanticSearchInput
+
+        from osprey.services.ariel_search.agent.executor import SemanticSearchInput
 
         with pytest.raises(ValidationError):
             SemanticSearchInput(query="test", similarity_threshold=1.1)
@@ -1729,15 +1084,18 @@ class TestEmbeddingGenerationFailure:
     async def test_semantic_search_embedding_failure_returns_empty(self):
         """Semantic search returns empty on embedding failure."""
         from unittest.mock import AsyncMock, MagicMock
+
         from osprey.services.ariel_search.config import ARIELConfig
         from osprey.services.ariel_search.search.semantic import semantic_search
 
-        config = ARIELConfig.from_dict({
-            "database": {"uri": "postgresql://localhost/test"},
-            "search_modules": {
-                "semantic": {"enabled": True, "model": "test-model"},
-            },
-        })
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost/test"},
+                "search_modules": {
+                    "semantic": {"enabled": True, "model": "test-model"},
+                },
+            }
+        )
 
         mock_repo = MagicMock()
         mock_repo.semantic_search = AsyncMock(return_value=[])
@@ -1752,45 +1110,20 @@ class TestEmbeddingGenerationFailure:
 
         assert result == []
 
-    @pytest.mark.asyncio
-    async def test_rag_search_embedding_failure_returns_error_message(self):
-        """RAG search returns error message on embedding failure."""
-        from unittest.mock import AsyncMock, MagicMock
-        from osprey.services.ariel_search.config import ARIELConfig
-        from osprey.services.ariel_search.search.rag import rag_search
-
-        config = ARIELConfig.from_dict({
-            "database": {"uri": "postgresql://localhost/test"},
-            "search_modules": {
-                "semantic": {"enabled": True, "model": "test-model"},
-                "rag": {"enabled": True, "model": "test-model"},
-            },
-        })
-
-        mock_repo = MagicMock()
-
-        mock_embedder = MagicMock()
-        mock_embedder.default_base_url = "http://localhost:11434"
-        mock_embedder.execute_embedding = MagicMock(
-            side_effect=Exception("Embedding service unavailable")
-        )
-
-        answer, entries = await rag_search("test", mock_repo, config, mock_embedder)
-
-        assert "failed" in answer.lower()
-        assert entries == []
-
 
 class TestPromptExtraction:
-    """Tests verifying prompt extraction to separate files (STRUCT-003, STRUCT-004)."""
+    """Tests verifying prompt extraction to separate files (STRUCT-003, STRUCT-004).
 
-    def test_agent_system_prompt_in_separate_file(self):
-        """Agent system prompt is in dedicated file."""
-        from osprey.services.ariel_search.prompts.agent_system import DEFAULT_SYSTEM_PROMPT
+    Note: Agent system prompt is now in agent/executor.py
+    """
 
-        assert DEFAULT_SYSTEM_PROMPT
-        assert "ARIEL" in DEFAULT_SYSTEM_PROMPT
-        assert "keyword_search" in DEFAULT_SYSTEM_PROMPT
+    def test_agent_system_prompt_in_executor(self):
+        """Agent system prompt is in agent/executor.py."""
+        from osprey.services.ariel_search.agent.executor import AGENT_SYSTEM_PROMPT
+
+        assert AGENT_SYSTEM_PROMPT
+        assert "ARIEL" in AGENT_SYSTEM_PROMPT
+        assert "keyword_search" in AGENT_SYSTEM_PROMPT
 
     def test_rag_prompt_in_separate_file(self):
         """RAG prompt template is in dedicated file."""
@@ -1800,21 +1133,15 @@ class TestPromptExtraction:
         assert "{context}" in RAG_PROMPT_TEMPLATE
         assert "{question}" in RAG_PROMPT_TEMPLATE
 
-    def test_prompts_module_exports_all(self):
-        """Prompts module exports both prompts."""
-        from osprey.services.ariel_search.prompts import (
-            DEFAULT_SYSTEM_PROMPT,
-            RAG_PROMPT_TEMPLATE,
-            get_system_prompt,
-        )
+    def test_prompts_module_exports_rag_template(self):
+        """Prompts module exports RAG prompt template."""
+        from osprey.services.ariel_search.prompts import RAG_PROMPT_TEMPLATE
 
-        assert DEFAULT_SYSTEM_PROMPT
         assert RAG_PROMPT_TEMPLATE
-        assert callable(get_system_prompt)
 
 
 # ==============================================================================
-# Quality Improvements (QUAL-003, QUAL-005, QUAL-006, QUAL-009, QUAL-010)
+# Quality Improvements (QUAL-003, QUAL-005, QUAL-009, QUAL-010)
 # ==============================================================================
 
 
@@ -1915,47 +1242,6 @@ class TestStemmingOutput:
         assert "%s" in result or "plainto_tsquery" in result
 
 
-class TestMaxCharsPerEntryAssert:
-    """Quality assertions for MAX_CHARS_PER_ENTRY constant (QUAL-006)."""
-
-    def test_max_chars_per_entry_equals_2000(self):
-        """Assert MAX_CHARS_PER_ENTRY = 2000.
-
-        QUAL-006: Assert MAX_CHARS_PER_ENTRY = 2000.
-        """
-        from osprey.services.ariel_search.search.rag import MAX_CHARS_PER_ENTRY
-
-        assert MAX_CHARS_PER_ENTRY == 2000
-
-    def test_format_entry_truncates_at_limit(self):
-        """format_entry_for_context truncates at MAX_CHARS_PER_ENTRY.
-
-        QUAL-006: Verify truncation happens at correct limit.
-        """
-        from datetime import datetime, timezone
-        from osprey.services.ariel_search.search.rag import MAX_CHARS_PER_ENTRY
-
-        # Create entry with text longer than limit
-        long_text = "x" * (MAX_CHARS_PER_ENTRY + 500)
-        entry = {
-            "entry_id": "test-long",
-            "source_system": "test",
-            "timestamp": datetime(2024, 1, 15, tzinfo=timezone.utc),
-            "author": "tester",
-            "raw_text": long_text,
-            "attachments": [],
-            "metadata": {},
-        }
-
-        result = format_entry_for_context(entry, 0.9)
-
-        # Should be truncated (header + 2000 chars + "...")
-        assert "..." in result
-        # The raw_text portion should not exceed MAX_CHARS_PER_ENTRY
-        # (result includes header info too)
-        assert len(result) < MAX_CHARS_PER_ENTRY + 500
-
-
 class TestThreeTierPriorityComplete:
     """Complete tests for 3-tier priority resolution (QUAL-009)."""
 
@@ -1967,19 +1253,22 @@ class TestThreeTierPriorityComplete:
         Priority order: param > config > default
         """
         from unittest.mock import AsyncMock, MagicMock
+
         from osprey.services.ariel_search.config import ARIELConfig
         from osprey.services.ariel_search.search.semantic import semantic_search
 
-        config = ARIELConfig.from_dict({
-            "database": {"uri": "postgresql://localhost/test"},
-            "search_modules": {
-                "semantic": {
-                    "enabled": True,
-                    "model": "test-model",
-                    "settings": {"similarity_threshold": 0.8},  # Config value
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost/test"},
+                "search_modules": {
+                    "semantic": {
+                        "enabled": True,
+                        "model": "test-model",
+                        "settings": {"similarity_threshold": 0.8},  # Config value
+                    },
                 },
-            },
-        })
+            }
+        )
 
         mock_repo = MagicMock()
         mock_repo.semantic_search = AsyncMock(return_value=[])
@@ -2007,22 +1296,25 @@ class TestThreeTierPriorityComplete:
         QUAL-009: Test 3-tier priority - tier 2 (config).
         """
         from unittest.mock import AsyncMock, MagicMock
+
         from osprey.services.ariel_search.config import ARIELConfig
         from osprey.services.ariel_search.search.semantic import (
             DEFAULT_SIMILARITY_THRESHOLD,
             semantic_search,
         )
 
-        config = ARIELConfig.from_dict({
-            "database": {"uri": "postgresql://localhost/test"},
-            "search_modules": {
-                "semantic": {
-                    "enabled": True,
-                    "model": "test-model",
-                    "settings": {"similarity_threshold": 0.85},  # Config value
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost/test"},
+                "search_modules": {
+                    "semantic": {
+                        "enabled": True,
+                        "model": "test-model",
+                        "settings": {"similarity_threshold": 0.85},  # Config value
+                    },
                 },
-            },
-        })
+            }
+        )
 
         mock_repo = MagicMock()
         mock_repo.semantic_search = AsyncMock(return_value=[])
@@ -2045,6 +1337,7 @@ class TestThreeTierPriorityComplete:
         QUAL-009: Test 3-tier priority - tier 3 (default).
         """
         from unittest.mock import AsyncMock, MagicMock
+
         from osprey.services.ariel_search.config import ARIELConfig
         from osprey.services.ariel_search.search.semantic import (
             DEFAULT_SIMILARITY_THRESHOLD,
@@ -2052,16 +1345,18 @@ class TestThreeTierPriorityComplete:
         )
 
         # Config without explicit threshold setting
-        config = ARIELConfig.from_dict({
-            "database": {"uri": "postgresql://localhost/test"},
-            "search_modules": {
-                "semantic": {
-                    "enabled": True,
-                    "model": "test-model",
-                    # No similarity_threshold in settings
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost/test"},
+                "search_modules": {
+                    "semantic": {
+                        "enabled": True,
+                        "model": "test-model",
+                        # No similarity_threshold in settings
+                    },
                 },
-            },
-        })
+            }
+        )
 
         mock_repo = MagicMock()
         mock_repo.semantic_search = AsyncMock(return_value=[])
@@ -2089,18 +1384,21 @@ class TestThresholdInSQLVerification:
         uses it in the SQL WHERE clause for similarity filtering.
         """
         from unittest.mock import AsyncMock, MagicMock
+
         from osprey.services.ariel_search.config import ARIELConfig
         from osprey.services.ariel_search.search.semantic import semantic_search
 
-        config = ARIELConfig.from_dict({
-            "database": {"uri": "postgresql://localhost/test"},
-            "search_modules": {
-                "semantic": {
-                    "enabled": True,
-                    "model": "test-model",
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost/test"},
+                "search_modules": {
+                    "semantic": {
+                        "enabled": True,
+                        "model": "test-model",
+                    },
                 },
-            },
-        })
+            }
+        )
 
         mock_repo = MagicMock()
         mock_repo.semantic_search = AsyncMock(return_value=[])

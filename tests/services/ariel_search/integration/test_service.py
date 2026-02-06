@@ -7,7 +7,7 @@ See 04_OSPREY_INTEGRATION.md Section 12.3.4 for test requirements.
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -102,19 +102,18 @@ class TestAgentIntegration:
         await pool.close()
 
     async def test_tools_are_bound_correctly(self, integration_ariel_config, repository):
-        """Tools are properly created and bound to service."""
-        from osprey.services.ariel_search.models import ARIELSearchRequest
-        from osprey.services.ariel_search.tools import create_search_tools
+        """Tools are properly created and bound to AgentExecutor."""
+        from osprey.services.ariel_search.agent import AgentExecutor
 
-        request = ARIELSearchRequest(query="test query")
-
-        # Create tools
-        tools = create_search_tools(
+        # Create executor
+        executor = AgentExecutor(
             config=integration_ariel_config,
             repository=repository,
             embedder_loader=MagicMock(),
-            request=request,
         )
+
+        # Create tools
+        tools = executor._create_tools()
 
         # Should have at least keyword tool (enabled in integration_ariel_config)
         assert len(tools) >= 1
@@ -139,9 +138,7 @@ class TestAgentIntegration:
 class TestHealthCheckMessages:
     """Test health check returns specific error messages (INT-008)."""
 
-    async def test_health_check_returns_specific_error_messages(
-        self, integration_ariel_config
-    ):
+    async def test_health_check_returns_specific_error_messages(self, integration_ariel_config):
         """Health check returns specific error message formats.
 
         INT-008: Health check message format test.
@@ -171,7 +168,6 @@ class TestHealthCheckMessages:
 
     async def test_health_check_database_failure_message(self, integration_ariel_config):
         """Health check returns database-specific error on DB failure."""
-        from osprey.services.ariel_search.database.repository import ARIELRepository
         from osprey.services.ariel_search.service import ARIELSearchService
 
         # Create service with mock repository that fails health check
@@ -179,9 +175,7 @@ class TestHealthCheckMessages:
         mock_pool.close = AsyncMock()
 
         mock_repo = MagicMock()
-        mock_repo.health_check = AsyncMock(
-            return_value=(False, "Database connection refused")
-        )
+        mock_repo.health_check = AsyncMock(return_value=(False, "Database connection refused"))
         mock_repo.config = integration_ariel_config
 
         service = ARIELSearchService(

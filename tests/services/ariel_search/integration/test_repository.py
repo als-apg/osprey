@@ -7,7 +7,7 @@ See 04_OSPREY_INTEGRATION.md Section 12.3.4 for test requirements.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -72,9 +72,7 @@ class TestRepositoryCRUD:
         for entry in entries:
             await repository.upsert_entry(entry)
 
-        results = await repository.get_entries_by_ids(
-            ["integ-batch-001", "integ-batch-002"]
-        )
+        results = await repository.get_entries_by_ids(["integ-batch-001", "integ-batch-002"])
         result_ids = {e["entry_id"] for e in results}
         assert "integ-batch-001" in result_ids
         assert "integ-batch-002" in result_ids
@@ -85,7 +83,7 @@ class TestRepositoryTimeRange:
 
     async def test_search_by_time_range(self, repository, seed_entry_factory):
         """Test search by time range returns entries."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         entry = seed_entry_factory(
             entry_id="integ-time-001",
             timestamp=now,
@@ -107,7 +105,7 @@ class TestRepositoryTimeRange:
 
     async def test_search_by_time_range_respects_limit(self, repository, seed_entry_factory):
         """Test search respects limit parameter."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         # Create multiple entries
         for i in range(5):
             entry = seed_entry_factory(
@@ -176,7 +174,7 @@ class TestRepositoryFuzzySearch:
 
         # May or may not find depending on similarity threshold
         assert isinstance(results, list)
-        for entry, score, highlights in results:
+        for _entry, score, highlights in results:
             assert isinstance(score, float)
             assert isinstance(highlights, list)
 
@@ -252,7 +250,7 @@ class TestRepositoryFuzzyDateFilters:
 
     async def test_fuzzy_search_with_start_date(self, repository, seed_entry_factory):
         """fuzzy_search can filter by start_date."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         entry = seed_entry_factory(
             entry_id="integ-fuzzydate-001",
             timestamp=now,
@@ -270,7 +268,7 @@ class TestRepositoryFuzzyDateFilters:
 
     async def test_fuzzy_search_with_end_date(self, repository, seed_entry_factory):
         """fuzzy_search can filter by end_date."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         entry = seed_entry_factory(
             entry_id="integ-fuzzydate-002",
             timestamp=now,
@@ -339,9 +337,7 @@ class TestRepositoryBulkOperations:
             await repository.upsert_entry(entry)
 
         # Verify all were stored
-        results = await repository.get_entries_by_ids(
-            [f"integ-bulk-{i:03d}" for i in range(5)]
-        )
+        results = await repository.get_entries_by_ids([f"integ-bulk-{i:03d}" for i in range(5)])
         assert len(results) == 5
 
 
@@ -353,7 +349,7 @@ class TestDatabaseErrorConditions:
 
         EDGE-010: Database connection failure handling.
         """
-        from osprey.services.ariel_search.config import ARIELConfig, DatabaseConfig
+        from osprey.services.ariel_search.config import DatabaseConfig
         from osprey.services.ariel_search.database.connection import create_connection_pool
 
         # Create config with invalid connection string
@@ -375,14 +371,13 @@ class TestDatabaseErrorConditions:
 
         EDGE-011: Malformed SQL error handling.
         """
-        from osprey.services.ariel_search.exceptions import DatabaseQueryError
 
         # Create repository with valid pool
         from osprey.services.ariel_search.config import ARIELConfig, DatabaseConfig
         from osprey.services.ariel_search.database.repository import ARIELRepository
 
         config = ARIELConfig(database=DatabaseConfig(uri="postgresql://test/test"))
-        repo = ARIELRepository(migrated_pool, config)
+        _repo = ARIELRepository(migrated_pool, config)
 
         # Execute intentionally malformed SQL
         # The repository methods wrap errors in DatabaseQueryError
@@ -445,7 +440,7 @@ class TestConcurrentOperations:
 
         # Verify all completed successfully
         assert len(results) == 10
-        for idx, count in results:
+        for _idx, count in results:
             assert isinstance(count, int)
 
     async def test_concurrent_reads_and_writes(self, repository, seed_entry_factory):

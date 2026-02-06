@@ -632,11 +632,11 @@ class TestSearchModulesInit:
 
         assert callable(semantic_search)
 
-    def test_rag_search_import(self) -> None:
-        """rag_search can be imported."""
-        from osprey.services.ariel_search.search import rag_search
+    def test_agent_executor_import(self) -> None:
+        """AgentExecutor can be imported from agent module."""
+        from osprey.services.ariel_search.agent import AgentExecutor
 
-        assert callable(rag_search)
+        assert AgentExecutor is not None
 
 
 class TestEnhancementFactory:
@@ -662,15 +662,17 @@ class TestEnhancementFactory:
             TextEmbeddingModule,
         )
 
-        config = ARIELConfig.from_dict({
-            "database": {"uri": "postgresql://localhost/test"},
-            "enhancement_modules": {
-                "text_embedding": {
-                    "enabled": True,
-                    "models": [{"name": "test-model", "dimension": 768}],
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost/test"},
+                "enhancement_modules": {
+                    "text_embedding": {
+                        "enabled": True,
+                        "models": [{"name": "test-model", "dimension": 768}],
+                    },
                 },
-            },
-        })
+            }
+        )
         enhancers = create_enhancers_from_config(config)
 
         assert len(enhancers) >= 1
@@ -686,12 +688,14 @@ class TestEnhancementFactory:
             SemanticProcessorModule,
         )
 
-        config = ARIELConfig.from_dict({
-            "database": {"uri": "postgresql://localhost/test"},
-            "enhancement_modules": {
-                "semantic_processor": {"enabled": True},
-            },
-        })
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost/test"},
+                "enhancement_modules": {
+                    "semantic_processor": {"enabled": True},
+                },
+            }
+        )
         enhancers = create_enhancers_from_config(config)
 
         assert len(enhancers) >= 1

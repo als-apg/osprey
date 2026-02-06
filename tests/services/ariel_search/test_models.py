@@ -1,6 +1,6 @@
 """Tests for ARIEL core models."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -9,7 +9,6 @@ from osprey.services.ariel_search.models import (
     ARIELSearchResult,
     ARIELStatusResult,
     EmbeddingTableInfo,
-    EnhancedLogbookEntry,
     IngestionEntryError,
     IngestionProgress,
     IngestionResult,
@@ -47,7 +46,7 @@ class TestARIELSearchRequest:
 
     def test_with_all_fields(self) -> None:
         """Test request with all fields."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         time_range = (now, now)
         request = ARIELSearchRequest(
             query="test query",
@@ -207,13 +206,13 @@ class TestEnhancedEntryFromRow:
         return {
             "entry_id": "123",
             "source_system": "ALS eLog",
-            "timestamp": datetime(2024, 1, 15, 10, 30, tzinfo=timezone.utc),
+            "timestamp": datetime(2024, 1, 15, 10, 30, tzinfo=UTC),
             "author": "jdoe",
             "raw_text": "Test entry content",
             "attachments": [{"url": "http://example.com/img.png", "type": "image/png"}],
             "metadata": {"logbook": "Operations"},
-            "created_at": datetime(2024, 1, 15, 11, 0, tzinfo=timezone.utc),
-            "updated_at": datetime(2024, 1, 15, 11, 0, tzinfo=timezone.utc),
+            "created_at": datetime(2024, 1, 15, 11, 0, tzinfo=UTC),
+            "updated_at": datetime(2024, 1, 15, 11, 0, tzinfo=UTC),
         }
 
     def test_basic_conversion(self, sample_row: dict) -> None:
@@ -266,8 +265,8 @@ class TestResolveTimeRange:
         return ARIELSearchRequest(
             query="test",
             time_range=(
-                datetime(2024, 1, 1, tzinfo=timezone.utc),
-                datetime(2024, 1, 31, tzinfo=timezone.utc),
+                datetime(2024, 1, 1, tzinfo=UTC),
+                datetime(2024, 1, 31, tzinfo=UTC),
             ),
         )
 
@@ -280,8 +279,8 @@ class TestResolveTimeRange:
         self, request_with_time_range: ARIELSearchRequest
     ) -> None:
         """Test that tool params override request context."""
-        tool_start = datetime(2023, 1, 1, tzinfo=timezone.utc)
-        tool_end = datetime(2023, 12, 31, tzinfo=timezone.utc)
+        tool_start = datetime(2023, 1, 1, tzinfo=UTC)
+        tool_end = datetime(2023, 12, 31, tzinfo=UTC)
 
         start, end = resolve_time_range(tool_start, tool_end, request_with_time_range)
         assert start == tool_start
@@ -291,19 +290,17 @@ class TestResolveTimeRange:
         self, request_with_time_range: ARIELSearchRequest
     ) -> None:
         """Test that partial tool params override request context."""
-        tool_start = datetime(2023, 1, 1, tzinfo=timezone.utc)
+        tool_start = datetime(2023, 1, 1, tzinfo=UTC)
 
         start, end = resolve_time_range(tool_start, None, request_with_time_range)
         assert start == tool_start
         assert end is None
 
-    def test_fallback_to_request_context(
-        self, request_with_time_range: ARIELSearchRequest
-    ) -> None:
+    def test_fallback_to_request_context(self, request_with_time_range: ARIELSearchRequest) -> None:
         """Test fallback to request context when no tool params."""
         start, end = resolve_time_range(None, None, request_with_time_range)
-        assert start == datetime(2024, 1, 1, tzinfo=timezone.utc)
-        assert end == datetime(2024, 1, 31, tzinfo=timezone.utc)
+        assert start == datetime(2024, 1, 1, tzinfo=UTC)
+        assert end == datetime(2024, 1, 31, tzinfo=UTC)
 
     def test_no_filtering(self, request_without_time_range: ARIELSearchRequest) -> None:
         """Test no filtering when no params and no context."""

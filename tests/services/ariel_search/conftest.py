@@ -11,14 +11,13 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import UTC
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 if TYPE_CHECKING:
-    from testcontainers.postgres import PostgresContainer
-
     from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.database.repository import ARIELRepository
 
@@ -38,7 +37,9 @@ def is_dev_database_available() -> bool:
         import psycopg
 
         # Try to connect to the dev database
-        with psycopg.connect(DEV_DATABASE_URL.replace("/ariel_test", "/ariel"), autocommit=True) as conn:
+        with psycopg.connect(
+            DEV_DATABASE_URL.replace("/ariel_test", "/ariel"), autocommit=True
+        ) as conn:
             # Create test database if it doesn't exist
             conn.execute("SELECT 1")
             try:
@@ -122,6 +123,7 @@ def database_url() -> str:
 
     # Register cleanup
     import atexit
+
     atexit.register(container.stop)
 
     url = container.get_connection_url()
@@ -134,7 +136,7 @@ def database_url() -> str:
 
 
 @pytest.fixture(scope="session")
-def integration_ariel_config(database_url: str) -> "ARIELConfig":
+def integration_ariel_config(database_url: str) -> ARIELConfig:
     """Create ARIELConfig pointing to test database.
 
     This is a session-scoped config for integration tests.
@@ -147,21 +149,23 @@ def integration_ariel_config(database_url: str) -> "ARIELConfig":
     """
     from osprey.services.ariel_search.config import ARIELConfig
 
-    return ARIELConfig.from_dict({
-        "database": {"uri": database_url},
-        "search_modules": {
-            "keyword": {"enabled": True},
-            "semantic": {"enabled": True, "model": "nomic-embed-text"},
-            "rag": {"enabled": False},
-        },
-        "enhancement_modules": {
-            "text_embedding": {
-                "enabled": True,
-                "models": [{"name": "nomic-embed-text", "dimension": 768}],
+    return ARIELConfig.from_dict(
+        {
+            "database": {"uri": database_url},
+            "search_modules": {
+                "keyword": {"enabled": True},
+                "semantic": {"enabled": True, "model": "nomic-embed-text"},
+                "rag": {"enabled": False},
             },
-            "semantic_processor": {"enabled": True},
-        },
-    })
+            "enhancement_modules": {
+                "text_embedding": {
+                    "enabled": True,
+                    "models": [{"name": "nomic-embed-text", "dimension": 768}],
+                },
+                "semantic_processor": {"enabled": True},
+            },
+        }
+    )
 
 
 # Track if migrations have been applied in this session
@@ -188,7 +192,7 @@ async def connection_pool(database_url: str):
 
 
 @pytest.fixture
-async def migrated_pool(connection_pool, integration_ariel_config: "ARIELConfig"):
+async def migrated_pool(connection_pool, integration_ariel_config: ARIELConfig):
     """Connection pool with migrations applied.
 
     Migrations only run once per session (idempotent).
@@ -212,9 +216,7 @@ async def migrated_pool(connection_pool, integration_ariel_config: "ARIELConfig"
 
 
 @pytest.fixture
-async def repository(
-    migrated_pool, integration_ariel_config: "ARIELConfig"
-) -> "ARIELRepository":
+async def repository(migrated_pool, integration_ariel_config: ARIELConfig) -> ARIELRepository:
     """ARIELRepository with real database connection.
 
     Function-scoped for test isolation, but uses shared pool.
@@ -237,7 +239,7 @@ async def repository(
 
 
 @pytest.fixture
-def mock_ariel_config() -> "ARIELConfig":
+def mock_ariel_config() -> ARIELConfig:
     """Create ARIELConfig for unit tests (mocked database).
 
     Returns:
@@ -303,7 +305,7 @@ def seed_entry_factory():
     Returns:
         Callable that creates EnhancedLogbookEntry with customizable fields
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
 
@@ -320,7 +322,7 @@ def seed_entry_factory():
         return {
             "entry_id": entry_id,
             "source_system": source_system,
-            "timestamp": timestamp or datetime.now(timezone.utc),
+            "timestamp": timestamp or datetime.now(UTC),
             "author": author,
             "raw_text": raw_text,
             "attachments": attachments or [],
