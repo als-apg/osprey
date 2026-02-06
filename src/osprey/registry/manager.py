@@ -1114,9 +1114,23 @@ class RegistryManager:
         Provider metadata (requires_api_key, supports_proxy, etc.) is defined as
         class attributes and introspected after loading.
 
+        Only providers configured in config.yml (api.providers section) are loaded.
+        This improves startup time by avoiding unnecessary provider initialization.
+
         :raises RegistryError: If provider class doesn't inherit from BaseProvider
         :raises RegistryError: If provider doesn't define required metadata
         """
+        # Get configured providers from config.yml to filter which providers to load
+        try:
+            from osprey.utils.config import get_config_value
+            configured_providers = get_config_value("api.providers", {})
+            configured_provider_names = set(configured_providers.keys()) if configured_providers else None
+            if configured_provider_names:
+                logger.info(f"Config specifies providers: {list(configured_provider_names)}")
+        except Exception as e:
+            logger.debug(f"Could not read configured providers from config: {e}")
+            configured_provider_names = None  # Load all providers if config unavailable
+
         logger.info(f"Initializing {len(self.config.providers)} provider(s)...")
 
         for registration in self.config.providers:
@@ -1152,6 +1166,12 @@ class RegistryManager:
                 # Check if this provider is excluded
                 if provider_name in self._excluded_provider_names:
                     logger.info(f"  ⊘ Skipping excluded provider: {provider_name}")
+                    continue
+
+                # Check if this provider is configured in config.yml
+                # If config specifies providers, only load those that are configured
+                if configured_provider_names is not None and provider_name not in configured_provider_names:
+                    logger.debug(f"  ⊘ Skipping unconfigured provider: {provider_name}")
                     continue
 
                 # Store provider class (indexed by its name attribute)
@@ -2484,10 +2504,10 @@ def _create_registry_from_config(config_path: str | None = None) -> RegistryMana
         # When using explicit config_path, ensure it becomes the default so components
         # being instantiated later can access it without passing config_path everywhere
         if config_path:
-            from osprey.utils.config import get_config_builder
+            from osprey.utils.config import _get_configurable
 
             # This loads the config and sets it as default for future config access
-            get_config_builder(config_path=config_path, set_as_default=True)
+            _get_configurable(config_path=config_path, set_as_default=True)
             logger.debug(f"Set {config_path} as default configuration")
 
         # Determine base path for resolving relative registry paths
