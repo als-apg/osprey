@@ -371,6 +371,11 @@ class AgentState(MessagesState):
     runtime_checkpoint_metadata: dict[str, Any] | None
     runtime_info: dict[str, Any] | None
 
+    # Capability slash commands (execution-scoped)
+    # Stores unregistered slash commands for capability-specific handling
+    # command_name -> value (str) or True (flag)
+    _capability_slash_commands: dict[str, str | bool]
+
 
 # ===== UTILITY FUNCTIONS FOR EVENT UPDATES =====
 

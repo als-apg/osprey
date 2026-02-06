@@ -335,6 +335,8 @@ class StateManager:
             # Runtime metadata fields - reset to defaults
             runtime_checkpoint_metadata=None,
             runtime_info=None,
+            # Capability slash commands - reset to empty each turn
+            _capability_slash_commands={},
         )
 
         return state

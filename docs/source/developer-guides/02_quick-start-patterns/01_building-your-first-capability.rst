@@ -202,6 +202,23 @@ Instance-based capabilities provide access to helper methods that eliminate boil
        metadata = MetadataContext(info=info)
        return self.store_output_contexts(primary, metadata)
 
+**slash_command()** - Read capability-specific slash commands
+
+.. code-block:: python
+
+   async def execute(self) -> Dict[str, Any]:
+       # Check for /beam:mode command
+       if mode := self.slash_command("beam"):
+           # mode is "diagnostic" if user typed /beam:diagnostic
+           pass
+
+       # Check for /verbose flag
+       if self.slash_command("verbose"):
+           # User typed /verbose (returns True)
+           pass
+
+See :ref:`capability-slash-commands` for user-facing documentation.
+
 .. note::
 
    **Advanced State Access:** If you need direct state access, use ``self._state`` and ``self._step`` (automatically injected by the ``@capability_node`` decorator).

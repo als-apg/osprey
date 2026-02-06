@@ -1016,6 +1016,64 @@ The CLI supports slash commands for agent control and interface operations:
    /exit                # Exit direct chat mode (or exit CLI if not in direct chat)
    /clear               # Clear the screen
 
+.. _capability-slash-commands:
+
+Capability-Specific Commands
+----------------------------
+
+Beyond the built-in commands above, you can pass custom commands that capabilities can read during execution. Any command not recognized by the framework is forwarded to capabilities as a "capability command."
+
+**Syntax:**
+
+.. code-block:: bash
+
+   /flag                    # Flag command (capability sees True)
+   /command:value           # Value command (capability sees "value")
+
+**Examples:**
+
+.. code-block:: text
+
+   👤 You: /beam:diagnostic /verbose Show me the beam status
+   🤖 [Capability receives beam="diagnostic", verbose=True]
+
+   👤 You: /format:json Get the sensor readings
+   🤖 [Capability receives format="json"]
+
+**How Capabilities Access Commands:**
+
+Capabilities can read these commands using the ``slash_command()`` helper:
+
+.. code-block:: python
+
+   from osprey.base.capability import slash_command
+
+   async def execute(state: AgentState, **kwargs) -> dict[str, Any]:
+       # Check for /beam:mode command
+       if mode := slash_command("beam", state):
+           # mode is "diagnostic" if user typed /beam:diagnostic
+           pass
+
+       # Check for /verbose flag
+       if slash_command("verbose", state):
+           # User typed /verbose
+           pass
+
+Or using the instance method in instance-based capabilities:
+
+.. code-block:: python
+
+   async def execute(self) -> dict[str, Any]:
+       if mode := self.slash_command("beam"):
+           # Handle beam mode
+           pass
+
+**Key Behaviors:**
+
+- Commands are **execution-scoped** - they reset each conversation turn
+- Registered commands (``/help``, ``/planning:on``, etc.) are handled by the framework and not passed to capabilities
+- Multiple commands can be combined in a single message
+
 .. _direct-chat-mode:
 
 Direct Chat Mode

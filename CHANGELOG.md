@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **CLI**: Add `--channel-finder-mode` and `--code-generator` options to `osprey init`
   - Options are included in manifest's `reproducible_command` for full project recreation
+- **Capabilities**: Add capability-specific slash commands
+  - Unregistered slash commands (e.g., `/beam:diagnostic`, `/verbose`) are forwarded to capabilities
+  - `slash_command()` helper and `BaseCapability.slash_command()` method for reading commands
+  - Commands are execution-scoped (reset each conversation turn)
 
 ## [0.10.8] - 2026-02-02
 
