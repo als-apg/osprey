@@ -7,6 +7,7 @@
 import { initSearch, performSearch, clearSearch } from './search.js';
 import { initEntries, loadEntries, showEntry, closeEntryModal } from './entries.js';
 import { initDashboard, loadStatus, startAutoRefresh, stopAutoRefresh } from './dashboard.js';
+import { initAdvancedOptions } from './advanced-options.js';
 
 // Current view
 let currentView = 'search';
@@ -19,6 +20,7 @@ function init() {
   initSearch();
   initEntries();
   initDashboard();
+  initAdvancedOptions();
 
   // Set up navigation
   setupNavigation();

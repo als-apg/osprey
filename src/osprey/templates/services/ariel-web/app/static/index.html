@@ -88,11 +88,30 @@
                 <option value="keyword">Keyword</option>
                 <option value="semantic">Semantic</option>
                 <option value="rag">RAG</option>
+                <option value="multi">Hybrid</option>
+                <option value="agent">Agent</option>
               </select>
               <button id="search-btn" class="btn btn-primary">
                 Search
               </button>
             </div>
+          </div>
+
+          <!-- Search Options Bar -->
+          <div class="search-options-bar">
+            <button type="button" class="btn btn-secondary btn-sm" id="filters-show-btn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="22,3 2,3 10,12.46 10,19 14,21 14,12.46"/>
+              </svg>
+              Filters
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" id="advanced-toggle-btn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
+              </svg>
+              Advanced
+            </button>
           </div>
 
           <!-- Filters -->
@@ -122,6 +141,159 @@
                   <option value="JLab Logbook">JLab Logbook</option>
                   <option value="ARIEL Web">ARIEL Web</option>
                 </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- Advanced Options Panel -->
+          <div id="advanced-panel" class="advanced-panel hidden">
+            <div class="advanced-header">
+              <span class="advanced-title">Advanced Options</span>
+              <div class="advanced-header-actions">
+                <button type="button" class="btn btn-ghost btn-sm" id="advanced-reset-btn">Reset</button>
+                <button type="button" class="btn btn-ghost btn-sm" id="advanced-close-btn">Close</button>
+              </div>
+            </div>
+
+            <div class="advanced-sections">
+              <!-- Retrieval Section -->
+              <div class="advanced-section" data-section="retrieval">
+                <div class="advanced-section-header">
+                  <span class="section-title">Retrieval</span>
+                </div>
+                <div class="advanced-section-body">
+                  <!-- Max Results -->
+                  <div class="slider-control">
+                    <div class="slider-header">
+                      <label class="slider-label" for="adv-max-results">Max Results</label>
+                      <span class="slider-value" id="adv-max-results-value">20</span>
+                    </div>
+                    <input type="range" id="adv-max-results" class="slider" min="1" max="100" value="20" step="1">
+                  </div>
+
+                  <!-- Similarity Threshold (semantic/rag/multi) -->
+                  <div class="slider-control" data-modes="semantic,rag,multi">
+                    <div class="slider-header">
+                      <label class="slider-label" for="adv-similarity-threshold">Similarity Threshold</label>
+                      <span class="slider-value" id="adv-similarity-threshold-value">0.70</span>
+                    </div>
+                    <input type="range" id="adv-similarity-threshold" class="slider" min="0" max="1" value="0.7" step="0.01">
+                  </div>
+
+                  <!-- Include Highlights (keyword/multi) -->
+                  <div class="toggle-control" data-modes="keyword,multi">
+                    <label class="toggle-label" for="adv-include-highlights">Include Highlights</label>
+                    <label class="toggle-switch">
+                      <input type="checkbox" id="adv-include-highlights" checked>
+                      <span class="toggle-slider"></span>
+                    </label>
+                  </div>
+
+                  <!-- Fuzzy Fallback (keyword/multi) -->
+                  <div class="toggle-control" data-modes="keyword,multi">
+                    <label class="toggle-label" for="adv-fuzzy-fallback">Fuzzy Fallback</label>
+                    <label class="toggle-switch">
+                      <input type="checkbox" id="adv-fuzzy-fallback" checked>
+                      <span class="toggle-slider"></span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Assembly Section -->
+              <div class="advanced-section" data-section="assembly">
+                <div class="advanced-section-header">
+                  <span class="section-title">Context Assembly</span>
+                </div>
+                <div class="advanced-section-body">
+                  <!-- Max Items -->
+                  <div class="slider-control">
+                    <div class="slider-header">
+                      <label class="slider-label" for="adv-assembly-max-items">Max Items</label>
+                      <span class="slider-value" id="adv-assembly-max-items-value">10</span>
+                    </div>
+                    <input type="range" id="adv-assembly-max-items" class="slider" min="1" max="50" value="10" step="1">
+                  </div>
+
+                  <!-- Max Chars -->
+                  <div class="slider-control">
+                    <div class="slider-header">
+                      <label class="slider-label" for="adv-assembly-max-chars">Max Context Chars</label>
+                      <span class="slider-value" id="adv-assembly-max-chars-value">12000</span>
+                    </div>
+                    <input type="range" id="adv-assembly-max-chars" class="slider" min="1000" max="50000" value="12000" step="1000">
+                  </div>
+
+                  <!-- Max Chars Per Item -->
+                  <div class="slider-control">
+                    <div class="slider-header">
+                      <label class="slider-label" for="adv-assembly-max-chars-per-item">Max Chars/Item</label>
+                      <span class="slider-value" id="adv-assembly-max-chars-per-item-value">2000</span>
+                    </div>
+                    <input type="range" id="adv-assembly-max-chars-per-item" class="slider" min="100" max="10000" value="2000" step="100">
+                  </div>
+                </div>
+              </div>
+
+              <!-- Processing Section (RAG only) -->
+              <div class="advanced-section" data-section="processing" data-modes="rag">
+                <div class="advanced-section-header">
+                  <span class="section-title">LLM Processing</span>
+                </div>
+                <div class="advanced-section-body">
+                  <!-- Temperature -->
+                  <div class="slider-control">
+                    <div class="slider-header">
+                      <label class="slider-label" for="adv-temperature">Temperature</label>
+                      <span class="slider-value" id="adv-temperature-value">0.10</span>
+                    </div>
+                    <input type="range" id="adv-temperature" class="slider" min="0" max="2" value="0.1" step="0.05">
+                  </div>
+
+                  <!-- Max Tokens -->
+                  <div class="slider-control">
+                    <div class="slider-header">
+                      <label class="slider-label" for="adv-max-tokens">Max Tokens</label>
+                      <span class="slider-value" id="adv-max-tokens-value">1024</span>
+                    </div>
+                    <input type="range" id="adv-max-tokens" class="slider" min="64" max="4096" value="1024" step="64">
+                  </div>
+                </div>
+              </div>
+
+              <!-- Fusion Section (MULTI only) -->
+              <div class="advanced-section" data-section="fusion" data-modes="multi">
+                <div class="advanced-section-header">
+                  <span class="section-title">Hybrid Fusion</span>
+                </div>
+                <div class="advanced-section-body">
+                  <!-- Fusion Strategy -->
+                  <div class="input-group">
+                    <label class="input-label" for="adv-fusion-strategy">Fusion Strategy</label>
+                    <select id="adv-fusion-strategy" class="select">
+                      <option value="rrf">RRF (Reciprocal Rank Fusion)</option>
+                      <option value="weighted">Weighted Average</option>
+                    </select>
+                  </div>
+
+                  <!-- Keyword Weight (only for weighted) -->
+                  <div class="slider-control" id="keyword-weight-control">
+                    <div class="slider-header">
+                      <label class="slider-label" for="adv-keyword-weight">Keyword Weight</label>
+                      <span class="slider-value" id="adv-keyword-weight-value">0.50</span>
+                    </div>
+                    <input type="range" id="adv-keyword-weight" class="slider" min="0" max="1" value="0.5" step="0.05">
+                  </div>
+
+                  <!-- Semantic Weight (only for weighted) -->
+                  <div class="slider-control" id="semantic-weight-control">
+                    <div class="slider-header">
+                      <label class="slider-label" for="adv-semantic-weight">Semantic Weight</label>
+                      <span class="slider-value" id="adv-semantic-weight-value">0.50</span>
+                    </div>
+                    <input type="range" id="adv-semantic-weight" class="slider" min="0" max="1" value="0.5" step="0.05">
+                  </div>
+                </div>
               </div>
             </div>
           </div>

@@ -16,6 +16,15 @@ class SearchMode(str, Enum):
     KEYWORD = "keyword"
     SEMANTIC = "semantic"
     RAG = "rag"
+    MULTI = "multi"
+    AGENT = "agent"
+
+
+class FusionStrategy(str, Enum):
+    """Fusion strategy for hybrid search."""
+
+    RRF = "rrf"
+    WEIGHTED = "weighted"
 
 
 class AttachmentResponse(BaseModel):
@@ -56,6 +65,47 @@ class SearchRequest(BaseModel):
     end_date: datetime | None = Field(None, description="Filter end date")
     author: str | None = Field(None, description="Filter by author")
     source_system: str | None = Field(None, description="Filter by source system")
+
+    # Advanced retrieval parameters
+    similarity_threshold: float | None = Field(
+        None, ge=0.0, le=1.0, description="Minimum similarity for semantic search"
+    )
+    include_highlights: bool | None = Field(
+        None, description="Include highlighted snippets for keyword search"
+    )
+    fuzzy_fallback: bool | None = Field(
+        None, description="Fall back to fuzzy search if no exact matches"
+    )
+
+    # Advanced assembly parameters
+    assembly_max_items: int | None = Field(
+        None, ge=1, le=50, description="Maximum items in context"
+    )
+    assembly_max_chars: int | None = Field(
+        None, ge=1000, le=50000, description="Maximum total characters in context"
+    )
+    assembly_max_chars_per_item: int | None = Field(
+        None, ge=100, le=10000, description="Maximum characters per item"
+    )
+
+    # Advanced processing parameters (RAG mode)
+    temperature: float | None = Field(
+        None, ge=0.0, le=2.0, description="LLM temperature for generation"
+    )
+    max_tokens: int | None = Field(
+        None, ge=64, le=4096, description="Maximum tokens in generated response"
+    )
+
+    # Advanced fusion parameters (MULTI mode)
+    fusion_strategy: FusionStrategy | None = Field(
+        None, description="Fusion strategy for hybrid search"
+    )
+    keyword_weight: float | None = Field(
+        None, ge=0.0, le=1.0, description="Weight for keyword search in fusion"
+    )
+    semantic_weight: float | None = Field(
+        None, ge=0.0, le=1.0, description="Weight for semantic search in fusion"
+    )
 
 
 class SearchResponse(BaseModel):

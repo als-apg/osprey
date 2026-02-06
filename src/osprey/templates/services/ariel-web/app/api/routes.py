@@ -17,6 +17,7 @@ from .schemas import (
     EntryCreateRequest,
     EntryCreateResponse,
     EntryResponse,
+    FusionStrategy,
     SearchMode,
     SearchRequest,
     SearchResponse,
@@ -70,6 +71,8 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
             SearchMode.KEYWORD: ServiceSearchMode.KEYWORD,
             SearchMode.SEMANTIC: ServiceSearchMode.SEMANTIC,
             SearchMode.RAG: ServiceSearchMode.RAG,
+            SearchMode.MULTI: ServiceSearchMode.MULTI,
+            SearchMode.AGENT: ServiceSearchMode.AGENT,
         }
         service_mode = mode_map.get(search_req.mode)
 
@@ -78,12 +81,48 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
         if search_req.start_date or search_req.end_date:
             time_range = (search_req.start_date, search_req.end_date)
 
+        # Build advanced config kwargs
+        advanced_config = {}
+
+        # Retrieval config
+        if search_req.similarity_threshold is not None:
+            advanced_config["similarity_threshold"] = search_req.similarity_threshold
+        if search_req.include_highlights is not None:
+            advanced_config["include_highlights"] = search_req.include_highlights
+        if search_req.fuzzy_fallback is not None:
+            advanced_config["fuzzy_fallback"] = search_req.fuzzy_fallback
+
+        # Assembly config
+        if search_req.assembly_max_items is not None:
+            advanced_config["assembly_max_items"] = search_req.assembly_max_items
+        if search_req.assembly_max_chars is not None:
+            advanced_config["assembly_max_chars"] = search_req.assembly_max_chars
+        if search_req.assembly_max_chars_per_item is not None:
+            advanced_config["assembly_max_chars_per_item"] = (
+                search_req.assembly_max_chars_per_item
+            )
+
+        # Processing config (RAG mode)
+        if search_req.temperature is not None:
+            advanced_config["temperature"] = search_req.temperature
+        if search_req.max_tokens is not None:
+            advanced_config["max_tokens"] = search_req.max_tokens
+
+        # Fusion config (MULTI mode)
+        if search_req.fusion_strategy is not None:
+            advanced_config["fusion_strategy"] = search_req.fusion_strategy.value
+        if search_req.keyword_weight is not None:
+            advanced_config["keyword_weight"] = search_req.keyword_weight
+        if search_req.semantic_weight is not None:
+            advanced_config["semantic_weight"] = search_req.semantic_weight
+
         # Execute search
         result = await service.search(
             query=search_req.query,
             max_results=search_req.max_results,
             time_range=time_range,
             mode=service_mode,
+            **advanced_config,
         )
 
         execution_time = int((time.time() - start_time) * 1000)

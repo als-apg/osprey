@@ -12,6 +12,7 @@ import {
   renderEmptyState,
   escapeHtml,
 } from './components.js';
+import { getAdvancedOptions } from './advanced-options.js';
 
 // Search state
 let currentQuery = '';
@@ -94,15 +95,30 @@ export async function performSearch(query = null) {
   const author = document.getElementById('filter-author')?.value?.trim() || null;
   const sourceSystem = document.getElementById('filter-source')?.value || null;
 
+  // Get advanced options for current mode
+  const advancedOptions = getAdvancedOptions(currentMode);
+
   try {
     const results = await searchApi.search({
       query,
       mode: currentMode,
-      maxResults: 20,
+      maxResults: advancedOptions.maxResults,
       startDate: startDate ? new Date(startDate).toISOString() : null,
       endDate: endDate ? new Date(endDate).toISOString() : null,
       author,
       sourceSystem,
+      // Advanced options
+      similarityThreshold: advancedOptions.similarityThreshold,
+      includeHighlights: advancedOptions.includeHighlights,
+      fuzzyFallback: advancedOptions.fuzzyFallback,
+      assemblyMaxItems: advancedOptions.assemblyMaxItems,
+      assemblyMaxChars: advancedOptions.assemblyMaxChars,
+      assemblyMaxCharsPerItem: advancedOptions.assemblyMaxCharsPerItem,
+      temperature: advancedOptions.temperature,
+      maxTokens: advancedOptions.maxTokens,
+      fusionStrategy: advancedOptions.fusionStrategy,
+      keywordWeight: advancedOptions.keywordWeight,
+      semanticWeight: advancedOptions.semanticWeight,
     });
 
     lastResults = results;
