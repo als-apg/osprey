@@ -1123,8 +1123,11 @@ class RegistryManager:
         # Get configured providers from config.yml to filter which providers to load
         try:
             from osprey.utils.config import get_config_value
+
             configured_providers = get_config_value("api.providers", {})
-            configured_provider_names = set(configured_providers.keys()) if configured_providers else None
+            configured_provider_names = (
+                set(configured_providers.keys()) if configured_providers else None
+            )
             if configured_provider_names:
                 logger.info(f"Config specifies providers: {list(configured_provider_names)}")
         except Exception as e:
@@ -1170,7 +1173,10 @@ class RegistryManager:
 
                 # Check if this provider is configured in config.yml
                 # If config specifies providers, only load those that are configured
-                if configured_provider_names is not None and provider_name not in configured_provider_names:
+                if (
+                    configured_provider_names is not None
+                    and provider_name not in configured_provider_names
+                ):
                     logger.debug(f"  ⊘ Skipping unconfigured provider: {provider_name}")
                     continue
 
