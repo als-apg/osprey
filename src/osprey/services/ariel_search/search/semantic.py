@@ -79,9 +79,28 @@ async def semantic_search(
         logger.warning("No semantic search model configured")
         return []
 
-    # Get embedding provider config for base_url
-    embedding_config = config.embedding
-    base_url = getattr(embedding_config, "base_url", None) or embedder.default_base_url
+    # Get provider config for credentials (api_key, base_url)
+    # Priority: search module provider > embedding provider > default
+    semantic_module = config.search_modules.get("semantic")
+    provider_name = (
+        (semantic_module.provider if semantic_module else None)
+        or config.embedding.provider
+        or "ollama"
+    )
+
+    # Resolve provider credentials via Osprey's config system
+    # This may fail in test environments without config.yml
+    try:
+        from osprey.utils.config import get_provider_config
+
+        provider_config = get_provider_config(provider_name)
+    except FileNotFoundError:
+        # Test environment without config.yml - use empty config
+        logger.debug(f"No config.yml found, using empty provider config for '{provider_name}'")
+        provider_config = {}
+
+    base_url = provider_config.get("base_url") or embedder.default_base_url
+    api_key = provider_config.get("api_key")
 
     # Generate query embedding
     try:
@@ -89,6 +108,7 @@ async def semantic_search(
             texts=[query],
             model_id=model_name,
             base_url=base_url,
+            api_key=api_key,
         )
         if not embeddings or not embeddings[0]:
             logger.error("Failed to generate query embedding")

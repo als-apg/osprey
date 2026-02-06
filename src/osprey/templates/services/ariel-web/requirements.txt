@@ -4,8 +4,9 @@ uvicorn[standard]>=0.27.0
 pydantic>=2.0.0
 pyyaml>=6.0
 
-# Database (via osprey)
+# Database
 psycopg[binary]>=3.1.0
 psycopg-pool>=3.1.0
 
-# Note: osprey is mounted from host, not installed via pip
+# Osprey framework for ARIEL service
+osprey-framework>=0.9.6

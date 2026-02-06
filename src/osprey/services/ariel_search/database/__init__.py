@@ -39,7 +39,10 @@ def __getattr__(name: str):
             create_connection_pool,
         )
 
-        return {"close_connection_pool": close_connection_pool, "create_connection_pool": create_connection_pool}[name]
+        return {
+            "close_connection_pool": close_connection_pool,
+            "create_connection_pool": create_connection_pool,
+        }[name]
 
     if name in ("KNOWN_MIGRATIONS", "MigrationRunner", "run_migrations"):
         from osprey.services.ariel_search.database.migrate import (
@@ -48,7 +51,11 @@ def __getattr__(name: str):
             run_migrations,
         )
 
-        return {"KNOWN_MIGRATIONS": KNOWN_MIGRATIONS, "MigrationRunner": MigrationRunner, "run_migrations": run_migrations}[name]
+        return {
+            "KNOWN_MIGRATIONS": KNOWN_MIGRATIONS,
+            "MigrationRunner": MigrationRunner,
+            "run_migrations": run_migrations,
+        }[name]
 
     if name in ("ARIELRepository", "requires_module"):
         from osprey.services.ariel_search.database.repository import (

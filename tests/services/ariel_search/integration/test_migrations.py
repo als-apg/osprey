@@ -197,7 +197,9 @@ class TestMigrationSQLExecution:
                 WHERE table_name = 'enhanced_entries'
                 ORDER BY ordinal_position
             """)
-            columns = {row[0]: {"type": row[1], "nullable": row[2]} for row in await result.fetchall()}
+            columns = {
+                row[0]: {"type": row[1], "nullable": row[2]} for row in await result.fetchall()
+            }
 
         # Verify required columns and types
         assert "entry_id" in columns
@@ -307,7 +309,10 @@ class TestMigrationSQLExecution:
 
         # Should have default values (now() or similar)
         assert defaults.get("created_at") is not None
-        assert "now" in defaults["created_at"].lower() or "current_timestamp" in defaults["created_at"].lower()
+        assert (
+            "now" in defaults["created_at"].lower()
+            or "current_timestamp" in defaults["created_at"].lower()
+        )
 
     async def test_embedding_foreign_key_exists(self, migrated_pool):
         """Verify embedding table has foreign key to enhanced_entries.

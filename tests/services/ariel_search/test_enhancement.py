@@ -3,6 +3,8 @@
 Tests for base enhancement module, factory, and module implementations.
 """
 
+from datetime import UTC
+
 import pytest
 
 from osprey.services.ariel_search.config import ARIELConfig, DatabaseConfig
@@ -50,31 +52,35 @@ class TestEnhancementFactory:
 
     def test_create_enhancers_text_embedding_only(self):
         """Factory creates only text_embedding when configured."""
-        config = ARIELConfig.from_dict({
-            "database": {"uri": "postgresql://localhost:5432/test"},
-            "enhancement_modules": {
-                "text_embedding": {
-                    "enabled": True,
-                    "models": [{"name": "nomic-embed-text", "dimension": 768}],
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost:5432/test"},
+                "enhancement_modules": {
+                    "text_embedding": {
+                        "enabled": True,
+                        "models": [{"name": "nomic-embed-text", "dimension": 768}],
+                    },
                 },
-            },
-        })
+            }
+        )
         enhancers = create_enhancers_from_config(config)
         assert len(enhancers) == 1
         assert enhancers[0].name == "text_embedding"
 
     def test_create_enhancers_both_modules(self):
         """Factory creates both modules in execution order."""
-        config = ARIELConfig.from_dict({
-            "database": {"uri": "postgresql://localhost:5432/test"},
-            "enhancement_modules": {
-                "semantic_processor": {"enabled": True},
-                "text_embedding": {
-                    "enabled": True,
-                    "models": [{"name": "nomic-embed-text", "dimension": 768}],
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost:5432/test"},
+                "enhancement_modules": {
+                    "semantic_processor": {"enabled": True},
+                    "text_embedding": {
+                        "enabled": True,
+                        "models": [{"name": "nomic-embed-text", "dimension": 768}],
+                    },
                 },
-            },
-        })
+            }
+        )
         enhancers = create_enhancers_from_config(config)
         assert len(enhancers) == 2
         # Check order: semantic_processor first, then text_embedding
@@ -102,12 +108,14 @@ class TestTextEmbeddingModule:
     def test_configure_sets_models(self):
         """configure() sets models from config."""
         module = TextEmbeddingModule()
-        module.configure({
-            "models": [
-                {"name": "nomic-embed-text", "dimension": 768},
-                {"name": "mxbai-embed-large", "dimension": 1024},
-            ],
-        })
+        module.configure(
+            {
+                "models": [
+                    {"name": "nomic-embed-text", "dimension": 768},
+                    {"name": "mxbai-embed-large", "dimension": 1024},
+                ],
+            }
+        )
         assert len(module._models) == 2
         assert module._models[0]["name"] == "nomic-embed-text"
 
@@ -137,9 +145,11 @@ class TestSemanticProcessorModule:
     def test_configure_sets_prompt_template(self):
         """configure() sets custom prompt template."""
         module = SemanticProcessorModule()
-        module.configure({
-            "prompt_template": "Custom prompt: {text}",
-        })
+        module.configure(
+            {
+                "prompt_template": "Custom prompt: {text}",
+            }
+        )
         assert module._prompt_template == "Custom prompt: {text}"
 
     def test_is_base_enhancement_module(self):
@@ -224,15 +234,17 @@ class TestGetEnhancementModuleConfig:
 
     def test_returns_config_dict_for_configured_module(self):
         """Returns config dict for configured module."""
-        config = ARIELConfig.from_dict({
-            "database": {"uri": "postgresql://localhost:5432/test"},
-            "enhancement_modules": {
-                "text_embedding": {
-                    "enabled": True,
-                    "models": [{"name": "nomic-embed-text", "dimension": 768}],
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost:5432/test"},
+                "enhancement_modules": {
+                    "text_embedding": {
+                        "enabled": True,
+                        "models": [{"name": "nomic-embed-text", "dimension": 768}],
+                    },
                 },
-            },
-        })
+            }
+        )
         result = config.get_enhancement_module_config("text_embedding")
         assert result is not None
         assert result["enabled"] is True
@@ -241,15 +253,17 @@ class TestGetEnhancementModuleConfig:
 
     def test_includes_settings_in_config(self):
         """Config dict includes settings."""
-        config = ARIELConfig.from_dict({
-            "database": {"uri": "postgresql://localhost:5432/test"},
-            "enhancement_modules": {
-                "semantic_processor": {
-                    "enabled": True,
-                    "settings": {"custom_setting": "value"},
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost:5432/test"},
+                "enhancement_modules": {
+                    "semantic_processor": {
+                        "enabled": True,
+                        "settings": {"custom_setting": "value"},
+                    },
                 },
-            },
-        })
+            }
+        )
         result = config.get_enhancement_module_config("semantic_processor")
         assert result is not None
         assert result["custom_setting"] == "value"
@@ -283,6 +297,7 @@ class TestBaseEnhancementModuleAbstract:
     def test_base_module_requires_name(self):
         """BaseEnhancementModule requires name property."""
         with pytest.raises(TypeError):
+
             class InvalidModule(BaseEnhancementModule):
                 pass
 
@@ -371,9 +386,11 @@ class TestTextEmbeddingModuleEmbedder:
     def test_configure_sets_models(self):
         """Configure with models sets the model list."""
         module = TextEmbeddingModule()
-        module.configure({
-            "models": [{"name": "test", "dimension": 768}],
-        })
+        module.configure(
+            {
+                "models": [{"name": "test", "dimension": 768}],
+            }
+        )
         assert len(module._models) == 1
         assert module._models[0]["name"] == "test"
 
@@ -417,7 +434,7 @@ class TestSemanticProcessorEnhanceEmptyEntry:
         repo.upsert_entry = AsyncMock()
 
         # Should handle gracefully
-        result = await module.enhance(entry, repo)
+        await module.enhance(entry, repo)
         # Result depends on implementation - may skip or process
 
 
@@ -451,12 +468,14 @@ class TestTextEmbeddingModuleMoreConfig:
     def test_multiple_models_configuration(self):
         """Configure supports multiple models."""
         module = TextEmbeddingModule()
-        module.configure({
-            "models": [
-                {"name": "model1", "dimension": 768},
-                {"name": "model2", "dimension": 1024},
-            ],
-        })
+        module.configure(
+            {
+                "models": [
+                    {"name": "model1", "dimension": 768},
+                    {"name": "model2", "dimension": 1024},
+                ],
+            }
+        )
         assert len(module._models) == 2
 
     def test_configure_overwrites_models(self):
@@ -477,21 +496,23 @@ class TestTextEmbeddingModuleEnhance:
         from osprey.services.ariel_search.enhancement.text_embedding import TextEmbeddingModule
 
         m = TextEmbeddingModule()
-        m.configure({
-            "models": [{"name": "test-model", "dimension": 768, "max_input_tokens": 8192}],
-            "provider": {"base_url": "http://localhost:11434"},
-        })
+        m.configure(
+            {
+                "models": [{"name": "test-model", "dimension": 768, "max_input_tokens": 8192}],
+                "provider": {"base_url": "http://localhost:11434"},
+            }
+        )
         return m
 
     @pytest.fixture
     def sample_entry(self):
         """Sample entry for testing."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         return {
             "entry_id": "entry-001",
             "source_system": "ALS eLog",
-            "timestamp": datetime(2024, 1, 15, tzinfo=timezone.utc),
+            "timestamp": datetime(2024, 1, 15, tzinfo=UTC),
             "author": "jsmith",
             "raw_text": "Beam current at 500mA.",
             "attachments": [],
@@ -502,6 +523,7 @@ class TestTextEmbeddingModuleEnhance:
     async def test_enhance_no_models_configured(self):
         """Enhance logs warning when no models configured."""
         from unittest.mock import AsyncMock, MagicMock
+
         from osprey.services.ariel_search.enhancement.text_embedding import TextEmbeddingModule
 
         module = TextEmbeddingModule()  # No models configured
@@ -540,9 +562,11 @@ class TestSemanticProcessorEnhanceWithLLM:
     def module(self):
         """Create configured module."""
         m = SemanticProcessorModule()
-        m.configure({
-            "model": {"model_id": "llama3"},
-        })
+        m.configure(
+            {
+                "model": {"model_id": "llama3"},
+            }
+        )
         return m
 
     @pytest.mark.asyncio
@@ -567,16 +591,18 @@ class TestGetEnhancementModuleConfigDetails:
 
     def test_text_embedding_config_with_provider(self):
         """Text embedding config includes provider settings."""
-        config = ARIELConfig.from_dict({
-            "database": {"uri": "postgresql://localhost:5432/test"},
-            "enhancement_modules": {
-                "text_embedding": {
-                    "enabled": True,
-                    "models": [{"name": "nomic-embed-text", "dimension": 768}],
-                    "settings": {"provider": {"base_url": "http://localhost:11434"}},
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost:5432/test"},
+                "enhancement_modules": {
+                    "text_embedding": {
+                        "enabled": True,
+                        "models": [{"name": "nomic-embed-text", "dimension": 768}],
+                        "settings": {"provider": {"base_url": "http://localhost:11434"}},
+                    },
                 },
-            },
-        })
+            }
+        )
 
         # Access the config directly
         te_config = config.enhancement_modules.get("text_embedding")

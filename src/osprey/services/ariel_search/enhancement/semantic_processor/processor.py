@@ -36,9 +36,7 @@ class SemanticProcessorResult(BaseModel):
     keywords: list[str] = Field(
         description="Key terms, equipment names, and concepts from the entry"
     )
-    summary: str = Field(
-        description="Concise summary capturing the main point of the entry"
-    )
+    summary: str = Field(description="Concise summary capturing the main point of the entry")
 
 
 # Default prompt template for semantic processing
@@ -133,9 +131,7 @@ class SemanticProcessorModule(BaseEnhancementModule):
                 )
 
         except Exception as e:
-            logger.warning(
-                f"Failed to process entry {entry.get('entry_id')}: {e}"
-            )
+            logger.warning(f"Failed to process entry {entry.get('entry_id')}: {e}")
 
     async def _process_text(self, text: str) -> SemanticProcessorResult | None:
         """Process text using LLM to extract keywords and summary.

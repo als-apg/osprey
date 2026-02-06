@@ -172,6 +172,11 @@ ariel = [
     "langchain-openai>=0.3.0",
 ]
 
+# ARIEL proxy support for HTTP ingestion through SOCKS tunnels
+ariel-proxy = [
+    "aiohttp-socks>=0.8.0",
+]
+
 # All optional dependencies for complete installation
 all = [
     "osprey-framework[docs,dev,storage,ariel]"

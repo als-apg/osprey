@@ -586,9 +586,7 @@ class TestStatusEndpoint:
         mock_ariel_service: MagicMock,
     ) -> None:
         """Service exception returns 500 error."""
-        mock_ariel_service.get_status = AsyncMock(
-            side_effect=RuntimeError("Status check failed")
-        )
+        mock_ariel_service.get_status = AsyncMock(side_effect=RuntimeError("Status check failed"))
 
         response = await client.get("/api/status")
 

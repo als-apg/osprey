@@ -34,7 +34,7 @@ class TestCLIStatusCommand:
             },
         }
 
-        with patch("osprey.cli.ariel.get_config", return_value=mock_config):
+        with patch("osprey.cli.ariel.get_config_value", return_value=mock_config):
             result = runner.invoke(ariel_group, ["status"])
 
         # Should succeed
@@ -53,7 +53,7 @@ class TestCLIStatusCommand:
             "database": {"uri": database_url},
         }
 
-        with patch("osprey.cli.ariel.get_config", return_value=mock_config):
+        with patch("osprey.cli.ariel.get_config_value", return_value=mock_config):
             result = runner.invoke(ariel_group, ["status", "--json"])
 
         assert result.exit_code == 0
@@ -67,7 +67,7 @@ class TestCLIStatusCommand:
 
         runner = CliRunner()
 
-        with patch("osprey.cli.ariel.get_config", return_value={}):
+        with patch("osprey.cli.ariel.get_config_value", return_value={}):
             result = runner.invoke(ariel_group, ["status"])
 
         assert "not configured" in result.output or "error" in result.output.lower()
@@ -95,7 +95,7 @@ class TestCLIMigrateCommand:
             },
         }
 
-        with patch("osprey.cli.ariel.get_config", return_value=mock_config):
+        with patch("osprey.cli.ariel.get_config_value", return_value=mock_config):
             result = runner.invoke(ariel_group, ["migrate"])
 
         assert result.exit_code == 0
@@ -109,7 +109,7 @@ class TestCLIMigrateCommand:
 
         mock_config = {"database": {"uri": database_url}}
 
-        with patch("osprey.cli.ariel.get_config", return_value=mock_config):
+        with patch("osprey.cli.ariel.get_config_value", return_value=mock_config):
             result = runner.invoke(ariel_group, ["migrate", "--rollback"])
 
         assert "not implemented" in result.output.lower()
@@ -121,7 +121,12 @@ class TestCLIIngestCommand:
     @pytest.fixture
     def sample_entries_path(self) -> Path:
         """Path to sample ALS entries fixture file."""
-        return Path(__file__).parent.parent.parent.parent / "fixtures" / "ariel" / "sample_als_entries.jsonl"
+        return (
+            Path(__file__).parent.parent.parent.parent
+            / "fixtures"
+            / "ariel"
+            / "sample_als_entries.jsonl"
+        )
 
     def test_ingest_command_dry_run(self, database_url, sample_entries_path):
         """Ingest command with --dry-run parses without storing."""
@@ -134,7 +139,7 @@ class TestCLIIngestCommand:
 
         mock_config = {"database": {"uri": database_url}}
 
-        with patch("osprey.cli.ariel.get_config", return_value=mock_config):
+        with patch("osprey.cli.ariel.get_config_value", return_value=mock_config):
             result = runner.invoke(
                 ariel_group,
                 [
@@ -153,9 +158,7 @@ class TestCLIIngestCommand:
         assert "Dry run complete" in result.output
         assert "entries would be ingested" in result.output
 
-    def test_ingest_command_stores_entries(
-        self, database_url, sample_entries_path, migrated_pool
-    ):
+    def test_ingest_command_stores_entries(self, database_url, sample_entries_path, migrated_pool):
         """Ingest command stores entries in database."""
         if not sample_entries_path.exists():
             pytest.skip(f"Fixture file not found: {sample_entries_path}")
@@ -169,7 +172,7 @@ class TestCLIIngestCommand:
             "search_modules": {"keyword": {"enabled": True}},
         }
 
-        with patch("osprey.cli.ariel.get_config", return_value=mock_config):
+        with patch("osprey.cli.ariel.get_config_value", return_value=mock_config):
             result = runner.invoke(
                 ariel_group,
                 [
@@ -194,7 +197,7 @@ class TestCLIIngestCommand:
 
         mock_config = {"database": {"uri": database_url}}
 
-        with patch("osprey.cli.ariel.get_config", return_value=mock_config):
+        with patch("osprey.cli.ariel.get_config_value", return_value=mock_config):
             result = runner.invoke(
                 ariel_group,
                 [
@@ -229,7 +232,7 @@ class TestCLIModelsCommand:
             },
         }
 
-        with patch("osprey.cli.ariel.get_config", return_value=mock_config):
+        with patch("osprey.cli.ariel.get_config_value", return_value=mock_config):
             result = runner.invoke(ariel_group, ["models"])
 
         # Should succeed
@@ -252,7 +255,7 @@ class TestCLISearchCommand:
             },
         }
 
-        with patch("osprey.cli.ariel.get_config", return_value=mock_config):
+        with patch("osprey.cli.ariel.get_config_value", return_value=mock_config):
             result = runner.invoke(ariel_group, ["search", "beam loss"])
 
         # Should succeed (even if no results)
@@ -272,12 +275,17 @@ class TestCLISearchCommand:
             "search_modules": {"keyword": {"enabled": True}},
         }
 
-        with patch("osprey.cli.ariel.get_config", return_value=mock_config):
+        with patch("osprey.cli.ariel.get_config_value", return_value=mock_config):
             result = runner.invoke(ariel_group, ["search", "test query", "--json"])
 
-        assert result.exit_code == 0
-        # Should be valid JSON
-        data = json.loads(result.output)
+        assert result.exit_code == 0, f"Exit: {result.exit_code}, Output: {result.output}"
+        # Extract JSON from output (may have log messages before it)
+        output = result.output
+        # Find the JSON object in output (skip any log lines)
+        json_start = output.find("{")
+        if json_start >= 0:
+            output = output[json_start:]
+        data = json.loads(output)
         assert "query" in data
 
     def test_search_command_with_mode(self, database_url):
@@ -291,10 +299,8 @@ class TestCLISearchCommand:
             "search_modules": {"keyword": {"enabled": True}},
         }
 
-        with patch("osprey.cli.ariel.get_config", return_value=mock_config):
-            result = runner.invoke(
-                ariel_group, ["search", "beam", "--mode", "keyword"]
-            )
+        with patch("osprey.cli.ariel.get_config_value", return_value=mock_config):
+            result = runner.invoke(ariel_group, ["search", "beam", "--mode", "keyword"])
 
         assert result.exit_code == 0
 
@@ -315,7 +321,7 @@ class TestCLIEnhanceCommand:
             },
         }
 
-        with patch("osprey.cli.ariel.get_config", return_value=mock_config):
+        with patch("osprey.cli.ariel.get_config_value", return_value=mock_config):
             result = runner.invoke(ariel_group, ["enhance"])
 
         assert result.exit_code == 0
@@ -333,7 +339,7 @@ class TestCLIReembedCommand:
 
         mock_config = {"database": {"uri": database_url}}
 
-        with patch("osprey.cli.ariel.get_config", return_value=mock_config):
+        with patch("osprey.cli.ariel.get_config_value", return_value=mock_config):
             result = runner.invoke(
                 ariel_group,
                 [

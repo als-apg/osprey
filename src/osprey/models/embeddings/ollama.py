@@ -7,6 +7,7 @@ See 01_DATA_LAYER.md Section 6.3.1 for specification.
 """
 
 import logging
+import os
 
 from osprey.models.embeddings.base import BaseEmbeddingProvider
 
@@ -37,24 +38,41 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
 
     @staticmethod
     def _get_fallback_urls(base_url: str) -> list[str]:
-        """Generate fallback URLs for Ollama based on the current base URL."""
+        """Generate fallback URLs for Ollama based on the current base URL.
+
+        Supports multiple container runtimes:
+        - host.docker.internal: Docker Desktop (macOS/Windows)
+        - host.containers.internal: Podman
+        """
         fallback_urls = []
 
         if "host.containers.internal" in base_url:
-            # Running in container but Ollama might be on localhost
+            # Running in Podman container but Ollama might be elsewhere
             fallback_urls = [
+                base_url.replace("host.containers.internal", "host.docker.internal"),
                 base_url.replace("host.containers.internal", "localhost"),
                 "http://localhost:11434",
             ]
-        elif "localhost" in base_url:
+        elif "host.docker.internal" in base_url:
+            # Running in Docker Desktop container but Ollama might be elsewhere
+            fallback_urls = [
+                base_url.replace("host.docker.internal", "host.containers.internal"),
+                base_url.replace("host.docker.internal", "localhost"),
+                "http://localhost:11434",
+            ]
+        elif "localhost" in base_url or "127.0.0.1" in base_url:
             # Running locally but Ollama might be in container context
             fallback_urls = [
-                base_url.replace("localhost", "host.containers.internal"),
+                "http://host.docker.internal:11434",
                 "http://host.containers.internal:11434",
             ]
         else:
             # Generic fallbacks for other scenarios
-            fallback_urls = ["http://localhost:11434", "http://host.containers.internal:11434"]
+            fallback_urls = [
+                "http://localhost:11434",
+                "http://host.docker.internal:11434",
+                "http://host.containers.internal:11434",
+            ]
 
         return fallback_urls
 
@@ -71,7 +89,19 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
             return False
 
     def _resolve_base_url(self, base_url: str) -> str:
-        """Resolve working base URL with fallback support."""
+        """Resolve working base URL with fallback support.
+
+        Checks OLLAMA_HOST environment variable first as override,
+        then tries the configured URL, then fallbacks.
+        """
+        # Check environment variable override first (set by docker-compose)
+        env_url = os.environ.get("OLLAMA_HOST")
+        if env_url:
+            if self._test_connection(env_url):
+                logger.debug(f"Successfully connected to Ollama via OLLAMA_HOST at {env_url}")
+                return env_url
+            logger.debug(f"OLLAMA_HOST={env_url} not accessible, trying other options")
+
         # Test primary URL first
         if self._test_connection(base_url):
             logger.debug(f"Successfully connected to Ollama at {base_url}")
@@ -189,7 +219,9 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
         Returns:
             Tuple of (healthy, message).
         """
-        url = base_url or self.default_base_url
+        # Check environment variable override first
+        env_url = os.environ.get("OLLAMA_HOST")
+        url = env_url or base_url or self.default_base_url
         if not url:
             return (False, "No base_url configured for Ollama provider")
 

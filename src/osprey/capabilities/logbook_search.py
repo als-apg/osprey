@@ -198,7 +198,8 @@ class LogbookSearchCapability(BaseCapability):
         # Build output context - convert entries to dicts if they aren't already
         # EnhancedLogbookEntry is a TypedDict, so we can cast them to dict
         entries_as_dicts: tuple[dict[str, Any], ...] = tuple(
-            dict(e) for e in result.entries  # type: ignore[arg-type]
+            dict(e)
+            for e in result.entries  # type: ignore[arg-type]
         )
         output = LogbookSearchResultsContext(
             entries=entries_as_dicts,

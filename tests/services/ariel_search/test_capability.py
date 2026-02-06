@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from osprey.services.ariel_search.capability import (
-    get_ariel_search_service,
     reset_ariel_service,
 )
 
@@ -47,7 +46,9 @@ class TestGetArielSearchService:
         from osprey.services.ariel_search import ConfigurationError
 
         # The capability module imports get_config at runtime - we need to mock where it's looked up
-        with patch.dict("sys.modules", {"osprey.config": MagicMock(get_config=lambda *a, **kw: {})}):
+        with patch.dict(
+            "sys.modules", {"osprey.config": MagicMock(get_config=lambda *a, **kw: {})}
+        ):
             # Reset to force re-import of get_config
             reset_ariel_service()
             # Reload the module to pick up the mock

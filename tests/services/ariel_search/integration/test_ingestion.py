@@ -20,7 +20,12 @@ class TestIngestionPipeline:
     @pytest.fixture
     def sample_entries_path(self) -> Path:
         """Path to sample ALS entries fixture file."""
-        return Path(__file__).parent.parent.parent.parent / "fixtures" / "ariel" / "sample_als_entries.jsonl"
+        return (
+            Path(__file__).parent.parent.parent.parent
+            / "fixtures"
+            / "ariel"
+            / "sample_als_entries.jsonl"
+        )
 
     async def test_full_pipeline_adapter_to_storage(
         self, repository, sample_entries_path, integration_ariel_config
@@ -33,7 +38,7 @@ class TestIngestionPipeline:
         3. Store via repository.upsert_entry()
         4. Verify entry retrievable with all metadata
         """
-        from osprey.services.ariel_search.config import ARIELConfig, IngestionConfig
+        from osprey.services.ariel_search.config import ARIELConfig
         from osprey.services.ariel_search.ingestion.adapters.als import ALSLogbookAdapter
 
         # Skip if fixture file doesn't exist
@@ -41,13 +46,15 @@ class TestIngestionPipeline:
             pytest.skip(f"Fixture file not found: {sample_entries_path}")
 
         # Create config with ingestion settings pointing to fixture
-        config = ARIELConfig.from_dict({
-            "database": {"uri": integration_ariel_config.database.uri},
-            "ingestion": {
-                "adapter": "als_logbook",
-                "source_url": str(sample_entries_path),
-            },
-        })
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": integration_ariel_config.database.uri},
+                "ingestion": {
+                    "adapter": "als_logbook",
+                    "source_url": str(sample_entries_path),
+                },
+            }
+        )
 
         # Create adapter
         adapter = ALSLogbookAdapter(config)
@@ -80,13 +87,15 @@ class TestIngestionPipeline:
         if not sample_entries_path.exists():
             pytest.skip(f"Fixture file not found: {sample_entries_path}")
 
-        config = ARIELConfig.from_dict({
-            "database": {"uri": integration_ariel_config.database.uri},
-            "ingestion": {
-                "adapter": "als_logbook",
-                "source_url": str(sample_entries_path),
-            },
-        })
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": integration_ariel_config.database.uri},
+                "ingestion": {
+                    "adapter": "als_logbook",
+                    "source_url": str(sample_entries_path),
+                },
+            }
+        )
 
         adapter = ALSLogbookAdapter(config)
 
@@ -122,13 +131,15 @@ class TestIngestionPipeline:
         if not sample_entries_path.exists():
             pytest.skip(f"Fixture file not found: {sample_entries_path}")
 
-        config = ARIELConfig.from_dict({
-            "database": {"uri": integration_ariel_config.database.uri},
-            "ingestion": {
-                "adapter": "als_logbook",
-                "source_url": str(sample_entries_path),
-            },
-        })
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": integration_ariel_config.database.uri},
+                "ingestion": {
+                    "adapter": "als_logbook",
+                    "source_url": str(sample_entries_path),
+                },
+            }
+        )
 
         adapter = ALSLogbookAdapter(config)
 
@@ -158,13 +169,15 @@ class TestIngestionPipeline:
         if not sample_entries_path.exists():
             pytest.skip(f"Fixture file not found: {sample_entries_path}")
 
-        config = ARIELConfig.from_dict({
-            "database": {"uri": integration_ariel_config.database.uri},
-            "ingestion": {
-                "adapter": "als_logbook",
-                "source_url": str(sample_entries_path),
-            },
-        })
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": integration_ariel_config.database.uri},
+                "ingestion": {
+                    "adapter": "als_logbook",
+                    "source_url": str(sample_entries_path),
+                },
+            }
+        )
 
         adapter = ALSLogbookAdapter(config)
 
@@ -193,13 +206,15 @@ class TestIngestionPipeline:
         if not sample_entries_path.exists():
             pytest.skip(f"Fixture file not found: {sample_entries_path}")
 
-        config = ARIELConfig.from_dict({
-            "database": {"uri": integration_ariel_config.database.uri},
-            "ingestion": {
-                "adapter": "als_logbook",
-                "source_url": str(sample_entries_path),
-            },
-        })
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": integration_ariel_config.database.uri},
+                "ingestion": {
+                    "adapter": "als_logbook",
+                    "source_url": str(sample_entries_path),
+                },
+            }
+        )
 
         adapter = ALSLogbookAdapter(config)
 
@@ -227,13 +242,17 @@ class TestIngestionWithTimeFilters:
     @pytest.fixture
     def sample_entries_path(self) -> Path:
         """Path to sample ALS entries fixture file."""
-        return Path(__file__).parent.parent.parent.parent / "fixtures" / "ariel" / "sample_als_entries.jsonl"
+        return (
+            Path(__file__).parent.parent.parent.parent
+            / "fixtures"
+            / "ariel"
+            / "sample_als_entries.jsonl"
+        )
 
     async def test_adapter_respects_since_filter(
         self, sample_entries_path, integration_ariel_config
     ):
         """Adapter respects since (after) time filter."""
-        from datetime import datetime, timezone
 
         from osprey.services.ariel_search.config import ARIELConfig
         from osprey.services.ariel_search.ingestion.adapters.als import ALSLogbookAdapter
@@ -241,13 +260,15 @@ class TestIngestionWithTimeFilters:
         if not sample_entries_path.exists():
             pytest.skip(f"Fixture file not found: {sample_entries_path}")
 
-        config = ARIELConfig.from_dict({
-            "database": {"uri": integration_ariel_config.database.uri},
-            "ingestion": {
-                "adapter": "als_logbook",
-                "source_url": str(sample_entries_path),
-            },
-        })
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": integration_ariel_config.database.uri},
+                "ingestion": {
+                    "adapter": "als_logbook",
+                    "source_url": str(sample_entries_path),
+                },
+            }
+        )
 
         adapter = ALSLogbookAdapter(config)
 
@@ -278,9 +299,7 @@ class TestIngestionWithTimeFilters:
         for entry in filtered_entries:
             assert entry["timestamp"] > since
 
-    async def test_adapter_respects_limit(
-        self, sample_entries_path, integration_ariel_config
-    ):
+    async def test_adapter_respects_limit(self, sample_entries_path, integration_ariel_config):
         """Adapter respects limit parameter."""
         from osprey.services.ariel_search.config import ARIELConfig
         from osprey.services.ariel_search.ingestion.adapters.als import ALSLogbookAdapter
@@ -288,13 +307,15 @@ class TestIngestionWithTimeFilters:
         if not sample_entries_path.exists():
             pytest.skip(f"Fixture file not found: {sample_entries_path}")
 
-        config = ARIELConfig.from_dict({
-            "database": {"uri": integration_ariel_config.database.uri},
-            "ingestion": {
-                "adapter": "als_logbook",
-                "source_url": str(sample_entries_path),
-            },
-        })
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": integration_ariel_config.database.uri},
+                "ingestion": {
+                    "adapter": "als_logbook",
+                    "source_url": str(sample_entries_path),
+                },
+            }
+        )
 
         adapter = ALSLogbookAdapter(config)
 

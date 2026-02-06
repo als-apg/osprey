@@ -229,7 +229,9 @@ class MigrationRunner:
                 is_applied = await migration.is_applied(conn)
                 status[migration.name] = {
                     "applied": is_applied,
-                    "depends_on": ", ".join(migration.depends_on) if migration.depends_on else "(none)",
+                    "depends_on": ", ".join(migration.depends_on)
+                    if migration.depends_on
+                    else "(none)",
                 }
 
         return status

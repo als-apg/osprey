@@ -6,6 +6,7 @@ Configuration is loaded from the `ariel:` section of config.yml.
 See 04_OSPREY_INTEGRATION.md Sections 3.1-3.8 for full specification.
 """
 
+import os
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -43,11 +44,13 @@ class SearchModuleConfig:
 
     Attributes:
         enabled: Whether module is active
+        provider: Provider name for embeddings (references api.providers section)
         model: Model identifier for semantic/rag modules - which model's table to query
         settings: Module-specific settings
     """
 
     enabled: bool
+    provider: str | None = None  # References api.providers for credentials
     model: str | None = None  # Required for semantic/rag, ignored for keyword
     settings: dict[str, Any] = field(default_factory=dict)
 
@@ -56,6 +59,7 @@ class SearchModuleConfig:
         """Create SearchModuleConfig from dictionary."""
         return cls(
             enabled=data.get("enabled", False),
+            provider=data.get("provider"),
             model=data.get("model"),
             settings=data.get("settings", {}),
         )
@@ -67,11 +71,13 @@ class EnhancementModuleConfig:
 
     Attributes:
         enabled: Whether module is active
+        provider: Provider name for embeddings (references api.providers section)
         models: List of model configurations (for text_embedding)
         settings: Module-specific settings
     """
 
     enabled: bool
+    provider: str | None = None  # References api.providers for credentials
     models: list[ModelConfig] | None = None  # For text_embedding
     settings: dict[str, Any] = field(default_factory=dict)
 
@@ -83,7 +89,7 @@ class EnhancementModuleConfig:
             models = [ModelConfig.from_dict(m) for m in data["models"]]
 
         # Capture all extra keys as settings (not just explicit settings: block)
-        reserved_keys = {"enabled", "models", "settings"}
+        reserved_keys = {"enabled", "provider", "models", "settings"}
         extra_settings = {k: v for k, v in data.items() if k not in reserved_keys}
 
         # Merge explicit settings with extra keys (explicit takes precedence)
@@ -91,6 +97,7 @@ class EnhancementModuleConfig:
 
         return cls(
             enabled=data.get("enabled", False),
+            provider=data.get("provider"),
             models=models,
             settings=settings,
         )
@@ -104,19 +111,40 @@ class IngestionConfig:
         adapter: Adapter name (e.g., "als_logbook", "generic_json")
         source_url: URL for source system API (optional)
         poll_interval_seconds: Polling interval for incremental ingestion
+        proxy_url: SOCKS proxy URL (e.g., "socks5://localhost:9095")
+        verify_ssl: Whether to verify SSL certificates (default: False for internal servers)
+        chunk_days: Days per API request for time windowing (default: 365)
+        request_timeout_seconds: Timeout for HTTP requests (default: 60)
+        max_retries: Maximum retry attempts for failed requests (default: 3)
+        retry_delay_seconds: Base delay between retries (default: 5)
     """
 
     adapter: str
     source_url: str | None = None
     poll_interval_seconds: int = 3600
+    proxy_url: str | None = None
+    verify_ssl: bool = False
+    chunk_days: int = 365
+    request_timeout_seconds: int = 60
+    max_retries: int = 3
+    retry_delay_seconds: int = 5
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "IngestionConfig":
         """Create IngestionConfig from dictionary."""
+        # proxy_url: config value OR env var fallback
+        proxy_url = data.get("proxy_url") or os.environ.get("ARIEL_SOCKS_PROXY")
+
         return cls(
             adapter=data.get("adapter", "generic"),
             source_url=data.get("source_url"),
             poll_interval_seconds=data.get("poll_interval_seconds", 3600),
+            proxy_url=proxy_url,
+            verify_ssl=data.get("verify_ssl", False),
+            chunk_days=data.get("chunk_days", 365),
+            request_timeout_seconds=data.get("request_timeout_seconds", 60),
+            max_retries=data.get("max_retries", 3),
+            retry_delay_seconds=data.get("retry_delay_seconds", 5),
         )
 
 
@@ -156,19 +184,20 @@ class EmbeddingConfig:
 class ReasoningConfig:
     """Configuration for agentic reasoning behavior.
 
+    Uses Osprey's provider configuration system for credentials.
+    The `provider` field references api.providers for api_key and base_url.
+
     Attributes:
-        llm_model_id: LLM model identifier (default: "gpt-4o-mini")
-        llm_provider: LLM provider name (default: "openai")
-        base_url: Optional base URL for OpenAI-compatible APIs (e.g., CBORG)
+        provider: Provider name (references api.providers section)
+        model_id: LLM model identifier (default: "gpt-4o-mini")
         max_iterations: Maximum ReAct cycles (default: 5)
         temperature: LLM temperature (default: 0.1)
         tool_timeout_seconds: Per-tool call timeout (default: 30) - V2
         total_timeout_seconds: Total agent execution timeout (default: 120)
     """
 
-    llm_model_id: str = "gpt-4o-mini"
-    llm_provider: str = "openai"
-    base_url: str | None = None
+    provider: str = "openai"
+    model_id: str = "gpt-4o-mini"
     max_iterations: int = 5
     temperature: float = 0.1
     tool_timeout_seconds: int = 30
@@ -176,11 +205,18 @@ class ReasoningConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ReasoningConfig":
-        """Create ReasoningConfig from dictionary."""
+        """Create ReasoningConfig from dictionary.
+
+        Supports both new field names (provider, model_id) and legacy
+        field names (llm_provider, llm_model_id) for backwards compatibility.
+        """
+        # Support both new and legacy field names
+        provider = data.get("provider") or data.get("llm_provider", "openai")
+        model_id = data.get("model_id") or data.get("llm_model_id", "gpt-4o-mini")
+
         return cls(
-            llm_model_id=data.get("llm_model_id", "gpt-4o-mini"),
-            llm_provider=data.get("llm_provider", "openai"),
-            base_url=data.get("base_url"),
+            provider=provider,
+            model_id=model_id,
             max_iterations=data.get("max_iterations", 5),
             temperature=data.get("temperature", 0.1),
             tool_timeout_seconds=data.get("tool_timeout_seconds", 30),
@@ -376,6 +412,10 @@ class ARIELConfig:
 
         # Convert back to dict for configure() method
         config: dict[str, Any] = {"enabled": module_config.enabled}
+
+        # Include provider (falls back to embedding.provider if not set)
+        provider = module_config.provider or self.embedding.provider
+        config["provider"] = provider
 
         if module_config.models:
             config["models"] = [

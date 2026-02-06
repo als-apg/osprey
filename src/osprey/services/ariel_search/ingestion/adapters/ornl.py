@@ -233,19 +233,23 @@ class ORNLLogbookAdapter(BaseAdapter):
             if isinstance(headers, str):
                 headers = [headers]
             for header in headers:
-                result.append({
-                    "url": "",  # URL not available
-                    "filename": header,
-                    "type": None,
-                })
+                result.append(
+                    {
+                        "url": "",  # URL not available
+                        "filename": header,
+                        "type": None,
+                    }
+                )
         else:
             for att in attachments:
                 if not isinstance(att, dict):
                     continue
-                result.append({
-                    "url": att.get("url", ""),
-                    "type": att.get("type"),
-                    "filename": att.get("filename"),
-                })
+                result.append(
+                    {
+                        "url": att.get("url", ""),
+                        "type": att.get("type"),
+                        "filename": att.get("filename"),
+                    }
+                )
 
         return result

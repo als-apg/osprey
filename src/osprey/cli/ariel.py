@@ -258,7 +258,17 @@ def ingest_command(
             if enhancers:
                 click.echo(f"Enhancement complete: {enhanced_count} enhancements applied")
 
-    asyncio.run(_ingest())
+    from osprey.services.ariel_search.exceptions import DatabaseQueryError
+
+    try:
+        asyncio.run(_ingest())
+    except DatabaseQueryError as e:
+        # Check for "relation does not exist" error indicating missing tables
+        if "relation" in str(e) and "does not exist" in str(e):
+            click.echo("Error: ARIEL database is not initialized.", err=True)
+            click.echo("Run 'osprey ariel migrate' to create the required tables.", err=True)
+            raise SystemExit(1) from None
+        raise  # Re-raise other database errors
 
 
 @ariel_group.command("enhance")

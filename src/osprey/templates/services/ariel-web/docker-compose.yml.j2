@@ -16,13 +16,24 @@ services:
       - TZ={{ system.timezone }}
       # Config file location
       - CONFIG_FILE=/app/config.yml
-      # Python path for osprey imports
-      - PYTHONPATH=/app/src
+      # Development mode flag for local osprey override
+      - DEV_MODE=${DEV_MODE:-false}
+      # Override database host for Docker networking (localhost -> service name)
+      - ARIEL_DATABASE_HOST=postgresql
+      # LLM API keys (pass through from host)
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - CBORG_API_KEY=${CBORG_API_KEY:-}
+      - STANFORD_API_KEY=${STANFORD_API_KEY:-}
+      - ARGO_API_KEY=${ARGO_API_KEY:-}
+      # Ollama host for local embeddings (host.docker.internal for Docker Desktop)
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
     volumes:
       # Mount config.yml for ARIEL configuration
       - {{ project_root }}/config.yml:/app/config.yml:ro
-      # Mount osprey source for imports
-      - {{ project_root }}/src:/app/src:ro
+      # Mount build directory for dev mode osprey wheel override
+      - ./ariel-web:/app/build:ro
     networks:
       - osprey-network
     healthcheck:
@@ -37,4 +48,3 @@ services:
 
 networks:
   osprey-network:
-    external: true

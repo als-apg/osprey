@@ -7,7 +7,7 @@ See 04_OSPREY_INTEGRATION.md Section 12.3.4 for test requirements.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -46,9 +46,7 @@ class TestKeywordSearch:
         # Repository keyword_search uses: where_clauses, params, search_text, max_results
         # Use FTS condition for search
         results = await seeded_repository.keyword_search(
-            where_clauses=[
-                "to_tsvector('english', raw_text) @@ plainto_tsquery('english', %s)"
-            ],
+            where_clauses=["to_tsvector('english', raw_text) @@ plainto_tsquery('english', %s)"],
             params=["vacuum pressure"],
             search_text="vacuum pressure",
             max_results=10,
@@ -61,9 +59,7 @@ class TestKeywordSearch:
     async def test_keyword_search_no_matches_returns_empty(self, seeded_repository):
         """Keyword search returns empty list when no matches."""
         results = await seeded_repository.keyword_search(
-            where_clauses=[
-                "to_tsvector('english', raw_text) @@ plainto_tsquery('english', %s)"
-            ],
+            where_clauses=["to_tsvector('english', raw_text) @@ plainto_tsquery('english', %s)"],
             params=["nonexistent term xyz123"],
             search_text="nonexistent term xyz123",
             max_results=10,
@@ -73,9 +69,7 @@ class TestKeywordSearch:
     async def test_keyword_search_respects_limit(self, seeded_repository):
         """Keyword search respects the limit parameter."""
         results = await seeded_repository.keyword_search(
-            where_clauses=[
-                "to_tsvector('english', raw_text) @@ plainto_tsquery('english', %s)"
-            ],
+            where_clauses=["to_tsvector('english', raw_text) @@ plainto_tsquery('english', %s)"],
             params=["the"],
             search_text="the",
             max_results=1,
@@ -85,9 +79,7 @@ class TestKeywordSearch:
     async def test_keyword_search_multiple_terms(self, seeded_repository):
         """Keyword search with multiple terms uses AND logic."""
         results = await seeded_repository.keyword_search(
-            where_clauses=[
-                "to_tsvector('english', raw_text) @@ plainto_tsquery('english', %s)"
-            ],
+            where_clauses=["to_tsvector('english', raw_text) @@ plainto_tsquery('english', %s)"],
             params=["beam alignment orbit"],
             search_text="beam alignment orbit",
             max_results=10,
@@ -285,11 +277,9 @@ class TestSemanticSearchWithRealEmbeddings:
 class TestSearchQueryStructure:
     """Test search query structure without semantic data."""
 
-    async def test_search_by_time_range_with_source_filter(
-        self, repository, seed_entry_factory
-    ):
+    async def test_search_by_time_range_with_source_filter(self, repository, seed_entry_factory):
         """Search with source system filter."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         entry = seed_entry_factory(
             entry_id="search-source-001",
             source_system="als_logbook",

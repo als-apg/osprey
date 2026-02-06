@@ -136,13 +136,15 @@ class GenericJSONAdapter(BaseAdapter):
         attachments: list[AttachmentInfo] = []
         for att in data.get("attachments", []):
             if isinstance(att, dict) and "url" in att:
-                attachments.append({
-                    "url": att["url"],
-                    "type": att.get("type"),
-                    "filename": att.get("filename"),
-                    "thumbnail_url": att.get("thumbnail_url"),
-                    "caption": att.get("caption"),
-                })
+                attachments.append(
+                    {
+                        "url": att["url"],
+                        "type": att.get("type"),
+                        "filename": att.get("filename"),
+                        "thumbnail_url": att.get("thumbnail_url"),
+                        "caption": att.get("caption"),
+                    }
+                )
 
         # Build metadata from optional fields
         metadata: dict[str, Any] = {}

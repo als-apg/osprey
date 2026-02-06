@@ -15,16 +15,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Copy application code and startup script
 COPY app/ ./
+COPY start.sh ./
 
-# Set Python path to include mounted osprey
-ENV PYTHONPATH="/app/src:${PYTHONPATH}"
+# Make start script executable
+RUN chmod +x start.sh
+
 ENV PYTHONUNBUFFERED=1
-
-# Create non-root user for security
-RUN useradd -m -u 1000 ariel && chown -R ariel:ariel /app
-USER ariel
 
 # Expose port
 EXPOSE 8085
@@ -33,5 +31,5 @@ EXPOSE 8085
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8085/health || exit 1
 
-# Run the application
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8085"]
+# Run via startup script (handles dev mode)
+CMD ["./start.sh"]

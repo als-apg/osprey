@@ -27,9 +27,7 @@ def is_ollama_available() -> bool:
 class TestEnhancementWithOllama:
     """Test enhancement modules with real Ollama service."""
 
-    async def test_text_embedding_generation(
-        self, repository, migrated_pool, seed_entry_factory
-    ):
+    async def test_text_embedding_generation(self, repository, migrated_pool, seed_entry_factory):
         """TextEmbeddingModule generates embeddings with correct dimensions.
 
         Steps:
@@ -54,12 +52,14 @@ class TestEnhancementWithOllama:
 
         # Create and configure embedding module
         module = TextEmbeddingModule()
-        module.configure({
-            "models": [
-                {"name": "nomic-embed-text", "dimension": 768, "max_input_tokens": 8192}
-            ],
-            "provider": {"base_url": "http://localhost:11434"},
-        })
+        module.configure(
+            {
+                "models": [
+                    {"name": "nomic-embed-text", "dimension": 768, "max_input_tokens": 8192}
+                ],
+                "provider": {"base_url": "http://localhost:11434"},
+            }
+        )
 
         # Generate embedding using connection
         async with migrated_pool.connection() as conn:
@@ -94,10 +94,12 @@ class TestEnhancementWithOllama:
         )
 
         module = TextEmbeddingModule()
-        module.configure({
-            "models": [{"name": "nomic-embed-text", "dimension": 768}],
-            "provider": {"base_url": "http://localhost:11434"},
-        })
+        module.configure(
+            {
+                "models": [{"name": "nomic-embed-text", "dimension": 768}],
+                "provider": {"base_url": "http://localhost:11434"},
+            }
+        )
 
         healthy, message = await module.health_check()
         assert healthy is True
@@ -122,10 +124,12 @@ class TestEnhancementWithOllama:
         await repository.upsert_entry(entry)
 
         module = TextEmbeddingModule()
-        module.configure({
-            "models": [{"name": "nomic-embed-text", "dimension": 768}],
-            "provider": {"base_url": "http://localhost:11434"},
-        })
+        module.configure(
+            {
+                "models": [{"name": "nomic-embed-text", "dimension": 768}],
+                "provider": {"base_url": "http://localhost:11434"},
+            }
+        )
 
         # Should not raise, just skip
         async with migrated_pool.connection() as conn:
@@ -160,16 +164,18 @@ class TestEnhancementWithOllama:
         await repository.upsert_entry(entry)
 
         module = TextEmbeddingModule()
-        module.configure({
-            "models": [
-                {
-                    "name": "nomic-embed-text",
-                    "dimension": 768,
-                    "max_input_tokens": 1000,  # Low limit for test
-                }
-            ],
-            "provider": {"base_url": "http://localhost:11434"},
-        })
+        module.configure(
+            {
+                "models": [
+                    {
+                        "name": "nomic-embed-text",
+                        "dimension": 768,
+                        "max_input_tokens": 1000,  # Low limit for test
+                    }
+                ],
+                "provider": {"base_url": "http://localhost:11434"},
+            }
+        )
 
         # Should not raise despite long text (truncates internally)
         async with migrated_pool.connection() as conn:
@@ -223,7 +229,9 @@ class TestMultipleEmbeddingModels:
                 models = response.json().get("models", [])
                 model_names = [m.get("name", "").split(":")[0] for m in models]
                 if "mxbai-embed-large" not in model_names:
-                    pytest.skip("mxbai-embed-large not available - run 'ollama pull mxbai-embed-large'")
+                    pytest.skip(
+                        "mxbai-embed-large not available - run 'ollama pull mxbai-embed-large'"
+                    )
         except Exception:
             pytest.skip("Cannot check Ollama models")
 
@@ -238,13 +246,15 @@ class TestMultipleEmbeddingModels:
         await repository.upsert_entry(entry)
 
         module = TextEmbeddingModule()
-        module.configure({
-            "models": [
-                {"name": "nomic-embed-text", "dimension": 768},
-                {"name": "mxbai-embed-large", "dimension": 1024},
-            ],
-            "provider": {"base_url": "http://localhost:11434"},
-        })
+        module.configure(
+            {
+                "models": [
+                    {"name": "nomic-embed-text", "dimension": 768},
+                    {"name": "mxbai-embed-large", "dimension": 1024},
+                ],
+                "provider": {"base_url": "http://localhost:11434"},
+            }
+        )
 
         async with migrated_pool.connection() as conn:
             await module.enhance(entry, conn)
@@ -299,10 +309,12 @@ class TestEnhancementWithoutOllama:
         )
 
         module = TextEmbeddingModule()
-        module.configure({
-            "models": [{"name": "nomic-embed-text", "dimension": 768}],
-            "provider": {"base_url": "http://localhost:99999"},  # Invalid port
-        })
+        module.configure(
+            {
+                "models": [{"name": "nomic-embed-text", "dimension": 768}],
+                "provider": {"base_url": "http://localhost:99999"},  # Invalid port
+            }
+        )
 
         healthy, message = await module.health_check()
         assert healthy is False
@@ -314,12 +326,14 @@ class TestEnhancementWithoutOllama:
         )
 
         module = TextEmbeddingModule()
-        module.configure({
-            "models": [
-                {"name": "model-a", "dimension": 512},
-                {"name": "model-b", "dimension": 768},
-            ],
-        })
+        module.configure(
+            {
+                "models": [
+                    {"name": "model-a", "dimension": 512},
+                    {"name": "model-b", "dimension": 768},
+                ],
+            }
+        )
 
         assert len(module._models) == 2
         assert module._models[0]["name"] == "model-a"

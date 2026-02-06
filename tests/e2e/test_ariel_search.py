@@ -149,24 +149,26 @@ def e2e_ariel_config(e2e_database_url: str) -> ARIELConfig:
             "database": {"uri": e2e_database_url},
             "search_modules": {
                 "keyword": {"enabled": True},
-                "semantic": {"enabled": True, "model": "nomic-embed-text"},
-                "rag": {"enabled": True, "model": "nomic-embed-text"},
+                "semantic": {"enabled": True, "provider": "ollama", "model": "nomic-embed-text"},
+                "rag": {"enabled": True, "provider": "ollama", "model": "nomic-embed-text"},
             },
             "enhancement_modules": {
                 "text_embedding": {
                     "enabled": True,
+                    "provider": "ollama",
                     "models": [{"name": "nomic-embed-text", "dimension": 768}],
                 },
             },
+            "embedding": {"provider": "ollama"},
             "ingestion": {
                 "adapter": "als_logbook",
                 "source_url": str(TEST_DATA_PATH),
             },
             # LLM config for RAG answer generation
+            # provider references api.providers for credentials
             "reasoning": {
-                "llm_provider": "cborg",
-                "llm_model_id": "anthropic/claude-haiku",
-                "base_url": "https://api.cborg.lbl.gov/v1",
+                "provider": "cborg",
+                "model_id": "anthropic/claude-haiku",
                 "temperature": 0.1,
             },
         }

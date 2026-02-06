@@ -30,6 +30,9 @@ def load_ariel_config() -> dict[str, Any]:
     1. /app/config.yml (Docker mount)
     2. CONFIG_FILE environment variable
     3. Current directory config.yml
+
+    Environment variable overrides:
+    - ARIEL_DATABASE_HOST: Override database host (for Docker networking)
     """
     config_paths = [
         Path("/app/config.yml"),
@@ -42,7 +45,26 @@ def load_ariel_config() -> dict[str, Any]:
             logger.info(f"Loading config from {config_path}")
             with open(config_path) as f:
                 config = yaml.safe_load(f)
-                return config.get("ariel", {})
+                ariel_config = config.get("ariel", {})
+
+            # Apply environment variable overrides for Docker networking
+            db_host_override = os.environ.get("ARIEL_DATABASE_HOST")
+            if db_host_override and "database" in ariel_config:
+                uri = ariel_config["database"].get("uri", "")
+                if uri:
+                    # Replace localhost or 127.0.0.1 with the override host
+                    import re
+
+                    new_uri = re.sub(
+                        r"@(localhost|127\.0\.0\.1):",
+                        f"@{db_host_override}:",
+                        uri,
+                    )
+                    if new_uri != uri:
+                        logger.info(f"Overriding database host with {db_host_override}")
+                        ariel_config["database"]["uri"] = new_uri
+
+            return ariel_config
 
     raise RuntimeError(
         "No config.yml found. Set CONFIG_FILE environment variable "
