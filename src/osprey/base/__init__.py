@@ -36,7 +36,7 @@ The architecture emphasizes:
    :mod:`osprey.registry` : Component discovery and registration system
 """
 
-from .capability import BaseCapability
+from .capability import BaseCapability, slash_command
 from .decorators import capability_node, infrastructure_node
 from .errors import ErrorSeverity, ExecutionError
 from .examples import (
@@ -69,4 +69,5 @@ __all__ = [
     "ClassifierExample",
     "TaskClassifierGuide",
     "ClassifierActions",
+    "slash_command",
 ]

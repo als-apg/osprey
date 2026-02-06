@@ -21,6 +21,42 @@ if TYPE_CHECKING:
 # Direct imports - no circular dependencies in practice
 
 
+def slash_command(name: str, state: AgentState) -> str | bool | None:
+    """Read a capability-specific slash command from state.
+
+    This is a module-level helper function for reading capability-specific slash
+    commands that were parsed by the Gateway but not handled by registered commands.
+    Capabilities can use these commands to customize their behavior.
+
+    Args:
+        name: Command name (without leading slash)
+        state: Current agent state
+
+    Returns:
+        - str: If command was provided with a value (/beam:diagnostic -> "diagnostic")
+        - True: If command was provided without value (/verbose -> True)
+        - None: If command was not provided
+
+    Examples:
+        Using in a capability's execute method::
+
+            from osprey.base.capability import slash_command
+
+            async def execute(state: AgentState, **kwargs) -> dict[str, Any]:
+                # Check for /beam:mode command
+                if mode := slash_command("beam", state):
+                    # mode is "diagnostic" if user typed /beam:diagnostic
+                    pass
+
+                # Check for /verbose flag
+                if slash_command("verbose", state):
+                    # User typed /verbose
+                    pass
+    """
+    commands = state.get("_capability_slash_commands", {})
+    return commands.get(name)
+
+
 class RequiredContexts(dict):
     """Special dict that supports tuple unpacking in the order of requires field.
 
@@ -745,6 +781,46 @@ class BaseCapability(ABC):
         from osprey.utils.logger import get_logger
 
         return get_logger(self.name, state=self._state)
+
+    def slash_command(self, name: str) -> str | bool | None:
+        """Read a capability-specific slash command from state.
+
+        Convenience method that uses self._state automatically. This allows
+        capabilities to read custom slash commands that were not registered
+        in the command registry.
+
+        Args:
+            name: Command name (without leading slash)
+
+        Returns:
+            - str: If command was provided with a value (/beam:diagnostic -> "diagnostic")
+            - True: If command was provided without value (/verbose -> True)
+            - None: If command was not provided
+
+        Raises:
+            RuntimeError: If called outside execute() (state not injected)
+
+        Examples:
+            Using in a capability's execute method::
+
+                async def execute(self) -> dict[str, Any]:
+                    # Check for /beam:mode command
+                    if mode := self.slash_command("beam"):
+                        # mode is "diagnostic" if user typed /beam:diagnostic
+                        self._state["beam_mode"] = mode
+
+                    # Check for /verbose flag
+                    if self.slash_command("verbose"):
+                        # User typed /verbose
+                        self._state["beamline_verbose"] = True
+        """
+        if self._state is None:
+            raise RuntimeError(
+                f"{self.__class__.__name__}.slash_command() called before state injection. "
+                f"This method can only be called from within execute()."
+            )
+        commands = self._state.get("_capability_slash_commands", {})
+        return commands.get(name)
 
     @abstractmethod
     async def execute(self) -> dict[str, Any]:
