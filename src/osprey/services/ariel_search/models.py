@@ -99,11 +99,12 @@ class SearchMode(Enum):
     """Search mode enumeration.
 
     Attributes:
-        KEYWORD: PostgreSQL full-text search
-        SEMANTIC: Embedding similarity search
-        RAG: Question-answering with LLM
+        KEYWORD: PostgreSQL full-text search (Pipeline: KeywordRetriever)
+        SEMANTIC: Embedding similarity search (Pipeline: SemanticRetriever)
+        RAG: Question-answering with LLM (Pipeline: SemanticRetriever + SingleLLMProcessor)
         VISION: Figure similarity (Future)
-        MULTI: Agent selects optimal strategy
+        MULTI: Hybrid search with RRF fusion (Pipeline: HybridRetriever)
+        AGENT: Agentic orchestration with ReAct agent (AgentExecutor, not Pipeline)
     """
 
     KEYWORD = "keyword"
@@ -111,6 +112,7 @@ class SearchMode(Enum):
     RAG = "rag"
     VISION = "vision"  # Future
     MULTI = "multi"
+    AGENT = "agent"
 
 
 @dataclass
