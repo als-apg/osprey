@@ -53,6 +53,69 @@ logger = get_logger("langchain")
 
 
 # =============================================================================
+# Retry Budget
+# =============================================================================
+
+# Cumulative sleep tracked per request (keyed by id(options) which is stable
+# across retries within a single request() call).
+_retry_cumulative: dict[int, float] = {}
+_RETRY_BUDGET = 5.0
+
+
+def _patch_openai_retry_budget(budget: float = _RETRY_BUDGET) -> None:
+    """Cap total retry wait time per request to ``budget`` seconds.
+
+    Two-layer approach:
+    1. ``_should_retry``: skip retries where the Retry-After header alone
+       exceeds the budget (e.g. CBORG 429 with Retry-After: 60 → skip immediately).
+    2. ``_calculate_retry_timeout``: track cumulative sleep and cap the
+       remaining wait so the total never exceeds ``budget``.
+
+    This preserves fast recovery for transient 5xx errors (0.5-1s backoff)
+    while preventing long blocking on rate limits or other time-costly retries.
+    """
+    try:
+        from openai._base_client import AsyncAPIClient, SyncAPIClient
+    except ImportError:
+        return
+
+    orig_should_retry = SyncAPIClient._should_retry
+    orig_calc_timeout = SyncAPIClient._calculate_retry_timeout
+
+    def _budgeted_should_retry(self, response):
+        if not orig_should_retry(self, response):
+            return False
+        # If Retry-After alone exceeds budget, skip retry entirely
+        retry_after = self._parse_retry_after_header(response.headers)
+        if retry_after is not None and retry_after > budget:
+            return False
+        return True
+
+    def _budgeted_calc_timeout(self, remaining_retries, options, response_headers=None):
+        timeout = orig_calc_timeout(self, remaining_retries, options, response_headers)
+        key = id(options)  # Same input_options object across retries
+        cumulative = _retry_cumulative.get(key, 0.0)
+        remaining = max(0, budget - cumulative)
+        if remaining <= 0:
+            _retry_cumulative.pop(key, None)
+            return 0  # Budget exhausted
+        capped = min(timeout, remaining)
+        _retry_cumulative[key] = cumulative + capped
+        # Prevent unbounded dict growth
+        if len(_retry_cumulative) > 100:
+            _retry_cumulative.clear()
+        return capped
+
+    SyncAPIClient._should_retry = _budgeted_should_retry
+    AsyncAPIClient._should_retry = _budgeted_should_retry
+    SyncAPIClient._calculate_retry_timeout = _budgeted_calc_timeout
+    AsyncAPIClient._calculate_retry_timeout = _budgeted_calc_timeout
+
+
+_patch_openai_retry_budget()
+
+
+# =============================================================================
 # Provider Configuration
 # =============================================================================
 

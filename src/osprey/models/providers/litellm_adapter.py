@@ -137,6 +137,10 @@ def execute_litellm_completion(
             # LiteLLM passes this through to the Google API
             completion_kwargs["thinking_config"] = {"thinking_budget": budget_tokens}
 
+    # Allow retries for transient errors (5xx, connection) with short backoff.
+    # The Retry-After cap in langchain.py prevents 60s waits on 429s.
+    completion_kwargs.setdefault("num_retries", 2)
+
     # Handle structured output
     output_format = kwargs.get("output_format")
     is_typed_dict_output = kwargs.get("is_typed_dict_output", False)
