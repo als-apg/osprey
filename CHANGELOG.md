@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Docs**: Update citation to published APL Machine Learning paper (doi:10.1063/5.0306302)
+
 ### Added
 - **CLI**: Add `--channel-finder-mode` and `--code-generator` options to `osprey init`
   - Options are included in manifest's `reproducible_command` for full project recreation

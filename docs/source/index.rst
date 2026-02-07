@@ -88,18 +88,21 @@ Documentation Structure
    :color: primary
    :icon: quote
 
-   If you use the Osprey Framework in your research or projects, please cite our `paper <https://arxiv.org/abs/2508.15066>`_:
+   If you use the Osprey Framework in your research or projects, please cite our `paper <https://doi.org/10.1063/5.0306302>`_:
 
    .. code-block:: bibtex
 
-      @misc{hellert2025osprey,
-            title={Osprey: A Scalable Framework for the Orchestration of Agentic Systems},
-            author={Thorsten Hellert and João Montenegro and Antonin Sulc},
-            year={2025},
-            eprint={2508.15066},
-            archivePrefix={arXiv},
-            primaryClass={cs.MA},
-            url={https://arxiv.org/abs/2508.15066},
+      @article{10.1063/5.0306302,
+            author = {Hellert, Thorsten and Montenegro, João and Sulc, Antonin},
+            title = {Osprey: Production-ready agentic AI for safety-critical control systems},
+            journal = {APL Machine Learning},
+            volume = {4},
+            number = {1},
+            pages = {016103},
+            year = {2026},
+            month = {02},
+            doi = {10.1063/5.0306302},
+            url = {https://doi.org/10.1063/5.0306302},
       }
 
 .. toctree::

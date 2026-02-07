@@ -167,7 +167,7 @@ all = [
 Homepage = "https://als-apg.github.io/osprey"
 Documentation = "https://als-apg.github.io/osprey"
 Repository = "https://github.com/als-apg/osprey"
-Paper = "https://arxiv.org/abs/2508.15066"
+Paper = "https://doi.org/10.1063/5.0306302"
 Issues = "https://github.com/als-apg/osprey/issues"
 Changelog = "https://github.com/als-apg/osprey/blob/main/CHANGELOG.md"
 
