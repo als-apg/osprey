@@ -716,20 +716,23 @@ Commands
 --------
 
 ``up``
-   Start services defined in ``config.yml``.
+   Start services defined in ``config.yml``. Services bind to ``127.0.0.1`` (localhost only) by default.
 
    Options:
       ``--detached`` - Run services in background
 
       ``--dev`` - Development mode: use local framework instead of PyPI
 
+      ``--expose`` - Bind services to all network interfaces (``0.0.0.0``). **Use with caution** — only when proper authentication and firewall rules are in place. See :ref:`network-binding-security` for details.
+
    Examples:
       .. code-block:: bash
 
-         osprey deploy up                    # Start in foreground
+         osprey deploy up                    # Start in foreground (localhost only)
          osprey deploy up --detached         # Start in background
          osprey deploy up --dev              # Start with local framework
          osprey deploy up --detached --dev   # Background with local framework
+         osprey deploy up --expose           # Expose to network (use with caution!)
 
 ``down``
    Stop all running services.
@@ -771,12 +774,15 @@ Commands
 
       ``--dev`` - Development mode: use local framework instead of PyPI
 
+      ``--expose`` - Bind services to all network interfaces (``0.0.0.0``)
+
    Examples:
       .. code-block:: bash
 
          osprey deploy rebuild                    # Rebuild and start
          osprey deploy rebuild --detached         # Rebuild in background
          osprey deploy rebuild --detached --dev   # Rebuild with local framework
+         osprey deploy rebuild --expose           # Rebuild with network exposure
 
 Configuration
 -------------
