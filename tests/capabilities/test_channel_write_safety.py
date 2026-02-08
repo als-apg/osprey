@@ -24,12 +24,12 @@ class TestChannelWriteGlobalFlag:
         """Test that writes_enabled=false blocks all channel writes."""
         # This will be a template-based test that needs to be run with
         # an actual generated application
-        pytest.skip("Template-based capability - test with generated application")
+        pytest.skip("Requires full framework initialization with connectors")
 
     @pytest.mark.asyncio
     async def test_writes_enabled_allows(self):
         """Test that writes_enabled=true allows writes (after other checks pass)."""
-        pytest.skip("Template-based capability - test with generated application")
+        pytest.skip("Requires full framework initialization with connectors")
 
 
 class TestChannelWriteLimitsValidation:
@@ -38,27 +38,27 @@ class TestChannelWriteLimitsValidation:
     @pytest.mark.asyncio
     async def test_limits_max_exceeded(self):
         """Test that writes exceeding max value are blocked."""
-        pytest.skip("Template-based capability - test with generated application")
+        pytest.skip("Requires full framework initialization with connectors")
 
     @pytest.mark.asyncio
     async def test_limits_min_exceeded(self):
         """Test that writes below min value are blocked."""
-        pytest.skip("Template-based capability - test with generated application")
+        pytest.skip("Requires full framework initialization with connectors")
 
     @pytest.mark.asyncio
     async def test_limits_unlisted_pv_strict_mode(self):
         """Test that unlisted PVs are blocked when allow_unlisted_channels=false."""
-        pytest.skip("Template-based capability - test with generated application")
+        pytest.skip("Requires full framework initialization with connectors")
 
     @pytest.mark.asyncio
     async def test_limits_validation_disabled(self):
         """Test that writes succeed when limits_checking.enabled=false."""
-        pytest.skip("Template-based capability - test with generated application")
+        pytest.skip("Requires full framework initialization with connectors")
 
     @pytest.mark.asyncio
     async def test_limits_read_only_pv(self):
         """Test that writes to read-only PVs are blocked."""
-        pytest.skip("Template-based capability - test with generated application")
+        pytest.skip("Requires full framework initialization with connectors")
 
 
 class TestChannelWriteApprovalWorkflow:
@@ -67,17 +67,17 @@ class TestChannelWriteApprovalWorkflow:
     @pytest.mark.asyncio
     async def test_approval_required_control_writes_mode(self):
         """Test that approval is required when mode=control_writes."""
-        pytest.skip("Template-based capability - test with generated application")
+        pytest.skip("Requires full framework initialization with connectors")
 
     @pytest.mark.asyncio
     async def test_approval_rejection(self):
         """Test that rejected writes don't execute."""
-        pytest.skip("Template-based capability - test with generated application")
+        pytest.skip("Requires full framework initialization with connectors")
 
     @pytest.mark.asyncio
     async def test_approval_disabled_mode(self):
         """Test that writes proceed immediately when mode=disabled."""
-        pytest.skip("Template-based capability - test with generated application")
+        pytest.skip("Requires full framework initialization with connectors")
 
 
 class TestChannelWriteSafetyIntegration:
@@ -86,17 +86,17 @@ class TestChannelWriteSafetyIntegration:
     @pytest.mark.asyncio
     async def test_writes_disabled_blocks_before_limits_check(self):
         """Test that writes_enabled=false blocks before boundary validation."""
-        pytest.skip("Template-based capability - test with generated application")
+        pytest.skip("Requires full framework initialization with connectors")
 
     @pytest.mark.asyncio
     async def test_limits_violation_blocks_before_approval(self):
         """Test that boundary violations block before approval is requested."""
-        pytest.skip("Template-based capability - test with generated application")
+        pytest.skip("Requires full framework initialization with connectors")
 
     @pytest.mark.asyncio
     async def test_all_layers_pass_write_succeeds(self):
         """Test that writes succeed when all safety layers pass."""
-        pytest.skip("Template-based capability - test with generated application")
+        pytest.skip("Requires full framework initialization with connectors")
 
 
 # Unit tests for boundary validator (non-template)

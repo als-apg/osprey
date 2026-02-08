@@ -19,17 +19,11 @@ Test strategy:
 """
 
 import os
-import sys
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from langgraph.checkpoint.memory import MemorySaver
-
-# Add my-control-assistant to path for imports
-MY_CONTROL_ASSISTANT_PATH = Path(__file__).parent.parent.parent / "my-control-assistant" / "src"
-if MY_CONTROL_ASSISTANT_PATH.exists():
-    sys.path.insert(0, str(MY_CONTROL_ASSISTANT_PATH))
 
 
 # ============================================================================
@@ -114,12 +108,11 @@ async def test_channel_write_approval_workflow_catches_verification_config_bug(
     Strategy: Create initial state with channel_write task, invoke through graph
     (needed for approval interrupt context), bypassing gateway/orchestrator LLM routing.
     """
-    from my_control_assistant.capabilities.channel_write import (
+    from osprey.base.planning import ExecutionPlan, PlannedStep
+    from osprey.capabilities.channel_write import (
         WriteOperation,
         WriteOperationsOutput,
     )
-
-    from osprey.base.planning import ExecutionPlan, PlannedStep
     from osprey.graph import create_graph
     from osprey.registry import get_registry, initialize_registry
     from osprey.utils.config import get_config_value, get_full_configuration
@@ -219,7 +212,7 @@ async def test_channel_write_approval_workflow_catches_verification_config_bug(
 
     # Patch and execute through graph (needed for approval interrupt context)
     with patch(
-        "my_control_assistant.capabilities.channel_write.get_chat_completion",
+        "osprey.capabilities.channel_write.get_chat_completion",
         side_effect=mock_chat_completion,
     ):
         with patch("osprey.utils.config.get_config_value", side_effect=mock_config_value):
