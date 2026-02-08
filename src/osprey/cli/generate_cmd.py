@@ -5,6 +5,7 @@ Osprey components from various sources.
 """
 
 import asyncio
+import re
 from pathlib import Path
 
 import click
@@ -2283,7 +2284,33 @@ def _print_manual_config_instructions(port: int):
     is_flag=True,
     help="Force interactive setup (overwrites existing simulation config if confirmed)",
 )
-def soft_ioc(config_path: str | None, output_file: str | None, dry_run: bool, init: bool):
+@click.option(
+    "--limit",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Limit to first N PVs from database (useful for large databases)",
+)
+@click.option(
+    "--filter-pattern",
+    type=str,
+    default=None,
+    help="Regex pattern to filter PV names (e.g., 'QUAD.*' or '.*:SP$')",
+)
+@click.option(
+    "--pv-count-warning-threshold",
+    type=click.IntRange(min=1),
+    default=1000,
+    help="Warn if PV count exceeds this threshold (default: 1000)",
+)
+def soft_ioc(
+    config_path: str | None,
+    output_file: str | None,
+    dry_run: bool,
+    init: bool,
+    limit: int | None,
+    filter_pattern: str | None,
+    pv_count_warning_threshold: int,
+):
     """Generate Python soft IOC for EPICS testing.
 
     Creates a pure Python EPICS soft IOC using caproto. All settings are read
@@ -2291,6 +2318,13 @@ def soft_ioc(config_path: str | None, output_file: str | None, dry_run: bool, in
 
     If no simulation section exists, or if --init is passed, an interactive
     setup wizard will help create the configuration.
+
+    Large PV Databases:
+
+    \b
+      For large databases (10^4+ PVs), consider using --limit or --filter-pattern
+      to generate a subset IOC for testing. The tool will warn you if the PV count
+      exceeds the threshold (default: 1000).
 
     Examples:
 
@@ -2309,6 +2343,15 @@ def soft_ioc(config_path: str | None, output_file: str | None, dry_run: bool, in
 
       # Override output location
       $ osprey generate soft-ioc --output /tmp/test_ioc.py
+
+      # Limit to first 500 PVs (useful for large databases)
+      $ osprey generate soft-ioc --limit 500
+
+      # Filter PVs by regex pattern
+      $ osprey generate soft-ioc --filter-pattern "QUAD.*"
+
+      # Combine limit and filter (filter first, then limit)
+      $ osprey generate soft-ioc --filter-pattern ".*:SP$" --limit 100
 
     Setup (manual):
 
@@ -2455,7 +2498,54 @@ def soft_ioc(config_path: str | None, output_file: str | None, dry_run: bool, in
                     db_path,
                     db_type=sim_config.get("channel_database_type"),
                 )
-            console.print(f"  {Messages.success(f'Loaded {len(channels)} channels from database')}")
+
+            original_count = len(channels)
+            msg = f"Loaded {original_count} channels from database"
+            console.print(f"  {Messages.success(msg)}")
+
+            # Apply filter pattern if specified
+            if filter_pattern:
+                try:
+                    pattern = re.compile(filter_pattern)
+                    channels = [ch for ch in channels if pattern.search(ch["name"])]
+                    msg = f"Applied filter pattern: {filter_pattern}"
+                    console.print(f"  {Messages.info(msg)}")
+                    msg = f"Filtered to {len(channels)} channels (from {original_count})"
+                    console.print(f"  {Messages.info(msg)}")
+                except re.error as e:
+                    msg = f"Invalid regex pattern: {e}"
+                    console.print(f"\n{Messages.error(msg)}")
+                    raise click.Abort() from e
+
+            # Apply limit if specified
+            if limit is not None:
+                pre_limit_count = len(channels)
+                channels = channels[:limit]
+                if pre_limit_count > limit:
+                    msg = f"Limited to first {limit} channels (from {pre_limit_count})"
+                    console.print(f"  {Messages.info(msg)}")
+
+            # Warn if PV count is large (after filtering/limiting)
+            if len(channels) > pv_count_warning_threshold:
+                w = Styles.WARNING
+                d = Styles.DIM
+                c = Styles.COMMAND
+                count = len(channels)
+                console.print()
+                console.print(f"  [{w}]⚠️  Warning: Large PV database detected![/{w}]")
+                console.print(f"  [{w}]Generating IOC with {count} PVs may take a while.[/{w}]")
+                console.print(
+                    f"  [{w}]The generated IOC may suffer"
+                    f" performance issues on limited"
+                    f" resources.[/{w}]"
+                )
+                console.print()
+                console.print(
+                    f"  [{d}]Consider using --limit or --filter-pattern to reduce PV count:[/{d}]"
+                )
+                console.print(f"    [{c}]osprey generate soft-ioc --limit 500[/{c}]")
+                console.print(f'    [{c}]osprey generate soft-ioc --filter-pattern "QUAD.*"[/{c}]')
+                console.print()
         else:
             # No channel database - confirm empty IOC creation
             try:

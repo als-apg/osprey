@@ -1131,3 +1131,255 @@ simulation:
         # Config should load successfully with the nonexistent module path
         assert config["overlays"][0]["module_path"] == "nonexistent_module_xyz"
         assert config["overlays"][0]["class_name"] == "SomeBackend"
+
+
+# =============================================================================
+# Test Large Database Handling (Issue #133)
+# =============================================================================
+
+
+class TestLargeDatabaseHandling:
+    """Tests for large PV database warnings and subset selection."""
+
+    def test_limit_option_reduces_pv_count(self, cli_runner, tmp_path, monkeypatch):
+        """Test that --limit option reduces PV count."""
+        config_content = """
+project_name: test_project
+simulation:
+  channel_database: data/channel_databases/db.json
+  ioc:
+    name: test_sim
+    port: 5065
+  base:
+    type: mock_style
+"""
+        config_file = tmp_path / "config.yml"
+        config_file.write_text(config_content)
+
+        # Create database with 10 PVs
+        db_dir = tmp_path / "data" / "channel_databases"
+        db_dir.mkdir(parents=True)
+        db_file = db_dir / "db.json"
+        pvs = [
+            {"channel": f"TEST:PV{i}", "address": f"TEST:PV{i}", "description": f"Test {i}"}
+            for i in range(10)
+        ]
+        db_file.write_text(json.dumps(pvs))
+
+        monkeypatch.chdir(tmp_path)
+
+        result = cli_runner.invoke(generate, ["soft-ioc", "--limit", "5", "--dry-run"])
+
+        assert result.exit_code == 0
+        # Should show limiting message
+        assert "Limited" in result.output or "5" in result.output
+
+    def test_filter_pattern_filters_pvs(self, cli_runner, tmp_path, monkeypatch):
+        """Test that --filter-pattern filters PVs by regex."""
+        config_content = """
+project_name: test_project
+simulation:
+  channel_database: data/channel_databases/db.json
+  ioc:
+    name: test_sim
+    port: 5065
+  base:
+    type: mock_style
+"""
+        config_file = tmp_path / "config.yml"
+        config_file.write_text(config_content)
+
+        # Create database with mixed PVs
+        db_dir = tmp_path / "data" / "channel_databases"
+        db_dir.mkdir(parents=True)
+        db_file = db_dir / "db.json"
+        pvs = [
+            {"channel": "QUAD:01:SP", "address": "QUAD:01:SP", "description": "Quad SP"},
+            {"channel": "QUAD:02:SP", "address": "QUAD:02:SP", "description": "Quad SP"},
+            {"channel": "BPM:01:X", "address": "BPM:01:X", "description": "BPM X"},
+            {"channel": "BPM:02:Y", "address": "BPM:02:Y", "description": "BPM Y"},
+        ]
+        db_file.write_text(json.dumps(pvs))
+
+        monkeypatch.chdir(tmp_path)
+
+        result = cli_runner.invoke(
+            generate,
+            ["soft-ioc", "--filter-pattern", "QUAD.*", "--dry-run"],
+        )
+
+        assert result.exit_code == 0
+        # Should show filtering message
+        assert "filter" in result.output.lower() or "QUAD" in result.output
+
+    def test_warning_for_large_database(self, cli_runner, tmp_path, monkeypatch):
+        """Test that warning is displayed for large PV databases."""
+        config_content = """
+project_name: test_project
+simulation:
+  channel_database: data/channel_databases/db.json
+  ioc:
+    name: test_sim
+    port: 5065
+  base:
+    type: mock_style
+"""
+        config_file = tmp_path / "config.yml"
+        config_file.write_text(config_content)
+
+        # Create database with many PVs (above default threshold of 1000)
+        db_dir = tmp_path / "data" / "channel_databases"
+        db_dir.mkdir(parents=True)
+        db_file = db_dir / "db.json"
+        pvs = [
+            {"channel": f"TEST:PV{i:04d}", "address": f"TEST:PV{i:04d}", "description": f"Test {i}"}
+            for i in range(1500)  # Above default threshold
+        ]
+        db_file.write_text(json.dumps(pvs))
+
+        monkeypatch.chdir(tmp_path)
+
+        result = cli_runner.invoke(generate, ["soft-ioc", "--dry-run"])
+
+        assert result.exit_code == 0
+        # Should show warning about large database
+        assert "Warning" in result.output or "warning" in result.output.lower()
+        assert "1500" in result.output  # Should mention the PV count
+
+    def test_custom_warning_threshold(self, cli_runner, tmp_path, monkeypatch):
+        """Test that custom warning threshold works."""
+        config_content = """
+project_name: test_project
+simulation:
+  channel_database: data/channel_databases/db.json
+  ioc:
+    name: test_sim
+    port: 5065
+  base:
+    type: mock_style
+"""
+        config_file = tmp_path / "config.yml"
+        config_file.write_text(config_content)
+
+        # Create database with 50 PVs
+        db_dir = tmp_path / "data" / "channel_databases"
+        db_dir.mkdir(parents=True)
+        db_file = db_dir / "db.json"
+        pvs = [
+            {"channel": f"TEST:PV{i:02d}", "address": f"TEST:PV{i:02d}", "description": f"Test {i}"}
+            for i in range(50)
+        ]
+        db_file.write_text(json.dumps(pvs))
+
+        monkeypatch.chdir(tmp_path)
+
+        # Set threshold to 40, should trigger warning
+        result = cli_runner.invoke(
+            generate, ["soft-ioc", "--pv-count-warning-threshold", "40", "--dry-run"]
+        )
+
+        assert result.exit_code == 0
+        # Should show warning since 50 > 40
+        assert "Warning" in result.output or "warning" in result.output.lower()
+
+    def test_invalid_regex_pattern_fails(self, cli_runner, tmp_path, monkeypatch):
+        """Test that invalid regex pattern shows error."""
+        config_content = """
+project_name: test_project
+simulation:
+  channel_database: data/channel_databases/db.json
+  ioc:
+    name: test_sim
+    port: 5065
+  base:
+    type: mock_style
+"""
+        config_file = tmp_path / "config.yml"
+        config_file.write_text(config_content)
+
+        # Create minimal database
+        db_dir = tmp_path / "data" / "channel_databases"
+        db_dir.mkdir(parents=True)
+        db_file = db_dir / "db.json"
+        pvs = [{"channel": "TEST:PV", "address": "TEST:PV", "description": "Test"}]
+        db_file.write_text(json.dumps(pvs))
+
+        monkeypatch.chdir(tmp_path)
+
+        # Use invalid regex pattern
+        result = cli_runner.invoke(
+            generate,
+            ["soft-ioc", "--filter-pattern", "[invalid(", "--dry-run"],
+        )
+
+        assert result.exit_code != 0
+        # Should show error about invalid pattern
+        assert "Invalid" in result.output or "error" in result.output.lower()
+
+    def test_negative_limit_fails(self, cli_runner):
+        """Test that negative --limit value is rejected by Click."""
+        result = cli_runner.invoke(generate, ["soft-ioc", "--limit", "-5", "--dry-run"])
+
+        assert result.exit_code != 0
+        # Click IntRange rejects values below min=1
+        assert "-5 is not in the range x>=1" in result.output
+
+    def test_negative_threshold_fails(self, cli_runner):
+        """Test that negative --pv-count-warning-threshold is rejected."""
+        result = cli_runner.invoke(
+            generate,
+            ["soft-ioc", "--pv-count-warning-threshold", "-1", "--dry-run"],
+        )
+
+        assert result.exit_code != 0
+        # Click IntRange rejects values below min=1
+        assert "-1 is not in the range x>=1" in result.output
+
+    def test_filter_and_limit_combined(self, cli_runner, tmp_path, monkeypatch):
+        """Test that filter is applied first, then limit."""
+        config_content = """
+project_name: test_project
+simulation:
+  channel_database: data/channel_databases/db.json
+  ioc:
+    name: test_sim
+    port: 5065
+  base:
+    type: mock_style
+"""
+        config_file = tmp_path / "config.yml"
+        config_file.write_text(config_content)
+
+        # Create database with mixed PV types
+        db_dir = tmp_path / "data" / "channel_databases"
+        db_dir.mkdir(parents=True)
+        db_file = db_dir / "db.json"
+        pvs = [
+            {"channel": f"QUAD:{i:02d}:SP", "address": f"QUAD:{i:02d}:SP", "description": "Quad"}
+            for i in range(10)
+        ] + [
+            {"channel": f"BPM:{i:02d}:X", "address": f"BPM:{i:02d}:X", "description": "BPM"}
+            for i in range(10)
+        ]
+        db_file.write_text(json.dumps(pvs))
+
+        monkeypatch.chdir(tmp_path)
+
+        # Filter to QUAD PVs (10 matches), then limit to 3
+        result = cli_runner.invoke(
+            generate,
+            [
+                "soft-ioc",
+                "--filter-pattern",
+                "QUAD.*",
+                "--limit",
+                "3",
+                "--dry-run",
+            ],
+        )
+
+        assert result.exit_code == 0
+        # Should mention filtering
+        assert "filter" in result.output.lower() or "QUAD" in result.output
+        # Should mention limiting
+        assert "Limited" in result.output or "3" in result.output
