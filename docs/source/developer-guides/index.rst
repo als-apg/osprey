@@ -212,6 +212,7 @@ Guide Categories
    * :doc:`03_core-framework-systems/02_context-management-system` - Type-safe data sharing between capabilities
    * :doc:`03_core-framework-systems/03_registry-and-discovery` - Component registration and convention-based loading mechanisms
    * :doc:`03_core-framework-systems/05_message-and-execution-flow` - Complete pipeline from input to response
+   * :doc:`03_core-framework-systems/07_built-in-capabilities` - Reference for all framework-native capabilities
 
    **🔧 Infrastructure Components**
 

@@ -12,11 +12,11 @@ CLI Reference
 
    - Using ``osprey`` CLI for all framework operations
    - Creating projects with ``osprey init``
+   - Managing configuration with ``osprey config``
+   - Running interactive sessions with ``osprey chat``
+   - Managing deployments with ``osprey deploy``
    - Generating capabilities from MCP servers with ``osprey generate``
    - Generating soft IOCs for testing with ``osprey generate soft-ioc``
-   - Managing deployments with ``osprey deploy``
-   - Running interactive sessions with ``osprey chat``
-   - Managing configuration with ``osprey config``
 
    **Prerequisites:** Framework installed (``pip install osprey-framework``)
 
@@ -36,10 +36,12 @@ The Osprey Framework provides a unified CLI for all framework operations. All co
    osprey --version          # Show framework version
    osprey --help             # Show available commands
    osprey init PROJECT       # Create new project
-   osprey generate COMMAND   # Generate components (MCP capabilities, servers)
-   osprey deploy COMMAND     # Manage services
-   osprey chat               # Start interactive chat
    osprey config             # Manage configuration
+   osprey chat               # Start interactive chat
+   osprey deploy COMMAND     # Manage services
+   osprey generate COMMAND   # Generate components (MCP capabilities, servers)
+   osprey channel-finder     # Channel finder CLI (query, benchmark, interactive)
+   osprey eject              # Copy framework components for customization
    osprey tasks              # Browse AI assistant tasks (NEW)
    osprey claude             # Manage Claude Code skills (NEW)
 
@@ -106,15 +108,15 @@ The interactive project creation flow guides you through all the necessary steps
    - Prompts for secure input if keys are not detected
    - Generates ``.env`` file with detected or entered keys
 
-The interactive flow is equivalent to using ``framework init`` with appropriate flags, but with helpful guidance and validation at each step.
+The interactive flow is equivalent to using ``osprey init`` with appropriate flags, but with helpful guidance and validation at each step.
 
 Disabling Interactive Mode
 --------------------------
 
 If you prefer to only use direct commands, you can bypass the interactive menu by:
 
-- Running specific commands directly: ``framework chat``, ``framework deploy up``, etc.
-- Using ``framework --help`` to see available commands
+- Running specific commands directly: ``osprey chat``, ``osprey deploy up``, etc.
+- Using ``osprey --help`` to see available commands
 - The menu never interrupts existing scripts or automation
 
 Global Options
@@ -136,7 +138,7 @@ The ``--project`` flag allows you to specify the project directory for commands 
 When determining which project to use, the framework checks in this order:
 
 1. **``--project`` CLI flag** (highest priority)
-2. **``FRAMEWORK_PROJECT`` environment variable**
+2. **``OSPREY_PROJECT`` environment variable**
 3. **Current working directory** (default)
 
 **Examples:**
@@ -268,10 +270,10 @@ Options
 ``--registry-style <style>``
    Registry implementation style:
 
-   - ``compact`` - Use helper functions (5-10 lines, recommended)
-   - ``explicit`` - Full registry implementation (verbose, for learning)
+   - ``extend`` - Use helper functions (5-10 lines, recommended)
+   - ``standalone`` - Full registry implementation (verbose, for learning)
 
-   Default: ``compact``
+   Default: ``extend``
 
 Examples
 --------
@@ -292,7 +294,7 @@ Examples
 
 .. code-block:: bash
 
-   osprey init my-agent --template minimal --registry-style explicit
+   osprey init my-agent --template minimal --registry-style standalone
 
 **Create advanced agent:**
 
@@ -312,15 +314,718 @@ The ``osprey init`` command creates a complete, self-contained project:
    │   └── my_agent/           # Application code
    │       ├── __init__.py
    │       ├── registry.py     # Component registration
-   │       ├── context_classes.py
+   │       ├── framework_prompts/  # Prompt customizations
    │       └── capabilities/   # Agent capabilities
    ├── services/               # Container services
-   │   ├── jupyter/           # Development environment
-   │   ├── open-webui/        # Web interface
-   │   └── pipelines/         # Processing pipeline
    ├── config.yml             # Complete configuration
    ├── .env.example           # Environment template
    └── README.md              # Project documentation
+
+osprey config
+=============
+
+Manage project configuration settings. All configuration-related operations are unified
+under this command group following industry standard CLI patterns (git config, docker config, etc.).
+
+If no subcommand is provided, launches an interactive configuration menu.
+
+Subcommands
+-----------
+
+- ``osprey config show`` - Display current project configuration
+- ``osprey config export`` - Export framework default configuration
+- ``osprey config set-control-system`` - Switch control system connector (mock/epics/tango)
+- ``osprey config set-epics-gateway`` - Configure EPICS gateway settings
+- ``osprey config set-models`` - Configure AI provider and models for all model roles
+
+Syntax
+------
+
+.. code-block:: bash
+
+   osprey config [SUBCOMMAND] [OPTIONS]
+
+Examples
+--------
+
+**Launch interactive config menu:**
+
+.. code-block:: bash
+
+   osprey config
+
+**Show current configuration:**
+
+.. code-block:: bash
+
+   osprey config show
+
+**Export framework defaults:**
+
+.. code-block:: bash
+
+   osprey config export
+
+**Switch to EPICS:**
+
+.. code-block:: bash
+
+   osprey config set-control-system epics
+
+**Configure AI models:**
+
+.. code-block:: bash
+
+   osprey config set-models
+
+osprey config show
+-------------------
+
+Display current project configuration with syntax highlighting.
+
+Syntax
+~~~~~~
+
+.. code-block:: bash
+
+   osprey config show [OPTIONS]
+
+Options
+~~~~~~~
+
+``--project PATH`` / ``-p PATH``
+   Project directory to use. If not specified, uses current directory or ``OSPREY_PROJECT`` env var.
+
+``--format FORMAT``
+   Output format: ``yaml`` (default) or ``json``
+
+Examples
+~~~~~~~~
+
+.. code-block:: bash
+
+   # Show current project's config
+   osprey config show
+
+   # Show specific project's config
+   osprey config show --project ~/my-agent
+
+   # Export as JSON
+   osprey config show --format json
+
+osprey config export
+---------------------
+
+Export the Osprey framework's default configuration template.
+
+This shows the complete framework template with all available options and default values.
+Useful for understanding what configuration options are available.
+
+Syntax
+~~~~~~
+
+.. code-block:: bash
+
+   osprey config export [OPTIONS]
+
+Options
+~~~~~~~
+
+``--output PATH`` / ``-o PATH``
+   Save configuration to file instead of printing to console.
+
+``--format FORMAT``
+   Output format: ``yaml`` (default) or ``json``
+
+Examples
+~~~~~~~~
+
+.. code-block:: bash
+
+   # Display to console
+   osprey config export
+
+   # Save to file
+   osprey config export -o defaults.yml
+
+   # Export as JSON
+   osprey config export --format json -o defaults.json
+
+   # Use as reference when customizing
+   osprey config export --output reference.yml
+   diff reference.yml config.yml
+
+osprey config set-control-system
+----------------------------------
+
+Switch control system connector type (mock, epics, tango, labview).
+
+This changes the ``control_system.type`` setting in config.yml, which determines
+which connector is used at runtime for control system operations.
+
+.. note::
+   Pattern detection is control-system-agnostic. This setting only affects which
+   connector is loaded at runtime, not which patterns are used for security detection.
+
+Syntax
+~~~~~~
+
+.. code-block:: bash
+
+   osprey config set-control-system SYSTEM_TYPE [OPTIONS]
+
+Arguments
+~~~~~~~~~
+
+``SYSTEM_TYPE``
+   Control system type: ``mock``, ``epics``, ``tango``, or ``labview``
+
+Options
+~~~~~~~
+
+``--project PATH`` / ``-p PATH``
+   Project directory to use. If not specified, uses current directory.
+
+Examples
+~~~~~~~~
+
+.. code-block:: bash
+
+   # Switch to mock mode (development)
+   osprey config set-control-system mock
+
+   # Switch to EPICS (production)
+   osprey config set-control-system epics
+
+   # Switch to Tango
+   osprey config set-control-system tango
+
+osprey config set-epics-gateway
+-------------------------------
+
+Configure EPICS gateway address and port settings.
+
+Can use facility presets (ALS, APS) or specify custom gateway settings.
+
+Syntax
+~~~~~~
+
+.. code-block:: bash
+
+   osprey config set-epics-gateway [OPTIONS]
+
+Options
+~~~~~~~
+
+``--facility FACILITY``
+   Facility preset: ``als``, ``aps``, or ``custom``
+
+``--address ADDRESS``
+   Gateway address (required for custom facility)
+
+``--port PORT``
+   Gateway port (required for custom facility)
+
+``--project PATH`` / ``-p PATH``
+   Project directory to use. If not specified, uses current directory.
+
+Examples
+~~~~~~~~
+
+.. code-block:: bash
+
+   # Use ALS gateway preset
+   osprey config set-epics-gateway --facility als
+
+   # Use APS gateway preset
+   osprey config set-epics-gateway --facility aps
+
+   # Set custom gateway
+   osprey config set-epics-gateway --facility custom \
+       --address gateway.example.com --port 5064
+
+osprey config set-models
+------------------------
+
+Configure AI provider and models for all model roles.
+
+Updates ALL model configurations in config.yml to use the specified provider
+and model. This includes orchestrator, response, classifier, and any custom
+models defined in your project (e.g., channel_write, channel_finder).
+
+The max_tokens settings for each model role will be preserved.
+
+If no options are provided, launches an interactive selection menu.
+
+Syntax
+~~~~~~
+
+.. code-block:: bash
+
+   osprey config set-models [OPTIONS]
+
+Options
+~~~~~~~
+
+``--provider PROVIDER``
+   AI provider: ``anthropic``, ``openai``, ``google``, ``cborg``, or ``ollama``
+
+``--model MODEL``
+   Model identifier (e.g., ``claude-sonnet-4``, ``gpt-4``, ``anthropic/claude-haiku``)
+
+``--project PATH`` / ``-p PATH``
+   Project directory to use. If not specified, uses current directory.
+
+Examples
+~~~~~~~~
+
+.. code-block:: bash
+
+   # Interactive mode (recommended)
+   osprey config set-models
+
+   # Set all models to Anthropic Claude
+   osprey config set-models --provider anthropic --model claude-sonnet-4
+
+   # Set all models to CBORG provider for specific project
+   osprey config set-models --provider cborg --model anthropic/claude-haiku --project ~/my-agent
+
+osprey chat
+==============
+
+Start an interactive conversation interface with your agent.
+
+Syntax
+------
+
+.. code-block:: bash
+
+   osprey chat [OPTIONS]
+
+Options
+-------
+
+``--tui``
+   Launch the Terminal User Interface (TUI) instead of the default CLI.
+
+   .. admonition:: Experimental Feature (New in v0.10.0)
+      :class: warning
+
+      The TUI is an experimental feature available for testing. It provides a full-screen
+      terminal experience with real-time streaming and visual step tracking.
+
+   **Requirements:** ``pip install osprey-framework[tui]``
+
+``--project PATH`` / ``-p PATH``
+   Project directory to use. If not specified, uses ``OSPREY_PROJECT`` environment variable or current directory.
+
+   See :ref:`Global Options <--project>` for multi-project workflow details.
+
+``--config PATH`` / ``-c PATH``
+   Path to configuration file.
+
+   Default: ``config.yml`` in project directory
+
+Examples
+--------
+
+.. code-block:: bash
+
+   # Start CLI chat (default)
+   osprey chat
+
+   # Start TUI chat (experimental)
+   osprey chat --tui
+
+   # Start chat in specific project
+   osprey chat --project ~/projects/my-agent
+
+   # TUI with specific project
+   osprey chat --tui --project ~/projects/my-agent
+
+   # Use custom config
+   osprey chat --config my-config.yml
+
+   # Use environment variable for project
+   export OSPREY_PROJECT=~/projects/my-agent
+   osprey chat
+
+Terminal User Interface (TUI)
+-----------------------------
+
+.. admonition:: Experimental Feature (New in v0.10.0)
+   :class: warning
+
+   The TUI is experimental and available for testing. Feedback welcome!
+
+The TUI provides a full-screen terminal experience built with `Textual <https://textual.textualize.io/>`_:
+
+**Features:**
+
+- **Real-time Streaming**: Watch agent responses appear character-by-character
+- **Step Visualization**: See Task Extraction → Classification → Orchestration → Execution in real-time
+- **15+ Built-in Themes**: Switch themes instantly with ``Ctrl+T``
+- **Command Palette**: Quick access to all actions with ``Ctrl+P``
+- **Slash Commands**: ``/exit``, ``/caps:on``, ``/caps:off``, and more
+- **Query History**: Navigate previous queries with up/down arrows
+- **Content Viewer**: Multi-tab view for prompts and responses
+- **Todo Visualization**: See agent planning progress
+
+**Keyboard Shortcuts:**
+
+.. list-table::
+   :widths: 20 40
+   :header-rows: 1
+
+   * - Shortcut
+     - Action
+   * - ``Ctrl+P``
+     - Open command palette
+   * - ``Ctrl+T``
+     - Open theme picker
+   * - ``Ctrl+L``
+     - Focus input
+   * - ``Ctrl+H``
+     - Toggle help panel
+   * - ``Ctrl+C`` (twice)
+     - Exit TUI
+   * - ``Space``/``b``
+     - Scroll down/up
+   * - ``g``/``G``
+     - Go to top/bottom
+
+**Installation:**
+
+.. code-block:: bash
+
+   pip install osprey-framework[tui]
+
+**Interactive Menu:**
+
+The TUI is also accessible from the interactive menu as "chat (tui)"
+
+Usage
+-----
+
+The chat interface provides an interactive session with your agent:
+
+.. code-block:: text
+
+   Agent Configuration loaded successfully.
+   Registry initialized with 25 capabilities
+   ⚡ Use slash commands (/) for quick actions - try /help
+
+   You: What's the weather in San Francisco?
+
+   Agent: [Processing request...]
+   The current weather in San Francisco is 18°C with partly cloudy conditions.
+
+Slash Commands
+--------------
+
+The CLI supports slash commands for agent control and interface operations:
+
+**Agent Control Commands:**
+
+.. code-block:: bash
+
+   /planning:on          # Enable planning mode
+   /planning:off         # Disable planning mode
+   /approval:enabled     # Enable approval workflows
+   /approval:disabled    # Disable approval workflows
+   /approval:selective   # Enable selective approval
+
+**Performance Commands:**
+
+.. code-block:: bash
+
+   /task:off            # Bypass task extraction
+   /caps:off            # Bypass capability selection
+
+**Direct Chat Mode Commands:**
+
+.. code-block:: bash
+
+   /chat                     # List capabilities that support direct chat
+   /chat:<capability_name>   # Enter direct chat mode with a specific capability
+   /exit                     # Exit direct chat mode (or exit CLI if not in direct chat)
+
+**CLI Commands:**
+
+.. code-block:: bash
+
+   /help                # Show available commands
+   /help <command>      # Show help for specific command
+   /exit                # Exit direct chat mode (or exit CLI if not in direct chat)
+   /clear               # Clear the screen
+
+.. _direct-chat-mode:
+
+Direct Chat Mode
+----------------
+
+Direct Chat Mode enables multi-turn conversations directly with a specific capability, bypassing the normal orchestration pipeline (task extraction → classification → orchestration). This is useful for:
+
+- **Interactive exploration** with ReAct-style capabilities
+- **Focused conversations** where you know which capability you need
+- **Context accumulation** across multiple turns within the same capability
+
+**Available Capabilities:**
+
+Direct chat mode is designed for **ReAct-style capabilities** - agents that use tools and benefit from multi-turn reasoning. The framework includes one built-in direct-chat capability:
+
+- ``state_manager`` - Inspect and manage accumulated context data
+
+You can create your own ReAct capabilities with direct chat support. One example is generating a capability from an MCP server - see :doc:`04_mcp-capability-generation` for a tutorial that creates the ``weather_mcp`` capability shown in these examples.
+
+**Entering Direct Chat Mode:**
+
+.. code-block:: text
+
+   👤 You: /chat
+   Available capabilities for direct chat:
+   ┌──────────────────┬─────────────────────────────────────┐
+   │ Capability       │ Description                         │
+   ├──────────────────┼─────────────────────────────────────┤
+   │ state_manager    │ Manage and inspect agent state      │
+   │ weather_mcp      │ Weather operations via MCP server   │
+   └──────────────────┴─────────────────────────────────────┘
+
+   👤 You: /chat:weather_mcp
+   ✓ Entering direct chat with weather_mcp
+     Type /exit to return to normal mode
+
+   🎯 weather_mcp > What's the weather in Tokyo?
+   🤖 The current weather in Tokyo is 22°C with clear skies...
+
+   🎯 weather_mcp > How about San Francisco?
+   🤖 San Francisco is currently 18°C with partly cloudy conditions...
+
+.. note::
+
+   The ``weather_mcp`` capability shown above is an example generated from an MCP server. Your ``/chat`` list will only show ``state_manager`` until you generate or create additional direct-chat-enabled capabilities.
+
+**Key Behaviors:**
+
+- **Message history preserved**: The capability sees the full conversation history, enabling follow-up questions like "How about yesterday?" or "Compare that to Boston"
+- **Pipeline bypass**: Messages go directly to the capability without task extraction, classification, or orchestration
+- **Visual indicator**: The prompt changes to show the active capability (e.g., ``🎯 weather_mcp >``)
+
+**Saving Results to Context:**
+
+While in direct chat mode, you can save results for later use in orchestrated queries:
+
+.. code-block:: text
+
+   🎯 weather_mcp > What's the weather in Tokyo?
+   🤖 Tokyo is 22°C with clear skies...
+
+   🎯 weather_mcp > Save that as tokyo_weather
+   🤖 ✓ Saved weather data as 'tokyo_weather'
+
+   🎯 weather_mcp > /exit
+   ✓ Exited direct chat with weather_mcp
+
+   👤 You: Compare the tokyo_weather to current Boston conditions
+   🤖 [Orchestrated query using saved context...]
+
+**State Manager Capability:**
+
+The built-in ``state_manager`` capability provides tools for inspecting and managing accumulated context:
+
+.. code-block:: text
+
+   👤 You: /chat:state_manager
+   ✓ Entering direct chat with state_manager
+
+   🎯 state_manager > What context data do we have?
+   🤖 Current context includes:
+      - WEATHER_RESULTS: tokyo_weather, sf_weather
+      - ANALYSIS_RESULTS: correlation_analysis
+
+   🎯 state_manager > Show me the tokyo_weather details
+   🤖 [Displays full context object...]
+
+**Exiting Direct Chat Mode:**
+
+Use ``/exit`` to return to normal orchestrated mode:
+
+.. code-block:: text
+
+   🎯 weather_mcp > /exit
+   ✓ Exited direct chat with weather_mcp
+     Returning to normal mode
+
+   👤 You: [Now in normal orchestrated mode]
+
+.. note::
+
+   Not all capabilities support direct chat mode. Only capabilities with ``direct_chat_enabled = True`` appear in the ``/chat`` list. See :doc:`01_building-your-first-capability` for how to enable this on your own capabilities.
+
+.. seealso::
+   :doc:`../../api_reference/01_core_framework/06_command_system`
+       Complete API reference for the centralized command system
+
+osprey deploy
+================
+
+Manage containerized services (Jupyter, OpenWebUI, Pipelines).
+
+Syntax
+------
+
+.. code-block:: bash
+
+   osprey deploy COMMAND [OPTIONS]
+
+Global Options
+--------------
+
+``--project PATH`` / ``-p PATH``
+   Project directory to use. If not specified, uses ``OSPREY_PROJECT`` environment variable or current directory.
+
+   This option works with all deploy subcommands (``up``, ``down``, ``status``, etc.).
+
+   Example:
+      .. code-block:: bash
+
+         osprey deploy status --project ~/projects/my-agent
+         osprey deploy up --project ~/projects/my-agent --detached
+
+Commands
+--------
+
+``up``
+   Start services defined in ``config.yml``.
+
+   Options:
+      ``--detached`` - Run services in background
+
+      ``--dev`` - Development mode: use local framework instead of PyPI
+
+   Examples:
+      .. code-block:: bash
+
+         osprey deploy up                    # Start in foreground
+         osprey deploy up --detached         # Start in background
+         osprey deploy up --dev              # Start with local framework
+         osprey deploy up --detached --dev   # Background with local framework
+
+``down``
+   Stop all running services.
+
+   Example:
+      .. code-block:: bash
+
+         osprey deploy down
+
+``restart``
+   Restart all services.
+
+   Example:
+      .. code-block:: bash
+
+         osprey deploy restart
+
+``status``
+   Show status of deployed services.
+
+   Example:
+      .. code-block:: bash
+
+         osprey deploy status
+
+``clean``
+   Stop services and remove containers and volumes.
+
+   Example:
+      .. code-block:: bash
+
+         osprey deploy clean
+
+``rebuild``
+   Rebuild containers from scratch (useful after Dockerfile changes).
+
+   Options:
+      ``--detached`` - Run services in background after rebuild
+
+      ``--dev`` - Development mode: use local framework instead of PyPI
+
+   Examples:
+      .. code-block:: bash
+
+         osprey deploy rebuild                    # Rebuild and start
+         osprey deploy rebuild --detached         # Rebuild in background
+         osprey deploy rebuild --detached --dev   # Rebuild with local framework
+
+Configuration
+-------------
+
+Services are configured in ``config.yml`` under ``deployed_services``:
+
+.. code-block:: yaml
+
+   project_name: "my-agent"  # Project identifier for container tracking
+
+   deployed_services:
+     - osprey.jupyter        # Jupyter development environment
+     - osprey.open-webui     # Web chat interface
+     - osprey.pipelines      # Processing pipeline
+
+**Project Directory:**
+
+All ``osprey deploy`` commands must be run from a project directory (containing ``config.yml``), or use the ``--project`` flag:
+
+.. code-block:: bash
+
+   # Option 1: Run from project directory
+   cd my-project
+   osprey deploy up
+
+   # Option 2: Use --project flag
+   osprey deploy up --project ~/projects/my-project
+
+   # Option 3: Use interactive menu (auto-handles directories)
+   osprey
+
+Workflow
+--------
+
+**Development workflow:**
+
+.. code-block:: bash
+
+   # Start services in foreground to monitor logs
+   osprey deploy up
+
+   # When done, stop with Ctrl+C or:
+   osprey deploy down
+
+**Production workflow:**
+
+.. code-block:: bash
+
+   # Start services in background
+   osprey deploy up --detached
+
+   # Check status
+   osprey deploy status
+
+   # View logs with podman
+   podman logs <container_name>
+
+   # Stop when needed
+   osprey deploy down
+
+Service Access
+--------------
+
+Once deployed, services are available at:
+
+- **OpenWebUI**: http://localhost:8080
+- **Jupyter (read-only)**: http://localhost:8088
+- **Jupyter (write)**: http://localhost:8089
+- **Pipelines**: http://localhost:9099
 
 osprey generate
 ===============
@@ -686,775 +1391,239 @@ Configure in ``config.yml``:
        Complete guide to implementing custom physics simulation backends (pyAT, OCELOT),
        the SimulationBackend Protocol, and chained backend composition.
 
-osprey deploy
-================
+=====================
 
-Manage containerized services (Jupyter, OpenWebUI, Pipelines).
+osprey channel-finder
+=====================
 
-Syntax
-------
-
-.. code-block:: bash
-
-   osprey deploy COMMAND [OPTIONS]
-
-Global Options
---------------
-
-``--project PATH`` / ``-p PATH``
-   Project directory to use. If not specified, uses ``OSPREY_PROJECT`` environment variable or current directory.
-
-   This option works with all deploy subcommands (``up``, ``down``, ``status``, etc.).
-
-   Example:
-      .. code-block:: bash
-
-         osprey deploy status --project ~/projects/my-agent
-         osprey deploy up --project ~/projects/my-agent --detached
-
-Commands
---------
-
-``up``
-   Start services defined in ``config.yml``. Services bind to ``127.0.0.1`` (localhost only) by default.
-
-   Options:
-      ``--detached`` - Run services in background
-
-      ``--dev`` - Development mode: use local framework instead of PyPI
-
-      ``--expose`` - Bind services to all network interfaces (``0.0.0.0``). **Use with caution** — only when proper authentication and firewall rules are in place. See :ref:`network-binding-security` for details.
-
-   Examples:
-      .. code-block:: bash
-
-         osprey deploy up                    # Start in foreground (localhost only)
-         osprey deploy up --detached         # Start in background
-         osprey deploy up --dev              # Start with local framework
-         osprey deploy up --detached --dev   # Background with local framework
-         osprey deploy up --expose           # Expose to network (use with caution!)
-
-``down``
-   Stop all running services.
-
-   Example:
-      .. code-block:: bash
-
-         osprey deploy down
-
-``restart``
-   Restart all services.
-
-   Example:
-      .. code-block:: bash
-
-         osprey deploy restart
-
-``status``
-   Show status of deployed services.
-
-   Example:
-      .. code-block:: bash
-
-         osprey deploy status
-
-``clean``
-   Stop services and remove containers and volumes.
-
-   Example:
-      .. code-block:: bash
-
-         osprey deploy clean
-
-``rebuild``
-   Rebuild containers from scratch (useful after Dockerfile changes).
-
-   Options:
-      ``--detached`` - Run services in background after rebuild
-
-      ``--dev`` - Development mode: use local framework instead of PyPI
-
-      ``--expose`` - Bind services to all network interfaces (``0.0.0.0``)
-
-   Examples:
-      .. code-block:: bash
-
-         osprey deploy rebuild                    # Rebuild and start
-         osprey deploy rebuild --detached         # Rebuild in background
-         osprey deploy rebuild --detached --dev   # Rebuild with local framework
-         osprey deploy rebuild --expose           # Rebuild with network exposure
-
-Configuration
--------------
-
-Services are configured in ``config.yml`` under ``deployed_services``:
-
-.. code-block:: yaml
-
-   project_name: "my-agent"  # Project identifier for container tracking
-
-   deployed_services:
-     - osprey.jupyter        # Jupyter development environment
-     - osprey.open-webui     # Web chat interface
-     - osprey.pipelines      # Processing pipeline
-
-**Project Directory:**
-
-All ``osprey deploy`` commands must be run from a project directory (containing ``config.yml``), or use the ``--project`` flag:
-
-.. code-block:: bash
-
-   # Option 1: Run from project directory
-   cd my-project
-   osprey deploy up
-
-   # Option 2: Use --project flag
-   osprey deploy up --project ~/projects/my-project
-
-   # Option 3: Use interactive menu (auto-handles directories)
-   osprey
-
-Workflow
---------
-
-**Development workflow:**
-
-.. code-block:: bash
-
-   # Start services in foreground to monitor logs
-   osprey deploy up
-
-   # When done, stop with Ctrl+C or:
-   osprey deploy down
-
-**Production workflow:**
-
-.. code-block:: bash
-
-   # Start services in background
-   osprey deploy up --detached
-
-   # Check status
-   osprey deploy status
-
-   # View logs with podman
-   podman logs <container_name>
-
-   # Stop when needed
-   osprey deploy down
-
-Service Access
---------------
-
-Once deployed, services are available at:
-
-- **OpenWebUI**: http://localhost:8080
-- **Jupyter (read-only)**: http://localhost:8088
-- **Jupyter (write)**: http://localhost:8089
-- **Pipelines**: http://localhost:9099
-
-osprey chat
-==============
-
-Start an interactive conversation interface with your agent.
+Natural language channel search tool. Provides interactive REPL mode, direct queries, and benchmarking for evaluating channel finder performance.
 
 Syntax
 ------
 
 .. code-block:: bash
 
-   osprey chat [OPTIONS]
+   osprey channel-finder [OPTIONS] [COMMAND]
 
 Options
 -------
 
-``--tui``
-   Launch the Terminal User Interface (TUI) instead of the default CLI.
+``--project`` / ``-p``
+   Project directory (default: current directory or ``OSPREY_PROJECT`` env var)
 
-   .. admonition:: Experimental Feature (New in v0.10.0)
-      :class: warning
+``--verbose`` / ``-v``
+   Enable verbose logging
 
-      The TUI is an experimental feature available for testing. It provides a full-screen
-      terminal experience with real-time streaming and visual step tracking.
+Commands
+--------
 
-   **Requirements:** ``pip install osprey-framework[tui]``
+``osprey channel-finder`` (no subcommand)
+   Launch interactive REPL for channel finding queries. Type queries in natural language
+   and see matched channels in real time.
 
-``--project PATH`` / ``-p PATH``
-   Project directory to use. If not specified, uses ``FRAMEWORK_PROJECT`` environment variable or current directory.
+``osprey channel-finder query "QUERY_TEXT"``
+   Execute a single channel finder query and display results.
 
-   See :ref:`Global Options <--project>` for multi-project workflow details.
+``osprey channel-finder benchmark``
+   Run channel finder benchmarks against benchmark datasets. Results are saved
+   to ``data/benchmarks/results/``.
 
-``--config PATH`` / ``-c PATH``
-   Path to configuration file.
+   Options:
 
-   Default: ``config.yml`` in project directory
+   ``--queries``
+      Query selection (e.g., ``"all"``, ``"0:10"``, ``"0,5,10"``)
+
+   ``--model``
+      Override model (e.g., ``anthropic/claude-sonnet``)
+
+   ``--dataset``
+      Path to custom benchmark dataset JSON file
+
+   ``--verbose`` / ``-v``
+      Show detailed channel finder logs
+
+``osprey channel-finder build-database``
+   Build a channel database from a CSV file. Reads CSV with columns:
+   ``address``, ``description``, ``family_name``, ``instances``, ``sub_channel``.
+   Rows with ``family_name`` are grouped into templates; rows without are standalone.
+
+   Options:
+
+   ``--csv PATH``
+      Input CSV file (default: ``data/raw/address_list.csv``)
+
+   ``--output PATH``
+      Output JSON file (default: ``data/processed/channel_database.json``)
+
+   ``--use-llm``
+      Use LLM to generate descriptive names for standalone channels
+
+   ``--config PATH``
+      Path to facility config file (optional, auto-detected)
+
+``osprey channel-finder validate``
+   Validate a channel database JSON file. Checks JSON structure, schema validity,
+   and database loading. Auto-detects pipeline type (hierarchical vs in_context).
+
+   Options:
+
+   ``--database PATH`` / ``-d PATH``
+      Path to database file (default: from config)
+
+   ``--verbose`` / ``-v``
+      Show detailed statistics
+
+   ``--pipeline``
+      Override pipeline type detection: ``hierarchical`` or ``in_context``
+
+``osprey channel-finder preview``
+   Preview a channel database with flexible display options. Auto-detects database
+   type (hierarchical, in_context, middle_layer) and shows a tree visualization.
+
+   Options:
+
+   ``--depth N``
+      Tree depth to display (default: 3, use -1 for unlimited)
+
+   ``--max-items N``
+      Maximum items per level (default: 3, use -1 for unlimited)
+
+   ``--sections SECTIONS``
+      Comma-separated sections: ``tree``, ``stats``, ``breakdown``, ``samples``, ``all`` (default: ``tree``)
+
+   ``--focus PATH``
+      Focus on specific path (e.g., ``"M:QB"`` for QB family in M system)
+
+   ``--database PATH``
+      Direct path to database file (overrides config, auto-detects type)
+
+   ``--full``
+      Show complete hierarchy (shorthand for ``--depth -1 --max-items -1``)
 
 Examples
 --------
 
 .. code-block:: bash
 
-   # Start CLI chat (default)
-   osprey chat
+   # Interactive REPL (default)
+   osprey channel-finder
 
-   # Start TUI chat (experimental)
-   osprey chat --tui
+   # Direct query
+   osprey channel-finder query "find beam position monitors"
 
-   # Start chat in specific project
-   osprey chat --project ~/projects/my-agent
+   # Run all benchmarks
+   osprey channel-finder benchmark
 
-   # TUI with specific project
-   osprey chat --tui --project ~/projects/my-agent
+   # Benchmark subset with specific model
+   osprey channel-finder benchmark --queries 0:10 --model anthropic/claude-sonnet
 
-   # Use custom config
-   osprey chat --config my-config.yml
+   # Build database from CSV
+   osprey channel-finder build-database --csv data/raw/channels.csv
 
-   # Use environment variable for project
-   export OSPREY_PROJECT=~/projects/my-agent
-   osprey chat
+   # Build with LLM-generated names
+   osprey channel-finder build-database --csv data/raw/channels.csv --use-llm
 
-Terminal User Interface (TUI)
------------------------------
+   # Validate configured database
+   osprey channel-finder validate
 
-.. admonition:: Experimental Feature (New in v0.10.0)
-   :class: warning
+   # Validate specific file
+   osprey channel-finder validate --database data/processed/db.json --verbose
 
-   The TUI is experimental and available for testing. Feedback welcome!
+   # Preview database (quick overview)
+   osprey channel-finder preview
 
-The TUI provides a full-screen terminal experience built with `Textual <https://textual.textualize.io/>`_:
+   # Preview with stats and full tree
+   osprey channel-finder preview --depth 4 --sections tree,stats
 
-**Features:**
+   # Preview specific database file
+   osprey channel-finder preview --database data/processed/db.json --full
 
-- **Real-time Streaming**: Watch agent responses appear character-by-character
-- **Step Visualization**: See Task Extraction → Classification → Orchestration → Execution in real-time
-- **15+ Built-in Themes**: Switch themes instantly with ``Ctrl+T``
-- **Command Palette**: Quick access to all actions with ``Ctrl+P``
-- **Slash Commands**: ``/exit``, ``/caps:on``, ``/caps:off``, and more
-- **Query History**: Navigate previous queries with up/down arrows
-- **Content Viewer**: Multi-tab view for prompts and responses
-- **Todo Visualization**: See agent planning progress
+   # Use with specific project
+   osprey channel-finder --project ~/my-agent query "vacuum gauges"
 
-**Keyboard Shortcuts:**
+.. _cli-eject:
 
-.. list-table::
-   :widths: 20 40
-   :header-rows: 1
+============
 
-   * - Shortcut
-     - Action
-   * - ``Ctrl+P``
-     - Open command palette
-   * - ``Ctrl+T``
-     - Open theme picker
-   * - ``Ctrl+L``
-     - Focus input
-   * - ``Ctrl+H``
-     - Toggle help panel
-   * - ``Ctrl+C`` (twice)
-     - Exit TUI
-   * - ``Space``/``b``
-     - Scroll down/up
-   * - ``g``/``G``
-     - Go to top/bottom
+osprey eject
+============
 
-**Installation:**
-
-.. code-block:: bash
-
-   pip install osprey-framework[tui]
-
-**Interactive Menu:**
-
-The TUI is also accessible from the interactive menu as "chat (tui)"
-
-Usage
------
-
-The chat interface provides an interactive session with your agent:
-
-.. code-block:: text
-
-   Agent Configuration loaded successfully.
-   Registry initialized with 25 capabilities
-   ⚡ Use slash commands (/) for quick actions - try /help
-
-   You: What's the weather in San Francisco?
-
-   Agent: [Processing request...]
-   The current weather in San Francisco is 18°C with partly cloudy conditions.
-
-Slash Commands
---------------
-
-The CLI supports slash commands for agent control and interface operations:
-
-**Agent Control Commands:**
-
-.. code-block:: bash
-
-   /planning:on          # Enable planning mode
-   /planning:off         # Disable planning mode
-   /approval:enabled     # Enable approval workflows
-   /approval:disabled    # Disable approval workflows
-   /approval:selective   # Enable selective approval
-
-**Performance Commands:**
-
-.. code-block:: bash
-
-   /task:off            # Bypass task extraction
-   /caps:off            # Bypass capability selection
-
-**Direct Chat Mode Commands:**
-
-.. code-block:: bash
-
-   /chat                     # List capabilities that support direct chat
-   /chat:<capability_name>   # Enter direct chat mode with a specific capability
-   /exit                     # Exit direct chat mode (or exit CLI if not in direct chat)
-
-**CLI Commands:**
-
-.. code-block:: bash
-
-   /help                # Show available commands
-   /help <command>      # Show help for specific command
-   /exit                # Exit direct chat mode (or exit CLI if not in direct chat)
-   /clear               # Clear the screen
-
-.. _capability-slash-commands:
-
-Capability-Specific Commands
-----------------------------
-
-Beyond the built-in commands above, you can pass custom commands that capabilities can read during execution. Any command not recognized by the framework is forwarded to capabilities as a "capability command."
-
-**Syntax:**
-
-.. code-block:: bash
-
-   /flag                    # Flag command (capability sees True)
-   /command:value           # Value command (capability sees "value")
-
-**Examples:**
-
-.. code-block:: text
-
-   👤 You: /beam:diagnostic /verbose Show me the beam status
-   🤖 [Capability receives beam="diagnostic", verbose=True]
-
-   👤 You: /format:json Get the sensor readings
-   🤖 [Capability receives format="json"]
-
-**How Capabilities Access Commands:**
-
-Capabilities can read these commands using the ``slash_command()`` helper:
-
-.. code-block:: python
-
-   from osprey.base.capability import slash_command
-
-   async def execute(state: AgentState, **kwargs) -> dict[str, Any]:
-       # Check for /beam:mode command
-       if mode := slash_command("beam", state):
-           # mode is "diagnostic" if user typed /beam:diagnostic
-           pass
-
-       # Check for /verbose flag
-       if slash_command("verbose", state):
-           # User typed /verbose
-           pass
-
-Or using the instance method in instance-based capabilities:
-
-.. code-block:: python
-
-   async def execute(self) -> dict[str, Any]:
-       if mode := self.slash_command("beam"):
-           # Handle beam mode
-           pass
-
-**Key Behaviors:**
-
-- Commands are **execution-scoped** - they reset each conversation turn
-- Registered commands (``/help``, ``/planning:on``, etc.) are handled by the framework and not passed to capabilities
-- Multiple commands can be combined in a single message
-
-.. _direct-chat-mode:
-
-Direct Chat Mode
-----------------
-
-Direct Chat Mode enables multi-turn conversations directly with a specific capability, bypassing the normal orchestration pipeline (task extraction → classification → orchestration). This is useful for:
-
-- **Interactive exploration** with ReAct-style capabilities
-- **Focused conversations** where you know which capability you need
-- **Context accumulation** across multiple turns within the same capability
-
-**Available Capabilities:**
-
-Direct chat mode is designed for **ReAct-style capabilities** - agents that use tools and benefit from multi-turn reasoning. The framework includes one built-in direct-chat capability:
-
-- ``state_manager`` - Inspect and manage accumulated context data
-
-You can create your own ReAct capabilities with direct chat support. One example is generating a capability from an MCP server - see :doc:`04_mcp-capability-generation` for a tutorial that creates the ``weather_mcp`` capability shown in these examples.
-
-**Entering Direct Chat Mode:**
-
-.. code-block:: text
-
-   👤 You: /chat
-   Available capabilities for direct chat:
-   ┌──────────────────┬─────────────────────────────────────┐
-   │ Capability       │ Description                         │
-   ├──────────────────┼─────────────────────────────────────┤
-   │ state_manager    │ Manage and inspect agent state      │
-   │ weather_mcp      │ Weather operations via MCP server   │
-   └──────────────────┴─────────────────────────────────────┘
-
-   👤 You: /chat:weather_mcp
-   ✓ Entering direct chat with weather_mcp
-     Type /exit to return to normal mode
-
-   🎯 weather_mcp > What's the weather in Tokyo?
-   🤖 The current weather in Tokyo is 22°C with clear skies...
-
-   🎯 weather_mcp > How about San Francisco?
-   🤖 San Francisco is currently 18°C with partly cloudy conditions...
-
-.. note::
-
-   The ``weather_mcp`` capability shown above is an example generated from an MCP server. Your ``/chat`` list will only show ``state_manager`` until you generate or create additional direct-chat-enabled capabilities.
-
-**Key Behaviors:**
-
-- **Message history preserved**: The capability sees the full conversation history, enabling follow-up questions like "How about yesterday?" or "Compare that to Boston"
-- **Pipeline bypass**: Messages go directly to the capability without task extraction, classification, or orchestration
-- **Visual indicator**: The prompt changes to show the active capability (e.g., ``🎯 weather_mcp >``)
-
-**Saving Results to Context:**
-
-While in direct chat mode, you can save results for later use in orchestrated queries:
-
-.. code-block:: text
-
-   🎯 weather_mcp > What's the weather in Tokyo?
-   🤖 Tokyo is 22°C with clear skies...
-
-   🎯 weather_mcp > Save that as tokyo_weather
-   🤖 ✓ Saved weather data as 'tokyo_weather'
-
-   🎯 weather_mcp > /exit
-   ✓ Exited direct chat with weather_mcp
-
-   👤 You: Compare the tokyo_weather to current Boston conditions
-   🤖 [Orchestrated query using saved context...]
-
-**State Manager Capability:**
-
-The built-in ``state_manager`` capability provides tools for inspecting and managing accumulated context:
-
-.. code-block:: text
-
-   👤 You: /chat:state_manager
-   ✓ Entering direct chat with state_manager
-
-   🎯 state_manager > What context data do we have?
-   🤖 Current context includes:
-      - WEATHER_RESULTS: tokyo_weather, sf_weather
-      - ANALYSIS_RESULTS: correlation_analysis
-
-   🎯 state_manager > Show me the tokyo_weather details
-   🤖 [Displays full context object...]
-
-**Exiting Direct Chat Mode:**
-
-Use ``/exit`` to return to normal orchestrated mode:
-
-.. code-block:: text
-
-   🎯 weather_mcp > /exit
-   ✓ Exited direct chat with weather_mcp
-     Returning to normal mode
-
-   👤 You: [Now in normal orchestrated mode]
-
-.. note::
-
-   Not all capabilities support direct chat mode. Only capabilities with ``direct_chat_enabled = True`` appear in the ``/chat`` list. See :doc:`01_building-your-first-capability` for how to enable this on your own capabilities.
-
-.. seealso::
-   :doc:`../../api_reference/01_core_framework/06_command_system`
-       Complete API reference for the centralized command system
-
-osprey config
-=============
-
-Manage project configuration settings. All configuration-related operations are unified
-under this command group following industry standard CLI patterns (git config, docker config, etc.).
-
-If no subcommand is provided, launches an interactive configuration menu.
-
-Subcommands
------------
-
-- ``osprey config show`` - Display current project configuration
-- ``osprey config export`` - Export framework default configuration
-- ``osprey config set-control-system`` - Switch control system connector (mock/epics/tango)
-- ``osprey config set-epics-gateway`` - Configure EPICS gateway settings
-- ``osprey config set-models`` - Configure AI provider and models for all model roles
+Copy framework-native capabilities or services to your local project for customization. Use this when you need to modify framework behavior beyond what prompt customization allows.
 
 Syntax
 ------
 
 .. code-block:: bash
 
-   osprey config [SUBCOMMAND] [OPTIONS]
+   osprey eject COMMAND [OPTIONS]
+
+Commands
+--------
+
+``osprey eject list``
+   List all ejectable framework capabilities and services.
+
+``osprey eject capability NAME``
+   Copy a framework capability to your local project for customization.
+
+   Options:
+
+   ``--output`` / ``-o``
+      Output file path (default: ``./src/<package>/capabilities/<name>.py``)
+
+   ``--include-tests``
+      Also copy related test files
+
+``osprey eject service NAME``
+   Copy a framework service (entire directory) to your local project for customization.
+
+   Options:
+
+   ``--output`` / ``-o``
+      Output directory path (default: ``./src/<package>/services/<name>/``)
+
+   ``--include-tests``
+      Also copy related test files
+
+Available Components
+--------------------
+
+**Capabilities:**
+
+- ``channel_finding`` — Find control system channels using semantic search
+- ``channel_read`` — Read current values from control system channels
+- ``channel_write`` — Write values to control system channels
+- ``archiver_retrieval`` — Query historical time-series data from archivers
+
+**Services:**
+
+- ``channel_finder`` — Semantic channel finding service (pipelines, databases, benchmarks)
 
 Examples
 --------
 
-**Launch interactive config menu:**
-
 .. code-block:: bash
 
-   osprey config
+   # List all ejectable components
+   osprey eject list
 
-**Show current configuration:**
+   # Copy channel finding capability to local project
+   osprey eject capability channel_finding
 
-.. code-block:: bash
+   # Copy entire channel finder service
+   osprey eject service channel_finder
 
-   osprey config show
+   # Copy with tests
+   osprey eject capability channel_finding --include-tests
 
-**Export framework defaults:**
+   # Custom output location
+   osprey eject capability channel_finding -o ./src/my_app/capabilities/my_channel_finding.py
 
-.. code-block:: bash
+**After Ejecting:**
 
-   osprey config export
-
-**Switch to EPICS:**
-
-.. code-block:: bash
-
-   osprey config set-control-system epics
-
-**Configure AI models:**
-
-.. code-block:: bash
-
-   osprey config set-models
-
-osprey config show
--------------------
-
-Display current project configuration with syntax highlighting.
-
-Syntax
-~~~~~~
-
-.. code-block:: bash
-
-   osprey config show [OPTIONS]
-
-Options
-~~~~~~~
-
-``--project PATH`` / ``-p PATH``
-   Project directory to use. If not specified, uses current directory or ``OSPREY_PROJECT`` env var.
-
-``--format FORMAT``
-   Output format: ``yaml`` (default) or ``json``
-
-Examples
-~~~~~~~~
-
-.. code-block:: bash
-
-   # Show current project's config
-   osprey config show
-
-   # Show specific project's config
-   osprey config show --project ~/my-agent
-
-   # Export as JSON
-   osprey config show --format json
-
-osprey config export
----------------------
-
-Export the Osprey framework's default configuration template.
-
-This shows the complete framework template with all available options and default values.
-Useful for understanding what configuration options are available.
-
-Syntax
-~~~~~~
-
-.. code-block:: bash
-
-   osprey config export [OPTIONS]
-
-Options
-~~~~~~~
-
-``--output PATH`` / ``-o PATH``
-   Save configuration to file instead of printing to console.
-
-``--format FORMAT``
-   Output format: ``yaml`` (default) or ``json``
-
-Examples
-~~~~~~~~
-
-.. code-block:: bash
-
-   # Display to console
-   osprey config export
-
-   # Save to file
-   osprey config export -o defaults.yml
-
-   # Export as JSON
-   osprey config export --format json -o defaults.json
-
-   # Use as reference when customizing
-   osprey config export --output reference.yml
-   diff reference.yml config.yml
-
-osprey config set-control-system
-----------------------------------
-
-Switch control system connector type (mock, epics, tango, labview).
-
-This changes the ``control_system.type`` setting in config.yml, which determines
-which connector is used at runtime for control system operations.
-
-.. note::
-   Pattern detection is control-system-agnostic. This setting only affects which
-   connector is loaded at runtime, not which patterns are used for security detection.
-
-Syntax
-~~~~~~
-
-.. code-block:: bash
-
-   osprey config set-control-system SYSTEM_TYPE [OPTIONS]
-
-Arguments
-~~~~~~~~~
-
-``SYSTEM_TYPE``
-   Control system type: ``mock``, ``epics``, ``tango``, or ``labview``
-
-Options
-~~~~~~~
-
-``--project PATH`` / ``-p PATH``
-   Project directory to use. If not specified, uses current directory.
-
-Examples
-~~~~~~~~
-
-.. code-block:: bash
-
-   # Switch to mock mode (development)
-   osprey config set-control-system mock
-
-   # Switch to EPICS (production)
-   osprey config set-control-system epics
-
-   # Switch to Tango
-   osprey config set-control-system tango
-
-osprey config set-epics-gateway
--------------------------------
-
-Configure EPICS gateway address and port settings.
-
-Can use facility presets (ALS, APS) or specify custom gateway settings.
-
-Syntax
-~~~~~~
-
-.. code-block:: bash
-
-   osprey config set-epics-gateway [OPTIONS]
-
-Options
-~~~~~~~
-
-``--facility FACILITY``
-   Facility preset: ``als``, ``aps``, or ``custom``
-
-``--address ADDRESS``
-   Gateway address (required for custom facility)
-
-``--port PORT``
-   Gateway port (required for custom facility)
-
-``--project PATH`` / ``-p PATH``
-   Project directory to use. If not specified, uses current directory.
-
-Examples
-~~~~~~~~
-
-.. code-block:: bash
-
-   # Use ALS gateway preset
-   osprey config set-epics-gateway --facility als
-
-   # Use APS gateway preset
-   osprey config set-epics-gateway --facility aps
-
-   # Set custom gateway
-   osprey config set-epics-gateway --facility custom \
-       --address gateway.example.com --port 5064
-
-osprey config set-models
-------------------------
-
-Configure AI provider and models for all model roles.
-
-Updates ALL model configurations in config.yml to use the specified provider
-and model. This includes orchestrator, response, classifier, and any custom
-models defined in your project (e.g., channel_write, channel_finder).
-
-The max_tokens settings for each model role will be preserved.
-
-If no options are provided, launches an interactive selection menu.
-
-Syntax
-~~~~~~
-
-.. code-block:: bash
-
-   osprey config set-models [OPTIONS]
-
-Options
-~~~~~~~
-
-``--provider PROVIDER``
-   AI provider: ``anthropic``, ``openai``, ``google``, ``cborg``, or ``ollama``
-
-``--model MODEL``
-   Model identifier (e.g., ``claude-sonnet-4``, ``gpt-4``, ``anthropic/claude-haiku``)
-
-``--project PATH`` / ``-p PATH``
-   Project directory to use. If not specified, uses current directory.
-
-Examples
-~~~~~~~~
-
-.. code-block:: bash
-
-   # Interactive mode (recommended)
-   osprey config set-models
-
-   # Set all models to Anthropic Claude
-   osprey config set-models --provider anthropic --model claude-sonnet-4
-
-   # Set all models to CBORG provider for specific project
-   osprey config set-models --provider cborg --model anthropic/claude-haiku --project ~/my-agent
+1. Modify the ejected files for your needs
+2. Register the local version in your registry using ``override_capabilities``
+3. Run ``osprey health`` to verify the configuration
 
 ============
 
@@ -1613,57 +1782,6 @@ When installed, the skill is auto-generated from this frontmatter.
 See :doc:`../../contributing/03_ai-assisted-development` for complete workflow documentation.
 
 ============
-
-osprey export-config (DEPRECATED)
-===================================
-
-.. deprecated::
-   Use ``osprey config export`` instead. This command is kept for backward compatibility
-   but will be removed in a future version.
-
-Export the framework's default configuration for reference.
-
-Syntax
-------
-
-.. code-block:: bash
-
-   osprey export-config [OPTIONS]
-
-Migration
----------
-
-Replace ``osprey export-config`` with ``osprey config export``:
-
-.. code-block:: bash
-
-   # Old (deprecated)
-   osprey export-config
-   osprey export-config -o file.yml
-
-   # New (recommended)
-   osprey config export
-   osprey config export -o file.yml
-
-Use Cases
----------
-
-1. **Discover available options** - See all configuration fields and their defaults
-2. **Reference template** - Use as starting point for custom configurations
-3. **Troubleshooting** - Compare your config with framework defaults
-4. **Documentation** - Understand configuration structure
-
-Configuration Structure
------------------------
-
-The exported configuration includes:
-
-- **Models**: LLM provider configurations (orchestrator, classifier, code generator)
-- **Services**: Jupyter, OpenWebUI, Pipelines settings
-- **Execution Control**: Timeouts, retry policies, safety limits
-- **File Paths**: Directory structures and artifact locations
-- **Logging**: Log levels and output settings
-
 
 Interactive Configuration
 =========================
@@ -1870,7 +1988,7 @@ Multi-Project Workflows
 .. admonition:: New in v0.7.7: Multi-Project Support
    :class: version-07plus-change
 
-   Work with multiple projects simultaneously using the ``--project`` flag or ``FRAMEWORK_PROJECT`` environment variable.
+   Work with multiple projects simultaneously using the ``--project`` flag or ``OSPREY_PROJECT`` environment variable.
 
 **Scenario 1: Parallel Development**
 

@@ -13,6 +13,7 @@ Core Framework Systems
    04_prompt-customization
    05_message-and-execution-flow
    06_configuration-architecture
+   07_built-in-capabilities
 
 .. dropdown:: What You'll Learn
    :color: primary
@@ -101,6 +102,18 @@ The Core Framework Systems implement a **LangGraph-Native, Type-Safe Architectur
 
       Single-file YAML configuration with self-contained architecture and environment integration.
 
+.. grid:: 1 1 2 2
+   :gutter: 3
+
+   .. grid-item-card:: 🧩 Built-in Capabilities
+      :link: 07_built-in-capabilities
+      :link-type: doc
+      :class-header: bg-primary text-white
+      :class-body: text-center
+      :shadow: md
+
+      Reference for all framework-native capabilities: channel ops, archiver, Python, time parsing, and memory.
+
 System Integration
 ==================
 
@@ -119,11 +132,11 @@ These systems work together to provide a cohesive development experience:
 
          # Context enables data sharing
          context = ContextManager(state)
-         pv_data = context.get_context('PV_ADDRESSES', 'beam_current')
+         channel_data = context.get_context('CHANNEL_ADDRESSES', 'beam_current')
 
          # Registry provides component access
          registry = get_registry()
-         capability = registry.get_capability('pv_value_retrieval')
+         capability = registry.get_capability('channel_read')
 
          # Message flow coordinates execution
          result = await capability.execute(state)

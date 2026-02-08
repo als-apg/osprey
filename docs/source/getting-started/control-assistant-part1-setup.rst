@@ -45,8 +45,9 @@ The interactive menu provides the best onboarding experience with channel finder
          .. code-block:: text
 
             ○ in_context   - Semantic search (best for few hundred channels, faster)
-            ○ hierarchical - Structured navigation (best for >1,000 channels, scalable)
-            ● both         - Include both pipelines (maximum flexibility, comparison)
+            ○ hierarchical - Pattern navigation (builds channel address from naming rules, scalable)
+            ○ middle_layer - Functional exploration (retrieves channel address by function, scalable)
+            ● all          - Include all three pipelines (maximum flexibility, comparison)
 
       5. **Code Generator** → Choose ``basic`` or ``claude_code`` (recommended: basic)
       6. **Registry Style** → Choose ``extend`` (recommended)
@@ -55,12 +56,11 @@ The interactive menu provides the best onboarding experience with channel finder
 
       **Result:** Complete project ready to run with Mock connector (tutorial mode).
 
-      .. tip::
-         Projects start in **Mock mode** by default for safe learning and development.
-         When ready for production, use the interactive config menu to switch to EPICS:
-         ``osprey`` → Your project → ``config`` → ``set-control-system``
+      Projects start in **Mock mode** by default for safe learning and development.
+      When ready for production, use the interactive config menu to switch to EPICS:
+      ``osprey`` → Your project → ``config`` → ``set-control-system``
 
-         See :ref:`Migrate to Production <migrate-to-production>` in Part 3 for details.
+      See :ref:`Migrate to Production <migrate-to-production>` in Part 3 for details.
 
    .. tab-item:: Direct CLI Command
 
@@ -68,7 +68,7 @@ The interactive menu provides the best onboarding experience with channel finder
 
       .. code-block:: bash
 
-         # Create with both pipelines enabled (default)
+         # Create with all three pipelines enabled (default)
          osprey init my-control-assistant --template control_assistant
          cd my-control-assistant
 
@@ -76,39 +76,30 @@ The interactive menu provides the best onboarding experience with channel finder
 
 **Generated Project Structure:**
 
+.. note::
+
+   Since v0.11, control system capabilities (channel finding, channel read/write, archiver
+   retrieval) and the channel finder service are provided **natively by the framework** — they
+   are not generated into your project. Your project only contains prompt customizations, data,
+   and a slim registry. Use :ref:`osprey eject <cli-eject>` if you need to customize
+   framework components beyond prompt overrides.
+
 .. code-block:: text
 
    my-control-assistant/
    ├── src/my_control_assistant/
-   │   ├── capabilities/                   # ← Agent capabilities (Osprey integration)
-   │   │   ├── channel_finding.py          # Wraps channel_finder service
-   │   │   ├── channel_read.py             # Live value reads via ConnectorFactory
-   │   │   ├── channel_write.py            # Channel writes with LLM-based value parsing
-   │   │   └── archiver_retrieval.py       # Historical data via ConnectorFactory
-   │   ├── services/                       # ← Service Layer (key pattern!)
-   │   │   └── channel_finder/             # Standalone, testable business logic
-   │   │       ├── pipelines/              # Two pipeline architectures:
-   │   │       │   ├── in_context/         #   - Semantic search (small systems)
-   │   │       │   └── hierarchical/       #   - Hierarchical nav (large systems)
-   │   │       ├── databases/              # Database adapters (flat, template, hierarchical)
-   │   │       ├── prompts/                # Pipeline-specific prompts (see Part 4)
-   │   │       │   ├── in_context/         # ← Each pipeline has its own prompts:
-   │   │       │   │   ├── facility_description.py  # REQUIRED: Your facility
-   │   │       │   │   ├── matching_rules.py        # OPTIONAL: Custom terminology
-   │   │       │   │   ├── query_splitter.py        # OPTIONAL: Query splitting examples
-   │   │       │   │   └── system.py                # Auto-combines (don't edit)
-   │   │       │   ├── hierarchical/       #   (same structure)
-   │   │       │   └── middle_layer/       #   (same structure)
-   │   │       ├── benchmarks/             # Evaluation system (runner, models)
-   │   │       ├── core/                   # Base classes & models
-   │   │       ├── llm/                    # LLM completion utilities
-   │   │       ├── utils/                  # Config & prompt loading
-   │   │       ├── service.py              # Main service API
-   │   │       └── cli.py                  # Service CLI
+   │   ├── framework_prompts/              # ← Prompt customizations (override framework defaults)
+   │   │   ├── python.py                   # Python code generation prompts
+   │   │   ├── task_extraction.py          # Task extraction prompts
+   │   │   └── channel_finder/             # Channel finder prompt overrides
+   │   │       ├── in_context.py           # REQUIRED: Facility description for in-context pipeline
+   │   │       ├── hierarchical.py         # REQUIRED: Facility description for hierarchical pipeline
+   │   │       └── middle_layer.py         # REQUIRED: Facility description for middle layer pipeline
    │   ├── data/                           # ← Your data goes here
    │   │   ├── channel_databases/          # Generated databases
    │   │   │   ├── in_context.json
    │   │   │   ├── hierarchical.json
+   │   │   │   ├── middle_layer.json
    │   │   │   └── TEMPLATE_EXAMPLE.json
    │   │   ├── benchmarks/
    │   │   │   ├── datasets/               # Test query datasets
@@ -118,14 +109,8 @@ The interactive menu provides the best onboarding experience with channel finder
    │   │   ├── raw/                        # Raw address data (CSV files)
    │   │   │   ├── CSV_EXAMPLE.csv         # Format reference with examples
    │   │   │   └── address_list.csv        # Real UCSB FEL channel data
-   │   │   ├── tools/                      # Database utilities
-   │   │   │   ├── build_channel_database.py
-   │   │   │   ├── validate_database.py
-   │   │   │   ├── preview_database.py
-   │   │   │   └── llm_channel_namer.py
    │   │   └── README.md                   # Data directory documentation
-   │   ├── context_classes.py              # Context type definitions
-   │   └── registry.py                     # Capability registry
+   │   └── registry.py                     # Registry (prompt provider registrations only)
    ├── services/                           # Docker services
    │   ├── jupyter/                        # JupyterLab + EPICS kernels
    │   ├── open-webui/                     # Chat interface + custom functions
@@ -133,6 +118,25 @@ The interactive menu provides the best onboarding experience with channel finder
    ├── _agent_data/                        # Runtime data (auto-generated)
    ├── config.yml                          # Main configuration
    └── requirements.txt
+
+**Framework-Provided Capabilities** (ready to use, no code to write):
+
+.. tab-set::
+
+   .. tab-item:: Control System
+
+      - **Channel Finding** — Resolves natural language to channel addresses using three pipeline modes (see :doc:`Part 2 <control-assistant-part2-channel-finder>`)
+      - **Channel Read** — Reads live values via connector abstraction (mock/EPICS/Tango/LabVIEW)
+      - **Channel Write** — Sets values with four safety layers (master switch, approval, limits, verification)
+      - **Archiver Retrieval** — Queries historical time-series data from facility archivers
+
+   .. tab-item:: Analysis & Execution
+
+      - **Python Execution** — Generates and executes analysis code in sandboxed environments
+      - **Time Range Parsing** — Converts natural language time expressions (*"last 24 hours"*) to precise ranges
+      - **Memory** — Stores and recalls information across conversations
+
+See :doc:`Built-in Capabilities Reference </developer-guides/03_core-framework-systems/07_built-in-capabilities>` for context types, configuration keys, and error handling for each capability.
 
 
 Step 2: Understanding Configuration
@@ -150,7 +154,7 @@ The framework uses a **single configuration file** approach - all settings in on
 Model Configuration
 ~~~~~~~~~~~~~~~~~~~~
 
-The framework uses **8 specialized AI models** for different roles. Each can use a different provider and model for optimal performance and cost:
+The framework uses **10 specialized AI models** for different roles. Each can use a different provider and model for optimal performance and cost:
 
 .. code-block:: yaml
 
@@ -165,10 +169,10 @@ The framework uses **8 specialized AI models** for different roles. Each can use
      classifier:                # Classifies tasks and selects capabilities
        provider: cborg
        model_id: anthropic/claude-haiku
-     # ... 5 more models (approval, task_extraction, memory,
-     #     python_code_generator, time_parsing)
+     # ... 7 more models (approval, task_extraction, memory,
+     #     python_code_generator, time_parsing, channel_write, channel_finder)
 
-**Recommended Starting Configuration:** Use **Claude Haiku for all 8 models**. It provides an excellent trade-off between capabilities and cost, and works exceptionally well with structured outputs - which the framework relies on heavily for task extraction, classification, and orchestration. While you can use different models for different roles as you optimize, Haiku is the best starting point for reliability and consistency. See :doc:`API Reference <../api_reference/01_core_framework/04_configuration_system>` for complete model configuration options.
+**Recommended Starting Configuration:** Use **Claude Haiku for all 10 models**. It provides an excellent trade-off between capabilities and cost, and works exceptionally well with structured outputs - which the framework relies on heavily for task extraction, classification, and orchestration. While you can use different models for different roles as you optimize, Haiku is the best starting point for reliability and consistency. See :doc:`API Reference <../api_reference/01_core_framework/04_configuration_system>` for complete model configuration options.
 
 API Provider Configuration
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~

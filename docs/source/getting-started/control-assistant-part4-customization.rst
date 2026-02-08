@@ -35,38 +35,34 @@ The channel finder uses facility-specific prompts to dramatically improve semant
    * - File
      - Purpose
      - Edit Required?
-   * - ``facility_description.py``
-     - Your facility's identity, systems, naming structure
-     - **REQUIRED**
-   * - ``matching_rules.py``
-     - Terminology (SP/RB, Monitor/Setpoint), synonyms
-     - OPTIONAL
-   * - ``query_splitter.py``
-     - Stage 1 query splitting examples
-     - OPTIONAL
-   * - ``system.py``
-     - Auto-combines facility_description + matching_rules
-     - Don't edit
+   * - ``in_context.py``
+     - Prompt builder for in-context pipeline (facility description, matching rules)
+     - **REQUIRED** (if using in-context pipeline)
+   * - ``hierarchical.py``
+     - Prompt builder for hierarchical pipeline (facility description, matching rules)
+     - **REQUIRED** (if using hierarchical pipeline)
+   * - ``middle_layer.py``
+     - Prompt builder for middle layer pipeline (facility description, matching rules)
+     - **REQUIRED** (if using middle layer pipeline)
 
 **Directory Structure:**
 
+Channel finder prompts are customized through the **framework prompt provider** system. Your project's ``framework_prompts/channel_finder/`` directory contains prompt builders that override the framework's generic defaults:
+
 .. code-block:: text
 
-   src/my_control_assistant/services/channel_finder/prompts/
-   ├── in_context/
-   │   ├── facility_description.py  # REQUIRED: Edit for your facility
-   │   ├── matching_rules.py        # OPTIONAL: Custom terminology
-   │   ├── query_splitter.py        # OPTIONAL: Query splitting examples
-   │   ├── system.py               # Auto-combines (don't edit)
-   │   └── __init__.py
-   ├── hierarchical/                # Same structure
-   └── middle_layer/                # Same structure
+   src/my_control_assistant/framework_prompts/channel_finder/
+   ├── in_context.py               # REQUIRED: Facility description for in-context pipeline
+   ├── hierarchical.py             # REQUIRED: Facility description for hierarchical pipeline
+   └── middle_layer.py             # REQUIRED: Facility description for middle layer pipeline
 
-.. dropdown:: **Step 1: Edit facility_description.py (Required)**
+Each file contains a prompt builder class that provides ``facility_description`` and ``matching_rules`` for its pipeline. Edit the facility description and matching rules within these builders to customize channel finding for your facility.
+
+.. dropdown:: **Step 1: Edit your pipeline prompt builder (Required)**
    :color: success
    :open:
 
-   This file defines your facility's identity and structure. The LLM uses this context to understand your control system and make accurate semantic matches.
+   Each pipeline prompt builder file defines your facility's identity and structure. The LLM uses this context to understand your control system and make accurate semantic matches.
 
    **What to include:**
 
@@ -78,7 +74,7 @@ The channel finder uses facility-specific prompts to dramatically improve semant
 
    .. code-block:: python
 
-      # prompts/in_context/facility_description.py
+      # framework_prompts/channel_finder/in_context.py
       import textwrap
 
       facility_description = textwrap.dedent(
@@ -125,7 +121,7 @@ The channel finder uses facility-specific prompts to dramatically improve semant
 
    .. code-block:: python
 
-      # prompts/in_context/matching_rules.py
+      # framework_prompts/channel_finder/in_context.py (matching_rules section)
       import textwrap
 
       matching_rules = textwrap.dedent(
@@ -150,27 +146,19 @@ The channel finder uses facility-specific prompts to dramatically improve semant
 
    **Note:** If you don't need custom matching rules, you can leave this file with minimal content or use the defaults.
 
-.. dropdown:: **How system.py Works (Don't Edit)**
+.. dropdown:: **How Prompt Builders Work**
    :color: secondary
 
-   The ``system.py`` file automatically imports and combines both files:
+   Each pipeline prompt builder file (e.g., ``in_context.py``) contains a class that provides ``get_facility_description()`` and ``get_matching_rules()`` methods. The framework's prompt loading system calls these methods to build the complete system prompt for the pipeline.
 
-   .. code-block:: python
-
-      # prompts/in_context/system.py (auto-generated, don't edit)
-      from .facility_description import facility_description as _facility
-      from .matching_rules import matching_rules as _rules
-
-      facility_description = f"{_facility}\n\n{_rules}"
-
-   This provides backward compatibility—existing service code that references ``prompts_module.system.facility_description`` continues to work unchanged.
+   Override a method in your prompt builder class to customize that part of the prompt. Leave it unoverridden to use the framework's generic defaults.
 
 **Best Practices:**
 
-1. **Start with facility_description.py**: Get the basic structure working first
+1. **Start with facility description**: Get the basic structure working first
 2. **Run benchmarks early**: Test with a few queries before writing all rules
 3. **Add matching_rules.py incrementally**: Only add rules when benchmarks reveal terminology gaps
-4. **Use the CLI for rapid iteration**: ``python src/my_control_assistant/services/channel_finder/cli.py``
+4. **Use the CLI for rapid iteration**: ``osprey channel-finder``
 5. **Document for your team**: Comments in these files help future maintainers
 
 .. _part4-framework-prompt-customization:
@@ -386,60 +374,53 @@ The framework automatically discovers and uses your custom builders. You can ove
          from osprey.registry import (
              RegistryConfigProvider,
              extend_framework_registry,
-             CapabilityRegistration,
-             ContextClassRegistration,
              FrameworkPromptProviderRegistration,
              RegistryConfig
          )
 
 
          class MyControlAssistantRegistryProvider(RegistryConfigProvider):
-             """Registry provider for My Control Assistant."""
+             """Registry provider for My Control Assistant.
+
+             Control system capabilities (channel finding, reading, writing,
+             archiver) are provided natively by the framework — no application
+             registration needed. This registry only registers facility-specific
+             prompt customizations.
+             """
 
              def get_registry_config(self) -> RegistryConfig:
                  """Return registry configuration with custom framework prompts."""
                  return extend_framework_registry(
-                     # Your existing capabilities
-                     capabilities=[
-                         CapabilityRegistration(
-                             name="channel_finding",
-                             module_path="my_control_assistant.capabilities.channel_finding",
-                             class_name="ChannelFindingCapability",
-                             description="Find control system channels using semantic search",
-                             provides=["CHANNEL_ADDRESSES"],
-                             requires=[]
-                         ),
-                         # ... other capabilities ...
-                     ],
-
-                     # Your existing context classes
-                     context_classes=[
-                         ContextClassRegistration(
-                             context_type="CHANNEL_ADDRESSES",
-                             module_path="my_control_assistant.context_classes",
-                             class_name="ChannelAddressesContext"
-                         ),
-                         # ... other context classes ...
-                     ],
-
-                     # Custom framework prompts (Python and Task Extraction already registered in template!)
+                     # Custom framework prompts only — capabilities are framework-native
                      framework_prompt_providers=[
                          FrameworkPromptProviderRegistration(
                              module_path="my_control_assistant.framework_prompts",
                              prompt_builders={
-                                 "python": "ControlSystemPythonPromptBuilder",  # ✅ Already in template!
-                                 "task_extraction": "ControlSystemTaskExtractionPromptBuilder",  # ✅ Already in template!
+                                 "python": "ControlSystemPythonPromptBuilder",
+                                 "task_extraction": "ControlSystemTaskExtractionPromptBuilder",
+                                 "channel_finder_in_context": "FacilityInContextPromptBuilder",
+                                 "channel_finder_hierarchical": "FacilityHierarchicalPromptBuilder",
+                                 "channel_finder_middle_layer": "FacilityMiddleLayerPromptBuilder",
                                  # Add your own custom builders:
                                  # "orchestrator": "MyFacilityOrchestratorPromptBuilder",
                                  # "response_generation": "MyFacilityResponseGenerationPromptBuilder",
                                  # "classification": "MyFacilityClassificationPromptBuilder",
-                                 # "error_analysis": "MyFacilityErrorAnalysisPromptBuilder",
-                                 # "clarification": "MyFacilityClarificationPromptBuilder",
-                                 # "memory_extraction": "MyFacilityMemoryExtractionPromptBuilder",
                              }
                          )
                      ]
                  )
+
+      .. tip::
+
+         Need to customize framework capabilities or services beyond prompt overrides?
+         Use ``osprey eject`` to copy framework source to your project:
+
+         .. code-block:: bash
+
+            osprey eject capability channel_finding    # Copy capability for customization
+            osprey eject service channel_finder        # Copy entire service for customization
+
+         After ejecting, register the local version using ``override_capabilities`` in your registry.
 
    .. tab-item:: Available Builder Types
 

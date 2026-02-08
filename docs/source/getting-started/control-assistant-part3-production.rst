@@ -33,7 +33,7 @@ First, launch the interactive chat interface:
 
    **What's Loading:**
 
-   Your ``my-control-assistant`` combines **framework-provided capabilities** (memory, Python execution, time parsing, response generation) with your **domain-specific capabilities** (channel finding, archiver retrieval, channel value reading). This modular approach means you only implement what's unique to your domain while leveraging battle-tested infrastructure.
+   Your ``my-control-assistant`` uses **framework-provided capabilities** including core infrastructure (memory, Python execution, time parsing, response generation) and control system capabilities (channel finding, archiver retrieval, channel value reading, channel writing). This modular approach means the framework provides battle-tested capabilities out of the box, while remaining extensible for custom domain logic.
 
    **Why This Matters:**
 
@@ -52,11 +52,11 @@ First, launch the interactive chat interface:
                                      • 9 capabilities: memory, time_range_parsing, python, respond, clarify,
                                                        channel_finding, channel_read, channel_write, archiver_retrieval
                                      • 14 nodes (including 5 core infrastructure)
-                                     • 6 context types: MEMORY_CONTEXT, TIME_RANGE, PYTHON_RESULTS,
+                                     • 7 context types: MEMORY_CONTEXT, TIME_RANGE, PYTHON_RESULTS,
                                                         CHANNEL_ADDRESSES, CHANNEL_VALUES, CHANNEL_WRITE_RESULTS,
                                                         ARCHIVER_DATA
                                       • 1 data sources: core_user_memory
-                                      • 1 services: python_executor
+                                      • 2 services: python_executor, channel_finder
       ✅ Framework initialized! Thread ID: cli_session_76681b34
 
    **Further Reading:** :doc:`../developer-guides/03_core-framework-systems/03_registry-and-discovery`, :doc:`../developer-guides/01_understanding-the-framework/01_infrastructure-architecture`
@@ -133,22 +133,21 @@ Your query goes through three intelligent phases that transform natural language
 
       **What's Happening:**
 
-      Your assistant has 6 capabilities available (see :doc:`registry system <../developer-guides/03_core-framework-systems/03_registry-and-discovery>` for component registration details):
+      Your assistant has 9 capabilities available (see :doc:`registry system <../developer-guides/03_core-framework-systems/03_registry-and-discovery>` for component registration details):
 
       **Framework capabilities:**
 
       - ``time_range_parsing`` - Parse time expressions like "last 24 hours" into datetime objects
       - ``memory`` - Save and retrieve information from user memory files
       - ``python`` - Generate and execute Python code for calculations and plotting
-
-      **Your application capabilities:**
-
+      - ``respond`` - Generate natural language responses to user queries
+      - ``clarify`` - Ask clarifying questions when the user's intent is ambiguous
       - ``channel_finding`` - Find control system channels using semantic search
       - ``channel_write`` - Write values to control system channels with LLM-based parsing
       - ``channel_read`` - Read current values from control system channels
       - ``archiver_retrieval`` - Query historical time-series data from the archiver
 
-      The framework evaluates all 6 capabilities independently using their classifier guides. For the request "Show me the beam current over the last 24 hours", it asks:
+      The framework evaluates all 9 capabilities independently using their classifier guides. For the request "Show me the beam current over the last 24 hours", it asks:
 
       - "Does this task require ``time_range_parsing``?" → **YES** (need to parse "last 24 hours")
       - "Does this task require ``memory``?" → **NO** (not storing/recalling information)
@@ -161,7 +160,7 @@ Your query goes through three intelligent phases that transform natural language
 
       **Why This Matters:**
 
-      Accurate capability selection is critical because it limits the amount of context, examples, and prompts shown to the orchestrator in the next phase. By selecting only relevant capabilities (4 of 6 in this example), the orchestrator receives focused, targeted information rather than being overwhelmed with irrelevant examples. This improves both latency (fewer tokens to process) and accuracy (more relevant context for planning). When planning a plotting task, the orchestrator sees plotting and data retrieval examples, not memory storage or unrelated capability patterns, leading to cleaner execution plans.
+      Accurate capability selection is critical because it limits the amount of context, examples, and prompts shown to the orchestrator in the next phase. By selecting only relevant capabilities (4 of 9 in this example), the orchestrator receives focused, targeted information rather than being overwhelmed with irrelevant examples. This improves both latency (fewer tokens to process) and accuracy (more relevant context for planning). When planning a plotting task, the orchestrator sees plotting and data retrieval examples, not memory storage or unrelated capability patterns, leading to cleaner execution plans.
 
       **Quality Control**: Your classifier examples directly determine selection accuracy. Good examples (clear positive/negative cases with reasoning) lead to accurate capability selection. Poor examples cause misclassification and failed executions. You can always refine the ``_create_classifier_guide()`` methods in your capabilities to improve accuracy.
 
@@ -791,7 +790,7 @@ Context classes are the structured data containers that flow between capabilitie
 
 In data-intensive scientific applications, context classes do more than just store data—they provide **LLM-optimized access patterns** that guide the agent in generating correct Python code. Unlike pure ReAct agents that pass tool outputs directly back to the LLM's context window (which fails immediately with archiver data containing thousands of datapoints), context classes keep large datasets in state memory while exposing only metadata and access instructions to the LLM. Scientific data often involves complex nested structures, domain-specific identifiers with special characters (e.g., ``SR:CURRENT:RB``, ``MAG:QF[QF03]:CURRENT:SP`` in control systems), and large time series datasets that require intelligent handling. Production-grade context classes explicitly describe how to access nested data structures, handle special characters, manage large datasets, and avoid common mistakes that LLMs make when generating code for scientific data access.
 
-The control assistant template provides three production-validated context classes based on the deployed :doc:`ALS Accelerator Assistant <../example-applications/als-assistant>`. These patterns are broadly applicable to scientific computing applications beyond control systems:
+The framework provides three production-validated context classes based on the deployed :doc:`ALS Accelerator Assistant <../example-applications/als-assistant>`. These patterns are broadly applicable to scientific computing applications beyond control systems:
 
 - **ChannelAddressesContext**: Results from channel finding (list of found addresses)
 - **ChannelValuesContext**: Live channel value reads (current measurements)
@@ -924,7 +923,7 @@ This method provides human-readable summaries for response generation, UI displa
 
 **Additional Production Context Classes:**
 
-The control assistant template includes two more production-validated context classes, each demonstrating advanced patterns for specific scientific data scenarios.
+The framework includes two more production-validated context classes, each demonstrating advanced patterns for specific scientific data scenarios.
 
 .. dropdown:: Complete Channel Addresses Context Implementation
 
@@ -937,20 +936,20 @@ The control assistant template includes two more production-validated context cl
           Framework context for channel finding capability results.
 
           This is the rich context object used throughout the framework for channel address data.
-          Based on ALS Assistant's PVAddresses pattern.
+          Based on ALS Assistant's ChannelAddresses pattern.
           """
           CONTEXT_TYPE: ClassVar[str] = "CHANNEL_ADDRESSES"
           CONTEXT_CATEGORY: ClassVar[str] = "METADATA"
 
           channels: List[str]  # List of found channel addresses
-          description: str  # Description or additional information about the channels
+          original_query: str  # Original natural language query that led to these channels
 
           def get_access_details(self, key: str) -> Dict[str, Any]:
               """Rich description for LLM consumption."""
               return {
                   "channels": self.channels,
                   "total_available": len(self.channels),
-                  "comments": self.description,
+                  "original_query": self.original_query,
                   "data_structure": "List of channel address strings",
                   "access_pattern": f"context.{self.CONTEXT_TYPE}.{key}.channels",
                   "example_usage": f"context.{self.CONTEXT_TYPE}.{key}.channels[0] gives '{self.channels[0] if self.channels else 'CHANNEL:NAME'}'",
@@ -964,8 +963,8 @@ The control assistant template includes two more production-validated context cl
               return {
                   "type": "Channel Addresses",
                   "total_channels": len(self.channels),
+                  "original_query": self.original_query,
                   "channel_list": self.channels,
-                  "description": self.description,
               }
 
 .. dropdown:: Complete Archiver Data Context Implementation - Critical Production Pattern
@@ -1188,16 +1187,14 @@ The structure of your control system determines your approach:
 
       .. code-block:: bash
 
-         cd my-control-assistant
-         python src/my_control_assistant/data/tools/build_channel_database.py \
-           --use-llm --config config.yml
+         osprey channel-finder build-database --use-llm
 
       **Step 3:** Validate and preview:
 
       .. code-block:: bash
 
-         python src/my_control_assistant/data/tools/validate_database.py
-         python src/my_control_assistant/data/tools/preview_database.py
+         osprey channel-finder validate
+         osprey channel-finder preview
 
       **Complete Tutorial:** :doc:`control-assistant-part2-channel-finder` → In-Context Pipeline tab
 
@@ -1244,8 +1241,8 @@ The structure of your control system determines your approach:
 
       .. code-block:: bash
 
-         python src/my_control_assistant/data/tools/validate_database.py
-         python src/my_control_assistant/data/tools/preview_database.py
+         osprey channel-finder validate
+         osprey channel-finder preview
 
       **Complete Tutorial:** :doc:`control-assistant-part2-channel-finder` → Hierarchical Pipeline tab
 
@@ -1697,9 +1694,9 @@ Troubleshooting
    **Solutions:**
 
    1. Check database path in ``config.yml``
-   2. Validate database: ``python -m my_control_assistant.data.tools.validate_database``
-   3. Preview database presentation: ``python -m my_control_assistant.data.tools.preview_database``
-   4. Test with CLI: ``python src/my_control_assistant/services/channel_finder/cli.py``
+   2. Validate database: ``osprey channel-finder validate``
+   3. Preview database presentation: ``osprey channel-finder preview``
+   4. Test with CLI: ``osprey channel-finder``
    5. Enable debug mode: ``config.yml`` → ``development.prompts.print_all: true``
    6. Review saved prompts in ``_agent_data/prompts/``
 

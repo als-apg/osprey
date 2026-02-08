@@ -29,7 +29,7 @@ Control systems at scientific facilities present a fundamental communication gap
 
 **Three Pipeline Implementations**
 
-This template provides three semantic channel finding implementations, each suited to different facility architectures:
+The framework provides three semantic channel finding implementations, each suited to different facility architectures:
 
 - **In-Context Search**: Direct semantic matching—best for small to medium systems (few hundred channels)
 - **Hierarchical Navigation**: Structured navigation through system hierarchy—scales to large systems with strict naming patterns (thousands+ channels)
@@ -46,7 +46,7 @@ To switch pipelines, edit ``config.yml`` and change the ``pipeline_mode`` settin
    channel_finder:
      pipeline_mode: in_context  # or "hierarchical" or "middle_layer"
 
-That's it—no code changes required. The template includes complete implementations of all three pipelines with example databases, CLI tools, and benchmark datasets. The tabs below detail each pipeline's workflow, database format, and testing tools.
+That's it—no code changes required. The framework includes complete implementations of all three pipelines, and the project template provides example databases, CLI tools, and benchmark datasets. The tabs below detail each pipeline's workflow, database format, and testing tools.
 
 .. admonition:: Customize prompts for your facility
    :class: tip
@@ -109,10 +109,10 @@ That's it—no code changes required. The template includes complete implementat
          .. code-block:: bash
 
             # Default: use raw addresses as channel names
-            python build_channel_database.py
+            osprey channel-finder build-database
 
             # LLM-powered: generate descriptive channel names (recommended)
-            python build_channel_database.py --use-llm --config config.yml
+            osprey channel-finder build-database --use-llm
 
          **How It Works:**
 
@@ -180,7 +180,7 @@ That's it—no code changes required. The template includes complete implementat
          # Switch to in-context pipeline
          # python config.yml: set pipeline_mode to "in_context"
 
-         python src/my_control_assistant/services/channel_finder/cli.py
+         osprey channel-finder
 
       **Example queries to try:**
 
@@ -311,12 +311,13 @@ That's it—no code changes required. The template includes complete implementat
 
             .. code-block:: text
 
-               CSV File              →  build_channel_database.py  →  Template JSON Database
-               (raw data)               (with optional LLM naming)     (optimized format)
-                                                ↓
-                                        validate_database.py
-                                        preview_database.py
-                                        (verify structure & presentation)
+               CSV File                →  osprey channel-finder     →  Template JSON Database
+               (raw data)                  build-database                (optimized format)
+                                           (with optional LLM naming)
+                                                  ↓
+                                           osprey channel-finder validate
+                                           osprey channel-finder preview
+                                           (verify structure & presentation)
 
             **Step 1: Prepare Your CSV File**
 
@@ -356,10 +357,10 @@ That's it—no code changes required. The template includes complete implementat
                cd my-control-assistant
 
                # Basic build (uses addresses as channel names)
-               python src/my_control_assistant/data/tools/build_channel_database.py
+               osprey channel-finder build-database
 
                # With LLM-generated descriptive names (recommended)
-               python src/my_control_assistant/data/tools/build_channel_database.py --use-llm --config config.yml
+               osprey channel-finder build-database --use-llm
 
 
             The template includes working UCSB FEL accelerator data by default:
@@ -372,10 +373,10 @@ That's it—no code changes required. The template includes complete implementat
 
             .. code-block:: bash
 
-               python src/my_control_assistant/data/tools/build_channel_database.py \
+               osprey channel-finder build-database \
                   --csv data/raw/your_address_list.csv \
                   --output data/channel_databases/your_database.json \
-                  --use-llm --config config.yml
+                  --use-llm
 
             **What the Builder Does:**
 
@@ -433,7 +434,7 @@ That's it—no code changes required. The template includes complete implementat
                  "_metadata": {
                    "generated_from": "data/raw/address_list.csv",
                    "generation_date": "2025-11-08",
-                   "generator": "build_channel_database.py",
+                   "generator": "osprey channel-finder build-database",
                    "llm_naming": {
                      "enabled": true,
                      "model": "anthropic/claude-haiku",
@@ -458,13 +459,13 @@ That's it—no code changes required. The template includes complete implementat
             .. code-block:: bash
 
                # From my-control-assistant directory
-               python src/my_control_assistant/data/tools/validate_database.py
+               osprey channel-finder validate
 
                # Validate specific file
-               python src/my_control_assistant/data/tools/validate_database.py --database path/to/database.json
+               osprey channel-finder validate --database path/to/database.json
 
                # Show detailed statistics
-               python src/my_control_assistant/data/tools/validate_database.py --verbose
+               osprey channel-finder validate --verbose
 
             **Validation Checks:**
 
@@ -481,10 +482,10 @@ That's it—no code changes required. The template includes complete implementat
             .. code-block:: bash
 
                # From my-control-assistant directory
-               python src/my_control_assistant/data/tools/preview_database.py
+               osprey channel-finder preview
 
                # Show all channels (not just first 20)
-               python src/my_control_assistant/data/tools/preview_database.py --full
+               osprey channel-finder preview --full
 
             This prints the database presentation directly to your terminal, showing:
 
@@ -528,22 +529,20 @@ That's it—no code changes required. The template includes complete implementat
                        path: src/my_control_assistant/data/channel_databases/in_context.json
                        presentation_mode: template
 
-            **Tool Locations:**
+            **CLI Commands:**
 
-            All tools are in ``src/my_control_assistant/data/tools/`` and should be run from the ``my-control-assistant`` directory (for config.yml access):
+            All database tools are available as native CLI commands under ``osprey channel-finder``. Run them from the ``my-control-assistant`` directory (for config.yml access):
 
-            - ``build_channel_database.py``: Main builder (Workflow A: CSV → JSON)
-            - ``validate_database.py``: Schema and loading validation
-            - ``preview_database.py``: LLM presentation preview
-            - ``llm_channel_namer.py``: LLM-based name generation library
-            - ``README.md``: Comprehensive tool documentation
+            - ``osprey channel-finder build-database``: Main builder (Workflow A: CSV → JSON)
+            - ``osprey channel-finder validate``: Schema and loading validation
+            - ``osprey channel-finder preview``: LLM presentation preview
 
             **Alternative: Manual JSON Creation (Workflow B)**
 
             For complete control, you can create the JSON database manually:
 
             1. Create JSON file directly with template and standalone entries
-            2. Run ``validate_database.py`` to check correctness
+            2. Run ``osprey channel-finder validate`` to check correctness
             3. Update ``config.yml`` with new database path
             4. Proceed to testing (next tab)
 
@@ -562,7 +561,7 @@ That's it—no code changes required. The template includes complete implementat
             .. code-block:: bash
 
                # From my-control-assistant directory
-               python src/my_control_assistant/services/channel_finder/cli.py
+               osprey channel-finder
 
             This launches an interactive terminal where you can:
 
@@ -613,13 +612,13 @@ That's it—no code changes required. The template includes complete implementat
             .. code-block:: bash
 
                # Run all benchmark queries
-               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py
+               osprey channel-finder benchmark
 
                # Test specific queries (useful during development)
-               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py --queries 0,1
+               osprey channel-finder benchmark --queries 0,1
 
                # Compare model performance
-               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py --model anthropic/claude-sonnet
+               osprey channel-finder benchmark --model anthropic/claude-sonnet
 
             **Benchmark Capabilities:**
 
@@ -704,14 +703,14 @@ That's it—no code changes required. The template includes complete implementat
             .. code-block:: bash
 
                # Use a different dataset
-               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py \
+               osprey channel-finder benchmark \
                   --dataset src/my_control_assistant/data/benchmarks/datasets/custom_dataset.json
 
                # Run specific queries
-               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py --queries 0,1,5,10
+               osprey channel-finder benchmark --queries 0,1,5,10
 
                # Show detailed logs
-               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py --verbose
+               osprey channel-finder benchmark --verbose
 
             **When to use these tools:**
 
@@ -762,7 +761,7 @@ That's it—no code changes required. The template includes complete implementat
          # Switch to hierarchical pipeline
          # Edit config.yml: set pipeline_mode to "hierarchical"
 
-         python src/my_control_assistant/services/channel_finder/cli.py
+         osprey channel-finder
 
       **Example queries to try:**
 
@@ -1448,10 +1447,10 @@ That's it—no code changes required. The template includes complete implementat
             .. code-block:: bash
 
                # From my-control-assistant directory
-               python src/my_control_assistant/data/tools/validate_database.py
+               osprey channel-finder validate
 
                # Or validate a specific file
-               python src/my_control_assistant/data/tools/validate_database.py --database path/to/hierarchical.json
+               osprey channel-finder validate --database path/to/hierarchical.json
 
             For hierarchical databases, validation checks:
 
@@ -1472,16 +1471,16 @@ That's it—no code changes required. The template includes complete implementat
 
                # From my-control-assistant directory
                # Quick overview (default: 3 levels, 10 items per level)
-               python src/my_control_assistant/data/tools/preview_database.py
+               osprey channel-finder preview
 
                # Show 4 levels with statistics
-               python src/my_control_assistant/data/tools/preview_database.py --depth 4 --sections tree,stats
+               osprey channel-finder preview --depth 4 --sections tree,stats
 
                # Complete view with all sections
-               python src/my_control_assistant/data/tools/preview_database.py --depth -1 --max-items -1 --sections all
+               osprey channel-finder preview --depth -1 --max-items -1 --sections all
 
                # Focus on specific subsystem
-               python src/my_control_assistant/data/tools/preview_database.py --focus M:QB --depth 4
+               osprey channel-finder preview --focus M:QB --depth 4
 
             .. dropdown:: Preview Tool Parameters (v0.9.6+)
                :color: info
@@ -1508,24 +1507,24 @@ That's it—no code changes required. The template includes complete implementat
                **Focus & Filtering:**
 
                - ``--focus PATH``: Zoom into specific subtree using colon-separated path (e.g., ``M:QB`` shows only QB family in M system)
-               - ``--path FILE``: Preview a specific database file, auto-detects type (overrides config)
+               - ``--database FILE``: Preview a specific database file, auto-detects type (overrides config)
 
                **Example Workflows:**
 
                .. code-block:: bash
 
                   # Quick check of overall structure
-                  python preview_database.py --sections stats
+                  osprey channel-finder preview --sections stats
 
                   # Deep dive into magnet quadrupoles
-                  python preview_database.py --focus M:QF --depth 5 --max-items 15
+                  osprey channel-finder preview --focus M:QF --depth 5 --max-items 15
 
                   # Compare database files
-                  python preview_database.py --path examples/consecutive_instances.json --depth -1
-                  python preview_database.py --path examples/optional_levels.json --depth -1
+                  osprey channel-finder preview --database examples/consecutive_instances.json --depth -1
+                  osprey channel-finder preview --database examples/optional_levels.json --depth -1
 
                   # Full analysis with all metrics
-                  python preview_database.py --depth -1 --max-items -1 --sections all
+                  osprey channel-finder preview --depth -1 --max-items -1 --sections all
 
                **Why These Parameters Matter:**
 
@@ -1566,7 +1565,7 @@ That's it—no code changes required. The template includes complete implementat
             .. code-block:: bash
 
                # From my-control-assistant directory
-               python src/my_control_assistant/services/channel_finder/cli.py
+               osprey channel-finder
 
             This launches an interactive terminal where you can:
 
@@ -1618,13 +1617,13 @@ That's it—no code changes required. The template includes complete implementat
             .. code-block:: bash
 
                # Run all benchmark queries
-               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py
+               osprey channel-finder benchmark
 
                # Test specific queries (useful during development)
-               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py --queries 0,1
+               osprey channel-finder benchmark --queries 0,1
 
                # Compare model performance
-               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py --model anthropic/claude-sonnet
+               osprey channel-finder benchmark --model anthropic/claude-sonnet
 
             **Benchmark Capabilities:**
 
@@ -1703,14 +1702,14 @@ That's it—no code changes required. The template includes complete implementat
             .. code-block:: bash
 
                # Use a different dataset
-               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py \
+               osprey channel-finder benchmark \
                   --dataset src/my_control_assistant/data/benchmarks/datasets/custom_dataset.json
 
                # Run specific queries
-               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py --queries 0,1,5,10
+               osprey channel-finder benchmark --queries 0,1,5,10
 
                # Show detailed logs
-               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py --verbose
+               osprey channel-finder benchmark --verbose
 
             **When to use these tools:**
 
@@ -1759,7 +1758,7 @@ That's it—no code changes required. The template includes complete implementat
          # Switch to middle_layer pipeline
          # Edit config.yml: set pipeline_mode to "middle_layer"
 
-         python src/my_control_assistant/services/channel_finder/cli.py
+         osprey channel-finder
 
       **Example queries to try:**
 
@@ -1938,11 +1937,11 @@ That's it—no code changes required. The template includes complete implementat
 
             .. code-block:: text
 
-               MML Python Export  →  mml_converter.py  →  Middle Layer JSON Database
-               (MML_ao_SR.py)        (conversion tool)     (optimized format)
+               MML Python Export  →  mml_converter.py           →  Middle Layer JSON Database
+               (MML_ao_SR.py)        (conversion tool)              (optimized format)
                                            ↓
-                                   validate_database.py
-                                   preview_database.py
+                                   osprey channel-finder validate
+                                   osprey channel-finder preview
                                    (verify structure & presentation)
 
             **Step 1: Export Your MML Data**
@@ -1951,14 +1950,14 @@ That's it—no code changes required. The template includes complete implementat
 
             **Step 2: Use the MML Converter**
 
-            The template includes a conversion utility that transforms MML Python exports into middle layer JSON format:
+            The framework includes a conversion utility that transforms MML Python exports into middle layer JSON format:
 
             .. code-block:: bash
 
                cd my-control-assistant
 
                # Convert MML exports to JSON
-               python src/my_control_assistant/services/channel_finder/utils/mml_converter.py \
+               python -m osprey.services.channel_finder.utils.mml_converter \
                   --input path/to/mml_exports.py \
                   --output src/my_control_assistant/data/channel_databases/middle_layer.json
 
@@ -2011,11 +2010,11 @@ That's it—no code changes required. The template includes complete implementat
             .. code-block:: bash
 
                # From my-control-assistant directory
-               python src/my_control_assistant/data/tools/validate_database.py \
+               osprey channel-finder validate \
                   --database src/my_control_assistant/data/channel_databases/middle_layer.json
 
                # Show detailed statistics
-               python src/my_control_assistant/data/tools/validate_database.py --verbose
+               osprey channel-finder validate --verbose
 
             **Validation Checks:**
 
@@ -2032,7 +2031,7 @@ That's it—no code changes required. The template includes complete implementat
             .. code-block:: bash
 
                # From my-control-assistant directory
-               python src/my_control_assistant/data/tools/preview_database.py
+               osprey channel-finder preview
 
             This shows you what information the agent sees at each level of exploration, helping you verify descriptions are clear and helpful.
 
@@ -2066,7 +2065,7 @@ That's it—no code changes required. The template includes complete implementat
             .. code-block:: bash
 
                # From my-control-assistant directory
-               python src/my_control_assistant/services/channel_finder/cli.py
+               osprey channel-finder
 
             This launches an interactive terminal where you can:
 
@@ -2118,13 +2117,13 @@ That's it—no code changes required. The template includes complete implementat
             .. code-block:: bash
 
                # Run all benchmark queries
-               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py
+               osprey channel-finder benchmark
 
                # Test specific queries (useful during development)
-               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py --queries 0,1
+               osprey channel-finder benchmark --queries 0,1
 
                # Compare model performance
-               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py --model anthropic/claude-sonnet
+               osprey channel-finder benchmark --model anthropic/claude-sonnet
 
             **Benchmark Capabilities:**
 
@@ -2181,14 +2180,14 @@ That's it—no code changes required. The template includes complete implementat
             .. code-block:: bash
 
                # Use a different dataset
-               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py \
+               osprey channel-finder benchmark \
                   --dataset src/my_control_assistant/data/benchmarks/datasets/custom_dataset.json
 
                # Run specific queries
-               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py --queries 0,1,5,10
+               osprey channel-finder benchmark --queries 0,1,5,10
 
                # Show detailed logs
-               python src/my_control_assistant/services/channel_finder/benchmarks/cli.py --verbose
+               osprey channel-finder benchmark --verbose
 
             **When to use these tools:**
 
@@ -2214,7 +2213,7 @@ That's it—no code changes required. The template includes complete implementat
 2.1: OSPREY Framework Integration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The channel finder integrates into OSPREY as a **capability**—a reusable component that the agent orchestrator can plan and execute. The capability acts as a thin orchestration layer that connects the framework to the service layer, while all channel finding logic lives in ``services/channel_finder/``. This separation makes the service independently testable via CLI and benchmarks before agent integration. The template provides a complete implementation in ``src/my_control_assistant/capabilities/channel_finding.py``.
+The channel finder integrates into OSPREY as a **capability**—a reusable component that the agent orchestrator can plan and execute. The capability acts as a thin orchestration layer that connects the framework to the service layer, while all channel finding logic lives in ``osprey.services.channel_finder``. This separation makes the service independently testable via CLI (``osprey channel-finder``) and benchmarks before agent integration. The framework provides this capability natively in ``osprey.capabilities.channel_finding``.
 
 **Capability Architecture:**
 
@@ -2289,9 +2288,11 @@ A key architectural pattern: **separate business logic from framework orchestrat
 
 **Architecture Overview:**
 
+Both the service layer and the capability layer are provided natively by the framework. Your project only needs to provide prompt customizations and data.
+
 .. code-block:: python
 
-   # ===== SERVICE LAYER: src/my_control_assistant/services/channel_finder/ =====
+   # ===== SERVICE LAYER: osprey.services.channel_finder (framework-provided) =====
    # Pure Python, no framework dependencies
 
    class ChannelFinderService:
@@ -2316,7 +2317,7 @@ A key architectural pattern: **separate business logic from framework orchestrat
                processing_notes=result.notes
            )
 
-   # ===== CAPABILITY LAYER: src/my_control_assistant/capabilities/channel_finding.py =====
+   # ===== CAPABILITY LAYER: osprey.capabilities.channel_finding (framework-provided) =====
    # Framework integration only
 
    @capability_node
@@ -2341,6 +2342,12 @@ A key architectural pattern: **separate business logic from framework orchestrat
 
            # Store in framework state
            return self.store_output_context(context)
+
+.. tip::
+
+   Need to customize a framework capability or service beyond prompt overrides?
+   Use :ref:`osprey eject <cli-eject>` (e.g., ``osprey eject capability channel_finding``
+   or ``osprey eject service channel_finder``) to copy the source to your project for modification.
 
 
 Navigation
