@@ -346,6 +346,39 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     provides=[],
                     requires=[],
                 ),
+                # Control system capabilities (native framework-level)
+                CapabilityRegistration(
+                    name="channel_finding",
+                    module_path="osprey.capabilities.channel_finding",
+                    class_name="ChannelFindingCapability",
+                    description="Find channel addresses in the control system using natural language queries",
+                    provides=["CHANNEL_ADDRESSES"],
+                    requires=[],
+                ),
+                CapabilityRegistration(
+                    name="channel_read",
+                    module_path="osprey.capabilities.channel_read",
+                    class_name="ChannelReadCapability",
+                    description="Read current values from control system channels",
+                    provides=["CHANNEL_VALUES"],
+                    requires=["CHANNEL_ADDRESSES"],
+                ),
+                CapabilityRegistration(
+                    name="channel_write",
+                    module_path="osprey.capabilities.channel_write",
+                    class_name="ChannelWriteCapability",
+                    description="Write values to control system channels with safety checks and approval",
+                    provides=["CHANNEL_WRITE_RESULTS"],
+                    requires=["CHANNEL_ADDRESSES"],
+                ),
+                CapabilityRegistration(
+                    name="archiver_retrieval",
+                    module_path="osprey.capabilities.archiver_retrieval",
+                    class_name="ArchiverRetrievalCapability",
+                    description="Retrieve historical channel data from the archiver",
+                    provides=["ARCHIVER_DATA"],
+                    requires=["CHANNEL_ADDRESSES"],
+                ),
             ],
             # Framework-level context classes
             context_classes=[
@@ -366,6 +399,27 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     context_type="PYTHON_RESULTS",
                     module_path="osprey.capabilities.python",
                     class_name="PythonResultsContext",
+                ),
+                # Control system context classes (native framework-level)
+                ContextClassRegistration(
+                    context_type="CHANNEL_ADDRESSES",
+                    module_path="osprey.capabilities.channel_finding",
+                    class_name="ChannelAddressesContext",
+                ),
+                ContextClassRegistration(
+                    context_type="CHANNEL_VALUES",
+                    module_path="osprey.capabilities.channel_read",
+                    class_name="ChannelValuesContext",
+                ),
+                ContextClassRegistration(
+                    context_type="CHANNEL_WRITE_RESULTS",
+                    module_path="osprey.capabilities.channel_write",
+                    class_name="ChannelWriteResultsContext",
+                ),
+                ContextClassRegistration(
+                    context_type="ARCHIVER_DATA",
+                    module_path="osprey.capabilities.archiver_retrieval",
+                    class_name="ArchiverDataContext",
                 ),
             ],
             # Framework-level data sources
@@ -396,6 +450,15 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                         "python_approval_node",
                     ],
                 ),
+                # Channel finder service (framework-level)
+                ServiceRegistration(
+                    name="channel_finder",
+                    module_path="osprey.services.channel_finder.service",
+                    class_name="ChannelFinderService",
+                    description="Channel address discovery and search service",
+                    provides=["CHANNEL_ADDRESSES"],
+                    requires=[],
+                ),
             ],
             # Framework prompt providers (defaults - typically overridden by applications)
             framework_prompt_providers=[
@@ -411,6 +474,9 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                         "memory_extraction": "DefaultMemoryExtractionPromptBuilder",
                         "time_range_parsing": "DefaultTimeRangeParsingPromptBuilder",
                         "python": "DefaultPythonPromptBuilder",
+                        "channel_finder_in_context": "DefaultInContextPromptBuilder",
+                        "channel_finder_hierarchical": "DefaultHierarchicalPromptBuilder",
+                        "channel_finder_middle_layer": "DefaultMiddleLayerPromptBuilder",
                     },
                 )
             ],
