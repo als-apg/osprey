@@ -1203,7 +1203,10 @@ simulation:
 
         monkeypatch.chdir(tmp_path)
 
-        result = cli_runner.invoke(generate, ["soft-ioc", "--filter-pattern", "QUAD.*", "--dry-run"])
+        result = cli_runner.invoke(
+            generate,
+            ["soft-ioc", "--filter-pattern", "QUAD.*", "--dry-run"],
+        )
 
         assert result.exit_code == 0
         # Should show filtering message
@@ -1304,14 +1307,36 @@ simulation:
         monkeypatch.chdir(tmp_path)
 
         # Use invalid regex pattern
-        result = cli_runner.invoke(generate, ["soft-ioc", "--filter-pattern", "[invalid(", "--dry-run"])
+        result = cli_runner.invoke(
+            generate,
+            ["soft-ioc", "--filter-pattern", "[invalid(", "--dry-run"],
+        )
 
         assert result.exit_code != 0
         # Should show error about invalid pattern
         assert "Invalid" in result.output or "error" in result.output.lower()
 
-    def test_negative_limit_fails(self, cli_runner, tmp_path, monkeypatch):
-        """Test that negative --limit value shows error."""
+    def test_negative_limit_fails(self, cli_runner):
+        """Test that negative --limit value is rejected by Click."""
+        result = cli_runner.invoke(generate, ["soft-ioc", "--limit", "-5", "--dry-run"])
+
+        assert result.exit_code != 0
+        # Click IntRange rejects values below min=1
+        assert "-5 is not in the range x>=1" in result.output
+
+    def test_negative_threshold_fails(self, cli_runner):
+        """Test that negative --pv-count-warning-threshold is rejected."""
+        result = cli_runner.invoke(
+            generate,
+            ["soft-ioc", "--pv-count-warning-threshold", "-1", "--dry-run"],
+        )
+
+        assert result.exit_code != 0
+        # Click IntRange rejects values below min=1
+        assert "-1 is not in the range x>=1" in result.output
+
+    def test_filter_and_limit_combined(self, cli_runner, tmp_path, monkeypatch):
+        """Test that filter is applied first, then limit."""
         config_content = """
 project_name: test_project
 simulation:
@@ -1325,18 +1350,36 @@ simulation:
         config_file = tmp_path / "config.yml"
         config_file.write_text(config_content)
 
-        # Create minimal database
+        # Create database with mixed PV types
         db_dir = tmp_path / "data" / "channel_databases"
         db_dir.mkdir(parents=True)
         db_file = db_dir / "db.json"
-        pvs = [{"channel": "TEST:PV", "address": "TEST:PV", "description": "Test"}]
+        pvs = [
+            {"channel": f"QUAD:{i:02d}:SP", "address": f"QUAD:{i:02d}:SP", "description": "Quad"}
+            for i in range(10)
+        ] + [
+            {"channel": f"BPM:{i:02d}:X", "address": f"BPM:{i:02d}:X", "description": "BPM"}
+            for i in range(10)
+        ]
         db_file.write_text(json.dumps(pvs))
 
         monkeypatch.chdir(tmp_path)
 
-        # Use negative limit
-        result = cli_runner.invoke(generate, ["soft-ioc", "--limit", "-5", "--dry-run"])
+        # Filter to QUAD PVs (10 matches), then limit to 3
+        result = cli_runner.invoke(
+            generate,
+            [
+                "soft-ioc",
+                "--filter-pattern",
+                "QUAD.*",
+                "--limit",
+                "3",
+                "--dry-run",
+            ],
+        )
 
-        assert result.exit_code != 0
-        # Should show error about invalid limit
-        assert "positive" in result.output.lower() or "error" in result.output.lower()
+        assert result.exit_code == 0
+        # Should mention filtering
+        assert "filter" in result.output.lower() or "QUAD" in result.output
+        # Should mention limiting
+        assert "Limited" in result.output or "3" in result.output

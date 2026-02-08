@@ -5,6 +5,7 @@ Osprey components from various sources.
 """
 
 import asyncio
+import re
 from pathlib import Path
 
 import click
@@ -2285,7 +2286,7 @@ def _print_manual_config_instructions(port: int):
 )
 @click.option(
     "--limit",
-    type=int,
+    type=click.IntRange(min=1),
     default=None,
     help="Limit to first N PVs from database (useful for large databases)",
 )
@@ -2297,7 +2298,7 @@ def _print_manual_config_instructions(port: int):
 )
 @click.option(
     "--pv-count-warning-threshold",
-    type=int,
+    type=click.IntRange(min=1),
     default=1000,
     help="Warn if PV count exceeds this threshold (default: 1000)",
 )
@@ -2499,51 +2500,51 @@ def soft_ioc(
                 )
 
             original_count = len(channels)
-            console.print(f"  {Messages.success(f'Loaded {original_count} channels from database')}")
+            msg = f"Loaded {original_count} channels from database"
+            console.print(f"  {Messages.success(msg)}")
 
             # Apply filter pattern if specified
             if filter_pattern:
-                import re
                 try:
                     pattern = re.compile(filter_pattern)
                     channels = [ch for ch in channels if pattern.search(ch["name"])]
-                    console.print(
-                        f"  {Messages.info(f'Applied filter pattern: {filter_pattern}')}"
-                    )
-                    console.print(
-                        f"  {Messages.info(f'Filtered to {len(channels)} channels (from {original_count})')}"
-                    )
+                    msg = f"Applied filter pattern: {filter_pattern}"
+                    console.print(f"  {Messages.info(msg)}")
+                    msg = f"Filtered to {len(channels)} channels (from {original_count})"
+                    console.print(f"  {Messages.info(msg)}")
                 except re.error as e:
-                    console.print(f"\n{Messages.error(f'Invalid regex pattern: {e}')}")
+                    msg = f"Invalid regex pattern: {e}"
+                    console.print(f"\n{Messages.error(msg)}")
                     raise click.Abort() from e
 
             # Apply limit if specified
             if limit is not None:
-                if limit <= 0:
-                    console.print(f"\n{Messages.error('--limit must be a positive integer')}")
-                    raise click.Abort()
-
                 pre_limit_count = len(channels)
                 channels = channels[:limit]
                 if pre_limit_count > limit:
-                    console.print(
-                        f"  {Messages.info(f'Limited to first {limit} channels (from {pre_limit_count})')}"
-                    )
+                    msg = f"Limited to first {limit} channels (from {pre_limit_count})"
+                    console.print(f"  {Messages.info(msg)}")
 
             # Warn if PV count is large (after filtering/limiting)
             if len(channels) > pv_count_warning_threshold:
+                w = Styles.WARNING
+                d = Styles.DIM
+                c = Styles.COMMAND
+                count = len(channels)
                 console.print()
-                console.print(f"  [{Styles.WARNING}]⚠️  Warning: Large PV database detected![/{Styles.WARNING}]")
+                console.print(f"  [{w}]⚠️  Warning: Large PV database detected![/{w}]")
+                console.print(f"  [{w}]Generating IOC with {count} PVs may take a while.[/{w}]")
                 console.print(
-                    f"  [{Styles.WARNING}]Generating IOC with {len(channels)} PVs may take a while.[/{Styles.WARNING}]"
-                )
-                console.print(
-                    f"  [{Styles.WARNING}]The generated IOC may suffer performance issues on limited resources.[/{Styles.WARNING}]"
+                    f"  [{w}]The generated IOC may suffer"
+                    f" performance issues on limited"
+                    f" resources.[/{w}]"
                 )
                 console.print()
-                console.print(f"  [{Styles.DIM}]Consider using --limit or --filter-pattern to reduce PV count:[/{Styles.DIM}]")
-                console.print(f"    [{Styles.COMMAND}]osprey generate soft-ioc --limit 500[/{Styles.COMMAND}]")
-                console.print(f"    [{Styles.COMMAND}]osprey generate soft-ioc --filter-pattern \"QUAD.*\"[/{Styles.COMMAND}]")
+                console.print(
+                    f"  [{d}]Consider using --limit or --filter-pattern to reduce PV count:[/{d}]"
+                )
+                console.print(f"    [{c}]osprey generate soft-ioc --limit 500[/{c}]")
+                console.print(f'    [{c}]osprey generate soft-ioc --filter-pattern "QUAD.*"[/{c}]')
                 console.print()
         else:
             # No channel database - confirm empty IOC creation
