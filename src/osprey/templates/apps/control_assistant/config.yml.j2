@@ -651,23 +651,26 @@ ariel:
 
   default_max_results: 10
 
-  # Ingestion - ALS logbook adapter
+  # Ingestion - demo logbook data (bundled with template)
+  # For production: change adapter and source_url to your logbook system
   ingestion:
-    adapter: als_logbook
-    source_url: /path/to/logbook.jsonl  # Update with your logbook path
+    adapter: generic_json
+    source_url: ./data/logbook_seed/demo_logbook.json
 
   # Search modules
   # provider: references api.providers for credentials (api_key, base_url)
+  # Tutorial default: only keyword search enabled (no Ollama dependency)
+  # Enable semantic + rag when you have Ollama running with nomic-embed-text
   search_modules:
     keyword:
       enabled: true
     semantic:
-      enabled: true
-      provider: ollama  # References api.providers.ollama
+      enabled: false     # Requires Ollama + embedding model. Enable when ready.
+      provider: ollama   # References api.providers.ollama
       model: nomic-embed-text
     rag:
-      enabled: true
-      provider: ollama  # References api.providers.ollama
+      enabled: false     # Requires semantic search. Enable with semantic above.
+      provider: ollama   # References api.providers.ollama
       model: nomic-embed-text
 
   # Enhancement modules
@@ -676,7 +679,7 @@ ariel:
     # Semantic processor: LLM-based keyword extraction and summarization
     # Enables better keyword search and RAG context
     semantic_processor:
-      enabled: false  # Requires LLM API calls - enable to use
+      enabled: false  # Requires LLM API calls. Enable for better search quality.
       provider: {{ default_provider }}  # References api.providers
       model:
         provider: {{ default_provider }}
@@ -684,9 +687,9 @@ ariel:
         max_tokens: 256
 
     # Text embedding: Vector embeddings for semantic search
-    # Uses local Ollama - no API costs
+    # Requires Ollama running locally with the specified model
     text_embedding:
-      enabled: true
+      enabled: false  # Requires Ollama. Enable for semantic search.
       provider: ollama  # References api.providers.ollama
       models:
         - name: nomic-embed-text

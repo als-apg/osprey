@@ -92,7 +92,14 @@ def status_command(output_json: bool) -> None:
                 }
 
         except Exception as e:
-            return {"status": "error", "message": str(e)}
+            msg = str(e)
+            if "connection" in msg.lower() or "connect" in msg.lower():
+                return {
+                    "status": "error",
+                    "message": "Cannot connect to the ARIEL database. "
+                    "Make sure the database is running: osprey deploy up",
+                }
+            return {"status": "error", "message": msg}
 
     result = asyncio.run(_get_status())
 
@@ -133,7 +140,16 @@ def migrate_command(rollback: bool) -> None:
 
         click.echo(f"Connecting to database: {config.database.uri.split('@')[-1]}")
 
-        pool = await create_connection_pool(config.database)
+        try:
+            pool = await create_connection_pool(config.database)
+        except Exception as e:
+            if "connection" in str(e).lower() or "connect" in str(e).lower():
+                click.echo("Error: Cannot connect to the ARIEL database.", err=True)
+                click.echo(
+                    "Make sure the database is running: osprey deploy up", err=True
+                )
+                raise SystemExit(1) from None
+            raise
 
         try:
             if rollback:
@@ -269,6 +285,12 @@ def ingest_command(
             click.echo("Run 'osprey ariel migrate' to create the required tables.", err=True)
             raise SystemExit(1) from None
         raise  # Re-raise other database errors
+    except Exception as e:
+        if "connection" in str(e).lower() or "connect" in str(e).lower():
+            click.echo("Error: Cannot connect to the ARIEL database.", err=True)
+            click.echo("Make sure the database is running: osprey deploy up", err=True)
+            raise SystemExit(1) from None
+        raise
 
 
 @ariel_group.command("enhance")
@@ -410,21 +432,36 @@ def search_command(query: str, mode: str, limit: int, output_json: bool) -> None
         if mode != "auto":
             search_mode = SearchMode[mode.upper()]
 
-        service = await create_ariel_service(config)
-        async with service:
-            result = await service.search(
-                query=query,
-                max_results=limit,
-                mode=search_mode,
-            )
+        try:
+            service = await create_ariel_service(config)
+            async with service:
+                result = await service.search(
+                    query=query,
+                    max_results=limit,
+                    mode=search_mode,
+                )
 
-            return {
-                "query": query,
-                "answer": result.answer,
-                "sources": list(result.sources),
-                "search_modes": [m.value for m in result.search_modes_used],
-                "reasoning": result.reasoning,
-            }
+                return {
+                    "query": query,
+                    "answer": result.answer,
+                    "sources": list(result.sources),
+                    "search_modes": [m.value for m in result.search_modes_used],
+                    "reasoning": result.reasoning,
+                }
+        except Exception as e:
+            msg = str(e)
+            if "connection" in msg.lower() or "connect" in msg.lower():
+                return {
+                    "error": "Cannot connect to the ARIEL database. "
+                    "Make sure the database is running: osprey deploy up"
+                }
+            if "relation" in msg and "does not exist" in msg:
+                return {
+                    "error": "Logbook database tables not found. "
+                    "Run 'osprey ariel migrate' to create tables, then "
+                    "'osprey ariel ingest' to populate data."
+                }
+            return {"error": msg}
 
     result = asyncio.run(_search())
 
@@ -628,6 +665,105 @@ def reembed_command(
             click.echo(f"  Errors: {errors}")
 
     asyncio.run(_reembed())
+
+
+@ariel_group.command("quickstart")
+@click.option(
+    "--source",
+    "-s",
+    type=click.Path(exists=True),
+    help="Custom logbook JSON file (default: use config or bundled demo data)",
+)
+def quickstart_command(source: str | None) -> None:
+    """Quick setup for ARIEL logbook search.
+
+    Runs the complete setup sequence:
+    1. Checks database connection (prompts to run 'osprey deploy up' if down)
+    2. Runs database migrations
+    3. Ingests demo logbook data (or custom source)
+
+    Example:
+        osprey ariel quickstart                    # Use bundled demo data
+        osprey ariel quickstart -s my_logbook.json # Use custom data
+    """
+
+    async def _quickstart() -> None:
+        from osprey.services.ariel_search import ARIELConfig, create_ariel_service
+        from osprey.services.ariel_search.database.connection import create_connection_pool
+        from osprey.services.ariel_search.database.migrate import run_migrations
+        from osprey.services.ariel_search.ingestion import get_adapter
+
+        # 1. Load config
+        config_dict = get_config_value("ariel", {})
+        if not config_dict:
+            click.echo("Error: ARIEL not configured in config.yml", err=True)
+            click.echo("Add an 'ariel:' section to your config.yml file.", err=True)
+            raise SystemExit(1)
+
+        # Override source if provided via CLI
+        if source:
+            if "ingestion" not in config_dict:
+                config_dict["ingestion"] = {}
+            config_dict["ingestion"]["source_url"] = source
+            config_dict["ingestion"]["adapter"] = "generic_json"
+
+        config = ARIELConfig.from_dict(config_dict)
+
+        # 2. Check database connection
+        click.echo("Checking database connection...")
+        try:
+            pool = await create_connection_pool(config.database)
+        except Exception as e:
+            if "connection" in str(e).lower() or "connect" in str(e).lower():
+                click.echo("\nError: Cannot connect to the ARIEL database.", err=True)
+                click.echo("Start it with: osprey deploy up", err=True)
+                click.echo("Then re-run: osprey ariel quickstart", err=True)
+                raise SystemExit(1) from None
+            raise
+        click.echo("  Database: connected")
+
+        try:
+            # 3. Run migrations
+            click.echo("Running migrations...")
+            applied = await run_migrations(pool, config)
+            if applied:
+                click.echo(f"  Tables: created ({len(applied)} migrations applied)")
+            else:
+                click.echo("  Tables: already up to date")
+
+            # 4. Ingest data
+            if not config.ingestion or not config.ingestion.source_url:
+                click.echo("\nNo ingestion source configured. Skipping data ingestion.")
+                click.echo(
+                    "Set ingestion.source_url in config.yml or use --source flag.",
+                    err=True,
+                )
+            else:
+                click.echo(f"Ingesting data from: {config.ingestion.source_url}")
+                adapter_instance = get_adapter(config)
+
+                service = await create_ariel_service(config)
+                async with service:
+                    count = 0
+                    async for entry in adapter_instance.fetch_entries():
+                        await service.repository.upsert_entry(entry)
+                        count += 1
+                    click.echo(f"  Entries: {count} ingested")
+
+            # 5. Summary
+            enabled_search = config.get_enabled_search_modules()
+            click.echo(
+                f"\nARIEL quickstart complete!"
+                f"\n  Search modules: {', '.join(enabled_search) or 'none'}"
+            )
+            click.echo(
+                '\nTry it: osprey ariel search "What happened with the RF cavity?"'
+            )
+
+        finally:
+            await pool.close()
+
+    asyncio.run(_quickstart())
 
 
 @ariel_group.command("web")

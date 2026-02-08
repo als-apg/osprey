@@ -215,35 +215,64 @@ class LogbookSearchCapability(BaseCapability):
 
     @staticmethod
     def classify_error(exc: Exception, context: dict) -> ErrorClassification:
-        """Classify ARIEL errors for recovery strategies."""
+        """Classify ARIEL errors for recovery strategies.
+
+        Provides actionable guidance in user_message to help users
+        resolve common setup issues (database not running, tables
+        not created, embedding model unavailable).
+        """
         from osprey.services.ariel_search.exceptions import (
             ConfigurationError,
             DatabaseConnectionError,
+            DatabaseQueryError,
             EmbeddingGenerationError,
         )
 
         if isinstance(exc, DatabaseConnectionError):
             return ErrorClassification(
+                severity=ErrorSeverity.CRITICAL,
+                user_message=(
+                    "Cannot connect to the logbook database. "
+                    "Run 'osprey deploy up' to start the database, then "
+                    "'osprey ariel migrate' and 'osprey ariel ingest' to set up data."
+                ),
+                metadata={"technical_details": str(exc)},
+            )
+        elif isinstance(exc, DatabaseQueryError):
+            if "relation" in str(exc) and "does not exist" in str(exc):
+                return ErrorClassification(
+                    severity=ErrorSeverity.CRITICAL,
+                    user_message=(
+                        "Logbook database tables not found. "
+                        "Run 'osprey ariel migrate' to create tables, then "
+                        "'osprey ariel ingest' to populate data."
+                    ),
+                    metadata={"technical_details": str(exc)},
+                )
+            return ErrorClassification(
                 severity=ErrorSeverity.RETRIABLE,
-                user_message="Database temporarily unavailable, retrying...",
+                user_message="Database query error, retrying...",
                 metadata={"technical_details": str(exc)},
             )
         elif isinstance(exc, EmbeddingGenerationError):
             return ErrorClassification(
-                severity=ErrorSeverity.RETRIABLE,
-                user_message="Embedding model unavailable, retrying...",
+                severity=ErrorSeverity.CRITICAL,
+                user_message=(
+                    "Embedding model unavailable. If you don't need semantic search, "
+                    "disable it in config.yml: search_modules.semantic.enabled: false"
+                ),
                 metadata={"technical_details": str(exc)},
             )
         elif isinstance(exc, ConfigurationError):
             return ErrorClassification(
                 severity=ErrorSeverity.CRITICAL,
-                user_message="Logbook search is not configured correctly",
+                user_message=f"Logbook search configuration error: {exc.message}",
                 metadata={"technical_details": str(exc)},
             )
         else:
             return ErrorClassification(
                 severity=ErrorSeverity.CRITICAL,
-                user_message=f"Search failed: {str(exc)}",
+                user_message=f"Logbook search failed: {str(exc)}",
                 metadata={"technical_details": str(exc)},
             )
 

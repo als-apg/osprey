@@ -93,6 +93,74 @@ class TestGetArielSearchService:
         assert service1 is mock_service
 
 
+class TestLogbookSearchCapabilityErrorClassification:
+    """Tests for LogbookSearchCapability.classify_error with actionable messages."""
+
+    def test_database_connection_error_is_critical_with_guidance(self):
+        """DatabaseConnectionError returns CRITICAL with setup instructions."""
+        from osprey.capabilities.logbook_search import LogbookSearchCapability
+        from osprey.base.errors import ErrorSeverity
+        from osprey.services.ariel_search.exceptions import DatabaseConnectionError
+
+        exc = DatabaseConnectionError("Connection refused")
+        result = LogbookSearchCapability.classify_error(exc, {})
+        assert result.severity == ErrorSeverity.CRITICAL
+        assert "osprey deploy up" in result.user_message
+
+    def test_missing_tables_error_is_critical_with_migrate_guidance(self):
+        """DatabaseQueryError for missing tables suggests migrate command."""
+        from osprey.capabilities.logbook_search import LogbookSearchCapability
+        from osprey.base.errors import ErrorSeverity
+        from osprey.services.ariel_search.exceptions import DatabaseQueryError
+
+        exc = DatabaseQueryError('relation "enhanced_entries" does not exist')
+        result = LogbookSearchCapability.classify_error(exc, {})
+        assert result.severity == ErrorSeverity.CRITICAL
+        assert "osprey ariel migrate" in result.user_message
+
+    def test_generic_database_query_error_is_retriable(self):
+        """Generic DatabaseQueryError is RETRIABLE (transient)."""
+        from osprey.capabilities.logbook_search import LogbookSearchCapability
+        from osprey.base.errors import ErrorSeverity
+        from osprey.services.ariel_search.exceptions import DatabaseQueryError
+
+        exc = DatabaseQueryError("temporary failure")
+        result = LogbookSearchCapability.classify_error(exc, {})
+        assert result.severity == ErrorSeverity.RETRIABLE
+
+    def test_embedding_error_suggests_disabling_semantic(self):
+        """EmbeddingGenerationError suggests disabling semantic search."""
+        from osprey.capabilities.logbook_search import LogbookSearchCapability
+        from osprey.base.errors import ErrorSeverity
+        from osprey.services.ariel_search.exceptions import EmbeddingGenerationError
+
+        exc = EmbeddingGenerationError("Ollama not available", model_name="nomic-embed-text")
+        result = LogbookSearchCapability.classify_error(exc, {})
+        assert result.severity == ErrorSeverity.CRITICAL
+        assert "semantic" in result.user_message.lower()
+
+    def test_configuration_error_includes_message(self):
+        """ConfigurationError includes the original message."""
+        from osprey.capabilities.logbook_search import LogbookSearchCapability
+        from osprey.base.errors import ErrorSeverity
+        from osprey.services.ariel_search.exceptions import ConfigurationError
+
+        exc = ConfigurationError("Missing database URI", config_key="ariel.database.uri")
+        result = LogbookSearchCapability.classify_error(exc, {})
+        assert result.severity == ErrorSeverity.CRITICAL
+        assert "Missing database URI" in result.user_message
+
+    def test_unknown_error_is_critical(self):
+        """Unknown exceptions are classified as CRITICAL."""
+        from osprey.capabilities.logbook_search import LogbookSearchCapability
+        from osprey.base.errors import ErrorSeverity
+
+        exc = RuntimeError("something unexpected")
+        result = LogbookSearchCapability.classify_error(exc, {})
+        assert result.severity == ErrorSeverity.CRITICAL
+        assert "something unexpected" in result.user_message
+
+
 class TestCapabilityExports:
     """Tests for capability module exports."""
 

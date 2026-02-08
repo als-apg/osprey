@@ -182,3 +182,105 @@ class TestARIELCLIGroup:
         assert result.exit_code == 1
         assert "ARIEL database is not initialized" in result.output
         assert "osprey ariel migrate" in result.output
+
+
+class TestQuickstartCommand:
+    """Tests for the ariel quickstart command."""
+
+    @pytest.fixture
+    def runner(self):
+        """Create a CLI runner."""
+        return CliRunner()
+
+    def test_quickstart_command_exists(self, runner):
+        """quickstart subcommand is registered."""
+        result = runner.invoke(ariel_group, ["quickstart", "--help"])
+        assert result.exit_code == 0
+        assert "Quick setup" in result.output
+
+    def test_quickstart_has_source_option(self, runner):
+        """quickstart has --source option."""
+        result = runner.invoke(ariel_group, ["quickstart", "--help"])
+        assert "--source" in result.output
+
+    def test_quickstart_no_config_shows_error(self, runner, monkeypatch):
+        """quickstart shows error when ARIEL not configured."""
+        monkeypatch.setattr(
+            "osprey.cli.ariel.get_config_value",
+            lambda key, default=None: default,
+        )
+        result = runner.invoke(ariel_group, ["quickstart"])
+        assert result.exit_code == 1
+        assert "not configured" in result.output.lower()
+
+    def test_quickstart_connection_failure_shows_guidance(self, runner, monkeypatch):
+        """quickstart shows 'osprey deploy up' guidance on connection failure."""
+        from unittest.mock import AsyncMock, patch
+
+        mock_config = {
+            "database": {"uri": "postgresql://localhost/test"},
+            "ingestion": {"adapter": "generic_json", "source_url": "/tmp/demo.json"},
+        }
+        monkeypatch.setattr(
+            "osprey.cli.ariel.get_config_value",
+            lambda key, default=None: mock_config if key == "ariel" else default,
+        )
+
+        with patch(
+            "osprey.services.ariel_search.database.connection.create_connection_pool",
+            new_callable=AsyncMock,
+            side_effect=Exception("connection refused"),
+        ):
+            result = runner.invoke(ariel_group, ["quickstart"])
+
+        assert result.exit_code == 1
+        assert "osprey deploy up" in result.output
+
+    def test_quickstart_success_flow(self, runner, monkeypatch, tmp_path):
+        """quickstart completes successfully with mocked database."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        # Create demo data file
+        demo_file = tmp_path / "demo_logbook.json"
+        demo_file.write_text('{"entries": [{"id": "1", "timestamp": "2024-01-01T00:00:00Z", "text": "test"}]}')
+
+        mock_config = {
+            "database": {"uri": "postgresql://localhost/test"},
+            "ingestion": {"adapter": "generic_json", "source_url": str(demo_file)},
+            "search_modules": {"keyword": {"enabled": True}},
+        }
+        monkeypatch.setattr(
+            "osprey.cli.ariel.get_config_value",
+            lambda key, default=None: mock_config if key == "ariel" else default,
+        )
+
+        mock_pool = MagicMock()
+        mock_pool.close = AsyncMock()
+
+        mock_service = MagicMock()
+        mock_service.__aenter__ = AsyncMock(return_value=mock_service)
+        mock_service.__aexit__ = AsyncMock(return_value=None)
+        mock_service.repository = MagicMock()
+        mock_service.repository.upsert_entry = AsyncMock()
+
+        with (
+            patch(
+                "osprey.services.ariel_search.database.connection.create_connection_pool",
+                new_callable=AsyncMock,
+                return_value=mock_pool,
+            ),
+            patch(
+                "osprey.services.ariel_search.database.migrate.run_migrations",
+                new_callable=AsyncMock,
+                return_value=["core_schema"],
+            ),
+            patch(
+                "osprey.services.ariel_search.create_ariel_service",
+                new_callable=AsyncMock,
+                return_value=mock_service,
+            ),
+        ):
+            result = runner.invoke(ariel_group, ["quickstart"])
+
+        assert result.exit_code == 0
+        assert "complete" in result.output.lower()
