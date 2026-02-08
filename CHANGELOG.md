@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Registry**: Config-driven provider loading skips unused provider imports (#138)
   - Eliminates ~30s startup delay on air-gapped machines caused by timeout on provider network calls
   - Removes module-level `get_available_models(force_refresh=True)` from `argo.py` and `asksage.py`
+- **Argo**: Add structured output handler for Argo provider
+  - Argo API does not support the `response_format` parameter; structured output now uses direct httpx calls with JSON schema prompting
+  - Includes `_clean_json_response()` to strip markdown fences and fix Python-style booleans
 
 ### Changed
 - **Docs**: Update citation to published APL Machine Learning paper (doi:10.1063/5.0306302)
