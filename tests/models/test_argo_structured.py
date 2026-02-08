@@ -90,9 +90,7 @@ class TestExecuteArgoStructuredOutput:
         """Successful parse returns validated Pydantic model."""
         mock_response = MagicMock()
         mock_response.json.return_value = {
-            "choices": [
-                {"message": {"content": '{"name": "test", "value": 42, "active": true}'}}
-            ]
+            "choices": [{"message": {"content": '{"name": "test", "value": 42, "active": true}'}}]
         }
         mock_response.raise_for_status = MagicMock()
         mock_post.return_value = mock_response
@@ -115,9 +113,7 @@ class TestExecuteArgoStructuredOutput:
         """When is_typed_dict_output=True, returns dict instead of model."""
         mock_response = MagicMock()
         mock_response.json.return_value = {
-            "choices": [
-                {"message": {"content": '{"name": "test", "value": 1, "active": false}'}}
-            ]
+            "choices": [{"message": {"content": '{"name": "test", "value": 1, "active": false}'}}]
         }
         mock_response.raise_for_status = MagicMock()
         mock_post.return_value = mock_response
@@ -204,9 +200,7 @@ class TestExecuteArgoStructuredOutput:
         """Falls back to default base URL when none provided."""
         mock_response = MagicMock()
         mock_response.json.return_value = {
-            "choices": [
-                {"message": {"content": '{"name": "test", "value": 1, "active": true}'}}
-            ]
+            "choices": [{"message": {"content": '{"name": "test", "value": 1, "active": true}'}}]
         }
         mock_response.raise_for_status = MagicMock()
         mock_post.return_value = mock_response

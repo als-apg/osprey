@@ -21,9 +21,7 @@ class TestProviderRegistrationName:
 
     def test_name_defaults_to_none(self):
         """ProviderRegistration.name defaults to None for backward compat."""
-        reg = ProviderRegistration(
-            module_path="some.module", class_name="SomeProvider"
-        )
+        reg = ProviderRegistration(module_path="some.module", class_name="SomeProvider")
         assert reg.name is None
 
     def test_name_stores_explicit_value(self):
