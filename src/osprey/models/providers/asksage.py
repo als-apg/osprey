@@ -224,12 +224,5 @@ Respond ONLY with the JSON object, no additional text or markdown formatting."""
             return False, f"Health check failed: {str(e)[:50]}"
 
 
-# Attempt to refresh available models at import time (best effort)
-try:
-    AskSageProviderAdapter.get_available_models(force_refresh=True)
-except Exception:
-    # Import-time failures should not break provider load
-    pass
-
 # Ensure ABC doesn't block instantiation if metadata is fully defined
 AskSageProviderAdapter.__abstractmethods__ = frozenset()

@@ -419,32 +419,47 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                 ProviderRegistration(
                     module_path="osprey.models.providers.anthropic",
                     class_name="AnthropicProviderAdapter",
+                    name="anthropic",
                 ),
                 ProviderRegistration(
-                    module_path="osprey.models.providers.openai", class_name="OpenAIProviderAdapter"
+                    module_path="osprey.models.providers.openai",
+                    class_name="OpenAIProviderAdapter",
+                    name="openai",
                 ),
                 ProviderRegistration(
-                    module_path="osprey.models.providers.google", class_name="GoogleProviderAdapter"
+                    module_path="osprey.models.providers.google",
+                    class_name="GoogleProviderAdapter",
+                    name="google",
                 ),
                 ProviderRegistration(
-                    module_path="osprey.models.providers.ollama", class_name="OllamaProviderAdapter"
+                    module_path="osprey.models.providers.ollama",
+                    class_name="OllamaProviderAdapter",
+                    name="ollama",
                 ),
                 ProviderRegistration(
-                    module_path="osprey.models.providers.cborg", class_name="CBorgProviderAdapter"
+                    module_path="osprey.models.providers.cborg",
+                    class_name="CBorgProviderAdapter",
+                    name="cborg",
                 ),
                 ProviderRegistration(
                     module_path="osprey.models.providers.stanford",
                     class_name="StanfordProviderAdapter",
+                    name="stanford",
                 ),
                 ProviderRegistration(
-                    module_path="osprey.models.providers.argo", class_name="ArgoProviderAdapter"
+                    module_path="osprey.models.providers.argo",
+                    class_name="ArgoProviderAdapter",
+                    name="argo",
                 ),
                 ProviderRegistration(
                     module_path="osprey.models.providers.asksage",
                     class_name="AskSageProviderAdapter",
+                    name="asksage",
                 ),
                 ProviderRegistration(
-                    module_path="osprey.models.providers.vllm", class_name="VLLMProviderAdapter"
+                    module_path="osprey.models.providers.vllm",
+                    class_name="VLLMProviderAdapter",
+                    name="vllm",
                 ),
             ],
             # Framework connectors for control systems and archivers

@@ -1106,6 +1106,23 @@ class RegistryManager:
 
         logger.info(f"Registered {len(self._registries['data_sources'])} data sources")
 
+    def _get_configured_provider_names(self) -> set[str] | None:
+        """Extract provider names from config.yml models section.
+
+        Returns None if config unavailable (load all as fallback).
+        """
+        try:
+            model_configs = get_config_value("models", None)
+            if not model_configs or not isinstance(model_configs, dict):
+                return None
+            providers = set()
+            for role_config in model_configs.values():
+                if isinstance(role_config, dict) and "provider" in role_config:
+                    providers.add(role_config["provider"])
+            return providers if providers else None
+        except Exception:
+            return None  # Config not available (TUI init, framework-only mode)
+
     def _initialize_providers(self) -> None:
         """Initialize AI model providers from registry configuration.
 
@@ -1114,12 +1131,31 @@ class RegistryManager:
         Provider metadata (requires_api_key, supports_proxy, etc.) is defined as
         class attributes and introspected after loading.
 
+        Uses config-driven filtering to skip imports for unconfigured providers,
+        avoiding costly module-level network calls on air-gapped machines.
+
         :raises RegistryError: If provider class doesn't inherit from BaseProvider
         :raises RegistryError: If provider doesn't define required metadata
         """
-        logger.info(f"Initializing {len(self.config.providers)} provider(s)...")
+        configured_providers = self._get_configured_provider_names()
+
+        if configured_providers is not None:
+            logger.info(
+                f"Initializing providers (config-driven: {sorted(configured_providers)})..."
+            )
+        else:
+            logger.info(f"Initializing {len(self.config.providers)} provider(s)...")
 
         for registration in self.config.providers:
+            # Config-driven filtering: skip providers not in config before import
+            if (
+                configured_providers is not None
+                and registration.name is not None
+                and registration.name not in configured_providers
+            ):
+                logger.debug(f"  ⊘ Skipping unconfigured provider: {registration.name}")
+                continue
+
             try:
                 # Lazy load provider class
                 module = importlib.import_module(registration.module_path)
