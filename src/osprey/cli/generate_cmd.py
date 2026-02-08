@@ -1800,8 +1800,8 @@ def _load_channels_from_database(db_path: str | Path, db_type: str | None = None
     if not db_path.exists():
         raise click.ClickException(f"Channel database not found: {db_path}")
 
-    # Import Channel Finder database classes from TEMPLATE location
-    from osprey.templates.apps.control_assistant.services.channel_finder.databases import (
+    # Import Channel Finder database classes from native service location
+    from osprey.services.channel_finder.databases import (
         FlatChannelDatabase,
         HierarchicalChannelDatabase,
         MiddleLayerDatabase,

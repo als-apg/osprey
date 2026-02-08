@@ -67,6 +67,8 @@ class LazyGroup(click.Group):
             "workflows": "osprey.cli.workflows_cmd",  # DEPRECATED: use 'tasks' instead
             "tasks": "osprey.cli.tasks_cmd",
             "claude": "osprey.cli.claude_cmd",
+            "eject": "osprey.cli.eject_cmd",
+            "channel-finder": "osprey.cli.channel_finder_cmd",
         }
 
         if cmd_name not in commands:
@@ -84,6 +86,8 @@ class LazyGroup(click.Group):
         elif cmd_name == "export-config":
             # DEPRECATED: Show warning and redirect to new command
             cmd_func = mod.export_config
+        elif cmd_name == "channel-finder":
+            cmd_func = mod.channel_finder
         else:
             cmd_func = getattr(mod, cmd_name)
 
@@ -102,7 +106,9 @@ class LazyGroup(click.Group):
             "migrate",
             "health",
             "tasks",
+            "channel-finder",
             "claude",
+            "eject",
         ]
 
 
@@ -131,6 +137,7 @@ def cli(ctx):
       osprey health                   Check system health
       osprey tasks                    Browse AI assistant tasks
       osprey claude install <task>    Install Claude Code skill
+      osprey channel-finder           Interactive channel search
     """
     # Initialize theme from config if available (best-effort, silent failure)
     try:

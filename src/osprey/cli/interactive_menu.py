@@ -1265,11 +1265,63 @@ def run_interactive_init() -> str:
         if channel_finder_mode is None:
             return "menu"
 
-    # 2c. Code generator selection (for templates that use Python execution)
+    # 2c. Control capabilities selection (native framework capabilities)
+    control_capabilities = None
+    if template == "control_assistant":
+        console.print("\n[bold]Step 4: Control System Capabilities[/bold]\n")
+        console.print(
+            "[dim]The framework provides these native capabilities (all enabled by default):[/dim]\n"
+        )
+
+        all_caps = [
+            Choice(
+                "channel_finding     - Find control system channels by description",
+                value="channel_finding",
+                checked=True,
+            ),
+            Choice(
+                "channel_read        - Read current channel values",
+                value="channel_read",
+                checked=True,
+            ),
+            Choice(
+                "channel_write       - Write values to channels (with safety controls)",
+                value="channel_write",
+                checked=True,
+            ),
+            Choice(
+                "archiver_retrieval  - Query historical time-series data",
+                value="archiver_retrieval",
+                checked=True,
+            ),
+        ]
+
+        selected = questionary.checkbox(
+            "Control capabilities:",
+            choices=all_caps,
+            style=custom_style,
+        ).ask()
+
+        if selected is None:
+            return "menu"
+
+        # Validate: channel_finding required if any others are selected
+        if selected and "channel_finding" not in selected:
+            other_caps = [c for c in selected if c != "channel_finding"]
+            if other_caps:
+                console.print(
+                    f"\n{Messages.warning('channel_finding is required when using: ' + ', '.join(other_caps))}"
+                )
+                selected.insert(0, "channel_finding")
+                console.print(f"{Messages.info('Automatically included channel_finding')}\n")
+
+        control_capabilities = selected if selected else None
+
+    # 2d. Code generator selection (for templates that use Python execution)
     # Skip for hello_world_weather (simple example), include for control_assistant
     code_generator = None
     if template == "control_assistant":
-        step_num = 4  # After channel finder
+        step_num = 5  # After channel finder + capabilities
         console.print(f"\n[bold]Step {step_num}: Code Generator[/bold]\n")
         code_generator = select_code_generator(code_generators)
         if code_generator is None:
@@ -1409,7 +1461,7 @@ def run_interactive_init() -> str:
 
     # 3. Registry style (step number adjusts based on previous steps)
     if template == "control_assistant":
-        step_num = 5  # After template, name, channel_finder, code_generator
+        step_num = 6  # After template, name, channel_finder, capabilities, code_generator
     else:
         step_num = 3  # After template, name
     console.print(f"\n[bold]Step {step_num}: Registry Style[/bold]\n")
@@ -1429,7 +1481,7 @@ def run_interactive_init() -> str:
 
     # 4. Provider selection (step number adjusts)
     if template == "control_assistant":
-        step_num = 6  # After template, name, channel_finder, code_generator, registry
+        step_num = 7  # After template, name, channel_finder, capabilities, code_generator, registry
     else:
         step_num = 4  # After template, name, registry
     console.print(f"\n[bold]Step {step_num}: AI Provider[/bold]\n")
@@ -1439,7 +1491,7 @@ def run_interactive_init() -> str:
 
     # 5. Model selection (step number adjusts)
     if template == "control_assistant":
-        step_num = 7  # After template, name, channel_finder, code_generator, registry, provider
+        step_num = 8  # After template, name, channel_finder, capabilities, code_generator, registry, provider
     else:
         step_num = 5  # After template, name, registry, provider
     console.print(f"\n[bold]Step {step_num}: Model Selection[/bold]\n")
@@ -1453,6 +1505,9 @@ def run_interactive_init() -> str:
     console.print(f"  Template:      [value]{template}[/value]")
     if channel_finder_mode:
         console.print(f"  Pipeline:      [value]{channel_finder_mode}[/value]")
+    if control_capabilities is not None:
+        caps_str = ", ".join(control_capabilities) if control_capabilities else "none"
+        console.print(f"  Capabilities:  [value]{caps_str}[/value]")
     if code_generator:
         console.print(f"  Code Gen:      [value]{code_generator}[/value]")
     console.print(f"  Registry:      [value]{registry_style}[/value]")
@@ -1480,6 +1535,8 @@ def run_interactive_init() -> str:
         context = {"default_provider": provider, "default_model": model}
         if channel_finder_mode:
             context["channel_finder_mode"] = channel_finder_mode
+        if control_capabilities is not None:
+            context["control_capabilities"] = control_capabilities
         if code_generator:
             context["code_generator"] = code_generator
 
