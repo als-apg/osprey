@@ -548,19 +548,21 @@ class TestSoftIOCServer:
         # Write a value
         pv.write(42.0, wait=True)
 
-        # Wait for write to be processed
-        time.sleep(0.2)
-
-        # Verify on_write was called for our setpoint write
-        calls = ioc_server.get_backend_calls()
-        on_write_calls = [c for c in calls if c["method"] == "on_write"]
-
-        # Find the write for our setpoint (not initialization writes)
-        sp_write_calls = [
-            c
-            for c in on_write_calls
-            if c["pv_name"] == "TEST:SETPOINT:SP" and c["value"] == pytest.approx(42.0)
-        ]
+        # Wait for on_write callback with retry (CI environments may be slower)
+        sp_write_calls = []
+        max_wait = 3.0
+        start = time.time()
+        while time.time() - start < max_wait:
+            time.sleep(0.2)
+            calls = ioc_server.get_backend_calls()
+            on_write_calls = [c for c in calls if c["method"] == "on_write"]
+            sp_write_calls = [
+                c
+                for c in on_write_calls
+                if c["pv_name"] == "TEST:SETPOINT:SP" and c["value"] == pytest.approx(42.0)
+            ]
+            if len(sp_write_calls) >= 1:
+                break
 
         assert len(sp_write_calls) >= 1, f"Expected SP write with value 42.0, got: {on_write_calls}"
 
