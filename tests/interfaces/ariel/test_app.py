@@ -70,11 +70,14 @@ def test_load_ariel_config_from_file(tmp_path: Path, mock_ariel_config):
     assert result == mock_ariel_config
 
 
-def test_load_ariel_config_not_found(tmp_path: Path):
+def test_load_ariel_config_not_found(tmp_path: Path, monkeypatch):
     """Test config loading fails when file not found."""
     from osprey.interfaces.ariel.app import load_ariel_config
 
-    # Use a non-existent file in a temp directory that won't match other paths
+    # Ensure fallback paths (CWD config.yml, /app/config.yml) don't match
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("CONFIG_FILE", raising=False)
+
     nonexistent = tmp_path / "nonexistent" / "config.yml"
 
     with pytest.raises(RuntimeError, match="No config.yml found"):

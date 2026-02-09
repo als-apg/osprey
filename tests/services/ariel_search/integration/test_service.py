@@ -113,7 +113,7 @@ class TestAgentIntegration:
         )
 
         # Create tools
-        tools = executor._create_tools()
+        tools, _descriptors = executor._create_tools()
 
         # Should have at least keyword tool (enabled in integration_ariel_config)
         assert len(tools) >= 1

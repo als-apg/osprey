@@ -12,6 +12,10 @@ import re
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
+from pydantic import BaseModel, Field
+
+from osprey.services.ariel_search.models import SearchMode
+from osprey.services.ariel_search.search.base import SearchToolDescriptor
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -183,8 +187,10 @@ async def keyword_search(
     if not query.strip():
         return []
 
-    logger.info("keyword_search: query=%r, max_results=%d, start_date=%s, end_date=%s",
-                query, max_results, start_date, end_date)
+    logger.info(
+        f"keyword_search: query={query!r}, max_results={max_results}, "
+        f"start_date={start_date}, end_date={end_date}"
+    )
 
     # Truncate query if too long (GAP-C002)
     if len(query) > MAX_QUERY_LENGTH:
@@ -263,5 +269,73 @@ async def keyword_search(
             end_date=end_date,
         )
 
-    logger.info("keyword_search: returning %d results", len(results))
+    logger.info(f"keyword_search: returning {len(results)} results")
     return results
+
+
+# === Tool descriptor for agent auto-discovery ===
+
+
+class KeywordSearchInput(BaseModel):
+    """Input schema for keyword search tool."""
+
+    query: str = Field(
+        description="Search terms. Supports phrases in quotes, AND/OR/NOT operators."
+    )
+    max_results: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        description="Maximum results to return",
+    )
+    start_date: datetime | None = Field(
+        default=None,
+        description="Filter entries created after this time (inclusive)",
+    )
+    end_date: datetime | None = Field(
+        default=None,
+        description="Filter entries created before this time (inclusive)",
+    )
+
+
+def format_keyword_result(
+    entry: EnhancedLogbookEntry,
+    score: float,
+    highlights: list[str],
+) -> dict[str, Any]:
+    """Format a keyword search result for agent consumption.
+
+    Args:
+        entry: EnhancedLogbookEntry
+        score: Relevance score
+        highlights: Highlighted snippets
+
+    Returns:
+        Formatted dict for agent
+    """
+    timestamp = entry.get("timestamp")
+    return {
+        "entry_id": entry.get("entry_id"),
+        "timestamp": timestamp.isoformat() if timestamp is not None else None,
+        "author": entry.get("author"),
+        "text": entry.get("raw_text", "")[:500],  # Truncate for agent
+        "title": entry.get("metadata", {}).get("title"),
+        "score": score,
+        "highlights": highlights,
+    }
+
+
+def get_tool_descriptor() -> SearchToolDescriptor:
+    """Return the descriptor for auto-discovery by the agent executor."""
+    return SearchToolDescriptor(
+        name="keyword_search",
+        description=(
+            "Fast text-based lookup using full-text search. "
+            "Use for specific terms, equipment names, PV names, or phrases. "
+            "Supports quoted phrases and AND/OR/NOT operators."
+        ),
+        search_mode=SearchMode.KEYWORD,
+        args_schema=KeywordSearchInput,
+        execute=keyword_search,
+        format_result=format_keyword_result,
+    )

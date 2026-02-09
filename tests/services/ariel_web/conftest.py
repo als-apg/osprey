@@ -8,10 +8,8 @@ Install with: pip install fastapi httpx
 
 from __future__ import annotations
 
-import sys
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
@@ -46,19 +44,6 @@ def pytest_collection_modifyitems(items):
 if _fastapi_available and _httpx_available:
     from fastapi import FastAPI
     from httpx import ASGITransport, AsyncClient
-
-    # Add ariel-web app directory to path for imports
-    _ariel_web_app_path = (
-        Path(__file__).parent.parent.parent.parent
-        / "src"
-        / "osprey"
-        / "templates"
-        / "services"
-        / "ariel-web"
-        / "app"
-    )
-    if str(_ariel_web_app_path) not in sys.path:
-        sys.path.insert(0, str(_ariel_web_app_path))
 
     @pytest.fixture
     def sample_entry() -> dict:
@@ -173,7 +158,7 @@ if _fastapi_available and _httpx_available:
         Returns:
             FastAPI app with ariel_service in state.
         """
-        from api.routes import router as api_router
+        from osprey.interfaces.ariel.api.routes import router as api_router
 
         # Create fresh app without lifespan (we inject the service manually)
         app = FastAPI(title="ARIEL Test App")

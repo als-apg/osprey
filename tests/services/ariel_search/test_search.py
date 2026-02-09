@@ -1044,7 +1044,7 @@ class TestBoundaryValues:
         """max_results=0 raises validation error (EDGE-007)."""
         from pydantic import ValidationError
 
-        from osprey.services.ariel_search.agent.executor import KeywordSearchInput
+        from osprey.services.ariel_search.search.keyword import KeywordSearchInput
 
         with pytest.raises(ValidationError):
             KeywordSearchInput(query="test", max_results=0)
@@ -1053,7 +1053,7 @@ class TestBoundaryValues:
         """max_results=51 raises validation error (EDGE-008)."""
         from pydantic import ValidationError
 
-        from osprey.services.ariel_search.agent.executor import KeywordSearchInput
+        from osprey.services.ariel_search.search.keyword import KeywordSearchInput
 
         with pytest.raises(ValidationError):
             KeywordSearchInput(query="test", max_results=51)
@@ -1062,7 +1062,7 @@ class TestBoundaryValues:
         """similarity_threshold=-0.1 raises validation error (EDGE-009)."""
         from pydantic import ValidationError
 
-        from osprey.services.ariel_search.agent.executor import SemanticSearchInput
+        from osprey.services.ariel_search.search.semantic import SemanticSearchInput
 
         with pytest.raises(ValidationError):
             SemanticSearchInput(query="test", similarity_threshold=-0.1)
@@ -1071,7 +1071,7 @@ class TestBoundaryValues:
         """similarity_threshold=1.1 raises validation error (EDGE-009)."""
         from pydantic import ValidationError
 
-        from osprey.services.ariel_search.agent.executor import SemanticSearchInput
+        from osprey.services.ariel_search.search.semantic import SemanticSearchInput
 
         with pytest.raises(ValidationError):
             SemanticSearchInput(query="test", similarity_threshold=1.1)

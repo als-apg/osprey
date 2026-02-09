@@ -4,6 +4,9 @@ This module provides the AgentExecutor class that encapsulates ReAct agent
 logic with search tools. The agent decides what to search and synthesizes
 answers from multiple tool invocations.
 
+Search tools are auto-discovered from the SEARCH_MODULE_REGISTRY via
+SearchToolDescriptor — adding a new search module requires zero changes here.
+
 See 03_AGENTIC_REASONING.md for specification.
 """
 
@@ -13,9 +16,8 @@ import asyncio
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
+from importlib import import_module
 from typing import TYPE_CHECKING, Any
-
-from pydantic import BaseModel, Field
 
 from osprey.services.ariel_search.exceptions import (
     ConfigurationError,
@@ -33,7 +35,7 @@ if TYPE_CHECKING:
     from osprey.models.embeddings.base import BaseEmbeddingProvider
     from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.database.repository import ARIELRepository
-    from osprey.services.ariel_search.models import EnhancedLogbookEntry
+    from osprey.services.ariel_search.search.base import SearchToolDescriptor
 
 logger = get_logger("ariel")
 
@@ -59,111 +61,6 @@ Your purpose is to help users find relevant information in the electronic logboo
 - Provide direct answers citing source entries
 - If nothing is found: clearly state that no relevant information was found in the logbook
 """
-
-
-# === Input Schemas for Tools ===
-
-
-class KeywordSearchInput(BaseModel):
-    """Input schema for keyword search tool."""
-
-    query: str = Field(
-        description="Search terms. Supports phrases in quotes, AND/OR/NOT operators."
-    )
-    max_results: int = Field(
-        default=10,
-        ge=1,
-        le=50,
-        description="Maximum results to return",
-    )
-    start_date: datetime | None = Field(
-        default=None,
-        description="Filter entries created after this time (inclusive)",
-    )
-    end_date: datetime | None = Field(
-        default=None,
-        description="Filter entries created before this time (inclusive)",
-    )
-
-
-class SemanticSearchInput(BaseModel):
-    """Input schema for semantic search tool."""
-
-    query: str = Field(description="Natural language description of what to find")
-    max_results: int = Field(
-        default=10,
-        ge=1,
-        le=50,
-        description="Maximum results to return",
-    )
-    similarity_threshold: float = Field(
-        default=0.7,
-        ge=0.0,
-        le=1.0,
-        description="Minimum similarity score (0-1)",
-    )
-    start_date: datetime | None = Field(
-        default=None,
-        description="Filter entries created after this time (inclusive)",
-    )
-    end_date: datetime | None = Field(
-        default=None,
-        description="Filter entries created before this time (inclusive)",
-    )
-
-
-# === Tool Output Formatting ===
-
-
-def format_keyword_result(
-    entry: EnhancedLogbookEntry,
-    score: float,
-    highlights: list[str],
-) -> dict[str, Any]:
-    """Format a keyword search result for agent consumption.
-
-    Args:
-        entry: EnhancedLogbookEntry
-        score: Relevance score
-        highlights: Highlighted snippets
-
-    Returns:
-        Formatted dict for agent
-    """
-    timestamp = entry.get("timestamp")
-    return {
-        "entry_id": entry.get("entry_id"),
-        "timestamp": timestamp.isoformat() if timestamp is not None else None,
-        "author": entry.get("author"),
-        "text": entry.get("raw_text", "")[:500],  # Truncate for agent
-        "title": entry.get("metadata", {}).get("title"),
-        "score": score,
-        "highlights": highlights,
-    }
-
-
-def format_semantic_result(
-    entry: EnhancedLogbookEntry,
-    similarity: float,
-) -> dict[str, Any]:
-    """Format a semantic search result for agent consumption.
-
-    Args:
-        entry: EnhancedLogbookEntry
-        similarity: Cosine similarity score
-
-    Returns:
-        Formatted dict for agent
-    """
-    timestamp = entry.get("timestamp")
-    return {
-        "entry_id": entry.get("entry_id"),
-        "timestamp": timestamp.isoformat() if timestamp is not None else None,
-        "author": entry.get("author"),
-        "text": entry.get("raw_text", "")[:500],
-        "title": entry.get("metadata", {}).get("title"),
-        "similarity": similarity,
-    }
 
 
 # === Agent Result ===
@@ -194,11 +91,11 @@ class AgentResult:
 class AgentExecutor:
     """Executor for ReAct-style agent with search tools.
 
-    The AgentExecutor runs a ReAct agent that can use keyword_search and
-    semantic_search tools to find information and synthesize answers.
+    The AgentExecutor auto-discovers search tools from the SEARCH_MODULE_REGISTRY.
+    Each search module provides a `get_tool_descriptor()` that describes its tool —
+    the executor wraps descriptors into LangChain StructuredTools generically.
 
-    This is a separate interface from the Pipeline - use Agent for agentic
-    orchestration (AGENT mode) and Pipeline for deterministic search modes.
+    Adding a new search module requires zero changes to this class.
 
     Usage:
         executor = AgentExecutor(repository, config, embedder_loader)
@@ -213,14 +110,6 @@ class AgentExecutor:
         embedder_loader: Callable[[], BaseEmbeddingProvider],
         llm: BaseChatModel | None = None,
     ) -> None:
-        """Initialize the agent executor.
-
-        Args:
-            repository: Database repository instance
-            config: ARIEL configuration
-            embedder_loader: Callable that returns embedding model (lazy-loaded)
-            llm: Optional LLM for the agent (lazy-loaded if not provided)
-        """
         self.repository = repository
         self.config = config
         self._embedder_loader = embedder_loader
@@ -242,14 +131,11 @@ class AgentExecutor:
             model_id = self.config.reasoning.model_id
 
             try:
-                # Get provider config from Osprey's central configuration
-                # This may fail in test environments without config.yml
                 from osprey.utils.config import get_provider_config
 
                 try:
                     provider_config = get_provider_config(provider_name)
                 except FileNotFoundError:
-                    # Test environment without config.yml - use empty config
                     logger.debug(
                         f"No config.yml found, using empty provider config for '{provider_name}'"
                     )
@@ -275,13 +161,33 @@ class AgentExecutor:
 
         return self._llm
 
-    def _create_tools(
-        self,
-        time_range: tuple[datetime, datetime] | None = None,
-    ) -> list[StructuredTool]:
-        """Create LangChain tools for the agent.
+    def _load_descriptors(self) -> list[SearchToolDescriptor]:
+        """Load tool descriptors from enabled search modules.
 
-        Creates keyword_search and semantic_search tools with captured context.
+        Returns:
+            List of SearchToolDescriptor for each enabled and registered module
+        """
+        from osprey.services.ariel_search.search import SEARCH_MODULE_REGISTRY
+
+        descriptors: list[SearchToolDescriptor] = []
+        for module_name in self.config.get_enabled_search_modules():
+            module_path = SEARCH_MODULE_REGISTRY.get(module_name)
+            if module_path is None:
+                continue
+            module = import_module(module_path)
+            descriptor = module.get_tool_descriptor()
+            descriptors.append(descriptor)
+        return descriptors
+
+    def _build_tool(
+        self,
+        descriptor: SearchToolDescriptor,
+        time_range: tuple[datetime, datetime] | None = None,
+    ) -> StructuredTool:
+        """Build a LangChain StructuredTool from a descriptor.
+
+        Creates an async closure that captures the repository, config, and
+        optional embedder, then wraps it in a StructuredTool.
 
         Time Range Resolution (3-tier priority):
         1. Tool call parameter (highest) - Agent explicitly passes start_date/end_date
@@ -289,115 +195,73 @@ class AgentExecutor:
         3. No filter (lowest) - Search all entries
 
         Args:
+            descriptor: Search tool descriptor
             time_range: Optional default time range for searches
 
         Returns:
-            List of StructuredTool instances
+            Configured StructuredTool
         """
         from langchain_core.tools import StructuredTool
-
-        tools: list[StructuredTool] = []
 
         def _resolve_time_range(
             tool_start: datetime | None,
             tool_end: datetime | None,
         ) -> tuple[datetime | None, datetime | None]:
-            """Resolve time range with 3-tier priority."""
-            # Explicit tool params override request context
             if tool_start is not None or tool_end is not None:
                 return (tool_start, tool_end)
-            # Fall back to request context
             if time_range:
                 return time_range
-            # No filtering
             return (None, None)
 
-        # Keyword Search Tool
-        if self.config.is_search_module_enabled("keyword"):
+        # Capture descriptor in closure
+        _execute = descriptor.execute
+        _format = descriptor.format_result
+        _needs_embedder = descriptor.needs_embedder
 
-            async def _keyword_search(
-                query: str,
-                max_results: int = 10,
-                start_date: datetime | None = None,
-                end_date: datetime | None = None,
-            ) -> list[dict[str, Any]]:
-                """Execute keyword search with captured dependencies."""
-                from osprey.services.ariel_search.search.keyword import keyword_search
+        async def _tool_fn(**kwargs: Any) -> list[dict[str, Any]]:
+            start_date = kwargs.pop("start_date", None)
+            end_date = kwargs.pop("end_date", None)
+            resolved_start, resolved_end = _resolve_time_range(start_date, end_date)
 
-                resolved_start, resolved_end = _resolve_time_range(start_date, end_date)
+            call_kwargs: dict[str, Any] = {
+                "query": kwargs.pop("query"),
+                "repository": self.repository,
+                "config": self.config,
+                "start_date": resolved_start,
+                "end_date": resolved_end,
+                **kwargs,
+            }
 
-                results = await keyword_search(
-                    query=query,
-                    repository=self.repository,
-                    config=self.config,
-                    max_results=max_results,
-                    start_date=resolved_start,
-                    end_date=resolved_end,
-                )
+            if _needs_embedder:
+                call_kwargs["embedder"] = self._embedder_loader()
 
-                return [
-                    format_keyword_result(entry, score, highlights)
-                    for entry, score, highlights in results
-                ]
+            results = await _execute(**call_kwargs)
 
-            tools.append(
-                StructuredTool.from_function(
-                    func=_keyword_search,
-                    coroutine=_keyword_search,
-                    name="keyword_search",
-                    description=(
-                        "Fast text-based lookup using full-text search. "
-                        "Use for specific terms, equipment names, PV names, or phrases. "
-                        "Supports quoted phrases and AND/OR/NOT operators."
-                    ),
-                    args_schema=KeywordSearchInput,
-                )
-            )
+            return [_format(*item) if isinstance(item, tuple) else _format(item) for item in results]
 
-        # Semantic Search Tool
-        if self.config.is_search_module_enabled("semantic"):
+        return StructuredTool.from_function(
+            func=_tool_fn,
+            coroutine=_tool_fn,
+            name=descriptor.name,
+            description=descriptor.description,
+            args_schema=descriptor.args_schema,
+        )
 
-            async def _semantic_search(
-                query: str,
-                max_results: int = 10,
-                similarity_threshold: float = 0.7,
-                start_date: datetime | None = None,
-                end_date: datetime | None = None,
-            ) -> list[dict[str, Any]]:
-                """Execute semantic search with captured dependencies."""
-                from osprey.services.ariel_search.search.semantic import semantic_search
+    def _create_tools(
+        self,
+        time_range: tuple[datetime, datetime] | None = None,
+    ) -> tuple[list[StructuredTool], list[SearchToolDescriptor]]:
+        """Create LangChain tools from auto-discovered descriptors.
 
-                resolved_start, resolved_end = _resolve_time_range(start_date, end_date)
-                embedder = self._embedder_loader()
+        Args:
+            time_range: Optional default time range for searches
 
-                results = await semantic_search(
-                    query=query,
-                    repository=self.repository,
-                    config=self.config,
-                    embedder=embedder,
-                    max_results=max_results,
-                    similarity_threshold=similarity_threshold,
-                    start_date=resolved_start,
-                    end_date=resolved_end,
-                )
-
-                return [format_semantic_result(entry, similarity) for entry, similarity in results]
-
-            tools.append(
-                StructuredTool.from_function(
-                    func=_semantic_search,
-                    coroutine=_semantic_search,
-                    name="semantic_search",
-                    description=(
-                        "Find conceptually related entries using AI embeddings. "
-                        "Use for queries describing concepts, situations, or events "
-                        "where exact words may not match."
-                    ),
-                    args_schema=SemanticSearchInput,
-                )
-            )
-
-        return tools
+        Returns:
+            Tuple of (tools list, descriptors list)
+        """
+        descriptors = self._load_descriptors()
+        tools = [self._build_tool(d, time_range) for d in descriptors]
+        return tools, descriptors
 
     async def execute(
         self,
@@ -420,8 +284,7 @@ class AgentExecutor:
             AgentResult with answer, entries, sources, and reasoning
         """
         try:
-            # Create search tools with time range context
-            tools = self._create_tools(time_range=time_range)
+            tools, descriptors = self._create_tools(time_range=time_range)
 
             if not tools:
                 return AgentResult(
@@ -432,9 +295,8 @@ class AgentExecutor:
                     reasoning="No search modules enabled in configuration",
                 )
 
-            # Build and run the agent
             result = await self._run_agent(query, tools)
-            return result
+            return self._parse_agent_result(result, descriptors)
 
         except SearchTimeoutError:
             raise
@@ -446,7 +308,7 @@ class AgentExecutor:
         self,
         query: str,
         tools: list[StructuredTool],
-    ) -> AgentResult:
+    ) -> dict[str, Any]:
         """Run the ReAct agent with the given query and tools.
 
         Uses asyncio.wait_for for timeout enforcement.
@@ -456,35 +318,27 @@ class AgentExecutor:
             tools: List of LangChain StructuredTool instances
 
         Returns:
-            AgentResult
+            Raw agent result dict
         """
         try:
             from langgraph.prebuilt import create_react_agent
 
-            # Get LLM
             llm = self._get_llm()
 
-            # Create the agent with system prompt
             agent = create_react_agent(
                 model=llm,
                 tools=tools,
                 prompt=AGENT_SYSTEM_PROMPT,
             )
 
-            # Build initial messages
             initial_messages = [
                 {"role": "user", "content": query},
             ]
 
-            # Calculate recursion limit from max_iterations
-            # LangGraph counts each model call and tool execution as separate steps
-            # So we need to double max_iterations (model + tool = 1 iteration)
-            # Add 1 for the final response
             recursion_limit = (self.config.reasoning.max_iterations * 2) + 1
 
-            # Run with timeout and recursion limit
             try:
-                result = await asyncio.wait_for(
+                return await asyncio.wait_for(
                     agent.ainvoke(
                         {"messages": initial_messages},
                         config={"recursion_limit": recursion_limit},
@@ -493,13 +347,13 @@ class AgentExecutor:
                 )
             except TimeoutError as err:
                 raise SearchTimeoutError(
-                    message=f"Agent execution timed out after {self.config.reasoning.total_timeout_seconds}s",
+                    message=(
+                        f"Agent execution timed out after "
+                        f"{self.config.reasoning.total_timeout_seconds}s"
+                    ),
                     timeout_seconds=self.config.reasoning.total_timeout_seconds,
                     operation="agent execution",
                 ) from err
-
-            # Extract results from agent response
-            return self._parse_agent_result(result)
 
         except ImportError as err:
             raise ConfigurationError(
@@ -510,15 +364,20 @@ class AgentExecutor:
     def _parse_agent_result(
         self,
         result: dict[str, Any],
+        descriptors: list[SearchToolDescriptor],
     ) -> AgentResult:
         """Parse the agent's result into AgentResult.
 
+        Uses descriptors to dynamically map tool names to SearchMode values.
+
         Args:
             result: Raw agent result
+            descriptors: Loaded descriptors (for tool name → SearchMode mapping)
 
         Returns:
             Structured AgentResult
         """
+        tool_name_to_mode = {d.name: d.search_mode for d in descriptors}
         messages = result.get("messages", [])
 
         # Extract the final answer from the last AI message
@@ -531,10 +390,9 @@ class AgentExecutor:
         # Extract entry IDs from citations in the answer
         sources: list[str] = []
         if answer:
-            # Find [entry-XXX] or [#XXX] patterns
             citation_pattern = r"\[(?:entry-)?#?(\w+)\]"
             matches = re.findall(citation_pattern, answer)
-            sources = list(dict.fromkeys(matches))  # Dedupe preserving order
+            sources = list(dict.fromkeys(matches))
 
         # Determine which search modes were used from tool calls
         search_modes_used: list[SearchMode] = []
@@ -542,20 +400,13 @@ class AgentExecutor:
             if hasattr(msg, "tool_calls"):
                 for tool_call in msg.tool_calls:
                     tool_name = tool_call.get("name", "")
-                    if (
-                        tool_name == "keyword_search"
-                        and SearchMode.KEYWORD not in search_modes_used
-                    ):
-                        search_modes_used.append(SearchMode.KEYWORD)
-                    elif (
-                        tool_name == "semantic_search"
-                        and SearchMode.SEMANTIC not in search_modes_used
-                    ):
-                        search_modes_used.append(SearchMode.SEMANTIC)
+                    mode = tool_name_to_mode.get(tool_name)
+                    if mode is not None and mode not in search_modes_used:
+                        search_modes_used.append(mode)
 
         return AgentResult(
             answer=answer,
-            entries=(),  # V2: Populate from tool results
+            entries=(),
             sources=tuple(sources),
             search_modes_used=tuple(search_modes_used),
             reasoning="",
@@ -566,8 +417,4 @@ __all__ = [
     "AGENT_SYSTEM_PROMPT",
     "AgentExecutor",
     "AgentResult",
-    "KeywordSearchInput",
-    "SemanticSearchInput",
-    "format_keyword_result",
-    "format_semantic_result",
 ]

@@ -10,6 +10,10 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
+from pydantic import BaseModel, Field
+
+from osprey.services.ariel_search.models import SearchMode
+from osprey.services.ariel_search.search.base import SearchToolDescriptor
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -59,8 +63,10 @@ async def semantic_search(
     if not query.strip():
         return []
 
-    logger.info("semantic_search: query=%r, max_results=%d, threshold=%s, start_date=%s, end_date=%s",
-                query, max_results, similarity_threshold, start_date, end_date)
+    logger.info(
+        f"semantic_search: query={query!r}, max_results={max_results}, "
+        f"threshold={similarity_threshold}, start_date={start_date}, end_date={end_date}"
+    )
 
     # Resolve similarity threshold using 3-tier resolution
     # 1. Per-query parameter (highest priority)
@@ -146,5 +152,75 @@ async def semantic_search(
         end_date=end_date,
     )
 
-    logger.info("semantic_search: returning %d results", len(results))
+    logger.info(f"semantic_search: returning {len(results)} results")
     return results
+
+
+# === Tool descriptor for agent auto-discovery ===
+
+
+class SemanticSearchInput(BaseModel):
+    """Input schema for semantic search tool."""
+
+    query: str = Field(description="Natural language description of what to find")
+    max_results: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        description="Maximum results to return",
+    )
+    similarity_threshold: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description="Minimum similarity score (0-1)",
+    )
+    start_date: datetime | None = Field(
+        default=None,
+        description="Filter entries created after this time (inclusive)",
+    )
+    end_date: datetime | None = Field(
+        default=None,
+        description="Filter entries created before this time (inclusive)",
+    )
+
+
+def format_semantic_result(
+    entry: EnhancedLogbookEntry,
+    similarity: float,
+) -> dict[str, Any]:
+    """Format a semantic search result for agent consumption.
+
+    Args:
+        entry: EnhancedLogbookEntry
+        similarity: Cosine similarity score
+
+    Returns:
+        Formatted dict for agent
+    """
+    timestamp = entry.get("timestamp")
+    return {
+        "entry_id": entry.get("entry_id"),
+        "timestamp": timestamp.isoformat() if timestamp is not None else None,
+        "author": entry.get("author"),
+        "text": entry.get("raw_text", "")[:500],
+        "title": entry.get("metadata", {}).get("title"),
+        "similarity": similarity,
+    }
+
+
+def get_tool_descriptor() -> SearchToolDescriptor:
+    """Return the descriptor for auto-discovery by the agent executor."""
+    return SearchToolDescriptor(
+        name="semantic_search",
+        description=(
+            "Find conceptually related entries using AI embeddings. "
+            "Use for queries describing concepts, situations, or events "
+            "where exact words may not match."
+        ),
+        search_mode=SearchMode.SEMANTIC,
+        args_schema=SemanticSearchInput,
+        execute=semantic_search,
+        format_result=format_semantic_result,
+        needs_embedder=True,
+    )

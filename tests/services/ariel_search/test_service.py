@@ -12,13 +12,17 @@ from osprey.services.ariel_search.agent.executor import (
     AGENT_SYSTEM_PROMPT,
     AgentExecutor,
     AgentResult,
-    KeywordSearchInput,
-    SemanticSearchInput,
-    format_keyword_result,
-    format_semantic_result,
 )
 from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.models import ARIELSearchResult, SearchMode
+from osprey.services.ariel_search.search.keyword import (
+    KeywordSearchInput,
+    format_keyword_result,
+)
+from osprey.services.ariel_search.search.semantic import (
+    SemanticSearchInput,
+    format_semantic_result,
+)
 from osprey.services.ariel_search.service import ARIELSearchService
 
 
@@ -437,7 +441,7 @@ class TestAgentExecutor:
     def test_executor_creates_keyword_tool(self):
         """Executor creates keyword_search tool when enabled."""
         executor = self._create_mock_executor()
-        tools = executor._create_tools()
+        tools, _descriptors = executor._create_tools()
 
         tool_names = [t.name for t in tools]
         assert "keyword_search" in tool_names
@@ -445,7 +449,7 @@ class TestAgentExecutor:
     def test_executor_creates_semantic_tool(self):
         """Executor creates semantic_search tool when enabled."""
         executor = self._create_mock_executor()
-        tools = executor._create_tools()
+        tools, _descriptors = executor._create_tools()
 
         tool_names = [t.name for t in tools]
         assert "semantic_search" in tool_names
@@ -453,6 +457,7 @@ class TestAgentExecutor:
     def test_executor_parse_agent_result_extracts_answer(self):
         """_parse_agent_result extracts answer from messages."""
         executor = self._create_mock_executor()
+        _tools, descriptors = executor._create_tools()
 
         mock_ai_message = MagicMock()
         mock_ai_message.content = "This is the answer from the agent."
@@ -461,13 +466,14 @@ class TestAgentExecutor:
 
         result_dict = {"messages": [mock_ai_message]}
 
-        result = executor._parse_agent_result(result_dict)
+        result = executor._parse_agent_result(result_dict, descriptors)
 
         assert result.answer == "This is the answer from the agent."
 
     def test_executor_parse_agent_result_extracts_citations(self):
         """_parse_agent_result extracts citations from answer."""
         executor = self._create_mock_executor()
+        _tools, descriptors = executor._create_tools()
 
         mock_ai_message = MagicMock()
         mock_ai_message.content = "Found in [entry-001] and [entry-002] and [#003]."
@@ -476,7 +482,7 @@ class TestAgentExecutor:
 
         result_dict = {"messages": [mock_ai_message]}
 
-        result = executor._parse_agent_result(result_dict)
+        result = executor._parse_agent_result(result_dict, descriptors)
 
         assert "001" in result.sources
         assert "002" in result.sources
@@ -485,6 +491,7 @@ class TestAgentExecutor:
     def test_executor_parse_agent_result_identifies_search_modes(self):
         """_parse_agent_result identifies which search modes were used."""
         executor = self._create_mock_executor()
+        _tools, descriptors = executor._create_tools()
 
         mock_tool_message = MagicMock()
         mock_tool_message.tool_calls = [
@@ -498,7 +505,7 @@ class TestAgentExecutor:
 
         result_dict = {"messages": [mock_tool_message, mock_ai_message]}
 
-        result = executor._parse_agent_result(result_dict)
+        result = executor._parse_agent_result(result_dict, descriptors)
 
         assert SearchMode.KEYWORD in result.search_modes_used
         assert SearchMode.SEMANTIC in result.search_modes_used
@@ -904,7 +911,7 @@ class TestToolInstanceTypes:
             embedder_loader=mock_embedder_loader,
         )
 
-        tools = executor._create_tools()
+        tools, _descriptors = executor._create_tools()
 
         # All tools should be StructuredTool instances
         assert len(tools) == 2
@@ -929,7 +936,7 @@ class TestToolInstanceTypes:
             embedder_loader=mock_embedder_loader,
         )
 
-        tools = executor._create_tools()
+        tools, _descriptors = executor._create_tools()
 
         for tool in tools:
             assert hasattr(tool, "name")
