@@ -10,11 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-# Import get_config at module level for easier patching in tests
-try:
-    from osprey.config import get_config
-except ImportError:
-    from osprey.utils.config import get_config
+from osprey.utils.config import get_config_value
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.service import ARIELSearchService
@@ -41,8 +37,7 @@ async def get_ariel_search_service() -> ARIELSearchService:
         from osprey.services.ariel_search import ARIELConfig, ConfigurationError
         from osprey.services.ariel_search.service import create_ariel_service
 
-        # get_config imported at module level
-        config = get_config("ariel", {})
+        config = get_config_value("ariel", {})
 
         if not config:
             raise ConfigurationError(
