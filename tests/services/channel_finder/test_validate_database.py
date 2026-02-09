@@ -49,9 +49,7 @@ class TestValidateJsonStructure:
     def test_legacy_array_format_valid_with_warning(self, tmp_path):
         """Legacy array format is valid but produces a warning."""
         f = tmp_path / "legacy.json"
-        f.write_text(json.dumps([
-            {"channel": "CH1", "address": "PV:CH1", "description": "Test"}
-        ]))
+        f.write_text(json.dumps([{"channel": "CH1", "address": "PV:CH1", "description": "Test"}]))
         is_valid, errors, warnings = validate_json_structure(f)
         assert is_valid
         assert any("legacy" in w.lower() for w in warnings)
@@ -83,10 +81,20 @@ class TestValidateJsonStructure:
     def test_valid_standalone_channel(self, tmp_path):
         """Valid standalone channel passes."""
         f = tmp_path / "valid.json"
-        f.write_text(json.dumps({"channels": [
-            {"template": False, "channel": "CH1", "address": "PV:CH1",
-             "description": "Test channel"}
-        ]}))
+        f.write_text(
+            json.dumps(
+                {
+                    "channels": [
+                        {
+                            "template": False,
+                            "channel": "CH1",
+                            "address": "PV:CH1",
+                            "description": "Test channel",
+                        }
+                    ]
+                }
+            )
+        )
         is_valid, errors, warnings = validate_json_structure(f)
         assert is_valid
         assert errors == []
@@ -94,9 +102,7 @@ class TestValidateJsonStructure:
     def test_standalone_missing_required_field(self, tmp_path):
         """Standalone channel missing required field produces error."""
         f = tmp_path / "missing_field.json"
-        f.write_text(json.dumps({"channels": [
-            {"template": False, "channel": "CH1"}
-        ]}))
+        f.write_text(json.dumps({"channels": [{"template": False, "channel": "CH1"}]}))
         is_valid, errors, warnings = validate_json_structure(f)
         assert not is_valid
         assert any("address" in e for e in errors)
@@ -105,10 +111,20 @@ class TestValidateJsonStructure:
     def test_standalone_with_empty_field_values(self, tmp_path):
         """Standalone channel with empty field values produces warning."""
         f = tmp_path / "empty_fields.json"
-        f.write_text(json.dumps({"channels": [
-            {"template": False, "channel": "", "address": "PV:CH1",
-             "description": "Test"}
-        ]}))
+        f.write_text(
+            json.dumps(
+                {
+                    "channels": [
+                        {
+                            "template": False,
+                            "channel": "",
+                            "address": "PV:CH1",
+                            "description": "Test",
+                        }
+                    ]
+                }
+            )
+        )
         is_valid, errors, warnings = validate_json_structure(f)
         assert is_valid
         assert any("empty" in w.lower() for w in warnings)
@@ -116,12 +132,23 @@ class TestValidateJsonStructure:
     def test_valid_template_entry(self, tmp_path):
         """Valid template entry passes."""
         f = tmp_path / "template.json"
-        f.write_text(json.dumps({"channels": [
-            {"template": True, "base_name": "BPM", "instances": [1, 5],
-             "description": "BPM devices", "sub_channels": ["X", "Y"],
-             "address_pattern": "BPM{instance:02d}{suffix}",
-             "channel_descriptions": {"X": "horizontal", "Y": "vertical"}}
-        ]}))
+        f.write_text(
+            json.dumps(
+                {
+                    "channels": [
+                        {
+                            "template": True,
+                            "base_name": "BPM",
+                            "instances": [1, 5],
+                            "description": "BPM devices",
+                            "sub_channels": ["X", "Y"],
+                            "address_pattern": "BPM{instance:02d}{suffix}",
+                            "channel_descriptions": {"X": "horizontal", "Y": "vertical"},
+                        }
+                    ]
+                }
+            )
+        )
         is_valid, errors, warnings = validate_json_structure(f)
         assert is_valid
         assert errors == []
@@ -129,9 +156,7 @@ class TestValidateJsonStructure:
     def test_template_missing_required_fields(self, tmp_path):
         """Template missing required fields produces errors."""
         f = tmp_path / "bad_template.json"
-        f.write_text(json.dumps({"channels": [
-            {"template": True}
-        ]}))
+        f.write_text(json.dumps({"channels": [{"template": True}]}))
         is_valid, errors, warnings = validate_json_structure(f)
         assert not is_valid
         assert any("base_name" in e for e in errors)
@@ -141,10 +166,15 @@ class TestValidateJsonStructure:
     def test_template_invalid_instances_not_list(self, tmp_path):
         """Template with non-list instances produces error."""
         f = tmp_path / "bad_instances.json"
-        f.write_text(json.dumps({"channels": [
-            {"template": True, "base_name": "BPM", "instances": 5,
-             "description": "BPM"}
-        ]}))
+        f.write_text(
+            json.dumps(
+                {
+                    "channels": [
+                        {"template": True, "base_name": "BPM", "instances": 5, "description": "BPM"}
+                    ]
+                }
+            )
+        )
         is_valid, errors, warnings = validate_json_structure(f)
         assert not is_valid
         assert any("instances" in e for e in errors)
@@ -152,10 +182,20 @@ class TestValidateJsonStructure:
     def test_template_instances_start_greater_than_end(self, tmp_path):
         """Template with start > end in instances produces error."""
         f = tmp_path / "bad_range.json"
-        f.write_text(json.dumps({"channels": [
-            {"template": True, "base_name": "BPM", "instances": [10, 1],
-             "description": "BPM"}
-        ]}))
+        f.write_text(
+            json.dumps(
+                {
+                    "channels": [
+                        {
+                            "template": True,
+                            "base_name": "BPM",
+                            "instances": [10, 1],
+                            "description": "BPM",
+                        }
+                    ]
+                }
+            )
+        )
         is_valid, errors, warnings = validate_json_structure(f)
         assert not is_valid
         assert any("start" in e and "end" in e for e in errors)
@@ -163,10 +203,21 @@ class TestValidateJsonStructure:
     def test_template_missing_address_pattern_warning(self, tmp_path):
         """Template missing address_pattern produces warning."""
         f = tmp_path / "no_pattern.json"
-        f.write_text(json.dumps({"channels": [
-            {"template": True, "base_name": "BPM", "instances": [1, 3],
-             "description": "BPM", "sub_channels": ["X"]}
-        ]}))
+        f.write_text(
+            json.dumps(
+                {
+                    "channels": [
+                        {
+                            "template": True,
+                            "base_name": "BPM",
+                            "instances": [1, 3],
+                            "description": "BPM",
+                            "sub_channels": ["X"],
+                        }
+                    ]
+                }
+            )
+        )
         is_valid, errors, warnings = validate_json_structure(f)
         assert is_valid
         assert any("address_pattern" in w for w in warnings)
@@ -174,11 +225,22 @@ class TestValidateJsonStructure:
     def test_template_missing_channel_descriptions_warning(self, tmp_path):
         """Template missing channel_descriptions produces warning."""
         f = tmp_path / "no_descs.json"
-        f.write_text(json.dumps({"channels": [
-            {"template": True, "base_name": "BPM", "instances": [1, 3],
-             "description": "BPM", "sub_channels": ["X"],
-             "address_pattern": "BPM{instance:02d}{suffix}"}
-        ]}))
+        f.write_text(
+            json.dumps(
+                {
+                    "channels": [
+                        {
+                            "template": True,
+                            "base_name": "BPM",
+                            "instances": [1, 3],
+                            "description": "BPM",
+                            "sub_channels": ["X"],
+                            "address_pattern": "BPM{instance:02d}{suffix}",
+                        }
+                    ]
+                }
+            )
+        )
         is_valid, errors, warnings = validate_json_structure(f)
         assert is_valid
         assert any("channel_descriptions" in w for w in warnings)
@@ -186,13 +248,21 @@ class TestValidateJsonStructure:
     def test_unknown_presentation_mode_warning(self, tmp_path):
         """Unknown presentation_mode produces warning."""
         f = tmp_path / "bad_mode.json"
-        f.write_text(json.dumps({
-            "presentation_mode": "unknown_mode",
-            "channels": [
-                {"template": False, "channel": "CH1", "address": "PV:CH1",
-                 "description": "Test"}
-            ]
-        }))
+        f.write_text(
+            json.dumps(
+                {
+                    "presentation_mode": "unknown_mode",
+                    "channels": [
+                        {
+                            "template": False,
+                            "channel": "CH1",
+                            "address": "PV:CH1",
+                            "description": "Test",
+                        }
+                    ],
+                }
+            )
+        )
         is_valid, errors, warnings = validate_json_structure(f)
         assert is_valid
         assert any("presentation_mode" in w for w in warnings)
@@ -250,7 +320,7 @@ class TestDetectPipelineConfig:
                 "pipelines": {
                     "hierarchical": {"database": {"path": "/some/path.json"}},
                     "in_context": {"database": {"path": "/other/path.json"}},
-                }
+                },
             }
         }
         ptype, db_config = detect_pipeline_config(config)
@@ -265,7 +335,7 @@ class TestDetectPipelineConfig:
                 "pipelines": {
                     "hierarchical": {"database": {"path": "/some/path.json"}},
                     "in_context": {"database": {"path": "/ctx/path.json"}},
-                }
+                },
             }
         }
         ptype, db_config = detect_pipeline_config(config)

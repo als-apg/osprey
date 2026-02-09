@@ -1286,7 +1286,8 @@ class TestExoticPatternsCovered:
         """
         import_changes = _get_changes_by_type(migration_doc, "import_change")
         cap_import_patterns = [
-            c for c in import_changes
+            c
+            for c in import_changes
             if "capabilities.channel_" in c.get("old_import", "")
             or "capabilities.archiver_" in c.get("old_import", "")
         ]
@@ -1299,9 +1300,7 @@ class TestExoticPatternsCovered:
         ]
 
         for line in reexport_lines:
-            matched = any(
-                re.search(c["search_pattern"], line) for c in cap_import_patterns
-            )
+            matched = any(re.search(c["search_pattern"], line) for c in cap_import_patterns)
             assert matched, (
                 f"Capability re-export not matched by any import_change pattern: {line!r}"
             )
@@ -1318,8 +1317,7 @@ class TestExoticPatternsCovered:
         """
         removals = _get_changes_by_type(migration_doc, "removal")
         service_removal = [
-            c for c in removals
-            if "services/channel_finder/" in c.get("removed", "")
+            c for c in removals if "services/channel_finder/" in c.get("removed", "")
         ]
         assert len(service_removal) > 0, "No services/channel_finder/ removal found"
 
@@ -1335,9 +1333,7 @@ class TestExoticPatternsCovered:
                 for c in service_removal
                 if c.get("search_pattern")
             )
-            assert matched, (
-                f"Triple-dot import file path not covered by service removal: {path!r}"
-            )
+            assert matched, f"Triple-dot import file path not covered by service removal: {path!r}"
 
     def test_sys_path_insert_in_data_tools_covered(self, migration_doc):
         """sys.path.insert hacks in data/tools/ are covered by the removal pattern.
@@ -1348,10 +1344,7 @@ class TestExoticPatternsCovered:
         These files are deleted entirely by the data/tools/ removal pattern.
         """
         removals = _get_changes_by_type(migration_doc, "removal")
-        data_tools_removal = [
-            c for c in removals
-            if "data/tools/" in c.get("removed", "")
-        ]
+        data_tools_removal = [c for c in removals if "data/tools/" in c.get("removed", "")]
         assert len(data_tools_removal) > 0, "No data/tools/ removal found"
 
         tool_files = [
@@ -1367,9 +1360,7 @@ class TestExoticPatternsCovered:
                 for c in data_tools_removal
                 if c.get("search_pattern")
             )
-            assert matched, (
-                f"data/tools/ file not covered by removal pattern: {path!r}"
-            )
+            assert matched, f"data/tools/ file not covered by removal pattern: {path!r}"
 
     def test_sys_path_insert_in_benchmarks_cli_covered(self, migration_doc):
         """sys.path.insert in benchmarks/cli.py is covered by service removal.
@@ -1381,21 +1372,16 @@ class TestExoticPatternsCovered:
         """
         removals = _get_changes_by_type(migration_doc, "removal")
         service_removal = [
-            c for c in removals
-            if "services/channel_finder/" in c.get("removed", "")
+            c for c in removals if "services/channel_finder/" in c.get("removed", "")
         ]
 
-        benchmarks_path = (
-            "src/control_assistant/services/channel_finder/benchmarks/cli.py"
-        )
+        benchmarks_path = "src/control_assistant/services/channel_finder/benchmarks/cli.py"
         matched = any(
             re.search(c["search_pattern"], benchmarks_path)
             for c in service_removal
             if c.get("search_pattern")
         )
-        assert matched, (
-            f"benchmarks/cli.py not covered by service removal: {benchmarks_path!r}"
-        )
+        assert matched, f"benchmarks/cli.py not covered by service removal: {benchmarks_path!r}"
 
     def test_description_field_on_capability_registration_still_matches(self, migration_doc):
         """CapabilityRegistration with description= field should still be matched.
@@ -1412,21 +1398,13 @@ class TestExoticPatternsCovered:
         whether description= is present.
         """
         removals = _get_changes_by_type(migration_doc, "removal")
-        cap_reg_removals = [
-            c for c in removals
-            if "CapabilityRegistration" in c.get("removed", "")
-        ]
+        cap_reg_removals = [c for c in removals if "CapabilityRegistration" in c.get("removed", "")]
         assert len(cap_reg_removals) > 0, "No CapabilityRegistration removal found"
 
         # The line that starts the registration block
         reg_line = "                CapabilityRegistration("
-        matched = any(
-            re.search(c["search_pattern"], reg_line)
-            for c in cap_reg_removals
-        )
-        assert matched, (
-            "CapabilityRegistration( not matched by removal pattern"
-        )
+        matched = any(re.search(c["search_pattern"], reg_line) for c in cap_reg_removals)
+        assert matched, "CapabilityRegistration( not matched by removal pattern"
 
     def test_examples_directory_covered_by_service_removal(self, migration_doc):
         """services/channel_finder/examples/ directory is covered by service removal.
@@ -1437,8 +1415,7 @@ class TestExoticPatternsCovered:
         """
         removals = _get_changes_by_type(migration_doc, "removal")
         service_removal = [
-            c for c in removals
-            if "services/channel_finder/" in c.get("removed", "")
+            c for c in removals if "services/channel_finder/" in c.get("removed", "")
         ]
 
         example_paths = [
@@ -1452,9 +1429,7 @@ class TestExoticPatternsCovered:
                 for c in service_removal
                 if c.get("search_pattern")
             )
-            assert matched, (
-                f"examples/ file not covered by service removal: {path!r}"
-            )
+            assert matched, f"examples/ file not covered by service removal: {path!r}"
 
     def test_empty_capabilities_init_not_false_positive(self, migration_doc):
         """An empty capabilities/__init__.py (docstring only) should not trigger
@@ -1468,8 +1443,7 @@ class TestExoticPatternsCovered:
             for line in empty_init.splitlines():
                 if re.search(pattern, line):
                     false_positives.append(
-                        f"  {change.get('old_import', '?')} — pattern {pattern!r} "
-                        f"matched: {line!r}"
+                        f"  {change.get('old_import', '?')} — pattern {pattern!r} matched: {line!r}"
                     )
 
         assert not false_positives, (

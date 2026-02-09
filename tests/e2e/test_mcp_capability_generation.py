@@ -254,8 +254,7 @@ async def test_mcp_capability_generation_workflow(e2e_project_factory, llm_judge
         registry = get_registry()
         stats = registry.get_stats()
         assert "weather_mcp" in stats["capability_names"], (
-            f"weather_mcp capability not loaded in registry. "
-            f"Available: {stats['capability_names']}"
+            f"weather_mcp capability not loaded in registry. Available: {stats['capability_names']}"
         )
 
         # =====================================================================

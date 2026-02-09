@@ -285,9 +285,7 @@ class TestBuildDatabaseSubcommand:
 
     def test_build_database_missing_csv_errors(self, runner):
         """build-database with nonexistent CSV shows error."""
-        result = runner.invoke(
-            channel_finder, ["build-database", "--csv", "/nonexistent/file.csv"]
-        )
+        result = runner.invoke(channel_finder, ["build-database", "--csv", "/nonexistent/file.csv"])
         assert result.exit_code != 0
 
 
@@ -465,17 +463,13 @@ class TestCLIErrorPaths:
 
     def test_validate_no_database_no_config_shows_error(self, runner, tmp_path):
         """validate without --database and no config shows config error."""
-        result = runner.invoke(
-            channel_finder, ["--project", str(tmp_path), "validate"]
-        )
+        result = runner.invoke(channel_finder, ["--project", str(tmp_path), "validate"])
         assert result.exit_code != 0
         assert "not found" in result.output or "Error" in result.output
 
     def test_preview_no_database_no_config_shows_error(self, runner, tmp_path):
         """preview without --database and no config shows config error."""
-        result = runner.invoke(
-            channel_finder, ["--project", str(tmp_path), "preview"]
-        )
+        result = runner.invoke(channel_finder, ["--project", str(tmp_path), "preview"])
         assert result.exit_code != 0
         assert "not found" in result.output or "Error" in result.output
 
@@ -529,8 +523,10 @@ class TestCLIErrorPaths:
                     channel_finder,
                     [
                         "validate",
-                        "--database", str(db_path),
-                        "--pipeline", "hierarchical",
+                        "--database",
+                        str(db_path),
+                        "--pipeline",
+                        "hierarchical",
                     ],
                 )
         assert result.exit_code == 0

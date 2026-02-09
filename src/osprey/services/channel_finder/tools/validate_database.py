@@ -92,8 +92,7 @@ def validate_json_structure(db_path: Path) -> tuple[bool, list[str], list[str]]:
             valid_modes = ["explicit", "template"]
             if data["presentation_mode"] not in valid_modes:
                 warnings.append(
-                    f"Unknown presentation_mode: {data['presentation_mode']}. "
-                    f"Valid: {valid_modes}"
+                    f"Unknown presentation_mode: {data['presentation_mode']}. Valid: {valid_modes}"
                 )
     else:
         errors.append(f"Invalid top-level type: {type(data)}. Expected list or dict.")
@@ -148,8 +147,7 @@ def validate_json_structure(db_path: Path) -> tuple[bool, list[str], list[str]]:
 
             if "channel_descriptions" not in entry:
                 warnings.append(
-                    f"Template {i}: missing 'channel_descriptions'. "
-                    "Will use generic descriptions."
+                    f"Template {i}: missing 'channel_descriptions'. Will use generic descriptions."
                 )
         else:
             required = ["channel", "address", "description"]
@@ -165,9 +163,7 @@ def validate_json_structure(db_path: Path) -> tuple[bool, list[str], list[str]]:
     return is_valid, errors, warnings
 
 
-def validate_database_loading(
-    db_path: Path, pipeline_type: str
-) -> tuple[bool, list[str], dict]:
+def validate_database_loading(db_path: Path, pipeline_type: str) -> tuple[bool, list[str], dict]:
     """Test loading database through the actual database class.
 
     Args:
@@ -220,7 +216,9 @@ def print_validation_results(
     console.print()
 
     if is_valid and not errors:
-        header_text = "[bold success]\u2705 VALID[/bold success]\n[dim]Database passed all checks[/dim]"
+        header_text = (
+            "[bold success]\u2705 VALID[/bold success]\n[dim]Database passed all checks[/dim]"
+        )
         border_style = "success"
     else:
         header_text = "[bold error]\u274c INVALID[/bold error]\n[dim]Database has errors[/dim]"

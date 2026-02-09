@@ -188,9 +188,7 @@ def add_to_registry(
 
     if "extend_framework_registry(" in content:
         # Extend-style registry: add capabilities and context_classes parameters
-        content = _add_to_extend_registry(
-            content, cap_reg, ctx_reg, module_name, capability_name
-        )
+        content = _add_to_extend_registry(content, cap_reg, ctx_reg, module_name, capability_name)
     else:
         # Explicit-style registry: insert after last existing entries
         cap_insert_pos = _find_last_registration_entry(content, "CapabilityRegistration")
@@ -254,10 +252,7 @@ def _add_to_extend_registry(
         # Add capabilities= parameter to extend_framework_registry()
         content = content.replace(
             "extend_framework_registry(",
-            "extend_framework_registry(\n"
-            "            capabilities=[\n"
-            f"{cap_reg}\n"
-            "            ],",
+            f"extend_framework_registry(\n            capabilities=[\n{cap_reg}\n            ],",
         )
 
     # Check if context_classes= parameter already exists
@@ -270,10 +265,7 @@ def _add_to_extend_registry(
         # Add context_classes= parameter to extend_framework_registry()
         content = content.replace(
             "extend_framework_registry(",
-            "extend_framework_registry(\n"
-            "            context_classes=[\n"
-            f"{ctx_reg}\n"
-            "            ],",
+            f"extend_framework_registry(\n            context_classes=[\n{ctx_reg}\n            ],",
         )
 
     return content

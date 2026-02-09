@@ -66,9 +66,7 @@ def load_prompts(config: dict, require_query_splitter: bool = True) -> Any:
     # 3. Fall back to built-in default prompts shipped with the framework service
     prompts = _try_load_builtin_prompts(pipeline_mode, require_query_splitter)
     if prompts:
-        logger.info(
-            f"[dim]✓ Using built-in default prompts for {pipeline_mode} pipeline[/dim]"
-        )
+        logger.info(f"[dim]✓ Using built-in default prompts for {pipeline_mode} pipeline[/dim]")
         return prompts
 
     # 4. No prompts found at all - this should not happen

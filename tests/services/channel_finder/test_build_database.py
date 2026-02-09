@@ -70,10 +70,7 @@ class TestLoadCsv:
     def test_converts_empty_values_to_none(self, tmp_path):
         """Empty or whitespace-only values become None."""
         csv = tmp_path / "test.csv"
-        csv.write_text(
-            "address,description,family_name,instances,sub_channel\n"
-            "PV:CH1,A desc,,, \n"
-        )
+        csv.write_text("address,description,family_name,instances,sub_channel\nPV:CH1,A desc,,, \n")
         result = load_csv(csv)
         assert result[0]["family_name"] is None
         assert result[0]["sub_channel"] is None
@@ -181,10 +178,20 @@ class TestCreateTemplate:
     def test_creates_template_with_correct_fields(self):
         """Creates template with correct base_name, instances, sub_channels."""
         channels = [
-            {"address": "BPM01X", "family_name": "BPM", "instances": "5", "sub_channel": "X",
-             "description": "BPM horizontal"},
-            {"address": "BPM01Y", "family_name": "BPM", "instances": "5", "sub_channel": "Y",
-             "description": "BPM vertical"},
+            {
+                "address": "BPM01X",
+                "family_name": "BPM",
+                "instances": "5",
+                "sub_channel": "X",
+                "description": "BPM horizontal",
+            },
+            {
+                "address": "BPM01Y",
+                "family_name": "BPM",
+                "instances": "5",
+                "sub_channel": "Y",
+                "description": "BPM vertical",
+            },
         ]
         template = create_template("BPM", channels)
         assert template["template"] is True
@@ -195,10 +202,20 @@ class TestCreateTemplate:
     def test_extracts_channel_descriptions(self):
         """Extracts channel_descriptions per sub-channel."""
         channels = [
-            {"address": "BPM01X", "family_name": "BPM", "instances": "3", "sub_channel": "X",
-             "description": "X position"},
-            {"address": "BPM01Y", "family_name": "BPM", "instances": "3", "sub_channel": "Y",
-             "description": "Y position"},
+            {
+                "address": "BPM01X",
+                "family_name": "BPM",
+                "instances": "3",
+                "sub_channel": "X",
+                "description": "X position",
+            },
+            {
+                "address": "BPM01Y",
+                "family_name": "BPM",
+                "instances": "3",
+                "sub_channel": "Y",
+                "description": "Y position",
+            },
         ]
         template = create_template("BPM", channels)
         assert "X" in template["channel_descriptions"]
@@ -207,12 +224,27 @@ class TestCreateTemplate:
     def test_strips_common_prefix_from_descriptions(self):
         """Strips common prefix from sub-channel descriptions."""
         channels = [
-            {"address": "BPM01X", "family_name": "BPM", "instances": "3", "sub_channel": "X",
-             "description": "Beam position monitor horizontal readback value"},
-            {"address": "BPM01Y", "family_name": "BPM", "instances": "3", "sub_channel": "Y",
-             "description": "Beam position monitor vertical readback value"},
-            {"address": "BPM01S", "family_name": "BPM", "instances": "3", "sub_channel": "Sum",
-             "description": "Beam position monitor sum signal readback"},
+            {
+                "address": "BPM01X",
+                "family_name": "BPM",
+                "instances": "3",
+                "sub_channel": "X",
+                "description": "Beam position monitor horizontal readback value",
+            },
+            {
+                "address": "BPM01Y",
+                "family_name": "BPM",
+                "instances": "3",
+                "sub_channel": "Y",
+                "description": "Beam position monitor vertical readback value",
+            },
+            {
+                "address": "BPM01S",
+                "family_name": "BPM",
+                "instances": "3",
+                "sub_channel": "Sum",
+                "description": "Beam position monitor sum signal readback",
+            },
         ]
         template = create_template("BPM", channels)
         # Common prefix "Beam position monitor" should be extracted as description
@@ -224,10 +256,20 @@ class TestCreateTemplate:
     def test_fallback_description_when_no_common(self):
         """Falls back to '{family} device family' when no common description."""
         channels = [
-            {"address": "BPM01X", "family_name": "BPM", "instances": "2", "sub_channel": "X",
-             "description": "Horizontal readback"},
-            {"address": "BPM01Y", "family_name": "BPM", "instances": "2", "sub_channel": "Y",
-             "description": "Vertical readback"},
+            {
+                "address": "BPM01X",
+                "family_name": "BPM",
+                "instances": "2",
+                "sub_channel": "X",
+                "description": "Horizontal readback",
+            },
+            {
+                "address": "BPM01Y",
+                "family_name": "BPM",
+                "instances": "2",
+                "sub_channel": "Y",
+                "description": "Vertical readback",
+            },
         ]
         template = create_template("BPM", channels)
         assert template["description"] == "BPM device family"
@@ -278,8 +320,7 @@ class TestBuildDatabase:
         """Output file is created with parents=True."""
         csv_file = tmp_path / "input.csv"
         csv_file.write_text(
-            "address,description,family_name,instances,sub_channel\n"
-            "PV:CH1,A channel,,,\n"
+            "address,description,family_name,instances,sub_channel\nPV:CH1,A channel,,,\n"
         )
         output_file = tmp_path / "deep" / "nested" / "dir" / "db.json"
 

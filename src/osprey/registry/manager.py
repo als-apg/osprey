@@ -643,9 +643,7 @@ class RegistryManager:
             original_count = len(component_collection)
             if component_type == "context_classes":
                 filtered_components = [
-                    comp
-                    for comp in component_collection
-                    if comp.context_type not in excluded_names
+                    comp for comp in component_collection if comp.context_type not in excluded_names
                 ]
             else:
                 filtered_components = [

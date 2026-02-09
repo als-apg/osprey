@@ -59,7 +59,6 @@ class TestEjectCapability:
         content = output_file.read_text()
         assert "ChannelFindingCapability" in content
 
-
     def test_eject_capability_with_include_tests(self, runner, tmp_path, monkeypatch):
         """Test ejecting a capability with --include-tests copies test files."""
         output_file = tmp_path / "channel_finding.py"

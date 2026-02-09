@@ -105,10 +105,16 @@ class TestCreateDuplicateResolutionPrompt:
         """Prompt contains duplicate group information."""
         groups = {
             "BeamMonitor": [
-                {"short_name": "BPM01X", "description": "Horizontal BPM",
-                 "original_name": "BeamMonitor"},
-                {"short_name": "BPM01Y", "description": "Vertical BPM",
-                 "original_name": "BeamMonitor"},
+                {
+                    "short_name": "BPM01X",
+                    "description": "Horizontal BPM",
+                    "original_name": "BeamMonitor",
+                },
+                {
+                    "short_name": "BPM01Y",
+                    "description": "Vertical BPM",
+                    "original_name": "BeamMonitor",
+                },
             ]
         }
         prompt = namer._create_duplicate_resolution_prompt(groups)

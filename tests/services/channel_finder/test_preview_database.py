@@ -84,9 +84,7 @@ class TestDepthParameter:
 
     def test_depth_3_limits_tree_levels(self, consecutive_db_path):
         """Test that depth=3 actually limits the tree to 3 levels."""
-        result = _capture_preview(
-            consecutive_db_path, depth=3, max_items=10, sections="tree"
-        )
+        result = _capture_preview(consecutive_db_path, depth=3, max_items=10, sections="tree")
 
         assert re.search(r"Display Depth\s+3", result), (
             "Output should show 'Display Depth' with value 3"
@@ -98,9 +96,7 @@ class TestDepthParameter:
 
         assert len(branch_lines) > 0, "Tree should have branches"
 
-        max_indentation = (
-            max(line.count("\u2503") for line in branch_lines) if branch_lines else 0
-        )
+        max_indentation = max(line.count("\u2503") for line in branch_lines) if branch_lines else 0
         assert max_indentation <= 3, (
             f"Tree depth should not exceed 3, but found {max_indentation} levels"
         )
@@ -124,9 +120,7 @@ class TestMaxItemsParameter:
 
     def test_max_items_limits_branches(self, consecutive_db_path):
         """Test that max_items=3 actually limits branches to 3 per level."""
-        result = _capture_preview(
-            consecutive_db_path, depth=5, max_items=3, sections="tree"
-        )
+        result = _capture_preview(consecutive_db_path, depth=5, max_items=3, sections="tree")
 
         assert re.search(r"Max Items/Level\s+3", result), (
             "Output should show 'Max Items/Level' with value 3"
@@ -162,9 +156,7 @@ class TestSectionsParameter:
 
     def test_sections_tree_only(self, consecutive_db_path):
         """Test sections='tree' shows only tree, no stats/breakdown."""
-        result = _capture_preview(
-            consecutive_db_path, depth=3, max_items=5, sections="tree"
-        )
+        result = _capture_preview(consecutive_db_path, depth=3, max_items=5, sections="tree")
         assert "Hierarchy Tree" in result
         assert "Hierarchy Level Statistics" not in result
         assert "Channel Count Breakdown" not in result
@@ -172,18 +164,14 @@ class TestSectionsParameter:
 
     def test_sections_stats_only(self, consecutive_db_path):
         """Test sections='stats' shows only stats, no tree."""
-        result = _capture_preview(
-            consecutive_db_path, depth=3, max_items=5, sections="stats"
-        )
+        result = _capture_preview(consecutive_db_path, depth=3, max_items=5, sections="stats")
         assert "Hierarchy Level Statistics" in result
         assert "Hierarchy Tree" not in result
         assert "Channel Count Breakdown" not in result
 
     def test_sections_all(self, consecutive_db_path):
         """Test sections='all' includes all sections."""
-        result = _capture_preview(
-            consecutive_db_path, depth=3, max_items=5, sections="all"
-        )
+        result = _capture_preview(consecutive_db_path, depth=3, max_items=5, sections="all")
         assert "Hierarchy Tree" in result
         assert "Hierarchy Level Statistics" in result
         assert "Channel Count Breakdown" in result
@@ -295,12 +283,16 @@ class TestPathParameter:
     def test_path_consecutive_instances(self, consecutive_db_path):
         """Test with consecutive_instances.json."""
         with patch.object(preview_mod, "console"):
-            preview_database(depth=3, max_items=5, sections="tree,stats", db_path=consecutive_db_path)
+            preview_database(
+                depth=3, max_items=5, sections="tree,stats", db_path=consecutive_db_path
+            )
 
     def test_path_instance_first(self, instance_first_db_path):
         """Test with instance_first.json."""
         with patch.object(preview_mod, "console"):
-            preview_database(depth=3, max_items=5, sections="tree,stats", db_path=instance_first_db_path)
+            preview_database(
+                depth=3, max_items=5, sections="tree,stats", db_path=instance_first_db_path
+            )
 
     def test_path_optional_levels(self, optional_levels_db_path):
         """Test with optional_levels.json."""
@@ -508,7 +500,7 @@ class TestPreviewDetectPipelineConfig:
                 "pipelines": {
                     "middle_layer": {"database": {"path": "/ml/path.json"}},
                     "hierarchical": {"database": {"path": "/h/path.json"}},
-                }
+                },
             }
         }
         ptype, db_config = preview_mod.detect_pipeline_config(config)

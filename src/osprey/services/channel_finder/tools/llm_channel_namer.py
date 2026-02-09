@@ -72,7 +72,7 @@ class LLMChannelNamer:
             "control channels.\n\n"
             "CRITICAL NAMING RULES:\n"
             "- PascalCase format (e.g., AcceleratingTubeTopSteeringCoilXSetPoint)\n"
-            '- 2-7 words, prioritize uniqueness and clarity\n'
+            "- 2-7 words, prioritize uniqueness and clarity\n"
             '- **ALWAYS use "SetPoint" (not "Set") for writable/settable values**\n'
             '- **ALWAYS use "ReadBack" (not "RB") for read-only/readback values**\n'
             "- **CRITICAL: ALWAYS include specific location/position information "
@@ -95,7 +95,7 @@ class LLMChannelNamer:
             '"writable" \u2192 use "SetPoint"\n'
             '- If description mentions "read back", "read only", "readback", '
             '"measured" \u2192 use "ReadBack"\n'
-            "- Be consistent: ALWAYS use full words \"SetPoint\" and \"ReadBack\" "
+            '- Be consistent: ALWAYS use full words "SetPoint" and "ReadBack" '
             "for database consistency\n\n"
             "EXAMPLES showing location specificity:\n"
             '1. Short: "SX3Set", Description: "Steering coil current tilting beam in '
@@ -171,9 +171,7 @@ class LLMChannelNamer:
                 if self._is_valid_channel_name(name):
                     validated_names.append(name)
                 else:
-                    logger.warning(
-                        f"Invalid generated name '{name}', using original short name"
-                    )
+                    logger.warning(f"Invalid generated name '{name}', using original short name")
                     validated_names.append(channels[i]["short_name"])
 
             return validated_names
@@ -195,9 +193,7 @@ class LLMChannelNamer:
             return False
         return True
 
-    def _create_duplicate_resolution_prompt(
-        self, duplicate_groups: dict[str, list[dict]]
-    ) -> str:
+    def _create_duplicate_resolution_prompt(self, duplicate_groups: dict[str, list[dict]]) -> str:
         """Create a prompt to resolve duplicate channel names."""
         prompt = (
             "DUPLICATE NAME RESOLUTION: Generate MORE SPECIFIC PascalCase names "
@@ -217,8 +213,7 @@ class LLMChannelNamer:
         channel_num = 1
         for dup_name, channels in duplicate_groups.items():
             prompt += (
-                f"=== DUPLICATE GROUP: '{dup_name}' "
-                f"(needs {len(channels)} distinct names) ===\n"
+                f"=== DUPLICATE GROUP: '{dup_name}' (needs {len(channels)} distinct names) ===\n"
             )
             for ch in channels:
                 prompt += f'{channel_num}. Short: "{ch["short_name"]}"\n'
@@ -319,9 +314,7 @@ class LLMChannelNamer:
         """
         all_names = []
 
-        with tqdm(
-            total=len(channels), desc="Generating channel names", unit="channel"
-        ) as pbar:
+        with tqdm(total=len(channels), desc="Generating channel names", unit="channel") as pbar:
             for i in range(0, len(channels), self.batch_size):
                 batch = channels[i : i + self.batch_size]
 

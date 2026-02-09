@@ -180,7 +180,7 @@ def test_remove_preserves_formatting(temp_registry):
 @pytest.fixture
 def extend_registry_content():
     """Sample extend-style registry.py content (post-migration template format)."""
-    return '''from osprey.registry import (
+    return """from osprey.registry import (
     RegistryConfigProvider,
     extend_framework_registry,
     FrameworkPromptProviderRegistration,
@@ -200,7 +200,7 @@ class MyProjectRegistryProvider(RegistryConfigProvider):
                 )
             ]
         )
-'''
+"""
 
 
 @pytest.fixture

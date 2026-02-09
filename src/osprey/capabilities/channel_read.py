@@ -223,7 +223,9 @@ class ChannelReadCapability(BaseCapability):
                 except Exception as e:
                     logger.error(f"Failed to read channel {channel_address}: {e}")
                     # Continue with other channels
-                    raise ChannelAccessError(f"Failed to read channel {channel_address}: {str(e)}") from e
+                    raise ChannelAccessError(
+                        f"Failed to read channel {channel_address}: {str(e)}"
+                    ) from e
 
         finally:
             # Always disconnect connector

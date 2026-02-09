@@ -247,9 +247,7 @@ def _build_middle_layer_tree(database) -> dict:
             tree[system]["_families"][family] = {
                 "_channels": 0,
                 "_fields": {},
-                "_description": descriptions.get(system, {})
-                .get("families", {})
-                .get(family, ""),
+                "_description": descriptions.get(system, {}).get("families", {}).get(family, ""),
             }
 
         tree[system]["_families"][family]["_channels"] += 1
@@ -424,7 +422,9 @@ def _render_tree_section(database, hierarchy_levels, depth, max_items, focus):
 
     if focus:
         focus_parts = focus.split(":")
-        tree_root, start_level = _navigate_to_focus(db_tree, focus_parts, hierarchy_levels, database)
+        tree_root, start_level = _navigate_to_focus(
+            db_tree, focus_parts, hierarchy_levels, database
+        )
         if tree_root is None:
             console.print(f"[error]\u2717 Focus path '{focus}' not found in database[/error]\n")
             return
@@ -662,9 +662,7 @@ def _add_hierarchy_level_new(
     branch_count = 0
     for child_name, child_data in children.items():
         if max_items and branch_count >= max_items:
-            parent_branch.add(
-                f"[dim]... {len(children) - max_items} more {current_level}s[/dim]"
-            )
+            parent_branch.add(f"[dim]... {len(children) - max_items} more {current_level}s[/dim]")
             break
 
         branch_count += 1
@@ -729,9 +727,7 @@ def _get_children_at_level(data, current_level, hierarchy_levels, level_idx):
 
     if current_level == "field" and "fields" in data:
         return {
-            k: v
-            for k, v in data["fields"].items()
-            if not k.startswith("_") and isinstance(v, dict)
+            k: v for k, v in data["fields"].items() if not k.startswith("_") and isinstance(v, dict)
         }
 
     if current_level == "subfield" and "subfields" in data:

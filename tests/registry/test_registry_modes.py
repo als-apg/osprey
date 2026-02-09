@@ -183,7 +183,6 @@ class ExtendProvider(RegistryConfigProvider):
         assert "memory" in cap_names
         assert "MEMORY_CONTEXT" in ctx_types
 
-
     def test_extend_mode_includes_native_control_capabilities(self, tmp_path):
         """Test that extend mode includes all native control capabilities after merge."""
         registry_file = tmp_path / "app" / "registry.py"
