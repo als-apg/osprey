@@ -56,6 +56,19 @@ export const api = {
 };
 
 /**
+ * Capabilities API — discover available modes and parameters.
+ */
+export const capabilitiesApi = {
+  /**
+   * Fetch available search modes and their tunable parameters.
+   * @returns {Promise<Object>} Capabilities response
+   */
+  async get() {
+    return api.get('/capabilities');
+  },
+};
+
+/**
  * Search API functions.
  */
 export const searchApi = {
@@ -65,57 +78,16 @@ export const searchApi = {
    * @returns {Promise<Object>} Search results
    */
   async search(params) {
-    // Build request with basic params
     const request = {
       query: params.query,
-      mode: params.mode || 'auto',
+      mode: params.mode || 'rag',
       max_results: params.maxResults || 10,
       start_date: params.startDate || null,
       end_date: params.endDate || null,
       author: params.author || null,
       source_system: params.sourceSystem || null,
+      advanced_params: params.advancedParams || {},
     };
-
-    // Add advanced retrieval params if provided
-    if (params.similarityThreshold !== undefined) {
-      request.similarity_threshold = params.similarityThreshold;
-    }
-    if (params.includeHighlights !== undefined) {
-      request.include_highlights = params.includeHighlights;
-    }
-    if (params.fuzzyFallback !== undefined) {
-      request.fuzzy_fallback = params.fuzzyFallback;
-    }
-
-    // Add advanced assembly params if provided
-    if (params.assemblyMaxItems !== undefined) {
-      request.assembly_max_items = params.assemblyMaxItems;
-    }
-    if (params.assemblyMaxChars !== undefined) {
-      request.assembly_max_chars = params.assemblyMaxChars;
-    }
-    if (params.assemblyMaxCharsPerItem !== undefined) {
-      request.assembly_max_chars_per_item = params.assemblyMaxCharsPerItem;
-    }
-
-    // Add advanced processing params if provided (RAG mode)
-    if (params.temperature !== undefined) {
-      request.temperature = params.temperature;
-    }
-    if (params.maxTokens !== undefined) {
-      request.max_tokens = params.maxTokens;
-    }
-
-    // Add advanced fusion params if provided (MULTI mode)
-    if (params.fusionStrategy !== undefined) {
-      request.fusion_strategy = params.fusionStrategy;
-    }
-    if (params.keywordWeight !== undefined) {
-      request.keyword_weight = params.keywordWeight;
-    }
-    if (params.semanticWeight !== undefined) {
-      request.semantic_weight = params.semanticWeight;
-    }
 
     return api.post('/search', request);
   },
@@ -183,6 +155,7 @@ export const statusApi = {
 
 export default {
   api,
+  capabilitiesApi,
   searchApi,
   entriesApi,
   statusApi,

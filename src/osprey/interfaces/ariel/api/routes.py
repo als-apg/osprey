@@ -52,11 +52,24 @@ def _entry_to_response(
     )
 
 
+@router.get("/capabilities")
+async def get_capabilities(request: Request) -> dict:
+    """Return available search modes and their tunable parameters.
+
+    The frontend calls this at startup to dynamically render
+    mode tabs and advanced options.
+    """
+    from osprey.services.ariel_search.capabilities import get_capabilities as _get_caps
+
+    service: ARIELSearchService = request.app.state.ariel_service
+    return _get_caps(service.config)
+
+
 @router.post("/search", response_model=SearchResponse)
 async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
     """Execute search query.
 
-    Supports keyword, semantic, RAG, and auto modes.
+    Supports keyword, semantic, RAG, and agent modes.
     """
     service: ARIELSearchService = request.app.state.ariel_service
     start_time = time.time()
@@ -66,7 +79,6 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
         from osprey.services.ariel_search.models import SearchMode as ServiceSearchMode
 
         mode_map = {
-            SearchMode.AUTO: None,
             SearchMode.KEYWORD: ServiceSearchMode.KEYWORD,
             SearchMode.SEMANTIC: ServiceSearchMode.SEMANTIC,
             SearchMode.RAG: ServiceSearchMode.RAG,
@@ -85,6 +97,7 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
             max_results=search_req.max_results,
             time_range=time_range,
             mode=service_mode,
+            advanced_params=search_req.advanced_params,
         )
 
         execution_time = int((time.time() - start_time) * 1000)

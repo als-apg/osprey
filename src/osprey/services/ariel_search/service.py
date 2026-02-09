@@ -127,6 +127,7 @@ class ARIELSearchService:
         max_results: int | None = None,
         time_range: tuple[Any, Any] | None = None,
         mode: SearchMode | None = None,
+        advanced_params: dict[str, Any] | None = None,
     ) -> ARIELSearchResult:
         """Execute a search.
 
@@ -138,6 +139,7 @@ class ARIELSearchService:
             max_results: Maximum results (default from config)
             time_range: Optional (start, end) datetime tuple
             mode: Optional search mode (default: RAG)
+            advanced_params: Mode-specific advanced parameters from the frontend
 
         Returns:
             ARIELSearchResult with entries, answer, and sources
@@ -148,6 +150,7 @@ class ARIELSearchService:
             max_results=max_results or self.config.default_max_results,
             time_range=time_range,
             modes=[mode] if mode else [SearchMode.RAG],
+            advanced_params=advanced_params or {},
         )
 
         return await self.ainvoke(request)
@@ -233,6 +236,11 @@ class ARIELSearchService:
         start_date = request.time_range[0] if request.time_range else None
         end_date = request.time_range[1] if request.time_range else None
 
+        # Extract keyword-specific advanced params
+        ap = request.advanced_params
+        include_highlights = ap.get("include_highlights", True)
+        fuzzy_fallback = ap.get("fuzzy_fallback", True)
+
         results = await keyword_search(
             request.query,
             self.repository,
@@ -240,6 +248,8 @@ class ARIELSearchService:
             max_results=request.max_results,
             start_date=start_date,
             end_date=end_date,
+            include_highlights=include_highlights,
+            fuzzy_fallback=fuzzy_fallback,
         )
 
         entries = tuple(dict(entry) for entry, _score, _highlights in results)
@@ -273,12 +283,17 @@ class ARIELSearchService:
         start_date = request.time_range[0] if request.time_range else None
         end_date = request.time_range[1] if request.time_range else None
 
+        # Extract semantic-specific advanced params
+        ap = request.advanced_params
+        similarity_threshold = ap.get("similarity_threshold")
+
         results = await semantic_search(
             request.query,
             self.repository,
             self.config,
             self._get_embedder(),
             max_results=request.max_results,
+            similarity_threshold=similarity_threshold,
             start_date=start_date,
             end_date=end_date,
         )
@@ -305,10 +320,19 @@ class ARIELSearchService:
         """
         from osprey.services.ariel_search.rag import RAGPipeline
 
+        # Extract RAG-specific advanced params
+        ap = request.advanced_params
+        max_context_chars = ap.get("max_context_chars", 12000)
+        max_chars_per_entry = ap.get("max_chars_per_entry", 2000)
+        similarity_threshold = ap.get("similarity_threshold")
+        temperature = ap.get("temperature")
+
         pipeline = RAGPipeline(
             repository=self.repository,
             config=self.config,
             embedder_loader=self._get_embedder,
+            max_context_chars=max_context_chars,
+            max_chars_per_entry=max_chars_per_entry,
         )
 
         start_date = request.time_range[0] if request.time_range else None
@@ -317,8 +341,10 @@ class ARIELSearchService:
         rag_result = await pipeline.execute(
             request.query,
             max_results=request.max_results,
+            similarity_threshold=similarity_threshold,
             start_date=start_date,
             end_date=end_date,
+            temperature=temperature,
         )
 
         return ARIELSearchResult(

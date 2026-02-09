@@ -1,311 +1,125 @@
 /**
- * ARIEL Advanced Options Module
+ * ARIEL Advanced Options
  *
- * State management and UI for advanced search parameters.
- * Implements progressive disclosure with mode-based visibility.
+ * Dynamically renders search mode tabs and advanced parameter panels
+ * based on capabilities discovered from the backend API.
  */
 
-// Default values for advanced options
-const DEFAULTS = {
-  maxResults: 20,
-  similarityThreshold: 0.7,
-  includeHighlights: true,
-  fuzzyFallback: true,
-  assemblyMaxItems: 10,
-  assemblyMaxChars: 12000,
-  assemblyMaxCharsPerItem: 2000,
-  temperature: 0.1,
-  maxTokens: 1024,
-  fusionStrategy: 'rrf',
-  keywordWeight: 0.5,
-  semanticWeight: 0.5,
+// --- State ---
+let capabilities = null;
+let currentMode = 'rag';
+let isPanelOpen = false;
+let paramValues = {};
+
+// --- Fallback ---
+const FALLBACK_CAPABILITIES = {
+  categories: {
+    llm: {
+      label: 'LLM',
+      modes: [
+        { name: 'rag', label: 'RAG', description: 'AI-powered search', parameters: [] },
+        { name: 'agent', label: 'Agent', description: 'Autonomous agent', parameters: [] },
+      ],
+    },
+    direct: {
+      label: 'Direct',
+      modes: [
+        { name: 'keyword', label: 'Keyword', description: 'Text search', parameters: [] },
+      ],
+    },
+  },
+  shared_parameters: [],
 };
 
-// Current advanced options state
-let advancedState = { ...DEFAULTS };
-
-// Track if panel is open
-let isPanelOpen = false;
+// --- Public API ---
 
 /**
- * Initialize advanced options module.
+ * Initialize the advanced options system.
+ * @param {Object|null} caps - Capabilities from /api/capabilities (or null for fallback)
  */
-export function initAdvancedOptions() {
-  // Get elements
-  const advancedToggleBtn = document.getElementById('advanced-toggle-btn');
-  const advancedCloseBtn = document.getElementById('advanced-close-btn');
-  const advancedResetBtn = document.getElementById('advanced-reset-btn');
-  const advancedPanel = document.getElementById('advanced-panel');
-  const modeSelect = document.getElementById('search-mode');
-  const filtersShowBtn = document.getElementById('filters-show-btn');
-  const filtersPanel = document.getElementById('filters-panel');
+export function initAdvancedOptions(caps) {
+  capabilities = caps || FALLBACK_CAPABILITIES;
 
-  // Toggle advanced panel
-  advancedToggleBtn?.addEventListener('click', () => {
-    toggleAdvancedPanel();
-  });
+  // Set defaults from capabilities
+  resetToDefaults();
 
-  // Close advanced panel
-  advancedCloseBtn?.addEventListener('click', () => {
-    closeAdvancedPanel();
-  });
+  // Render mode tabs
+  renderModeTabs();
+  selectMode(currentMode);
 
-  // Reset to defaults
-  advancedResetBtn?.addEventListener('click', () => {
-    resetToDefaults();
-  });
-
-  // Mode change - update visibility
-  modeSelect?.addEventListener('change', (e) => {
-    updateVisibilityForMode(e.target.value);
-  });
-
-  // Filters show button
-  filtersShowBtn?.addEventListener('click', () => {
-    filtersPanel?.classList.toggle('hidden');
-  });
-
-  // Setup slider handlers
-  setupSliderHandlers();
-
-  // Setup toggle handlers
-  setupToggleHandlers();
-
-  // Setup fusion strategy change handler
-  setupFusionStrategyHandler();
-
-  // Set initial visibility based on current mode
-  const currentMode = modeSelect?.value || 'auto';
-  updateVisibilityForMode(currentMode);
-}
-
-/**
- * Toggle advanced panel visibility.
- */
-function toggleAdvancedPanel() {
-  const panel = document.getElementById('advanced-panel');
-  const btn = document.getElementById('advanced-toggle-btn');
-
-  if (panel) {
+  // Wire up toggle button
+  const toggleBtn = document.getElementById('advanced-toggle');
+  toggleBtn?.addEventListener('click', () => {
     isPanelOpen = !isPanelOpen;
-    panel.classList.toggle('hidden', !isPanelOpen);
-    btn?.classList.toggle('active', isPanelOpen);
-  }
-}
-
-/**
- * Close advanced panel.
- */
-function closeAdvancedPanel() {
-  const panel = document.getElementById('advanced-panel');
-  const btn = document.getElementById('advanced-toggle-btn');
-
-  isPanelOpen = false;
-  panel?.classList.add('hidden');
-  btn?.classList.remove('active');
-}
-
-/**
- * Reset all values to defaults.
- */
-function resetToDefaults() {
-  advancedState = { ...DEFAULTS };
-
-  // Update all slider and input values
-  setSliderValue('adv-max-results', DEFAULTS.maxResults);
-  setSliderValue('adv-similarity-threshold', DEFAULTS.similarityThreshold.toFixed(2));
-  setSliderValue('adv-assembly-max-items', DEFAULTS.assemblyMaxItems);
-  setSliderValue('adv-assembly-max-chars', DEFAULTS.assemblyMaxChars);
-  setSliderValue('adv-assembly-max-chars-per-item', DEFAULTS.assemblyMaxCharsPerItem);
-  setSliderValue('adv-temperature', DEFAULTS.temperature.toFixed(2));
-  setSliderValue('adv-max-tokens', DEFAULTS.maxTokens);
-  setSliderValue('adv-keyword-weight', DEFAULTS.keywordWeight.toFixed(2));
-  setSliderValue('adv-semantic-weight', DEFAULTS.semanticWeight.toFixed(2));
-
-  // Update toggles
-  const highlightsToggle = document.getElementById('adv-include-highlights');
-  const fuzzyToggle = document.getElementById('adv-fuzzy-fallback');
-  if (highlightsToggle) highlightsToggle.checked = DEFAULTS.includeHighlights;
-  if (fuzzyToggle) fuzzyToggle.checked = DEFAULTS.fuzzyFallback;
-
-  // Update fusion strategy
-  const fusionSelect = document.getElementById('adv-fusion-strategy');
-  if (fusionSelect) fusionSelect.value = DEFAULTS.fusionStrategy;
-  updateFusionWeightsVisibility(DEFAULTS.fusionStrategy);
-}
-
-/**
- * Set slider value and update display.
- */
-function setSliderValue(sliderId, value) {
-  const slider = document.getElementById(sliderId);
-  const valueDisplay = document.getElementById(`${sliderId}-value`);
-
-  if (slider) {
-    slider.value = value;
-  }
-  if (valueDisplay) {
-    valueDisplay.textContent = value;
-  }
-}
-
-/**
- * Setup all slider input handlers.
- */
-function setupSliderHandlers() {
-  const sliders = [
-    { id: 'adv-max-results', key: 'maxResults', format: (v) => parseInt(v) },
-    { id: 'adv-similarity-threshold', key: 'similarityThreshold', format: (v) => parseFloat(v).toFixed(2) },
-    { id: 'adv-assembly-max-items', key: 'assemblyMaxItems', format: (v) => parseInt(v) },
-    { id: 'adv-assembly-max-chars', key: 'assemblyMaxChars', format: (v) => parseInt(v) },
-    { id: 'adv-assembly-max-chars-per-item', key: 'assemblyMaxCharsPerItem', format: (v) => parseInt(v) },
-    { id: 'adv-temperature', key: 'temperature', format: (v) => parseFloat(v).toFixed(2) },
-    { id: 'adv-max-tokens', key: 'maxTokens', format: (v) => parseInt(v) },
-    { id: 'adv-keyword-weight', key: 'keywordWeight', format: (v) => parseFloat(v).toFixed(2) },
-    { id: 'adv-semantic-weight', key: 'semanticWeight', format: (v) => parseFloat(v).toFixed(2) },
-  ];
-
-  sliders.forEach(({ id, key, format }) => {
-    const slider = document.getElementById(id);
-    const valueDisplay = document.getElementById(`${id}-value`);
-
-    if (slider) {
-      slider.addEventListener('input', (e) => {
-        const formatted = format(e.target.value);
-        advancedState[key] = parseFloat(formatted) || parseInt(formatted);
-        if (valueDisplay) {
-          valueDisplay.textContent = formatted;
-        }
-      });
+    const panel = document.getElementById('advanced-panel');
+    if (panel) {
+      panel.classList.toggle('hidden', !isPanelOpen);
+      if (isPanelOpen) {
+        renderAdvancedPanel();
+      }
     }
+    toggleBtn.classList.toggle('active', isPanelOpen);
   });
-}
 
-/**
- * Setup toggle switch handlers.
- */
-function setupToggleHandlers() {
-  const toggles = [
-    { id: 'adv-include-highlights', key: 'includeHighlights' },
-    { id: 'adv-fuzzy-fallback', key: 'fuzzyFallback' },
-  ];
+  // Close button (also try legacy ID)
+  for (const id of ['advanced-close', 'advanced-close-btn']) {
+    const closeBtn = document.getElementById(id);
+    closeBtn?.addEventListener('click', () => {
+      isPanelOpen = false;
+      document.getElementById('advanced-panel')?.classList.add('hidden');
+      document.getElementById('advanced-toggle')?.classList.remove('active');
+    });
+  }
 
-  toggles.forEach(({ id, key }) => {
-    const toggle = document.getElementById(id);
-    if (toggle) {
-      toggle.addEventListener('change', (e) => {
-        advancedState[key] = e.target.checked;
-      });
-    }
-  });
-}
-
-/**
- * Setup fusion strategy dropdown handler.
- */
-function setupFusionStrategyHandler() {
-  const fusionSelect = document.getElementById('adv-fusion-strategy');
-
-  if (fusionSelect) {
-    fusionSelect.addEventListener('change', (e) => {
-      advancedState.fusionStrategy = e.target.value;
-      updateFusionWeightsVisibility(e.target.value);
+  // Reset button (also try legacy ID)
+  for (const id of ['advanced-reset', 'advanced-reset-btn']) {
+    const resetBtn = document.getElementById(id);
+    resetBtn?.addEventListener('click', () => {
+      resetToDefaults();
+      if (isPanelOpen) {
+        renderAdvancedPanel();
+      }
     });
   }
 }
 
 /**
- * Update visibility of fusion weight controls based on strategy.
+ * Get the currently selected search mode.
+ * @returns {string} Mode name (e.g. "rag", "keyword")
  */
-function updateFusionWeightsVisibility(strategy) {
-  const keywordControl = document.getElementById('keyword-weight-control');
-  const semanticControl = document.getElementById('semantic-weight-control');
-
-  const showWeights = strategy === 'weighted';
-
-  if (keywordControl) {
-    keywordControl.style.display = showWeights ? '' : 'none';
-  }
-  if (semanticControl) {
-    semanticControl.style.display = showWeights ? '' : 'none';
-  }
+export function getCurrentMode() {
+  return currentMode;
 }
 
 /**
- * Update visibility of controls based on selected mode.
- * @param {string} mode - Current search mode
+ * Get current advanced parameter values for the selected mode.
+ * Returns only params relevant to the current mode + shared params.
+ * @returns {Object} Parameter values keyed by name
  */
-function updateVisibilityForMode(mode) {
-  // Get all elements with data-modes attribute
-  const modeElements = document.querySelectorAll('[data-modes]');
+export function getAdvancedParams() {
+  const modeParams = getModeParameters(currentMode);
+  const sharedParams = capabilities?.shared_parameters || [];
+  const allParamNames = new Set([
+    ...modeParams.map(p => p.name),
+    ...sharedParams.map(p => p.name),
+  ]);
 
-  modeElements.forEach((element) => {
-    const allowedModes = element.dataset.modes.split(',').map(m => m.trim().toLowerCase());
-    const shouldShow = allowedModes.includes(mode.toLowerCase());
-
-    // Check if this is a section or a control
-    if (element.classList.contains('advanced-section')) {
-      element.style.display = shouldShow ? '' : 'none';
-    } else {
-      element.style.display = shouldShow ? '' : 'none';
+  const result = {};
+  for (const name of allParamNames) {
+    if (name in paramValues && paramValues[name] !== undefined && paramValues[name] !== null) {
+      result[name] = paramValues[name];
     }
-  });
-
-  // Update fusion weights visibility based on current strategy
-  if (mode === 'multi') {
-    const fusionSelect = document.getElementById('adv-fusion-strategy');
-    updateFusionWeightsVisibility(fusionSelect?.value || 'rrf');
   }
+  return result;
 }
 
 /**
- * Get current advanced options for search.
- * Returns only options relevant to the current mode.
- * @param {string} mode - Current search mode
- * @returns {Object} Advanced options object
+ * Legacy export for backwards compatibility with search.js.
+ * @param {string} mode - Search mode (ignored, uses currentMode)
+ * @returns {Object} Advanced options
  */
 export function getAdvancedOptions(mode) {
-  const options = {
-    maxResults: advancedState.maxResults,
-  };
-
-  // Mode-specific options
-  const modeLC = mode.toLowerCase();
-
-  // Similarity threshold for semantic-based modes
-  if (['semantic', 'rag', 'multi'].includes(modeLC)) {
-    options.similarityThreshold = advancedState.similarityThreshold;
-  }
-
-  // Keyword options
-  if (['keyword', 'multi'].includes(modeLC)) {
-    options.includeHighlights = advancedState.includeHighlights;
-    options.fuzzyFallback = advancedState.fuzzyFallback;
-  }
-
-  // Assembly options (all modes except agent benefit from this)
-  if (modeLC !== 'agent') {
-    options.assemblyMaxItems = advancedState.assemblyMaxItems;
-    options.assemblyMaxChars = advancedState.assemblyMaxChars;
-    options.assemblyMaxCharsPerItem = advancedState.assemblyMaxCharsPerItem;
-  }
-
-  // RAG processing options
-  if (modeLC === 'rag') {
-    options.temperature = advancedState.temperature;
-    options.maxTokens = advancedState.maxTokens;
-  }
-
-  // Fusion options for multi mode
-  if (modeLC === 'multi') {
-    options.fusionStrategy = advancedState.fusionStrategy;
-    if (advancedState.fusionStrategy === 'weighted') {
-      options.keywordWeight = advancedState.keywordWeight;
-      options.semanticWeight = advancedState.semanticWeight;
-    }
-  }
-
-  return options;
+  return getAdvancedParams();
 }
 
 /**
@@ -316,8 +130,285 @@ export function isAdvancedPanelOpen() {
   return isPanelOpen;
 }
 
+// --- Internal ---
+
+/**
+ * Render mode tabs into #search-mode-tabs.
+ */
+function renderModeTabs() {
+  const container = document.getElementById('search-mode-tabs');
+  if (!container) return;
+
+  let html = '';
+  const categories = capabilities?.categories || {};
+
+  // Render LLM group first, then Direct
+  for (const catKey of ['llm', 'direct']) {
+    const cat = categories[catKey];
+    if (!cat || !cat.modes?.length) continue;
+
+    html += `<div class="mode-tab-group">`;
+    html += `<span class="mode-tab-group-label">${escapeHtml(cat.label)}</span>`;
+
+    for (const mode of cat.modes) {
+      const active = mode.name === currentMode ? ' active' : '';
+      html += `<button class="mode-tab${active}" data-mode="${escapeHtml(mode.name)}" title="${escapeHtml(mode.description)}">${escapeHtml(mode.label)}</button>`;
+    }
+
+    html += `</div>`;
+  }
+
+  container.innerHTML = html;
+
+  // Attach click handlers
+  container.querySelectorAll('.mode-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      selectMode(btn.dataset.mode);
+    });
+  });
+}
+
+/**
+ * Select a mode and update UI.
+ * @param {string} mode - Mode name
+ */
+function selectMode(mode) {
+  currentMode = mode;
+
+  // Update active class on tabs
+  document.querySelectorAll('.mode-tab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === mode);
+  });
+
+  // Re-render advanced panel if open
+  if (isPanelOpen) {
+    renderAdvancedPanel();
+  }
+}
+
+/**
+ * Get parameter descriptors for a mode.
+ * @param {string} modeName - Mode name
+ * @returns {Array} Parameter descriptors
+ */
+function getModeParameters(modeName) {
+  const categories = capabilities?.categories || {};
+  for (const cat of Object.values(categories)) {
+    for (const mode of (cat.modes || [])) {
+      if (mode.name === modeName) {
+        return mode.parameters || [];
+      }
+    }
+  }
+  return [];
+}
+
+/**
+ * Render the advanced options panel for the current mode.
+ */
+function renderAdvancedPanel() {
+  const container = document.getElementById('advanced-sections');
+  if (!container) return;
+
+  const modeParams = getModeParameters(currentMode);
+  const sharedParams = capabilities?.shared_parameters || [];
+
+  // Combine mode-specific and shared params
+  const allParams = [...modeParams, ...sharedParams];
+
+  if (allParams.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state" style="padding: var(--space-6);">
+        <p class="empty-state-text">No advanced options for this mode.</p>
+      </div>
+    `;
+    return;
+  }
+
+  // Group by section
+  const sections = {};
+  for (const param of allParams) {
+    const section = param.section || 'General';
+    if (!sections[section]) sections[section] = [];
+    sections[section].push(param);
+  }
+
+  let html = '';
+  for (const [sectionName, params] of Object.entries(sections)) {
+    html += `
+      <div class="advanced-section">
+        <div class="advanced-section-header">
+          <span class="section-title">${escapeHtml(sectionName)}</span>
+        </div>
+        <div class="advanced-section-body">
+    `;
+
+    for (const param of params) {
+      html += renderParameter(param);
+    }
+
+    html += `</div></div>`;
+  }
+
+  container.innerHTML = html;
+
+  // Attach event listeners
+  attachParamListeners(container);
+}
+
+/**
+ * Render a single parameter control.
+ * @param {Object} param - Parameter descriptor
+ * @returns {string} HTML string
+ */
+function renderParameter(param) {
+  const value = paramValues[param.name] ?? param.default;
+
+  switch (param.type) {
+    case 'float':
+    case 'int':
+      return renderSlider(param, value);
+    case 'bool':
+      return renderToggle(param, value);
+    case 'select':
+      return renderSelect(param, value);
+    default:
+      return '';
+  }
+}
+
+/**
+ * Render a slider control for float/int params.
+ */
+function renderSlider(param, value) {
+  const displayValue = param.type === 'float' ? Number(value).toFixed(2) : value;
+  return `
+    <div class="slider-control">
+      <div class="slider-header">
+        <label class="slider-label" for="param-${param.name}" title="${escapeHtml(param.description)}">${escapeHtml(param.label)}</label>
+        <span class="slider-value" id="param-${param.name}-value">${displayValue}</span>
+      </div>
+      <input type="range" id="param-${param.name}" class="slider"
+        data-param="${param.name}" data-type="${param.type}"
+        min="${param.min ?? 0}" max="${param.max ?? 100}"
+        value="${value}" step="${param.step ?? 1}">
+    </div>
+  `;
+}
+
+/**
+ * Render a toggle switch for bool params.
+ */
+function renderToggle(param, value) {
+  const checked = value ? 'checked' : '';
+  return `
+    <div class="toggle-control">
+      <label class="toggle-label" for="param-${param.name}" title="${escapeHtml(param.description)}">${escapeHtml(param.label)}</label>
+      <label class="toggle-switch">
+        <input type="checkbox" id="param-${param.name}"
+          data-param="${param.name}" data-type="bool" ${checked}>
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+  `;
+}
+
+/**
+ * Render a select dropdown for select params.
+ */
+function renderSelect(param, value) {
+  let optionsHtml = '';
+  for (const opt of (param.options || [])) {
+    const selected = opt.value === value ? 'selected' : '';
+    optionsHtml += `<option value="${escapeHtml(opt.value)}" ${selected}>${escapeHtml(opt.label)}</option>`;
+  }
+
+  return `
+    <div class="input-group">
+      <label class="input-label" for="param-${param.name}" title="${escapeHtml(param.description)}">${escapeHtml(param.label)}</label>
+      <select id="param-${param.name}" class="select"
+        data-param="${param.name}" data-type="select">
+        ${optionsHtml}
+      </select>
+    </div>
+  `;
+}
+
+/**
+ * Attach change listeners to parameter controls.
+ */
+function attachParamListeners(container) {
+  // Sliders
+  container.querySelectorAll('input[type="range"][data-param]').forEach(slider => {
+    slider.addEventListener('input', () => {
+      const name = slider.dataset.param;
+      const type = slider.dataset.type;
+      const val = type === 'float' ? parseFloat(slider.value) : parseInt(slider.value, 10);
+      paramValues[name] = val;
+
+      // Update displayed value
+      const display = document.getElementById(`param-${name}-value`);
+      if (display) {
+        display.textContent = type === 'float' ? val.toFixed(2) : val;
+      }
+    });
+  });
+
+  // Toggles
+  container.querySelectorAll('input[type="checkbox"][data-param]').forEach(toggle => {
+    toggle.addEventListener('change', () => {
+      paramValues[toggle.dataset.param] = toggle.checked;
+    });
+  });
+
+  // Selects
+  container.querySelectorAll('select[data-param]').forEach(select => {
+    select.addEventListener('change', () => {
+      paramValues[select.dataset.param] = select.value;
+    });
+  });
+}
+
+/**
+ * Reset all param values to their defaults from capabilities.
+ */
+function resetToDefaults() {
+  paramValues = {};
+  const categories = capabilities?.categories || {};
+
+  // Collect defaults from all modes
+  for (const cat of Object.values(categories)) {
+    for (const mode of (cat.modes || [])) {
+      for (const param of (mode.parameters || [])) {
+        if (param.default !== null && param.default !== undefined) {
+          paramValues[param.name] = param.default;
+        }
+      }
+    }
+  }
+
+  // Collect defaults from shared params
+  for (const param of (capabilities?.shared_parameters || [])) {
+    if (param.default !== null && param.default !== undefined) {
+      paramValues[param.name] = param.default;
+    }
+  }
+}
+
+/**
+ * Escape HTML special characters.
+ */
+function escapeHtml(str) {
+  if (!str) return '';
+  const div = document.createElement('div');
+  div.textContent = String(str);
+  return div.innerHTML;
+}
+
 export default {
   initAdvancedOptions,
+  getCurrentMode,
+  getAdvancedParams,
   getAdvancedOptions,
   isAdvancedPanelOpen,
 };

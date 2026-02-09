@@ -553,6 +553,59 @@ textarea.input {
   margin-top: var(--space-2);
 }
 
+/* === Search Mode Tabs === */
+.search-mode-tabs {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  margin-top: var(--space-3);
+}
+
+.mode-tab-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  background: var(--bg-input);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: var(--space-1);
+}
+
+.mode-tab-group-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  padding: 0 var(--space-2);
+}
+
+.mode-tab {
+  padding: var(--space-1) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.mode-tab:hover {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+
+.mode-tab.active {
+  color: var(--color-accent-light);
+  background: rgba(79, 209, 197, 0.1);
+  border-color: var(--color-accent);
+}
+
 /* === Search Options Bar === */
 .search-options-bar {
   display: flex;

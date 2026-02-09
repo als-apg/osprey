@@ -136,6 +136,7 @@ class ARIELSearchRequest:
     max_results: int = 10
     include_images: bool = False
     capability_context_data: dict[str, Any] = field(default_factory=dict)
+    advanced_params: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """Validate request fields."""

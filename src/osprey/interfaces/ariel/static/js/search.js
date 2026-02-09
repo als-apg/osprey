@@ -12,11 +12,10 @@ import {
   renderEmptyState,
   escapeHtml,
 } from './components.js';
-import { getAdvancedOptions } from './advanced-options.js';
+import { getCurrentMode, getAdvancedParams } from './advanced-options.js';
 
 // Search state
 let currentQuery = '';
-let currentMode = 'auto';
 let isSearching = false;
 let lastResults = null;
 
@@ -26,7 +25,6 @@ let lastResults = null;
 export function initSearch() {
   const searchInput = document.getElementById('search-input');
   const searchBtn = document.getElementById('search-btn');
-  const modeSelect = document.getElementById('search-mode');
   const filtersToggle = document.getElementById('filters-toggle');
   const filtersPanel = document.getElementById('filters-panel');
 
@@ -41,11 +39,6 @@ export function initSearch() {
   // Search button click
   searchBtn?.addEventListener('click', () => {
     performSearch();
-  });
-
-  // Mode change
-  modeSelect?.addEventListener('change', (e) => {
-    currentMode = e.target.value;
   });
 
   // Filters toggle
@@ -95,30 +88,20 @@ export async function performSearch(query = null) {
   const author = document.getElementById('filter-author')?.value?.trim() || null;
   const sourceSystem = document.getElementById('filter-source')?.value || null;
 
-  // Get advanced options for current mode
-  const advancedOptions = getAdvancedOptions(currentMode);
+  // Get mode and advanced params from the capabilities-driven UI
+  const mode = getCurrentMode();
+  const advancedParams = getAdvancedParams();
 
   try {
     const results = await searchApi.search({
       query,
-      mode: currentMode,
-      maxResults: advancedOptions.maxResults,
+      mode,
+      maxResults: advancedParams.max_results || 10,
       startDate: startDate ? new Date(startDate).toISOString() : null,
       endDate: endDate ? new Date(endDate).toISOString() : null,
       author,
       sourceSystem,
-      // Advanced options
-      similarityThreshold: advancedOptions.similarityThreshold,
-      includeHighlights: advancedOptions.includeHighlights,
-      fuzzyFallback: advancedOptions.fuzzyFallback,
-      assemblyMaxItems: advancedOptions.assemblyMaxItems,
-      assemblyMaxChars: advancedOptions.assemblyMaxChars,
-      assemblyMaxCharsPerItem: advancedOptions.assemblyMaxCharsPerItem,
-      temperature: advancedOptions.temperature,
-      maxTokens: advancedOptions.maxTokens,
-      fusionStrategy: advancedOptions.fusionStrategy,
-      keywordWeight: advancedOptions.keywordWeight,
-      semanticWeight: advancedOptions.semanticWeight,
+      advancedParams,
     });
 
     lastResults = results;
@@ -208,7 +191,7 @@ export function clearSearch() {
 export function getSearchState() {
   return {
     query: currentQuery,
-    mode: currentMode,
+    mode: getCurrentMode(),
     isSearching,
     results: lastResults,
   };

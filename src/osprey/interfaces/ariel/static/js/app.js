@@ -4,6 +4,7 @@
  * Main application entry point and routing.
  */
 
+import { capabilitiesApi } from './api.js';
 import { initSearch, performSearch, clearSearch } from './search.js';
 import { initEntries, loadEntries, showEntry, closeEntryModal } from './entries.js';
 import { initDashboard, loadStatus, startAutoRefresh, stopAutoRefresh } from './dashboard.js';
@@ -15,12 +16,20 @@ let currentView = 'search';
 /**
  * Initialize the application.
  */
-function init() {
+async function init() {
+  // Fetch capabilities from backend (modes + parameters)
+  let capabilities = null;
+  try {
+    capabilities = await capabilitiesApi.get();
+  } catch (e) {
+    console.warn('Failed to fetch capabilities, using fallback:', e);
+  }
+
   // Initialize modules
   initSearch();
   initEntries();
   initDashboard();
-  initAdvancedOptions();
+  initAdvancedOptions(capabilities);
 
   // Set up navigation
   setupNavigation();

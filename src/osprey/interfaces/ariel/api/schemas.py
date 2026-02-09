@@ -5,6 +5,7 @@ Request and response models for the ARIEL search interface.
 
 from datetime import datetime
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -12,7 +13,6 @@ from pydantic import BaseModel, Field
 class SearchMode(str, Enum):
     """Search mode options."""
 
-    AUTO = "auto"
     KEYWORD = "keyword"
     SEMANTIC = "semantic"
     RAG = "rag"
@@ -51,12 +51,15 @@ class SearchRequest(BaseModel):
     """Search request payload."""
 
     query: str = Field(..., min_length=1, description="Search query text")
-    mode: SearchMode = Field(SearchMode.AUTO, description="Search mode")
+    mode: SearchMode = Field(SearchMode.RAG, description="Search mode")
     max_results: int = Field(10, ge=1, le=100, description="Maximum results")
     start_date: datetime | None = Field(None, description="Filter start date")
     end_date: datetime | None = Field(None, description="Filter end date")
     author: str | None = Field(None, description="Filter by author")
     source_system: str | None = Field(None, description="Filter by source system")
+    advanced_params: dict[str, Any] = Field(
+        default_factory=dict, description="Mode-specific advanced parameters"
+    )
 
 
 class SearchResponse(BaseModel):

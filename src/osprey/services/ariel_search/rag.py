@@ -87,6 +87,7 @@ class RAGPipeline:
         similarity_threshold: float | None = None,
         start_date: Any | None = None,
         end_date: Any | None = None,
+        temperature: float | None = None,
     ) -> RAGResult:
         """Execute the RAG pipeline.
 
@@ -96,6 +97,7 @@ class RAGPipeline:
             similarity_threshold: Minimum similarity for semantic search
             start_date: Filter entries after this time
             end_date: Filter entries before this time
+            temperature: Override LLM temperature (None uses config default)
 
         Returns:
             RAGResult with answer, entries, and citations
@@ -127,7 +129,7 @@ class RAGPipeline:
         context_text, included_entries, truncated = self._assemble_context(entries)
 
         # 4. Generate — LLM call
-        answer = await self._generate(query, context_text)
+        answer = await self._generate(query, context_text, temperature=temperature)
 
         # 5. Extract citations
         citations = self._extract_citations(answer)
@@ -325,12 +327,19 @@ class RAGPipeline:
 
     # === LLM Generation ===
 
-    async def _generate(self, query: str, context: str) -> str:
+    async def _generate(
+        self,
+        query: str,
+        context: str,
+        *,
+        temperature: float | None = None,
+    ) -> str:
         """Generate an answer using the LLM.
 
         Args:
             query: Original query
             context: Assembled context string
+            temperature: Override temperature (None uses config default)
 
         Returns:
             Generated answer text
@@ -343,7 +352,9 @@ class RAGPipeline:
             llm_kwargs: dict[str, Any] = {
                 "provider": self._config.reasoning.provider,
                 "model_id": self._config.reasoning.model_id,
-                "temperature": self._config.reasoning.temperature,
+                "temperature": temperature
+                if temperature is not None
+                else self._config.reasoning.temperature,
             }
 
             response = get_chat_completion(message=prompt, **llm_kwargs)

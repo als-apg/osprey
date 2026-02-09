@@ -4,6 +4,9 @@ Search modules export a `get_tool_descriptor()` function that returns
 a `SearchToolDescriptor`. The agent executor uses these descriptors
 to build LangChain tools automatically — no executor changes needed
 when adding a new search module.
+
+Modules may also export `get_parameter_descriptors()` to declare
+tunable parameters for the frontend capabilities API.
 """
 
 from __future__ import annotations
@@ -17,6 +20,55 @@ if TYPE_CHECKING:
     from pydantic import BaseModel
 
     from osprey.services.ariel_search.models import SearchMode
+
+
+@dataclass(frozen=True)
+class ParameterDescriptor:
+    """Describes a tunable parameter for the frontend capabilities API.
+
+    Attributes:
+        name: Parameter key (e.g. "similarity_threshold")
+        label: Human-readable label (e.g. "Similarity Threshold")
+        description: Help text for the parameter
+        param_type: One of "float", "int", "bool", "select"
+        default: Default value
+        min_value: Minimum value (float/int types)
+        max_value: Maximum value (float/int types)
+        step: Step increment (float/int types)
+        options: Choices for select type, e.g. [{"value": "rrf", "label": "RRF"}]
+        section: Grouping label in the advanced panel (e.g. "Retrieval")
+    """
+
+    name: str
+    label: str
+    description: str
+    param_type: str  # "float", "int", "bool", "select"
+    default: Any
+    min_value: float | None = None
+    max_value: float | None = None
+    step: float | None = None
+    options: list[dict[str, str]] | None = None
+    section: str = "General"
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-friendly dict."""
+        d: dict[str, Any] = {
+            "name": self.name,
+            "label": self.label,
+            "description": self.description,
+            "type": self.param_type,
+            "default": self.default,
+            "section": self.section,
+        }
+        if self.min_value is not None:
+            d["min"] = self.min_value
+        if self.max_value is not None:
+            d["max"] = self.max_value
+        if self.step is not None:
+            d["step"] = self.step
+        if self.options is not None:
+            d["options"] = self.options
+        return d
 
 
 @dataclass(frozen=True)
@@ -42,4 +94,4 @@ class SearchToolDescriptor:
     needs_embedder: bool = False
 
 
-__all__ = ["SearchToolDescriptor"]
+__all__ = ["ParameterDescriptor", "SearchToolDescriptor"]

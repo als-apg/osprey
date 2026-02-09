@@ -822,6 +822,96 @@ class TestLLMConfiguration:
         assert config.reasoning.model_id == "claude-haiku"
 
 
+class TestAdvancedParamsWiring:
+    """Tests for advanced_params flowing through service.search()."""
+
+    def _create_mock_service(self, search_modules: dict | None = None) -> ARIELSearchService:
+        """Create a mock service for testing."""
+        config_dict = {
+            "database": {"uri": "postgresql://localhost:5432/test"},
+        }
+        if search_modules:
+            config_dict["search_modules"] = search_modules
+
+        config = ARIELConfig.from_dict(config_dict)
+        mock_pool = MagicMock()
+        mock_pool.close = AsyncMock()
+        mock_repository = MagicMock()
+        mock_repository.health_check = AsyncMock(return_value=(True, "OK"))
+        mock_repository.validate_search_model_table = AsyncMock()
+
+        return ARIELSearchService(
+            config=config,
+            pool=mock_pool,
+            repository=mock_repository,
+        )
+
+    @pytest.mark.asyncio
+    async def test_advanced_params_reach_keyword(self):
+        """Advanced params are forwarded to _run_keyword."""
+        service = self._create_mock_service(search_modules={"keyword": {"enabled": True}})
+
+        mock_result = ARIELSearchResult(
+            entries=(),
+            search_modes_used=(SearchMode.KEYWORD,),
+            reasoning="Keyword search: 0 results",
+        )
+        service._run_keyword = AsyncMock(return_value=mock_result)
+
+        await service.search(
+            "test",
+            mode=SearchMode.KEYWORD,
+            advanced_params={"include_highlights": False, "fuzzy_fallback": False},
+        )
+
+        # Verify the request passed to _run_keyword has the advanced_params
+        call_args = service._run_keyword.call_args[0]
+        request = call_args[0]
+        assert request.advanced_params == {"include_highlights": False, "fuzzy_fallback": False}
+
+    @pytest.mark.asyncio
+    async def test_advanced_params_reach_rag(self):
+        """Advanced params are forwarded to _run_rag."""
+        service = self._create_mock_service(search_modules={"keyword": {"enabled": True}})
+
+        mock_result = ARIELSearchResult(
+            entries=(),
+            answer="test",
+            search_modes_used=(SearchMode.RAG,),
+            reasoning="RAG pipeline",
+        )
+        service._run_rag = AsyncMock(return_value=mock_result)
+
+        await service.search(
+            "test",
+            mode=SearchMode.RAG,
+            advanced_params={"temperature": 0.5, "max_context_chars": 8000},
+        )
+
+        call_args = service._run_rag.call_args[0]
+        request = call_args[0]
+        assert request.advanced_params["temperature"] == 0.5
+        assert request.advanced_params["max_context_chars"] == 8000
+
+    @pytest.mark.asyncio
+    async def test_advanced_params_default_empty(self):
+        """advanced_params defaults to empty dict when not provided."""
+        service = self._create_mock_service(search_modules={"keyword": {"enabled": True}})
+
+        mock_result = ARIELSearchResult(
+            entries=(),
+            search_modes_used=(SearchMode.RAG,),
+            reasoning="RAG pipeline",
+        )
+        service._run_rag = AsyncMock(return_value=mock_result)
+
+        await service.search("test")
+
+        call_args = service._run_rag.call_args[0]
+        request = call_args[0]
+        assert request.advanced_params == {}
+
+
 class TestServiceState:
     """Tests for service internal state management."""
 

@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, Field
 
 from osprey.services.ariel_search.models import SearchMode
-from osprey.services.ariel_search.search.base import SearchToolDescriptor
+from osprey.services.ariel_search.search.base import ParameterDescriptor, SearchToolDescriptor
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -323,6 +323,28 @@ def format_keyword_result(
         "score": score,
         "highlights": highlights,
     }
+
+
+def get_parameter_descriptors() -> list[ParameterDescriptor]:
+    """Return tunable parameter descriptors for the capabilities API."""
+    return [
+        ParameterDescriptor(
+            name="include_highlights",
+            label="Include Highlights",
+            description="Include highlighted snippets in search results",
+            param_type="bool",
+            default=True,
+            section="Options",
+        ),
+        ParameterDescriptor(
+            name="fuzzy_fallback",
+            label="Fuzzy Fallback",
+            description="Fall back to fuzzy matching when no exact matches are found",
+            param_type="bool",
+            default=True,
+            section="Options",
+        ),
+    ]
 
 
 def get_tool_descriptor() -> SearchToolDescriptor:

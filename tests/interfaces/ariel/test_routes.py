@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.ariel.api import routes
+from osprey.services.ariel_search.config import ARIELConfig
 
 
 @pytest.fixture
@@ -18,6 +19,17 @@ def mock_ariel_service():
     service = AsyncMock()
     service.health_check = AsyncMock(return_value=(True, "Service healthy"))
     service.repository = AsyncMock()
+
+    # Provide a real config so /api/capabilities works
+    service.config = ARIELConfig.from_dict(
+        {
+            "database": {"uri": "postgresql://localhost:5432/test"},
+            "search_modules": {
+                "keyword": {"enabled": True},
+                "semantic": {"enabled": True, "model": "test-model"},
+            },
+        }
+    )
 
     # Mock search result
     mock_result = MagicMock()
@@ -71,7 +83,7 @@ def test_search_endpoint_basic(client, mock_ariel_service):
         "/api/search",
         json={
             "query": "test query",
-            "mode": "auto",
+            "mode": "rag",
             "max_results": 10,
         },
     )
@@ -250,17 +262,70 @@ def test_search_mode_mapping(client, mock_ariel_service):
         assert call_kwargs["mode"] == expected_service_mode
 
 
-def test_search_auto_mode(client, mock_ariel_service):
-    """Test that auto mode passes None to service."""
-    client.post(
+def test_capabilities_endpoint(client):
+    """Test capabilities endpoint returns valid structure."""
+    response = client.get("/api/capabilities")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "categories" in data
+    assert "shared_parameters" in data
+    assert "llm" in data["categories"]
+    assert "direct" in data["categories"]
+
+    # Should have RAG and Agent in LLM category
+    llm_names = [m["name"] for m in data["categories"]["llm"]["modes"]]
+    assert "rag" in llm_names
+    assert "agent" in llm_names
+
+    # Should have keyword and semantic in direct category
+    direct_names = [m["name"] for m in data["categories"]["direct"]["modes"]]
+    assert "keyword" in direct_names
+    assert "semantic" in direct_names
+
+    # Each mode should have parameters list
+    for mode in data["categories"]["llm"]["modes"]:
+        assert "parameters" in mode
+
+    # Shared parameters should include max_results
+    param_names = [p["name"] for p in data["shared_parameters"]]
+    assert "max_results" in param_names
+
+
+def test_search_with_advanced_params(client, mock_ariel_service):
+    """Test that advanced_params are forwarded to service."""
+    response = client.post(
         "/api/search",
         json={
             "query": "test",
-            "mode": "auto",
+            "mode": "rag",
+            "max_results": 10,
+            "advanced_params": {"temperature": 0.5, "similarity_threshold": 0.8},
+        },
+    )
+
+    assert response.status_code == 200
+
+    # Verify advanced_params were forwarded
+    call_kwargs = mock_ariel_service.search.call_args.kwargs
+    assert call_kwargs["advanced_params"] == {
+        "temperature": 0.5,
+        "similarity_threshold": 0.8,
+    }
+
+
+def test_search_defaults_to_rag_mode(client, mock_ariel_service):
+    """Test that omitting mode defaults to RAG."""
+    response = client.post(
+        "/api/search",
+        json={
+            "query": "test",
             "max_results": 10,
         },
     )
 
-    # Auto mode should pass None
+    assert response.status_code == 200
+    from osprey.services.ariel_search.models import SearchMode as ServiceSearchMode
+
     call_kwargs = mock_ariel_service.search.call_args.kwargs
-    assert call_kwargs["mode"] is None
+    assert call_kwargs["mode"] == ServiceSearchMode.RAG

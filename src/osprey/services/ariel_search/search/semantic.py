@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, Field
 
 from osprey.services.ariel_search.models import SearchMode
-from osprey.services.ariel_search.search.base import SearchToolDescriptor
+from osprey.services.ariel_search.search.base import ParameterDescriptor, SearchToolDescriptor
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -207,6 +207,23 @@ def format_semantic_result(
         "title": entry.get("metadata", {}).get("title"),
         "similarity": similarity,
     }
+
+
+def get_parameter_descriptors() -> list[ParameterDescriptor]:
+    """Return tunable parameter descriptors for the capabilities API."""
+    return [
+        ParameterDescriptor(
+            name="similarity_threshold",
+            label="Similarity Threshold",
+            description="Minimum cosine similarity score for results (0-1)",
+            param_type="float",
+            default=0.7,
+            min_value=0.0,
+            max_value=1.0,
+            step=0.01,
+            section="Retrieval",
+        ),
+    ]
 
 
 def get_tool_descriptor() -> SearchToolDescriptor:
