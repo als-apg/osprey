@@ -6,6 +6,8 @@ Tests the validation of results dictionary through different stages:
 3. Runtime validation detecting missing results (if execution available)
 """
 
+from unittest.mock import Mock, patch
+
 import pytest
 
 from osprey.services.python_executor.generation import MockCodeGenerator
@@ -143,20 +145,28 @@ results = get_results()
         assert validate_result_structure(generated_code) is False
 
 
-@pytest.mark.skip(reason="Requires full framework config.yml setup")
 class TestResultsValidationThroughAnalysis:
     """Test validation through the analysis node (without execution).
 
-    These tests require full framework configuration and are skipped in
-    standard pytest runs. They can be enabled when running from a project
-    directory with config.yml.
+    Uses an empty configurable dict instead of get_full_configuration(),
+    since StaticCodeAnalyzer gracefully falls back to defaults when
+    registry is not initialized.
     """
+
+    @staticmethod
+    def _mock_approval_evaluator():
+        """Create a mock approval evaluator that doesn't require config.yml."""
+        evaluator = Mock()
+        decision = Mock()
+        decision.needs_approval = False
+        decision.reasoning = "Test mode - no approval required"
+        evaluator.evaluate = Mock(return_value=decision)
+        return evaluator
 
     @pytest.mark.asyncio
     async def test_analysis_node_warns_on_missing_results(self, caplog):
         """Analysis node should warn (not fail) when results missing."""
         from osprey.services.python_executor.analysis.node import StaticCodeAnalyzer
-        from osprey.utils.config import get_full_configuration
 
         code_without_results = """
 import numpy as np
@@ -164,12 +174,16 @@ data = np.array([1, 2, 3])
 print(np.mean(data))
 """
 
-        configurable = get_full_configuration()
+        configurable = {"agent_control_defaults": {"epics_writes_enabled": False}}
         analyzer = StaticCodeAnalyzer(configurable)
 
-        # This should complete successfully but log a warning
-        with caplog.at_level("WARNING"):
-            result = await analyzer.analyze_code(code_without_results, context=None)
+        with patch(
+            "osprey.approval.approval_manager.get_python_execution_evaluator",
+            return_value=self._mock_approval_evaluator(),
+        ):
+            # This should complete successfully but log a warning
+            with caplog.at_level("WARNING"):
+                result = await analyzer.analyze_code(code_without_results, context=None)
 
         # Analysis should pass (no critical errors)
         assert result.passed is True
@@ -183,7 +197,6 @@ print(np.mean(data))
     async def test_analysis_node_accepts_valid_results(self):
         """Analysis node should accept code with valid results."""
         from osprey.services.python_executor.analysis.node import StaticCodeAnalyzer
-        from osprey.utils.config import get_full_configuration
 
         code_with_results = """
 import numpy as np
@@ -196,10 +209,14 @@ results = {
 }
 """
 
-        configurable = get_full_configuration()
+        configurable = {"agent_control_defaults": {"epics_writes_enabled": False}}
         analyzer = StaticCodeAnalyzer(configurable)
 
-        result = await analyzer.analyze_code(code_with_results, context=None)
+        with patch(
+            "osprey.approval.approval_manager.get_python_execution_evaluator",
+            return_value=self._mock_approval_evaluator(),
+        ):
+            result = await analyzer.analyze_code(code_with_results, context=None)
 
         # Analysis should pass
         assert result.passed is True

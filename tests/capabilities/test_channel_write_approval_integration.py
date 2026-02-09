@@ -273,25 +273,3 @@ async def test_channel_write_approval_workflow_catches_verification_config_bug(
             if approval_interrupt_occurred:
                 # Test passes - approval system was reached successfully
                 pass
-
-
-@pytest.mark.asyncio
-async def test_channel_write_approval_analysis_details_structure(
-    my_control_assistant_project, my_control_assistant_config
-):
-    """
-    Verify that analysis_details for approval has correct structure.
-
-    This test checks the structure of data passed to the approval system.
-    It should have:
-    - operation_count ✅
-    - channels ✅
-    - safety_level ✅
-    - values ✅
-
-    It should NOT have:
-    - verification_levels ❌ (requires connector that doesn't exist yet)
-    """
-    # This test will be similar but focus on capturing the analysis_details
-    # structure if we can intercept it before the error occurs
-    pytest.skip("TODO: Implement after fixing main bug - this will verify the fix")

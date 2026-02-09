@@ -262,7 +262,7 @@ class TestClaudeConfigIntegration:
 
     def test_generated_config_loads_in_generator(self, tmp_path):
         """Test that generated config can be loaded by ClaudeCodeGenerator."""
-        pytest.importorskip("anthropic_client")  # Skip if Claude SDK not available
+        pytest.importorskip("claude_code_sdk")  # Skip if Claude SDK not available
 
         runner = CliRunner()
 
@@ -297,7 +297,7 @@ class TestClaudeConfigIntegration:
 
     def test_fast_profile_workflow(self, tmp_path):
         """Test that fast profile configuration is valid for single-phase workflow."""
-        pytest.importorskip("anthropic_client")  # Skip if Claude SDK not available
+        pytest.importorskip("claude_code_sdk")  # Skip if Claude SDK not available
 
         runner = CliRunner()
 
@@ -323,7 +323,7 @@ class TestClaudeConfigIntegration:
 
     def test_robust_profile_workflow(self, tmp_path):
         """Test that robust profile configuration is valid for multi-phase workflow."""
-        pytest.importorskip("anthropic_client")  # Skip if Claude SDK not available
+        pytest.importorskip("claude_code_sdk")  # Skip if Claude SDK not available
 
         runner = CliRunner()
 
