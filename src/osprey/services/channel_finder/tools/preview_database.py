@@ -37,18 +37,14 @@ def _resolve_path(path_str: str) -> Path:
 
 
 try:
-    from osprey.cli.styles import (
-        Messages,  # noqa: F401
-        get_active_theme,
-    )
     from osprey.cli.styles import console as osprey_console
+    from osprey.cli.styles import get_active_theme
 
     console = osprey_console
     theme = get_active_theme()
 except ImportError:
     console = Console()
     theme = None
-    Messages = None
 
 
 def detect_pipeline_config(config) -> tuple[str | None, dict | None]:

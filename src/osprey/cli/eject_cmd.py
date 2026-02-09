@@ -58,7 +58,7 @@ def _get_module_source_path(module_path: str) -> Path | None:
             if locations:
                 return Path(locations[0])
     except (ModuleNotFoundError, ValueError):
-        pass
+        logger.debug("Could not resolve module path: %s", module_path)
     return None
 
 
