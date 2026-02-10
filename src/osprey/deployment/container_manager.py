@@ -1579,7 +1579,7 @@ def rebuild_deployment(config_path, detached=False, dev_mode=False, expose_netwo
         )
         logger.info("To configure API keys: cp .env.example .env && edit .env")
 
-    cmd.append("up")
+    cmd.extend(["up", "--build"])
     if detached:
         cmd.append("-d")
 

@@ -179,6 +179,7 @@ ariel-proxy = [
 
 # ARIEL Web Interface - FastAPI server for web-based search
 web = [
+    "fastapi>=0.109.0",
     "uvicorn[standard]>=0.27.0",
 ]
 
@@ -226,6 +227,7 @@ include = ["osprey*"]
     "templates/**/*.css",
     "templates/**/*.js",
     "templates/**/*.json",
+    "interfaces/ariel/static/**/*",
     "workflows/*.md",  # Legacy workflow files (deprecated, use assist/)
     "assist/**/*.md",  # Coding assistant task instructions
     "assist/**/*.yml",  # Migration documents and schemas

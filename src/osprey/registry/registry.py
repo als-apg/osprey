@@ -473,15 +473,6 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     provides=["CHANNEL_ADDRESSES"],
                     requires=[],
                 ),
-                # ARIEL logbook search service (framework-level)
-                ServiceRegistration(
-                    name="ariel_search",
-                    module_path="osprey.services.ariel_search.service",
-                    class_name="ARIELSearchService",
-                    description="Electronic logbook search and retrieval service",
-                    provides=["LOGBOOK_SEARCH_RESULTS"],
-                    requires=[],
-                ),
             ],
             # Framework prompt providers (defaults - typically overridden by applications)
             framework_prompt_providers=[

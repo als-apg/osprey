@@ -45,6 +45,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ARIEL**: Simplify full-text search to use raw_text field directly
 - **ARIEL**: Add base_url support for OpenAI-compatible APIs (CBORG, etc.)
 - **ARIEL**: Fix text embedding max_input_tokens None handling
+### Fixed
+- **Deploy**: Fix container crash loop in dev mode rebuild
+  - Add `--build` flag so Docker images are rebuilt on `osprey deploy rebuild`
+  - Add `--no-deps` to dev mode wheel install to prevent reinstalling all deps on every start
+  - Add missing `fastapi` and `psycopg[binary,pool]` to ariel-web requirements
+  - Include ARIEL static files in wheel package-data
+
 - **ARIEL**: Migrate web interface to native Osprey interface
   - Move from `templates/services/ariel-web/app/` to `src/osprey/interfaces/ariel/`
   - Treat ARIEL web as first-class interface alongside CLI and TUI
