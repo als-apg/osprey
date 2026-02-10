@@ -1130,6 +1130,11 @@ class Pipeline:
                                     node_name = metadata.get("langgraph_node", "respond")
                                     response_was_streamed[0] = True
 
+                                    # Close code fence when transitioning away from code generator
+                                    if code_streaming_active[0] and node_name != "python_code_generator":
+                                        code_streaming_active[0] = False
+                                        stream_queue.put(("response_token", "\n```\n\n"))
+
                                     # Code generation tokens
                                     if node_name == "python_code_generator":
                                         # Clean fence markers from streamed code tokens
@@ -1139,6 +1144,11 @@ class Pipeline:
                                         # Remove code fence markers that LLMs add
                                         content = content.replace("```python\n", "").replace("```python", "")
                                         content = content.replace("\n```\n", "").replace("\n```", "").replace("```", "")
+
+                                        # Open code fence on first code token
+                                        if not code_streaming_active[0]:
+                                            code_streaming_active[0] = True
+                                            stream_queue.put(("response_token", "```python\n"))
 
                                         response_was_streamed[0] = True
                                         stream_queue.put(
@@ -1159,6 +1169,11 @@ class Pipeline:
                         logger.info("[streaming] astream() cancelled via CancelledError")
 
                     logger.debug(f"[streaming] astream() finished")
+
+                    # Close any trailing code fence
+                    if code_streaming_active[0]:
+                        code_streaming_active[0] = False
+                        stream_queue.put(("response_token", "\n```\n"))
 
                     # Signal completion (both natural and cancelled paths)
                     stream_queue.put(
