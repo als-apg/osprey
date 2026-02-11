@@ -684,3 +684,155 @@ class TestAgentLogbookPipeline:
 
         # Cleanup
         reset_ariel_service()
+
+
+# =============================================================================
+# Phase 3: Custom Search + Enhancement Module E2E Tests
+# =============================================================================
+
+
+@pytest.fixture
+async def e2e_ariel_watermarked_db(e2e_ariel_seeded_db):
+    """Database with DEMO-001 stamped with a watermark in metadata.
+
+    Depends on the module-scoped ``e2e_ariel_seeded_db`` (data already ingested).
+    Applies the watermark, yields, then removes it to avoid polluting the
+    shared module-scoped fixture.
+    """
+    from tests.e2e._e2e_watermark_enhancer import WATERMARK_ENTRY_ID, WATERMARK_VALUE
+
+    pool = e2e_ariel_seeded_db["pool"]
+
+    # Stamp the watermark
+    async with pool.connection() as conn:
+        await conn.execute(
+            """
+            UPDATE enhanced_entries
+            SET metadata = metadata || %s::jsonb
+            WHERE entry_id = %s
+            """,
+            [f'{{"e2e_watermark": "{WATERMARK_VALUE}"}}', WATERMARK_ENTRY_ID],
+        )
+
+    yield e2e_ariel_seeded_db
+
+    # Cleanup: remove the watermark key
+    async with pool.connection() as conn:
+        await conn.execute(
+            """
+            UPDATE enhanced_entries
+            SET metadata = metadata - 'e2e_watermark'
+            WHERE entry_id = %s
+            """,
+            [WATERMARK_ENTRY_ID],
+        )
+
+
+@pytest.mark.requires_cborg
+class TestCustomModuleIntegration:
+    """Custom search + enhancement module e2e integration.
+
+    Verifies that a user-provided search module, registered through the
+    public registry API, is discovered by the ReAct agent and produces
+    correct results against real data.
+    """
+
+    async def test_agent_uses_custom_search_module(
+        self, e2e_ariel_watermarked_db, e2e_agent_config_env
+    ):
+        """Agent discovers and uses custom watermark_search tool.
+
+        Flow:
+        1. DEMO-001 already has ``e2e_watermark: CANARY_12345`` in metadata
+        2. Register the watermark_search module in the Osprey registry
+        3. Create ARIELSearchService with config enabling watermark_search
+        4. Ask the agent about watermarked entries
+        5. Assert the agent found DEMO-001 and mentions the watermark
+        """
+        import sys
+
+        from osprey.registry import (
+            ArielSearchModuleRegistration,
+            get_registry,
+        )
+        from osprey.services.ariel_search.config import ARIELConfig
+        from osprey.services.ariel_search.models import SearchMode
+        from osprey.services.ariel_search.service import ARIELSearchService
+
+        db = e2e_ariel_watermarked_db
+
+        # --- 1. Make the custom module importable by the registry ---
+        # The registry calls importlib.import_module(module_path), so we
+        # insert the module under a known dotted name.
+        import tests.e2e._e2e_watermark_search as wm_module
+
+        module_path = "tests.e2e._e2e_watermark_search"
+        sys.modules[module_path] = wm_module
+
+        # --- 2. Register the custom search module in the live registry ---
+        registry = get_registry()
+        registration = ArielSearchModuleRegistration(
+            name="watermark_search",
+            module_path=module_path,
+            description="E2E watermark search module",
+        )
+        registry.config.ariel_search_modules.append(registration)
+        # Import and store the module directly (same as _initialize_ariel_search_modules)
+        registry._registries["ariel_search_modules"]["watermark_search"] = wm_module
+
+        # --- 3. Build an ARIELConfig with watermark_search enabled ---
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": db["database_url"]},
+                "search_modules": {
+                    "keyword": {"enabled": True},
+                    "watermark_search": {"enabled": True},
+                },
+                "enhancement_modules": {
+                    "text_embedding": {"enabled": False},
+                },
+                "pipelines": {
+                    "agent": {
+                        "enabled": True,
+                        "retrieval_modules": ["keyword", "watermark_search"],
+                    },
+                },
+                "embedding": {"provider": "ollama"},
+                "reasoning": db["config"].reasoning.__dict__.copy(),
+            }
+        )
+
+        # --- 4. Create service and ask the agent ---
+        service = ARIELSearchService(
+            config=config,
+            pool=db["pool"],
+            repository=db["repository"],
+        )
+
+        result = await service.search(
+            "Are there any watermarked entries in the logbook?",
+            mode=SearchMode.AGENT,
+        )
+
+        # --- 5. Assertions ---
+        assert result.answer is not None, "Agent did not produce an answer"
+        assert len(result.answer) > 50, f"Answer too short: {result.answer}"
+
+        answer_lower = result.answer.lower()
+
+        # The agent should reference DEMO-001 or its content (RF cavity)
+        entry_evidence = any([
+            "demo-001" in answer_lower,
+            "rf cavity" in answer_lower,
+            "j. smith" in answer_lower,
+        ])
+        assert entry_evidence, (
+            "Response does not reference DEMO-001 or its content.\n"
+            f"Response preview:\n{result.answer[:500]}"
+        )
+
+        # The watermark value should appear in the response
+        assert "canary_12345" in answer_lower or "canary" in answer_lower, (
+            "Response does not mention the watermark value CANARY_12345.\n"
+            f"Response preview:\n{result.answer[:500]}"
+        )
