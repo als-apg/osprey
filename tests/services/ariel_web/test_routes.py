@@ -542,6 +542,7 @@ class TestStatusEndpoint:
             embedding_tables=[],
             active_embedding_model=None,
             enabled_search_modules=["keyword"],
+            enabled_pipelines=["rag", "agent"],
             enabled_enhancement_modules=[],
             last_ingestion=None,
             errors=["Database connection failed", "Embedding service unavailable"],

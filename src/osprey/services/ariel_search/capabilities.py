@@ -74,7 +74,7 @@ def get_capabilities(config: ARIELConfig) -> dict[str, Any]:
     _add_search_modules(config, categories)
 
     # Add pipelines as "llm" modes
-    _add_pipelines(categories)
+    _add_pipelines(config, categories)
 
     return {
         "categories": categories,
@@ -111,12 +111,17 @@ def _add_search_modules(
         )
 
 
-def _add_pipelines(categories: dict[str, dict[str, Any]]) -> None:
-    """Add pipeline descriptors to the capabilities via the registry."""
+def _add_pipelines(
+    config: ARIELConfig,
+    categories: dict[str, dict[str, Any]],
+) -> None:
+    """Add enabled pipeline descriptors to the capabilities via the registry."""
     from osprey.registry import get_registry
 
     registry = get_registry()
     for name in registry.list_ariel_pipelines():
+        if not config.is_pipeline_enabled(name):
+            continue
         module = registry.get_ariel_pipeline(name)
         if module is None:
             continue

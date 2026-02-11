@@ -192,13 +192,19 @@ class TestPipelineDescriptors:
 class TestGetCapabilities:
     """Tests for get_capabilities() function."""
 
-    def _make_config(self, search_modules: dict | None = None) -> ARIELConfig:
+    def _make_config(
+        self,
+        search_modules: dict | None = None,
+        pipelines: dict | None = None,
+    ) -> ARIELConfig:
         """Create an ARIELConfig for testing."""
         config_dict: dict = {
             "database": {"uri": "postgresql://localhost:5432/test"},
         }
         if search_modules:
             config_dict["search_modules"] = search_modules
+        if pipelines:
+            config_dict["pipelines"] = pipelines
         return ARIELConfig.from_dict(config_dict)
 
     def test_returns_correct_structure(self):
@@ -286,3 +292,33 @@ class TestGetCapabilities:
         result = get_capabilities(config)
         direct_modes = result["categories"]["direct"]["modes"]
         assert direct_modes == []
+
+    def test_excludes_disabled_pipelines(self):
+        """Disabled pipelines do not appear in llm modes."""
+        config = self._make_config(
+            pipelines={
+                "rag": {"enabled": False},
+                "agent": {"enabled": True},
+            }
+        )
+        result = get_capabilities(config)
+        llm_modes = result["categories"]["llm"]["modes"]
+        mode_names = [m["name"] for m in llm_modes]
+
+        assert "rag" not in mode_names
+        assert "agent" in mode_names
+
+    def test_pipeline_respects_config(self):
+        """Only enabled pipelines appear in capabilities."""
+        config = self._make_config(
+            pipelines={
+                "rag": {"enabled": True},
+                "agent": {"enabled": False},
+            }
+        )
+        result = get_capabilities(config)
+        llm_modes = result["categories"]["llm"]["modes"]
+        mode_names = [m["name"] for m in llm_modes]
+
+        assert "rag" in mode_names
+        assert "agent" not in mode_names

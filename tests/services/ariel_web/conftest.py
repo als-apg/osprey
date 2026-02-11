@@ -111,6 +111,7 @@ if _fastapi_available and _httpx_available:
             ],
             active_embedding_model="nomic-embed-text",
             enabled_search_modules=["keyword", "semantic"],
+            enabled_pipelines=["rag", "agent"],
             enabled_enhancement_modules=["text_embedding"],
             last_ingestion=datetime.now(UTC),
             errors=[],

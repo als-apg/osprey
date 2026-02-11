@@ -206,7 +206,9 @@ class TestCapabilityConfig:
             "search_modules": {
                 "keyword": {"enabled": True},
                 "semantic": {"enabled": True, "model": "nomic-embed-text"},
-                "rag": {"enabled": True},
+            },
+            "pipelines": {
+                "rag": {"enabled": True, "retrieval_modules": ["keyword", "semantic"]},
             },
             "enhancement_modules": {
                 "text_embedding": {
@@ -219,10 +221,11 @@ class TestCapabilityConfig:
         with patch("osprey.services.ariel_search.capability.get_config_value", return_value=mock_config):
             service = await get_ariel_search_service()
 
-        # Should have all modules enabled
+        # Should have search modules enabled
         assert service.config.is_search_module_enabled("keyword")
         assert service.config.is_search_module_enabled("semantic")
-        assert service.config.is_search_module_enabled("rag")
+        # RAG is a pipeline, not a search module
+        assert service.config.is_pipeline_enabled("rag")
 
     async def test_capability_with_minimal_config(
         self, database_url, migrated_pool, reset_capability_singleton

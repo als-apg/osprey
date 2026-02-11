@@ -143,6 +143,7 @@ class TestARIELStatusResult:
             embedding_tables=[],
             active_embedding_model="nomic-embed-text",
             enabled_search_modules=["keyword", "semantic"],
+            enabled_pipelines=["rag", "agent"],
             enabled_enhancement_modules=["text_embedding"],
             last_ingestion=None,
             errors=[],

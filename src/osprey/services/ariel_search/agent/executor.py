@@ -163,6 +163,9 @@ class AgentExecutor:
     def _load_descriptors(self) -> list[SearchToolDescriptor]:
         """Load tool descriptors from enabled search modules via the registry.
 
+        Uses the agent pipeline's configured retrieval_modules if available,
+        otherwise falls back to all enabled search modules.
+
         Returns:
             List of SearchToolDescriptor for each enabled and registered module
         """
@@ -170,7 +173,12 @@ class AgentExecutor:
 
         registry = get_registry()
         descriptors: list[SearchToolDescriptor] = []
-        for module_name in self.config.get_enabled_search_modules():
+
+        # Use pipeline-configured modules, filtered to only enabled ones
+        retrieval_modules = self.config.get_pipeline_retrieval_modules("agent")
+        for module_name in retrieval_modules:
+            if not self.config.is_search_module_enabled(module_name):
+                continue
             module = registry.get_ariel_search_module(module_name)
             if module is not None:
                 descriptors.append(module.get_tool_descriptor())

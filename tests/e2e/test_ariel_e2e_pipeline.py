@@ -546,12 +546,11 @@ def _patch_config_for_test_db(config_path: Path, database_url: str) -> None:
         config["ariel"]["database"] = {}
     config["ariel"]["database"]["uri"] = database_url
 
-    # Ensure keyword is enabled, semantic/rag disabled
+    # Ensure keyword is enabled, semantic disabled
     if "search_modules" not in config["ariel"]:
         config["ariel"]["search_modules"] = {}
     config["ariel"]["search_modules"]["keyword"] = {"enabled": True}
     config["ariel"]["search_modules"]["semantic"] = {"enabled": False}
-    config["ariel"]["search_modules"]["rag"] = {"enabled": False}
 
     # Disable enhancement modules (no Ollama)
     if "enhancement_modules" not in config["ariel"]:

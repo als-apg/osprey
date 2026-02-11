@@ -248,6 +248,7 @@ async def get_status(request: Request) -> StatusResponse:
             ],
             active_embedding_model=status.active_embedding_model,
             enabled_search_modules=status.enabled_search_modules,
+            enabled_pipelines=status.enabled_pipelines,
             enabled_enhancement_modules=status.enabled_enhancement_modules,
             last_ingestion=status.last_ingestion,
             errors=status.errors,

@@ -87,7 +87,10 @@ def status_command(output_json: bool) -> None:
                     "search_modules": {
                         "keyword": config.is_search_module_enabled("keyword"),
                         "semantic": config.is_search_module_enabled("semantic"),
-                        "rag": config.is_search_module_enabled("rag"),
+                    },
+                    "pipelines": {
+                        "rag": config.is_pipeline_enabled("rag"),
+                        "agent": config.is_pipeline_enabled("agent"),
                     },
                 }
 

@@ -26,6 +26,7 @@ from osprey.services.ariel_search.config import (
     EnhancementModuleConfig,
     IngestionConfig,
     ModelConfig,
+    PipelineModuleConfig,
     ReasoningConfig,
     SearchModuleConfig,
 )
@@ -83,6 +84,7 @@ __all__ = [
     "EnhancementModuleConfig",
     "IngestionConfig",
     "ModelConfig",
+    "PipelineModuleConfig",
     "ReasoningConfig",
     "SearchModuleConfig",
     # Exceptions

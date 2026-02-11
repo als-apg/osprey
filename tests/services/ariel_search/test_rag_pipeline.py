@@ -28,19 +28,22 @@ def _make_entry(entry_id: str, text: str = "Test content", author: str = "jsmith
     }
 
 
-def _make_config(keyword_enabled=True, semantic_enabled=False) -> ARIELConfig:
+def _make_config(
+    keyword_enabled=True, semantic_enabled=False, pipelines=None
+) -> ARIELConfig:
     """Create a minimal ARIELConfig for testing."""
     modules = {}
     if keyword_enabled:
         modules["keyword"] = {"enabled": True}
     if semantic_enabled:
         modules["semantic"] = {"enabled": True, "model": "test-model"}
-    return ARIELConfig.from_dict(
-        {
-            "database": {"uri": "postgresql://localhost:5432/test"},
-            "search_modules": modules,
-        }
-    )
+    config_dict: dict = {
+        "database": {"uri": "postgresql://localhost:5432/test"},
+        "search_modules": modules,
+    }
+    if pipelines:
+        config_dict["pipelines"] = pipelines
+    return ARIELConfig.from_dict(config_dict)
 
 
 def _make_pipeline(config=None, keyword_results=None, semantic_results=None, **kwargs):
@@ -650,3 +653,73 @@ class TestRAGPipelineConfig:
         )
         assert pipeline._max_context_chars == 5000
         assert pipeline._max_chars_per_entry == 500
+
+
+class TestPipelineRetrievalModules:
+    """Tests for RAG pipeline with configured retrieval_modules."""
+
+    @pytest.mark.asyncio
+    async def test_retrieve_uses_configured_retrieval_modules(self):
+        """RAG with retrieval_modules: [keyword] only calls keyword search."""
+        config = _make_config(
+            keyword_enabled=True,
+            semantic_enabled=True,
+            pipelines={"rag": {"enabled": True, "retrieval_modules": ["keyword"]}},
+        )
+        pipeline, _, _ = _make_pipeline(config=config)
+
+        kw_results = [
+            (_make_entry("001", "Found via keyword"), 0.9, ["<mark>Found</mark>"]),
+        ]
+
+        with (
+            patch(
+                "osprey.services.ariel_search.search.keyword.keyword_search",
+                new_callable=AsyncMock,
+                return_value=kw_results,
+            ) as mock_kw,
+            patch(
+                "osprey.services.ariel_search.search.semantic.semantic_search",
+                new_callable=AsyncMock,
+            ) as mock_sem,
+            patch(
+                "osprey.models.completion.get_chat_completion",
+                return_value="Answer [#001].",
+            ),
+        ):
+            result = await pipeline.execute("test query")
+
+        mock_kw.assert_called_once()
+        mock_sem.assert_not_called()
+        assert result.retrieval_count == 1
+
+    @pytest.mark.asyncio
+    async def test_retrieve_falls_back_to_enabled_modules(self):
+        """No pipeline config falls back to enabled search modules."""
+        config = _make_config(keyword_enabled=True, semantic_enabled=True)
+        pipeline, _, _ = _make_pipeline(config=config)
+
+        kw_results = [(_make_entry("001", "Keyword hit"), 0.9, [])]
+        sem_results = [(_make_entry("002", "Semantic hit"), 0.85)]
+
+        with (
+            patch(
+                "osprey.services.ariel_search.search.keyword.keyword_search",
+                new_callable=AsyncMock,
+                return_value=kw_results,
+            ) as mock_kw,
+            patch(
+                "osprey.services.ariel_search.search.semantic.semantic_search",
+                new_callable=AsyncMock,
+                return_value=sem_results,
+            ) as mock_sem,
+            patch(
+                "osprey.models.completion.get_chat_completion",
+                return_value="Answer [#001] [#002].",
+            ),
+        ):
+            result = await pipeline.execute("test query")
+
+        mock_kw.assert_called_once()
+        mock_sem.assert_called_once()
+        assert result.retrieval_count == 2

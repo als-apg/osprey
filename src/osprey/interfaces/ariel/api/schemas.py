@@ -135,6 +135,7 @@ class StatusResponse(BaseModel):
     embedding_tables: list[EmbeddingTableStatus] = []
     active_embedding_model: str | None = None
     enabled_search_modules: list[str] = []
+    enabled_pipelines: list[str] = []
     enabled_enhancement_modules: list[str] = []
     last_ingestion: datetime | None = None
     errors: list[str] = []

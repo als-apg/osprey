@@ -161,12 +161,18 @@ class RAGPipeline:
     ]:
         """Run keyword and/or semantic search in parallel.
 
+        Uses the pipeline's configured retrieval_modules list if available,
+        otherwise falls back to checking which search modules are enabled.
+
         Returns:
             Tuple of (keyword_results, semantic_results)
         """
         tasks: dict[str, Any] = {}
 
-        if self._config.is_search_module_enabled("keyword"):
+        # Determine which retrieval modules to use
+        retrieval_modules = self._config.get_pipeline_retrieval_modules("rag")
+
+        if "keyword" in retrieval_modules and self._config.is_search_module_enabled("keyword"):
             from osprey.services.ariel_search.search.keyword import keyword_search
 
             tasks["keyword"] = keyword_search(
@@ -178,7 +184,7 @@ class RAGPipeline:
                 end_date=end_date,
             )
 
-        if self._config.is_search_module_enabled("semantic"):
+        if "semantic" in retrieval_modules and self._config.is_search_module_enabled("semantic"):
             from osprey.services.ariel_search.search.semantic import semantic_search
 
             try:

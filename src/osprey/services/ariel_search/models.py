@@ -210,6 +210,7 @@ class ARIELStatusResult:
     embedding_tables: list[EmbeddingTableInfo]
     active_embedding_model: str | None
     enabled_search_modules: list[str]
+    enabled_pipelines: list[str]
     enabled_enhancement_modules: list[str]
     last_ingestion: datetime | None
     errors: list[str]

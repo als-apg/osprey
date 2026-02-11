@@ -178,8 +178,18 @@ class ARIELSearchService:
 
             match mode:
                 case SearchMode.AGENT:
+                    if not self.config.is_pipeline_enabled("agent"):
+                        raise ConfigurationError(
+                            "Agent pipeline not enabled",
+                            config_key="pipelines.agent.enabled",
+                        )
                     return await self._run_agent(request)
                 case SearchMode.RAG:
+                    if not self.config.is_pipeline_enabled("rag"):
+                        raise ConfigurationError(
+                            "RAG pipeline not enabled",
+                            config_key="pipelines.rag.enabled",
+                        )
                     return await self._run_rag(request)
                 case SearchMode.KEYWORD:
                     return await self._run_keyword(request)
@@ -463,6 +473,7 @@ class ARIELSearchService:
             embedding_tables=embedding_tables,
             active_embedding_model=active_model,
             enabled_search_modules=self.config.get_enabled_search_modules(),
+            enabled_pipelines=self.config.get_enabled_pipelines(),
             enabled_enhancement_modules=self.config.get_enabled_enhancement_modules(),
             last_ingestion=last_ingestion,
             errors=errors,

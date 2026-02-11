@@ -660,10 +660,10 @@ ariel:
     adapter: generic_json
     source_url: src/{{ package_name }}/data/logbook_seed/demo_logbook.json
 
-  # Search modules
+  # Search modules (leaf-level search functions)
   # provider: references api.providers for credentials (api_key, base_url)
   # Tutorial default: only keyword search enabled (no Ollama dependency)
-  # Enable semantic + rag when you have Ollama running with nomic-embed-text
+  # Enable semantic when you have Ollama running with nomic-embed-text
   search_modules:
     keyword:
       enabled: true
@@ -671,10 +671,16 @@ ariel:
       enabled: false     # Requires Ollama + embedding model. Enable when ready.
       provider: ollama   # References api.providers.ollama
       model: nomic-embed-text
+
+  # Pipelines (compose search modules into higher-level strategies)
+  # retrieval_modules: which search modules each pipeline uses
+  pipelines:
     rag:
-      enabled: false     # Requires semantic search. Enable with semantic above.
-      provider: ollama   # References api.providers.ollama
-      model: nomic-embed-text
+      enabled: true
+      retrieval_modules: [keyword]  # Add semantic when embeddings are ready
+    agent:
+      enabled: true
+      retrieval_modules: [keyword]  # Add semantic when embeddings are ready
 
   # Enhancement modules
   # provider: references api.providers for credentials
