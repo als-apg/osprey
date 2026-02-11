@@ -7,10 +7,10 @@ Python code generation and execution service with LangGraph-based workflow, appr
 .. note::
    For implementation tutorials and usage examples, see :doc:`../../../developer-guides/05_production-systems/03_python-execution-service/index`.
 
-.. currentmodule:: osprey.services.python_executor
-
 Service Interface
 =================
+
+.. currentmodule:: osprey.services.python_executor.service
 
 .. autoclass:: PythonExecutorService
    :members:
@@ -19,6 +19,8 @@ Service Interface
 
 Request and Response Models
 ===========================
+
+.. currentmodule:: osprey.services.python_executor.models
 
 .. autoclass:: PythonExecutionRequest
    :members:
@@ -38,6 +40,8 @@ Request and Response Models
 State Management
 ================
 
+.. currentmodule:: osprey.services.python_executor.models
+
 .. autoclass:: PythonExecutionState
    :members:
    :show-inheritance:
@@ -51,17 +55,16 @@ State Management
 Configuration Models
 ====================
 
+.. currentmodule:: osprey.services.python_executor.config
+
 .. autoclass:: PythonExecutorConfig
    :members:
    :show-inheritance:
    :no-index:
 
-.. autoclass:: ExecutionModeConfig
-   :members:
-   :show-inheritance:
-   :no-index:
+.. currentmodule:: osprey.services.python_executor.models
 
-.. autoclass:: ExecutionControlConfig
+.. autoclass:: ExecutionModeConfig
    :members:
    :show-inheritance:
    :no-index:
@@ -71,8 +74,17 @@ Configuration Models
    :show-inheritance:
    :no-index:
 
+.. currentmodule:: osprey.services.python_executor.execution.control
+
+.. autoclass:: ExecutionControlConfig
+   :members:
+   :show-inheritance:
+   :no-index:
+
 Notebook Management
 ===================
+
+.. currentmodule:: osprey.services.python_executor.models
 
 .. autoclass:: NotebookAttempt
    :members:
@@ -86,6 +98,8 @@ Notebook Management
 
 Exceptions
 ==========
+
+.. currentmodule:: osprey.services.python_executor.exceptions
 
 .. autoclass:: PythonExecutorException
    :members:

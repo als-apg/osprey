@@ -13,6 +13,7 @@ Production Systems
    04_memory-storage-service
    05_container-and-deployment
    06_control-system-integration
+   07_logbook-search-service/index
 
 .. dropdown:: What You'll Learn
    :color: primary
@@ -93,6 +94,15 @@ Core Production Components
       :shadow: md
 
       Pluggable connectors for control systems (EPICS, LabVIEW, Tango, Mock) for development and production deployment.
+
+   .. grid-item-card:: Logbook Search Service
+      :link: 07_logbook-search-service/index
+      :link-type: doc
+      :class-header: bg-info text-white
+      :class-body: text-center
+      :shadow: md
+
+      ARIEL search over electronic logbooks with keyword, semantic, and RAG-powered retrieval.
 
 Production Integration Patterns
 ===============================

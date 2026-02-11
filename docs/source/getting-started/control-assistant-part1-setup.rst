@@ -134,7 +134,11 @@ The interactive menu provides the best onboarding experience with channel finder
 
       - **Python Execution** — Generates and executes analysis code in sandboxed environments
       - **Time Range Parsing** — Converts natural language time expressions (*"last 24 hours"*) to precise ranges
+
+   .. tab-item:: Knowledge Retrieval
+
       - **Memory** — Stores and recalls information across conversations
+      - **Logbook Search (ARIEL)** — Searches facility electronic logbooks using keyword, semantic, RAG, or agentic retrieval modes. Uses demo data in tutorial mode; connect your facility's logbook for production. See :doc:`Logbook Search Service </developer-guides/05_production-systems/07_logbook-search-service/index>`.
 
 See :doc:`Built-in Capabilities Reference </developer-guides/03_core-framework-systems/07_built-in-capabilities>` for context types, configuration keys, and error handling for each capability.
 

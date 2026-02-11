@@ -1627,6 +1627,193 @@ Examples
 
 ============
 
+osprey ariel
+============
+
+Manage the ARIEL (Agentic Retrieval Interface for Electronic Logbooks) search service.
+Commands for database setup, data ingestion, search, embedding management, and the web interface.
+
+Syntax
+------
+
+.. code-block:: bash
+
+   osprey ariel COMMAND [OPTIONS]
+
+Commands
+--------
+
+``osprey ariel quickstart``
+   Run the complete setup sequence: check database, migrate, and ingest demo data.
+
+   Options:
+      ``-s, --source PATH`` — Custom logbook JSON file (default: config or bundled demo data)
+
+   .. code-block:: bash
+
+      osprey ariel quickstart                      # Use config defaults
+      osprey ariel quickstart -s my_logbook.json   # Custom data source
+
+``osprey ariel status``
+   Show ARIEL service status including database connection, embedding tables, and module states.
+
+   Options:
+      ``--json`` — Output as JSON
+
+   .. code-block:: bash
+
+      osprey ariel status          # Human-readable output
+      osprey ariel status --json   # JSON output
+
+``osprey ariel migrate``
+   Create or update database tables based on enabled modules.
+
+   Options:
+      ``--rollback`` — Rollback migrations (not yet implemented)
+
+   .. code-block:: bash
+
+      osprey ariel migrate
+
+``osprey ariel ingest``
+   Ingest logbook entries from a source file or URL.
+
+   Options:
+      ``-s, --source`` (required) — Source file path or URL
+      ``-a, --adapter`` — Adapter type: ``als_logbook``, ``jlab_logbook``, ``ornl_logbook``, ``generic_json`` (default: ``generic_json``)
+      ``--since`` — Only ingest entries after this date
+      ``--limit`` — Maximum entries to ingest
+      ``--dry-run`` — Parse and count entries without storing
+
+   .. code-block:: bash
+
+      osprey ariel ingest -s data/logbook.json                    # Generic JSON
+      osprey ariel ingest -s data/logbook.json -a als_logbook     # ALS adapter
+      osprey ariel ingest -s data/logbook.json --since 2024-01-01 # Filter by date
+      osprey ariel ingest -s data/logbook.json --dry-run          # Parse only
+
+``osprey ariel watch``
+   Watch a source for new logbook entries. Continuously polls and ingests new entries.
+
+   Options:
+      ``-s, --source`` — Source file path or URL (overrides config)
+      ``-a, --adapter`` — Adapter type (overrides config)
+      ``--once`` — Run a single poll cycle and exit
+      ``--interval`` — Override poll interval in seconds
+      ``--dry-run`` — Show what would be ingested without storing
+
+   .. code-block:: bash
+
+      osprey ariel watch                           # Watch using config
+      osprey ariel watch --once --dry-run          # Preview one cycle
+      osprey ariel watch --interval 300            # Poll every 5 minutes
+      osprey ariel watch -s https://api/logbook    # Override source URL
+
+``osprey ariel enhance``
+   Run enhancement modules on ingested entries.
+
+   Options:
+      ``-m, --module`` — Specific module: ``text_embedding`` or ``semantic_processor``
+      ``--force`` — Re-process already enhanced entries
+      ``--limit`` — Maximum entries to process (default: 100)
+
+   .. code-block:: bash
+
+      osprey ariel enhance                           # Run all enabled modules
+      osprey ariel enhance -m text_embedding         # Run specific module
+      osprey ariel enhance --force --limit 500       # Re-process up to 500 entries
+
+``osprey ariel models``
+   List embedding models and their database tables.
+
+   .. code-block:: bash
+
+      osprey ariel models
+
+``osprey ariel search``
+   Execute a search query from the command line.
+
+   Options:
+      ``QUERY`` (required argument) — Search query text
+      ``--mode`` — Search mode: ``keyword``, ``semantic``, ``rag``, ``auto`` (default: ``auto``)
+      ``--limit`` — Maximum results (default: 10)
+      ``--json`` — Output as JSON
+
+   .. code-block:: bash
+
+      osprey ariel search "RF cavity fault"                # Auto mode
+      osprey ariel search "beam loss" --mode keyword       # Keyword only
+      osprey ariel search "what caused the trip?" --mode rag
+      osprey ariel search "RF" --limit 5 --json            # JSON output
+
+``osprey ariel reembed``
+   Re-embed entries with a new or existing model. Creates the embedding table if needed.
+
+   Options:
+      ``--model`` (required) — Embedding model name (e.g., ``nomic-embed-text``)
+      ``--dimension`` (required) — Embedding dimension (e.g., 768)
+      ``--batch-size`` — Entries per batch (default: 100)
+      ``--dry-run`` — Show what would be done
+      ``--force`` — Overwrite existing embeddings
+
+   .. code-block:: bash
+
+      osprey ariel reembed --model nomic-embed-text --dimension 768
+      osprey ariel reembed --model mxbai-embed-large --dimension 1024 --force
+      osprey ariel reembed --model nomic-embed-text --dimension 768 --dry-run
+
+``osprey ariel web``
+   Launch the ARIEL web interface (FastAPI server).
+
+   Options:
+      ``-p, --port`` — Port number (default: 8085)
+      ``-h, --host`` — Host to bind to (default: ``127.0.0.1``)
+      ``--reload`` — Enable auto-reload for development
+
+   .. code-block:: bash
+
+      osprey ariel web                      # Start on localhost:8085
+      osprey ariel web --port 8080          # Custom port
+      osprey ariel web --host 0.0.0.0       # Bind to all interfaces
+      osprey ariel web --reload             # Development mode with auto-reload
+
+``osprey ariel purge``
+   Permanently delete all ARIEL data from the database.
+
+   Options:
+      ``-y, --yes`` — Skip confirmation prompt
+      ``--embeddings-only`` — Only purge embedding tables, keep entries
+
+   .. code-block:: bash
+
+      osprey ariel purge                      # Interactive confirmation
+      osprey ariel purge -y                   # Skip confirmation
+      osprey ariel purge --embeddings-only    # Keep entries, clear embeddings
+
+Examples
+--------
+
+.. code-block:: bash
+
+   # Full setup from scratch
+   osprey deploy up                           # Start PostgreSQL
+   osprey ariel quickstart                    # Migrate + ingest demo data
+   osprey ariel search "RF cavity"            # Search from CLI
+   osprey ariel web                           # Launch web interface
+
+   # Add semantic search
+   osprey ariel enhance -m text_embedding     # Generate embeddings
+   osprey ariel search "beam instability" --mode semantic
+
+   # Live ingestion
+   osprey ariel watch --interval 600          # Poll every 10 minutes
+
+   # Model upgrade
+   osprey ariel reembed --model mxbai-embed-large --dimension 1024
+   osprey ariel models                        # Verify new table
+
+============
+
 osprey tasks
 ============
 

@@ -455,6 +455,9 @@ The framework automatically discovers and uses your custom builders. You can ove
          * - ``memory_extraction``
            - ``DefaultMemoryExtractionPromptBuilder``
            - Extracts and stores user preferences and context
+         * - ``logbook_search``
+           - ``DefaultLogbookSearchPromptBuilder``
+           - Customizes logbook search routing and orchestrator guidance for facility-specific terminology
 
 **Step 4: Test and Debug Your Custom Prompts**
 

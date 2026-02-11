@@ -4,7 +4,7 @@ Built-in Capabilities
 
 .. versionadded:: 0.11
 
-Since v0.11, seven capabilities are provided **natively by the framework** in :mod:`osprey.capabilities`. They are automatically registered when your application starts --- no code generation or template files required. Your application only needs prompt customizations and data.
+Since v0.11, eight capabilities are provided **natively by the framework** in :mod:`osprey.capabilities`. They are automatically registered when your application starts --- no code generation or template files required. Your application only needs prompt customizations and data.
 
 This page is a concise reference for each capability. For a hands-on walkthrough of how they work together in a real session, see the :doc:`Control Assistant Tutorial </getting-started/control-assistant>`.
 
@@ -202,7 +202,7 @@ To view or customize: ``osprey eject capability archiver_retrieval``
 Analysis & Execution Capabilities
 =================================
 
-These three capabilities provide computational analysis, temporal reasoning, and cross-session memory.
+These two capabilities provide computational analysis and temporal reasoning.
 
 
 ``python``
@@ -281,8 +281,21 @@ To view or customize: ``osprey eject capability time_range_parsing``
    - :doc:`04_prompt-customization` --- time range parsing prompt builder
 
 
+Knowledge & Retrieval Capabilities
+===================================
+
+These two capabilities provide persistent memory and historical search over facility logbooks.
+
+
 ``memory``
 ----------
+
+.. admonition:: Prototype Implementation
+   :class: warning
+
+   The memory capability is a minimal working implementation --- a first step toward
+   a full memory system. It provides basic save/retrieve operations with file-based
+   storage. A production-grade graph-based memory system is planned.
 
 Saves and retrieves user information across conversations. Uses LLM-based analysis to extract memory-worthy content from chat history and integrates with the approval system for controlled modifications.
 
@@ -323,6 +336,64 @@ To view or customize: ``osprey eject capability memory``
 
    - :doc:`/developer-guides/05_production-systems/04_memory-storage-service` --- storage backend and file format
    - :doc:`04_prompt-customization` --- memory extraction prompt builder
+
+
+``logbook_search``
+------------------
+
+Searches facility logbooks using ARIEL's agentic retrieval system. Handles natural language queries about facility history, equipment incidents, and operational knowledge.
+
+**Context flow:**
+
+- **Provides:** ``LOGBOOK_SEARCH_RESULTS`` --- matched entries, RAG-generated answer, source citations, and search metadata
+- **Requires:** *(none)* --- ``TIME_RANGE`` is optional via soft constraint
+
+**Configuration:**
+
+.. code-block:: yaml
+
+   ariel:
+     database:
+       uri: postgresql://ariel:ariel@localhost:5432/ariel
+     search_modules:
+       keyword:
+         enabled: true
+       semantic:
+         enabled: false
+         provider: ollama
+         model: nomic-embed-text
+     pipelines:
+       rag:
+         enabled: true
+         retrieval_modules: [keyword]
+       agent:
+         enabled: true
+         retrieval_modules: [keyword]
+     reasoning:
+       provider: cborg
+       model_id: anthropic/claude-haiku
+
+**Error handling:**
+
+- ``DatabaseConnectionError`` → critical (with setup guidance)
+- ``DatabaseQueryError`` → retriable for transient errors, critical for missing tables
+- ``EmbeddingGenerationError`` → critical
+- ``ConfigurationError`` → critical
+- Unknown exceptions → critical
+
+To view or customize: ``osprey eject capability logbook_search``
+
+.. dropdown:: Context class reference: ``LogbookSearchResultsContext``
+
+   .. autoclass:: osprey.capabilities.logbook_search.LogbookSearchResultsContext
+      :members: get_summary, get_access_details
+      :show-inheritance:
+      :no-index:
+
+.. seealso::
+
+   - :doc:`/developer-guides/05_production-systems/07_logbook-search-service/index` --- service architecture and search modes
+   - :doc:`04_prompt-customization` --- logbook search prompt builder
 
 
 Customization

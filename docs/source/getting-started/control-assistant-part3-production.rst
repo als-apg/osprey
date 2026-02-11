@@ -1113,7 +1113,7 @@ The control assistant template works immediately with mock services for developm
 
 **What You'll Customize:**
 
-.. grid:: 1 1 3 3
+.. grid:: 1 1 2 4
 
    .. grid-item-card:: 🗄️ Channel Database
       :link: #build-your-channel-database
@@ -1129,6 +1129,11 @@ The control assistant template works immediately with mock services for developm
       :link: #migrate-to-production-archiver
 
       Historical data from your archiver system
+
+   .. grid-item-card:: 📓 Logbook
+      :link: #connect-your-facility-logbook
+
+      Connect ARIEL to your facility's electronic logbook
 
 .. _build-your-channel-database:
 
@@ -1524,6 +1529,84 @@ Need to integrate with a custom archiver setup or different archiver implementat
 
    We welcome collaboration in implementing and testing archiver connectors for different systems and setups. While the framework provides the architecture and example patterns, community contributions help validate these implementations across diverse archiver environments. If you're interested in adapting Osprey for your archiver system, please open an issue on GitHub - we're happy to support the development effort!
 
+.. _connect-your-facility-logbook:
+
+8.4: Connect Your Facility Logbook
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+**From Demo Data to Your Logbook:** During the tutorial, the logbook search capability (ARIEL) works with built-in demo data so you can explore search modes immediately. For production, you'll connect it to your facility's electronic logbook. For full documentation — search modes, ingestion adapters, web interface, and framework integration — see the :doc:`Logbook Search Service developer guide </developer-guides/05_production-systems/07_logbook-search-service/index>`.
+
+**Step 1:** Add ``postgresql`` and ``ariel_web`` to your deployed services:
+
+.. code-block:: yaml
+
+   services:
+     postgresql:
+       path: ./services/postgresql
+       port_host: 5432
+
+     ariel_web:
+       path: ./services/ariel-web
+       port_host: 8501
+
+   deployed_services:
+     - jupyter
+     - open_webui
+     - pipelines
+     - postgresql       # ← Database for logbook entries
+     - ariel_web         # ← ARIEL web search interface
+
+**Step 2:** Configure the ``ariel:`` block in ``config.yml`` with your database URI and adapter:
+
+.. code-block:: yaml
+
+   ariel:
+     database_uri: postgresql+asyncpg://osprey:osprey@localhost:5432/ariel
+     adapter: your_facility    # ← Your ingestion adapter name
+
+**Step 3:** Initialize the database and ingest logbook entries:
+
+.. code-block:: bash
+
+   # Create database tables
+   osprey ariel migrate
+
+   # Ingest logbook entries from your facility
+   osprey ariel ingest
+
+**Step 4:** Test with the CLI or web interface:
+
+.. code-block:: bash
+
+   # Search from the command line
+   osprey ariel search "beam loss events last week"
+
+   # Or open the web interface at http://localhost:8501
+
+**For Custom Logbook Systems:**
+
+If your facility uses a logbook system without a built-in adapter, implement a custom ``BaseAdapter`` and register it via your project's registry:
+
+.. code-block:: python
+
+   # In registry.py
+   return extend_framework_registry(
+       ariel_ingestion_adapters=[
+           AdapterRegistration(
+               name="my_logbook",
+               module_path="my_control_assistant.adapters.my_logbook",
+               class_name="MyLogbookAdapter",
+           )
+       ]
+   )
+
+See :doc:`Data Ingestion </developer-guides/05_production-systems/07_logbook-search-service/data-ingestion>` for the full adapter API and examples.
+
+.. admonition:: Collaboration Welcome
+   :class: outreach
+
+   We welcome collaboration in implementing and testing logbook ingestion adapters for different electronic logbook systems. If your facility uses a logbook platform not yet supported (e.g., Elog, ELisA, Olog), please open an issue on GitHub - we're happy to support the development effort!
+
 .. _deploy-containerized-services:
 
 Step 9: Deploy Containerized Services
@@ -1534,6 +1617,14 @@ At this stage of the tutorial, your control assistant is ready to run in a conta
 - **Pipelines** - The core agent runtime that executes your capabilities
 - **Jupyter** - Python execution environment for running generated code and notebooks
 - **OpenWebUI** - Web-based chat interface for interacting with your agent
+
+.. tip::
+
+   **Adding Logbook Search:** To include ARIEL's web interface and database, add
+   ``postgresql`` and ``ariel_web`` to your ``deployed_services`` list and configure
+   their service paths. See :ref:`connect-your-facility-logbook` for the full setup
+   and :doc:`../developer-guides/05_production-systems/07_logbook-search-service/web-interface`
+   for web interface details.
 
 Starting the Services
 ^^^^^^^^^^^^^^^^^^^^^
