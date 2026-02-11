@@ -282,7 +282,7 @@ class AgentExecutor:
 
         Args:
             query: Natural language query
-            max_results: Maximum results to return (unused, for API compatibility)
+            max_results: Maximum results to return (reserved for future use)
             time_range: Optional (start, end) datetime tuple for filtering
 
         Returns:

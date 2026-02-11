@@ -121,8 +121,7 @@ def status_command(output_json: bool) -> None:
 
 
 @ariel_group.command("migrate")
-@click.option("--rollback", is_flag=True, help="Rollback migrations")
-def migrate_command(rollback: bool) -> None:
+def migrate_command() -> None:
     """Run ARIEL database migrations.
 
     Creates required database schema and tables based on enabled modules.
@@ -155,14 +154,9 @@ def migrate_command(rollback: bool) -> None:
             raise
 
         try:
-            if rollback:
-                click.echo("Rolling back migrations...")
-                # V2: Implement rollback
-                click.echo("Rollback not implemented in MVP", err=True)
-            else:
-                click.echo("Running migrations...")
-                await run_migrations(pool, config)
-                click.echo("Migrations complete.")
+            click.echo("Running migrations...")
+            await run_migrations(pool, config)
+            click.echo("Migrations complete.")
         finally:
             await pool.close()
 
@@ -988,7 +982,7 @@ def purge_command(yes: bool, embeddings_only: bool) -> None:
                     # Get embedding tables
                     await cur.execute("""
                         SELECT table_name FROM information_schema.tables
-                        WHERE table_schema = 'public' AND table_name LIKE 'embeddings_%'
+                        WHERE table_schema = 'public' AND table_name LIKE 'text_embeddings_%'
                     """)
                     embedding_tables = [r[0] for r in await cur.fetchall()]
 

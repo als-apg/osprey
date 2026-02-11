@@ -791,6 +791,8 @@ class ARIELRepository:
         similarity_threshold: float = 0.7,
         start_date: datetime | None = None,
         end_date: datetime | None = None,
+        author: str | None = None,
+        source_system: str | None = None,
     ) -> list[tuple[EnhancedLogbookEntry, float]]:
         """Execute semantic similarity search using pgvector.
 
@@ -801,6 +803,8 @@ class ARIELRepository:
             similarity_threshold: Minimum similarity threshold
             start_date: Filter entries after this time
             end_date: Filter entries before this time
+            author: Filter by author name (ILIKE match)
+            source_system: Filter by source system (exact match)
 
         Returns:
             List of (entry, similarity) tuples
@@ -824,6 +828,12 @@ class ARIELRepository:
                     if end_date:
                         where_clauses.append("e.timestamp <= %s")
                         params.append(end_date)
+                    if author:
+                        where_clauses.append("e.author ILIKE %s")
+                        params.append(f"%{author}%")
+                    if source_system:
+                        where_clauses.append("e.source_system = %s")
+                        params.append(source_system)
 
                     where_sql = " AND ".join(where_clauses)
 

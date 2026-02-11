@@ -258,6 +258,8 @@ class ARIELSearchService:
             max_results=request.max_results,
             start_date=start_date,
             end_date=end_date,
+            author=ap.get("author"),
+            source_system=ap.get("source_system"),
             include_highlights=include_highlights,
             fuzzy_fallback=fuzzy_fallback,
         )
@@ -309,6 +311,8 @@ class ARIELSearchService:
             similarity_threshold=similarity_threshold,
             start_date=start_date,
             end_date=end_date,
+            author=ap.get("author"),
+            source_system=ap.get("source_system"),
         )
 
         entries = tuple(dict(entry) for entry, _similarity in results)
@@ -357,6 +361,8 @@ class ARIELSearchService:
             similarity_threshold=similarity_threshold,
             start_date=start_date,
             end_date=end_date,
+            author=ap.get("author"),
+            source_system=ap.get("source_system"),
             temperature=temperature,
         )
 

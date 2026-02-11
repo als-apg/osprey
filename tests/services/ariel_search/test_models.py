@@ -27,7 +27,6 @@ class TestSearchMode:
         assert SearchMode.KEYWORD.value == "keyword"
         assert SearchMode.SEMANTIC.value == "semantic"
         assert SearchMode.RAG.value == "rag"
-        assert SearchMode.VISION.value == "vision"
         assert SearchMode.AGENT.value == "agent"
 
 

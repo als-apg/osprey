@@ -13,7 +13,7 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
-pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
+pytestmark = [pytest.mark.integration]
 
 
 class TestCLIStatusCommand:
@@ -100,20 +100,6 @@ class TestCLIMigrateCommand:
 
         assert result.exit_code == 0
         assert "Migrations complete" in result.output or "Running migrations" in result.output
-
-    def test_migrate_command_rollback_not_implemented(self, database_url):
-        """Migrate --rollback shows not implemented message."""
-        from osprey.cli.ariel import ariel_group
-
-        runner = CliRunner()
-
-        mock_config = {"database": {"uri": database_url}}
-
-        with patch("osprey.cli.ariel.get_config_value", return_value=mock_config):
-            result = runner.invoke(ariel_group, ["migrate", "--rollback"])
-
-        assert "not implemented" in result.output.lower()
-
 
 class TestCLIIngestCommand:
     """Test 'osprey ariel ingest' command."""

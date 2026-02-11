@@ -38,6 +38,8 @@ async def semantic_search(
     similarity_threshold: float | None = None,
     start_date: datetime | None = None,
     end_date: datetime | None = None,
+    author: str | None = None,
+    source_system: str | None = None,
     **kwargs: Any,
 ) -> list[tuple[EnhancedLogbookEntry, float]]:
     """Execute semantic similarity search.
@@ -56,6 +58,8 @@ async def semantic_search(
             then to hardcoded default.
         start_date: Filter entries after this time
         end_date: Filter entries before this time
+        author: Filter by author name (ILIKE match)
+        source_system: Filter by source system (exact match)
 
     Returns:
         List of (entry, similarity_score) tuples sorted by similarity
@@ -150,6 +154,8 @@ async def semantic_search(
         similarity_threshold=threshold,
         start_date=start_date,
         end_date=end_date,
+        author=author,
+        source_system=source_system,
     )
 
     logger.info(f"semantic_search: returning {len(results)} results")

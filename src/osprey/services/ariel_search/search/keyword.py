@@ -162,6 +162,8 @@ async def keyword_search(
     max_results: int = 10,
     start_date: datetime | None = None,
     end_date: datetime | None = None,
+    author: str | None = None,
+    source_system: str | None = None,
     include_highlights: bool = True,
     fuzzy_fallback: bool = True,
     **kwargs: Any,
@@ -178,6 +180,8 @@ async def keyword_search(
         max_results: Maximum entries to return (default: 10)
         start_date: Filter entries after this time
         end_date: Filter entries before this time
+        author: Filter by author name (ILIKE match)
+        source_system: Filter by source system (exact match)
         include_highlights: Include highlighted snippets (default: True)
         fuzzy_fallback: Fall back to fuzzy search if no exact matches
 
@@ -249,6 +253,14 @@ async def keyword_search(
     if end_date:
         where_clauses.append("timestamp <= %s")
         params.append(end_date)
+
+    # Add metadata filters (from web UI filter panel)
+    if author and "author" not in field_filters:
+        where_clauses.append("author ILIKE %s")
+        params.append(f"%{author}%")
+    if source_system:
+        where_clauses.append("source_system = %s")
+        params.append(source_system)
 
     # Execute search via repository
     results = await repository.keyword_search(

@@ -853,15 +853,14 @@ class TestLLMConfiguration:
         )
         assert config.reasoning.provider == "anthropic"
 
-    def test_legacy_llm_provider_still_works(self):
-        """Legacy llm_provider field still works for backwards compatibility."""
+    def test_reasoning_config_fields(self):
+        """Reasoning config fields are properly parsed."""
         config = ARIELConfig.from_dict(
             {
                 "database": {"uri": "postgresql://localhost:5432/test"},
-                "reasoning": {"llm_provider": "anthropic", "llm_model_id": "claude-haiku"},
+                "reasoning": {"provider": "anthropic", "model_id": "claude-haiku"},
             }
         )
-        # Legacy fields are mapped to new field names
         assert config.reasoning.provider == "anthropic"
         assert config.reasoning.model_id == "claude-haiku"
 

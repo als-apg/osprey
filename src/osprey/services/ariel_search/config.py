@@ -266,18 +266,10 @@ class ReasoningConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ReasoningConfig":
-        """Create ReasoningConfig from dictionary.
-
-        Supports both new field names (provider, model_id) and legacy
-        field names (llm_provider, llm_model_id) for backwards compatibility.
-        """
-        # Support both new and legacy field names
-        provider = data.get("provider") or data.get("llm_provider", "openai")
-        model_id = data.get("model_id") or data.get("llm_model_id", "gpt-4o-mini")
-
+        """Create ReasoningConfig from dictionary."""
         return cls(
-            provider=provider,
-            model_id=model_id,
+            provider=data.get("provider", "openai"),
+            model_id=data.get("model_id", "gpt-4o-mini"),
             max_iterations=data.get("max_iterations", 5),
             temperature=data.get("temperature", 0.1),
             tool_timeout_seconds=data.get("tool_timeout_seconds", 30),
@@ -369,7 +361,7 @@ class ARIELConfig:
         """Check if a search module is enabled.
 
         Args:
-            name: Module name (keyword, semantic, rag, vision)
+            name: Module name (keyword, semantic)
 
         Returns:
             True if the module is enabled

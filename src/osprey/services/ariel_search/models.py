@@ -102,14 +102,12 @@ class SearchMode(Enum):
         KEYWORD: PostgreSQL full-text search (direct function call)
         SEMANTIC: Embedding similarity search (direct function call)
         RAG: Deterministic RAG pipeline with hybrid retrieval, RRF fusion, and LLM generation
-        VISION: Figure similarity (Future)
         AGENT: Agentic orchestration with ReAct agent (AgentExecutor)
     """
 
     KEYWORD = "keyword"
     SEMANTIC = "semantic"
     RAG = "rag"
-    VISION = "vision"  # Future
     AGENT = "agent"
 
 

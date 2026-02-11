@@ -74,19 +74,6 @@ class SearchResponse(BaseModel):
     execution_time_ms: int = 0
 
 
-class EntriesListRequest(BaseModel):
-    """Request for listing entries with pagination."""
-
-    page: int = Field(1, ge=1, description="Page number")
-    page_size: int = Field(20, ge=1, le=100, description="Items per page")
-    start_date: datetime | None = None
-    end_date: datetime | None = None
-    author: str | None = None
-    source_system: str | None = None
-    sort_by: str = Field("timestamp", description="Sort field")
-    sort_order: str = Field("desc", description="Sort order (asc/desc)")
-
-
 class EntriesListResponse(BaseModel):
     """Response for entry listing."""
 

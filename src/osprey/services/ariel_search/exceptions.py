@@ -182,10 +182,6 @@ class SearchExecutionError(ARIELException):
         self.query = query
 
 
-# Note: NoResultsError was removed (GAP-C004) because empty results
-# are a valid state, not exceptional. Callers should handle empty lists normally.
-
-
 # === INGESTION category (is_retriable=False) ===
 
 

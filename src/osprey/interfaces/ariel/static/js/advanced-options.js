@@ -63,28 +63,22 @@ export function initAdvancedOptions(caps) {
     toggleBtn.classList.toggle('active', isPanelOpen);
   });
 
-  // Close button (also try legacy ID)
-  for (const id of ['advanced-close', 'advanced-close-btn']) {
-    const closeBtn = document.getElementById(id);
-    closeBtn?.addEventListener('click', () => {
-      isPanelOpen = false;
-      document.getElementById('advanced-panel')?.classList.add('hidden');
-      const btn = document.getElementById('advanced-toggle-btn')
-        || document.getElementById('advanced-toggle');
-      btn?.classList.remove('active');
-    });
-  }
+  // Close button
+  const closeBtn = document.getElementById('advanced-close-btn');
+  closeBtn?.addEventListener('click', () => {
+    isPanelOpen = false;
+    document.getElementById('advanced-panel')?.classList.add('hidden');
+    document.getElementById('advanced-toggle-btn')?.classList.remove('active');
+  });
 
-  // Reset button (also try legacy ID)
-  for (const id of ['advanced-reset', 'advanced-reset-btn']) {
-    const resetBtn = document.getElementById(id);
-    resetBtn?.addEventListener('click', () => {
-      resetToDefaults();
-      if (isPanelOpen) {
-        renderAdvancedPanel();
-      }
-    });
-  }
+  // Reset button
+  const resetBtn = document.getElementById('advanced-reset-btn');
+  resetBtn?.addEventListener('click', () => {
+    resetToDefaults();
+    if (isPanelOpen) {
+      renderAdvancedPanel();
+    }
+  });
 }
 
 /**

@@ -87,6 +87,8 @@ class RAGPipeline:
         similarity_threshold: float | None = None,
         start_date: Any | None = None,
         end_date: Any | None = None,
+        author: str | None = None,
+        source_system: str | None = None,
         temperature: float | None = None,
     ) -> RAGResult:
         """Execute the RAG pipeline.
@@ -97,6 +99,8 @@ class RAGPipeline:
             similarity_threshold: Minimum similarity for semantic search
             start_date: Filter entries after this time
             end_date: Filter entries before this time
+            author: Filter by author name (ILIKE match)
+            source_system: Filter by source system (exact match)
             temperature: Override LLM temperature (None uses config default)
 
         Returns:
@@ -112,6 +116,8 @@ class RAGPipeline:
             similarity_threshold=similarity_threshold,
             start_date=start_date,
             end_date=end_date,
+            author=author,
+            source_system=source_system,
         )
 
         # 2. Fuse — RRF if both returned results, otherwise use whichever returned
@@ -155,6 +161,8 @@ class RAGPipeline:
         similarity_threshold: float | None,
         start_date: Any | None,
         end_date: Any | None,
+        author: str | None = None,
+        source_system: str | None = None,
     ) -> tuple[
         list[tuple[EnhancedLogbookEntry, float, list[str]]],
         list[tuple[EnhancedLogbookEntry, float]],
@@ -182,6 +190,8 @@ class RAGPipeline:
                 max_results=max_results,
                 start_date=start_date,
                 end_date=end_date,
+                author=author,
+                source_system=source_system,
             )
 
         if "semantic" in retrieval_modules and self._config.is_search_module_enabled("semantic"):
@@ -203,6 +213,8 @@ class RAGPipeline:
                     similarity_threshold=similarity_threshold,
                     start_date=start_date,
                     end_date=end_date,
+                    author=author,
+                    source_system=source_system,
                 )
 
         keyword_results: list[tuple[EnhancedLogbookEntry, float, list[str]]] = []
