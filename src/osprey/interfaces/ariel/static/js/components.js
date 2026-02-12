@@ -161,13 +161,21 @@ export function renderEntryCard(entry) {
 }
 
 /**
- * Render the RAG answer box.
+ * Render the answer box with pipeline and tool labels.
  * @param {string} answer - Generated answer
  * @param {string[]} sources - Source entry IDs
+ * @param {string} pipeline - Pipeline used ('rag', 'agent', 'keyword', 'semantic')
+ * @param {string[]} toolsUsed - Search tools invoked within the pipeline
  * @returns {string} HTML string
  */
-export function renderAnswerBox(answer, sources = []) {
+export function renderAnswerBox(answer, sources = [], pipeline = 'rag', toolsUsed = []) {
   if (!answer) return '';
+
+  const pipelineLabels = { rag: 'RAG', agent: 'Agent', keyword: 'Keyword', semantic: 'Semantic' };
+  const pipelineName = pipelineLabels[pipeline] || 'Answer';
+  const tools = toolsUsed.filter(t => t !== pipeline);
+  const toolsSuffix = tools.length > 0 ? ` (${tools.join(', ')})` : '';
+  const label = `${pipelineName} Answer${toolsSuffix}`;
 
   const sourceLinks = sources.map(id =>
     `<a href="#" onclick="window.app.showEntry('${escapeHtml(id)}'); return false;">${escapeHtml(id)}</a>`
@@ -180,7 +188,7 @@ export function renderAnswerBox(answer, sources = []) {
           <circle cx="12" cy="12" r="10"/>
           <path d="M12 16v-4M12 8h.01"/>
         </svg>
-        <span>RAG Answer</span>
+        <span>${escapeHtml(label)}</span>
       </div>
       <div class="answer-box-content">
         ${escapeHtml(answer).replace(/\n/g, '<br>')}

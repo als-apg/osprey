@@ -92,7 +92,7 @@ export async function performSearch(query = null) {
     });
 
     lastResults = results;
-    renderSearchResults(results);
+    renderSearchResults(results, mode);
   } catch (error) {
     console.error('Search failed:', error);
     if (resultsContainer) {
@@ -111,8 +111,9 @@ export async function performSearch(query = null) {
 /**
  * Render search results.
  * @param {Object} results - Search results from API
+ * @param {string} pipeline - The pipeline selected by the user (e.g. 'rag', 'agent')
  */
-function renderSearchResults(results) {
+function renderSearchResults(results, pipeline = 'rag') {
   const resultsContainer = document.getElementById('search-results');
   if (!resultsContainer) return;
 
@@ -122,9 +123,10 @@ function renderSearchResults(results) {
 
   let html = '';
 
-  // RAG answer if present
+  // Answer box with pipeline label and tools used
   if (results.answer) {
-    html += renderAnswerBox(results.answer, results.sources);
+    const toolsUsed = results.search_modes_used || [];
+    html += renderAnswerBox(results.answer, results.sources, pipeline, toolsUsed);
   }
 
   // Diagnostics bar if issues detected
