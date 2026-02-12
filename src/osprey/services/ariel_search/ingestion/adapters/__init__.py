@@ -35,6 +35,10 @@ def get_adapter(config: ARIELConfig) -> BaseAdapter:
 
     registry = get_registry()
 
+    # Ensure registry is initialized so adapters are available
+    if not registry._initialized:
+        registry.initialize(silent=True)
+
     if not config.ingestion:
         raise AdapterNotFoundError(
             "No ingestion configuration found. Set ariel.ingestion.adapter in config.yml",
