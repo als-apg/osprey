@@ -8,6 +8,7 @@ import { searchApi } from './api.js';
 import {
   renderEntryCard,
   renderAnswerBox,
+  renderDiagnosticsBar,
   renderLoading,
   renderEmptyState,
   escapeHtml,
@@ -124,6 +125,11 @@ function renderSearchResults(results) {
   // RAG answer if present
   if (results.answer) {
     html += renderAnswerBox(results.answer, results.sources);
+  }
+
+  // Diagnostics bar if issues detected
+  if (results.diagnostics?.length > 0) {
+    html += renderDiagnosticsBar(results.diagnostics);
   }
 
   // Results header

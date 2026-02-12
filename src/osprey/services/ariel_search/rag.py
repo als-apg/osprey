@@ -14,6 +14,7 @@ import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from osprey.services.ariel_search.models import DiagnosticLevel, SearchDiagnostic
 from osprey.services.ariel_search.prompts import RAG_PROMPT_TEMPLATE
 from osprey.utils.logger import get_logger
 
@@ -51,6 +52,7 @@ class RAGResult:
     citations: tuple[str, ...] = field(default_factory=tuple)
     retrieval_count: int = 0
     context_truncated: bool = False
+    diagnostics: tuple[SearchDiagnostic, ...] = field(default_factory=tuple)
 
 
 class RAGPipeline:
@@ -109,8 +111,10 @@ class RAGPipeline:
         if not query.strip():
             return RAGResult(answer=_NO_CONTEXT_ANSWER)
 
+        diags: list[SearchDiagnostic] = []
+
         # 1. Retrieve — run enabled search modules in parallel
-        keyword_results, semantic_results = await self._retrieve(
+        keyword_results, semantic_results, retrieve_diags = await self._retrieve(
             query,
             max_results=max_results,
             similarity_threshold=similarity_threshold,
@@ -119,6 +123,7 @@ class RAGPipeline:
             author=author,
             source_system=source_system,
         )
+        diags.extend(retrieve_diags)
 
         # 2. Fuse — RRF if both returned results, otherwise use whichever returned
         entries = self._fuse(keyword_results, semantic_results, max_results)
@@ -129,13 +134,24 @@ class RAGPipeline:
             return RAGResult(
                 answer=_NO_CONTEXT_ANSWER,
                 retrieval_count=0,
+                diagnostics=tuple(diags),
             )
 
         # 3. Assemble — build context window
         context_text, included_entries, truncated = self._assemble_context(entries)
+        if truncated:
+            diags.append(
+                SearchDiagnostic(
+                    level=DiagnosticLevel.INFO,
+                    source="rag.assemble",
+                    message="Context was truncated to fit token limits",
+                )
+            )
 
         # 4. Generate — LLM call
-        answer = await self._generate(query, context_text, temperature=temperature)
+        answer, gen_diag = await self._generate(query, context_text, temperature=temperature)
+        if gen_diag is not None:
+            diags.append(gen_diag)
 
         # 5. Extract citations
         citations = self._extract_citations(answer)
@@ -149,6 +165,7 @@ class RAGPipeline:
             citations=tuple(citations),
             retrieval_count=retrieval_count,
             context_truncated=truncated,
+            diagnostics=tuple(diags),
         )
 
     # === Retrieval ===
@@ -166,6 +183,7 @@ class RAGPipeline:
     ) -> tuple[
         list[tuple[EnhancedLogbookEntry, float, list[str]]],
         list[tuple[EnhancedLogbookEntry, float]],
+        list[SearchDiagnostic],
     ]:
         """Run keyword and/or semantic search in parallel.
 
@@ -173,9 +191,10 @@ class RAGPipeline:
         otherwise falls back to checking which search modules are enabled.
 
         Returns:
-            Tuple of (keyword_results, semantic_results)
+            Tuple of (keyword_results, semantic_results, diagnostics)
         """
         tasks: dict[str, Any] = {}
+        diags: list[SearchDiagnostic] = []
 
         # Determine which retrieval modules to use
         retrieval_modules = self._config.get_pipeline_retrieval_modules("rag")
@@ -201,6 +220,14 @@ class RAGPipeline:
                 embedder = self._embedder_loader()
             except Exception as e:
                 logger.warning(f"Failed to load embedder, skipping semantic search: {e}")
+                diags.append(
+                    SearchDiagnostic(
+                        level=DiagnosticLevel.WARNING,
+                        source="rag.retrieve.semantic",
+                        message=f"Failed to load embedder, skipping semantic search: {e}",
+                        category="embedding",
+                    )
+                )
                 embedder = None
 
             if embedder is not None:
@@ -221,21 +248,41 @@ class RAGPipeline:
         semantic_results: list[tuple[EnhancedLogbookEntry, float]] = []
 
         if not tasks:
-            return keyword_results, semantic_results
+            return keyword_results, semantic_results, diags
 
         # Run in parallel
         results = await asyncio.gather(*tasks.values(), return_exceptions=True)
         keys = list(tasks.keys())
 
+        failed_keys: list[str] = []
         for key, result in zip(keys, results, strict=True):
             if isinstance(result, Exception):
                 logger.warning(f"RAG {key} retrieval failed: {result}")
+                diags.append(
+                    SearchDiagnostic(
+                        level=DiagnosticLevel.ERROR,
+                        source=f"rag.retrieve.{key}",
+                        message=f"{key.title()} retrieval failed: {result}",
+                        category="search",
+                    )
+                )
+                failed_keys.append(key)
             elif key == "keyword":
                 keyword_results = result
             elif key == "semantic":
                 semantic_results = result
 
-        return keyword_results, semantic_results
+        if len(failed_keys) == len(tasks) and len(tasks) > 0:
+            diags.append(
+                SearchDiagnostic(
+                    level=DiagnosticLevel.ERROR,
+                    source="rag.retrieve",
+                    message="All retrieval modules failed",
+                    category="search",
+                )
+            )
+
+        return keyword_results, semantic_results, diags
 
     # === Fusion ===
 
@@ -351,7 +398,7 @@ class RAGPipeline:
         context: str,
         *,
         temperature: float | None = None,
-    ) -> str:
+    ) -> tuple[str, SearchDiagnostic | None]:
         """Generate an answer using the LLM.
 
         Args:
@@ -360,7 +407,7 @@ class RAGPipeline:
             temperature: Override temperature (None uses config default)
 
         Returns:
-            Generated answer text
+            Tuple of (answer_text, optional_diagnostic)
         """
         prompt = RAG_PROMPT_TEMPLATE.format(context=context, question=query)
 
@@ -382,14 +429,28 @@ class RAGPipeline:
             else:
                 answer = str(response)
 
-            return answer if answer else "I was unable to generate an answer."
+            return (answer if answer else "I was unable to generate an answer.", None)
 
         except ImportError:
             logger.warning("osprey.models.completion not available for RAG")
-            return "LLM not available for answer generation."
+            return (
+                "LLM not available for answer generation.",
+                SearchDiagnostic(
+                    level=DiagnosticLevel.WARNING,
+                    source="rag.generate",
+                    message="LLM module not available for answer generation",
+                ),
+            )
         except Exception as e:
             logger.error(f"LLM call failed for RAG: {e}")
-            return f"Error generating answer: {e}"
+            return (
+                f"Error generating answer: {e}",
+                SearchDiagnostic(
+                    level=DiagnosticLevel.ERROR,
+                    source="rag.generate",
+                    message=f"LLM call failed: {e}",
+                ),
+            )
 
     # === Citation Extraction ===
 

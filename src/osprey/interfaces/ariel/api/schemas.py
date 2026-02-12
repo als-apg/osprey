@@ -62,6 +62,15 @@ class SearchRequest(BaseModel):
     )
 
 
+class DiagnosticResponse(BaseModel):
+    """Structured diagnostic from search execution."""
+
+    level: str
+    source: str
+    message: str
+    category: str | None = None
+
+
 class SearchResponse(BaseModel):
     """Search response payload."""
 
@@ -72,6 +81,7 @@ class SearchResponse(BaseModel):
     reasoning: str = ""
     total_results: int = 0
     execution_time_ms: int = 0
+    diagnostics: list[DiagnosticResponse] = []
 
 
 class EntriesListResponse(BaseModel):

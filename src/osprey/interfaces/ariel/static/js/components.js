@@ -249,6 +249,49 @@ export function renderStatCard(title, value, subtitle = '', status = null) {
 }
 
 /**
+ * Render a diagnostics bar for search issues.
+ * Uses native <details>/<summary> for zero-JS collapsibility.
+ * @param {Array} diagnostics - Array of {level, source, message, category}
+ * @returns {string} HTML string (empty if no diagnostics)
+ */
+export function renderDiagnosticsBar(diagnostics) {
+  if (!diagnostics || diagnostics.length === 0) return '';
+
+  // Determine max severity for bar styling
+  const levels = ['info', 'warning', 'error'];
+  let maxLevel = 'info';
+  for (const d of diagnostics) {
+    if (levels.indexOf(d.level) > levels.indexOf(maxLevel)) {
+      maxLevel = d.level;
+    }
+  }
+
+  const icon = maxLevel === 'info'
+    ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>'
+    : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>';
+
+  const count = diagnostics.length;
+  const label = count === 1 ? '1 issue detected' : `${count} issues detected`;
+
+  const items = diagnostics.map(d => {
+    const msgLevel = escapeHtml(d.level);
+    return `<li class="diagnostics-msg diagnostics-msg-${msgLevel}">` +
+      `<span class="diagnostics-source">${escapeHtml(d.source)}</span> ` +
+      `${escapeHtml(d.message)}</li>`;
+  }).join('');
+
+  return `
+    <details class="diagnostics-bar diagnostics-${escapeHtml(maxLevel)} animate-fade-in">
+      <summary class="diagnostics-toggle">
+        ${icon}
+        <span>${label}</span>
+      </summary>
+      <ul class="diagnostics-messages">${items}</ul>
+    </details>
+  `;
+}
+
+/**
  * Escape HTML special characters.
  * @param {string} text - Text to escape
  * @returns {string} Escaped text
@@ -281,6 +324,7 @@ export default {
   sanitizeHighlight,
   renderEntryCard,
   renderAnswerBox,
+  renderDiagnosticsBar,
   renderLoading,
   renderEmptyState,
   renderStatCard,

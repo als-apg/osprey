@@ -22,7 +22,7 @@ from osprey.services.ariel_search.exceptions import (
     ConfigurationError,
     SearchTimeoutError,
 )
-from osprey.services.ariel_search.models import SearchMode
+from osprey.services.ariel_search.models import DiagnosticLevel, SearchDiagnostic, SearchMode
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -82,6 +82,7 @@ class AgentResult:
     sources: tuple[str, ...] = field(default_factory=tuple)
     search_modes_used: tuple[SearchMode, ...] = field(default_factory=tuple)
     reasoning: str = ""
+    diagnostics: tuple[SearchDiagnostic, ...] = field(default_factory=tuple)
 
 
 # === Agent Executor ===
@@ -300,6 +301,13 @@ class AgentExecutor:
                     sources=(),
                     search_modes_used=(),
                     reasoning="No search modules enabled in configuration",
+                    diagnostics=(
+                        SearchDiagnostic(
+                            level=DiagnosticLevel.WARNING,
+                            source="agent.tools",
+                            message="No search modules enabled",
+                        ),
+                    ),
                 )
 
             result = await self._run_agent(query, tools)

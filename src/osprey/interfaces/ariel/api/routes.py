@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, HTTPException, Request
 
 from osprey.interfaces.ariel.api.schemas import (
+    DiagnosticResponse,
     EntriesListResponse,
     EntryCreateRequest,
     EntryCreateResponse,
@@ -163,6 +164,15 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
             reasoning=result.reasoning,
             total_results=len(entries),
             execution_time_ms=execution_time,
+            diagnostics=[
+                DiagnosticResponse(
+                    level=d.level.value,
+                    source=d.source,
+                    message=d.message,
+                    category=d.category,
+                )
+                for d in result.diagnostics
+            ],
         )
 
     except Exception as e:

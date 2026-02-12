@@ -384,6 +384,91 @@ textarea.input {
   color: var(--color-amber-light);
 }
 
+/* === Diagnostics Bar === */
+.diagnostics-bar {
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-4);
+  border-left: 3px solid var(--color-info);
+  overflow: hidden;
+}
+
+.diagnostics-bar.diagnostics-warning {
+  background: var(--color-warning-bg);
+  border-left-color: var(--color-warning);
+}
+
+.diagnostics-bar.diagnostics-error {
+  background: var(--color-error-bg);
+  border-left-color: var(--color-error);
+}
+
+.diagnostics-bar.diagnostics-info {
+  background: var(--color-info-bg);
+  border-left-color: var(--color-info);
+}
+
+.diagnostics-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text-primary);
+  cursor: pointer;
+  list-style: none;
+}
+
+.diagnostics-toggle::-webkit-details-marker {
+  display: none;
+}
+
+.diagnostics-warning .diagnostics-toggle {
+  color: var(--color-warning);
+}
+
+.diagnostics-error .diagnostics-toggle {
+  color: var(--color-error);
+}
+
+.diagnostics-info .diagnostics-toggle {
+  color: var(--color-info);
+}
+
+.diagnostics-messages {
+  list-style: none;
+  padding: 0 var(--space-4) var(--space-3);
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.diagnostics-msg {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  padding: var(--space-1) 0;
+}
+
+.diagnostics-msg-error {
+  color: var(--color-error);
+}
+
+.diagnostics-msg-warning {
+  color: var(--color-warning);
+}
+
+.diagnostics-msg-info {
+  color: var(--color-info);
+}
+
+.diagnostics-source {
+  font-weight: 600;
+  opacity: 0.7;
+  margin-right: var(--space-1);
+}
+
 /* === Modal === */
 .modal-overlay {
   position: fixed;

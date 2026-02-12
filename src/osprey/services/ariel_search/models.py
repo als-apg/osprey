@@ -111,6 +111,31 @@ class SearchMode(Enum):
     AGENT = "agent"
 
 
+class DiagnosticLevel(Enum):
+    """Severity level for search diagnostics."""
+
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+
+
+@dataclass(frozen=True)
+class SearchDiagnostic:
+    """Structured diagnostic from search execution.
+
+    Attributes:
+        level: Severity level (info, warning, error)
+        source: Dot-separated origin identifier (e.g. "rag.retrieve.keyword")
+        message: Human-readable description
+        category: Optional category mapping to ErrorCategory values
+    """
+
+    level: DiagnosticLevel
+    source: str
+    message: str
+    category: str | None = None
+
+
 @dataclass
 class ARIELSearchRequest:
     """Request model for ARIEL search service.
@@ -165,6 +190,7 @@ class ARIELSearchResult:
     sources: tuple[str, ...] = field(default_factory=tuple)
     search_modes_used: tuple[SearchMode, ...] = field(default_factory=tuple)
     reasoning: str = ""
+    diagnostics: tuple[SearchDiagnostic, ...] = field(default_factory=tuple)
 
 
 @dataclass

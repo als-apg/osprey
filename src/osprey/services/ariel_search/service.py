@@ -23,7 +23,9 @@ from osprey.services.ariel_search.models import (
     ARIELSearchRequest,
     ARIELSearchResult,
     ARIELStatusResult,
+    DiagnosticLevel,
     EmbeddingTableInfo,
+    SearchDiagnostic,
     SearchMode,
 )
 from osprey.utils.logger import get_logger
@@ -212,6 +214,16 @@ class ARIELSearchService:
                     f"Search timed out before completion. "
                     f"{e.operation} timeout ({e.timeout_seconds}s) exceeded"
                 ),
+                diagnostics=(
+                    SearchDiagnostic(
+                        level=DiagnosticLevel.ERROR,
+                        source="service.timeout",
+                        message=(
+                            f"Search timed out: {e.operation} exceeded {e.timeout_seconds}s limit"
+                        ),
+                        category="timeout",
+                    ),
+                ),
             )
         except ARIELException:
             raise
@@ -251,18 +263,36 @@ class ARIELSearchService:
         include_highlights = ap.get("include_highlights", True)
         fuzzy_fallback = ap.get("fuzzy_fallback", True)
 
-        results = await keyword_search(
-            request.query,
-            self.repository,
-            self.config,
-            max_results=request.max_results,
-            start_date=start_date,
-            end_date=end_date,
-            author=ap.get("author"),
-            source_system=ap.get("source_system"),
-            include_highlights=include_highlights,
-            fuzzy_fallback=fuzzy_fallback,
-        )
+        try:
+            results = await keyword_search(
+                request.query,
+                self.repository,
+                self.config,
+                max_results=request.max_results,
+                start_date=start_date,
+                end_date=end_date,
+                author=ap.get("author"),
+                source_system=ap.get("source_system"),
+                include_highlights=include_highlights,
+                fuzzy_fallback=fuzzy_fallback,
+            )
+        except Exception as e:
+            logger.warning(f"Keyword search failed: {e}")
+            return ARIELSearchResult(
+                entries=(),
+                answer=None,
+                sources=(),
+                search_modes_used=(SearchMode.KEYWORD,),
+                reasoning=f"Keyword search failed: {e}",
+                diagnostics=(
+                    SearchDiagnostic(
+                        level=DiagnosticLevel.ERROR,
+                        source="service.keyword",
+                        message=f"Keyword search failed: {e}",
+                        category="search",
+                    ),
+                ),
+            )
 
         entries = tuple(
             {**dict(entry), "_highlights": highlights} for entry, _score, highlights in results
@@ -301,18 +331,36 @@ class ARIELSearchService:
         ap = request.advanced_params
         similarity_threshold = ap.get("similarity_threshold")
 
-        results = await semantic_search(
-            request.query,
-            self.repository,
-            self.config,
-            self._get_embedder(),
-            max_results=request.max_results,
-            similarity_threshold=similarity_threshold,
-            start_date=start_date,
-            end_date=end_date,
-            author=ap.get("author"),
-            source_system=ap.get("source_system"),
-        )
+        try:
+            results = await semantic_search(
+                request.query,
+                self.repository,
+                self.config,
+                self._get_embedder(),
+                max_results=request.max_results,
+                similarity_threshold=similarity_threshold,
+                start_date=start_date,
+                end_date=end_date,
+                author=ap.get("author"),
+                source_system=ap.get("source_system"),
+            )
+        except Exception as e:
+            logger.warning(f"Semantic search failed: {e}")
+            return ARIELSearchResult(
+                entries=(),
+                answer=None,
+                sources=(),
+                search_modes_used=(SearchMode.SEMANTIC,),
+                reasoning=f"Semantic search failed: {e}",
+                diagnostics=(
+                    SearchDiagnostic(
+                        level=DiagnosticLevel.ERROR,
+                        source="service.semantic",
+                        message=f"Semantic search failed: {e}",
+                        category="search",
+                    ),
+                ),
+            )
 
         entries = tuple(dict(entry) for entry, _similarity in results)
         sources = tuple(entry["entry_id"] for entry, _similarity in results)
@@ -372,6 +420,7 @@ class ARIELSearchService:
             search_modes_used=(SearchMode.RAG,),
             reasoning=f"RAG pipeline: {rag_result.retrieval_count} retrieved, "
             f"{len(rag_result.entries)} in context",
+            diagnostics=rag_result.diagnostics,
         )
 
     async def _run_agent(self, request: ARIELSearchRequest) -> ARIELSearchResult:
@@ -406,6 +455,7 @@ class ARIELSearchService:
             sources=agent_result.sources,
             search_modes_used=agent_result.search_modes_used,
             reasoning=agent_result.reasoning,
+            diagnostics=agent_result.diagnostics,
         )
 
     # === Health Check ===
