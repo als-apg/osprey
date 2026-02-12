@@ -175,12 +175,6 @@ async def e2e_ariel_migrated_pool(e2e_ariel_database_url: str, e2e_ariel_config:
     pool = await create_connection_pool(config)
     await run_migrations(pool, e2e_ariel_config)
 
-    # Ensure pg_trgm is available for keyword fuzzy fallback.
-    # Normally installed by SemanticProcessorMigration, but these tests
-    # disable semantic search to avoid an Ollama dependency.
-    async with pool.connection() as conn:
-        await conn.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
-
     logger.info("Pipeline E2E migrations applied")
     yield pool
     await pool.close()

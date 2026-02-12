@@ -35,6 +35,9 @@ class CoreMigration(BaseMigration):
 
     async def up(self, conn: "AsyncConnection") -> None:
         """Apply the core schema migration."""
+        # pg_trgm extension for fuzzy text search (used by keyword fuzzy fallback)
+        await conn.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+
         # Create enhanced_entries table
         await conn.execute(
             """
@@ -79,6 +82,14 @@ class CoreMigration(BaseMigration):
             """
             CREATE INDEX IF NOT EXISTS idx_entries_source
             ON enhanced_entries(source_system)
+            """
+        )
+
+        # Trigram index for fuzzy matching
+        await conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_entries_raw_text_trgm
+            ON enhanced_entries USING GIN(raw_text gin_trgm_ops)
             """
         )
 
