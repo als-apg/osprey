@@ -17,7 +17,8 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from src.osprey.templates.apps.control_assistant.services.channel_finder.databases.hierarchical import (
+
+from osprey.services.channel_finder.databases.hierarchical import (
     HierarchicalChannelDatabase,
 )
 

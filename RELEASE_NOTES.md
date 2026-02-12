@@ -1,32 +1,31 @@
-# Osprey Framework - Latest Release (v0.10.6)
+# Osprey Framework - Latest Release (v0.10.9)
 
-**Context Validation & Chat History**
+**Config-Driven Provider Loading & Capability Slash Commands**
 
-## What's New in v0.10.6
+## What's New in v0.10.9
 
 ### Highlights
 
-- **Context key validation** - Orchestrator validates execution plans before running, catching invalid key references and ordering errors
-- **Chat history in orchestrator** (#111) - Follow-up queries like "use the same time range" now resolve correctly
-- **Task objective metadata** (#108) - Context entries track what they were created for, enabling intelligent reuse
-- **Release workflow skill** - Claude Code skill for guided release process
+- **Config-driven provider loading** - Registry skips unused provider imports, eliminating ~30s startup delay on air-gapped machines
+- **Argo structured output** - Structured output support for Argo provider via direct httpx calls with JSON schema prompting
+- **Capability slash commands** - Forward unregistered slash commands to capabilities for domain-specific actions
 
 ### Added
-- **CLI**: Add Claude Code skill for release workflow (`osprey claude install release-workflow`)
-  - Custom SKILL.md wrapper with quick reference for version files and commands
-  - Version consistency check command, pre-release testing steps, tag creation
-- **Orchestration**: Context key validation in execution plans
-  - Validates input key references match actual context keys
-  - Detects ordering errors (step references key from later step)
-  - New `InvalidContextKeyError` exception
-- **Context**: Store task_objective metadata alongside capability context data (#108)
-  - New helper methods: `get_context_metadata()`, `get_all_context_metadata()`
-  - Orchestrator prompt displays task_objective for each available context
+- **CLI**: Add `--channel-finder-mode` and `--code-generator` options to `osprey init`
+  - Options are included in manifest's `reproducible_command` for full project recreation
+- **Capabilities**: Add capability-specific slash commands
+  - Unregistered slash commands (e.g., `/beam:diagnostic`, `/verbose`) are forwarded to capabilities
+  - `slash_command()` helper and `BaseCapability.slash_command()` method for reading commands
+  - Commands are execution-scoped (reset each conversation turn)
 
 ### Fixed
-- **Graph**: Propagate chat history to orchestrator and respond nodes (#111)
-  - Orchestrator now receives full conversation context when `task_depends_on_chat_history=True`
-- **Deployment**: Fix Claude Code config path resolution in pipelines container
+- **Registry**: Config-driven provider loading skips unused provider imports (#138)
+  - Eliminates ~30s startup delay on air-gapped machines
+- **Argo**: Structured output handler for Argo provider (JSON schema prompting via httpx)
+- **Tests**: Fix e2e LLM provider tests broken by config-driven provider filtering
+
+### Changed
+- **Docs**: Update citation to published APL Machine Learning paper (doi:10.1063/5.0306302)
 
 ---
 
@@ -47,8 +46,7 @@ pip install --upgrade "osprey-framework[all]"
 ## What's Next?
 
 Check out our [documentation](https://als-apg.github.io/osprey) for:
-- TUI mode guide
-- Artifact system API reference
+- Capability slash commands guide
 - Complete tutorial series
 
 ## Contributors

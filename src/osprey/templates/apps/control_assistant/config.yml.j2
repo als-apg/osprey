@@ -82,7 +82,7 @@ api:
       base_url: https://generativelanguage.googleapis.com/v1beta
     ollama:
       api_key: ollama
-      base_url: http://localhost:11434
+      base_url: ${OLLAMA_HOST:-http://localhost:11434}
       host: localhost
       port: 11434
     argo:
@@ -127,6 +127,8 @@ deployed_services:
   - jupyter
   - open_webui
   - pipelines
+  - postgresql
+  - ariel_web
 
 # ============================================================
 # DEPLOYMENT CONFIGURATION
@@ -181,6 +183,20 @@ services:
     port_container: 9099
     copy_src: true  # Copies user application from src/
     # additional_dirs: []  # Add custom directories to copy if needed
+
+  # PostgreSQL for ARIEL logbook search
+  postgresql:
+    path: ./services/postgresql
+    database_name: ariel
+    username: ariel
+    password: ariel
+    port_host: 5432
+
+  # ARIEL Web Interface
+  ariel_web:
+    path: ./services/ariel-web
+    port_host: 8085
+    port_container: 8085
 
 # ============================================================
 # SAFETY CONTROLS
@@ -282,7 +298,7 @@ control_system:
   #     - 'my_custom_cs_lib\.read\('
 
   # Runtime Connectors (Layer 2)
-  # Used by: Capabilities (channel_value_retrieval, channel_write, archiver_retrieval)
+  # Used by: Capabilities (channel_read, channel_write, archiver_retrieval)
   #          and osprey.runtime API (read_channel, write_channel)
   # Purpose: Actual I/O operations to control systems with built-in safety features
   connector:
@@ -371,11 +387,6 @@ channel_finder:
         chunk_size: 50                # Number of channels per chunk when chunk_dictionary=true
         max_correction_iterations: 2  # Maximum LLM correction attempts when invalid channels are found (0-3 recommended)
 
-      # Example prompts for in-context pipeline
-      prompts:
-        path: src/{{ package_name }}/services/channel_finder/prompts/in_context
-        # UCSB FEL example prompts for semantic matching
-
       # Benchmark dataset for this pipeline
       benchmark:
         dataset_path: src/{{ package_name }}/data/benchmarks/datasets/in_context_benchmark.json
@@ -389,11 +400,6 @@ channel_finder:
         type: hierarchical            # Always "hierarchical" for this pipeline mode
         path: src/{{ package_name }}/data/channel_databases/hierarchical.json
                                       # Database must follow nested structure: system → family → device → field → subfield
-
-      # Example prompts for hierarchical pipeline
-      prompts:
-        path: src/{{ package_name }}/services/channel_finder/prompts/hierarchical
-        # Example accelerator prompts with hierarchical_context.py for level-specific navigation
 
       # Benchmark dataset for this pipeline
       benchmark:
@@ -409,11 +415,6 @@ channel_finder:
         path: src/{{ package_name }}/data/channel_databases/middle_layer.json
                                       # Database must follow MML structure: System → Family → Field → ChannelNames
                                       # Supports optional _description fields and device/sector filtering via DeviceList
-
-      # Example prompts for middle_layer pipeline
-      prompts:
-        path: src/{{ package_name }}/services/channel_finder/prompts/middle_layer
-        # Example accelerator prompts for React agent with database query tools
 
       # Benchmark dataset for this pipeline
       benchmark:
@@ -616,6 +617,9 @@ logging:
     channel_write: "light_salmon3"
     archiver_retrieval: "turquoise2"
 
+    # ARIEL logbook search
+    ariel: "medium_purple1"
+
 # ============================================================
 # SYSTEM CONFIGURATION
 # ============================================================
@@ -634,3 +638,81 @@ file_paths:
   prompts_dir: prompts
   api_calls_dir: api_calls
   checkpoints: checkpoints
+
+# ============================================================
+# ARIEL - Electronic Logbook Search
+# ============================================================
+# ARIEL provides semantic search over electronic logbooks.
+# Configure the logbook source and search/embedding options below.
+#
+# Provider credentials are defined in api.providers section above.
+# ARIEL references providers by name (e.g., "ollama", "cborg").
+
+ariel:
+  database:
+    uri: postgresql://ariel:ariel@localhost:5432/ariel
+
+  default_max_results: 10
+
+  # Ingestion - demo logbook data (bundled with template)
+  # For production: change adapter and source_url to your logbook system
+  ingestion:
+    adapter: generic_json
+    source_url: src/{{ package_name }}/data/logbook_seed/demo_logbook.json
+
+  # Search modules (leaf-level search functions)
+  # provider: references api.providers for credentials (api_key, base_url)
+  # Tutorial default: only keyword search enabled (no Ollama dependency)
+  # Enable semantic when you have Ollama running with nomic-embed-text
+  search_modules:
+    keyword:
+      enabled: true
+    semantic:
+      enabled: false     # Requires Ollama + embedding model. Enable when ready.
+      provider: ollama   # References api.providers.ollama
+      model: nomic-embed-text
+
+  # Pipelines (compose search modules into higher-level strategies)
+  # retrieval_modules: which search modules each pipeline uses
+  pipelines:
+    rag:
+      enabled: true
+      retrieval_modules: [keyword]  # Add semantic when embeddings are ready
+    agent:
+      enabled: true
+      retrieval_modules: [keyword]  # Add semantic when embeddings are ready
+
+  # Enhancement modules
+  # provider: references api.providers for credentials
+  enhancement_modules:
+    # Semantic processor: LLM-based keyword extraction and summarization
+    # Enables better keyword search and RAG context
+    semantic_processor:
+      enabled: false  # Requires LLM API calls. Enable for better search quality.
+      provider: {{ default_provider }}  # References api.providers
+      model:
+        provider: {{ default_provider }}
+        model_id: {{ default_model }}
+        max_tokens: 256
+
+    # Text embedding: Vector embeddings for semantic search
+    # Requires Ollama running locally with the specified model
+    text_embedding:
+      enabled: false  # Requires Ollama. Enable for semantic search.
+      provider: ollama  # References api.providers.ollama
+      models:
+        - name: nomic-embed-text
+          dimension: 768
+
+  # Default embedding provider (fallback for modules without explicit provider)
+  embedding:
+    provider: ollama
+
+  # ReAct agent configuration
+  # provider: references api.providers for credentials (api_key, base_url)
+  reasoning:
+    provider: cborg  # References api.providers.cborg for credentials
+    model_id: anthropic/claude-haiku
+    max_iterations: 5
+    temperature: 0.1
+    total_timeout_seconds: 120

@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ARIEL - Logbook Search Interface</title>
+  <meta name="description" content="Agentic Retrieval Interface for Electronic Logbooks">
+
+  <!-- Preconnect to font services -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+  <!-- Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <!-- Stylesheets -->
+  <link rel="stylesheet" href="/static/css/variables.css">
+  <link rel="stylesheet" href="/static/css/base.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/css/layout.css">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="/static/assets/ariel-logo.svg">
+
+  <style>
+    /* Inline critical styles */
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-inner">
+        <div class="header-left">
+          <a href="#search" class="logo">
+            <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M12 6v6l4 2"/>
+              <path d="M8 12a4 4 0 108 0"/>
+            </svg>
+            <span class="logo-text">ARIEL</span>
+          </a>
+          <nav class="nav">
+            <a href="#search" class="nav-link active" data-view="search">Search</a>
+            <a href="#browse" class="nav-link" data-view="browse">Browse</a>
+            <a href="#create" class="nav-link" data-view="create">New Entry</a>
+            <a href="#status" class="nav-link" data-view="status">Status</a>
+          </nav>
+        </div>
+        <div class="header-right">
+          <span class="status-indicator" id="health-indicator">
+            <span class="status-dot healthy"></span>
+            <span class="text-sm">Connected</span>
+          </span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main">
+      <!-- Search View -->
+      <section id="view-search" class="view search-view active">
+        <div class="search-hero">
+          <h1>Search the Logbook</h1>
+          <p class="text-secondary">
+            Use natural language to find entries, get AI-powered answers, or browse by keyword.
+          </p>
+        </div>
+
+        <!-- Search Form -->
+        <div class="search-form">
+          <div class="search-input-wrapper">
+            <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"/>
+              <path d="M21 21l-4.35-4.35"/>
+            </svg>
+            <input
+              type="text"
+              id="search-input"
+              class="input"
+              placeholder="Search the logbook..."
+              autocomplete="off"
+            >
+            <div class="search-input-actions">
+              <button id="search-btn" class="btn btn-primary">
+                Search
+              </button>
+            </div>
+          </div>
+
+          <!-- Search Mode Tabs -->
+          <div id="search-mode-tabs" class="search-mode-tabs">
+            <!-- Tabs rendered dynamically by JS -->
+          </div>
+
+          <!-- Search Options Bar -->
+          <div class="search-options-bar">
+            <button type="button" class="btn btn-secondary btn-sm" id="advanced-toggle-btn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
+              </svg>
+              Filters &amp; Options
+            </button>
+          </div>
+
+          <!-- Filters & Options Panel -->
+          <div id="advanced-panel" class="advanced-panel hidden">
+            <div class="advanced-header">
+              <span class="advanced-title">Filters &amp; Options</span>
+              <div class="advanced-header-actions">
+                <button type="button" class="btn btn-ghost btn-sm" id="advanced-reset-btn">Reset</button>
+                <button type="button" class="btn btn-ghost btn-sm" id="advanced-close-btn">Close</button>
+              </div>
+            </div>
+
+            <div class="advanced-sections" id="advanced-sections">
+              <!-- Dynamically rendered by advanced-options.js -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Search Results -->
+        <div id="search-results" class="results-section">
+          <!-- Results will be rendered here -->
+          <div class="empty-state">
+            <svg class="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="11" cy="11" r="8"/>
+              <path d="M21 21l-4.35-4.35"/>
+            </svg>
+            <h3 class="empty-state-title">Ready to Search</h3>
+            <p class="empty-state-text">
+              Enter a query above to search logbook entries. Use natural language or keywords.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Browse View -->
+      <section id="view-browse" class="view browse-view">
+        <div class="dashboard-header">
+          <h2>Browse Entries</h2>
+          <p class="text-secondary">View all logbook entries chronologically</p>
+        </div>
+
+        <!-- Entries List -->
+        <div id="entries-list">
+          <!-- Entries will be rendered here -->
+        </div>
+      </section>
+
+      <!-- Create Entry View -->
+      <section id="view-create" class="view create-entry-view">
+        <div class="dashboard-header">
+          <h2>New Entry</h2>
+          <p class="text-secondary">Create a new logbook entry</p>
+        </div>
+
+        <form id="create-entry-form" class="create-entry-form">
+          <div class="form-section">
+            <div class="input-group">
+              <label class="input-label" for="entry-subject">Subject *</label>
+              <input
+                type="text"
+                id="entry-subject"
+                name="subject"
+                class="input"
+                placeholder="Brief summary of this entry"
+                required
+              >
+            </div>
+          </div>
+
+          <div class="form-section">
+            <div class="input-group">
+              <label class="input-label" for="entry-details">Details *</label>
+              <textarea
+                id="entry-details"
+                name="details"
+                class="input"
+                placeholder="Full description of events, observations, or procedures..."
+                rows="8"
+                required
+              ></textarea>
+            </div>
+          </div>
+
+          <div class="form-section">
+            <div class="form-section-title">Metadata</div>
+            <div class="form-row">
+              <div class="input-group">
+                <label class="input-label" for="entry-author">Author</label>
+                <input
+                  type="text"
+                  id="entry-author"
+                  name="author"
+                  class="input"
+                  placeholder="Your name"
+                >
+              </div>
+              <div class="input-group">
+                <label class="input-label" for="entry-logbook">Logbook</label>
+                <select id="entry-logbook" name="logbook" class="select">
+                  <option value="">Select logbook</option>
+                  <option value="Operations">Operations</option>
+                  <option value="Maintenance">Maintenance</option>
+                  <option value="Experiments">Experiments</option>
+                </select>
+              </div>
+              <div class="input-group">
+                <label class="input-label" for="entry-shift">Shift</label>
+                <select id="entry-shift" name="shift" class="select">
+                  <option value="">Select shift</option>
+                  <option value="Day">Day</option>
+                  <option value="Swing">Swing</option>
+                  <option value="Night">Night</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-section">
+            <div class="form-section-title">Tags</div>
+            <div class="input-group">
+              <div id="entry-tags" style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;"></div>
+              <input
+                type="text"
+                id="entry-tags-input"
+                class="input"
+                placeholder="Type a tag and press Enter"
+              >
+            </div>
+          </div>
+
+          <div class="form-actions">
+            <button type="button" class="btn btn-secondary" onclick="document.getElementById('create-entry-form').reset()">
+              Cancel
+            </button>
+            <button type="submit" class="btn btn-primary">
+              Submit Entry
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <!-- Status View -->
+      <section id="view-status" class="view dashboard-view">
+        <div class="dashboard-header" style="display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <h2>System Status</h2>
+            <p class="text-secondary">Monitor database health, embedding status, and service configuration</p>
+          </div>
+          <button id="refresh-status" class="btn btn-secondary">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 2v6h-6M3 12a9 9 0 0115-6.7L21 8M3 22v-6h6M21 12a9 9 0 01-15 6.7L3 16"/>
+            </svg>
+            Refresh
+          </button>
+        </div>
+
+        <div id="status-content">
+          <!-- Status will be rendered here -->
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Entry Detail Modal -->
+  <div id="entry-modal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <span class="modal-title">Entry Details</span>
+        <button id="entry-modal-close" class="btn btn-ghost btn-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 6L6 18M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      <div id="entry-modal-body" class="modal-body">
+        <!-- Entry details will be rendered here -->
+      </div>
+    </div>
+  </div>
+
+  <!-- JavaScript -->
+  <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>

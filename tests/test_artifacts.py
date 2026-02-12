@@ -30,8 +30,8 @@ class TestArtifactType:
         assert ArtifactType.FILE.value == "file"
 
     def test_artifact_type_is_string_enum(self):
-        """ArtifactType should be usable as string."""
-        assert str(ArtifactType.IMAGE) == "ArtifactType.IMAGE"
+        """ArtifactType should be usable as string (StrEnum returns value directly)."""
+        assert str(ArtifactType.IMAGE) == "image"
         assert ArtifactType.IMAGE.value == "image"
 
     def test_artifact_type_from_string(self):

@@ -215,9 +215,12 @@ class Gateway:
 
         # Parse and execute slash commands using centralized system
         # Pass current_state so commands like /exit can check direct chat mode
-        slash_commands, cleaned_message, exit_requested = await self._process_slash_commands(
-            user_input, config, current_state
-        )
+        (
+            slash_commands,
+            cleaned_message,
+            exit_requested,
+            capability_commands,
+        ) = await self._process_slash_commands(user_input, config, current_state)
 
         # Handle exit_interface request (e.g., /exit outside direct chat mode)
         if exit_requested:
@@ -347,6 +350,10 @@ class Gateway:
                 fresh_state["agent_control"], slash_commands
             )
             self.logger.info("Applied agent control changes from slash commands")
+
+        # Apply capability commands for downstream capability handling
+        if capability_commands:
+            fresh_state["_capability_slash_commands"] = capability_commands
 
         # Add execution metadata
         fresh_state["execution_start_time"] = time.time()
@@ -527,7 +534,7 @@ Respond with true if the message indicates approval (yes, okay, proceed, continu
         user_input: str,
         config: dict[str, Any] | None = None,
         current_state: dict | None = None,
-    ) -> tuple[dict[str, Any], str, bool]:
+    ) -> tuple[dict[str, Any], str, bool, dict[str, str | bool]]:
         """Process slash commands using the centralized command system.
 
         Args:
@@ -536,13 +543,14 @@ Respond with true if the message indicates approval (yes, okay, proceed, continu
             current_state: Current agent state (for commands like /exit that need state context)
 
         Returns:
-            Tuple of (agent_control_changes, remaining_message, exit_interface)
+            Tuple of (agent_control_changes, remaining_message, exit_interface, capability_commands)
             - agent_control_changes: dict of state changes from commands
             - remaining_message: message text after removing commands
             - exit_interface: True if interface should terminate (e.g., /exit outside direct chat)
+            - capability_commands: dict of unregistered commands for capability handling
         """
         if not user_input.startswith("/"):
-            return {}, user_input, False
+            return {}, user_input, False, {}
 
         # Create command context for gateway execution with current state
         context = CommandContext(
@@ -551,6 +559,7 @@ Respond with true if the message indicates approval (yes, okay, proceed, continu
 
         registry = get_command_registry()
         agent_control_changes = {}
+        capability_commands: dict[str, str | bool] = {}
         remaining_parts = []
         processed_commands = []
         exit_interface = False
@@ -560,6 +569,22 @@ Respond with true if the message indicates approval (yes, okay, proceed, continu
 
         for part in parts:
             if part.startswith("/"):
+                # Parse the command to extract name and option
+                command_part = part[1:]  # Remove leading slash
+                if ":" in command_part:
+                    cmd_name, cmd_value = command_part.split(":", 1)
+                else:
+                    cmd_name = command_part
+                    cmd_value = None
+
+                # Check if command is registered
+                if registry.get_command(cmd_name) is None:
+                    # Unregistered command - store for capability handling
+                    capability_commands[cmd_name] = cmd_value if cmd_value else True
+                    processed_commands.append(part)
+                    self.logger.debug(f"Stored capability command: {cmd_name}={cmd_value or True}")
+                    continue
+
                 try:
                     result = await registry.execute(part, context)
 
@@ -595,6 +620,8 @@ Respond with true if the message indicates approval (yes, okay, proceed, continu
         # Log summary of processed commands
         if processed_commands:
             self.logger.info(f"Processing slash commands: {processed_commands}")
+        if capability_commands:
+            self.logger.info(f"Capability commands for downstream handling: {capability_commands}")
 
         remaining_message = " ".join(remaining_parts)
-        return agent_control_changes, remaining_message, exit_interface
+        return agent_control_changes, remaining_message, exit_interface, capability_commands

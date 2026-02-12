@@ -1,0 +1,31 @@
+services:
+  postgresql:
+    image: pgvector/pgvector:pg16
+    container_name: ariel-postgres
+    labels:
+      osprey.project.name: "{{ osprey_labels.project_name }}"
+      osprey.project.root: "{{ osprey_labels.project_root }}"
+      osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
+    restart: unless-stopped
+    ports:
+      - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ services.postgresql.port_host }}:5432"
+    environment:
+      POSTGRES_DB: {{ services.postgresql.database_name | default('ariel') }}
+      POSTGRES_USER: {{ services.postgresql.username | default('ariel') }}
+      POSTGRES_PASSWORD: {{ services.postgresql.password | default('ariel') }}
+      TZ: {{ system.timezone }}
+    volumes:
+      - ariel_postgres_data:/var/lib/postgresql/data
+    networks:
+      - osprey-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U {{ services.postgresql.username | default('ariel') }} -d {{ services.postgresql.database_name | default('ariel') }}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  ariel_postgres_data:
+
+networks:
+  osprey-network:

@@ -194,6 +194,8 @@ autodoc_mock_imports = [
     # Specialized infrastructure - interfaces documented, implementations mocked
     "langgraph",
     "langchain",
+    "langchain_core",
+    "langchain_core.messages",
     # Container and deployment tools - not needed for documentation
     "docker",
     "podman",
@@ -204,6 +206,8 @@ autodoc_mock_imports = [
     "pyepics",
     "p4p",
     "pvaccess",
+    # Notebook format library - not needed for static documentation
+    "nbformat",
     # Development tools - not needed for static documentation
     "pytest",
     "jupyter",

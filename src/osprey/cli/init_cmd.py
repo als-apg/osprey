@@ -49,6 +49,17 @@ from .templates import TemplateManager
     default=None,
     help="Model identifier (e.g., claude-3-sonnet, gpt-4, anthropic/claude-haiku)",
 )
+@click.option(
+    "--channel-finder-mode",
+    type=click.Choice(["in_context", "hierarchical", "middle_layer", "all"], case_sensitive=False),
+    default=None,
+    help="Channel finder pipeline mode (control_assistant template only)",
+)
+@click.option(
+    "--code-generator",
+    default=None,
+    help="Code generator to use (e.g., basic, claude_code)",
+)
 def init(
     project_name: str,
     template: str,
@@ -57,6 +68,8 @@ def init(
     force: bool,
     provider: str,
     model: str,
+    channel_finder_mode: str,
+    code_generator: str,
 ):
     """Create a new Osprey project.
 
@@ -168,6 +181,10 @@ def init(
             context["default_provider"] = provider
         if model:
             context["default_model"] = model
+        if channel_finder_mode:
+            context["channel_finder_mode"] = channel_finder_mode
+        if code_generator:
+            context["code_generator"] = code_generator
 
         project_path = manager.create_project(
             project_name=project_name,
@@ -175,6 +192,25 @@ def init(
             template_name=template,
             registry_style=registry_style,
             context=context if context else None,
+        )
+
+        # Generate manifest for migration support
+        manifest_context = {
+            "default_provider": context.get("default_provider", "cborg") if context else "cborg",
+            "default_model": context.get("default_model", "anthropic/claude-haiku")
+            if context
+            else "anthropic/claude-haiku",
+        }
+        if channel_finder_mode:
+            manifest_context["channel_finder_mode"] = channel_finder_mode
+        if code_generator:
+            manifest_context["code_generator"] = code_generator
+        manager.generate_manifest(
+            project_dir=project_path,
+            project_name=project_name,
+            template_name=template,
+            registry_style=registry_style,
+            context=manifest_context,
         )
 
         console.print("  ✓ Creating application code...", style=Styles.SUCCESS)

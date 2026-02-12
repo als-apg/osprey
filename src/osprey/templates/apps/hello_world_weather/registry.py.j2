@@ -28,19 +28,20 @@ class {{ app_class_name }}RegistryProvider(RegistryConfigProvider):
     """Registry configuration provider for {{ app_display_name }} tutorial application.
 
     This registry demonstrates the simple, beginner-friendly pattern for creating
-    application registries. It uses extend_framework_registry() to automatically
-    include all framework components (routing, orchestration, memory, Python
-    execution, etc.) and adds only the weather-specific capability.
+    application registries. It uses extend_framework_registry() with
+    include_capabilities to explicitly declare which framework capabilities this
+    agent needs, and adds only the weather-specific capability.
 
     This is the recommended pattern for most applications:
-    - Framework provides: Routing, memory, time parsing, Python execution, communication
+    - Framework capabilities included: respond, clarify, memory, time_range_parsing,
+      python, state_manager
     - You provide: Your domain-specific capabilities (weather, in this case)
 
     Benefits of this pattern:
     - Clean, readable code (~20 lines instead of 200+)
-    - Automatic framework updates (framework changes don't break your registry)
+    - Explicit about which framework capabilities are active
     - Focus on what's unique to your application
-    - Clear learning path (see what you add, explore framework defaults later)
+    - Clear learning path (see what you include, explore framework defaults later)
 
     Component Registration:
         - **current_weather**: Capability for retrieving weather conditions
@@ -91,15 +92,16 @@ class {{ app_class_name }}RegistryProvider(RegistryConfigProvider):
     def get_registry_config(self) -> RegistryConfig:
         """Provide complete registry configuration for {{ app_display_name }} application.
 
-        Uses extend_framework_registry() to automatically include all framework
-        components and add only the weather-specific capability and context class.
+        Uses extend_framework_registry() with include_capabilities to explicitly
+        declare which framework capabilities this agent uses, then adds the
+        weather-specific capability and context class.
 
-        The framework provides (automatically included):
-        - Core infrastructure: Router, orchestrator, classifier, error handler
-        - Framework capabilities: Memory, time parsing, Python execution, communication
-        - Standard context classes: MEMORY_CONTEXT, TIME_RANGE, PYTHON_RESULTS
-        - Core data sources: User memory provider
-        - Internal services: Python executor
+        Framework capabilities included:
+        - respond, clarify: Communication with the user
+        - memory: Conversation memory across sessions
+        - time_range_parsing: Natural language time expressions
+        - python: Python code execution
+        - state_manager: Session state management
 
         This application adds:
         - current_weather capability
@@ -109,21 +111,24 @@ class {{ app_class_name }}RegistryProvider(RegistryConfigProvider):
         :return: Complete registry configuration with framework + application components
         :rtype: RegistryConfig
 
-        .. note::
-           This is the recommended pattern for most applications. It's clean,
-           maintainable, and automatically benefits from framework updates.
-
         Examples:
             The returned config includes both framework and application components::
 
                 >>> config = provider.get_registry_config()
-                >>> # Framework capabilities included automatically
-                >>> assert any(c.name == "memory" for c in config.capabilities)
-                >>> assert any(c.name == "python" for c in config.capabilities)
                 >>> # Application capability added
                 >>> assert any(c.name == "current_weather" for c in config.capabilities)
         """
         return extend_framework_registry(
+            # Only include these framework capabilities
+            include_capabilities=[
+                "respond",
+                "clarify",
+                "memory",
+                "time_range_parsing",
+                "python",
+                "state_manager",
+            ],
+
             # Add weather-specific capability
             capabilities=[
                 CapabilityRegistration(

@@ -158,9 +158,11 @@ def add_to_registry(
 ) -> tuple[str, str]:
     """Add capability to registry file.
 
-    Uses a robust insertion strategy: finds the last entry of each registration
-    type and inserts after it. This approach doesn't depend on what follows
-    the list (context_classes, framework_prompt_providers, or closing paren).
+    Supports two registry styles:
+    - Explicit: Finds last CapabilityRegistration/ContextClassRegistration entries
+      and inserts after them.
+    - Extend: Adds capabilities= and context_classes= parameters to the
+      extend_framework_registry() call.
 
     Args:
         registry_path: Path to registry.py
@@ -184,16 +186,18 @@ def add_to_registry(
         context_type, context_class_name, module_name, capability_name
     )
 
-    # Find insertion point after last CapabilityRegistration
-    cap_insert_pos = _find_last_registration_entry(content, "CapabilityRegistration")
-    if cap_insert_pos is not None:
-        content = content[:cap_insert_pos] + "\n" + cap_reg + content[cap_insert_pos:]
+    if "extend_framework_registry(" in content:
+        # Extend-style registry: add capabilities and context_classes parameters
+        content = _add_to_extend_registry(content, cap_reg, ctx_reg, module_name, capability_name)
+    else:
+        # Explicit-style registry: insert after last existing entries
+        cap_insert_pos = _find_last_registration_entry(content, "CapabilityRegistration")
+        if cap_insert_pos is not None:
+            content = content[:cap_insert_pos] + "\n" + cap_reg + content[cap_insert_pos:]
 
-    # Find insertion point after last ContextClassRegistration
-    # (search in updated content to account for capability insertion)
-    ctx_insert_pos = _find_last_registration_entry(content, "ContextClassRegistration")
-    if ctx_insert_pos is not None:
-        content = content[:ctx_insert_pos] + "\n" + ctx_reg + content[ctx_insert_pos:]
+        ctx_insert_pos = _find_last_registration_entry(content, "ContextClassRegistration")
+        if ctx_insert_pos is not None:
+            content = content[:ctx_insert_pos] + "\n" + ctx_reg + content[ctx_insert_pos:]
 
     # Create preview showing what was added
     preview = f"""
@@ -205,6 +209,66 @@ def add_to_registry(
 """
 
     return content, preview
+
+
+def _add_to_extend_registry(
+    content: str,
+    cap_reg: str,
+    ctx_reg: str,
+    module_name: str,
+    capability_name: str,
+) -> str:
+    """Add capability and context registrations to extend_framework_registry() call.
+
+    Handles both cases:
+    - capabilities= parameter already exists: appends to it
+    - capabilities= parameter doesn't exist: adds it
+
+    Args:
+        content: Registry file content
+        cap_reg: Formatted CapabilityRegistration code
+        ctx_reg: Formatted ContextClassRegistration code
+        module_name: Project module name
+        capability_name: Capability name
+
+    Returns:
+        Updated file content
+    """
+    # Ensure required imports are present
+    for import_name in ["CapabilityRegistration", "ContextClassRegistration"]:
+        if import_name not in content:
+            content = content.replace(
+                "from osprey.registry import (",
+                f"from osprey.registry import (\n    {import_name},",
+            )
+
+    # Check if capabilities= parameter already exists
+    if re.search(r"capabilities\s*=\s*\[", content):
+        # Append to existing capabilities list
+        cap_insert_pos = _find_last_registration_entry(content, "CapabilityRegistration")
+        if cap_insert_pos is not None:
+            content = content[:cap_insert_pos] + "\n" + cap_reg + content[cap_insert_pos:]
+    else:
+        # Add capabilities= parameter to extend_framework_registry()
+        content = content.replace(
+            "extend_framework_registry(",
+            f"extend_framework_registry(\n            capabilities=[\n{cap_reg}\n            ],",
+        )
+
+    # Check if context_classes= parameter already exists
+    if re.search(r"context_classes\s*=\s*\[", content):
+        # Append to existing context_classes list
+        ctx_insert_pos = _find_last_registration_entry(content, "ContextClassRegistration")
+        if ctx_insert_pos is not None:
+            content = content[:ctx_insert_pos] + "\n" + ctx_reg + content[ctx_insert_pos:]
+    else:
+        # Add context_classes= parameter to extend_framework_registry()
+        content = content.replace(
+            "extend_framework_registry(",
+            f"extend_framework_registry(\n            context_classes=[\n{ctx_reg}\n            ],",
+        )
+
+    return content
 
 
 def is_already_registered(registry_path: Path, capability_name: str) -> bool:

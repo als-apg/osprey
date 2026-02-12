@@ -86,8 +86,10 @@ class TestMockConnectorVerification:
         """Test readback verification with percentage-based tolerance."""
         # Write a value
         written_value = 1000.0
-        tolerance_percent = 0.3  # 0.3% - generous to account for random noise variation
-        absolute_tolerance = written_value * tolerance_percent / 100.0  # = 3.0
+        # noise_level=0.001 → sigma = 1000 * 0.001 = 1.0
+        # Use 1% tolerance (= 10 sigma) to avoid flaky failures
+        tolerance_percent = 1.0
+        absolute_tolerance = written_value * tolerance_percent / 100.0  # = 10.0
 
         result = await connector.write_channel(
             "TEST:CHANNEL",
@@ -98,7 +100,7 @@ class TestMockConnectorVerification:
 
         assert result.success is True
         assert result.verification.verified is True
-        # Mock adds small noise, should be within 3.0
+        # Mock adds small noise, should be within 10.0
         diff = abs(result.verification.readback_value - written_value)
         assert diff <= absolute_tolerance
 

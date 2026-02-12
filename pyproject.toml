@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "osprey-framework"
-version = "0.10.6"
+version = "0.10.9"
 description = "An open-source, domain-agnostic, capability-based architecture for building intelligent agents"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -48,6 +48,7 @@ dependencies = [
     "questionary>=2.0.0",
     "python-dotenv>=1.1.0",
     "PyYAML>=6.0.2",
+    "ruamel.yaml>=0.18.0",  # Comment-preserving YAML for config updates
     "Jinja2>=3.1.6",
     "requests>=2.32.3",
 
@@ -69,7 +70,7 @@ dependencies = [
     "ollama>=0.5.1",
 
     # Advanced code generation
-    "claude-agent-sdk>=0.0.20",  # Claude Code SDK for multi-turn agentic code generation
+    "claude-agent-sdk>=0.1.26",  # Claude Code SDK - 0.1.25 has CBORG-incompatible beta headers
 
     # Data processing - required for archiver connectors and data handling
     # Archiver connectors return pandas DataFrames for time-series data
@@ -107,6 +108,9 @@ dependencies = [
 
     # Utilities
     "unique-namer>=0.1.0",
+
+    # Control system simulation (soft IOC generation)
+    "caproto",
 ]
 
 [project.optional-dependencies]
@@ -136,6 +140,11 @@ dev = [
     "ruff",
     "pyepics",  # EPICS connector support for testing
     "build",  # Required for 'osprey deploy up --dev' to build local wheel
+    "testcontainers[postgres]>=4.0.0",  # Real PostgreSQL for integration tests
+    "docker>=7.0.0",  # Docker SDK for testcontainers availability check
+    "fastapi>=0.109.0",  # For ARIEL Web API tests
+    "psycopg[pool]>=3.1.0,<4.0.0",  # ARIEL search integration tests
+    "psycopg-pool>=3.1.0,<4.0.0",  # ARIEL search integration tests
 ]
 
 # Storage backends (databases, PostgreSQL checkpointing, vector/memory storage)
@@ -155,16 +164,38 @@ storage = [
     "vecs>=0.4.5",
 ]
 
+# ARIEL (Agentic Retrieval Interface for Electronic Logbooks)
+# See _ISSUES/MAJOR/ARIEL/ for specification
+ariel = [
+    # PostgreSQL with pgvector for vector similarity search
+    "psycopg[pool]>=3.1.0,<4.0.0",
+    "psycopg-pool>=3.1.0,<4.0.0",
+    # LangGraph for ReAct agent
+    "langgraph>=0.5.2",
+    "langchain-openai>=0.3.0",
+]
+
+# ARIEL proxy support for HTTP ingestion through SOCKS tunnels
+ariel-proxy = [
+    "aiohttp-socks>=0.8.0",
+]
+
+# ARIEL Web Interface - FastAPI server for web-based search
+web = [
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+]
+
 # All optional dependencies for complete installation
 all = [
-    "osprey-framework[docs,dev,storage]"
+    "osprey-framework[docs,dev,storage,ariel,web]"
 ]
 
 [project.urls]
 Homepage = "https://als-apg.github.io/osprey"
 Documentation = "https://als-apg.github.io/osprey"
 Repository = "https://github.com/als-apg/osprey"
-Paper = "https://arxiv.org/abs/2508.15066"
+Paper = "https://doi.org/10.1063/5.0306302"
 Issues = "https://github.com/als-apg/osprey/issues"
 Changelog = "https://github.com/als-apg/osprey/blob/main/CHANGELOG.md"
 
@@ -199,6 +230,7 @@ include = ["osprey*"]
     "templates/**/*.css",
     "templates/**/*.js",
     "templates/**/*.json",
+    "interfaces/ariel/static/**/*",
     "workflows/*.md",  # Legacy workflow files (deprecated, use assist/)
     "assist/**/*.md",  # Coding assistant task instructions
     "assist/**/*.yml",  # Migration documents and schemas
@@ -289,7 +321,7 @@ ignore = [
 "tests/services/channel_finder/test_registration.py" = ["E402"]  # Late imports after path manipulation
 "src/osprey/templates/apps/control_assistant/_agent_data/example_scripts/**/*.py" = ["E402"]  # Example scripts with late imports
 "src/osprey/templates/services/jupyter/startup_script.py" = ["F401"]  # Intentionally loaded in namespace
-"src/osprey/templates/apps/control_assistant/services/channel_finder/__init__.py" = ["E402"]  # Conditional imports
+"src/osprey/services/channel_finder/__init__.py" = ["E402"]  # Grouped imports with section comments
 
 [tool.ruff.lint.isort]
 known-first-party = ["osprey", "configs", "applications", "interfaces", "deployment"]

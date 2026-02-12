@@ -133,14 +133,26 @@ def setup_llm_test_environment(test_config, tmp_path):
     # Load the config created by test_config fixture
     config = yaml.safe_load(test_config.read_text())
 
-    # Add provider configs
+    # Add provider configs and ensure models section references all available
+    # providers so config-driven provider filtering (#138) doesn't skip them
     config["provider_configs"] = {}
+    if "models" not in config:
+        config["models"] = {}
     for provider_name, provider_config in _AVAILABLE_PROVIDERS.items():
         config["provider_configs"][provider_name] = {
             "api_key": provider_config["api_key"],
             "base_url": provider_config["base_url"],
             "default_model_id": provider_config["default_model"],
         }
+        if not any(
+            m.get("provider") == provider_name
+            for m in config["models"].values()
+            if isinstance(m, dict)
+        ):
+            config["models"][f"test_{provider_name}"] = {
+                "provider": provider_name,
+                "model_id": provider_config["default_model"],
+            }
 
     # Write updated config
     with open(test_config, "w") as f:

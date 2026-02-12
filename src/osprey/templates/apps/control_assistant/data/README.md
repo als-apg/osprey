@@ -13,29 +13,24 @@ data/
 │   ├── in_context.json          # In-context pipeline database
 │   ├── hierarchical.json        # Hierarchical pipeline database
 │   └── TEMPLATE_EXAMPLE.json    # Database format example
-├── benchmarks/                   # Benchmark datasets and results
-│   ├── datasets/                # Test query datasets
-│   │   ├── basic_queries.json
-│   │   └── comprehensive.json
-│   └── results/                 # Benchmark result files
-└── tools/                        # Database management tools
-    ├── build_channel_database.py  # Build database from CSV
-    ├── validate_database.py       # Validate database format
-    ├── preview_database.py        # Preview database contents
-    └── llm_channel_namer.py       # Generate descriptive names
+└── benchmarks/                   # Benchmark datasets and results
+    ├── datasets/                # Test query datasets
+    │   ├── basic_queries.json
+    │   └── comprehensive.json
+    └── results/                 # Benchmark result files
 ```
 
 ## Database Tools
+
+Database tools are available as native ``osprey channel-finder`` CLI subcommands:
 
 ### 1. Build Channel Database
 
 Build a channel database from CSV files:
 
 ```bash
-python scripts/build_database.py \
-  --input data/raw/your_address_list.csv \
-  --output data/channel_databases/custom.json \
-  --use-llm  # Optional: use LLM to generate descriptive names
+osprey channel-finder build-database --csv data/raw/address_list.csv
+osprey channel-finder build-database --csv data/raw/address_list.csv --use-llm
 ```
 
 ### 2. Validate Database
@@ -43,8 +38,8 @@ python scripts/build_database.py \
 Validate database format and structure:
 
 ```bash
-cd data/tools
-python validate_database.py ../channel_databases/in_context.json
+osprey channel-finder validate
+osprey channel-finder validate --database data/channel_databases/in_context.json
 ```
 
 ### 3. Preview Database
@@ -52,8 +47,8 @@ python validate_database.py ../channel_databases/in_context.json
 Preview database contents:
 
 ```bash
-cd data/tools
-python preview_database.py ../channel_databases/in_context.json
+osprey channel-finder preview
+osprey channel-finder preview --database data/channel_databases/in_context.json
 ```
 
 ## CSV Format

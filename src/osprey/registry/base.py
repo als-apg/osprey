@@ -153,6 +153,7 @@ class CapabilityRegistration:
     always_active: bool = False  # Whether capability is always active (no classification needed)
     functional_node: str = None  # Name of functional node (from capability.node attribute)
     example_usage: str = ""  # Example of how this capability is used
+    _is_explicit_override: bool = False  # Internal: True if registered via override_capabilities
 
 
 @dataclass
@@ -387,6 +388,7 @@ class ProviderRegistration:
 
     module_path: str
     class_name: str
+    name: str | None = None  # Provider name for config-driven filtering
 
 
 @dataclass
@@ -511,6 +513,98 @@ class CodeGeneratorRegistration:
 
 
 @dataclass
+class ArielSearchModuleRegistration:
+    """Registration metadata for ARIEL search modules.
+
+    Defines the metadata required for lazy loading of search modules that provide
+    tool descriptors for the ARIEL agent executor and capabilities API.
+
+    :param name: Config key, e.g., "ariel_keyword"
+    :type name: str
+    :param module_path: Module exporting get_tool_descriptor()
+    :type module_path: str
+    :param description: Human-readable description
+    :type description: str
+    """
+
+    name: str
+    module_path: str
+    description: str
+
+
+@dataclass
+class ArielEnhancementModuleRegistration:
+    """Registration metadata for ARIEL enhancement modules.
+
+    Defines the metadata required for lazy loading of enhancement module classes
+    that process logbook entries (e.g., keyword extraction, embedding generation).
+
+    :param name: Config key, e.g., "ariel_text_embedding"
+    :type name: str
+    :param module_path: Module containing the class
+    :type module_path: str
+    :param class_name: Enhancement module class name, e.g., "TextEmbeddingModule"
+    :type class_name: str
+    :param description: Human-readable description
+    :type description: str
+    :param execution_order: Lower = earlier execution (e.g., 10, 20)
+    :type execution_order: int
+    """
+
+    name: str
+    module_path: str
+    class_name: str
+    description: str
+    execution_order: int = 50
+
+
+@dataclass
+class ArielIngestionAdapterRegistration:
+    """Registration metadata for ARIEL ingestion adapters.
+
+    Defines the metadata required for lazy loading of ingestion adapter classes
+    that connect to facility-specific logbook data sources.
+
+    :param name: Config key, e.g., "als_logbook"
+    :type name: str
+    :param module_path: Module containing the adapter class
+    :type module_path: str
+    :param class_name: Adapter class name, e.g., "ALSLogbookAdapter"
+    :type class_name: str
+    :param description: Human-readable description
+    :type description: str
+    """
+
+    name: str
+    module_path: str
+    class_name: str
+    description: str
+
+
+@dataclass
+class ArielPipelineRegistration:
+    """Registration metadata for ARIEL pipeline descriptors.
+
+    Defines the metadata required for lazy loading of pipeline descriptor modules
+    that declare RAG or Agent execution strategies.
+
+    :param name: Config key, e.g., "ariel_rag"
+    :type name: str
+    :param module_path: Module exporting get_pipeline_descriptor()
+    :type module_path: str
+    :param description: Human-readable description
+    :type description: str
+    :param category: Pipeline category ("llm" or "direct")
+    :type category: str
+    """
+
+    name: str
+    module_path: str
+    description: str
+    category: str = "llm"
+
+
+@dataclass
 class RegistryConfig:
     """Complete registry configuration with all component metadata.
 
@@ -579,6 +673,12 @@ class RegistryConfig:
     providers: list[ProviderRegistration] = field(default_factory=list)
     connectors: list[ConnectorRegistration] = field(default_factory=list)
     code_generators: list[CodeGeneratorRegistration] = field(default_factory=list)
+    ariel_search_modules: list[ArielSearchModuleRegistration] = field(default_factory=list)
+    ariel_enhancement_modules: list[ArielEnhancementModuleRegistration] = field(
+        default_factory=list
+    )
+    ariel_pipelines: list[ArielPipelineRegistration] = field(default_factory=list)
+    ariel_ingestion_adapters: list[ArielIngestionAdapterRegistration] = field(default_factory=list)
     framework_exclusions: dict[str, list[str]] = field(default_factory=dict)
     initialization_order: list[str] = field(
         default_factory=lambda: [
@@ -589,6 +689,10 @@ class RegistryConfig:
             "providers",
             "connectors",
             "code_generators",
+            "ariel_search_modules",
+            "ariel_enhancement_modules",
+            "ariel_pipelines",
+            "ariel_ingestion_adapters",
             "capabilities",
             "framework_prompt_providers",
             "core_nodes",

@@ -1265,11 +1265,63 @@ def run_interactive_init() -> str:
         if channel_finder_mode is None:
             return "menu"
 
-    # 2c. Code generator selection (for templates that use Python execution)
+    # 2c. Control capabilities selection (native framework capabilities)
+    control_capabilities = None
+    if template == "control_assistant":
+        console.print("\n[bold]Step 4: Control System Capabilities[/bold]\n")
+        console.print(
+            "[dim]The framework provides these native capabilities (all enabled by default):[/dim]\n"
+        )
+
+        all_caps = [
+            Choice(
+                "channel_finding     - Find control system channels by description",
+                value="channel_finding",
+                checked=True,
+            ),
+            Choice(
+                "channel_read        - Read current channel values",
+                value="channel_read",
+                checked=True,
+            ),
+            Choice(
+                "channel_write       - Write values to channels (with safety controls)",
+                value="channel_write",
+                checked=True,
+            ),
+            Choice(
+                "archiver_retrieval  - Query historical time-series data",
+                value="archiver_retrieval",
+                checked=True,
+            ),
+        ]
+
+        selected = questionary.checkbox(
+            "Control capabilities:",
+            choices=all_caps,
+            style=custom_style,
+        ).ask()
+
+        if selected is None:
+            return "menu"
+
+        # Validate: channel_finding required if any others are selected
+        if selected and "channel_finding" not in selected:
+            other_caps = [c for c in selected if c != "channel_finding"]
+            if other_caps:
+                console.print(
+                    f"\n{Messages.warning('channel_finding is required when using: ' + ', '.join(other_caps))}"
+                )
+                selected.insert(0, "channel_finding")
+                console.print(f"{Messages.info('Automatically included channel_finding')}\n")
+
+        control_capabilities = selected if selected else None
+
+    # 2d. Code generator selection (for templates that use Python execution)
     # Skip for hello_world_weather (simple example), include for control_assistant
     code_generator = None
     if template == "control_assistant":
-        step_num = 4  # After channel finder
+        step_num = 5  # After channel finder + capabilities
         console.print(f"\n[bold]Step {step_num}: Code Generator[/bold]\n")
         code_generator = select_code_generator(code_generators)
         if code_generator is None:
@@ -1409,7 +1461,7 @@ def run_interactive_init() -> str:
 
     # 3. Registry style (step number adjusts based on previous steps)
     if template == "control_assistant":
-        step_num = 5  # After template, name, channel_finder, code_generator
+        step_num = 6  # After template, name, channel_finder, capabilities, code_generator
     else:
         step_num = 3  # After template, name
     console.print(f"\n[bold]Step {step_num}: Registry Style[/bold]\n")
@@ -1429,7 +1481,7 @@ def run_interactive_init() -> str:
 
     # 4. Provider selection (step number adjusts)
     if template == "control_assistant":
-        step_num = 6  # After template, name, channel_finder, code_generator, registry
+        step_num = 7  # After template, name, channel_finder, capabilities, code_generator, registry
     else:
         step_num = 4  # After template, name, registry
     console.print(f"\n[bold]Step {step_num}: AI Provider[/bold]\n")
@@ -1439,7 +1491,7 @@ def run_interactive_init() -> str:
 
     # 5. Model selection (step number adjusts)
     if template == "control_assistant":
-        step_num = 7  # After template, name, channel_finder, code_generator, registry, provider
+        step_num = 8  # After template, name, channel_finder, capabilities, code_generator, registry, provider
     else:
         step_num = 5  # After template, name, registry, provider
     console.print(f"\n[bold]Step {step_num}: Model Selection[/bold]\n")
@@ -1453,6 +1505,9 @@ def run_interactive_init() -> str:
     console.print(f"  Template:      [value]{template}[/value]")
     if channel_finder_mode:
         console.print(f"  Pipeline:      [value]{channel_finder_mode}[/value]")
+    if control_capabilities is not None:
+        caps_str = ", ".join(control_capabilities) if control_capabilities else "none"
+        console.print(f"  Capabilities:  [value]{caps_str}[/value]")
     if code_generator:
         console.print(f"  Code Gen:      [value]{code_generator}[/value]")
     console.print(f"  Registry:      [value]{registry_style}[/value]")
@@ -1480,6 +1535,8 @@ def run_interactive_init() -> str:
         context = {"default_provider": provider, "default_model": model}
         if channel_finder_mode:
             context["channel_finder_mode"] = channel_finder_mode
+        if control_capabilities is not None:
+            context["control_capabilities"] = control_capabilities
         if code_generator:
             context["code_generator"] = code_generator
 
@@ -1490,6 +1547,15 @@ def run_interactive_init() -> str:
             registry_style=registry_style,
             context=context,
             force=True,
+        )
+
+        # Generate manifest for migration support
+        manager.generate_manifest(
+            project_dir=project_path,
+            project_name=project_name,
+            template_name=template,
+            registry_style=registry_style,
+            context=context,
         )
 
         msg = Messages.success("Project created at:")
@@ -2581,6 +2647,23 @@ def show_generate_help():
     )
     console.print()
 
+    # soft-ioc option
+    console.print(
+        f"[{Styles.HEADER}][→] soft-ioc - Simulated control system for development[/{Styles.HEADER}]"
+    )
+    console.print()
+    console.print("  • Generates caproto-based EPICS soft IOC from channel database")
+    console.print("  • Uses channel database from your channel_finder config")
+    console.print("  • Auto-detects PV types and access modes from naming conventions")
+    console.print("  • Supports mock_style (simulated values) or passthrough backends")
+    console.print(
+        f"  • Ready to run: just [{Styles.VALUE}]pip install caproto && python <ioc>.py[/{Styles.VALUE}]"
+    )
+    console.print(
+        f"  • [{Styles.DIM}]Perfect for: Testing without real hardware, development mode[/{Styles.DIM}]"
+    )
+    console.print()
+
     input("Press ENTER to continue...")
 
 
@@ -2645,6 +2728,10 @@ def show_generate_menu() -> str | None:
             Choice(
                 "[→] claude-config  - Claude Code generator configuration",
                 value="generate_claude_config",
+            ),
+            Choice(
+                "[→] soft-ioc       - Simulated control system for development",
+                value="generate_soft_ioc",
             ),
             Choice("─" * 60, value=None, disabled=True),
             Choice("[?] help           - Detailed descriptions and usage guide", value="show_help"),
@@ -2769,6 +2856,27 @@ def handle_set_control_system(project_path: Path | None = None) -> None:
     input("\nPress ENTER to continue...")
 
 
+def _check_simulation_ioc_running(host: str = "localhost", port: int = 5064) -> bool:
+    """Check if a simulation IOC is running on the specified port.
+
+    Args:
+        host: Host address to check
+        port: Port number to check
+
+    Returns:
+        True if port is open and accepting connections, False otherwise
+    """
+    import socket
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(1.0)
+            result = sock.connect_ex((host, port))
+            return result == 0
+    except OSError:
+        return False
+
+
 def handle_set_epics_gateway(project_path: Path | None = None) -> None:
     """Handle interactive EPICS gateway configuration."""
     from osprey.generators.config_updater import (
@@ -2862,6 +2970,20 @@ def handle_set_epics_gateway(project_path: Path | None = None) -> None:
     else:
         # Use preset
         new_content, preview = set_epics_gateway_config(config_path, facility)
+
+        # Check if simulation IOC is running when using simulation preset
+        if facility == "simulation":
+            preset = FACILITY_PRESETS[facility]
+            host = preset["gateways"]["read_only"]["address"]
+            port = preset["gateways"]["read_only"]["port"]
+
+            if not _check_simulation_ioc_running(host, port):
+                console.print(f"\n{Messages.warning(f'⚠ No IOC detected on {host}:{port}')}")
+                console.print(
+                    "\n[dim]To start the simulation IOC:[/dim]"
+                    "\n[dim]  1. Generate IOC: osprey generate soft-ioc[/dim]"
+                    "\n[dim]  2. Run IOC: python generated_iocs/<ioc_name>_ioc.py[/dim]"
+                )
 
     # Show preview
     console.print("\n" + preview)
@@ -3002,6 +3124,8 @@ def handle_generate_action():
             handle_generate_mcp_server()
         elif action == "generate_claude_config":
             handle_generate_claude_config()
+        elif action == "generate_soft_ioc":
+            handle_generate_soft_ioc()
         elif action == "show_help":
             show_generate_help()
             # Loop continues - returns to generate menu after help
@@ -3366,6 +3490,71 @@ def handle_generate_claude_config():
         console.print(f"[dim]{traceback.format_exc()}[/dim]")
         console.print()
         input("Press ENTER to continue...")
+
+
+def handle_generate_soft_ioc():
+    """Handle interactive soft IOC generation."""
+    console.clear()
+    console.print(f"\n{Messages.header('Generate Soft IOC')}\n")
+    console.print("[dim]Creates a simulated control system from your channel database[/dim]\n")
+
+    from pathlib import Path
+
+    import click
+
+    from osprey.cli.generate_cmd import soft_ioc
+
+    # Check for config.yml
+    config_path = Path.cwd() / "config.yml"
+    if not config_path.exists():
+        console.print(f"\n{Messages.error('No config.yml found in current directory')}")
+        console.print()
+        console.print("  Run [accent]osprey init[/accent] to create a project first.")
+        console.print()
+        input("Press ENTER to continue...")
+        return
+
+    # Ask about options
+    use_init = questionary.confirm(
+        "Run interactive setup wizard?",
+        default=True,
+        style=custom_style,
+    ).ask()
+
+    if use_init is None:
+        return
+
+    dry_run = questionary.confirm(
+        "Dry-run mode (preview without writing files)?",
+        default=False,
+        style=custom_style,
+    ).ask()
+
+    if dry_run is None:
+        return
+
+    try:
+        # Build CLI args
+        args = []
+        if use_init:
+            args.append("--init")
+        if dry_run:
+            args.append("--dry-run")
+
+        # Invoke the command
+        ctx = click.Context(soft_ioc)
+        ctx.invoke(soft_ioc, config_path=None, output_file=None, dry_run=dry_run, init=use_init)
+
+    except click.Abort:
+        console.print(f"\n{Messages.info('Generation cancelled by user.')}")
+    except Exception as e:
+        console.print(f"\n{Messages.error(f'Generation failed: {e}')}")
+        import traceback
+
+        console.print(f"[dim]{traceback.format_exc()}[/dim]")
+
+    console.print()
+    input("Press ENTER to continue...")
 
 
 # ============================================================================

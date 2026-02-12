@@ -248,6 +248,15 @@ async def test_mcp_capability_generation_workflow(e2e_project_factory, llm_judge
         # Now initialize the project (this will load the new capability)
         await project.initialize()
 
+        # Verify weather_mcp capability is registered and loadable
+        from osprey.registry import get_registry
+
+        registry = get_registry()
+        stats = registry.get_stats()
+        assert "weather_mcp" in stats["capability_names"], (
+            f"weather_mcp capability not loaded in registry. Available: {stats['capability_names']}"
+        )
+
         # =====================================================================
         # Step 7: Query for weather in San Francisco (orchestrated mode)
         # =====================================================================

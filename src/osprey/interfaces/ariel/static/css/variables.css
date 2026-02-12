@@ -1,0 +1,145 @@
+/**
+ * ARIEL Design Tokens
+ *
+ * "Precision Instrumentation" aesthetic inspired by scientific
+ * control room interfaces, oscilloscopes, and strip-chart recorders.
+ */
+
+:root {
+  /* === Primary Palette - Deep Blue (precision instruments) === */
+  --color-primary: #1a365d;
+  --color-primary-light: #2b4a82;
+  --color-primary-dark: #0f2340;
+
+  /* === Accent - Teal (scientific visualization) === */
+  --color-accent: #319795;
+  --color-accent-light: #4fd1c5;
+  --color-accent-dark: #236c6a;
+  --color-accent-glow: rgba(79, 209, 197, 0.3);
+
+  /* === Amber - ARIEL-specific highlights === */
+  --color-amber: #d4a574;
+  --color-amber-light: #e8c9a0;
+  --color-amber-dark: #b8894e;
+  --color-amber-glow: rgba(212, 165, 116, 0.2);
+
+  /* === Backgrounds (dark mode) === */
+  --bg-primary: #0f172a;
+  --bg-secondary: #1e293b;
+  --bg-tertiary: #334155;
+  --bg-elevated: #3d4f6a;
+  --bg-input: #1a2332;
+
+  /* === Surface colors === */
+  --surface-card: rgba(30, 41, 59, 0.8);
+  --surface-modal: rgba(15, 23, 42, 0.95);
+  --surface-hover: rgba(51, 65, 85, 0.5);
+
+  /* === Text === */
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --text-accent: var(--color-accent-light);
+  --text-amber: var(--color-amber-light);
+
+  /* === Status indicators === */
+  --color-success: #22c55e;
+  --color-success-bg: rgba(34, 197, 94, 0.1);
+  --color-warning: #f59e0b;
+  --color-warning-bg: rgba(245, 158, 11, 0.1);
+  --color-error: #ef4444;
+  --color-error-bg: rgba(239, 68, 68, 0.1);
+  --color-info: #3b82f6;
+  --color-info-bg: rgba(59, 130, 246, 0.1);
+
+  /* === Score visualization (semantic similarity) === */
+  --score-high: #22c55e;
+  --score-high-bg: rgba(34, 197, 94, 0.15);
+  --score-medium: #f59e0b;
+  --score-medium-bg: rgba(245, 158, 11, 0.15);
+  --score-low: #64748b;
+  --score-low-bg: rgba(100, 116, 139, 0.15);
+
+  /* === Borders === */
+  --border-subtle: rgba(148, 163, 184, 0.1);
+  --border-default: rgba(148, 163, 184, 0.2);
+  --border-strong: rgba(148, 163, 184, 0.3);
+  --border-accent: var(--color-accent);
+  --border-amber: var(--color-amber);
+
+  /* === Shadows === */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.5);
+  --shadow-glow-accent: 0 0 20px var(--color-accent-glow);
+  --shadow-glow-amber: 0 0 15px var(--color-amber-glow);
+
+  /* === Typography === */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 1.875rem;
+
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.625;
+
+  --tracking-tight: -0.025em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.025em;
+
+  /* === Spacing === */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+
+  /* === Border radius === */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --radius-full: 9999px;
+
+  /* === Transitions === */
+  --transition-fast: 150ms ease;
+  --transition-base: 200ms ease;
+  --transition-slow: 300ms ease;
+
+  /* === Z-index scale === */
+  --z-base: 0;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-overlay: 300;
+  --z-modal: 400;
+  --z-toast: 500;
+
+  /* === Layout === */
+  --container-max: 1400px;
+  --sidebar-width: 280px;
+  --header-height: 64px;
+}
+
+/* === Light mode overrides (future) === */
+@media (prefers-color-scheme: light) {
+  :root.light-mode {
+    --bg-primary: #f8fafc;
+    --bg-secondary: #f1f5f9;
+    --bg-tertiary: #e2e8f0;
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #64748b;
+  }
+}

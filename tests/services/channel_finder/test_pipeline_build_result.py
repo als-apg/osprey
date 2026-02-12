@@ -42,7 +42,7 @@ def mock_middle_layer_db():
 @pytest.fixture
 def hierarchical_pipeline(mock_hierarchical_db):
     """Create hierarchical pipeline with mock database."""
-    from osprey.templates.apps.control_assistant.services.channel_finder.pipelines.hierarchical.pipeline import (
+    from osprey.services.channel_finder.pipelines.hierarchical.pipeline import (
         HierarchicalPipeline,
     )
 
@@ -60,7 +60,7 @@ def hierarchical_pipeline(mock_hierarchical_db):
 @pytest.fixture
 def middle_layer_pipeline(mock_middle_layer_db):
     """Create middle layer pipeline with mock database."""
-    from osprey.templates.apps.control_assistant.services.channel_finder.pipelines.middle_layer.pipeline import (
+    from osprey.services.channel_finder.pipelines.middle_layer.pipeline import (
         MiddleLayerPipeline,
     )
 

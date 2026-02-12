@@ -5,17 +5,27 @@ This module provides the TemplateManager class which handles:
 - Rendering Jinja2 templates with project-specific context
 - Creating complete project structures from templates
 - Copying service configurations to user projects
+- Generating project manifests for migration support
 """
 
+import hashlib
+import json
 import os
 import re
 import shutil
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from osprey.cli.styles import console
+
+# Manifest schema version for future compatibility
+MANIFEST_SCHEMA_VERSION = "1.0.0"
+
+# File used to store project manifest
+MANIFEST_FILENAME = ".osprey-manifest.json"
 
 
 class TemplateManager:
@@ -262,9 +272,6 @@ class TemplateManager:
                     "enable_hierarchical": enable_hierarchical,
                     "enable_middle_layer": enable_middle_layer,
                     "default_pipeline": default_pipeline,
-                    "in_context_db_path": "data/channel_databases/in_context.json",
-                    "hierarchical_db_path": "data/channel_databases/hierarchical.json",
-                    "middle_layer_db_path": "data/channel_databases/middle_layer.json",
                 }
             )
 
@@ -771,3 +778,229 @@ proper framework operation, especially when using containerized services.
         # Use UTF-8 encoding explicitly to support Unicode characters on Windows
         with open(readme_path, "w", encoding="utf-8") as f:
             f.write(readme_content)
+
+    def generate_manifest(
+        self,
+        project_dir: Path,
+        project_name: str,
+        template_name: str,
+        registry_style: str,
+        context: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Generate a project manifest for migration support.
+
+        The manifest captures all information needed to recreate the project
+        with the same OSPREY version and settings. This enables future migrations
+        by providing a baseline for three-way diffs.
+
+        Args:
+            project_dir: Root directory of the created project
+            project_name: Name of the project
+            template_name: Template used to create the project
+            registry_style: Registry style ("extend" or "standalone")
+            context: Full context dict used during template rendering
+
+        Returns:
+            Dictionary containing the manifest data that was written to file
+
+        Examples:
+            >>> manager = TemplateManager()
+            >>> manifest = manager.generate_manifest(
+            ...     project_dir=Path("/projects/my-assistant"),
+            ...     project_name="my-assistant",
+            ...     template_name="control_assistant",
+            ...     registry_style="extend",
+            ...     context={"default_provider": "cborg", "default_model": "claude-haiku"}
+            ... )
+            >>> manifest["creation"]["template"]
+            'control_assistant'
+        """
+        # Build init_args from context - extract the user-facing options
+        init_args = self._extract_init_args(project_name, template_name, registry_style, context)
+
+        # Build reproducible command string
+        reproducible_command = self._build_reproducible_command(init_args)
+
+        # Calculate file checksums for trackable files
+        file_checksums = self._calculate_file_checksums(project_dir)
+
+        # Get framework version
+        framework_version = self._get_framework_version()
+
+        # Build manifest
+        manifest = {
+            "schema_version": MANIFEST_SCHEMA_VERSION,
+            "creation": {
+                "osprey_version": framework_version,
+                "timestamp": datetime.now(UTC).isoformat(),
+                "template": template_name,
+                "registry_style": registry_style,
+            },
+            "init_args": init_args,
+            "reproducible_command": reproducible_command,
+            "file_checksums": file_checksums,
+        }
+
+        # Write manifest to file
+        manifest_path = project_dir / MANIFEST_FILENAME
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, indent=2, sort_keys=False)
+
+        return manifest
+
+    def _extract_init_args(
+        self,
+        project_name: str,
+        template_name: str,
+        registry_style: str,
+        context: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Extract init arguments from context for manifest storage.
+
+        This extracts the user-facing init options from the full template context,
+        filtering out derived values and internal state.
+
+        Args:
+            project_name: Name of the project
+            template_name: Template used
+            registry_style: Registry style
+            context: Full template context
+
+        Returns:
+            Dictionary of init arguments that can be used to recreate the project
+        """
+        # Base arguments that are always present
+        init_args = {
+            "project_name": project_name,
+            "template": template_name,
+            "registry_style": registry_style,
+        }
+
+        # Optional arguments that may be in context
+        optional_keys = [
+            ("default_provider", "provider"),
+            ("default_model", "model"),
+            ("channel_finder_mode", "channel_finder_mode"),
+            ("code_generator", "code_generator"),
+        ]
+
+        for context_key, arg_key in optional_keys:
+            if context_key in context and context[context_key]:
+                init_args[arg_key] = context[context_key]
+
+        return init_args
+
+    def _build_reproducible_command(self, init_args: dict[str, Any]) -> str:
+        """Build a reproducible CLI command from init arguments.
+
+        Args:
+            init_args: Dictionary of init arguments
+
+        Returns:
+            CLI command string that can recreate the project
+        """
+        parts = ["osprey", "init", init_args["project_name"]]
+
+        # Add template if not default
+        if init_args.get("template") and init_args["template"] != "minimal":
+            parts.extend(["--template", init_args["template"]])
+
+        # Add registry style if not default
+        if init_args.get("registry_style") and init_args["registry_style"] != "extend":
+            parts.extend(["--registry-style", init_args["registry_style"]])
+
+        # Add provider if specified
+        if init_args.get("provider"):
+            parts.extend(["--provider", init_args["provider"]])
+
+        # Add model if specified
+        if init_args.get("model"):
+            parts.extend(["--model", init_args["model"]])
+
+        # Add channel_finder_mode if specified
+        if init_args.get("channel_finder_mode"):
+            parts.extend(["--channel-finder-mode", init_args["channel_finder_mode"]])
+
+        # Add code_generator if specified
+        if init_args.get("code_generator"):
+            parts.extend(["--code-generator", init_args["code_generator"]])
+
+        return " ".join(parts)
+
+    def _calculate_file_checksums(self, project_dir: Path) -> dict[str, str]:
+        """Calculate SHA256 checksums for trackable project files.
+
+        Trackable files are those that come from templates and may change
+        between OSPREY versions. This excludes:
+        - .env files (contain secrets)
+        - _agent_data/ (runtime data)
+        - data/ directories (user data)
+        - __pycache__/ and .pyc files
+        - .git/ directory
+
+        Args:
+            project_dir: Root directory of the project
+
+        Returns:
+            Dictionary mapping relative file paths to their SHA256 checksums
+        """
+        checksums = {}
+
+        # Patterns to exclude
+        exclude_patterns = {
+            ".env",
+            ".git",
+            "__pycache__",
+            ".pyc",
+            "_agent_data",
+            "data",
+            ".osprey-manifest.json",  # Don't checksum ourselves
+        }
+
+        # Walk the project directory
+        for file_path in project_dir.rglob("*"):
+            if not file_path.is_file():
+                continue
+
+            # Get relative path
+            rel_path = file_path.relative_to(project_dir)
+            rel_path_str = str(rel_path)
+
+            # Skip excluded patterns
+            skip = False
+            for pattern in exclude_patterns:
+                if pattern in rel_path.parts or rel_path_str.startswith(pattern):
+                    skip = True
+                    break
+            if skip:
+                continue
+
+            # Skip binary and large files
+            if file_path.suffix in [".pyc", ".pyo", ".so", ".dll", ".dylib"]:
+                continue
+
+            # Calculate checksum
+            try:
+                checksum = self._sha256_file(file_path)
+                checksums[rel_path_str] = f"sha256:{checksum}"
+            except OSError:
+                # Skip files that can't be read
+                continue
+
+        return checksums
+
+    def _sha256_file(self, file_path: Path) -> str:
+        """Calculate SHA256 hash of a file.
+
+        Args:
+            file_path: Path to the file
+
+        Returns:
+            Hex-encoded SHA256 hash
+        """
+        sha256_hash = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            # Read in chunks to handle large files
+            for chunk in iter(lambda: f.read(8192), b""):
+                sha256_hash.update(chunk)
+        return sha256_hash.hexdigest()

@@ -481,6 +481,9 @@ Command Options
    # Deploy with local framework (development mode)
    osprey deploy up --dev
 
+   # Expose services to all network interfaces (use with caution!)
+   osprey deploy up --expose
+
    # Restart in detached mode
    osprey deploy restart --detached
 
@@ -555,6 +558,66 @@ For containers to access services running on the host (like Ollama):
    # In docker-compose.yml.j2
    environment:
      - OLLAMA_BASE_URL=http://host.docker.internal:11434  # Use host.containers.internal for Podman
+
+.. _network-binding-security:
+
+Network Binding and Security
+----------------------------
+
+.. versionchanged:: 0.10.7
+   Services now bind to ``127.0.0.1`` (localhost only) by default. Previous versions bound to ``0.0.0.0``, exposing services to all network interfaces.
+
+By default, all deployed services bind to **localhost only** (``127.0.0.1``). This means services are only accessible from the machine running the containers, not from external hosts on the network.
+
+.. danger::
+
+   **Versions v0.10.6 and earlier** bound services to ``0.0.0.0`` by default, exposing them to all network interfaces. If you were running an earlier version:
+
+   - Stop all Osprey-related containers immediately
+   - Update your Osprey installation
+   - Redeploy from scratch so the new secure defaults take effect
+   - Rotate any API keys (OpenAI, Anthropic, CBorg, etc.) that were configured as environment variables
+   - Consider running a security scan on machines that were deployed on public networks
+
+Exposing Services to the Network
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+If you intentionally need services accessible from external hosts (e.g., cloud deployments, shared lab servers), use the ``--expose`` flag:
+
+.. code-block:: bash
+
+   # Expose services to all network interfaces (0.0.0.0)
+   osprey deploy up --expose
+
+   # Combine with other flags
+   osprey deploy up --detached --expose
+   osprey deploy rebuild --expose
+
+.. warning::
+
+   The ``--expose`` flag binds services to ``0.0.0.0``, making them accessible from **any machine on the network**. Only use this when:
+
+   - You have proper authentication configured on all exposed services
+   - Your deployment is behind a firewall or in an isolated network
+   - You understand the security implications of exposing open ports
+
+   **Do not use this flag in development** unless you specifically need network access from other machines.
+
+You can also set the bind address persistently in your ``config.yml``:
+
+.. code-block:: yaml
+
+   # config.yml
+   deployment:
+     bind_address: "127.0.0.1"  # Default: localhost only
+     # bind_address: "0.0.0.0"  # Caution: exposes to all interfaces
+
+The ``--expose`` CLI flag overrides the ``config.yml`` setting for that invocation.
+
+Docker Compose Deployments Only
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The ``--expose`` flag only applies to ``osprey deploy up`` (Docker/Podman Compose deployments). If you manage containers through other orchestration systems (e.g., Kubernetes, Rancher), network binding is controlled by your orchestrator's configuration instead.
 
 Port Mapping
 ------------
@@ -908,9 +971,12 @@ Troubleshooting
 
       .. code-block:: bash
 
-         # Start services
+         # Start services (localhost only by default)
          osprey deploy up
          osprey deploy up --detached
+
+         # Start services exposed to network (use with caution!)
+         osprey deploy up --expose
 
          # Stop services
          osprey deploy down
@@ -960,6 +1026,7 @@ Troubleshooting
       **Production:**
 
       - **Use detached mode**: Run ``osprey deploy up --detached`` for production
+      - **Keep services on localhost by default**: Only use ``--expose`` when you need network access and have authentication configured
       - **Monitor container resources**: Use ``podman stats`` to watch resource usage
       - **Implement health checks**: Add health check configurations to your docker-compose templates
       - **Plan restart policies**: Use ``restart: unless-stopped`` in production templates

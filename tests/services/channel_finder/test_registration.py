@@ -12,28 +12,16 @@ Tests:
 import json
 
 # Import the service and base classes
-import sys
 import tempfile
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-# Add template directory to path for testing
-template_dir = (
-    Path(__file__).parent.parent.parent.parent
-    / "src"
-    / "osprey"
-    / "templates"
-    / "apps"
-    / "control_assistant"
-)
-sys.path.insert(0, str(template_dir))
-
-from services.channel_finder import ChannelFinderService
-from services.channel_finder.core.base_database import BaseDatabase
-from services.channel_finder.core.base_pipeline import BasePipeline
-from services.channel_finder.core.models import ChannelFinderResult
+from osprey.services.channel_finder import ChannelFinderService
+from osprey.services.channel_finder.core.base_database import BaseDatabase
+from osprey.services.channel_finder.core.base_pipeline import BasePipeline
+from osprey.services.channel_finder.core.models import ChannelFinderResult
 
 # ============================================================================
 # Mock Implementations for Testing
@@ -460,8 +448,7 @@ async def test_custom_pipeline_initialization(temp_config_file, monkeypatch):
         return {}
 
     # Patch config functions
-    import services.channel_finder.service as service_module
-
+    import osprey.services.channel_finder.service as service_module
     import osprey.utils.config as config_module
 
     monkeypatch.setattr(service_module, "get_config_builder", mock_get_config)
@@ -561,8 +548,7 @@ async def test_custom_database_with_builtin_pipeline(temp_config_file, monkeypat
         return {}
 
     # Patch config functions at service level
-    import services.channel_finder.service as service_module
-
+    import osprey.services.channel_finder.service as service_module
     import osprey.utils.config as config_module
 
     monkeypatch.setattr(service_module, "get_config_builder", mock_get_config)
@@ -576,7 +562,7 @@ async def test_custom_database_with_builtin_pipeline(temp_config_file, monkeypat
     monkeypatch.setattr(config_module, "get_config_value", mock_get_config_value)
 
     # Also patch config at pipeline level (InContextPipeline imports get_config_builder)
-    import services.channel_finder.pipelines.in_context.pipeline as pipeline_module
+    import osprey.services.channel_finder.pipelines.in_context.pipeline as pipeline_module
 
     monkeypatch.setattr(pipeline_module, "get_config_builder", mock_get_config)
 
@@ -601,7 +587,7 @@ async def test_custom_database_with_builtin_pipeline(temp_config_file, monkeypat
     service = ChannelFinderService(pipeline_mode="in_context")
 
     # Verify built-in pipeline with custom database
-    from services.channel_finder.pipelines.in_context import InContextPipeline
+    from osprey.services.channel_finder.pipelines.in_context import InContextPipeline
 
     assert isinstance(service.pipeline, InContextPipeline)
     assert isinstance(service.pipeline.database, MockCustomDatabase)
@@ -657,8 +643,7 @@ def test_unknown_pipeline_error(temp_config_file, monkeypatch):
         "project_root": str(Path(temp_config_file).parent),
     }.get(key, default)
 
-    import services.channel_finder.service as service_module
-
+    import osprey.services.channel_finder.service as service_module
     import osprey.utils.config as config_module
 
     monkeypatch.setattr(service_module, "get_config_builder", lambda: mock_config_builder)
@@ -669,7 +654,7 @@ def test_unknown_pipeline_error(temp_config_file, monkeypatch):
         lambda config_path=None, set_as_default=False: mock_config_builder.configurable,
     )
 
-    from services.channel_finder.core.exceptions import PipelineModeError
+    from osprey.services.channel_finder.core.exceptions import PipelineModeError
 
     with pytest.raises(PipelineModeError, match="Unknown pipeline mode: 'nonexistent'"):
         ChannelFinderService(pipeline_mode="nonexistent")
@@ -722,8 +707,7 @@ def test_unknown_database_error(temp_config_file, monkeypatch):
         "project_root": str(Path(temp_config_file).parent),
     }.get(key, default)
 
-    import services.channel_finder.service as service_module
-
+    import osprey.services.channel_finder.service as service_module
     import osprey.utils.config as config_module
 
     monkeypatch.setattr(service_module, "get_config_builder", lambda: mock_config_builder)
@@ -735,7 +719,7 @@ def test_unknown_database_error(temp_config_file, monkeypatch):
         lambda config_path=None, set_as_default=False: mock_config_builder.configurable,
     )
 
-    from services.channel_finder.core.exceptions import ConfigurationError
+    from osprey.services.channel_finder.core.exceptions import ConfigurationError
 
     with pytest.raises(ConfigurationError, match="Unknown database type: 'nonexistent_db'"):
         ChannelFinderService(pipeline_mode="in_context")

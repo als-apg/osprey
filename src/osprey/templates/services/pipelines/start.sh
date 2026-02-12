@@ -24,7 +24,7 @@ if [ "$DEV_MODE" = "true" ]; then
 
     if [ -n "$OSPREY_WHEEL" ]; then
         echo "🔧 Development mode: Installing local osprey wheel..."
-        pip install --no-cache-dir --force-reinstall "$OSPREY_WHEEL"
+        pip install --no-cache-dir --force-reinstall --no-deps "$OSPREY_WHEEL"
         echo "✓ Osprey overridden with local development version from wheel"
     else
         echo "⚠️  Dev mode enabled but no osprey wheel found, using PyPI version"

@@ -8,11 +8,127 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Capabilities**: Migrate control capabilities to native Python modules
+  - `channel_finding`, `channel_read`, `channel_write`, `archiver_retrieval` moved from Jinja2 templates to `src/osprey/capabilities/`
+  - Context classes inlined into capability files (no separate `context_classes.py.j2`)
+  - `FrameworkRegistryProvider` registers native capabilities and context classes automatically
+- **Services**: Migrate Channel Finder service to native package
+  - 48 service files moved from templates to `src/osprey/services/channel_finder/`
+  - Default prompt builders added at `src/osprey/prompts/defaults/channel_finder/`
+  - Facility-specific prompt overrides via framework prompts
+- **CLI**: Add `osprey eject` command for customization escape hatch
+  - Copy framework capabilities or services into a project for modification
+  - Subcommands: `eject list`, `eject capability`, `eject service` with `--output` and `--include-tests` options
+- **CLI**: Add `osprey channel-finder` command with interactive REPL, query, and benchmark modes
+- **Registry**: Add shadow warning system for backward compatibility
+  - Detects when generated apps override native capabilities without explicit `override_capabilities` config
+  - Warns at registration time to guide users toward `osprey eject` workflow
+- **CLI**: Add `build-database`, `validate`, and `preview` subcommands to `osprey channel-finder`
+  - Database tools migrated from Jinja2 templates to native `osprey.services.channel_finder.tools`
+  - Replaces generated `data/tools/` scripts with first-class CLI commands
+  - LLM channel namer available as library via `osprey.services.channel_finder.tools.llm_channel_namer`
+- **ARIEL**: Add electronic logbook search capability
+  - Full-text and semantic search over facility logbooks (OLOG, custom sources)
+  - Web interface with dashboard, search, and entry browsing (`osprey ariel web`)
+  - CLI commands: `osprey ariel ingest`, `osprey ariel search`, `osprey ariel purge`
+  - Deployment support: PostgreSQL and web service templates for `osprey deploy up`
+  - Pluggable search modules and enhancement pipeline with registry-based discovery
+
+### Changed
+- **Templates**: Simplify `control_assistant` template (~130 → ~40 files)
+  - `registry.py.j2` now uses `extend_framework_registry()` with prompt providers only
+  - Capabilities, services, and database tools no longer generated from templates
+
+## [0.10.9] - 2026-02-08
+
+### Fixed
+- **Registry**: Config-driven provider loading skips unused provider imports (#138)
+  - Eliminates ~30s startup delay on air-gapped machines caused by timeout on provider network calls
+  - Removes module-level `get_available_models(force_refresh=True)` from `argo.py` and `asksage.py`
+- **Argo**: Add structured output handler for Argo provider
+  - Argo API does not support the `response_format` parameter; structured output now uses direct httpx calls with JSON schema prompting
+  - Includes `_clean_json_response()` to strip markdown fences and fix Python-style booleans
+- **Tests**: Fix e2e LLM provider tests broken by config-driven provider filtering
+  - Test config's `models` section only listed `openai`, causing all other providers to be skipped
+  - Test fixtures now add `models` entries for all available providers
+- **Tests**: Remove flaky `gpt-4o` from e2e test matrix (80% pass rate on react_agent due to extra fields in structured output)
+
+### Changed
+- **Docs**: Update citation to published APL Machine Learning paper (doi:10.1063/5.0306302)
+
+### Added
+- **CLI**: Add `--channel-finder-mode` and `--code-generator` options to `osprey init`
+  - Options are included in manifest's `reproducible_command` for full project recreation
+- **Capabilities**: Add capability-specific slash commands
+  - Unregistered slash commands (e.g., `/beam:diagnostic`, `/verbose`) are forwarded to capabilities
+  - `slash_command()` helper and `BaseCapability.slash_command()` method for reading commands
+  - Commands are execution-scoped (reset each conversation turn)
+
+## [0.10.8] - 2026-02-02
+
+### Added
+- **Skills**: Improve release workflow skill with full step-by-step guidance and CHANGELOG sanitization
+- **Generators**: Add pluggable simulation backends for soft IOCs
+  - Runtime backend loading from `config.yml` - change behavior without regenerating IOC code
+  - Built-in backends: `passthrough` (no-op) and `mock_style` (archiver-like behavior)
+  - `ChainedBackend` for composing multiple backends (base + overrides)
+  - `SimulationBackend` protocol for custom physics implementations
+  - Documentation guide for custom backend development
+
+### Fixed
+- **Templates**: Fix `pyproject.toml` template using wrong package search path
+  - Template creates `src/<package_name>/` layout but configured `where = ["."]`
+  - Changed to `where = ["src"]` so editable installs can find the package
+- **Generators**: Fix `config_updater` functions returning wrong type
+  - `set_control_system_type()`, `set_epics_gateway_config()`, `update_all_models()`, and `add_capability_react_to_config()` now return `(updated_content, preview)` tuple as expected by CLI callers
+- **Channel Finder**: Fix string ChannelNames causing character-by-character iteration
+  - MATLAB Middle Layer exports may produce bare strings (e.g., `"SR:DCCT"`) instead of single-element arrays
+  - Without the fix, iterating over string produces `['S', 'R', ':', 'D', 'C', 'C', 'T']` instead of `['SR:DCCT']`
+  - Normalizes strings to lists in `_extract_channels_from_field()` and `list_channel_names()`
+- **Skills**: Fix release workflow skill name to follow `osprey-` naming convention
+
+## [0.10.7] - 2026-01-31
+
+### Added
+- **CLI**: Add `osprey migrate` command for project version migration
+  - `migrate init` creates manifest for existing projects (retroactive)
+  - `migrate check` compares project version against installed OSPREY
+  - `migrate run` performs three-way diff analysis and generates merge guidance
+  - Classifies files as AUTO_COPY, PRESERVE, MERGE, NEW, or DATA
+  - Generates `_migration/` directory with detailed merge prompts for AI-assisted merging
+  - Supports exact version recreation via temporary virtualenv
+- **Templates**: Add manifest generation during `osprey init`
+  - `.osprey-manifest.json` records OSPREY version, template, registry style, and all init options
+  - Includes SHA256 checksums for all trackable project files
+  - Stores reproducible command string for exact project recreation
+- **Assist**: Add `migrate-project` task for AI-assisted migrations
+  - Instructions for Claude Code integration with merge workflow
+  - Step-by-step guide for handling three-way conflicts
+- **Dependencies**: Add `caproto` to core dependencies for soft IOC generation
+- **CLI**: Add `osprey generate soft-ioc` command for generating Python soft IOCs
+  - Generates caproto-based EPICS soft IOCs from channel databases
+  - Supports all 4 channel database types (flat, template, hierarchical, middle_layer)
+  - Auto-detects database type, infers PV types and access modes from naming conventions
+  - Two simulation backends: `passthrough` (no-op) and `mock_style` (archiver-like behavior)
+  - Optional SP/RB pairings file for setpoint-readback tracking with noise
+  - Dry-run mode for previewing generation without writing files
+  - `--init` flag for interactive simulation config setup (uses channel database from `channel_finder` config)
+  - Auto-offers interactive setup when `simulation:` section is missing from config.yml
+- **Models**: Add AskSage provider for LLM access (#122)
+  - OpenAI-compatible adapter with custom request parameters
+  - Supports dynamic model discovery via API
 - **Connectors**: Add unit tests for `EPICSArchiverConnector`
   - 26 tests covering connect/disconnect, get_data, error handling, metadata, and factory integration
   - Mock fixtures matching real `archivertools` library format (secs/nanos columns)
+- **Config**: Add "Local Simulation" preset to EPICS gateway configuration
+  - Select from interactive menu to connect to local soft IOC on localhost:5064
+  - Warns if no IOC is detected on the port with instructions to generate/run one
+  - Use with `osprey generate soft-ioc` for offline development and testing
+- **Tests**: Add unit tests for interactive menu simulation port check
+  - 5 tests covering port open/closed detection, timeout handling, and error cases
 
 ### Fixed
+- **Dependencies**: Pin `claude-agent-sdk>=0.1.26` to fix CBORG proxy beta header incompatibility
 - **Security**: Bind docker/podman services to localhost by default (#126)
   - Prevents unintended network exposure when generating server configurations with `osprey deploy up`
   - Use `--expose` option to bind to public interfaces, if firewalling/authentification is set up properly
@@ -26,6 +142,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Deployment**: Fix `--dev` mode error message showing broken install instructions (#119)
   - Rich markup was stripping `[dev]` from the message due to bracket interpretation
   - Error now correctly shows: `pip install build or pip install -e ".[dev]"`
+- **Deployment**: Fix `osprey deploy build` exposing API keys in build config files (#118)
+  - `osprey deploy build` was expanding `${VAR}` placeholders to actual values in `build/services/pipelines/config.yml`
+  - Now preserves `${VAR}` placeholders; secrets are resolved at container runtime from environment variables
+- **Execution**: Fix channel limits database path resolution in subprocess execution
+  - Relative paths in `control_system.limits_checking.database_path` now resolve against `project_root`
+  - Fixes "Channel limits database not found" error when running Python code locally
+- **Connectors**: Fix EPICS connector PV cache to prevent soft IOC crashes
+  - Reuse PV objects instead of creating new ones per read
+  - Prevents subscription flood that causes caproto race condition (`deque mutated during iteration`)
+  - Adds thread-safe locking for PV cache access
+- **Config**: Fix control system type update regex to handle comment lines
+  - Config files with comments between `control_system:` and `type:` now update correctly
 
 ## [0.10.6] - 2026-01-18
 
@@ -2456,4 +2584,3 @@ This release represents the framework's first complete domain-specific applicati
 ---
 
 *This is an early access release. We welcome feedback and contributions!*
-

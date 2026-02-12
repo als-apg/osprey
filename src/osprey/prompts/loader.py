@@ -300,6 +300,46 @@ class FrameworkPromptProvider:
         """
         raise NotImplementedError
 
+    # =================================================================
+    # Channel finder prompt builders (used by native channel finder service)
+    # =================================================================
+
+    def get_channel_finder_in_context_prompt_builder(self) -> "FrameworkPromptBuilder":
+        """Provide prompt builder for in-context channel finder pipeline.
+
+        Returns a default implementation. Override in application prompt providers
+        to supply facility-specific descriptions and matching rules.
+        """
+        from osprey.prompts.defaults.channel_finder.in_context import (
+            DefaultInContextPromptBuilder,
+        )
+
+        return DefaultInContextPromptBuilder()
+
+    def get_channel_finder_hierarchical_prompt_builder(self) -> "FrameworkPromptBuilder":
+        """Provide prompt builder for hierarchical channel finder pipeline.
+
+        Returns a default implementation. Override in application prompt providers
+        to supply facility-specific descriptions and matching rules.
+        """
+        from osprey.prompts.defaults.channel_finder.hierarchical import (
+            DefaultHierarchicalPromptBuilder,
+        )
+
+        return DefaultHierarchicalPromptBuilder()
+
+    def get_channel_finder_middle_layer_prompt_builder(self) -> "FrameworkPromptBuilder":
+        """Provide prompt builder for middle layer channel finder pipeline.
+
+        Returns a default implementation. Override in application prompt providers
+        to supply facility-specific descriptions and matching rules.
+        """
+        from osprey.prompts.defaults.channel_finder.middle_layer import (
+            DefaultMiddleLayerPromptBuilder,
+        )
+
+        return DefaultMiddleLayerPromptBuilder()
+
 
 class FrameworkPromptLoader:
     """Global registry and dependency injection system for framework prompt providers.

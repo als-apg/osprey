@@ -61,18 +61,6 @@ class TestClaudeCodeGeneratorBasics:
         assert generator.config["max_turns"] == 2
         assert generator.config["max_budget_usd"] == 0.05
 
-    @pytest.mark.skip(reason="Model name mapping has been refactored - method no longer exists")
-    def test_model_name_mapping(self):
-        """Test model name mapping from short names to SDK names."""
-        generator = ClaudeCodeGenerator()
-
-        assert generator._map_model_name("sonnet") == "claude-sonnet-4-5"
-        assert generator._map_model_name("opus") == "claude-opus-4-1-20250805"
-        assert generator._map_model_name("haiku") == "claude-haiku-4-5"
-
-        # Test passthrough for unknown names
-        assert generator._map_model_name("custom-model") == "custom-model"
-
     def test_code_extraction(self):
         """Test code extraction from text."""
         generator = ClaudeCodeGenerator()
@@ -149,63 +137,6 @@ class TestClaudeCodeGeneratorPrompts:
         prompt_lower = prompt.lower()
         assert "executable" in prompt_lower and "python" in prompt_lower and "code" in prompt_lower
         assert "results" in prompt_lower
-
-    @pytest.mark.skip(
-        reason="Testing private method _build_phase_prompt requires complex phase_def structure"
-    )
-    def test_phase_prompt_building(self):
-        """Test phase prompt construction."""
-        # This is an implementation detail - behavior is tested via e2e tests
-        pass
-
-    @pytest.mark.skip(
-        reason="Testing private method _build_phase_prompt requires complex phase_def structure"
-    )
-    def test_phase_prompt_with_errors(self):
-        """Test phase prompt includes error feedback."""
-        # This is an implementation detail - behavior is tested via e2e tests
-        pass
-
-    @pytest.mark.skip(
-        reason="Testing private method _build_phase_prompt requires complex phase_def structure"
-    )
-    def test_phase_prompt_with_context(self):
-        """Test phase prompt with capability context."""
-        # This is an implementation detail - behavior is tested via e2e tests
-        pass
-
-
-class TestClaudeCodeGeneratorIntegration:
-    """Integration tests for Claude Code generator.
-
-    Note: These tests make real API calls and will consume API credits.
-    They are marked as slow and can be skipped in fast test runs.
-    """
-
-    @pytest.mark.slow
-    @pytest.mark.asyncio
-    @pytest.mark.skip(reason="Requires full claude_generator_config.yml - use e2e tests instead")
-    async def test_single_shot_generation(self):
-        """Test single-shot code generation with simple task."""
-        # This test is now covered by e2e/test_code_generator_workflows.py
-        # which sets up the full configuration properly
-        pass
-
-    @pytest.mark.slow
-    @pytest.mark.asyncio
-    @pytest.mark.skip(reason="Requires full claude_generator_config.yml - use e2e tests instead")
-    async def test_generation_with_error_feedback(self):
-        """Test code generation with error feedback."""
-        # This test is now covered by e2e/test_code_generator_workflows.py
-        pass
-
-    @pytest.mark.slow
-    @pytest.mark.asyncio
-    @pytest.mark.skip(reason="Requires full claude_generator_config.yml - use e2e tests instead")
-    async def test_generation_raises_on_failure(self):
-        """Test that generation raises CodeGenerationError on failure."""
-        # This test is now covered by e2e/test_code_generator_workflows.py
-        pass
 
 
 class TestClaudeCodeGeneratorSafety:
@@ -675,14 +606,6 @@ class TestClaudeCodeGeneratorStructuredErrors:
         # Should include analysis issues
         assert "Security risk" in text
         assert "Prohibited import" in text
-
-    @pytest.mark.skip(
-        reason="Testing private method _build_phase_prompt - use e2e tests for full behavior"
-    )
-    def test_phased_workflow_prompt_structure(self):
-        """Verify phased workflow prompt includes phase information."""
-        # This is tested in e2e/test_code_generator_workflows.py
-        pass
 
 
 # =============================================================================

@@ -1,14 +1,14 @@
 """
 Component registry for {{ app_display_name }}.
 
-Registers all capabilities and context classes with the Osprey framework.
+Registers facility-specific prompt customizations with the Osprey framework.
+Control system capabilities (channel finding, reading, writing, archiver) are
+provided natively by the framework - no application registration needed.
 """
 
 from osprey.registry import (
     RegistryConfigProvider,
     extend_framework_registry,
-    CapabilityRegistration,
-    ContextClassRegistration,
     FrameworkPromptProviderRegistration,
     RegistryConfig
 )
@@ -17,82 +17,29 @@ from osprey.registry import (
 class {{ app_class_name }}RegistryProvider(RegistryConfigProvider):
     """Registry provider for {{ app_display_name }}.
 
-    Registers control system integration capabilities:
+    The framework provides native control system capabilities:
     - Channel finding (semantic search for control system channels)
     - Channel read (read current values from channels)
     - Channel write (write values to channels)
     - Archiver retrieval (query historical time-series data)
 
-    Based on production patterns from ALS Assistant.
+    This registry registers facility-specific prompt customizations
+    that override the framework's generic defaults.
     """
 
     def get_registry_config(self) -> RegistryConfig:
         """Return registry configuration for {{ app_display_name }}."""
         return extend_framework_registry(
-            capabilities=[
-                CapabilityRegistration(
-                    name="channel_finding",
-                    module_path="{{ package_name }}.capabilities.channel_finding",
-                    class_name="ChannelFindingCapability",
-                    description="Find control system channels using semantic search",
-                    provides=["CHANNEL_ADDRESSES"],
-                    requires=[]
-                ),
-                CapabilityRegistration(
-                    name="channel_read",
-                    module_path="{{ package_name }}.capabilities.channel_read",
-                    class_name="ChannelReadCapability",
-                    description="Read current values from control system channels",
-                    provides=["CHANNEL_VALUES"],
-                    requires=["CHANNEL_ADDRESSES"]
-                ),
-                CapabilityRegistration(
-                    name="channel_write",
-                    module_path="{{ package_name }}.capabilities.channel_write",
-                    class_name="ChannelWriteCapability",
-                    description="Write values to control system channels",
-                    provides=["CHANNEL_WRITE_RESULTS"],
-                    requires=["CHANNEL_ADDRESSES"]
-                ),
-                CapabilityRegistration(
-                    name="archiver_retrieval",
-                    module_path="{{ package_name }}.capabilities.archiver_retrieval",
-                    class_name="ArchiverRetrievalCapability",
-                    description="Query historical time-series data from the archiver",
-                    provides=["ARCHIVER_DATA"],
-                    requires=["CHANNEL_ADDRESSES", "TIME_RANGE"]
-                ),
-            ],
-            context_classes=[
-                ContextClassRegistration(
-                    context_type="CHANNEL_ADDRESSES",
-                    module_path="{{ package_name }}.context_classes",
-                    class_name="ChannelAddressesContext"
-                ),
-                ContextClassRegistration(
-                    context_type="CHANNEL_VALUES",
-                    module_path="{{ package_name }}.context_classes",
-                    class_name="ChannelValuesContext"
-                ),
-                ContextClassRegistration(
-                    context_type="CHANNEL_WRITE_RESULTS",
-                    module_path="{{ package_name }}.context_classes",
-                    class_name="ChannelWriteResultsContext"
-                ),
-                ContextClassRegistration(
-                    context_type="ARCHIVER_DATA",
-                    module_path="{{ package_name }}.context_classes",
-                    class_name="ArchiverDataContext"
-                ),
-            ],
             framework_prompt_providers=[
                 FrameworkPromptProviderRegistration(
                     module_path="{{ package_name }}.framework_prompts",
                     prompt_builders={
                         "python": "ControlSystemPythonPromptBuilder",
-                        "task_extraction": "ControlSystemTaskExtractionPromptBuilder"
+                        "task_extraction": "ControlSystemTaskExtractionPromptBuilder",
+                        "channel_finder_in_context": "FacilityInContextPromptBuilder",
+                        "channel_finder_hierarchical": "FacilityHierarchicalPromptBuilder",
+                        "channel_finder_middle_layer": "FacilityMiddleLayerPromptBuilder",
                     }
                 )
             ]
         )
-

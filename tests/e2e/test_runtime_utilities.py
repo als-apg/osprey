@@ -35,6 +35,10 @@ def _extract_code_from_notebook(notebook_path: Path) -> str:
 def _disable_capabilities(project, capability_names: list[str]):
     """Remove specific capabilities from project registry to force alternative paths.
 
+    Works with both registry styles:
+    - extend mode: Adds exclude_capabilities parameter to extend_framework_registry()
+    - explicit mode: Comments out CapabilityRegistration blocks
+
     Args:
         project: E2EProject instance
         capability_names: List of capability names to disable (e.g. ["channel_write"])
@@ -47,50 +51,53 @@ def _disable_capabilities(project, capability_names: list[str]):
     registry_path = registry_files[0]
     registry_content = registry_path.read_text()
 
-    # For each capability, comment out its CapabilityRegistration block
-    for cap_name in capability_names:
-        # Find all CapabilityRegistration blocks and match by counting parentheses
-        lines = registry_content.split("\n")
-        new_lines = []
-        i = 0
+    if "extend_framework_registry(" in registry_content:
+        # Extend mode: add exclude_capabilities parameter
+        exclude_list = repr(capability_names)
+        registry_content = registry_content.replace(
+            "extend_framework_registry(",
+            f"extend_framework_registry(\n            exclude_capabilities={exclude_list},",
+        )
+        registry_path.write_text(registry_content)
+    else:
+        # Explicit mode: comment out CapabilityRegistration blocks
+        for cap_name in capability_names:
+            lines = registry_content.split("\n")
+            new_lines = []
+            i = 0
 
-        while i < len(lines):
-            line = lines[i]
+            while i < len(lines):
+                line = lines[i]
 
-            # Check if this line starts a CapabilityRegistration (and is not already commented)
-            if "CapabilityRegistration(" in line and not line.strip().startswith("#"):
-                # Collect the full block by counting parentheses
-                block_lines = [line]
-                paren_count = line.count("(") - line.count(")")
-                j = i + 1
+                if "CapabilityRegistration(" in line and not line.strip().startswith("#"):
+                    block_lines = [line]
+                    paren_count = line.count("(") - line.count(")")
+                    j = i + 1
 
-                while j < len(lines) and paren_count > 0:
-                    block_lines.append(lines[j])
-                    paren_count += lines[j].count("(") - lines[j].count(")")
-                    j += 1
+                    while j < len(lines) and paren_count > 0:
+                        block_lines.append(lines[j])
+                        paren_count += lines[j].count("(") - lines[j].count(")")
+                        j += 1
 
-                # Check if this block is for the capability we want to disable
-                block_text = "\n".join(block_lines)
-                if re.search(r'name\s*=\s*["\']' + cap_name + r'["\']', block_text):
-                    # Comment out this block
-                    for block_line in block_lines:
-                        if block_line.strip():
-                            new_lines.append(f"                # {block_line}")
-                        else:
-                            new_lines.append("#")
-                    new_lines[-1] += "  # Disabled for testing"
-                    i = j
+                    block_text = "\n".join(block_lines)
+                    if re.search(r'name\s*=\s*["\']' + cap_name + r'["\']', block_text):
+                        for block_line in block_lines:
+                            if block_line.strip():
+                                new_lines.append(f"                # {block_line}")
+                            else:
+                                new_lines.append("#")
+                        new_lines[-1] += "  # Disabled for testing"
+                        i = j
+                    else:
+                        new_lines.extend(block_lines)
+                        i = j
                 else:
-                    # Keep this block as-is
-                    new_lines.extend(block_lines)
-                    i = j
-            else:
-                new_lines.append(line)
-                i += 1
+                    new_lines.append(line)
+                    i += 1
 
-        registry_content = "\n".join(new_lines)
+            registry_content = "\n".join(new_lines)
 
-    registry_path.write_text(registry_content)
+        registry_path.write_text(registry_content)
 
 
 @pytest.mark.e2e

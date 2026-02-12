@@ -52,7 +52,7 @@ The Control System Integration system provides a **two-layer abstraction** for w
          - **Purpose**: Actual I/O operations to control systems and archivers
          - **Implementation**: Abstract base classes with concrete implementations
          - **Location**: ``osprey.connectors``
-         - **Used by**: Capabilities (pv_value_retrieval, archiver_retrieval, etc.)
+         - **Used by**: Capabilities (channel_read, archiver_retrieval, etc.)
 
       Both layers work together to provide complete control system abstraction with safety controls.
 
