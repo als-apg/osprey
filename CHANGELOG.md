@@ -27,37 +27,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Database tools migrated from Jinja2 templates to native `osprey.services.channel_finder.tools`
   - Replaces generated `data/tools/` scripts with first-class CLI commands
   - LLM channel namer available as library via `osprey.services.channel_finder.tools.llm_channel_namer`
-
-- **ARIEL**: Add `osprey ariel web` command to launch web interface
-- **ARIEL**: Add `osprey ariel purge` command for database cleanup
-- **ARIEL**: Inline enhancement during ingestion (no separate enhance step)
-- **ARIEL**: Add PostgreSQL service template for `osprey deploy up`
-- **ARIEL**: Add ARIEL Web service template with REST API and static frontend
-- **ARIEL**: Enable ARIEL services by default in `control_assistant` template
-- **Tests**: Add ARIEL Web API route tests (44 tests)
-- **Tests**: Add ARIEL E2E pipeline tests (ingest -> enhance -> search)
-- **Tests**: Add LLM Judge `evaluate_text` method for search evaluation
+- **ARIEL**: Add electronic logbook search capability
+  - Full-text and semantic search over facility logbooks (OLOG, custom sources)
+  - Web interface with dashboard, search, and entry browsing (`osprey ariel web`)
+  - CLI commands: `osprey ariel ingest`, `osprey ariel search`, `osprey ariel purge`
+  - Deployment support: PostgreSQL and web service templates for `osprey deploy up`
+  - Pluggable search modules and enhancement pipeline with registry-based discovery
 
 ### Changed
 - **Templates**: Simplify `control_assistant` template (~130 → ~40 files)
   - `registry.py.j2` now uses `extend_framework_registry()` with prompt providers only
   - Capabilities, services, and database tools no longer generated from templates
-- **ARIEL**: Simplify full-text search to use raw_text field directly
-- **ARIEL**: Add base_url support for OpenAI-compatible APIs (CBORG, etc.)
-- **ARIEL**: Fix text embedding max_input_tokens None handling
-- **ARIEL**: Migrate web interface to native Osprey interface
-  - Move from `templates/services/ariel-web/app/` to `src/osprey/interfaces/ariel/`
-  - Treat ARIEL web as first-class interface alongside CLI and TUI
-  - Template now thin Docker wrapper that installs and runs native interface
-  - Simplify CLI command to import from `osprey.interfaces.ariel`
-  - Add `[web]` optional dependency group for local development (`pip install osprey-framework[web]`)
-
-### Fixed
-- **Deploy**: Fix container crash loop in dev mode rebuild
-  - Add `--build` flag so Docker images are rebuilt on `osprey deploy rebuild`
-  - Add `--no-deps` to dev mode wheel install to prevent reinstalling all deps on every start
-  - Add missing `fastapi` and `psycopg[binary,pool]` to ariel-web requirements
-  - Include ARIEL static files in wheel package-data
 
 ## [0.10.9] - 2026-02-08
 
