@@ -377,7 +377,6 @@ class TestServiceRouting:
     @pytest.mark.asyncio
     async def test_keyword_preserves_highlights(self):
         """Keyword search preserves highlights in returned entries."""
-        from osprey.services.ariel_search.search.keyword import keyword_search
 
         service = self._create_mock_service(search_modules={"keyword": {"enabled": True}})
 
@@ -401,10 +400,6 @@ class TestServiceRouting:
         # Patch keyword_search to call repository directly
         async def fake_keyword_search(query, repo, config, **kwargs):
             return await repo.keyword_search(query)
-
-        import osprey.services.ariel_search.service as svc_module
-
-        original = svc_module.__dict__.get("_run_keyword")
 
         # Use the real _run_keyword but with mocked keyword_search
         from unittest.mock import patch

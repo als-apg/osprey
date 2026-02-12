@@ -229,9 +229,7 @@ class TestMultipleEmbeddingModels:
                 models = response.json().get("models", [])
                 model_names = [m.get("name", "").split(":")[0] for m in models]
                 if "all-minilm" not in model_names:
-                    pytest.skip(
-                        "all-minilm not available - run 'ollama pull all-minilm'"
-                    )
+                    pytest.skip("all-minilm not available - run 'ollama pull all-minilm'")
         except Exception:
             pytest.skip("Cannot check Ollama models")
 

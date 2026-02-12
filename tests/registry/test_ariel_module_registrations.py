@@ -6,13 +6,10 @@ Validates:
 - initialization_order includes the new types
 """
 
-import pytest
-
 from osprey.registry.base import (
     ArielEnhancementModuleRegistration,
     ArielPipelineRegistration,
     ArielSearchModuleRegistration,
-    ContextClassRegistration,
     RegistryConfig,
 )
 

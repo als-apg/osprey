@@ -101,6 +101,7 @@ class TestCLIMigrateCommand:
         assert result.exit_code == 0
         assert "Migrations complete" in result.output or "Running migrations" in result.output
 
+
 class TestCLIIngestCommand:
     """Test 'osprey ariel ingest' command."""
 

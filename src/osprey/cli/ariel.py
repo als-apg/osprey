@@ -147,9 +147,7 @@ def migrate_command() -> None:
         except Exception as e:
             if "connection" in str(e).lower() or "connect" in str(e).lower():
                 click.echo("Error: Cannot connect to the ARIEL database.", err=True)
-                click.echo(
-                    "Make sure the database is running: osprey deploy up", err=True
-                )
+                click.echo("Make sure the database is running: osprey deploy up", err=True)
                 raise SystemExit(1) from None
             raise
 
@@ -244,9 +242,7 @@ def ingest_command(
 
             try:
                 async with service.pool.connection() as conn:
-                    async for entry in adapter_instance.fetch_entries(
-                        since=since, limit=limit
-                    ):
+                    async for entry in adapter_instance.fetch_entries(since=since, limit=limit):
                         # Store entry
                         await service.repository.upsert_entry(entry)
                         count += 1
@@ -893,9 +889,7 @@ def quickstart_command(source: str | None) -> None:
                 f"\nARIEL quickstart complete!"
                 f"\n  Search modules: {', '.join(enabled_search) or 'none'}"
             )
-            click.echo(
-                '\nTry it: osprey ariel search "What happened with the RF cavity?"'
-            )
+            click.echo('\nTry it: osprey ariel search "What happened with the RF cavity?"')
 
         finally:
             await pool.close()

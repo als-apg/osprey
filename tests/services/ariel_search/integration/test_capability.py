@@ -54,7 +54,9 @@ class TestCapabilityIntegration:
             "search_modules": {"keyword": {"enabled": True}},
         }
 
-        with patch("osprey.services.ariel_search.capability.get_config_value", return_value=mock_config):
+        with patch(
+            "osprey.services.ariel_search.capability.get_config_value", return_value=mock_config
+        ):
             service = await get_ariel_search_service()
 
         # Should be real service instance
@@ -75,7 +77,9 @@ class TestCapabilityIntegration:
             "database": {"uri": database_url},
         }
 
-        with patch("osprey.services.ariel_search.capability.get_config_value", return_value=mock_config):
+        with patch(
+            "osprey.services.ariel_search.capability.get_config_value", return_value=mock_config
+        ):
             service1 = await get_ariel_search_service()
             service2 = await get_ariel_search_service()
 
@@ -104,7 +108,9 @@ class TestCapabilityIntegration:
 
         mock_config = {"database": {"uri": database_url}}
 
-        with patch("osprey.services.ariel_search.capability.get_config_value", return_value=mock_config):
+        with patch(
+            "osprey.services.ariel_search.capability.get_config_value", return_value=mock_config
+        ):
             service1 = await get_ariel_search_service()
 
             # Close and reset (proper cleanup)
@@ -130,7 +136,9 @@ class TestCapabilityWithRealService:
             "database": {"uri": database_url},
         }
 
-        with patch("osprey.services.ariel_search.capability.get_config_value", return_value=mock_config):
+        with patch(
+            "osprey.services.ariel_search.capability.get_config_value", return_value=mock_config
+        ):
             service = await get_ariel_search_service()
 
         count = await service.repository.count_entries()
@@ -147,7 +155,9 @@ class TestCapabilityWithRealService:
             "database": {"uri": database_url},
         }
 
-        with patch("osprey.services.ariel_search.capability.get_config_value", return_value=mock_config):
+        with patch(
+            "osprey.services.ariel_search.capability.get_config_value", return_value=mock_config
+        ):
             service = await get_ariel_search_service()
 
         # Create and store entry
@@ -174,7 +184,9 @@ class TestCapabilityWithRealService:
             "search_modules": {"keyword": {"enabled": True}},
         }
 
-        with patch("osprey.services.ariel_search.capability.get_config_value", return_value=mock_config):
+        with patch(
+            "osprey.services.ariel_search.capability.get_config_value", return_value=mock_config
+        ):
             service = await get_ariel_search_service()
 
         result = await service.search("test query")
@@ -218,7 +230,9 @@ class TestCapabilityConfig:
             },
         }
 
-        with patch("osprey.services.ariel_search.capability.get_config_value", return_value=mock_config):
+        with patch(
+            "osprey.services.ariel_search.capability.get_config_value", return_value=mock_config
+        ):
             service = await get_ariel_search_service()
 
         # Should have search modules enabled
@@ -237,7 +251,9 @@ class TestCapabilityConfig:
             "database": {"uri": database_url},
         }
 
-        with patch("osprey.services.ariel_search.capability.get_config_value", return_value=mock_config):
+        with patch(
+            "osprey.services.ariel_search.capability.get_config_value", return_value=mock_config
+        ):
             service = await get_ariel_search_service()
 
         # Should have service with default settings

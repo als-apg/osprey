@@ -544,8 +544,11 @@ class TestIngestionScheduler:
 
             call_count = 0
             success_result = IngestionPollResult(
-                entries_added=1, entries_updated=0, entries_failed=0,
-                duration_seconds=0.1, since=None,
+                entries_added=1,
+                entries_updated=0,
+                entries_failed=0,
+                duration_seconds=0.1,
+                since=None,
             )
 
             async def _poll_sequence(dry_run=False):

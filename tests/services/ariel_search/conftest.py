@@ -24,8 +24,6 @@ from osprey.services.ariel_search.enhancement.semantic_processor.processor impor
 from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
     TextEmbeddingModule,
 )
-from osprey.services.ariel_search.models import SearchMode
-from osprey.services.ariel_search.search.base import SearchToolDescriptor
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.config import ARIELConfig
@@ -44,7 +42,8 @@ def _build_ariel_mock_registry():
     registry = MagicMock()
 
     # --- Search modules ---
-    from osprey.services.ariel_search.search import keyword as kw_real, semantic as sem_real
+    from osprey.services.ariel_search.search import keyword as kw_real
+    from osprey.services.ariel_search.search import semantic as sem_real
 
     kw_mod = types.ModuleType("keyword")
     kw_mod.get_tool_descriptor = kw_real.get_tool_descriptor  # type: ignore[attr-defined]
@@ -152,6 +151,7 @@ def _mock_ariel_registry():
     registry = _build_ariel_mock_registry()
     with patch("osprey.registry.get_registry", return_value=registry):
         yield
+
 
 # Dev database URL (from docker/ariel-dev.yml)
 DEV_DATABASE_URL = "postgresql://ariel:ariel@localhost:5433/ariel_test"

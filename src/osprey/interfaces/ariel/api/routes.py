@@ -82,8 +82,7 @@ async def get_filter_options(request: Request, field_name: str) -> dict:
     if not method_name:
         raise HTTPException(
             status_code=400,
-            detail=f"Unknown filter field: {field_name}. "
-            f"Available: {', '.join(field_methods)}",
+            detail=f"Unknown filter field: {field_name}. Available: {', '.join(field_methods)}",
         )
 
     try:
@@ -154,10 +153,7 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
         execution_time = int((time.time() - start_time) * 1000)
 
         # Convert entries to response format
-        entries = [
-            _entry_to_response(e, highlights=e.get("_highlights"))
-            for e in result.entries
-        ]
+        entries = [_entry_to_response(e, highlights=e.get("_highlights")) for e in result.entries]
 
         return SearchResponse(
             entries=entries,

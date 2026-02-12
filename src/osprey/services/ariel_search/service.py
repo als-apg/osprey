@@ -265,8 +265,7 @@ class ARIELSearchService:
         )
 
         entries = tuple(
-            {**dict(entry), "_highlights": highlights}
-            for entry, _score, highlights in results
+            {**dict(entry), "_highlights": highlights} for entry, _score, highlights in results
         )
         sources = tuple(entry["entry_id"] for entry, _score, _highlights in results)
 

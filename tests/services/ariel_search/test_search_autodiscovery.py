@@ -450,9 +450,7 @@ class TestParseAgentResultDynamic:
         mock_ai_msg.type = "ai"
         mock_ai_msg.tool_calls = []
 
-        result = executor._parse_agent_result(
-            {"messages": [mock_ai_msg]}, descriptors
-        )
+        result = executor._parse_agent_result({"messages": [mock_ai_msg]}, descriptors)
         assert "001" in result.sources
         assert "002" in result.sources
 

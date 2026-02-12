@@ -970,9 +970,7 @@ class RegistryManager:
             merged_list.append(app_item)
 
         if overrides:
-            logger.info(
-                f"Application {app_name} overrode framework {type_label}s: {overrides}"
-            )
+            logger.info(f"Application {app_name} overrode framework {type_label}s: {overrides}")
         if additions:
             logger.info(
                 f"Application {app_name} added {len(additions)} new {type_label}(s): {additions}"
@@ -1589,9 +1587,7 @@ class RegistryManager:
                     f"  ⊘ Skipping ARIEL pipeline '{registration.name}' (import failed): {e}"
                 )
             except Exception as e:
-                logger.error(
-                    f"  ✗ Failed to register ARIEL pipeline '{registration.name}': {e}"
-                )
+                logger.error(f"  ✗ Failed to register ARIEL pipeline '{registration.name}': {e}")
                 raise RegistryError(
                     f"ARIEL pipeline registration failed for {registration.name}"
                 ) from e

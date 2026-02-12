@@ -6,8 +6,6 @@ Validates:
 - RegistryConfig merge behavior for ARIEL fields
 """
 
-import pytest
-
 from osprey.registry.base import (
     ArielEnhancementModuleRegistration,
     ArielPipelineRegistration,
@@ -35,9 +33,10 @@ class TestFrameworkDefaultsIncludeAriel:
     def test_framework_enhancement_modules_have_order(self):
         defaults = get_framework_defaults()
         by_name = {m.name: m for m in defaults.ariel_enhancement_modules}
-        assert by_name["semantic_processor"].execution_order < by_name[
-            "text_embedding"
-        ].execution_order
+        assert (
+            by_name["semantic_processor"].execution_order
+            < by_name["text_embedding"].execution_order
+        )
 
     def test_framework_has_ariel_pipelines(self):
         defaults = get_framework_defaults()
@@ -137,10 +136,9 @@ class TestRegistryManagerArielMerge:
 
     def test_merge_adds_app_search_modules(self):
         """App search modules are appended to framework search modules."""
-        from osprey.registry.manager import RegistryManager
-
         # Simulate what _merge_application_with_override does
         from osprey.registry.base import RegistryConfig
+        from osprey.registry.manager import RegistryManager
 
         merged = RegistryConfig(
             capabilities=[],
@@ -176,9 +174,8 @@ class TestRegistryManagerArielMerge:
 
     def test_merge_overrides_same_name_search_module(self):
         """App search module with same name overrides framework module."""
-        from osprey.registry.manager import RegistryManager
-
         from osprey.registry.base import RegistryConfig
+        from osprey.registry.manager import RegistryManager
 
         merged = RegistryConfig(
             capabilities=[],

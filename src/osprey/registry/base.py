@@ -678,9 +678,7 @@ class RegistryConfig:
         default_factory=list
     )
     ariel_pipelines: list[ArielPipelineRegistration] = field(default_factory=list)
-    ariel_ingestion_adapters: list[ArielIngestionAdapterRegistration] = field(
-        default_factory=list
-    )
+    ariel_ingestion_adapters: list[ArielIngestionAdapterRegistration] = field(default_factory=list)
     framework_exclusions: dict[str, list[str]] = field(default_factory=dict)
     initialization_order: list[str] = field(
         default_factory=lambda: [

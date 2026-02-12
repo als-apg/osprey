@@ -28,9 +28,7 @@ def _make_entry(entry_id: str, text: str = "Test content", author: str = "jsmith
     }
 
 
-def _make_config(
-    keyword_enabled=True, semantic_enabled=False, pipelines=None
-) -> ARIELConfig:
+def _make_config(keyword_enabled=True, semantic_enabled=False, pipelines=None) -> ARIELConfig:
     """Create a minimal ARIELConfig for testing."""
     modules = {}
     if keyword_enabled:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -91,8 +91,8 @@ class TestLogbookSearchCapabilityErrorClassification:
 
     def test_database_connection_error_is_critical_with_guidance(self):
         """DatabaseConnectionError returns CRITICAL with setup instructions."""
-        from osprey.capabilities.logbook_search import LogbookSearchCapability
         from osprey.base.errors import ErrorSeverity
+        from osprey.capabilities.logbook_search import LogbookSearchCapability
         from osprey.services.ariel_search.exceptions import DatabaseConnectionError
 
         exc = DatabaseConnectionError("Connection refused")
@@ -102,8 +102,8 @@ class TestLogbookSearchCapabilityErrorClassification:
 
     def test_missing_tables_error_is_critical_with_migrate_guidance(self):
         """DatabaseQueryError for missing tables suggests migrate command."""
-        from osprey.capabilities.logbook_search import LogbookSearchCapability
         from osprey.base.errors import ErrorSeverity
+        from osprey.capabilities.logbook_search import LogbookSearchCapability
         from osprey.services.ariel_search.exceptions import DatabaseQueryError
 
         exc = DatabaseQueryError('relation "enhanced_entries" does not exist')
@@ -113,8 +113,8 @@ class TestLogbookSearchCapabilityErrorClassification:
 
     def test_generic_database_query_error_is_retriable(self):
         """Generic DatabaseQueryError is RETRIABLE (transient)."""
-        from osprey.capabilities.logbook_search import LogbookSearchCapability
         from osprey.base.errors import ErrorSeverity
+        from osprey.capabilities.logbook_search import LogbookSearchCapability
         from osprey.services.ariel_search.exceptions import DatabaseQueryError
 
         exc = DatabaseQueryError("temporary failure")
@@ -123,8 +123,8 @@ class TestLogbookSearchCapabilityErrorClassification:
 
     def test_embedding_error_suggests_disabling_semantic(self):
         """EmbeddingGenerationError suggests disabling semantic search."""
-        from osprey.capabilities.logbook_search import LogbookSearchCapability
         from osprey.base.errors import ErrorSeverity
+        from osprey.capabilities.logbook_search import LogbookSearchCapability
         from osprey.services.ariel_search.exceptions import EmbeddingGenerationError
 
         exc = EmbeddingGenerationError("Ollama not available", model_name="nomic-embed-text")
@@ -134,8 +134,8 @@ class TestLogbookSearchCapabilityErrorClassification:
 
     def test_configuration_error_includes_message(self):
         """ConfigurationError includes the original message."""
-        from osprey.capabilities.logbook_search import LogbookSearchCapability
         from osprey.base.errors import ErrorSeverity
+        from osprey.capabilities.logbook_search import LogbookSearchCapability
         from osprey.services.ariel_search.exceptions import ConfigurationError
 
         exc = ConfigurationError("Missing database URI", config_key="ariel.database.uri")
@@ -145,8 +145,8 @@ class TestLogbookSearchCapabilityErrorClassification:
 
     def test_unknown_error_is_critical(self):
         """Unknown exceptions are classified as CRITICAL."""
-        from osprey.capabilities.logbook_search import LogbookSearchCapability
         from osprey.base.errors import ErrorSeverity
+        from osprey.capabilities.logbook_search import LogbookSearchCapability
 
         exc = RuntimeError("something unexpected")
         result = LogbookSearchCapability.classify_error(exc, {})
@@ -307,7 +307,7 @@ class TestLogbookSearchCapabilityExecute:
             AsyncMock(return_value=mock_service),
         )
 
-        result = await cap.execute()
+        await cap.execute()
 
         # Verify store_output_context was called with correct context
         assert len(stored_contexts) == 1

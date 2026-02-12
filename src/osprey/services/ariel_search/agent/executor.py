@@ -242,7 +242,9 @@ class AgentExecutor:
 
             results = await _execute(**call_kwargs)
 
-            return [_format(*item) if isinstance(item, tuple) else _format(item) for item in results]
+            return [
+                _format(*item) if isinstance(item, tuple) else _format(item) for item in results
+            ]
 
         return StructuredTool.from_function(
             func=_tool_fn,

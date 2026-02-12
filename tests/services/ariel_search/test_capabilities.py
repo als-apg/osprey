@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from osprey.services.ariel_search.capabilities import SHARED_PARAMETERS, get_capabilities
+from osprey.services.ariel_search.capabilities import get_capabilities
 from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.pipelines import (
     AGENT_PIPELINE,
     RAG_PIPELINE,
-    PipelineDescriptor,
     get_pipeline_descriptors,
 )
 from osprey.services.ariel_search.search.base import ParameterDescriptor

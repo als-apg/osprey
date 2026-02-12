@@ -305,8 +305,11 @@ class TestWatchCommand:
         from osprey.services.ariel_search.ingestion.scheduler import IngestionPollResult
 
         poll_result = IngestionPollResult(
-            entries_added=3, entries_updated=0, entries_failed=0,
-            duration_seconds=1.2, since=None,
+            entries_added=3,
+            entries_updated=0,
+            entries_failed=0,
+            duration_seconds=1.2,
+            since=None,
         )
 
         with (
@@ -349,8 +352,11 @@ class TestWatchCommand:
         from osprey.services.ariel_search.ingestion.scheduler import IngestionPollResult
 
         poll_result = IngestionPollResult(
-            entries_added=5, entries_updated=0, entries_failed=0,
-            duration_seconds=0.8, since=None,
+            entries_added=5,
+            entries_updated=0,
+            entries_failed=0,
+            duration_seconds=0.8,
+            since=None,
         )
 
         with (
@@ -463,7 +469,9 @@ class TestQuickstartCommand:
 
         # Create demo data file
         demo_file = tmp_path / "demo_logbook.json"
-        demo_file.write_text('{"entries": [{"id": "1", "timestamp": "2024-01-01T00:00:00Z", "text": "test"}]}')
+        demo_file.write_text(
+            '{"entries": [{"id": "1", "timestamp": "2024-01-01T00:00:00Z", "text": "test"}]}'
+        )
 
         mock_config = {
             "database": {"uri": "postgresql://localhost/test"},

@@ -7,8 +7,6 @@ with GenericJSONAdapter for tutorial use.
 import json
 from pathlib import Path
 
-import pytest
-
 DEMO_DATA_PATH = Path(
     "src/osprey/templates/apps/control_assistant/data/logbook_seed/demo_logbook.json"
 )

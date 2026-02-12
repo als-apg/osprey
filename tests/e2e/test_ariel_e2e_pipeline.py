@@ -24,7 +24,7 @@ from __future__ import annotations
 import atexit
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -277,8 +277,12 @@ class TestKeywordSearchDemoData:
         )
 
         entry_ids = [entry["entry_id"] for entry, score, highlights in results]
-        assert "DEMO-001" in entry_ids, f"Expected DEMO-001 in results for 'RF cavity', got: {entry_ids}"
-        assert "DEMO-010" in entry_ids, f"Expected DEMO-010 in results for 'RF cavity', got: {entry_ids}"
+        assert "DEMO-001" in entry_ids, (
+            f"Expected DEMO-001 in results for 'RF cavity', got: {entry_ids}"
+        )
+        assert "DEMO-010" in entry_ids, (
+            f"Expected DEMO-010 in results for 'RF cavity', got: {entry_ids}"
+        )
 
     async def test_keyword_search_vacuum(self, e2e_ariel_seeded_db):
         """Search 'vacuum' finds entries mentioning vacuum events."""
@@ -352,17 +356,15 @@ class TestKeywordSearchDemoData:
             authors = {entry["author"] for entry, score, highlights in results}
             # All results should be from an author containing "Smith"
             for author in authors:
-                assert "Smith" in author, (
-                    f"Expected author containing 'Smith', got: {author}"
-                )
+                assert "Smith" in author, f"Expected author containing 'Smith', got: {author}"
 
     async def test_keyword_search_with_time_range(self, e2e_ariel_seeded_db):
         """Search with date range filters to entries in that window."""
         from osprey.services.ariel_search.search.keyword import keyword_search
 
         # March 20-22, 2024 should contain DEMO-011 through DEMO-016
-        start = datetime(2024, 3, 20, 0, 0, 0, tzinfo=timezone.utc)
-        end = datetime(2024, 3, 22, 23, 59, 59, tzinfo=timezone.utc)
+        start = datetime(2024, 3, 20, 0, 0, 0, tzinfo=UTC)
+        end = datetime(2024, 3, 22, 23, 59, 59, tzinfo=UTC)
 
         results = await keyword_search(
             query="beam",
@@ -373,12 +375,11 @@ class TestKeywordSearchDemoData:
             end_date=end,
         )
 
-        entry_ids = [entry["entry_id"] for entry, score, highlights in results]
         # All returned entries should be within the time window
-        for entry, score, highlights in results:
+        for entry, _score, _highlights in results:
             ts = entry["timestamp"]
             if hasattr(ts, "tzinfo") and ts.tzinfo is None:
-                ts = ts.replace(tzinfo=timezone.utc)
+                ts = ts.replace(tzinfo=UTC)
             assert start <= ts <= end, (
                 f"Entry {entry['entry_id']} timestamp {ts} outside range [{start}, {end}]"
             )
@@ -498,13 +499,10 @@ class TestAgentExecutorE2E:
             query=query,
         )
         assert evaluation.passed, (
-            f"LLM judge failed (confidence={evaluation.confidence}):\n"
-            f"{evaluation.reasoning}"
+            f"LLM judge failed (confidence={evaluation.confidence}):\n{evaluation.reasoning}"
         )
 
-    async def test_agent_handles_irrelevant_query(
-        self, e2e_ariel_seeded_db, e2e_agent_config_env
-    ):
+    async def test_agent_handles_irrelevant_query(self, e2e_ariel_seeded_db, e2e_agent_config_env):
         """Agent handles queries with no relevant logbook entries gracefully."""
         from osprey.services.ariel_search.models import SearchMode
         from osprey.services.ariel_search.service import ARIELSearchService
@@ -522,7 +520,9 @@ class TestAgentExecutorE2E:
         )
 
         # Agent should still produce an answer (not crash)
-        assert result.answer is not None, "Agent should produce an answer even for irrelevant queries"
+        assert result.answer is not None, (
+            "Agent should produce an answer even for irrelevant queries"
+        )
 
 
 # =============================================================================
@@ -604,9 +604,7 @@ class TestAgentLogbookPipeline:
         )
 
         # 2. Patch config to use test database
-        _patch_config_for_test_db(
-            project.config_path, e2e_ariel_seeded_db["database_url"]
-        )
+        _patch_config_for_test_db(project.config_path, e2e_ariel_seeded_db["database_url"])
 
         # 3. Initialize framework
         await project.initialize()
@@ -633,17 +631,19 @@ class TestAgentLogbookPipeline:
 
         # The demo data has DEMO-001 (RF cavity trip) and DEMO-010 (RF inspection).
         # The agent's response should cite at least one of them or their content.
-        rf_evidence = any([
-            "demo-001" in response_lower,
-            "demo-010" in response_lower,
-            "reflected power" in response_lower,
-            "rf cavity trip" in response_lower,
-            "rf inspection" in response_lower,
-            "cavity inspection" in response_lower,
-            # The agent might quote the entry text directly
-            "j. smith" in response_lower and "rf" in response_lower,
-            "m. chen" in response_lower and "rf" in response_lower,
-        ])
+        rf_evidence = any(
+            [
+                "demo-001" in response_lower,
+                "demo-010" in response_lower,
+                "reflected power" in response_lower,
+                "rf cavity trip" in response_lower,
+                "rf inspection" in response_lower,
+                "cavity inspection" in response_lower,
+                # The agent might quote the entry text directly
+                "j. smith" in response_lower and "rf" in response_lower,
+                "m. chen" in response_lower and "rf" in response_lower,
+            ]
+        )
         assert rf_evidence, (
             "Response does not reference any RF cavity entries from the demo data.\n"
             "Expected mention of DEMO-001 (RF cavity trip) or DEMO-010 (RF inspection),\n"
@@ -667,20 +667,21 @@ class TestAgentLogbookPipeline:
             4. Return a coherent response that mentions RF cavity details from the logbook
             5. Complete without critical errors
             """
-            evaluation = await llm_judge.evaluate(
-                result=result, expectations=expectations
-            )
+            evaluation = await llm_judge.evaluate(result=result, expectations=expectations)
             if not evaluation.passed:
                 import warnings
+
                 warnings.warn(
                     f"LLM judge flagged potential issue (confidence={evaluation.confidence}):\n"
                     f"{evaluation.reasoning}",
                     UserWarning,
+                    stacklevel=2,
                 )
         except Exception as e:
             # Judge unavailable (no API key, network issue) — not a test failure
             import warnings
-            warnings.warn(f"LLM judge skipped: {e}", UserWarning)
+
+            warnings.warn(f"LLM judge skipped: {e}", UserWarning, stacklevel=2)
 
         # Cleanup
         reset_ariel_service()
@@ -821,11 +822,13 @@ class TestCustomModuleIntegration:
         answer_lower = result.answer.lower()
 
         # The agent should reference DEMO-001 or its content (RF cavity)
-        entry_evidence = any([
-            "demo-001" in answer_lower,
-            "rf cavity" in answer_lower,
-            "j. smith" in answer_lower,
-        ])
+        entry_evidence = any(
+            [
+                "demo-001" in answer_lower,
+                "rf cavity" in answer_lower,
+                "j. smith" in answer_lower,
+            ]
+        )
         assert entry_evidence, (
             "Response does not reference DEMO-001 or its content.\n"
             f"Response preview:\n{result.answer[:500]}"
