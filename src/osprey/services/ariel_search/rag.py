@@ -71,6 +71,7 @@ class RAGPipeline:
         fusion_k: int = 60,
         max_context_chars: int = 12000,
         max_chars_per_entry: int = 2000,
+        prompt_template: str | None = None,
     ) -> None:
         self._repository = repository
         self._config = config
@@ -78,6 +79,7 @@ class RAGPipeline:
         self._fusion_k = fusion_k
         self._max_context_chars = max_context_chars
         self._max_chars_per_entry = max_chars_per_entry
+        self._prompt_template = prompt_template or RAG_PROMPT_TEMPLATE
 
     # === Public API ===
 
@@ -409,7 +411,7 @@ class RAGPipeline:
         Returns:
             Tuple of (answer_text, optional_diagnostic)
         """
-        prompt = RAG_PROMPT_TEMPLATE.format(context=context, question=query)
+        prompt = self._prompt_template.format(context=context, question=query)
 
         try:
             from osprey.models.completion import get_chat_completion

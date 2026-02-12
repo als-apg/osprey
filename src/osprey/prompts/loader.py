@@ -340,6 +340,30 @@ class FrameworkPromptProvider:
 
         return DefaultMiddleLayerPromptBuilder()
 
+    # =================================================================
+    # ARIEL prompt builders (used by native ARIEL search service)
+    # =================================================================
+
+    def get_ariel_agent_prompt_builder(self) -> "FrameworkPromptBuilder":
+        """Provide prompt builder for ARIEL agent pipeline.
+
+        Returns a default implementation. Override in application prompt providers
+        to supply facility-specific context and response guidelines.
+        """
+        from osprey.prompts.defaults.ariel.agent import DefaultARIELAgentPromptBuilder
+
+        return DefaultARIELAgentPromptBuilder()
+
+    def get_ariel_rag_prompt_builder(self) -> "FrameworkPromptBuilder":
+        """Provide prompt builder for ARIEL RAG pipeline.
+
+        Returns a default implementation. Override in application prompt providers
+        to supply facility-specific context and response guidelines.
+        """
+        from osprey.prompts.defaults.ariel.rag import DefaultARIELRAGPromptBuilder
+
+        return DefaultARIELRAGPromptBuilder()
+
 
 class FrameworkPromptLoader:
     """Global registry and dependency injection system for framework prompt providers.

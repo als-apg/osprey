@@ -109,11 +109,13 @@ class AgentExecutor:
         config: ARIELConfig,
         embedder_loader: Callable[[], BaseEmbeddingProvider],
         llm: BaseChatModel | None = None,
+        system_prompt: str | None = None,
     ) -> None:
         self.repository = repository
         self.config = config
         self._embedder_loader = embedder_loader
         self._llm = llm
+        self._system_prompt = system_prompt or AGENT_SYSTEM_PROMPT
 
     def _get_llm(self) -> BaseChatModel:
         """Lazy-load the LLM for the agent.
@@ -343,7 +345,7 @@ class AgentExecutor:
             agent = create_react_agent(
                 model=llm,
                 tools=tools,
-                prompt=AGENT_SYSTEM_PROMPT,
+                prompt=self._system_prompt,
             )
 
             initial_messages = [

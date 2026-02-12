@@ -109,14 +109,23 @@ class ARIELSearchService:
     async def _validate_search_model(self) -> None:
         """Validate that the configured search model's table exists.
 
-        Called lazily on first semantic search.
+        Called lazily on first semantic search. If validation fails (e.g.,
+        pgvector migration was skipped), disables semantic search at runtime
+        so other search modes continue working.
         """
         if self._validated_search_model:
             return
 
         model = self.config.get_search_model()
         if model:
-            await self.repository.validate_search_model_table(model)
+            try:
+                await self.repository.validate_search_model_table(model)
+            except ConfigurationError as e:
+                logger.warning(
+                    f"Semantic search disabled: embedding table not found ({e}). "
+                    f"Install pgvector and re-run 'osprey ariel quickstart' to enable."
+                )
+                self.config.search_modules["semantic"].enabled = False
 
         self._validated_search_model = True
 
@@ -391,12 +400,23 @@ class ARIELSearchService:
         similarity_threshold = ap.get("similarity_threshold")
         temperature = ap.get("temperature")
 
+        # Load prompt from framework prompt system
+        prompt_template = None
+        try:
+            from osprey.prompts.loader import get_framework_prompts
+
+            builder = get_framework_prompts().get_ariel_rag_prompt_builder()
+            prompt_template = builder.get_prompt_template()
+        except (ValueError, NotImplementedError, AttributeError):
+            pass  # Falls back to hardcoded default inside RAGPipeline
+
         pipeline = RAGPipeline(
             repository=self.repository,
             config=self.config,
             embedder_loader=self._get_embedder,
             max_context_chars=max_context_chars,
             max_chars_per_entry=max_chars_per_entry,
+            prompt_template=prompt_template,
         )
 
         start_date = request.time_range[0] if request.time_range else None
@@ -434,11 +454,22 @@ class ARIELSearchService:
         """
         from osprey.services.ariel_search.agent import AgentExecutor
 
+        # Load prompt from framework prompt system
+        system_prompt = None
+        try:
+            from osprey.prompts.loader import get_framework_prompts
+
+            builder = get_framework_prompts().get_ariel_agent_prompt_builder()
+            system_prompt = builder.get_system_prompt()
+        except (ValueError, NotImplementedError, AttributeError):
+            pass  # Falls back to hardcoded default inside AgentExecutor
+
         # Create agent executor
         executor = AgentExecutor(
             repository=self.repository,
             config=self.config,
             embedder_loader=self._get_embedder,
+            system_prompt=system_prompt,
         )
 
         # Execute agent
