@@ -89,7 +89,8 @@ class ArtifactViewer(ModalScreen[None]):
                         for i, art in enumerate(self._artifacts):
                             yield self._compose_list_row(art, i)
                     yield Static(
-                        "[$text bold]j[/$text bold]/[$text bold]k[/$text bold] to navigate",
+                        "[$text bold]r[/$text bold] to open dir \u00b7 "
+                        "[$text bold]j[/$text bold]/[$text bold]k[/$text bold] to nav",
                         id="artifact-list-footer",
                     )
 
@@ -290,6 +291,36 @@ class ArtifactViewer(ModalScreen[None]):
 
     # ── open / copy targets ──────────────────────────────────────────────
 
+    def _open_artifact_dir(self) -> None:
+        """Open the artifact directory for this query in the file manager."""
+        exec_folder = None
+        for art in self._artifacts:
+            folder = art.get("metadata", {}).get("execution_folder")
+            if folder:
+                exec_folder = folder
+                break
+
+        if not exec_folder:
+            self._show_feedback("No artifact directory available")
+            return
+
+        target = Path(exec_folder)
+        if not target.exists():
+            self._show_feedback("Directory not found")
+            return
+
+        try:
+            system = platform.system()
+            if system == "Darwin":
+                subprocess.Popen(["open", str(target)])
+            elif system == "Linux":
+                subprocess.Popen(["xdg-open", str(target)])
+            elif system == "Windows":
+                subprocess.Popen(["explorer", str(target)])
+            self._show_feedback(f"Opened: {target.name}")
+        except Exception as e:
+            self._show_feedback(f"Failed: {e}")
+
     def _get_openable_target(self) -> str | None:
         """Get the path or URL that can be opened externally."""
         data = self.artifact.get("data", {})
@@ -332,6 +363,9 @@ class ArtifactViewer(ModalScreen[None]):
             if self._selected_index > 0:
                 self._selected_index -= 1
                 self._update_selection()
+            event.stop()
+        elif event.key == "r":
+            self._open_artifact_dir()
             event.stop()
 
     def on_click(self, event: Click) -> None:

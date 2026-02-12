@@ -1113,8 +1113,7 @@ ArtifactViewer {
     dock: bottom;
     width: 100%;
     height: auto;
-    padding: 1 2;
-    text-align: right;
+    padding: 1 2 1 4;
     color: $text-muted;
 }
 
