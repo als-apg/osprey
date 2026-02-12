@@ -542,9 +542,7 @@ class TestRAGSearchE2E:
         )
 
         # Deterministic: should have multiple sources
-        assert len(result.entries) > 1, (
-            f"Expected multiple sources, got: {len(result.entries)}"
-        )
+        assert len(result.entries) > 1, f"Expected multiple sources, got: {len(result.entries)}"
 
         # Answer should synthesize information (mention multiple issues)
         answer_lower = result.answer.lower()
@@ -580,8 +578,7 @@ class TestRAGSearchE2E:
         # Should have no sources or acknowledge lack of information
         if not result.entries:
             assert (
-                "don't have enough information" in result.answer.lower()
-                or len(result.entries) == 0
+                "don't have enough information" in result.answer.lower() or len(result.entries) == 0
             )
         # If there are sources, they shouldn't be about moon composition
         # (the model should still ground its answer appropriately)
