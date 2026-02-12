@@ -124,10 +124,9 @@ export function renderEntryCard(entry) {
   const attachmentCount = entry.attachments?.length || 0;
   const keywords = entry.keywords?.slice(0, 5) || [];
 
-  // Extract subject from raw_text (first line or first 100 chars)
+  // Extract preview from raw_text
   const rawText = entry.raw_text || '';
   const lines = rawText.split('\n');
-  const subject = lines[0]?.slice(0, 100) || 'Untitled';
   const preview = lines.slice(1).join('\n').trim() || rawText;
 
   // Use highlighted snippet if available, otherwise fall back to plain-text preview

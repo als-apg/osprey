@@ -7,11 +7,30 @@ Note: Database functionality requires psycopg[pool] to be installed.
 Functions that require the database will raise ImportError if not available.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from osprey.services.ariel_search.database.core_migration import CoreMigration
 from osprey.services.ariel_search.database.migration import (
     BaseMigration,
     model_to_table_name,
 )
+
+if TYPE_CHECKING:
+    from osprey.services.ariel_search.database.connection import (
+        close_connection_pool as close_connection_pool,
+        create_connection_pool as create_connection_pool,
+    )
+    from osprey.services.ariel_search.database.migrate import (
+        KNOWN_MIGRATIONS as KNOWN_MIGRATIONS,
+        MigrationRunner as MigrationRunner,
+        run_migrations as run_migrations,
+    )
+    from osprey.services.ariel_search.database.repository import (
+        ARIELRepository as ARIELRepository,
+        requires_module as requires_module,
+    )
 
 # Lazy imports for database-dependent modules
 __all__ = [

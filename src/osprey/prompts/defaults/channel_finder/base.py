@@ -36,12 +36,12 @@ class ChannelFinderPromptBuilder(FrameworkPromptBuilder):
     @abstractmethod
     def get_facility_description(self) -> str:
         """Return facility-specific description text."""
-        ...
+        pass
 
     @abstractmethod
     def get_matching_rules(self) -> str:
         """Return channel matching rules and terminology conventions."""
-        ...
+        pass
 
     def get_combined_description(self) -> str:
         """Combine facility description and matching rules into complete prompt.

@@ -115,9 +115,8 @@ def _create_lifespan(config_path: str | Path | None = None):
         # code paths try to load it.
         try:
             import osprey.registry.manager as _reg_mod
-            from osprey.registry.manager import RegistryManager
 
-            _reg_mod._registry = RegistryManager(registry_path=None)
+            _reg_mod._registry = _reg_mod.RegistryManager(registry_path=None)
             _reg_mod._registry.initialize(silent=True)
             logger.info("Framework registry initialized for ARIEL")
         except Exception as e:

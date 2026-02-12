@@ -409,7 +409,6 @@ function renderTextInput(param, value) {
  * Render a dynamic select that fetches options from an endpoint.
  */
 function renderDynamicSelect(param, value) {
-  const val = value || '';
   return `
     <div class="input-group">
       <label class="input-label" for="param-${param.name}" title="${escapeHtml(param.description)}">${escapeHtml(param.label)}</label>
