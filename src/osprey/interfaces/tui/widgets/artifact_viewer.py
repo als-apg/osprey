@@ -17,7 +17,6 @@ from textual.containers import Container, Horizontal, ScrollableContainer
 from textual.events import Click, Key
 from textual.screen import ModalScreen
 from rich.table import Table
-from rich.text import Text
 from textual.widgets import Static
 
 from osprey.interfaces.tui.widgets.artifacts import (
@@ -26,8 +25,9 @@ from osprey.interfaces.tui.widgets.artifacts import (
 )
 from osprey.state.artifacts import ArtifactType
 
-# Max display length for filenames in the left panel (panel is 32 chars wide)
-_LIST_NAME_MAX = 28
+# Max display length for filenames in the left panel
+# Panel is 32 chars wide, row padding 3+1=4, leading space 1 → 27 usable
+_LIST_NAME_MAX = 27
 
 
 def _get_artifact_filename(artifact: dict[str, Any]) -> str:
@@ -83,10 +83,15 @@ class ArtifactViewer(ModalScreen[None]):
     def compose(self) -> ComposeResult:
         with Container(id="artifact-viewer-container"):
             with Horizontal(id="artifact-viewer-body"):
-                # Left panel: file list
-                with ScrollableContainer(id="artifact-list-panel"):
-                    for i, art in enumerate(self._artifacts):
-                        yield self._compose_list_row(art, i)
+                # Left panel: file list + footer
+                with Container(id="artifact-list-wrapper"):
+                    with ScrollableContainer(id="artifact-list-panel"):
+                        for i, art in enumerate(self._artifacts):
+                            yield self._compose_list_row(art, i)
+                    yield Static(
+                        "[$text bold]j[/$text bold]/[$text bold]k[/$text bold] to navigate",
+                        id="artifact-list-footer",
+                    )
 
                 # Right panel: header + detail + footer
                 with Container(id="artifact-viewer-right"):
@@ -99,7 +104,7 @@ class ArtifactViewer(ModalScreen[None]):
                         yield from self._compose_details()
 
                     yield Static(
-                        "[$text bold]o[/$text bold] to open external \u00b7 "
+                        "[$text bold]o[/$text bold] to open \u00b7 "
                         "[$text bold]c[/$text bold] to copy path \u00b7 "
                         "[$text bold]\u2423[/$text bold] to pg down \u00b7 "
                         "[$text bold]b[/$text bold] to pg up \u00b7 "
@@ -218,6 +223,21 @@ class ArtifactViewer(ModalScreen[None]):
             classes="artifact-meta-display",
         )
 
+        # Clickable path link (separate for hover + click)
+        link = self._get_copyable_path()
+        if link:
+            if data.get("path"):
+                label = "Path"
+            elif data.get("url"):
+                label = "URL"
+            else:
+                label = "URI"
+            yield Horizontal(
+                Static(f"[bold]{label}[/bold]", classes="artifact-path-label"),
+                Static(f"[underline]{link}[/underline]", classes="artifact-path-value"),
+                classes="artifact-path-link",
+            )
+
     def _compose_image_preview(self, data: dict[str, Any]) -> ComposeResult:
         """Compose inline image preview if available."""
         path = data.get("path", "")
@@ -249,8 +269,8 @@ class ArtifactViewer(ModalScreen[None]):
             padding=(0, 2, 0, 0),
             expand=True,
         )
-        table.add_column("field", style="bold", no_wrap=True, width=12)
-        table.add_column("value")
+        table.add_column("field", style="bold", no_wrap=True, width=12, ratio=0)
+        table.add_column("value", overflow="fold", ratio=1)
 
         table.add_row("Type", self._artifact_type.value.upper())
         table.add_row("Source", capability)
@@ -262,21 +282,6 @@ class ArtifactViewer(ModalScreen[None]):
             except (ValueError, TypeError):
                 formatted_time = created_at
             table.add_row("Created", formatted_time)
-
-        # Path / URL / URI (whichever is available)
-        path = data.get("path", "")
-        if path:
-            table.add_row("Path", Text(path, style="underline"))
-        elif data.get("url"):
-            table.add_row(
-                "URL",
-                Text(data["url"], style="underline"),
-            )
-        elif data.get("uri"):
-            table.add_row(
-                "URI",
-                Text(data["uri"], style="underline"),
-            )
 
         if data.get("format"):
             table.add_row("Format", data["format"].upper())
@@ -318,9 +323,29 @@ class ArtifactViewer(ModalScreen[None]):
             detail = self.query_one("#artifact-detail-panel", ScrollableContainer)
             detail.scroll_page_up(animate=False)
             event.stop()
+        elif event.key == "j":
+            if self._selected_index < len(self._artifacts) - 1:
+                self._selected_index += 1
+                self._update_selection()
+            event.stop()
+        elif event.key == "k":
+            if self._selected_index > 0:
+                self._selected_index -= 1
+                self._update_selection()
+            event.stop()
 
     def on_click(self, event: Click) -> None:
-        """Handle click on a list row to select it."""
+        """Handle click on a list row or path link."""
+        # Check if click target is a path link (container or children)
+        for ancestor in event.widget.ancestors_with_self:
+            if (
+                hasattr(ancestor, "classes")
+                and "artifact-path-link" in ancestor.classes
+            ):
+                self.action_open_external()
+                event.stop()
+                return
+
         for i, art in enumerate(self._artifacts):
             uid = art.get("id", "unknown")[:8]
             try:

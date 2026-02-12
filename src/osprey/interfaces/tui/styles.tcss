@@ -1088,20 +1088,34 @@ ArtifactViewer {
     height: 1fr;
 }
 
-/* Left panel: file list */
-#artifact-list-panel {
+/* Left panel: wrapper holds scrollable list + footer */
+#artifact-list-wrapper {
     width: 32;
     min-width: 32;
     max-width: 32;
     height: 1fr;
-    scrollbar-size: 0 0;
-    padding: 1 0;
     &:dark {
         background: $surface-darken-1;
     }
     &:light {
         background: $surface-lighten-1;
     }
+}
+
+#artifact-list-panel {
+    width: 100%;
+    height: 1fr;
+    scrollbar-size: 0 0;
+    padding: 1 0;
+}
+
+#artifact-list-footer {
+    dock: bottom;
+    width: 100%;
+    height: auto;
+    padding: 1 2;
+    text-align: right;
+    color: $text-muted;
 }
 
 .artifact-list-row {
@@ -1162,6 +1176,26 @@ ArtifactViewer {
     height: auto;
     margin: 0;
     padding: 0;
+}
+
+.artifact-path-link {
+    width: 1fr;
+    height: auto;
+    layout: horizontal;
+}
+
+.artifact-path-value:hover {
+    color: $accent;
+}
+
+.artifact-path-label {
+    width: 14;
+    min-width: 14;
+    max-width: 14;
+}
+
+.artifact-path-value {
+    width: 1fr;
 }
 
 #artifact-viewer-footer {
