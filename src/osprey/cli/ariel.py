@@ -884,9 +884,7 @@ def quickstart_command(source: str | None) -> None:
 
                 enhancers = create_enhancers_from_config(config)
                 if enhancers:
-                    click.echo(
-                        f"  Enhancement modules: {[e.name for e in enhancers]}"
-                    )
+                    click.echo(f"  Enhancement modules: {[e.name for e in enhancers]}")
 
                 service = await create_ariel_service(config)
                 async with service:
@@ -916,8 +914,7 @@ def quickstart_command(source: str | None) -> None:
                                         )
                                         failed_count += 1
                                         logger.debug(
-                                            f"Enhancement failed for "
-                                            f"{entry['entry_id']}: {e}"
+                                            f"Enhancement failed for {entry['entry_id']}: {e}"
                                         )
 
                     click.echo(f"  Entries: {count} ingested")

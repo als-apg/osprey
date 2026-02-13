@@ -1145,9 +1145,7 @@ class IOCServerWithBackends(IOCServer):
                     # Generate instantiation
                     if params:
                         param_strs = [f"{k}={repr(v)}" for k, v in params.items()]
-                        backends_instantiation.append(
-                            f"{class_name}({', '.join(param_strs)})"
-                        )
+                        backends_instantiation.append(f"{class_name}({', '.join(param_strs)})")
                     else:
                         backends_instantiation.append(f"{class_name}()")
                 elif backend.get("type") == "mock_style":
@@ -1230,8 +1228,7 @@ class IOCServerWithBackends(IOCServer):
                     if self.process.poll() is not None:
                         _, stderr = self.process.communicate()
                         raise TimeoutError(
-                            f"IOC server with backends failed to start. "
-                            f"stderr: {stderr.decode()}"
+                            f"IOC server with backends failed to start. stderr: {stderr.decode()}"
                         )
                     raise TimeoutError(f"IOC server failed to start within {timeout}s")
                 time.sleep(0.1)

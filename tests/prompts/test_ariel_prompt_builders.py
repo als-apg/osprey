@@ -134,9 +134,7 @@ class TestARIELPromptBuilderInterface:
     def test_response_guidelines_not_empty(self, builder):
         """Response guidelines should never be empty."""
         guidelines = builder.get_response_guidelines()
-        assert guidelines.strip(), (
-            f"{type(builder).__name__} returned empty response guidelines"
-        )
+        assert guidelines.strip(), f"{type(builder).__name__} returned empty response guidelines"
 
     def test_can_instantiate(self, builder):
         """All builders can be instantiated without arguments."""

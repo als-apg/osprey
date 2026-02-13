@@ -446,7 +446,9 @@ def test_search_pipeline_details_rag(client, mock_ariel_service):
     assert stats["fused_count"] == 6
     assert stats["context_included"] == 4
     assert stats["context_truncated"] is True
-    assert data["pipeline_details"]["step_summary"] == "5 keyword + 3 semantic, 6 fused, 4 in context"
+    assert (
+        data["pipeline_details"]["step_summary"] == "5 keyword + 3 semantic, 6 fused, 4 in context"
+    )
 
 
 def test_search_pipeline_details_agent(client, mock_ariel_service):

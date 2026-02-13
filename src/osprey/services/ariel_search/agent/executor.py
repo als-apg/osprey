@@ -444,9 +444,7 @@ class AgentExecutor:
         sources: list[str] = []
         if answer and entries:
             sources = [
-                e["entry_id"]
-                for e in entries
-                if e.get("entry_id") and e["entry_id"] in answer
+                e["entry_id"] for e in entries if e.get("entry_id") and e["entry_id"] in answer
             ]
 
         # Determine which search modes were used from tool calls
@@ -464,11 +462,13 @@ class AgentExecutor:
 
             if msg_type == "human":
                 content = getattr(msg, "content", "")
-                steps.append(AgentStep(
-                    step_type="user_query",
-                    content=str(content)[:200],
-                    order=step_order,
-                ))
+                steps.append(
+                    AgentStep(
+                        step_type="user_query",
+                        content=str(content)[:200],
+                        order=step_order,
+                    )
+                )
                 step_order += 1
 
             elif msg_type == "ai":
@@ -479,18 +479,22 @@ class AgentExecutor:
                 if content and isinstance(content, str):
                     if not tool_calls:
                         # Final answer or reasoning without tools
-                        steps.append(AgentStep(
-                            step_type="final_answer" if msg is messages[-1] else "reasoning",
-                            content=str(content)[:200],
-                            order=step_order,
-                        ))
+                        steps.append(
+                            AgentStep(
+                                step_type="final_answer" if msg is messages[-1] else "reasoning",
+                                content=str(content)[:200],
+                                order=step_order,
+                            )
+                        )
                         step_order += 1
                     else:
-                        steps.append(AgentStep(
-                            step_type="reasoning",
-                            content=str(content)[:200],
-                            order=step_order,
-                        ))
+                        steps.append(
+                            AgentStep(
+                                step_type="reasoning",
+                                content=str(content)[:200],
+                                order=step_order,
+                            )
+                        )
                         step_order += 1
 
                 for tc in tool_calls:
@@ -499,17 +503,21 @@ class AgentExecutor:
                     t_id = tc.get("id", "")
                     call_id_to_name[t_id] = t_name
 
-                    tool_invocations.append(AgentToolInvocation(
-                        tool_name=t_name,
-                        tool_args=t_args,
-                        order=tool_call_order,
-                    ))
-                    steps.append(AgentStep(
-                        step_type="tool_call",
-                        content=str(t_args)[:200],
-                        tool_name=t_name,
-                        order=step_order,
-                    ))
+                    tool_invocations.append(
+                        AgentToolInvocation(
+                            tool_name=t_name,
+                            tool_args=t_args,
+                            order=tool_call_order,
+                        )
+                    )
+                    steps.append(
+                        AgentStep(
+                            step_type="tool_call",
+                            content=str(t_args)[:200],
+                            tool_name=t_name,
+                            order=step_order,
+                        )
+                    )
                     tool_call_order += 1
                     step_order += 1
 
@@ -534,12 +542,14 @@ class AgentExecutor:
                         )
                         break
 
-                steps.append(AgentStep(
-                    step_type="tool_result",
-                    content=summary,
-                    tool_name=t_name,
-                    order=step_order,
-                ))
+                steps.append(
+                    AgentStep(
+                        step_type="tool_result",
+                        content=summary,
+                        tool_name=t_name,
+                        order=step_order,
+                    )
+                )
                 step_order += 1
 
             else:
@@ -551,17 +561,21 @@ class AgentExecutor:
                     t_id = tc.get("id", "")
                     call_id_to_name[t_id] = t_name
 
-                    tool_invocations.append(AgentToolInvocation(
-                        tool_name=t_name,
-                        tool_args=t_args,
-                        order=tool_call_order,
-                    ))
-                    steps.append(AgentStep(
-                        step_type="tool_call",
-                        content=str(t_args)[:200],
-                        tool_name=t_name,
-                        order=step_order,
-                    ))
+                    tool_invocations.append(
+                        AgentToolInvocation(
+                            tool_name=t_name,
+                            tool_args=t_args,
+                            order=tool_call_order,
+                        )
+                    )
+                    steps.append(
+                        AgentStep(
+                            step_type="tool_call",
+                            content=str(t_args)[:200],
+                            tool_name=t_name,
+                            order=step_order,
+                        )
+                    )
                     tool_call_order += 1
                     step_order += 1
 
@@ -573,9 +587,7 @@ class AgentExecutor:
         tool_names = [inv.tool_name for inv in tool_invocations]
         unique_tools = list(dict.fromkeys(tool_names))
         if tool_invocations:
-            step_summary = (
-                f"{len(tool_invocations)} tool call(s): {', '.join(unique_tools)}"
-            )
+            step_summary = f"{len(tool_invocations)} tool call(s): {', '.join(unique_tools)}"
         else:
             step_summary = "No tool calls"
 

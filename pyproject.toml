@@ -111,6 +111,10 @@ dependencies = [
 
     # Control system simulation (soft IOC generation)
     "caproto",
+
+    # PostgreSQL (required for native logbook_search capability and checkpointing)
+    "psycopg[binary,pool]>=3.1.0,<4.0.0",
+    "psycopg-pool>=3.1.0,<4.0.0",
 ]
 
 [project.optional-dependencies]
@@ -142,7 +146,7 @@ dev = [
     "testcontainers[postgres]>=4.0.0",  # Real PostgreSQL for integration tests
     "docker>=7.0.0",  # Docker SDK for testcontainers availability check
     "fastapi>=0.109.0",  # For ARIEL Web API tests
-    "psycopg[pool]>=3.1.0,<4.0.0",  # ARIEL search integration tests
+    "psycopg[binary,pool]>=3.1.0,<4.0.0",  # ARIEL search integration tests
     "psycopg-pool>=3.1.0,<4.0.0",  # ARIEL search integration tests
 ]
 

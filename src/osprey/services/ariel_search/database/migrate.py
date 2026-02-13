@@ -172,9 +172,7 @@ class MigrationRunner:
                     applied.append(migration.name)
                     logger.info(f"Applied migration: {migration.name}")
                 except MigrationSkippedError as e:
-                    logger.warning(
-                        f"Migration {migration.name} skipped: {e}"
-                    )
+                    logger.warning(f"Migration {migration.name} skipped: {e}")
                 except Exception as e:
                     logger.error(f"Failed to apply migration {migration.name}: {e}")
                     raise

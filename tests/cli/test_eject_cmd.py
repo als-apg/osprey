@@ -99,9 +99,7 @@ class TestEjectService:
     def test_eject_service_to_output_path(self, runner, tmp_path):
         """Test ejecting a service to a specific output directory."""
         output_dir = tmp_path / "python_executor"
-        result = runner.invoke(
-            eject, ["service", "python_executor", "--output", str(output_dir)]
-        )
+        result = runner.invoke(eject, ["service", "python_executor", "--output", str(output_dir)])
         assert result.exit_code == 0
         assert "Ejected service" in result.output
         assert output_dir.exists()

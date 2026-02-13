@@ -164,7 +164,11 @@ def is_dev_database_available() -> tuple[bool, str]:
     Returns:
         Tuple of (available, url).
     """
-    import psycopg
+    try:
+        import psycopg
+    except ImportError:
+        logger.debug("psycopg not available (libpq missing?), skipping dev database check")
+        return False, ""
 
     for dev_url in [DEV_DATABASE_URL_5432, DEV_DATABASE_URL_5433]:
         try:
