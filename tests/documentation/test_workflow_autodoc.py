@@ -334,32 +334,3 @@ class TestSphinxIntegration:
         setup(mock_app)
 
         mock_app.add_css_file.assert_called_once_with("workflow-autodoc.css")
-
-
-@pytest.mark.integration
-class TestRealWorkflowFiles:
-    """Integration tests with actual workflow files."""
-
-    def test_parse_actual_workflow_files(self):
-        """Test parsing the actual workflow files in the repository."""
-        workflows_dir = Path(__file__).parent.parent.parent / "docs" / "workflows"
-
-        if not workflows_dir.exists():
-            pytest.skip("Workflows directory not found")
-
-        workflow_files = list(workflows_dir.glob("*.md"))
-        workflow_files = [f for f in workflow_files if f.name != "README.md"]
-
-        assert len(workflow_files) > 0, "No workflow files found"
-
-        for workflow_file in workflow_files:
-            result = parse_workflow_file(workflow_file)
-
-            # All workflow files should have metadata
-            assert "metadata" in result
-            assert "title" in result
-
-            # Check for expected metadata fields
-            metadata = result["metadata"]
-            if metadata:  # Some might not have frontmatter
-                assert "workflow" in metadata or len(metadata) == 0

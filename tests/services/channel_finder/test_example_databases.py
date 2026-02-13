@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.templates.apps.control_assistant.services.channel_finder.databases.hierarchical import (
+from osprey.services.channel_finder.databases.hierarchical import (
     HierarchicalChannelDatabase,
 )
 
@@ -20,7 +20,7 @@ class TestExampleDatabases:
 
     def test_mixed_hierarchy_loads(self):
         """Test example_mixed_hierarchy.json loads successfully."""
-        from osprey.templates.apps.control_assistant.services.channel_finder.databases.hierarchical import (
+        from osprey.services.channel_finder.databases.hierarchical import (
             HierarchicalChannelDatabase,
         )
 

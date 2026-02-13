@@ -708,18 +708,18 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
                 shutil.copy2(global_pyproject, repo_src_pyproject)
                 logger.debug(f"Copied user pyproject.toml to {repo_src_pyproject}")
 
-            # Copy local osprey for development override (only in dev mode)
-            # This will override the PyPI osprey after standard installation
-            if dev_mode:
-                osprey_copied = _copy_local_framework_for_override(out_dir)
-                if osprey_copied:
-                    logger.key_info("Development mode: Osprey override prepared")
-                else:
-                    logger.warning(
-                        "Development mode requested but osprey override failed, using PyPI"
-                    )
+        # Copy local osprey for development override (only in dev mode)
+        # This will override the PyPI osprey after standard installation
+        # Moved outside copy_src block so all services can use dev mode
+        if dev_mode:
+            osprey_copied = _copy_local_framework_for_override(out_dir)
+            if osprey_copied:
+                logger.key_info("Development mode: Osprey override prepared")
             else:
-                logger.info("Production mode: Containers will install osprey from PyPI")
+                logger.warning("Development mode requested but osprey override failed, using PyPI")
+        else:
+            logger.info("Production mode: Containers will install osprey from PyPI")
+
         # Copy additional directories if specified in service configuration
         additional_dirs = container_cfg.get("additional_dirs", [])
         if additional_dirs:
@@ -1579,7 +1579,7 @@ def rebuild_deployment(config_path, detached=False, dev_mode=False, expose_netwo
         )
         logger.info("To configure API keys: cp .env.example .env && edit .env")
 
-    cmd.append("up")
+    cmd.extend(["up", "--build"])
     if detached:
         cmd.append("-d")
 

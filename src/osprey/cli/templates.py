@@ -272,9 +272,6 @@ class TemplateManager:
                     "enable_hierarchical": enable_hierarchical,
                     "enable_middle_layer": enable_middle_layer,
                     "default_pipeline": default_pipeline,
-                    "in_context_db_path": "data/channel_databases/in_context.json",
-                    "hierarchical_db_path": "data/channel_databases/hierarchical.json",
-                    "middle_layer_db_path": "data/channel_databases/middle_layer.json",
                 }
             )
 

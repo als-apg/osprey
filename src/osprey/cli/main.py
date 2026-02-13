@@ -40,7 +40,7 @@ if sys.platform == "win32":
 try:
     from osprey import __version__
 except ImportError:
-    __version__ = "0.10.9"
+    __version__ = "0.11.0"
 
 
 # PERFORMANCE OPTIMIZATION: Lazy command loading
@@ -67,6 +67,9 @@ class LazyGroup(click.Group):
             "workflows": "osprey.cli.workflows_cmd",  # DEPRECATED: use 'tasks' instead
             "tasks": "osprey.cli.tasks_cmd",
             "claude": "osprey.cli.claude_cmd",
+            "eject": "osprey.cli.eject_cmd",
+            "channel-finder": "osprey.cli.channel_finder_cmd",
+            "ariel": "osprey.cli.ariel",  # ARIEL search service
         }
 
         if cmd_name not in commands:
@@ -84,6 +87,10 @@ class LazyGroup(click.Group):
         elif cmd_name == "export-config":
             # DEPRECATED: Show warning and redirect to new command
             cmd_func = mod.export_config
+        elif cmd_name == "channel-finder":
+            cmd_func = mod.channel_finder
+        elif cmd_name == "ariel":
+            cmd_func = mod.ariel_group
         else:
             cmd_func = getattr(mod, cmd_name)
 
@@ -102,7 +109,10 @@ class LazyGroup(click.Group):
             "migrate",
             "health",
             "tasks",
+            "channel-finder",
             "claude",
+            "eject",
+            "ariel",
         ]
 
 
@@ -131,6 +141,7 @@ def cli(ctx):
       osprey health                   Check system health
       osprey tasks                    Browse AI assistant tasks
       osprey claude install <task>    Install Claude Code skill
+      osprey channel-finder           Interactive channel search
     """
     # Initialize theme from config if available (best-effort, silent failure)
     try:

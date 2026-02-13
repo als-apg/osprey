@@ -1,31 +1,60 @@
-# Osprey Framework - Latest Release (v0.10.9)
+# Osprey Framework - Latest Release (v0.11.0)
 
-**Config-Driven Provider Loading & Capability Slash Commands**
+**Built-in Capabilities & ARIEL Logbook Search**
 
-## What's New in v0.10.9
+## What's New in v0.11.0
 
 ### Highlights
 
-- **Config-driven provider loading** - Registry skips unused provider imports, eliminating ~30s startup delay on air-gapped machines
-- **Argo structured output** - Structured output support for Argo provider via direct httpx calls with JSON schema prompting
-- **Capability slash commands** - Forward unregistered slash commands to capabilities for domain-specific actions
+- **ARIEL logbook search** - New electronic logbook search capability with full-text and semantic search, web interface, CLI commands, and deployment support. The fastest way to try it is the [ARIEL Quick Start](https://als-apg.github.io/osprey/developer-guides/05_production-systems/07_logbook-search-service/index.html) -- three commands to a working search interface.
+- **Native control capabilities** - 4 control capabilities (`channel_finding`, `channel_read`, `channel_write`, `archiver_retrieval`) migrated from Jinja2 templates to native Python modules in `src/osprey/capabilities/`
+- **Channel Finder service as native package** - 48 service files moved from templates to `src/osprey/services/channel_finder/` with default prompt builders
+- **`osprey eject` command** - Customization escape hatch to copy framework capabilities or services into a project for modification
+- **Template simplification** - `control_assistant` template reduced from ~130 to ~40 files
+
+### Getting Started with ARIEL
+
+The easiest way to try ARIEL is to start fresh with the [Quick Start guide](https://als-apg.github.io/osprey/developer-guides/05_production-systems/07_logbook-search-service/index.html) -- you'll have a working logbook search in minutes.
+
+### Migrating Existing Agents
+
+This release includes a significant refactoring: capabilities and services that were previously generated from Jinja2 templates now ship as native Python modules. This is a one-time structural change -- with capabilities living in the framework itself, future upgrades should be straightforward version bumps rather than template re-generations. We expect this to be the last migration that requires manual effort.
+
+If you have an existing Osprey agent, the built-in migration assistant will walk you through the upgrade:
+
+```bash
+osprey claude install migrate   # Install the migration skill
+# Then ask Claude Code to migrate your project
+```
+
+See [AI-Assisted Development](https://als-apg.github.io/osprey/contributing/03_ai-assisted-development.html) for the full guide on using `osprey assist` tasks.
 
 ### Added
-- **CLI**: Add `--channel-finder-mode` and `--code-generator` options to `osprey init`
-  - Options are included in manifest's `reproducible_command` for full project recreation
-- **Capabilities**: Add capability-specific slash commands
-  - Unregistered slash commands (e.g., `/beam:diagnostic`, `/verbose`) are forwarded to capabilities
-  - `slash_command()` helper and `BaseCapability.slash_command()` method for reading commands
-  - Commands are execution-scoped (reset each conversation turn)
-
-### Fixed
-- **Registry**: Config-driven provider loading skips unused provider imports (#138)
-  - Eliminates ~30s startup delay on air-gapped machines
-- **Argo**: Structured output handler for Argo provider (JSON schema prompting via httpx)
-- **Tests**: Fix e2e LLM provider tests broken by config-driven provider filtering
+- **Capabilities**: Migrate control capabilities to native Python modules
+  - Context classes inlined into capability files
+  - `FrameworkRegistryProvider` registers native capabilities and context classes automatically
+- **Services**: Migrate Channel Finder service to native package
+  - Default prompt builders at `src/osprey/prompts/defaults/channel_finder/`
+  - Facility-specific prompt overrides via framework prompts
+- **CLI**: Add `osprey eject` command for customization escape hatch
+  - Subcommands: `eject list`, `eject capability`, `eject service` with `--output` and `--include-tests` options
+- **CLI**: Add `osprey channel-finder` command with interactive REPL, query, and benchmark modes
+- **CLI**: Add `build-database`, `validate`, and `preview` subcommands to `osprey channel-finder`
+  - Database tools migrated from Jinja2 templates to native `osprey.services.channel_finder.tools`
+  - LLM channel namer available as library via `osprey.services.channel_finder.tools.llm_channel_namer`
+- **Registry**: Add shadow warning system for backward compatibility
+  - Detects when generated apps override native capabilities without explicit `override_capabilities` config
+- **ARIEL**: Add electronic logbook search capability
+  - Full-text and semantic search over facility logbooks (OLOG, custom sources)
+  - Web interface with dashboard, search, and entry browsing (`osprey ariel web`)
+  - CLI commands: `osprey ariel ingest`, `osprey ariel search`, `osprey ariel purge`
+  - Deployment support: PostgreSQL and web service templates for `osprey deploy up`
+  - Pluggable search modules and enhancement pipeline with registry-based discovery
 
 ### Changed
-- **Docs**: Update citation to published APL Machine Learning paper (doi:10.1063/5.0306302)
+- **Templates**: Simplify `control_assistant` template (~130 to ~40 files)
+  - `registry.py.j2` now uses `extend_framework_registry()` with prompt providers only
+  - Capabilities, services, and database tools no longer generated from templates
 
 ---
 
@@ -46,7 +75,9 @@ pip install --upgrade "osprey-framework[all]"
 ## What's Next?
 
 Check out our [documentation](https://als-apg.github.io/osprey) for:
-- Capability slash commands guide
+- [ARIEL Quick Start](https://als-apg.github.io/osprey/developer-guides/05_production-systems/07_logbook-search-service/index.html) -- get a working logbook search in minutes
+- [Migration assistance](https://als-apg.github.io/osprey/contributing/03_ai-assisted-development.html) -- upgrade existing agents to v0.11
+- Native capabilities and `osprey eject` guide
 - Complete tutorial series
 
 ## Contributors

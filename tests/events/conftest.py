@@ -1,4 +1,9 @@
-"""Pytest fixtures for event streaming tests."""
+"""Pytest fixtures for event streaming tests.
+
+Note: Core event-capture fixtures (captured_events, fallback_handler_with_capture,
+clear_event_handlers_between_tests) live in tests/conftest.py so they're available
+to all tests across the project.
+"""
 
 from datetime import datetime
 from typing import Any
@@ -23,7 +28,6 @@ from osprey.events import (
     StatusEvent,
     ToolResultEvent,
     ToolUseEvent,
-    clear_fallback_handlers,
 )
 
 
@@ -153,33 +157,6 @@ def sample_events() -> dict[str, Any]:
 def event_emitter() -> EventEmitter:
     """Provide a pre-configured EventEmitter instance."""
     return EventEmitter("test_component")
-
-
-@pytest.fixture
-def captured_events() -> list[dict[str, Any]]:
-    """Provide a list to capture emitted events."""
-    return []
-
-
-@pytest.fixture
-def fallback_handler_with_capture(captured_events):
-    """Register a fallback handler that captures events."""
-    from osprey.events import register_fallback_handler
-
-    def handler(event_dict: dict[str, Any]) -> None:
-        captured_events.append(event_dict)
-
-    unregister = register_fallback_handler(handler)
-    yield handler
-    unregister()
-
-
-@pytest.fixture(autouse=True)
-def clear_handlers_between_tests():
-    """Ensure fallback handlers are cleared between tests."""
-    clear_fallback_handlers()
-    yield
-    clear_fallback_handlers()
 
 
 @pytest.fixture

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <defs>
+    <linearGradient id="ariel-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4fd1c5"/>
+      <stop offset="100%" stop-color="#d4a574"/>
+    </linearGradient>
+  </defs>
+  <!-- Outer ring -->
+  <circle cx="24" cy="24" r="22" stroke="url(#ariel-gradient)" stroke-width="2" fill="none"/>
+  <!-- Inner clock-like element -->
+  <circle cx="24" cy="24" r="16" stroke="#4fd1c5" stroke-width="1.5" fill="none" opacity="0.5"/>
+  <!-- Hour hand -->
+  <path d="M24 24V12" stroke="#4fd1c5" stroke-width="2.5" stroke-linecap="round"/>
+  <!-- Minute hand -->
+  <path d="M24 24L32 20" stroke="#d4a574" stroke-width="2" stroke-linecap="round"/>
+  <!-- Center dot -->
+  <circle cx="24" cy="24" r="3" fill="url(#ariel-gradient)"/>
+  <!-- Radial markers -->
+  <circle cx="24" cy="8" r="1.5" fill="#4fd1c5" opacity="0.7"/>
+  <circle cx="40" cy="24" r="1.5" fill="#4fd1c5" opacity="0.7"/>
+  <circle cx="24" cy="40" r="1.5" fill="#4fd1c5" opacity="0.7"/>
+  <circle cx="8" cy="24" r="1.5" fill="#4fd1c5" opacity="0.7"/>
+</svg>

@@ -900,7 +900,7 @@ The registry system is how the framework discovers and manages your application'
 
 .. admonition:: Registry Purpose
 
-   The registry enables loose coupling and lazy loading - the framework can discover your components without importing them until needed, improving startup performance and modularity. The framework provides ``extend_framework_registry()`` helper that automatically includes all framework components with your custom ones - you only specify what's unique to your application.
+   The registry enables loose coupling and lazy loading - the framework can discover your components without importing them until needed, improving startup performance and modularity. The framework provides ``extend_framework_registry()`` helper that lets you declare which framework capabilities your agent needs via ``include_capabilities`` and add your custom ones alongside them.
 
 **The Registry Pattern**
 
@@ -922,12 +922,18 @@ The registry uses a class-based provider pattern. Here's the structure:
 
        def get_registry_config(self) -> ExtendedRegistryConfig:
            return extend_framework_registry(
+               # Only include these framework capabilities
+               include_capabilities=[
+                   "respond", "clarify", "memory",
+                   "time_range_parsing", "python", "state_manager",
+               ],
+               # Weather-specific capability
                capabilities=[
                   CapabilityRegistration(
                       name="current_weather",
                       module_path="weather_agent.capabilities.current_weather",
                       class_name="CurrentWeatherCapability",
-                       description="Get current weather conditions",
+                      description="Get current weather conditions",
                       provides=["CURRENT_WEATHER"],
                       requires=[]
                   )
@@ -953,7 +959,7 @@ The registry uses a class-based provider pattern. Here's the structure:
 .. admonition:: Advanced Registry Patterns
    :class: tip
 
-   For advanced use cases requiring complete control over component registration, see :doc:`Registry and Discovery <../developer-guides/03_core-framework-systems/03_registry-and-discovery>` for alternative patterns including Standalone Mode and :ref:`custom component exclusion <excluding-overriding-components>`.
+   The ``include_capabilities`` parameter provides a clean whitelist of which framework capabilities your agent needs. For advanced use cases requiring complete control over component registration, see :doc:`Registry and Discovery <../developer-guides/03_core-framework-systems/03_registry-and-discovery>` for alternative patterns including Standalone Mode and :ref:`custom component exclusion <excluding-overriding-components>`.
 
 .. dropdown:: Complete Registry Implementation
 
@@ -983,6 +989,16 @@ The registry uses a class-based provider pattern. Here's the structure:
         def get_registry_config(self) -> ExtendedRegistryConfig:
              """Provide registry configuration with framework + weather components."""
              return extend_framework_registry(
+                 # Only include these framework capabilities
+                 include_capabilities=[
+                     "respond",
+                     "clarify",
+                     "memory",
+                     "time_range_parsing",
+                     "python",
+                     "state_manager",
+                 ],
+
                  # Add weather-specific capability
                  capabilities=[
                      CapabilityRegistration(
@@ -1015,7 +1031,7 @@ The registry uses a class-based provider pattern. Here's the structure:
                  ]
               )
 
-   This automatically includes all framework capabilities (memory, Python, time parsing, etc.) while adding only your weather-specific components!
+   The ``include_capabilities`` parameter whitelists only the framework capabilities your agent needs, keeping your weather agent focused. Your weather-specific components are added alongside them.
 
 Step 7: Application Configuration
 ----------------------------------
@@ -1167,7 +1183,7 @@ When you run your agent, you'll see the framework's decision-making process in a
    🔄 Initializing framework...
    INFO Registry: Registry initialization complete!
         Components loaded:
-           • X capabilities: memory, time_range_parsing, respond, clarify, current_weather ...
+           • 7 capabilities: memory, time_range_parsing, python, respond, clarify, current_weather, state_manager
            • X context types: MEMORY_CONTEXT, TIME_RANGE, CURRENT_WEATHER ...
    ✅ Framework initialized!
 

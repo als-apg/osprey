@@ -1,0 +1,232 @@
+{
+  "entries": [
+    {
+      "id": "DEMO-001",
+      "timestamp": "2024-03-15T08:30:00Z",
+      "author": "J. Smith",
+      "title": "Morning beam recovery after RF trip",
+      "text": "At 06:45 the main RF cavity tripped due to a reflected power interlock. Vacuum levels in Sector 4 spiked to 2e-7 Torr momentarily but recovered within 3 minutes. Beam was restored by 07:15 after retuning the cavity phase. Forward power ramped back to 450 kW nominal. No beam loss monitors triggered during recovery.",
+      "tags": ["rf", "beam-recovery", "vacuum"],
+      "categories": ["Operations"]
+    },
+    {
+      "id": "DEMO-002",
+      "timestamp": "2024-03-15T14:00:00Z",
+      "author": "M. Chen",
+      "title": "Sector 7 dipole magnet temperature alarm",
+      "text": "Temperature alarm on Sector 7 dipole magnet DIP-07A reached 68 deg C (warning threshold 65 deg C, trip threshold 75 deg C). Cooling water flow was verified at 12 L/min which is within specification. Ambient temperature in the tunnel was elevated due to HVAC maintenance. Alarm cleared after HVAC restored at 15:30. Will continue monitoring.",
+      "tags": ["magnets", "temperature", "cooling"],
+      "categories": ["Equipment"]
+    },
+    {
+      "id": "DEMO-003",
+      "timestamp": "2024-03-16T06:00:00Z",
+      "author": "R. Patel",
+      "title": "Owl shift summary 2024-03-16",
+      "text": "Beam delivered continuously from 22:00 to 06:00 with 98.7% uptime. One brief interruption at 02:15 due to injection kicker K-01 misfiring (single event, no recurrence). Average beam current maintained at 400 mA. All insertion devices operating nominally. Photon beamlines BL-03, BL-07, and BL-12 took beam throughout the shift.",
+      "tags": ["shift-summary", "injection", "uptime"],
+      "categories": ["Shift Summary"]
+    },
+    {
+      "id": "DEMO-004",
+      "timestamp": "2024-03-16T10:30:00Z",
+      "author": "A. Rodriguez",
+      "title": "BPM calibration in Sector 2",
+      "text": "Performed beam position monitor calibration for BPM-02A through BPM-02D. Used reference orbit from 2024-02-28. Offsets updated in the control system: BPM-02A X offset changed from +0.12 mm to +0.08 mm, BPM-02B Y offset changed from -0.05 mm to -0.03 mm. Others within tolerance. Orbit distortion reduced from 0.15 mm RMS to 0.09 mm RMS after correction.",
+      "tags": ["bpm", "calibration", "orbit"],
+      "categories": ["Alignment"]
+    },
+    {
+      "id": "DEMO-005",
+      "timestamp": "2024-03-17T09:00:00Z",
+      "author": "L. Johnson",
+      "title": "Scheduled vacuum sector valve maintenance",
+      "text": "Performed annual maintenance on vacuum sector valve VSV-05 between Sectors 5 and 6. Replaced pneumatic actuator seals and limit switches. Valve tested: open/close cycle time 1.8 seconds (spec: < 3.0 seconds). Leak rate checked with helium detector: < 1e-10 mbar*L/s. LOTO procedure LOTO-2024-0312 applied and released.",
+      "tags": ["vacuum", "maintenance", "loto"],
+      "categories": ["Maintenance"],
+      "loto_tag": "LOTO-2024-0312"
+    },
+    {
+      "id": "DEMO-006",
+      "timestamp": "2024-03-17T15:45:00Z",
+      "author": "J. Smith",
+      "title": "Injection efficiency optimization",
+      "text": "Injection efficiency was measured at 82% at start of study. Adjusted injection septum angle by -0.3 mrad and injection kicker K-01 strength by +2%. After optimization, injection efficiency improved to 94%. Transfer line steering correctors SC-TL04 and SC-TL05 were adjusted to center beam on BPM-INJ01. Stored beam lifetime stable at 8.2 hours after changes.",
+      "tags": ["injection", "optimization", "beam-dynamics"],
+      "categories": ["Operations"]
+    },
+    {
+      "id": "DEMO-007",
+      "timestamp": "2024-03-18T07:30:00Z",
+      "author": "T. Nakamura",
+      "title": "Power supply fault on corrector magnet SC-03B",
+      "text": "Corrector magnet power supply PS-SC-03B faulted with overcurrent error at 07:15. Current readback showed 12.5 A vs setpoint of 8.2 A before trip. Replaced DAC output module (spare part SP-DAC-014). After replacement, power supply tested at multiple setpoints: 0 A, 5 A, 8.2 A, 10 A - all within 0.1% regulation. Returned to service at 09:00.",
+      "tags": ["power-supply", "fault", "corrector"],
+      "categories": ["Equipment"]
+    },
+    {
+      "id": "DEMO-008",
+      "timestamp": "2024-03-18T11:00:00Z",
+      "author": "K. Williams",
+      "title": "Radiation survey - Sector 3 shielding verification",
+      "text": "Completed radiation survey for Sector 3 after shield wall modification. Measurements taken at 15 locations around the modified wall section. Maximum dose rate: 0.8 uSv/hr at location R3-07 (limit: 2.5 uSv/hr). All measurements well below regulatory limits. Survey documented in radiation safety report RSR-2024-047.",
+      "tags": ["radiation", "safety", "survey"],
+      "categories": ["Safety"]
+    },
+    {
+      "id": "DEMO-009",
+      "timestamp": "2024-03-19T06:00:00Z",
+      "author": "P. Garcia",
+      "title": "Swing shift summary 2024-03-18",
+      "text": "Major events: (1) Corrector magnet PS-SC-03B repaired and returned to service. (2) Insertion device ID-07 gap scan performed for BL-07 commissioning. (3) Top-up injection running at 10-minute intervals maintaining 400 mA +/- 1 mA. Total beam dumps: 0. Beam availability: 100% for the shift.",
+      "tags": ["shift-summary", "insertion-device", "top-up"],
+      "categories": ["Shift Summary"]
+    },
+    {
+      "id": "DEMO-010",
+      "timestamp": "2024-03-19T10:00:00Z",
+      "author": "M. Chen",
+      "title": "RF window inspection and cleaning",
+      "text": "Inspected RF cavity input window during scheduled maintenance period. Found light discoloration on ceramic surface consistent with normal operation. Cleaned with isopropanol and lint-free wipes. Visual inspection under UV light showed no arcing marks or cracks. Window reflection coefficient measured at -35 dB (spec: < -30 dB). Cavity conditioned to full power over 2 hours with no issues.",
+      "tags": ["rf", "maintenance", "inspection"],
+      "categories": ["Maintenance"]
+    },
+    {
+      "id": "DEMO-011",
+      "timestamp": "2024-03-20T08:00:00Z",
+      "author": "A. Rodriguez",
+      "title": "Orbit feedback system tuning",
+      "text": "Retuned the global orbit feedback system response matrix. Previous matrix was from 2024-01-15 and showed degraded correction above 50 Hz. Measured new response matrix with 144 correctors and 96 BPMs. Singular value decomposition shows 85 significant modes (was 82 with old matrix). Feedback bandwidth improved from 50 Hz to 80 Hz. RMS orbit stability improved from 1.2 um to 0.8 um.",
+      "tags": ["orbit", "feedback", "beam-stability"],
+      "categories": ["Operations"]
+    },
+    {
+      "id": "DEMO-012",
+      "timestamp": "2024-03-20T14:30:00Z",
+      "author": "L. Johnson",
+      "title": "Cryogenic system helium compressor maintenance",
+      "text": "Performed 5000-hour service on helium compressor COMP-02 for superconducting undulator SCU-01. Changed oil (15 liters synthetic PAO), replaced oil filter and oil separator element. Compressor vibration levels: 0.8 mm/s (limit: 2.0 mm/s). Helium purity verified at 99.999%. System returned to normal operation, cold head temperature stable at 4.2 K.",
+      "tags": ["cryogenics", "maintenance", "undulator"],
+      "categories": ["Maintenance"]
+    },
+    {
+      "id": "DEMO-013",
+      "timestamp": "2024-03-21T09:15:00Z",
+      "author": "T. Nakamura",
+      "title": "Beam loss investigation - Sector 9",
+      "text": "Investigated anomalous beam loss signals on BLM-09C and BLM-09D during the past 48 hours. Losses correlate with top-up injection but are 3x higher than expected. Physical inspection revealed a misaligned vacuum chamber flange after recent bakeout in Sector 9. Chamber realigned and bolts re-torqued to 25 Nm. Beam losses returned to normal levels after correction.",
+      "tags": ["beam-loss", "vacuum", "investigation"],
+      "categories": ["Operations"]
+    },
+    {
+      "id": "DEMO-014",
+      "timestamp": "2024-03-21T16:00:00Z",
+      "author": "J. Smith",
+      "title": "Timing system fiber link replacement",
+      "text": "Replaced degraded fiber optic link between timing distribution rack TDR-01 and Sector 6 timing receiver. Old fiber showed 3.2 dB insertion loss (spec: < 1.5 dB). New fiber measured at 0.4 dB. Timing jitter on Sector 6 RF reference improved from 12 ps RMS to 3 ps RMS. All Sector 6 beamline triggers verified and working correctly.",
+      "tags": ["timing", "fiber-optic", "repair"],
+      "categories": ["Equipment"]
+    },
+    {
+      "id": "DEMO-015",
+      "timestamp": "2024-03-22T06:00:00Z",
+      "author": "K. Williams",
+      "title": "Day shift summary 2024-03-21",
+      "text": "Machine studies from 09:00 to 17:00. Studies performed: (1) Beam loss investigation in Sector 9 - resolved, (2) Chromaticity measurement and correction - both planes within +/- 0.5 units of target, (3) New fast orbit feedback matrix installed - performance improved. User operations resumed at 17:00 with 400 mA stored beam. Two beamlines (BL-05, BL-11) reported improved beam stability.",
+      "tags": ["shift-summary", "machine-studies", "chromaticity"],
+      "categories": ["Shift Summary"]
+    },
+    {
+      "id": "DEMO-016",
+      "timestamp": "2024-03-22T11:00:00Z",
+      "author": "P. Garcia",
+      "title": "Interlock system test - Personnel Safety System",
+      "text": "Performed quarterly test of Personnel Safety System (PSS) interlocks for Sectors 1-3. All 24 search buttons tested and functioning. Emergency stop chains verified: 8 stations tested, all trip beam within 50 ms (spec: < 100 ms). Radiation monitor interlock thresholds confirmed at 5 uSv/hr. Documented in PSS test report PSS-Q1-2024-003.",
+      "tags": ["safety", "interlock", "pss"],
+      "categories": ["Safety"]
+    },
+    {
+      "id": "DEMO-017",
+      "timestamp": "2024-03-23T08:00:00Z",
+      "author": "R. Patel",
+      "title": "Booster synchrotron energy ramp optimization",
+      "text": "Optimized booster energy ramp profile for improved injection efficiency into the storage ring. Changed ramp time from 150 ms to 135 ms and adjusted the extraction kicker timing by -2 us. Extraction efficiency from booster improved from 88% to 93%. Overall injection efficiency (linac to stored beam) now at 75%, up from 68%.",
+      "tags": ["booster", "injection", "optimization"],
+      "categories": ["Operations"]
+    },
+    {
+      "id": "DEMO-018",
+      "timestamp": "2024-03-23T14:00:00Z",
+      "author": "M. Chen",
+      "title": "Water cooling system filter replacement",
+      "text": "Replaced particulate filters on the magnet cooling water circuit for Ring Section A (Sectors 1-4). Old filters showed 45% flow restriction (replacement threshold: 40%). New filters installed, flow rates verified: main header 240 L/min (nominal: 230 L/min). Water conductivity measured at 0.8 uS/cm (spec: < 2.0 uS/cm). pH stable at 7.2.",
+      "tags": ["cooling", "maintenance", "water-quality"],
+      "categories": ["Maintenance"]
+    },
+    {
+      "id": "DEMO-019",
+      "timestamp": "2024-03-24T07:00:00Z",
+      "author": "A. Rodriguez",
+      "title": "Insertion device ID-12 commissioning",
+      "text": "Commissioned new hybrid permanent magnet undulator ID-12 for Beamline BL-12. Gap scan performed from 50 mm down to minimum gap of 11 mm. Peak field at minimum gap: 0.82 T (design: 0.80 T). Beam lifetime impact at minimum gap: -15% (acceptable). Photon flux measured at BL-12 monochromator matches predicted values within 10%. Beamline staff confirmed first light.",
+      "tags": ["insertion-device", "commissioning", "beamline"],
+      "categories": ["Commissioning"]
+    },
+    {
+      "id": "DEMO-020",
+      "timestamp": "2024-03-24T15:00:00Z",
+      "author": "L. Johnson",
+      "title": "Electrical safety - LOTO for Sector 8 power supply work",
+      "text": "Applied LOTO procedure LOTO-2024-0318 for planned power supply replacement on quadrupole magnet QF-08C. Circuit breaker CB-PS-08C locked out. Zero energy verification completed with multimeter: 0.0 V DC measured at power supply output terminals. Capacitor bank discharge verified. Work permit issued to T. Nakamura for power supply replacement.",
+      "tags": ["loto", "safety", "power-supply"],
+      "categories": ["Safety"],
+      "loto_tag": "LOTO-2024-0318"
+    },
+    {
+      "id": "DEMO-021",
+      "timestamp": "2024-03-25T06:00:00Z",
+      "author": "T. Nakamura",
+      "title": "Owl shift summary 2024-03-25",
+      "text": "Beam delivered from 22:00 to 06:00 with one unscheduled beam dump at 01:40 due to fast orbit interlock trip. Root cause: transient ground vibration (construction work on neighboring building). Beam restored in 8 minutes. Average current: 398 mA. Lifetime: 7.8 hours (slightly lower than usual, likely due to insertion device ID-12 at close gap for commissioning). Overall availability: 98.5%.",
+      "tags": ["shift-summary", "beam-dump", "vibration"],
+      "categories": ["Shift Summary"]
+    },
+    {
+      "id": "DEMO-022",
+      "timestamp": "2024-03-25T10:30:00Z",
+      "author": "J. Smith",
+      "title": "Quadrupole power supply replacement QF-08C",
+      "text": "Replaced failed quadrupole power supply PS-QF-08C under LOTO-2024-0318. Old supply showed intermittent current regulation errors (ripple: 500 ppm vs spec: < 100 ppm). New supply (serial: QPS-2024-0142) installed and tested. Regulation measured at 45 ppm. Hysteresis cycle performed: 0 to 120 A to 0 in 10 A steps. All readings within specification. LOTO released at 16:00.",
+      "tags": ["power-supply", "replacement", "quadrupole"],
+      "categories": ["Equipment"],
+      "loto_tag": "LOTO-2024-0318"
+    },
+    {
+      "id": "DEMO-023",
+      "timestamp": "2024-03-26T09:00:00Z",
+      "author": "K. Williams",
+      "title": "Network infrastructure upgrade - control system VLAN",
+      "text": "Migrated Sectors 5-8 control system devices to new network VLAN as part of cybersecurity improvement project. 47 IOCs migrated to segmented network. IOC reboot sequence: timing IOCs first, then magnet IOCs, then diagnostic IOCs. All channel access connections verified via cainfo and caget spot checks. No impact to beam operations (performed during scheduled maintenance).",
+      "tags": ["network", "controls", "cybersecurity"],
+      "categories": ["Infrastructure"]
+    },
+    {
+      "id": "DEMO-024",
+      "timestamp": "2024-03-26T14:00:00Z",
+      "author": "P. Garcia",
+      "title": "Photon beam position stability measurement",
+      "text": "Measured photon beam position stability on BL-03, BL-07, and BL-12 using X-ray BPMs. Results over 4-hour period: BL-03 vertical stability 0.4 um RMS (spec: < 1.0 um), BL-07 vertical stability 0.3 um RMS, BL-12 vertical stability 0.6 um RMS (slightly elevated, likely ID-12 commissioning settling). Horizontal stability all beamlines < 0.5 um RMS. New orbit feedback matrix shows clear improvement.",
+      "tags": ["photon-beam", "stability", "beamline"],
+      "categories": ["Diagnostics"]
+    },
+    {
+      "id": "DEMO-025",
+      "timestamp": "2024-03-27T08:00:00Z",
+      "author": "R. Patel",
+      "title": "Linac gun cathode replacement",
+      "text": "Replaced thermionic cathode in the electron gun after 12,000 hours of operation (rated lifetime: 10,000 hours). Old cathode emission current had degraded to 1.8 A (nominal: 3.0 A for new cathode). New cathode (serial: CAT-2024-007) installed and conditioned over 6 hours. Final emission current: 3.1 A at nominal heater power. Beam energy from linac verified at 100 MeV +/- 0.1%.",
+      "tags": ["linac", "cathode", "maintenance"],
+      "categories": ["Maintenance"]
+    }
+  ]
+}

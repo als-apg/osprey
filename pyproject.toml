@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "osprey-framework"
-version = "0.10.9"
+version = "0.11.0"
 description = "An open-source, domain-agnostic, capability-based architecture for building intelligent agents"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -140,13 +140,17 @@ dev = [
     "pre-commit",
     "ruff",
     "pyepics",  # EPICS connector support for testing
-    "build",  # Required for 'osprey deploy up --dev' to build local wheel
+    "testcontainers[postgres]>=4.0.0",  # Real PostgreSQL for integration tests
+    "docker>=7.0.0",  # Docker SDK for testcontainers availability check
+    "fastapi>=0.109.0",  # For ARIEL Web API tests
+    "psycopg[pool]>=3.1.0,<4.0.0",  # ARIEL search integration tests
+    "psycopg-pool>=3.1.0,<4.0.0",  # ARIEL search integration tests
 ]
 
-# Web Debug UI
+# Web interfaces (Debug UI + ARIEL Web)
 web = [
-    "fastapi>=0.115.0",
-    "uvicorn>=0.32.0",
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
     "websockets>=13.0",
 ]
 
@@ -167,9 +171,25 @@ storage = [
     "vecs>=0.4.5",
 ]
 
+# ARIEL (Agentic Retrieval Interface for Electronic Logbooks)
+# See _ISSUES/MAJOR/ARIEL/ for specification
+ariel = [
+    # PostgreSQL with pgvector for vector similarity search
+    "psycopg[pool]>=3.1.0,<4.0.0",
+    "psycopg-pool>=3.1.0,<4.0.0",
+    # LangGraph for ReAct agent
+    "langgraph>=0.5.2",
+    "langchain-openai>=0.3.0",
+]
+
+# ARIEL proxy support for HTTP ingestion through SOCKS tunnels
+ariel-proxy = [
+    "aiohttp-socks>=0.8.0",
+]
+
 # All optional dependencies for complete installation
 all = [
-    "osprey-framework[docs,dev,web,storage]"
+    "osprey-framework[docs,dev,storage,ariel,web]"
 ]
 
 [project.urls]
@@ -211,6 +231,7 @@ include = ["osprey*"]
     "templates/**/*.css",
     "templates/**/*.js",
     "templates/**/*.json",
+    "interfaces/ariel/static/**/*",
     "workflows/*.md",  # Legacy workflow files (deprecated, use assist/)
     "assist/**/*.md",  # Coding assistant task instructions
     "assist/**/*.yml",  # Migration documents and schemas
@@ -301,7 +322,7 @@ ignore = [
 "tests/services/channel_finder/test_registration.py" = ["E402"]  # Late imports after path manipulation
 "src/osprey/templates/apps/control_assistant/_agent_data/example_scripts/**/*.py" = ["E402"]  # Example scripts with late imports
 "src/osprey/templates/services/jupyter/startup_script.py" = ["F401"]  # Intentionally loaded in namespace
-"src/osprey/templates/apps/control_assistant/services/channel_finder/__init__.py" = ["E402"]  # Conditional imports
+"src/osprey/services/channel_finder/__init__.py" = ["E402"]  # Grouped imports with section comments
 
 [tool.ruff.lint.isort]
 known-first-party = ["osprey", "configs", "applications", "interfaces", "deployment"]

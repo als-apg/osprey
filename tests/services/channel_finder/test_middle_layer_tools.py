@@ -11,10 +11,10 @@ from unittest.mock import MagicMock
 import pytest
 import yaml
 
-from osprey.templates.apps.control_assistant.services.channel_finder.databases.middle_layer import (
+from osprey.services.channel_finder.databases.middle_layer import (
     MiddleLayerDatabase,
 )
-from osprey.templates.apps.control_assistant.services.channel_finder.pipelines.middle_layer import (
+from osprey.services.channel_finder.pipelines.middle_layer import (
     MiddleLayerPipeline,
 )
 
@@ -513,7 +513,7 @@ def sample_middle_layer_pipeline(
         return mock_prompts
 
     monkeypatch.setattr(
-        "osprey.templates.apps.control_assistant.services.channel_finder.pipelines.middle_layer.pipeline.load_prompts",
+        "osprey.services.channel_finder.pipelines.middle_layer.pipeline.load_prompts",
         mock_load_prompts,
     )
 
@@ -605,7 +605,7 @@ def string_channel_names_pipeline(
         return mock_prompts
 
     monkeypatch.setattr(
-        "osprey.templates.apps.control_assistant.services.channel_finder.pipelines.middle_layer.pipeline.load_prompts",
+        "osprey.services.channel_finder.pipelines.middle_layer.pipeline.load_prompts",
         mock_load_prompts,
     )
 

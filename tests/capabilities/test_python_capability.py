@@ -2,8 +2,6 @@
 
 import inspect
 
-import pytest
-
 from osprey.capabilities.python import PythonCapability, _create_python_capability_prompts
 
 
@@ -102,16 +100,6 @@ class TestPythonPromptBuilderIntegration:
         combined = "\n".join(prompts)
         assert "Test task" in combined
         assert "Test query" in combined
-
-    @pytest.mark.skip(reason="Requires full registry initialization - tested in integration tests")
-    def test_orchestrator_guide_from_prompt_builder(self):
-        """Verify orchestrator guide comes from prompt builder.
-
-        Note: This test requires registry initialization and is better tested
-        in integration tests. The key functionality (prompt builder instructions
-        injection into capability_prompts) is tested above.
-        """
-        pass
 
     def test_classifier_guide_uses_prompt_builder(self):
         """Verify _create_classifier_guide delegates to prompt builder."""

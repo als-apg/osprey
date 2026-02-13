@@ -1,0 +1,622 @@
+# OSPREY Migration Document
+# Migrates downstream projects from v0.10.x to v0.11
+#
+# This is a STRUCTURAL migration. Unlike v0.9.6 (simple renames), this release
+# moves capabilities, context classes, services, and tools from Jinja2 templates
+# into native framework modules. Downstream facilities must delete local copies
+# and update imports to point at the framework.
+
+version: "0.11"
+release_date: "2026-02-07"
+summary: "Native control capabilities — capabilities, context classes, channel finder service, and database tools move from templates to framework"
+migrates_from: "0.10"
+breaking: true
+
+changes:
+
+  # =========================================================================
+  # 1. Import path changes — capabilities
+  # =========================================================================
+
+  - type: import_change
+    risk: high
+    old_import: "from <package>.capabilities.channel_finding import ChannelFindingCapability"
+    new_import: "from osprey.capabilities.channel_finding import ChannelFindingCapability"
+    search_pattern: 'from\s+\w+\.capabilities\.channel_finding\s+import'
+    automatable: partial
+    manual_review_reason: "Package name varies per facility — verify each match"
+
+  - type: import_change
+    risk: high
+    old_import: "from <package>.capabilities.channel_read import ChannelReadCapability"
+    new_import: "from osprey.capabilities.channel_read import ChannelReadCapability"
+    search_pattern: 'from\s+\w+\.capabilities\.channel_read\s+import'
+    automatable: partial
+    manual_review_reason: "Package name varies per facility — verify each match"
+
+  - type: import_change
+    risk: high
+    old_import: "from <package>.capabilities.channel_write import ChannelWriteCapability"
+    new_import: "from osprey.capabilities.channel_write import ChannelWriteCapability"
+    search_pattern: 'from\s+\w+\.capabilities\.channel_write\s+import'
+    automatable: partial
+    manual_review_reason: "Package name varies per facility — verify each match"
+
+  - type: import_change
+    risk: high
+    old_import: "from <package>.capabilities.archiver_retrieval import ArchiverRetrievalCapability"
+    new_import: "from osprey.capabilities.archiver_retrieval import ArchiverRetrievalCapability"
+    search_pattern: 'from\s+\w+\.capabilities\.archiver_retrieval\s+import'
+    automatable: partial
+    manual_review_reason: "Package name varies per facility — verify each match"
+
+
+  # =========================================================================
+  # 2. Import path changes — context classes
+  #
+  # Context classes moved FROM a single context_classes.py module
+  # INTO their respective capability modules. This is NOT a simple prefix swap.
+  # =========================================================================
+
+  - type: import_change
+    risk: high
+    old_import: "from <package>.context_classes import ChannelAddressesContext"
+    new_import: "from osprey.capabilities.channel_finding import ChannelAddressesContext"
+    search_pattern: 'from\s+\w+\.context_classes\s+import\s+ChannelAddressesContext'
+    automatable: partial
+    manual_review_reason: "Target module changed (context_classes → capabilities.channel_finding)"
+
+  - type: import_change
+    risk: high
+    old_import: "from <package>.context_classes import ChannelValuesContext"
+    new_import: "from osprey.capabilities.channel_read import ChannelValuesContext"
+    search_pattern: 'from\s+\w+\.context_classes\s+import\s+ChannelValuesContext'
+    automatable: partial
+    manual_review_reason: "Target module changed (context_classes → capabilities.channel_read)"
+
+  - type: import_change
+    risk: high
+    old_import: "from <package>.context_classes import ChannelWriteResultsContext"
+    new_import: "from osprey.capabilities.channel_write import ChannelWriteResultsContext"
+    search_pattern: 'from\s+\w+\.context_classes\s+import\s+ChannelWriteResultsContext'
+    automatable: partial
+    manual_review_reason: "Target module changed (context_classes → capabilities.channel_write)"
+
+  - type: import_change
+    risk: high
+    old_import: "from <package>.context_classes import ArchiverDataContext"
+    new_import: "from osprey.capabilities.archiver_retrieval import ArchiverDataContext"
+    search_pattern: 'from\s+\w+\.context_classes\s+import\s+ArchiverDataContext'
+    automatable: partial
+    manual_review_reason: "Target module changed (context_classes → capabilities.archiver_retrieval)"
+
+  - type: import_change
+    risk: high
+    old_import: "from <package>.context_classes import ChannelAddressesContext, ChannelValuesContext, ..."
+    new_import: "Split into separate imports from each capability module"
+    search_pattern: 'from\s+\w+\.context_classes\s+import\s+.*,.*'
+    automatable: false
+    manual_review_reason: |
+      Multi-class import lines must be split into separate imports.
+      Each context class now lives in its own capability module:
+        ChannelAddressesContext    → osprey.capabilities.channel_finding
+        ChannelValuesContext       → osprey.capabilities.channel_read
+        ChannelWriteResultsContext → osprey.capabilities.channel_write
+        ArchiverDataContext        → osprey.capabilities.archiver_retrieval
+
+  # =========================================================================
+  # 2b. Import path changes — context classes (relative imports)
+  #
+  # Template-generated capabilities import context classes with relative
+  # imports (from ..context_classes). These also need updating.
+  # =========================================================================
+
+  - type: import_change
+    risk: high
+    old_import: "from ..context_classes import ChannelAddressesContext"
+    new_import: "from osprey.capabilities.channel_finding import ChannelAddressesContext"
+    search_pattern: 'from\s+\.\.context_classes\s+import\s+ChannelAddressesContext'
+    automatable: true
+
+  - type: import_change
+    risk: high
+    old_import: "from ..context_classes import ChannelValue, ChannelValuesContext"
+    new_import: "from osprey.capabilities.channel_read import ChannelValue, ChannelValuesContext"
+    search_pattern: 'from\s+\.\.context_classes\s+import\s+ChannelValue'
+    automatable: true
+
+  - type: import_change
+    risk: high
+    old_import: "from ..context_classes import ChannelWriteResult, ChannelWriteResultsContext, WriteVerificationInfo"
+    new_import: "from osprey.capabilities.channel_write import ChannelWriteResult, ChannelWriteResultsContext, WriteVerificationInfo"
+    search_pattern: 'from\s+\.\.context_classes\s+import\s+ChannelWriteResult'
+    automatable: true
+
+  - type: import_change
+    risk: high
+    old_import: "from ..context_classes import ArchiverDataContext"
+    new_import: "from osprey.capabilities.archiver_retrieval import ArchiverDataContext"
+    search_pattern: 'from\s+\.\.context_classes\s+import\s+ArchiverDataContext'
+    automatable: true
+
+  - type: import_change
+    risk: high
+    old_import: "from ..context_classes import <any multi-import>"
+    new_import: "Split into separate imports from each capability module"
+    search_pattern: 'from\s+\.\.context_classes\s+import\s+.*,.*'
+    automatable: false
+    manual_review_reason: |
+      Relative multi-class import lines must be split into separate imports.
+      Each context class (and its helper models) now lives in its capability module:
+        ChannelAddressesContext                                        → osprey.capabilities.channel_finding
+        ChannelValue, ChannelValuesContext                             → osprey.capabilities.channel_read
+        ChannelWriteResult, ChannelWriteResultsContext, WriteVerificationInfo → osprey.capabilities.channel_write
+        ArchiverDataContext                                            → osprey.capabilities.archiver_retrieval
+
+  # =========================================================================
+  # 3. Import path changes — channel finder service
+  # =========================================================================
+
+  - type: import_change
+    risk: high
+    old_import: "from <package>.services.channel_finder.* import ..."
+    new_import: "from osprey.services.channel_finder.* import ..."
+    search_pattern: 'from\s+\w+\.services\.channel_finder'
+    automatable: partial
+    manual_review_reason: "Package name varies per facility — verify each match"
+
+  - type: import_change
+    risk: high
+    old_import: "from ..services.channel_finder.service import ChannelFinderService"
+    new_import: "from osprey.services.channel_finder.service import ChannelFinderService"
+    search_pattern: 'from\s+\.\.services\.channel_finder'
+    automatable: true
+
+  # =========================================================================
+  # 4. Registry rewrite
+  #
+  # The old registry explicitly registered capabilities and context classes.
+  # The new registry uses extend_framework_registry() with only prompt builders,
+  # since capabilities are now provided natively by the framework.
+  # =========================================================================
+
+  - type: removal
+    risk: high
+    removed: "CapabilityRegistration(...) entries in registry.py"
+    search_pattern: 'CapabilityRegistration\s*\('
+    automatable: false
+    migration_notes: |
+      Remove all 4 CapabilityRegistration blocks from get_registry_config():
+        - channel_finding
+        - channel_read
+        - channel_write
+        - archiver_retrieval
+      These capabilities are now registered natively by the framework.
+      Also remove the capabilities=[] parameter from extend_framework_registry().
+
+  - type: removal
+    risk: high
+    removed: "ContextClassRegistration(...) entries in registry.py"
+    search_pattern: 'ContextClassRegistration\s*\('
+    automatable: false
+    migration_notes: |
+      Remove all 4 ContextClassRegistration blocks from get_registry_config():
+        - CHANNEL_ADDRESSES → ChannelAddressesContext
+        - CHANNEL_VALUES → ChannelValuesContext
+        - CHANNEL_WRITE_RESULTS → ChannelWriteResultsContext
+        - ARCHIVER_DATA → ArchiverDataContext
+      These context classes are now co-located with their capabilities.
+      Also remove the context_classes=[] parameter from extend_framework_registry().
+
+  - type: removal
+    risk: medium
+    removed: "Unused imports: CapabilityRegistration, ContextClassRegistration"
+    search_pattern: 'import.*CapabilityRegistration|import.*ContextClassRegistration|^\s+CapabilityRegistration,|^\s+ContextClassRegistration,'
+    automatable: false
+    migration_notes: |
+      Remove CapabilityRegistration and ContextClassRegistration from the
+      osprey.registry import block in registry.py. Keep RegistryConfigProvider,
+      extend_framework_registry, FrameworkPromptProviderRegistration, and RegistryConfig.
+
+  - type: behavior_change
+    risk: medium
+    description: "Add channel finder prompt builder entries to framework_prompt_providers"
+    search_pattern: 'prompt_builders\s*='
+    automatable: false
+    manual_review_reason: |
+      Add 3 channel finder prompt builder entries to the prompt_builders dict
+      in your FrameworkPromptProviderRegistration. These were previously loaded
+      from filesystem paths but now use the builder system.
+    example:
+      before: |
+        prompt_builders={
+            "python": "ControlSystemPythonPromptBuilder",
+            "task_extraction": "ControlSystemTaskExtractionPromptBuilder"
+        }
+      after: |
+        prompt_builders={
+            "python": "ControlSystemPythonPromptBuilder",
+            "task_extraction": "ControlSystemTaskExtractionPromptBuilder",
+            "channel_finder_in_context": "FacilityInContextPromptBuilder",
+            "channel_finder_hierarchical": "FacilityHierarchicalPromptBuilder",
+            "channel_finder_middle_layer": "FacilityMiddleLayerPromptBuilder",
+        }
+
+  # =========================================================================
+  # 5. File/directory removals
+  #
+  # IMPORTANT: Before deleting any file or directory, diff against the native
+  # framework version. If the facility has local customizations, use
+  # `osprey eject` to create a proper override before deleting.
+  # =========================================================================
+
+  - type: removal
+    risk: high
+    removed: "capabilities/ directory (4 capability files)"
+    search_pattern: 'capabilities/(channel_finding|channel_read|channel_write|archiver_retrieval)\.py'
+    automatable: false
+    migration_notes: |
+      Delete the following files from your project's capabilities/ directory:
+        - capabilities/channel_finding.py
+        - capabilities/channel_read.py
+        - capabilities/channel_write.py
+        - capabilities/archiver_retrieval.py
+
+      BEFORE DELETING: Diff each file against the native framework version.
+      Check for: modified execute() methods, custom error types, changed
+      orchestrator/classifier guides, added helper methods.
+
+      If customized: run `osprey eject capability <name>` to create a proper
+      override that extends the native capability, then delete the old file.
+
+      If the capabilities/ directory only contained these 4 files plus __init__.py,
+      delete the entire directory. If it contains other custom capabilities, keep
+      the directory and only delete the 4 migrated files.
+
+  - type: removal
+    risk: high
+    removed: "context_classes.py"
+    search_pattern: 'context_classes\.py'
+    automatable: false
+    migration_notes: |
+      Delete context_classes.py from your project root (src/<package>/context_classes.py).
+
+      BEFORE DELETING: Diff each context class against the native version in
+      its new home module:
+        - ChannelAddressesContext    → osprey.capabilities.channel_finding
+        - ChannelValuesContext       → osprey.capabilities.channel_read
+        - ChannelWriteResultsContext → osprey.capabilities.channel_write
+        - ArchiverDataContext        → osprey.capabilities.archiver_retrieval
+
+      Check for: added Pydantic fields, custom validators, extra helper methods.
+      These are Pydantic models, so field changes are significant and affect
+      serialization and state management.
+
+      If customized: context classes cannot be ejected independently — they are
+      part of their capability module. Use `osprey eject capability <name>` to
+      get the full capability+context module, then apply your customizations.
+
+  - type: removal
+    risk: high
+    removed: "services/channel_finder/ directory (~48 files)"
+    search_pattern: 'services/channel_finder/'
+    automatable: false
+    migration_notes: |
+      Delete the entire services/channel_finder/ directory from your project.
+
+      BEFORE DELETING: Check for facility-specific customizations:
+        - Custom prompt files in prompts/<pipeline>/ (e.g., facility_description.py,
+          matching_rules.py with your facility's naming conventions)
+        - Modified pipeline logic (custom scoring, filtering, or matching)
+        - Custom database implementations
+
+      If customized prompts: Migrate prompt content to framework_prompts/channel_finder/
+      builder classes. The new builder system replaces filesystem prompt loading.
+
+      If customized pipelines or databases: Run `osprey eject service channel_finder`
+      to get a local copy that overrides the native service, then apply your
+      customizations to the ejected copy.
+
+  - type: removal
+    risk: medium
+    removed: "data/tools/ directory (database build/validate/preview scripts)"
+    search_pattern: 'data/tools/(build_channel_database|validate_database|preview_database|llm_channel_namer)\.py'
+    automatable: false
+    migration_notes: |
+      Delete the following files from your project's data/tools/ directory:
+        - data/tools/build_channel_database.py
+        - data/tools/validate_database.py
+        - data/tools/preview_database.py
+        - data/tools/llm_channel_namer.py
+
+      These are replaced by the `osprey channel-finder` CLI command group:
+        - osprey channel-finder build-database  (replaces build_channel_database.py)
+        - osprey channel-finder validate        (replaces validate_database.py)
+        - osprey channel-finder preview         (replaces preview_database.py)
+
+      BEFORE DELETING: Check for custom CLI flags, modified database build logic,
+      or custom validation rules. The CLI replacements have feature parity with
+      the template-generated scripts. Usually safe to delete.
+
+  # =========================================================================
+  # 6. Config changes
+  # =========================================================================
+
+  - type: config_change
+    risk: medium
+    description: "Remove prompts.path entries from channel_finder pipeline config sections"
+    file_pattern: "config.yml"
+    automatable: partial
+    manual_review_reason: "Config structure varies per facility"
+    transformation: |
+      In config.yml, remove any `prompts.path` or `prompts_dir` entries from
+      channel_finder pipeline configuration sections. Prompts are now loaded
+      via the builder system, not from filesystem paths.
+
+      Before:
+        channel_finder:
+          pipeline: hierarchical
+          prompts:
+            path: "prompts/hierarchical"
+
+      After:
+        channel_finder:
+          pipeline: hierarchical
+          # Prompts are provided by framework prompt builders.
+          # Customize via framework_prompts/ builder classes.
+
+  # =========================================================================
+  # 7. New additions (informational, non-breaking)
+  # =========================================================================
+
+  - type: addition
+    description: |
+      New `osprey eject` command for customizing native framework components.
+      Use when you need to modify a capability or service beyond what prompt
+      customization allows.
+    example:
+      before: "# No equivalent — capabilities were always local copies"
+      after: |
+        osprey eject list                          # List ejectable components
+        osprey eject capability channel_finding    # Copy capability to local project
+        osprey eject service channel_finder        # Copy service to local project
+
+  - type: addition
+    description: |
+      New `osprey channel-finder` CLI command group replacing data/tools/ scripts.
+      Provides interactive REPL, direct query, benchmarks, and database management.
+    example:
+      before: "python -m <package>.data.tools.build_channel_database"
+      after: |
+        osprey channel-finder                      # Interactive REPL
+        osprey channel-finder query "beam current" # Direct query
+        osprey channel-finder build-database       # Build channel database
+        osprey channel-finder validate             # Validate database
+        osprey channel-finder preview              # Preview database
+        osprey channel-finder benchmark            # Run benchmarks
+
+  - type: addition
+    description: |
+      New framework_prompts/channel_finder/ directory with prompt builder classes.
+      These replace filesystem-based prompt files with Python classes that can be
+      customized per-facility via the FrameworkPromptProviderRegistration system.
+    new_imports:
+      - "from osprey.prompts.defaults.channel_finder import DefaultInContextPromptBuilder"
+      - "from osprey.prompts.defaults.channel_finder import DefaultHierarchicalPromptBuilder"
+      - "from osprey.prompts.defaults.channel_finder import DefaultMiddleLayerPromptBuilder"
+    example:
+      before: |
+        # Old: prompts loaded from filesystem
+        # prompts/in_context/facility_description.py
+        FACILITY_DESCRIPTION = "ALS is a synchrotron light source..."
+      after: |
+        # New: extend the default builder in framework_prompts/channel_finder/
+        from osprey.prompts.defaults.channel_finder import DefaultInContextPromptBuilder
+
+        class FacilityInContextPromptBuilder(DefaultInContextPromptBuilder):
+            def get_facility_description(self) -> str:
+                return "ALS is a synchrotron light source..."
+
+  - type: addition
+    description: |
+      Updated framework_prompts/__init__.py exports now include channel finder
+      prompt builder registration keys: channel_finder_in_context,
+      channel_finder_hierarchical, channel_finder_middle_layer.
+
+  # =========================================================================
+  # 8. Behavior changes
+  # =========================================================================
+
+  - type: behavior_change
+    risk: low
+    description: |
+      Shadow warning system for backward compatibility. If a facility project
+      still registers capabilities that are now native (channel_finding,
+      channel_read, channel_write, archiver_retrieval), the framework logs a
+      warning but allows the local version to override. This provides a grace
+      period for migration — existing projects continue to work but see warnings.
+    automatable: false
+    manual_review_reason: "Informational — no action required unless warnings appear in logs"
+
+  - type: behavior_change
+    risk: medium
+    description: |
+      Channel finder prompts are now loaded via the builder system instead of
+      filesystem paths. The prompt_loader utility reads from builder classes
+      registered in the framework prompt provider, not from prompts/<pipeline>/
+      directories. Facility-specific prompts should be customized by subclassing
+      the default builders in framework_prompts/channel_finder/.
+    automatable: false
+    affected_method: "PromptLoader.load_prompts"
+    manual_review_reason: "Review any code that directly reads prompt files from the filesystem"
+
+# =============================================================================
+# Deprecations (scheduled for removal in v0.12)
+# =============================================================================
+
+deprecations:
+  - item: "CapabilityRegistration in downstream registries"
+    replacement: "Native framework capabilities (no registration needed)"
+    removal_version: "0.12"
+    description: |
+      Registering channel_finding, channel_read, channel_write, or archiver_retrieval
+      via CapabilityRegistration is deprecated. The shadow warning system allows this
+      to still work in v0.11 but it will be removed in v0.12.
+
+  - item: "ContextClassRegistration for native context classes"
+    replacement: "Context classes co-located with their capability modules"
+    removal_version: "0.12"
+    description: |
+      Registering ChannelAddressesContext, ChannelValuesContext,
+      ChannelWriteResultsContext, or ArchiverDataContext via ContextClassRegistration
+      is deprecated. These are now automatically available from their capability modules.
+
+  - item: "Filesystem-based prompt loading for channel finder"
+    replacement: "Framework prompt builder system"
+    removal_version: "0.12"
+    description: |
+      Loading channel finder prompts from prompts/<pipeline>/ directories is deprecated.
+      Use the builder system via FrameworkPromptProviderRegistration instead.
+
+# =============================================================================
+# Affected file patterns
+# =============================================================================
+
+affected_file_patterns:
+  - "**/registry.py"
+  - "**/capabilities/*.py"
+  - "**/capabilities/__init__.py"
+  - "**/context_classes.py"
+  - "**/services/channel_finder/**/*.py"
+  - "**/framework_prompts/__init__.py"
+  - "**/framework_prompts/channel_finder/*.py"
+  - "**/data/tools/*.py"
+  - "config.yml"
+
+# =============================================================================
+# Validation commands
+# =============================================================================
+
+validation:
+  - command: "python -c 'from osprey.capabilities.channel_finding import ChannelFindingCapability, ChannelAddressesContext'"
+    description: "Verify native channel_finding capability and context class"
+
+  - command: "python -c 'from osprey.capabilities.channel_read import ChannelReadCapability, ChannelValuesContext'"
+    description: "Verify native channel_read capability and context class"
+
+  - command: "python -c 'from osprey.capabilities.channel_write import ChannelWriteCapability, ChannelWriteResultsContext'"
+    description: "Verify native channel_write capability and context class"
+
+  - command: "python -c 'from osprey.capabilities.archiver_retrieval import ArchiverRetrievalCapability, ArchiverDataContext'"
+    description: "Verify native archiver_retrieval capability and context class"
+
+  - command: "python -c 'from osprey.services.channel_finder.service import ChannelFinderService'"
+    description: "Verify native channel finder service"
+
+  - command: "python -c 'from osprey.prompts.defaults.channel_finder import DefaultInContextPromptBuilder, DefaultHierarchicalPromptBuilder, DefaultMiddleLayerPromptBuilder'"
+    description: "Verify channel finder prompt builders"
+
+  - command: "pytest --collect-only -q 2>&1 | tail -1"
+    description: "Verify all test imports resolve (no collection errors)"
+
+  - command: "python -c 'from osprey import __version__; assert __version__.startswith(\"0.11\"), f\"Expected 0.11.x, got {__version__}\"; print(f\"Version: {__version__}\")'"
+    description: "Verify framework version is 0.11.x"
+
+# =============================================================================
+# Migration notes
+# =============================================================================
+
+notes: |
+  ## Step-by-Step Migration Guide
+
+  Follow these steps in order. Each step builds on the previous one.
+
+  ### 1. Update osprey dependency
+  Update your pyproject.toml or requirements.txt to require osprey >= 0.11.
+
+  ### 2. Check for customizations BEFORE deleting anything
+  For each directory/file being removed, diff against the native framework version:
+    - capabilities/*.py → osprey.capabilities.<name>
+    - context_classes.py → context classes in osprey.capabilities.<name>
+    - services/channel_finder/ → osprey.services.channel_finder
+    - data/tools/ → osprey channel-finder CLI commands
+
+  If you find customizations, use `osprey eject` to create proper overrides
+  before proceeding.
+
+  ### 3. Update capability imports
+  Change `from <your_package>.capabilities.<name> import ...`
+  to     `from osprey.capabilities.<name> import ...`
+  for: channel_finding, channel_read, channel_write, archiver_retrieval.
+
+  ### 4. Update context class imports
+  Context classes moved to their capability modules (NOT a simple prefix swap):
+    from osprey.capabilities.channel_finding import ChannelAddressesContext
+    from osprey.capabilities.channel_read import ChannelValuesContext
+    from osprey.capabilities.channel_write import ChannelWriteResultsContext
+    from osprey.capabilities.archiver_retrieval import ArchiverDataContext
+
+  Split any multi-class imports from context_classes into separate lines.
+
+  ### 5. Update service imports
+  Change `from <your_package>.services.channel_finder...`
+  to     `from osprey.services.channel_finder...`
+
+  ### 6. Rewrite registry.py
+  - Remove all CapabilityRegistration and ContextClassRegistration entries
+  - Remove unused imports (CapabilityRegistration, ContextClassRegistration)
+  - Add channel finder prompt builders to the prompt_builders dict
+  - Keep only extend_framework_registry() with framework_prompt_providers
+
+  ### 7. Delete migrated files
+  - capabilities/channel_finding.py, channel_read.py, channel_write.py, archiver_retrieval.py
+  - context_classes.py
+  - services/channel_finder/ (entire directory)
+  - data/tools/build_channel_database.py, validate_database.py, preview_database.py, llm_channel_namer.py
+
+  ### 8. Update config.yml
+  Remove prompts.path entries from channel_finder pipeline sections.
+
+  ### 9. Run validation
+  Execute all validation commands above to verify the migration succeeded.
+  Then run your test suite: pytest tests/ --ignore=tests/e2e -v
+
+  ## Customization Preservation
+
+  The `osprey eject` command is your escape hatch. If you need to customize
+  any native component:
+
+    osprey eject list                          # See what's available
+    osprey eject capability channel_finding    # Get a local copy to customize
+    osprey eject service channel_finder        # Get the full service locally
+
+  Ejected components automatically override the framework's native versions
+  when registered in your registry.py.
+
+  ## Quick-Check Checklist
+
+  After migration, verify:
+  - [ ] No imports from <your_package>.capabilities.channel_* remain
+  - [ ] No imports from <your_package>.context_classes remain
+  - [ ] No imports from <your_package>.services.channel_finder remain
+  - [ ] registry.py has no CapabilityRegistration or ContextClassRegistration
+  - [ ] registry.py prompt_builders dict includes channel_finder_* entries
+  - [ ] No capabilities/channel_*.py files in your project
+  - [ ] No context_classes.py in your project
+  - [ ] No services/channel_finder/ directory in your project
+  - [ ] No data/tools/ scripts for database management
+  - [ ] config.yml has no prompts.path in channel_finder sections
+  - [ ] pytest --collect-only shows no import errors
+  - [ ] All tests pass
+
+  ## Backward Compatibility
+
+  The shadow warning system provides a grace period: if your facility project
+  still has the old structure (local capabilities, context_classes.py, etc.),
+  it will continue to work. The framework detects the overlap and logs warnings
+  but lets your local versions take precedence.
+
+  However, you should migrate promptly because:
+  1. Shadow warnings add noise to your logs
+  2. You miss bug fixes and improvements to native capabilities
+  3. The shadow system will be removed in v0.12

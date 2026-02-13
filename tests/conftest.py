@@ -4,10 +4,13 @@ Pytest configuration and shared test utilities.
 This module provides shared fixtures and utilities for all Osprey tests.
 """
 
+from typing import Any
+
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
 from osprey.base.planning import ExecutionPlan, PlannedStep
+from osprey.events import clear_fallback_handlers, register_fallback_handler
 from osprey.state import AgentState
 
 # ===================================================================
@@ -59,6 +62,47 @@ def reset_state_between_tests():
         approval_module._approval_manager = None
     except ImportError:
         pass
+
+
+# ===================================================================
+# Unified Event System — Event Capture Fixtures
+# ===================================================================
+
+
+@pytest.fixture(autouse=True, scope="function")
+def clear_event_handlers_between_tests():
+    """Clear event fallback handlers between tests to ensure isolation."""
+    clear_fallback_handlers()
+    yield
+    clear_fallback_handlers()
+
+
+@pytest.fixture
+def captured_events() -> list[dict[str, Any]]:
+    """Provide a list to capture emitted events via the unified event system."""
+    return []
+
+
+@pytest.fixture
+def fallback_handler_with_capture(captured_events):
+    """Register a fallback handler that captures events into captured_events list.
+
+    Use this with ``captured_events`` to verify event emission in tests
+    that don't run inside a LangGraph streaming context.
+
+    Example::
+
+        def test_warning_emitted(self, captured_events, fallback_handler_with_capture):
+            logger.warning("something happened")
+            assert any("something happened" in e.get("message", "") for e in captured_events)
+    """
+
+    def handler(event_dict: dict[str, Any]) -> None:
+        captured_events.append(event_dict)
+
+    unregister = register_fallback_handler(handler)
+    yield handler
+    unregister()
 
 
 # ===================================================================

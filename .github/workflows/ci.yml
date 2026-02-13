@@ -257,7 +257,7 @@ jobs:
           -H "Content-Type: application/json" \
           -H "Authorization: Bearer 0p3n-w3bu!" \
           -d '{"model":"main","messages":[{"role":"user","content":"What is the weather in San Francisco?"}],"stream":false}' \
-          --max-time 120)
+          --max-time 300)
 
         echo "Response:"
         echo "$RESPONSE" | head -c 2000

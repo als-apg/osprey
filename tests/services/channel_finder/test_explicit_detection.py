@@ -15,10 +15,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from osprey.templates.apps.control_assistant.services.channel_finder.core.base_pipeline import (
+from osprey.services.channel_finder.core.base_pipeline import (
     BasePipeline,
 )
-from osprey.templates.apps.control_assistant.services.channel_finder.core.models import (
+from osprey.services.channel_finder.core.models import (
     ExplicitChannelDetectionOutput,
 )
 
@@ -83,7 +83,7 @@ class TestExplicitChannelDetection:
         )
 
         with patch(
-            "osprey.templates.apps.control_assistant.services.channel_finder.llm.get_chat_completion",
+            "osprey.services.channel_finder.llm.get_chat_completion",
             return_value=mock_response,
         ):
             result = await mock_pipeline._detect_explicit_channels("Set the SC:HCM1:SP pv to 4.6")
@@ -104,7 +104,7 @@ class TestExplicitChannelDetection:
         )
 
         with patch(
-            "osprey.templates.apps.control_assistant.services.channel_finder.llm.get_chat_completion",
+            "osprey.services.channel_finder.llm.get_chat_completion",
             return_value=mock_response,
         ):
             result = await mock_pipeline._detect_explicit_channels(
@@ -126,7 +126,7 @@ class TestExplicitChannelDetection:
         )
 
         with patch(
-            "osprey.templates.apps.control_assistant.services.channel_finder.llm.get_chat_completion",
+            "osprey.services.channel_finder.llm.get_chat_completion",
             return_value=mock_response,
         ):
             result = await mock_pipeline._detect_explicit_channels(
@@ -148,7 +148,7 @@ class TestExplicitChannelDetection:
         )
 
         with patch(
-            "osprey.templates.apps.control_assistant.services.channel_finder.llm.get_chat_completion",
+            "osprey.services.channel_finder.llm.get_chat_completion",
             return_value=mock_response,
         ):
             result = await mock_pipeline._detect_explicit_channels(
@@ -335,7 +335,7 @@ class TestEdgeCases:
         )
 
         with patch(
-            "osprey.templates.apps.control_assistant.services.channel_finder.llm.get_chat_completion",
+            "osprey.services.channel_finder.llm.get_chat_completion",
             return_value=mock_response,
         ):
             result = await mock_pipeline._detect_explicit_channels("Read SR01C:BPM-1:X-POSITION")

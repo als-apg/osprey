@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-02-12
+
+### Added
+- **Capabilities**: Migrate control capabilities to native Python modules
+  - `channel_finding`, `channel_read`, `channel_write`, `archiver_retrieval` moved from Jinja2 templates to `src/osprey/capabilities/`
+  - Context classes inlined into capability files (no separate `context_classes.py.j2`)
+  - `FrameworkRegistryProvider` registers native capabilities and context classes automatically
+- **Services**: Migrate Channel Finder service to native package
+  - 48 service files moved from templates to `src/osprey/services/channel_finder/`
+  - Default prompt builders added at `src/osprey/prompts/defaults/channel_finder/`
+  - Facility-specific prompt overrides via framework prompts
+- **CLI**: Add `osprey eject` command for customization escape hatch
+  - Copy framework capabilities or services into a project for modification
+  - Subcommands: `eject list`, `eject capability`, `eject service` with `--output` and `--include-tests` options
+- **CLI**: Add `osprey channel-finder` command with interactive REPL, query, and benchmark modes
+- **Registry**: Add shadow warning system for backward compatibility
+  - Detects when generated apps override native capabilities without explicit `override_capabilities` config
+  - Warns at registration time to guide users toward `osprey eject` workflow
+- **CLI**: Add `build-database`, `validate`, and `preview` subcommands to `osprey channel-finder`
+  - Database tools migrated from Jinja2 templates to native `osprey.services.channel_finder.tools`
+  - Replaces generated `data/tools/` scripts with first-class CLI commands
+  - LLM channel namer available as library via `osprey.services.channel_finder.tools.llm_channel_namer`
+- **ARIEL**: Add electronic logbook search capability
+  - Full-text and semantic search over facility logbooks (OLOG, custom sources)
+  - Web interface with dashboard, search, and entry browsing (`osprey ariel web`)
+  - CLI commands: `osprey ariel ingest`, `osprey ariel search`, `osprey ariel purge`
+  - Deployment support: PostgreSQL and web service templates for `osprey deploy up`
+  - Pluggable search modules and enhancement pipeline with registry-based discovery
+
+### Changed
+- **Templates**: Simplify `control_assistant` template (~130 → ~40 files)
+  - `registry.py.j2` now uses `extend_framework_registry()` with prompt providers only
+  - Capabilities, services, and database tools no longer generated from templates
+
 ## [0.10.9] - 2026-02-08
 
 ### Fixed

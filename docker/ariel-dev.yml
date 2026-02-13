@@ -1,0 +1,32 @@
+# ARIEL Development Database
+# PostgreSQL 16 with pgvector extension for local development and testing.
+#
+# Usage:
+#   docker compose -f docker/ariel-dev.yml up -d
+#   docker compose -f docker/ariel-dev.yml down
+#
+# Connection URI:
+#   postgresql://ariel:ariel@localhost:5433/ariel
+#
+# See 00_ARIEL_OVERVIEW.md Section 6.1.2 (SIMP-14) for deployment strategy.
+
+services:
+  ariel-db:
+    image: pgvector/pgvector:pg16
+    container_name: ariel-dev-db
+    environment:
+      POSTGRES_USER: ariel
+      POSTGRES_PASSWORD: ariel
+      POSTGRES_DB: ariel
+    ports:
+      - "5433:5432"
+    volumes:
+      - ariel-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ariel -d ariel"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  ariel-db-data:

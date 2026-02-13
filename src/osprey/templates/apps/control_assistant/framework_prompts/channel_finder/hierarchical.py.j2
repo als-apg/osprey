@@ -1,0 +1,66 @@
+"""Facility-specific hierarchical pipeline prompt builder.
+
+Customize the facility description and matching rules below to match your
+control system's hierarchical naming patterns and conventions.
+"""
+
+from osprey.prompts.defaults.channel_finder import DefaultHierarchicalPromptBuilder
+
+
+# Customize this description for your facility's hierarchical naming
+_FACILITY_DESCRIPTION = """
+This is a control system using hierarchical channel naming conventions.
+
+The control system uses EPICS (Experimental Physics and Industrial Control System)
+with a hierarchical naming convention.
+
+NAMING CONVENTION:
+Channels follow the pattern: SYSTEM:FAMILY:DEVICE:FIELD[:SUBFIELD]
+
+For example:
+- SR:BPM:1:X (Storage Ring, BPM device 1, horizontal position)
+- BR:QF:3:CURRENT:SP (Booster Ring, QF magnet 3, current setpoint)
+
+HIERARCHY LEVELS:
+1. SYSTEM: Major subsystem (e.g., SR=Storage Ring, BR=Booster Ring)
+2. FAMILY: Device family (e.g., BPM, QF, QD, HCM, VCM)
+3. DEVICE: Device number or location
+4. FIELD: Measurement type (e.g., X, Y, CURRENT, PRESSURE)
+5. SUBFIELD: Optional qualifier (e.g., SP=Setpoint, RB=Readback)
+""".strip()
+
+# Customize matching rules for your facility's terminology
+_MATCHING_RULES = """
+CRITICAL TERMINOLOGY:
+
+Readback vs Setpoint:
+- "RB" or "ReadBack" = Measured/actual value (read-only)
+- "SP" or "SetPoint" = Control/command value (writable)
+- When user asks to "read", "monitor", "measure" → return RB/ReadBack fields
+- When user asks to "set", "control", "adjust" → return SP/SetPoint fields
+- When ambiguous → include both
+
+Position and Axis:
+- "X" or "horizontal" = horizontal position/orbit
+- "Y" or "vertical" = vertical position/orbit
+- "position" or "orbit" = both X and Y coordinates
+
+Common Synonyms:
+- "beam position" = BPM family
+- "corrector" or "steering" = HCM and VCM families
+- "quadrupole" or "quad" = QF and QD families
+""".strip()
+
+
+class FacilityHierarchicalPromptBuilder(DefaultHierarchicalPromptBuilder):
+    """Facility-specific prompt builder for hierarchical channel finder pipeline.
+
+    Override get_facility_description() and get_matching_rules() to customize
+    the prompts for your facility's hierarchical naming conventions.
+    """
+
+    def get_facility_description(self) -> str:
+        return _FACILITY_DESCRIPTION
+
+    def get_matching_rules(self) -> str:
+        return _MATCHING_RULES

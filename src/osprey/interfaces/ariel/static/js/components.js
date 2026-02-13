@@ -1,0 +1,451 @@
+/**
+ * ARIEL UI Components
+ *
+ * Reusable component rendering functions.
+ */
+
+/**
+ * Format a timestamp for display.
+ * @param {string} timestamp - ISO timestamp
+ * @returns {string} Formatted date/time
+ */
+export function formatTimestamp(timestamp) {
+  if (!timestamp) return '';
+  const date = new Date(timestamp);
+  return date.toLocaleString('en-US', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+/**
+ * Format a relative time.
+ * @param {string} timestamp - ISO timestamp
+ * @returns {string} Relative time string
+ */
+export function formatRelativeTime(timestamp) {
+  if (!timestamp) return '';
+  const date = new Date(timestamp);
+  const now = new Date();
+  const diff = now - date;
+
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
+
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days < 7) return `${days}d ago`;
+  return formatTimestamp(timestamp);
+}
+
+/**
+ * Get score class based on value.
+ * @param {number} score - Score value (0-1)
+ * @returns {string} CSS class name
+ */
+export function getScoreClass(score) {
+  if (score >= 0.8) return 'score-high';
+  if (score >= 0.6) return 'score-medium';
+  return 'score-low';
+}
+
+/**
+ * Render a score badge.
+ * @param {number} score - Score value
+ * @returns {string} HTML string
+ */
+export function renderScoreBadge(score) {
+  if (score === null || score === undefined) return '';
+  const cls = getScoreClass(score);
+  return `<span class="score-badge ${cls}">${(score * 100).toFixed(0)}%</span>`;
+}
+
+/**
+ * Render a status indicator.
+ * @param {boolean} healthy - Health status
+ * @param {string} label - Status label
+ * @returns {string} HTML string
+ */
+export function renderStatusIndicator(healthy, label) {
+  const status = healthy ? 'healthy' : 'error';
+  return `
+    <span class="status-indicator">
+      <span class="status-dot ${status}"></span>
+      <span>${label}</span>
+    </span>
+  `;
+}
+
+/**
+ * Render a tag list.
+ * @param {string[]} tags - Tag values
+ * @param {string} type - Tag type (default, accent, amber)
+ * @returns {string} HTML string
+ */
+export function renderTags(tags, type = '') {
+  if (!tags || tags.length === 0) return '';
+  const cls = type ? `tag-${type}` : '';
+  return tags.map(tag => `<span class="tag ${cls}">${escapeHtml(tag)}</span>`).join('');
+}
+
+/**
+ * Sanitize a highlight snippet from ts_headline, allowing only <b> and </b> tags.
+ * All other HTML is escaped for defense-in-depth.
+ * @param {string} html - Raw highlight string from PostgreSQL ts_headline
+ * @returns {string} Sanitized HTML safe for innerHTML
+ */
+export function sanitizeHighlight(html) {
+  if (!html) return '';
+  // Replace <b> and </b> with placeholders, escape everything else, restore placeholders
+  return html
+    .replace(/<b>/gi, '\x00B_OPEN\x00')
+    .replace(/<\/b>/gi, '\x00B_CLOSE\x00')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+    .replace(/\x00B_OPEN\x00/g, '<b>')
+    .replace(/\x00B_CLOSE\x00/g, '</b>');
+}
+
+/**
+ * Render an entry card.
+ * @param {Object} entry - Entry data
+ * @param {boolean} isCited - Whether this entry was cited in the answer
+ * @returns {string} HTML string
+ */
+export function renderEntryCard(entry, isCited = false) {
+  const score = entry.score !== null ? renderScoreBadge(entry.score) : '';
+  const attachmentCount = entry.attachments?.length || 0;
+  const keywords = entry.keywords?.slice(0, 5) || [];
+  const citedClass = isCited ? ' entry-card-cited' : '';
+
+  // Extract preview from raw_text
+  const rawText = entry.raw_text || '';
+  const lines = rawText.split('\n');
+  const preview = lines.slice(1).join('\n').trim() || rawText;
+
+  // Use highlighted snippet if available, otherwise fall back to plain-text preview
+  const highlights = entry.highlights || [];
+  let contentHtml;
+  if (highlights.length > 0) {
+    contentHtml = highlights.map(h => sanitizeHighlight(h)).join(' &hellip; ');
+  } else {
+    contentHtml = `${escapeHtml(preview).slice(0, 300)}${preview.length > 300 ? '...' : ''}`;
+  }
+
+  return `
+    <article class="entry-card${citedClass}" data-entry-id="${escapeHtml(entry.entry_id)}" onclick="window.app.showEntry('${escapeHtml(entry.entry_id)}')">
+      <div class="entry-card-header">
+        <div class="entry-card-meta">
+          <span class="entry-id">${escapeHtml(entry.entry_id)}</span>
+          <span class="timestamp">${formatTimestamp(entry.timestamp)}</span>
+          <span>${escapeHtml(entry.author || 'Unknown')}</span>
+          <span class="text-muted">${escapeHtml(entry.source_system)}</span>
+        </div>
+        ${score}
+      </div>
+      <div class="entry-card-content">
+        ${contentHtml}
+      </div>
+      <div class="entry-card-footer">
+        ${attachmentCount > 0 ? `<span class="text-muted">📎 ${attachmentCount}</span>` : ''}
+        ${keywords.length > 0 ? `<span class="keyword-list">🏷️ ${keywords.map(kw =>
+          `<span class="keyword-tag">${escapeHtml(kw)}</span>`
+        ).join('')}</span>` : ''}
+      </div>
+    </article>
+  `;
+}
+
+/**
+ * Render the answer box with pipeline and tool labels.
+ * @param {string} answer - Generated answer
+ * @param {string[]} sources - Source entry IDs
+ * @param {string} pipeline - Pipeline used ('rag', 'agent', 'keyword', 'semantic')
+ * @param {string[]} toolsUsed - Search tools invoked within the pipeline
+ * @returns {string} HTML string
+ */
+export function renderAnswerBox(answer, sources = [], pipeline = 'rag', toolsUsed = []) {
+  if (!answer) return '';
+
+  const pipelineLabels = { rag: 'RAG', agent: 'Agent', keyword: 'Keyword', semantic: 'Semantic' };
+  const pipelineName = pipelineLabels[pipeline] || 'Answer';
+  const tools = toolsUsed.filter(t => t !== pipeline);
+  const toolsSuffix = tools.length > 0 ? ` (${tools.join(', ')})` : '';
+  const label = `${pipelineName} Answer${toolsSuffix}`;
+
+  const sourceLinks = sources.map(id =>
+    `<a href="#" onclick="window.app.showEntry('${escapeHtml(id)}'); return false;">${escapeHtml(id)}</a>`
+  ).join(', ');
+
+  return `
+    <div class="answer-box animate-fade-in">
+      <div class="answer-box-header">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M12 16v-4M12 8h.01"/>
+        </svg>
+        <span>${escapeHtml(label)}</span>
+      </div>
+      <div class="answer-box-content">
+        ${escapeHtml(answer).replace(/\n/g, '<br>')}
+      </div>
+      ${sources.length > 0 ? `
+        <div class="answer-box-sources">
+          <strong>Sources:</strong> ${sourceLinks}
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+
+/**
+ * Render a loading spinner.
+ * @param {string} text - Loading text
+ * @returns {string} HTML string
+ */
+export function renderLoading(text = 'Loading...') {
+  return `
+    <div class="loading-overlay">
+      <div class="spinner spinner-lg"></div>
+      <p class="loading-text">${escapeHtml(text)}</p>
+    </div>
+  `;
+}
+
+/**
+ * Render an empty state.
+ * @param {string} title - Empty state title
+ * @param {string} text - Empty state description
+ * @returns {string} HTML string
+ */
+export function renderEmptyState(title, text) {
+  return `
+    <div class="empty-state">
+      <svg class="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+      </svg>
+      <h3 class="empty-state-title">${escapeHtml(title)}</h3>
+      <p class="empty-state-text">${escapeHtml(text)}</p>
+    </div>
+  `;
+}
+
+/**
+ * Render a stat card for the dashboard.
+ * @param {string} title - Stat title
+ * @param {string|number} value - Stat value
+ * @param {string} subtitle - Stat subtitle
+ * @param {string} status - Status (healthy, warning, error)
+ * @returns {string} HTML string
+ */
+export function renderStatCard(title, value, subtitle = '', status = null) {
+  const statusDot = status ? `<span class="status-dot ${status}"></span>` : '';
+  return `
+    <div class="stat-card">
+      <div class="stat-card-header">
+        <span class="stat-card-title">${escapeHtml(title)}</span>
+        ${statusDot}
+      </div>
+      <div class="stat-card-value">${escapeHtml(String(value))}</div>
+      ${subtitle ? `<div class="stat-card-subtitle">${escapeHtml(subtitle)}</div>` : ''}
+    </div>
+  `;
+}
+
+/**
+ * Render a diagnostics bar for search issues.
+ * Uses native <details>/<summary> for zero-JS collapsibility.
+ * @param {Array} diagnostics - Array of {level, source, message, category}
+ * @returns {string} HTML string (empty if no diagnostics)
+ */
+export function renderDiagnosticsBar(diagnostics) {
+  if (!diagnostics || diagnostics.length === 0) return '';
+
+  // Determine max severity for bar styling
+  const levels = ['info', 'warning', 'error'];
+  let maxLevel = 'info';
+  for (const d of diagnostics) {
+    if (levels.indexOf(d.level) > levels.indexOf(maxLevel)) {
+      maxLevel = d.level;
+    }
+  }
+
+  const icon = maxLevel === 'info'
+    ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>'
+    : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>';
+
+  const count = diagnostics.length;
+  const label = count === 1 ? '1 issue detected' : `${count} issues detected`;
+
+  const items = diagnostics.map(d => {
+    const msgLevel = escapeHtml(d.level);
+    return `<li class="diagnostics-msg diagnostics-msg-${msgLevel}">` +
+      `<span class="diagnostics-source">${escapeHtml(d.source)}</span> ` +
+      `${escapeHtml(d.message)}</li>`;
+  }).join('');
+
+  return `
+    <details class="diagnostics-bar diagnostics-${escapeHtml(maxLevel)} animate-fade-in">
+      <summary class="diagnostics-toggle">
+        ${icon}
+        <span>${label}</span>
+      </summary>
+      <ul class="diagnostics-messages">${items}</ul>
+    </details>
+  `;
+}
+
+/**
+ * Render pipeline details panel.
+ * RAG mode: horizontal stage flow with counts.
+ * Agent mode: tool invocations table + ReAct trace.
+ * @param {Object|null} pipelineDetails - Pipeline details from API
+ * @returns {string} HTML string (empty if null)
+ */
+export function renderPipelineDetails(pipelineDetails) {
+  if (!pipelineDetails) return '';
+
+  let innerHtml = '';
+
+  if (pipelineDetails.pipeline_type === 'rag' && pipelineDetails.rag_stats) {
+    const stats = pipelineDetails.rag_stats;
+    innerHtml = `
+      <div class="pipeline-stage-flow">
+        <div class="pipeline-stage">
+          <span class="pipeline-stage-label">Keyword</span>
+          <span class="pipeline-stage-count">${stats.keyword_retrieved}</span>
+        </div>
+        <span class="pipeline-arrow">+</span>
+        <div class="pipeline-stage">
+          <span class="pipeline-stage-label">Semantic</span>
+          <span class="pipeline-stage-count">${stats.semantic_retrieved}</span>
+        </div>
+        <span class="pipeline-arrow">&rarr;</span>
+        <div class="pipeline-stage">
+          <span class="pipeline-stage-label">Fused</span>
+          <span class="pipeline-stage-count">${stats.fused_count}</span>
+        </div>
+        <span class="pipeline-arrow">&rarr;</span>
+        <div class="pipeline-stage">
+          <span class="pipeline-stage-label">Context</span>
+          <span class="pipeline-stage-count">${stats.context_included}${stats.context_truncated ? ' (truncated)' : ''}</span>
+        </div>
+      </div>
+    `;
+  } else if (pipelineDetails.pipeline_type === 'agent') {
+    // Tool invocations table
+    const invocations = pipelineDetails.agent_tool_invocations || [];
+    if (invocations.length > 0) {
+      const rows = invocations.map(inv => {
+        const args = typeof inv.tool_args === 'object' ? JSON.stringify(inv.tool_args) : String(inv.tool_args);
+        return `<tr class="pipeline-tool-call">
+          <td class="pipeline-tool-order">${inv.order + 1}</td>
+          <td class="pipeline-tool-name">${escapeHtml(inv.tool_name)}</td>
+          <td class="pipeline-tool-args">${escapeHtml(args.slice(0, 120))}</td>
+          <td class="pipeline-tool-result">${escapeHtml((inv.result_summary || '').slice(0, 100))}</td>
+        </tr>`;
+      }).join('');
+
+      innerHtml += `
+        <table class="pipeline-tool-table">
+          <thead>
+            <tr><th>#</th><th>Tool</th><th>Args</th><th>Result</th></tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+    }
+
+    // ReAct trace
+    const steps = pipelineDetails.agent_steps || [];
+    if (steps.length > 0) {
+      const stepItems = steps.map(s => {
+        const badgeClass = `pipeline-step-badge-${escapeHtml(s.step_type)}`;
+        const label = s.step_type.replace(/_/g, ' ');
+        const toolTag = s.tool_name ? ` <span class="pipeline-step-tool">${escapeHtml(s.tool_name)}</span>` : '';
+        const content = s.content ? `<span class="pipeline-step-content">${escapeHtml(s.content.slice(0, 150))}</span>` : '';
+        return `<div class="pipeline-step">
+          <span class="pipeline-step-badge ${badgeClass}">${escapeHtml(label)}</span>${toolTag}
+          ${content}
+        </div>`;
+      }).join('');
+
+      innerHtml += `
+        <div class="pipeline-step-trace">
+          <div class="pipeline-step-trace-title">ReAct Trace</div>
+          ${stepItems}
+        </div>
+      `;
+    }
+  }
+
+  if (!innerHtml) return '';
+
+  const summary = pipelineDetails.step_summary
+    ? escapeHtml(pipelineDetails.step_summary)
+    : 'Pipeline Details';
+
+  return `
+    <details class="pipeline-details animate-fade-in">
+      <summary class="pipeline-details-toggle">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/>
+        </svg>
+        <span>${summary}</span>
+      </summary>
+      <div class="pipeline-details-body">
+        ${innerHtml}
+      </div>
+    </details>
+  `;
+}
+
+/**
+ * Escape HTML special characters.
+ * @param {string} text - Text to escape
+ * @returns {string} Escaped text
+ */
+export function escapeHtml(text) {
+  if (!text) return '';
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+/**
+ * Create an element from HTML string.
+ * @param {string} html - HTML string
+ * @returns {Element} DOM element
+ */
+export function createElement(html) {
+  const template = document.createElement('template');
+  template.innerHTML = html.trim();
+  return template.content.firstChild;
+}
+
+export default {
+  formatTimestamp,
+  formatRelativeTime,
+  getScoreClass,
+  renderScoreBadge,
+  renderStatusIndicator,
+  renderTags,
+  sanitizeHighlight,
+  renderEntryCard,
+  renderAnswerBox,
+  renderDiagnosticsBar,
+  renderPipelineDetails,
+  renderLoading,
+  renderEmptyState,
+  renderStatCard,
+  escapeHtml,
+  createElement,
+};
