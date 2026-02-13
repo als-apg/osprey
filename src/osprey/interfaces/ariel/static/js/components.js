@@ -117,12 +117,14 @@ export function sanitizeHighlight(html) {
 /**
  * Render an entry card.
  * @param {Object} entry - Entry data
+ * @param {boolean} isCited - Whether this entry was cited in the answer
  * @returns {string} HTML string
  */
-export function renderEntryCard(entry) {
+export function renderEntryCard(entry, isCited = false) {
   const score = entry.score !== null ? renderScoreBadge(entry.score) : '';
   const attachmentCount = entry.attachments?.length || 0;
   const keywords = entry.keywords?.slice(0, 5) || [];
+  const citedClass = isCited ? ' entry-card-cited' : '';
 
   // Extract preview from raw_text
   const rawText = entry.raw_text || '';
@@ -139,7 +141,7 @@ export function renderEntryCard(entry) {
   }
 
   return `
-    <article class="entry-card" data-entry-id="${escapeHtml(entry.entry_id)}" onclick="window.app.showEntry('${escapeHtml(entry.entry_id)}')">
+    <article class="entry-card${citedClass}" data-entry-id="${escapeHtml(entry.entry_id)}" onclick="window.app.showEntry('${escapeHtml(entry.entry_id)}')">
       <div class="entry-card-header">
         <div class="entry-card-meta">
           <span class="entry-id">${escapeHtml(entry.entry_id)}</span>
@@ -154,7 +156,9 @@ export function renderEntryCard(entry) {
       </div>
       <div class="entry-card-footer">
         ${attachmentCount > 0 ? `<span class="text-muted">📎 ${attachmentCount}</span>` : ''}
-        ${keywords.length > 0 ? `<span class="text-muted">🏷️ ${keywords.join(', ')}</span>` : ''}
+        ${keywords.length > 0 ? `<span class="keyword-list">🏷️ ${keywords.map(kw =>
+          `<span class="keyword-tag">${escapeHtml(kw)}</span>`
+        ).join('')}</span>` : ''}
       </div>
     </article>
   `;

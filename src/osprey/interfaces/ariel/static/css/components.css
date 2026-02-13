@@ -225,6 +225,10 @@ textarea.input {
   background: var(--bg-secondary);
 }
 
+.entry-card-cited {
+  border-left: 3px solid var(--color-accent);
+}
+
 .entry-card-header {
   display: flex;
   align-items: flex-start;
@@ -276,6 +280,24 @@ textarea.input {
   padding-top: var(--space-3);
   border-top: 1px solid var(--border-subtle);
   font-size: var(--text-sm);
+}
+
+/* === Keyword Pills === */
+.keyword-list {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.keyword-tag {
+  display: inline-block;
+  padding: 1px var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: transparent;
 }
 
 /* === Score Badge === */

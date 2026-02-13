@@ -155,9 +155,11 @@ function renderSearchResults(results, pipeline = 'rag') {
 
   // Results list
   if (results.entries?.length > 0) {
+    const sourcesSet = results.sources?.length ? new Set(results.sources) : null;
     html += '<div class="results-list">';
     results.entries.forEach(entry => {
-      html += renderEntryCard(entry);
+      const isCited = sourcesSet ? sourcesSet.has(entry.entry_id) : false;
+      html += renderEntryCard(entry, isCited);
     });
     html += '</div>';
   } else {
