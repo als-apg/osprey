@@ -490,18 +490,19 @@ class TestAgentExecutor:
         assert result.answer == "This is the answer from the agent."
 
     def test_executor_parse_agent_result_extracts_citations(self):
-        """_parse_agent_result extracts citations from answer."""
+        """_parse_agent_result detects entry IDs mentioned in the answer."""
         executor = self._create_mock_executor()
         _tools, descriptors = executor._create_tools()
 
         mock_ai_message = MagicMock()
-        mock_ai_message.content = "Found in [entry-001] and [entry-002] and [#003]."
+        mock_ai_message.content = "Found in entry 001 and entry 002 and also 003."
         mock_ai_message.type = "ai"
         mock_ai_message.tool_calls = []
 
         result_dict = {"messages": [mock_ai_message]}
+        entries = [{"entry_id": "001"}, {"entry_id": "002"}, {"entry_id": "003"}]
 
-        result = executor._parse_agent_result(result_dict, descriptors)
+        result = executor._parse_agent_result(result_dict, descriptors, entries=entries)
 
         assert "001" in result.sources
         assert "002" in result.sources

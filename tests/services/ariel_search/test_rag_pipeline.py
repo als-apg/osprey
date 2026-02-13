@@ -98,32 +98,39 @@ class TestRAGResult:
         assert result.context_truncated is True
 
 
-class TestCitationExtraction:
-    """Tests for RAGPipeline._extract_citations."""
+class TestFindCitedIds:
+    """Tests for RAGPipeline._find_cited_ids."""
 
-    def test_extracts_citations(self):
-        """Extracts [#id] patterns from text."""
-        citations = RAGPipeline._extract_citations("Found in [#001] and [#002] with details.")
-        assert citations == ["001", "002"]
+    def test_finds_cited_ids(self):
+        """Finds candidate IDs that appear in text."""
+        text = "Found in [#DEMO-001] and also DEMO-002 details."
+        candidates = ["DEMO-001", "DEMO-002", "DEMO-003"]
+        assert RAGPipeline._find_cited_ids(text, candidates) == ["DEMO-001", "DEMO-002"]
 
-    def test_deduplicates_citations(self):
-        """Deduplicates citations preserving order."""
-        citations = RAGPipeline._extract_citations("See [#001], also [#002], and again [#001].")
-        assert citations == ["001", "002"]
+    def test_preserves_candidate_order(self):
+        """Returns in candidate order, not text order."""
+        text = "See DEMO-002, then DEMO-001."
+        candidates = ["DEMO-001", "DEMO-002"]
+        assert RAGPipeline._find_cited_ids(text, candidates) == ["DEMO-001", "DEMO-002"]
 
     def test_empty_text(self):
-        """Returns empty list for empty text."""
-        assert RAGPipeline._extract_citations("") == []
-        assert RAGPipeline._extract_citations(None) == []
+        """Returns empty list for empty or None text."""
+        assert RAGPipeline._find_cited_ids("", ["A"]) == []
+        assert RAGPipeline._find_cited_ids(None, ["A"]) == []
 
-    def test_no_citations(self):
-        """Returns empty list when no citations found."""
-        assert RAGPipeline._extract_citations("No citations here.") == []
+    def test_no_candidates(self):
+        """Returns empty list when no candidates provided."""
+        assert RAGPipeline._find_cited_ids("some text", []) == []
 
-    def test_alphanumeric_ids(self):
-        """Handles alphanumeric entry IDs."""
-        citations = RAGPipeline._extract_citations("Entry [#DEMO_001] found.")
-        assert citations == ["DEMO_001"]
+    def test_no_matches(self):
+        """Returns empty list when no candidates appear in text."""
+        assert RAGPipeline._find_cited_ids("No citations here.", ["DEMO-001"]) == []
+
+    def test_hyphenated_ids(self):
+        """Handles hyphenated entry IDs correctly."""
+        text = "Entry [#DEMO-001] found and SNS-2024-0042 too."
+        candidates = ["DEMO-001", "SNS-2024-0042"]
+        assert RAGPipeline._find_cited_ids(text, candidates) == ["DEMO-001", "SNS-2024-0042"]
 
 
 class TestRRFFusion:

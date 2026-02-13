@@ -441,16 +441,19 @@ class TestParseAgentResultDynamic:
         assert result.search_modes_used.count(SearchMode.KEYWORD) == 1
 
     def test_parse_result_extracts_citations(self):
-        """Citation extraction still works."""
+        """Citation detection finds entry IDs mentioned in the answer."""
         executor = _make_executor(search_modules={"keyword": {"enabled": True}})
         descriptors = [keyword_get_tool_descriptor()]
 
         mock_ai_msg = MagicMock()
-        mock_ai_msg.content = "See [entry-001] and [#002]."
+        mock_ai_msg.content = "See entry 001 and also 002."
         mock_ai_msg.type = "ai"
         mock_ai_msg.tool_calls = []
 
-        result = executor._parse_agent_result({"messages": [mock_ai_msg]}, descriptors)
+        entries = [{"entry_id": "001"}, {"entry_id": "002"}]
+        result = executor._parse_agent_result(
+            {"messages": [mock_ai_msg]}, descriptors, entries=entries
+        )
         assert "001" in result.sources
         assert "002" in result.sources
 

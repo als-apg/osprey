@@ -10,7 +10,6 @@ RAG (direct question-answering, deterministic, auditable).
 from __future__ import annotations
 
 import asyncio
-import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -180,11 +179,11 @@ class RAGPipeline:
         if gen_diag is not None:
             diags.append(gen_diag)
 
-        # 5. Extract citations
-        citations = self._extract_citations(answer)
+        # 5. Detect which context entries are cited in the answer
+        context_ids = [e["entry_id"] for e in included_entries]
+        citations = self._find_cited_ids(answer, context_ids)
         if not citations:
-            # Fall back to all context entry IDs
-            citations = [e["entry_id"] for e in included_entries]
+            citations = context_ids  # fallback: all context entries
 
         # Build pipeline details
         pd = PipelineDetails(
@@ -496,28 +495,25 @@ class RAGPipeline:
                 ),
             )
 
-    # === Citation Extraction ===
+    # === Citation Detection ===
 
     @staticmethod
-    def _extract_citations(text: str) -> list[str]:
-        """Extract citation IDs from [#id] patterns in text.
+    def _find_cited_ids(text: str, candidate_ids: list[str]) -> list[str]:
+        """Find which candidate entry IDs appear in the answer text.
+
+        Checks each candidate ID for presence in the text (case-sensitive).
+        Returns IDs in candidate order (not text order).
+
+        Args:
+            text: LLM-generated answer text
+            candidate_ids: Entry IDs from the retrieval context
 
         Returns:
-            List of unique entry IDs in order of appearance.
+            List of candidate IDs that appear as substrings in the text.
         """
-        if not text:
+        if not text or not candidate_ids:
             return []
-
-        matches = re.findall(r"\[#(\w+)\]", text)
-
-        seen: set[str] = set()
-        unique: list[str] = []
-        for match in matches:
-            if match not in seen:
-                seen.add(match)
-                unique.append(match)
-
-        return unique
+        return [eid for eid in candidate_ids if eid in text]
 
 
 __all__ = ["RAGPipeline", "RAGResult"]

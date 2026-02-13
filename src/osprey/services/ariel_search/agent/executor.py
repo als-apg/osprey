@@ -13,7 +13,6 @@ See 03_AGENTIC_REASONING.md for specification.
 from __future__ import annotations
 
 import asyncio
-import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -199,6 +198,7 @@ class AgentExecutor:
         self,
         descriptor: SearchToolDescriptor,
         time_range: tuple[datetime, datetime] | None = None,
+        collected_ids: list[str] | None = None,
     ) -> StructuredTool:
         """Build a LangChain StructuredTool from a descriptor.
 
@@ -213,6 +213,7 @@ class AgentExecutor:
         Args:
             descriptor: Search tool descriptor
             time_range: Optional default time range for searches
+            collected_ids: Mutable list to collect entry IDs from tool results
 
         Returns:
             Configured StructuredTool
@@ -234,6 +235,8 @@ class AgentExecutor:
         _format = descriptor.format_result
         _needs_embedder = descriptor.needs_embedder
 
+        _collected_ids = collected_ids
+
         async def _tool_fn(**kwargs: Any) -> list[dict[str, Any]]:
             start_date = kwargs.pop("start_date", None)
             end_date = kwargs.pop("end_date", None)
@@ -253,9 +256,17 @@ class AgentExecutor:
 
             results = await _execute(**call_kwargs)
 
-            return [
+            formatted = [
                 _format(*item) if isinstance(item, tuple) else _format(item) for item in results
             ]
+
+            if _collected_ids is not None:
+                for item in formatted:
+                    eid = item.get("entry_id")
+                    if eid:
+                        _collected_ids.append(eid)
+
+            return formatted
 
         return StructuredTool.from_function(
             func=_tool_fn,
@@ -268,17 +279,19 @@ class AgentExecutor:
     def _create_tools(
         self,
         time_range: tuple[datetime, datetime] | None = None,
+        collected_ids: list[str] | None = None,
     ) -> tuple[list[StructuredTool], list[SearchToolDescriptor]]:
         """Create LangChain tools from auto-discovered descriptors.
 
         Args:
             time_range: Optional default time range for searches
+            collected_ids: Mutable list to collect entry IDs from tool results
 
         Returns:
             Tuple of (tools list, descriptors list)
         """
         descriptors = self._load_descriptors()
-        tools = [self._build_tool(d, time_range) for d in descriptors]
+        tools = [self._build_tool(d, time_range, collected_ids) for d in descriptors]
         return tools, descriptors
 
     async def execute(
@@ -302,7 +315,10 @@ class AgentExecutor:
             AgentResult with answer, entries, sources, and reasoning
         """
         try:
-            tools, descriptors = self._create_tools(time_range=time_range)
+            collected_ids: list[str] = []
+            tools, descriptors = self._create_tools(
+                time_range=time_range, collected_ids=collected_ids
+            )
 
             if not tools:
                 return AgentResult(
@@ -321,7 +337,17 @@ class AgentExecutor:
                 )
 
             result = await self._run_agent(query, tools)
-            return self._parse_agent_result(result, descriptors)
+
+            # Deduplicate collected entry IDs (preserving order) and fetch full entries
+            unique_ids = list(dict.fromkeys(collected_ids))
+            entries: list[dict[str, Any]] = []
+            if unique_ids:
+                try:
+                    entries = await self.repository.get_entries_by_ids(unique_ids)
+                except Exception:
+                    logger.warning("Failed to fetch full entries for agent results", exc_info=True)
+
+            return self._parse_agent_result(result, descriptors, entries=entries)
 
         except SearchTimeoutError:
             raise
@@ -390,6 +416,7 @@ class AgentExecutor:
         self,
         result: dict[str, Any],
         descriptors: list[SearchToolDescriptor],
+        entries: list[dict[str, Any]] | None = None,
     ) -> AgentResult:
         """Parse the agent's result into AgentResult.
 
@@ -398,6 +425,7 @@ class AgentExecutor:
         Args:
             result: Raw agent result
             descriptors: Loaded descriptors (for tool name → SearchMode mapping)
+            entries: Full entries fetched from the repository
 
         Returns:
             Structured AgentResult
@@ -412,12 +440,14 @@ class AgentExecutor:
                 answer = msg.content
                 break
 
-        # Extract entry IDs from citations in the answer
+        # Detect which retrieved entry IDs appear in the answer text
         sources: list[str] = []
-        if answer:
-            citation_pattern = r"\[(?:entry-)?#?(\w+)\]"
-            matches = re.findall(citation_pattern, answer)
-            sources = list(dict.fromkeys(matches))
+        if answer and entries:
+            sources = [
+                e["entry_id"]
+                for e in entries
+                if e.get("entry_id") and e["entry_id"] in answer
+            ]
 
         # Determine which search modes were used from tool calls
         search_modes_used: list[SearchMode] = []
@@ -558,7 +588,7 @@ class AgentExecutor:
 
         return AgentResult(
             answer=answer,
-            entries=(),
+            entries=tuple(entries or ()),
             sources=tuple(sources),
             search_modes_used=tuple(search_modes_used),
             reasoning="",
