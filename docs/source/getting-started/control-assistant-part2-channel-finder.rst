@@ -2367,4 +2367,3 @@ Navigation
       :link-type: doc
 
       Deploy and run your assistant
-

@@ -178,4 +178,3 @@ Next Steps
 
 - :doc:`02_code-standards` - Code style guidelines
 - :doc:`03_ai-assisted-development` - AI workflows
-

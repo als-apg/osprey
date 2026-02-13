@@ -437,5 +437,3 @@ Integration Patterns
        How error responses are formatted
 
 Error Handling Infrastructure provides the resilience and user-friendly error communication that makes the Osprey Framework production-ready, ensuring graceful failure handling while keeping users informed and engaged.
-
-

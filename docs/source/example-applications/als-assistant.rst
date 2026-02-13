@@ -691,4 +691,3 @@ This work leveraged the `CBorg AI platform <https://cborg.lbl.gov>`_ and resourc
 We are grateful to Alex Hexemer, Hiroshi Nishimura, Fernando Sannibale, and Tom Scarvie (LBNL) for stimulating discussions and continued support, and to Frank Mayet (DESY) for sharing insights from his pioneering GAIA prototype, which guided the early development of agentic AI at the ALS.
 
 This work was supported by the Director of the Office of Science of the U.S. Department of Energy under Contract No. DE-AC02-05CH11231.
-

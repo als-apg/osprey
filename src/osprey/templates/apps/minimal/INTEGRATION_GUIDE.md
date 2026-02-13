@@ -292,4 +292,3 @@ class KnowledgeCapability(BaseCapability):
 ---
 
 **Ready to integrate? Start with `example_capability.py.j2` - it has everything you need!**
-

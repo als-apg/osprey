@@ -175,4 +175,3 @@ Supporting Infrastructure
          :shadow: md
 
          Adaptive response generation with clarification workflows and domain customization
-
