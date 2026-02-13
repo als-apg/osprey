@@ -304,7 +304,8 @@ class ARIELSearchService:
             )
 
         entries = tuple(
-            {**dict(entry), "_highlights": highlights} for entry, _score, highlights in results
+            {**dict(entry), "_score": score, "_highlights": highlights}
+            for entry, score, highlights in results
         )
         sources = tuple(entry["entry_id"] for entry, _score, _highlights in results)
 
@@ -371,7 +372,7 @@ class ARIELSearchService:
                 ),
             )
 
-        entries = tuple(dict(entry) for entry, _similarity in results)
+        entries = tuple({**dict(entry), "_score": similarity} for entry, similarity in results)
         sources = tuple(entry["entry_id"] for entry, _similarity in results)
 
         return ARIELSearchResult(

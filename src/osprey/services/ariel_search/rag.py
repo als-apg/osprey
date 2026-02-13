@@ -374,7 +374,7 @@ class RAGPipeline:
         # Sort by fused score descending
         sorted_items = sorted(scored.values(), key=lambda x: x[1], reverse=True)
 
-        return [entry for entry, _score in sorted_items[:max_results]]
+        return [{**entry, "_score": score} for entry, score in sorted_items[:max_results]]
 
     # === Context Assembly ===
 

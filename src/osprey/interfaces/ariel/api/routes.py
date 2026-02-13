@@ -198,7 +198,10 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
         execution_time = int((time.time() - start_time) * 1000)
 
         # Convert entries to response format
-        entries = [_entry_to_response(e, highlights=e.get("_highlights")) for e in result.entries]
+        entries = [
+            _entry_to_response(e, score=e.get("_score"), highlights=e.get("_highlights"))
+            for e in result.entries
+        ]
 
         return SearchResponse(
             entries=entries,
