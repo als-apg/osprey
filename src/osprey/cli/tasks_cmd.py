@@ -248,7 +248,7 @@ def copy_to_clipboard(text: str) -> bool:
             subprocess.run(["clip"], input=text.encode(), check=True, shell=True)
             return True
     except Exception:
-        pass
+        pass  # Clipboard operation failed; return False below
 
     return False
 
