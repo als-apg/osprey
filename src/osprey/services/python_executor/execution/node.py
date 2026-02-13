@@ -244,8 +244,8 @@ class LocalCodeExecutor:
             # Clean up temporary file
             try:
                 os.unlink(temp_script)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to clean up temp script {temp_script}: {e}")
 
     def _detect_python_environment(self) -> str:
         """Detect appropriate Python environment with container-aware logic"""

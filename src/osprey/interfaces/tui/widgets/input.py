@@ -93,7 +93,7 @@ class ChatInput(TextArea):
                 # Write query with + prefix
                 f.write(f"+{query}\n")
         except Exception:
-            pass
+            pass  # Non-critical: history file write failed
 
     def _history_up(self) -> None:
         """Navigate to previous history entry."""

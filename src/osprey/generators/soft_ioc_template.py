@@ -141,7 +141,7 @@ class {ioc_class_name}(PVGroup):
                     if hasattr(attr, 'pvname'):
                         self._pv_map[attr.pvname] = attr
                 except Exception:
-                    pass
+                    pass  # Skip unmappable PV attribute
 
         # Initialize backend with PV definitions
         if self.backend and not self._initialized:
@@ -157,7 +157,7 @@ class {ioc_class_name}(PVGroup):
                     try:
                         await self._pv_map[pv_name].write(value)
                     except Exception:
-                        pass
+                        pass  # Skip PV initial value write failure
 
             self._initialized = True
 
@@ -174,7 +174,7 @@ class {ioc_class_name}(PVGroup):
                         try:
                             await self._pv_map[pv_name].write(value)
                         except Exception:
-                            pass
+                            pass  # Skip PV update failure to keep scan loop running
 
             # Update heartbeat
             heartbeat = (heartbeat + 1) % 1000000
@@ -203,7 +203,7 @@ class {ioc_class_name}(PVGroup):
                             try:
                                 await self._pv_map[update_pv].write(update_val)
                             except Exception:
-                                pass
+                                pass  # Skip PV callback write failure
                 finally:
                     self._in_backend_write = False
 

@@ -207,13 +207,13 @@ class ORNLLogbookAdapter(BaseAdapter):
                     value = value[:-1] + "+00:00"
                 return datetime.fromisoformat(value)
             except ValueError:
-                pass
+                pass  # Not ISO 8601; try next format
 
             # Try Unix epoch as string
             try:
                 return datetime.fromtimestamp(float(value), tz=UTC)
             except ValueError:
-                pass
+                pass  # Not a Unix epoch string; fall through to default below
 
         return datetime.now(UTC)
 
