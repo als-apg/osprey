@@ -441,6 +441,7 @@ class ARIELSearchService:
             reasoning=f"RAG pipeline: {rag_result.retrieval_count} retrieved, "
             f"{len(rag_result.entries)} in context",
             diagnostics=rag_result.diagnostics,
+            pipeline_details=rag_result.pipeline_details,
         )
 
     async def _run_agent(self, request: ARIELSearchRequest) -> ARIELSearchResult:
@@ -487,6 +488,7 @@ class ARIELSearchService:
             search_modes_used=agent_result.search_modes_used,
             reasoning=agent_result.reasoning,
             diagnostics=agent_result.diagnostics,
+            pipeline_details=agent_result.pipeline_details,
         )
 
     # === Health Check ===

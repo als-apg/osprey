@@ -14,7 +14,12 @@ import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from osprey.services.ariel_search.models import DiagnosticLevel, SearchDiagnostic
+from osprey.services.ariel_search.models import (
+    DiagnosticLevel,
+    PipelineDetails,
+    RAGStageStats,
+    SearchDiagnostic,
+)
 from osprey.services.ariel_search.prompts import RAG_PROMPT_TEMPLATE
 from osprey.utils.logger import get_logger
 
@@ -53,6 +58,7 @@ class RAGResult:
     retrieval_count: int = 0
     context_truncated: bool = False
     diagnostics: tuple[SearchDiagnostic, ...] = field(default_factory=tuple)
+    pipeline_details: PipelineDetails | None = None
 
 
 class RAGPipeline:
@@ -111,7 +117,12 @@ class RAGPipeline:
             RAGResult with answer, entries, and citations
         """
         if not query.strip():
-            return RAGResult(answer=_NO_CONTEXT_ANSWER)
+            pd = PipelineDetails(
+                pipeline_type="rag",
+                rag_stats=RAGStageStats(),
+                step_summary="Empty query — no retrieval performed",
+            )
+            return RAGResult(answer=_NO_CONTEXT_ANSWER, pipeline_details=pd)
 
         diags: list[SearchDiagnostic] = []
 
@@ -127,16 +138,30 @@ class RAGPipeline:
         )
         diags.extend(retrieve_diags)
 
+        kw_count = len(keyword_results)
+        sem_count = len(semantic_results)
+
         # 2. Fuse — RRF if both returned results, otherwise use whichever returned
         entries = self._fuse(keyword_results, semantic_results, max_results)
 
         retrieval_count = len(entries)
 
         if not entries:
+            pd = PipelineDetails(
+                pipeline_type="rag",
+                rag_stats=RAGStageStats(
+                    keyword_retrieved=kw_count,
+                    semantic_retrieved=sem_count,
+                    fused_count=0,
+                    context_included=0,
+                ),
+                step_summary=f"Retrieved {kw_count} keyword + {sem_count} semantic, 0 after fusion",
+            )
             return RAGResult(
                 answer=_NO_CONTEXT_ANSWER,
                 retrieval_count=0,
                 diagnostics=tuple(diags),
+                pipeline_details=pd,
             )
 
         # 3. Assemble — build context window
@@ -161,6 +186,22 @@ class RAGPipeline:
             # Fall back to all context entry IDs
             citations = [e["entry_id"] for e in included_entries]
 
+        # Build pipeline details
+        pd = PipelineDetails(
+            pipeline_type="rag",
+            rag_stats=RAGStageStats(
+                keyword_retrieved=kw_count,
+                semantic_retrieved=sem_count,
+                fused_count=retrieval_count,
+                context_included=len(included_entries),
+                context_truncated=truncated,
+            ),
+            step_summary=(
+                f"Retrieved {kw_count} keyword + {sem_count} semantic, "
+                f"{retrieval_count} after fusion, {len(included_entries)} in context"
+            ),
+        )
+
         return RAGResult(
             answer=answer,
             entries=tuple(included_entries),
@@ -168,6 +209,7 @@ class RAGPipeline:
             retrieval_count=retrieval_count,
             context_truncated=truncated,
             diagnostics=tuple(diags),
+            pipeline_details=pd,
         )
 
     # === Retrieval ===

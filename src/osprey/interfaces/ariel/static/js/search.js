@@ -9,6 +9,7 @@ import {
   renderEntryCard,
   renderAnswerBox,
   renderDiagnosticsBar,
+  renderPipelineDetails,
   renderLoading,
   renderEmptyState,
   escapeHtml,
@@ -132,6 +133,11 @@ function renderSearchResults(results, pipeline = 'rag') {
   // Diagnostics bar if issues detected
   if (results.diagnostics?.length > 0) {
     html += renderDiagnosticsBar(results.diagnostics);
+  }
+
+  // Pipeline details (collapsible)
+  if (results.pipeline_details) {
+    html += renderPipelineDetails(results.pipeline_details);
   }
 
   // Results header

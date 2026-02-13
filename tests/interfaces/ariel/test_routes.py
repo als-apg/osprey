@@ -104,6 +104,7 @@ def mock_ariel_service():
     mock_result.sources = []
     mock_result.search_modes_used = []
     mock_result.reasoning = ""
+    mock_result.pipeline_details = None
     service.search = AsyncMock(return_value=mock_result)
 
     # Mock status
@@ -395,3 +396,98 @@ def test_search_defaults_to_rag_mode(client, mock_ariel_service):
 
     call_kwargs = mock_ariel_service.search.call_args.kwargs
     assert call_kwargs["mode"] == ServiceSearchMode.RAG
+
+
+def test_search_pipeline_details_null(client, mock_ariel_service):
+    """Test that pipeline_details is null when not set."""
+    # Default mock doesn't set pipeline_details explicitly;
+    # MagicMock auto-creates it, so set it to None explicitly
+    mock_ariel_service.search.return_value.pipeline_details = None
+
+    response = client.post(
+        "/api/search",
+        json={"query": "test", "mode": "keyword"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["pipeline_details"] is None
+
+
+def test_search_pipeline_details_rag(client, mock_ariel_service):
+    """Test that RAG pipeline_details are serialized correctly."""
+    from osprey.services.ariel_search.models import PipelineDetails, RAGStageStats
+
+    pd = PipelineDetails(
+        pipeline_type="rag",
+        rag_stats=RAGStageStats(
+            keyword_retrieved=5,
+            semantic_retrieved=3,
+            fused_count=6,
+            context_included=4,
+            context_truncated=True,
+        ),
+        step_summary="5 keyword + 3 semantic, 6 fused, 4 in context",
+    )
+    mock_ariel_service.search.return_value.pipeline_details = pd
+
+    response = client.post(
+        "/api/search",
+        json={"query": "test", "mode": "rag"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["pipeline_details"] is not None
+    assert data["pipeline_details"]["pipeline_type"] == "rag"
+    stats = data["pipeline_details"]["rag_stats"]
+    assert stats["keyword_retrieved"] == 5
+    assert stats["semantic_retrieved"] == 3
+    assert stats["fused_count"] == 6
+    assert stats["context_included"] == 4
+    assert stats["context_truncated"] is True
+    assert data["pipeline_details"]["step_summary"] == "5 keyword + 3 semantic, 6 fused, 4 in context"
+
+
+def test_search_pipeline_details_agent(client, mock_ariel_service):
+    """Test that agent pipeline_details are serialized correctly."""
+    from osprey.services.ariel_search.models import (
+        AgentStep,
+        AgentToolInvocation,
+        PipelineDetails,
+    )
+
+    pd = PipelineDetails(
+        pipeline_type="agent",
+        agent_tool_invocations=(
+            AgentToolInvocation(
+                tool_name="keyword_search",
+                tool_args={"query": "beam loss"},
+                result_summary="Found 3 entries",
+                order=0,
+            ),
+        ),
+        agent_steps=(
+            AgentStep(step_type="user_query", content="beam loss", order=0),
+            AgentStep(step_type="tool_call", tool_name="keyword_search", order=1),
+            AgentStep(step_type="tool_result", tool_name="keyword_search", order=2),
+            AgentStep(step_type="final_answer", content="Here are the results", order=3),
+        ),
+        step_summary="1 tool call(s): keyword_search",
+    )
+    mock_ariel_service.search.return_value.pipeline_details = pd
+
+    response = client.post(
+        "/api/search",
+        json={"query": "beam loss", "mode": "agent"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["pipeline_details"] is not None
+    assert data["pipeline_details"]["pipeline_type"] == "agent"
+    assert len(data["pipeline_details"]["agent_tool_invocations"]) == 1
+    assert data["pipeline_details"]["agent_tool_invocations"][0]["tool_name"] == "keyword_search"
+    assert len(data["pipeline_details"]["agent_steps"]) == 4
+    assert data["pipeline_details"]["agent_steps"][0]["step_type"] == "user_query"
+    assert data["pipeline_details"]["step_summary"] == "1 tool call(s): keyword_search"

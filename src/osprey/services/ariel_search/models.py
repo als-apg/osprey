@@ -136,6 +136,78 @@ class SearchDiagnostic:
     category: str | None = None
 
 
+@dataclass(frozen=True)
+class RAGStageStats:
+    """Stage-by-stage counts from the RAG pipeline.
+
+    Attributes:
+        keyword_retrieved: Number of entries from keyword search
+        semantic_retrieved: Number of entries from semantic search
+        fused_count: Number of unique entries after RRF fusion
+        context_included: Number of entries included in LLM context
+        context_truncated: Whether context was truncated to fit limits
+    """
+
+    keyword_retrieved: int = 0
+    semantic_retrieved: int = 0
+    fused_count: int = 0
+    context_included: int = 0
+    context_truncated: bool = False
+
+
+@dataclass(frozen=True)
+class AgentToolInvocation:
+    """Record of a single tool call by the agent.
+
+    Attributes:
+        tool_name: Name of the tool invoked
+        tool_args: Arguments passed to the tool
+        result_summary: Truncated summary of the tool result
+        order: Sequence number of this invocation
+    """
+
+    tool_name: str
+    tool_args: dict[str, Any] = field(default_factory=dict)
+    result_summary: str = ""
+    order: int = 0
+
+
+@dataclass(frozen=True)
+class AgentStep:
+    """A single step in the agent's ReAct trace.
+
+    Attributes:
+        step_type: One of "user_query", "reasoning", "tool_call", "tool_result", "final_answer"
+        content: Text content of the step
+        tool_name: Tool name (for tool_call/tool_result steps)
+        order: Sequence number of this step
+    """
+
+    step_type: str
+    content: str = ""
+    tool_name: str | None = None
+    order: int = 0
+
+
+@dataclass(frozen=True)
+class PipelineDetails:
+    """Intermediate pipeline data for developer visibility.
+
+    Attributes:
+        pipeline_type: "rag" or "agent"
+        rag_stats: Stage counts (RAG mode only)
+        agent_tool_invocations: Tool call records (agent mode only)
+        agent_steps: ReAct trace steps (agent mode only)
+        step_summary: Human-readable summary (e.g. "2 tool call(s): keyword, semantic")
+    """
+
+    pipeline_type: str
+    rag_stats: RAGStageStats | None = None
+    agent_tool_invocations: tuple[AgentToolInvocation, ...] = field(default_factory=tuple)
+    agent_steps: tuple[AgentStep, ...] = field(default_factory=tuple)
+    step_summary: str = ""
+
+
 @dataclass
 class ARIELSearchRequest:
     """Request model for ARIEL search service.
@@ -191,6 +263,7 @@ class ARIELSearchResult:
     search_modes_used: tuple[SearchMode, ...] = field(default_factory=tuple)
     reasoning: str = ""
     diagnostics: tuple[SearchDiagnostic, ...] = field(default_factory=tuple)
+    pipeline_details: PipelineDetails | None = None
 
 
 @dataclass

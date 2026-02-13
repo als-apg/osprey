@@ -80,6 +80,7 @@ class TestRAGResult:
         assert result.citations == ()
         assert result.retrieval_count == 0
         assert result.context_truncated is False
+        assert result.pipeline_details is None
 
     def test_full_construction(self):
         """RAGResult with all fields."""
@@ -721,3 +722,135 @@ class TestPipelineRetrievalModules:
         mock_kw.assert_called_once()
         mock_sem.assert_called_once()
         assert result.retrieval_count == 2
+
+
+class TestRAGPipelineDetails:
+    """Tests for pipeline_details on RAGResult."""
+
+    @pytest.mark.asyncio
+    async def test_empty_query_has_pipeline_details(self):
+        """Empty query returns pipeline_details with zero stats."""
+        pipeline, _, _ = _make_pipeline()
+        result = await pipeline.execute("")
+
+        assert result.pipeline_details is not None
+        assert result.pipeline_details.pipeline_type == "rag"
+        assert result.pipeline_details.rag_stats is not None
+        assert result.pipeline_details.rag_stats.keyword_retrieved == 0
+        assert result.pipeline_details.rag_stats.fused_count == 0
+
+    @pytest.mark.asyncio
+    async def test_no_results_has_pipeline_details(self):
+        """No retrieval results returns pipeline_details with retrieval counts."""
+        config = _make_config(keyword_enabled=True, semantic_enabled=False)
+        pipeline, _, _ = _make_pipeline(config=config)
+
+        with patch(
+            "osprey.services.ariel_search.search.keyword.keyword_search",
+            new_callable=AsyncMock,
+            return_value=[],
+        ):
+            result = await pipeline.execute("nonexistent topic")
+
+        assert result.pipeline_details is not None
+        assert result.pipeline_details.rag_stats.keyword_retrieved == 0
+        assert result.pipeline_details.rag_stats.fused_count == 0
+        assert result.pipeline_details.rag_stats.context_included == 0
+
+    @pytest.mark.asyncio
+    async def test_keyword_retrieval_pipeline_details(self):
+        """Keyword-only retrieval populates pipeline details correctly."""
+        config = _make_config(keyword_enabled=True, semantic_enabled=False)
+        pipeline, _, _ = _make_pipeline(config=config)
+
+        kw_results = [
+            (_make_entry("001", "RF cavity tripped"), 0.9, []),
+            (_make_entry("002", "Another entry"), 0.8, []),
+        ]
+
+        with (
+            patch(
+                "osprey.services.ariel_search.search.keyword.keyword_search",
+                new_callable=AsyncMock,
+                return_value=kw_results,
+            ),
+            patch(
+                "osprey.models.completion.get_chat_completion",
+                return_value="Answer [#001] [#002].",
+            ),
+        ):
+            result = await pipeline.execute("RF cavity")
+
+        pd = result.pipeline_details
+        assert pd is not None
+        assert pd.pipeline_type == "rag"
+        assert pd.rag_stats.keyword_retrieved == 2
+        assert pd.rag_stats.semantic_retrieved == 0
+        assert pd.rag_stats.fused_count == 2
+        assert pd.rag_stats.context_included == 2
+        assert pd.rag_stats.context_truncated is False
+        assert "2 keyword" in pd.step_summary
+
+    @pytest.mark.asyncio
+    async def test_dual_retrieval_pipeline_details(self):
+        """Dual retrieval populates both keyword and semantic counts."""
+        config = _make_config(keyword_enabled=True, semantic_enabled=True)
+        pipeline, _, _ = _make_pipeline(config=config)
+
+        kw_results = [(_make_entry("A", "Keyword hit"), 0.9, [])]
+        sem_results = [
+            (_make_entry("A", "Keyword hit"), 0.92),
+            (_make_entry("B", "Semantic only"), 0.85),
+        ]
+
+        with (
+            patch(
+                "osprey.services.ariel_search.search.keyword.keyword_search",
+                new_callable=AsyncMock,
+                return_value=kw_results,
+            ),
+            patch(
+                "osprey.services.ariel_search.search.semantic.semantic_search",
+                new_callable=AsyncMock,
+                return_value=sem_results,
+            ),
+            patch(
+                "osprey.models.completion.get_chat_completion",
+                return_value="Answer based on [#A] and [#B].",
+            ),
+        ):
+            result = await pipeline.execute("test query")
+
+        pd = result.pipeline_details
+        assert pd is not None
+        assert pd.rag_stats.keyword_retrieved == 1
+        assert pd.rag_stats.semantic_retrieved == 2
+        assert pd.rag_stats.fused_count == 2
+
+    @pytest.mark.asyncio
+    async def test_truncated_context_pipeline_details(self):
+        """Context truncation is reflected in pipeline details."""
+        config = _make_config(keyword_enabled=True, semantic_enabled=False)
+        pipeline, _, _ = _make_pipeline(config=config, max_context_chars=100)
+
+        kw_results = [
+            (_make_entry("001", "A" * 200), 0.9, []),
+            (_make_entry("002", "B" * 200), 0.8, []),
+        ]
+
+        with (
+            patch(
+                "osprey.services.ariel_search.search.keyword.keyword_search",
+                new_callable=AsyncMock,
+                return_value=kw_results,
+            ),
+            patch(
+                "osprey.models.completion.get_chat_completion",
+                return_value="Answer.",
+            ),
+        ):
+            result = await pipeline.execute("test query")
+
+        pd = result.pipeline_details
+        assert pd is not None
+        assert pd.rag_stats.context_truncated is True

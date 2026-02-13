@@ -300,6 +300,111 @@ export function renderDiagnosticsBar(diagnostics) {
 }
 
 /**
+ * Render pipeline details panel.
+ * RAG mode: horizontal stage flow with counts.
+ * Agent mode: tool invocations table + ReAct trace.
+ * @param {Object|null} pipelineDetails - Pipeline details from API
+ * @returns {string} HTML string (empty if null)
+ */
+export function renderPipelineDetails(pipelineDetails) {
+  if (!pipelineDetails) return '';
+
+  let innerHtml = '';
+
+  if (pipelineDetails.pipeline_type === 'rag' && pipelineDetails.rag_stats) {
+    const stats = pipelineDetails.rag_stats;
+    innerHtml = `
+      <div class="pipeline-stage-flow">
+        <div class="pipeline-stage">
+          <span class="pipeline-stage-label">Keyword</span>
+          <span class="pipeline-stage-count">${stats.keyword_retrieved}</span>
+        </div>
+        <span class="pipeline-arrow">+</span>
+        <div class="pipeline-stage">
+          <span class="pipeline-stage-label">Semantic</span>
+          <span class="pipeline-stage-count">${stats.semantic_retrieved}</span>
+        </div>
+        <span class="pipeline-arrow">&rarr;</span>
+        <div class="pipeline-stage">
+          <span class="pipeline-stage-label">Fused</span>
+          <span class="pipeline-stage-count">${stats.fused_count}</span>
+        </div>
+        <span class="pipeline-arrow">&rarr;</span>
+        <div class="pipeline-stage">
+          <span class="pipeline-stage-label">Context</span>
+          <span class="pipeline-stage-count">${stats.context_included}${stats.context_truncated ? ' (truncated)' : ''}</span>
+        </div>
+      </div>
+    `;
+  } else if (pipelineDetails.pipeline_type === 'agent') {
+    // Tool invocations table
+    const invocations = pipelineDetails.agent_tool_invocations || [];
+    if (invocations.length > 0) {
+      const rows = invocations.map(inv => {
+        const args = typeof inv.tool_args === 'object' ? JSON.stringify(inv.tool_args) : String(inv.tool_args);
+        return `<tr class="pipeline-tool-call">
+          <td class="pipeline-tool-order">${inv.order + 1}</td>
+          <td class="pipeline-tool-name">${escapeHtml(inv.tool_name)}</td>
+          <td class="pipeline-tool-args">${escapeHtml(args.slice(0, 120))}</td>
+          <td class="pipeline-tool-result">${escapeHtml((inv.result_summary || '').slice(0, 100))}</td>
+        </tr>`;
+      }).join('');
+
+      innerHtml += `
+        <table class="pipeline-tool-table">
+          <thead>
+            <tr><th>#</th><th>Tool</th><th>Args</th><th>Result</th></tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+    }
+
+    // ReAct trace
+    const steps = pipelineDetails.agent_steps || [];
+    if (steps.length > 0) {
+      const stepItems = steps.map(s => {
+        const badgeClass = `pipeline-step-badge-${escapeHtml(s.step_type)}`;
+        const label = s.step_type.replace(/_/g, ' ');
+        const toolTag = s.tool_name ? ` <span class="pipeline-step-tool">${escapeHtml(s.tool_name)}</span>` : '';
+        const content = s.content ? `<span class="pipeline-step-content">${escapeHtml(s.content.slice(0, 150))}</span>` : '';
+        return `<div class="pipeline-step">
+          <span class="pipeline-step-badge ${badgeClass}">${escapeHtml(label)}</span>${toolTag}
+          ${content}
+        </div>`;
+      }).join('');
+
+      innerHtml += `
+        <div class="pipeline-step-trace">
+          <div class="pipeline-step-trace-title">ReAct Trace</div>
+          ${stepItems}
+        </div>
+      `;
+    }
+  }
+
+  if (!innerHtml) return '';
+
+  const summary = pipelineDetails.step_summary
+    ? escapeHtml(pipelineDetails.step_summary)
+    : 'Pipeline Details';
+
+  return `
+    <details class="pipeline-details animate-fade-in">
+      <summary class="pipeline-details-toggle">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/>
+        </svg>
+        <span>${summary}</span>
+      </summary>
+      <div class="pipeline-details-body">
+        ${innerHtml}
+      </div>
+    </details>
+  `;
+}
+
+/**
  * Escape HTML special characters.
  * @param {string} text - Text to escape
  * @returns {string} Escaped text
@@ -333,6 +438,7 @@ export default {
   renderEntryCard,
   renderAnswerBox,
   renderDiagnosticsBar,
+  renderPipelineDetails,
   renderLoading,
   renderEmptyState,
   renderStatCard,

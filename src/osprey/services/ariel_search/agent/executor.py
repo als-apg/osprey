@@ -22,7 +22,14 @@ from osprey.services.ariel_search.exceptions import (
     ConfigurationError,
     SearchTimeoutError,
 )
-from osprey.services.ariel_search.models import DiagnosticLevel, SearchDiagnostic, SearchMode
+from osprey.services.ariel_search.models import (
+    AgentStep,
+    AgentToolInvocation,
+    DiagnosticLevel,
+    PipelineDetails,
+    SearchDiagnostic,
+    SearchMode,
+)
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -83,6 +90,7 @@ class AgentResult:
     search_modes_used: tuple[SearchMode, ...] = field(default_factory=tuple)
     reasoning: str = ""
     diagnostics: tuple[SearchDiagnostic, ...] = field(default_factory=tuple)
+    pipeline_details: PipelineDetails | None = None
 
 
 # === Agent Executor ===
@@ -413,13 +421,140 @@ class AgentExecutor:
 
         # Determine which search modes were used from tool calls
         search_modes_used: list[SearchMode] = []
+        tool_invocations: list[AgentToolInvocation] = []
+        steps: list[AgentStep] = []
+        tool_call_order = 0
+        step_order = 0
+
+        # Build a map of tool_call_id -> tool_name for result backfill
+        call_id_to_name: dict[str, str] = {}
+
         for msg in messages:
-            if hasattr(msg, "tool_calls"):
-                for tool_call in msg.tool_calls:
-                    tool_name = tool_call.get("name", "")
-                    mode = tool_name_to_mode.get(tool_name)
+            msg_type = getattr(msg, "type", None)
+
+            if msg_type == "human":
+                content = getattr(msg, "content", "")
+                steps.append(AgentStep(
+                    step_type="user_query",
+                    content=str(content)[:200],
+                    order=step_order,
+                ))
+                step_order += 1
+
+            elif msg_type == "ai":
+                content = getattr(msg, "content", "")
+                tool_calls = getattr(msg, "tool_calls", None) or []
+
+                # AI reasoning (non-empty content before/without tool calls)
+                if content and isinstance(content, str):
+                    if not tool_calls:
+                        # Final answer or reasoning without tools
+                        steps.append(AgentStep(
+                            step_type="final_answer" if msg is messages[-1] else "reasoning",
+                            content=str(content)[:200],
+                            order=step_order,
+                        ))
+                        step_order += 1
+                    else:
+                        steps.append(AgentStep(
+                            step_type="reasoning",
+                            content=str(content)[:200],
+                            order=step_order,
+                        ))
+                        step_order += 1
+
+                for tc in tool_calls:
+                    t_name = tc.get("name", "unknown")
+                    t_args = tc.get("args", {})
+                    t_id = tc.get("id", "")
+                    call_id_to_name[t_id] = t_name
+
+                    tool_invocations.append(AgentToolInvocation(
+                        tool_name=t_name,
+                        tool_args=t_args,
+                        order=tool_call_order,
+                    ))
+                    steps.append(AgentStep(
+                        step_type="tool_call",
+                        content=str(t_args)[:200],
+                        tool_name=t_name,
+                        order=step_order,
+                    ))
+                    tool_call_order += 1
+                    step_order += 1
+
+                    mode = tool_name_to_mode.get(t_name)
                     if mode is not None and mode not in search_modes_used:
                         search_modes_used.append(mode)
+
+            elif msg_type == "tool":
+                content = getattr(msg, "content", "")
+                t_id = getattr(msg, "tool_call_id", "")
+                t_name = call_id_to_name.get(t_id)
+                summary = str(content)[:200]
+
+                # Backfill result_summary on the matching invocation
+                for i, inv in enumerate(tool_invocations):
+                    if inv.tool_name == t_name and inv.result_summary == "":
+                        tool_invocations[i] = AgentToolInvocation(
+                            tool_name=inv.tool_name,
+                            tool_args=inv.tool_args,
+                            result_summary=summary,
+                            order=inv.order,
+                        )
+                        break
+
+                steps.append(AgentStep(
+                    step_type="tool_result",
+                    content=summary,
+                    tool_name=t_name,
+                    order=step_order,
+                ))
+                step_order += 1
+
+            else:
+                # Fallback: check for tool_calls on untyped messages
+                tool_calls = getattr(msg, "tool_calls", None) or []
+                for tc in tool_calls:
+                    t_name = tc.get("name", "unknown")
+                    t_args = tc.get("args", {})
+                    t_id = tc.get("id", "")
+                    call_id_to_name[t_id] = t_name
+
+                    tool_invocations.append(AgentToolInvocation(
+                        tool_name=t_name,
+                        tool_args=t_args,
+                        order=tool_call_order,
+                    ))
+                    steps.append(AgentStep(
+                        step_type="tool_call",
+                        content=str(t_args)[:200],
+                        tool_name=t_name,
+                        order=step_order,
+                    ))
+                    tool_call_order += 1
+                    step_order += 1
+
+                    mode = tool_name_to_mode.get(t_name)
+                    if mode is not None and mode not in search_modes_used:
+                        search_modes_used.append(mode)
+
+        # Build step summary
+        tool_names = [inv.tool_name for inv in tool_invocations]
+        unique_tools = list(dict.fromkeys(tool_names))
+        if tool_invocations:
+            step_summary = (
+                f"{len(tool_invocations)} tool call(s): {', '.join(unique_tools)}"
+            )
+        else:
+            step_summary = "No tool calls"
+
+        pd = PipelineDetails(
+            pipeline_type="agent",
+            agent_tool_invocations=tuple(tool_invocations),
+            agent_steps=tuple(steps),
+            step_summary=step_summary,
+        )
 
         return AgentResult(
             answer=answer,
@@ -427,6 +562,7 @@ class AgentExecutor:
             sources=tuple(sources),
             search_modes_used=tuple(search_modes_used),
             reasoning="",
+            pipeline_details=pd,
         )
 
 
