@@ -175,7 +175,10 @@ class ComponentLogger:
                             "phase": "Execution",
                         }
             except Exception:
-                pass  # Graceful degradation
+                # Silently fall through to default step info below.
+                # Cannot log here: runs inside logging infrastructure,
+                # logging.debug() risks recursion or handler re-entry.
+                pass
 
         # Default: no step info
         return {
@@ -581,7 +584,9 @@ def _setup_rich_logging(level: int = logging.INFO) -> None:
         show_full_paths = get_config_value("logging.show_full_paths", False)
 
     except Exception:
-        # Secure defaults when configuration system is unavailable
+        # Config system unavailable; use secure defaults.
+        # Cannot log here: logging infrastructure is mid-configuration
+        # (handlers cleared but RichHandler not yet installed).
         rich_tracebacks = True
         show_traceback_locals = False
         show_full_paths = False

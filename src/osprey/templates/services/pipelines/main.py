@@ -62,7 +62,7 @@ class LogCapture(logging.Handler):
             # Add to buffer
             _log_buffer.append(formatted_entry)
         except Exception:
-            # Don't let logging errors break the application
+            # Silently suppress: logging inside a logging handler risks recursion
             pass
 
 

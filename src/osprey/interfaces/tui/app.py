@@ -145,7 +145,7 @@ class OspreyTUI(App):
                 ]
             )
         except Exception:
-            pass
+            logger.debug("Could not find status panel %s to show quit hint", panel_id)
 
     def _reset_quit_state(self) -> None:
         """Reset quit state and restore status panel."""
@@ -162,7 +162,7 @@ class OspreyTUI(App):
                 ]
             )
         except Exception:
-            pass
+            logger.debug("Could not find status panel %s to reset quit state", panel_id)
 
     def _cancel_quit_timer(self) -> None:
         """Cancel the quit timer if active."""
@@ -182,7 +182,7 @@ class OspreyTUI(App):
                 self._copy_to_clipboard(focused.selected_text)
                 return
         except Exception:
-            pass
+            logger.debug("Could not check text selection for clipboard copy", exc_info=True)
         # No selection - trigger quit behavior
         self.action_request_quit()
 
@@ -193,7 +193,7 @@ class OspreyTUI(App):
 
             pyperclip.copy(text)
         except Exception:
-            pass  # Clipboard not available - fail silently
+            logger.debug("Clipboard not available, cannot copy text", exc_info=True)
 
     def action_noop(self) -> None:
         """Do nothing - used to disable default bindings."""
@@ -217,7 +217,7 @@ class OspreyTUI(App):
         try:
             self.query_one(input_id, ChatInput).focus()
         except Exception:
-            pass
+            logger.debug("Could not find input widget %s to focus", input_id)
 
     def action_switch_theme(self) -> None:
         """Show the theme picker modal."""
@@ -324,7 +324,7 @@ class OspreyTUI(App):
             welcome_screen = self.query_one("#welcome-screen", WelcomeScreen)
             welcome_screen.display = False
         except Exception:
-            pass
+            logger.debug("Could not find or hide welcome screen widget")
 
         try:
             main_content = self.query_one("#main-content")
@@ -332,7 +332,7 @@ class OspreyTUI(App):
             # Focus the chat input
             self.query_one("#chat-input", ChatInput).focus()
         except Exception:
-            pass
+            logger.debug("Could not show main content or focus chat input", exc_info=True)
 
     def on_mount(self) -> None:
         """Handle app mount event - initialize agent components."""
@@ -861,7 +861,7 @@ class OspreyTUI(App):
                 try:
                     await consumer_task
                 except asyncio.CancelledError:
-                    pass
+                    pass  # Expected: consumer task was intentionally cancelled after processing completed
 
             # Get final state
             state = self.graph.get_state(config=self.base_config)
