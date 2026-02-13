@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, ClassVar
 
 from textual.content import Content
-from textual.events import Key
+from textual.events import Blur, Focus, Key
 from textual.message import Message
 from textual.style import Style
 from textual.widgets import OptionList, Static, TextArea
@@ -61,6 +61,33 @@ class ChatInput(TextArea):
         self._history_file = os.path.expanduser("~/.osprey_cli_history")
         self._expected_text: str = ""  # Track expected text after programmatic changes
         self._load_history()
+
+    # Tips shown when input is focused
+    INPUT_TIPS = [
+        ("/", "for commands"),
+        ("option + \u23ce", "for newline"),
+        ("\u2191\u2193", "for history"),
+    ]
+
+    # Tips shown when focus is elsewhere (chat navigation)
+    CHAT_TIPS = [
+        ("Ctrl-L", "focus input"),
+        ("tab", "cycle links"),
+        ("j/k", "scroll"),
+        ("g/G", "top/bottom"),
+    ]
+
+    def _on_focus(self, event: Focus) -> None:
+        """Show input-specific tips when focused."""
+        status = self._get_status_panel()
+        if status:
+            status.set_tips(self.INPUT_TIPS)
+
+    def _on_blur(self, event: Blur) -> None:
+        """Show chat navigation tips when focus leaves input."""
+        status = self._get_status_panel()
+        if status:
+            status.set_tips(self.CHAT_TIPS)
 
     def _load_history(self) -> None:
         """Load history from file (prompt_toolkit FileHistory format)."""
@@ -188,16 +215,10 @@ class ChatInput(TextArea):
             status.set_tips([("Options:", options_str)])
 
     def _reset_status_panel(self) -> None:
-        """Reset status panel to default tips."""
+        """Reset status panel to input tips (called when input has focus)."""
         status = self._get_status_panel()
         if status:
-            status.set_tips(
-                [
-                    ("/", "for commands"),
-                    ("option + ⏎", "for newline"),
-                    ("↑↓", "for history"),
-                ]
-            )
+            status.set_tips(self.INPUT_TIPS)
 
     def _on_key(self, event: Key) -> None:
         """Handle key events - Enter submits, Option+Enter for newline."""
@@ -358,11 +379,7 @@ class StatusPanel(Static):
         """Initialize the status panel with default tips."""
         super().__init__(**kwargs)
         # Defer styled tips until mounted (CSS not available in __init__)
-        self._default_tips = [
-            ("/", "for commands"),
-            ("option + ⏎", "for newline"),
-            ("↑↓", "for history"),
-        ]
+        self._default_tips = ChatInput.INPUT_TIPS
 
     def on_mount(self) -> None:
         """Set styled tips after mount when CSS is available."""
@@ -374,8 +391,12 @@ class StatusPanel(Static):
         Args:
             parts: List of (text, style) tuples where style is "cmd" or "desc".
         """
-        cmd_style = Style.from_styles(self.get_component_styles("status-panel--command"))
-        desc_style = Style.from_styles(self.get_component_styles("status-panel--description"))
+        cmd_style = Style.from_styles(
+            self.get_component_styles("status-panel--command")
+        )
+        desc_style = Style.from_styles(
+            self.get_component_styles("status-panel--description")
+        )
 
         styled_parts = []
         for text, style in parts:
@@ -419,7 +440,10 @@ class CommandDropdown(OptionList):
         "/exit": {"desc": "Exit the application", "options": None},
         # Toggle commands (with options)
         "/planning": {"desc": "Toggle planning mode", "options": ["on", "off"]},
-        "/approval": {"desc": "Control approval workflow", "options": ["on", "off", "selective"]},
+        "/approval": {
+            "desc": "Control approval workflow",
+            "options": ["on", "off", "selective"],
+        },
         "/task": {"desc": "Toggle task extraction", "options": ["on", "off"]},
         "/caps": {"desc": "Toggle capability selection", "options": ["on", "off"]},
     }
@@ -439,7 +463,9 @@ class CommandDropdown(OptionList):
         super().__init__(**kwargs)
         self._visible = False
         self._mode = "commands"  # "commands" or "options"
-        self._pending_command: str | None = None  # e.g., "/planning" when showing options
+        self._pending_command: str | None = (
+            None  # e.g., "/planning" when showing options
+        )
         self._pending_options: list[str] = []  # ["on", "off"] for the pending command
 
     def on_mount(self) -> None:
@@ -503,7 +529,9 @@ class CommandDropdown(OptionList):
 
         if matches:
             # Get styles from CSS
-            cmd_style = Style.from_styles(self.get_component_styles("command-dropdown--command"))
+            cmd_style = Style.from_styles(
+                self.get_component_styles("command-dropdown--command")
+            )
             desc_style = Style.from_styles(
                 self.get_component_styles("command-dropdown--description")
             )
