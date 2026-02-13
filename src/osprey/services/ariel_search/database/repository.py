@@ -788,7 +788,7 @@ class ARIELRepository:
         query_embedding: list[float],
         model_name: str,
         max_results: int = 10,
-        similarity_threshold: float = 0.7,
+        similarity_threshold: float = 0.5,
         start_date: datetime | None = None,
         end_date: datetime | None = None,
         author: str | None = None,

@@ -74,7 +74,7 @@ class TestToolInputSchemas:
         input_schema = SemanticSearchInput(query="conceptual query")
         assert input_schema.query == "conceptual query"
         assert input_schema.max_results == 10
-        assert input_schema.similarity_threshold == 0.7
+        assert input_schema.similarity_threshold == 0.5
 
     def test_semantic_search_input_validation(self):
         """SemanticSearchInput validates similarity_threshold."""
@@ -1041,9 +1041,9 @@ class TestToolInputSchemaDefaults:
         assert input_schema.max_results == 10
 
     def test_semantic_input_similarity_default(self):
-        """SemanticSearchInput has similarity_threshold default of 0.7."""
+        """SemanticSearchInput has similarity_threshold default of 0.5."""
         input_schema = SemanticSearchInput(query="test")
-        assert input_schema.similarity_threshold == 0.7
+        assert input_schema.similarity_threshold == 0.5
 
 
 class TestCitationInstruction:

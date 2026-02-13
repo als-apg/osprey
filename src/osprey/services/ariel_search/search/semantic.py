@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 logger = get_logger("ariel")
 
 # Default similarity threshold
-DEFAULT_SIMILARITY_THRESHOLD = 0.7
+DEFAULT_SIMILARITY_THRESHOLD = 0.5
 
 
 async def semantic_search(
@@ -53,7 +53,7 @@ async def semantic_search(
         config: ARIEL configuration
         embedder: Embedding provider (Ollama or other)
         max_results: Maximum entries to return (default: 10)
-        similarity_threshold: Minimum similarity score (default: 0.7).
+        similarity_threshold: Minimum similarity score (default: 0.5).
             Can be overridden per-query, then falls back to config,
             then to hardcoded default.
         start_date: Filter entries after this time
@@ -188,7 +188,7 @@ class SemanticSearchInput(BaseModel):
         description="Maximum results to return",
     )
     similarity_threshold: float = Field(
-        default=0.7,
+        default=0.5,
         ge=0.0,
         le=1.0,
         description="Minimum similarity score (0-1)",
@@ -235,7 +235,7 @@ def get_parameter_descriptors() -> list[ParameterDescriptor]:
             label="Similarity Threshold",
             description="Minimum cosine similarity score for results (0-1)",
             param_type="float",
-            default=0.7,
+            default=0.5,
             min_value=0.0,
             max_value=1.0,
             step=0.01,
