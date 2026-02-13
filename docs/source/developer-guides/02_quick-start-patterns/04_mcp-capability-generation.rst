@@ -632,4 +632,3 @@ If you need to remove a capability, Osprey provides an automated removal command
    - :doc:`../03_core-framework-systems/03_registry-and-discovery` - Registry system details
    - `MCP Specification <https://modelcontextprotocol.io/>`_ - Learn more about Model Context Protocol
    - `FastMCP Documentation <https://github.com/jlowin/fastmcp>`_ - Building MCP servers in Python
-

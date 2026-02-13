@@ -610,4 +610,3 @@ After registration, connectors are available via configuration:
 
    :doc:`03_python-execution`
        Pattern detection in secure Python code execution
-

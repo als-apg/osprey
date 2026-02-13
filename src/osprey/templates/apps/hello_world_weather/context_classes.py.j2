@@ -290,4 +290,3 @@ class CurrentWeatherContext(CapabilityContext):
         return {
             "summary": f"Weather in {self.location} on {self.timestamp.strftime('%Y-%m-%d')}: {self.temperature}°C, {self.conditions}"
         }
-

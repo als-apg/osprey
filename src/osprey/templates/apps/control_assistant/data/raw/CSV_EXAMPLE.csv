@@ -26,4 +26,3 @@ Corrector{instance:02d}{sub_channel},Horizontal corrector {instance} setpoint cu
 Corrector{instance:02d}{sub_channel},Horizontal corrector {instance} readback current in Amps,Corrector,5,XReadBack
 Corrector{instance:02d}{sub_channel},Vertical corrector {instance} setpoint current in Amps,Corrector,5,YSetPoint
 Corrector{instance:02d}{sub_channel},Vertical corrector {instance} readback current in Amps,Corrector,5,YReadBack
-

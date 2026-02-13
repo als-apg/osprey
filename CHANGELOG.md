@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **Capabilities**: Replace hardcoded year constraint with training-anchor prompt in time range parsing (#158)
 - **Dependencies/CI**: Move `psycopg[binary,pool]` from dev extra to core dependencies so ARIEL logbook search works without `pip install osprey[dev]`; fix macOS CI by bundling libpq via `[binary]`
+- **CI**: Fix broken pre-commit config (#154) — update ruff hook to v0.14.3, pre-commit-hooks to v6.0.0, remove invalid `--safe` flag from check-yaml, remove mypy hook (anti-pattern; stays in CI), apply formatting fixes across 180 files
 
 ## [0.11.0] - 2026-02-12
 

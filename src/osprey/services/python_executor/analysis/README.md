@@ -119,4 +119,3 @@ class MyPolicyAnalyzer(ExecutionPolicyAnalyzer):
 - [Policy Analyzer](policy_analyzer.py) - Execution policy logic
 - [Pattern Detection](pattern_detection.py) - Security pattern detection
 - [Parent Module](../__init__.py) - Main Python executor exports
-

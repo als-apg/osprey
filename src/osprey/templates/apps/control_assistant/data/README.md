@@ -95,4 +95,3 @@ Results are saved in `data/benchmarks/results/` with:
 - Summary text file
 - Performance metrics
 - Cost analysis
-

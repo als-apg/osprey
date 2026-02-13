@@ -20,6 +20,3 @@ echo ""
 echo "✅ Quick checks passed! Safe to commit."
 echo ""
 echo "💡 Tip: Run './scripts/ci_check.sh' before pushing for full validation"
-
-
-

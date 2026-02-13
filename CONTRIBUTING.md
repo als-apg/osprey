@@ -150,4 +150,3 @@ Be respectful, welcoming, and inclusive. Focus on what's best for the community.
 ---
 
 For detailed guidelines, workflow files, AI-assisted development tips, and more, please visit our **[complete Contributing documentation](https://als-apg.github.io/osprey/contributing/)**.
-

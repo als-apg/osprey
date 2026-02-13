@@ -175,4 +175,3 @@ The framework automatically:
 ---
 
 **Note:** These examples are only included when you select the **Claude Code generator** during project creation. If you're using the basic generator, you can safely ignore this directory.
-

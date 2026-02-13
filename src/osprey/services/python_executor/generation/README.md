@@ -201,4 +201,3 @@ That's it! The factory will discover and use your generator automatically.
 - [Basic Generator](basic_generator.py) - Simple reference implementation
 - [Claude Code Generator](claude_code_generator.py) - Advanced implementation
 - [Parent Module](../__init__.py) - Main Python executor exports
-
