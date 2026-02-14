@@ -81,9 +81,9 @@ class OspreyTUI(App):
         Binding("k", "scroll_line_up", "Line up", show=False),
         Binding("g", "scroll_home", "Go to top", show=False),
         Binding("G", "scroll_end_chat", "Go to bottom", show=False),
-        # Copy last response
-        ("ctrl+y", "copy_last_response", "Copy response"),
-        # Selection mode toggle (disable mouse tracking for native text selection)
+        # Copy last response (priority overrides TextArea's redo)
+        Binding("ctrl+y", "copy_last_response", "Copy response", priority=True),
+        # Selection mode toggle (disable mouse tracking)
         ("ctrl+s", "toggle_selection_mode", "Select mode"),
         # Artifact gallery (priority=True to override TextArea's select-all)
         Binding("ctrl+a", "focus_artifacts", "Artifacts", priority=True),

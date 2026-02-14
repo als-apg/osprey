@@ -6,6 +6,8 @@ import os
 from datetime import datetime
 from typing import TYPE_CHECKING, ClassVar
 
+from textual.app import ComposeResult
+from textual.containers import Horizontal
 from textual.content import Content
 from textual.events import Blur, Focus, Key
 from textual.message import Message
@@ -660,11 +662,12 @@ class CommandDropdown(OptionList):
                 self.highlighted = self.highlighted + 1
 
 
-class InfoBar(Static):
+class InfoBar(Horizontal):
     """Bottom info bar showing environment, mode, and tips.
 
     Always visible at the bottom of the window (1 line height).
     SSH mode uses $warning background via CSS class.
+    Split layout: mode on left, shortcuts on right.
     """
 
     COMPONENT_CLASSES: ClassVar[set[str]] = {
@@ -682,6 +685,11 @@ class InfoBar(Static):
         self._is_ssh = is_ssh
         self._selection_mode = False
         self._restore_timer = None
+
+    def compose(self) -> ComposeResult:
+        """Compose InfoBar with left (mode) and right (shortcuts) sections."""
+        yield Static("", id="info-bar-left")
+        yield Static("", id="info-bar-right")
 
     def on_mount(self) -> None:
         """Apply SSH class and render initial content."""
@@ -701,7 +709,12 @@ class InfoBar(Static):
     def show_temporary(self, msg: str, duration: float = 2.0) -> None:
         """Show temporary message, then restore previous content."""
         label_style = Style.from_styles(self.get_component_styles("info-bar--label"))
-        self.update(Content.assemble((msg, label_style)))
+        # Show message in right section
+        try:
+            right = self.query_one("#info-bar-right", Static)
+            right.update(Content.assemble((msg, label_style)))
+        except Exception:
+            pass
         # Cancel any pending restore
         if self._restore_timer is not None:
             self._restore_timer.stop()
@@ -717,36 +730,52 @@ class InfoBar(Static):
         label_style = Style.from_styles(self.get_component_styles("info-bar--label"))
         value_style = Style.from_styles(self.get_component_styles("info-bar--value"))
 
-        parts: list[tuple[str, Style]] = []
+        # Build mode label (left) and shortcuts (right) separately
+        mode_parts: list[tuple[str, Style]] = []
+        shortcut_parts: list[tuple[str, Style]] = []
         sep = (" \u00b7 ", value_style)  # " · "
 
         if self._selection_mode:
-            parts.append(("SELECT MODE", label_style))
-            parts.append(sep)
-            parts.append(("drag", label_style))
-            parts.append((" select", value_style))
-            parts.append(sep)
-            parts.append(("Ctrl+S", label_style))
-            parts.append((" exit", value_style))
+            # Left: mode label
+            mode_parts.append(("SELECT MODE", label_style))
+            # Right: shortcuts
+            shortcut_parts.append(("drag", label_style))
+            shortcut_parts.append((" to copy", value_style))
+            shortcut_parts.append(sep)
+            shortcut_parts.append(("Ctrl+S", label_style))
+            shortcut_parts.append((" exit", value_style))
+            shortcut_parts.append(sep)
+            shortcut_parts.append(("Ctrl+Y", label_style))
+            shortcut_parts.append((" copy response", value_style))
         elif self._is_ssh:
-            parts.append(("SSH", label_style))
-            parts.append(sep)
-            parts.append(("Shift+drag", label_style))
-            parts.append((" select", value_style))
-            parts.append((" (", value_style))
-            parts.append(("Option+drag", label_style))
-            parts.append((" in iTerm)", value_style))
-            parts.append(sep)
-            parts.append(("Ctrl+S", label_style))
-            parts.append((" select mode", value_style))
-            parts.append(sep)
-            parts.append(("Ctrl+Y", label_style))
-            parts.append((" copy response", value_style))
+            # Left: mode label
+            mode_parts.append(("SSH", label_style))
+            # Right: shortcuts
+            shortcut_parts.append(("Shift+drag", label_style))
+            shortcut_parts.append((" to select", value_style))
+            shortcut_parts.append((" (", value_style))
+            shortcut_parts.append(("Option+drag", label_style))
+            shortcut_parts.append((" in iTerm)", value_style))
+            shortcut_parts.append(sep)
+            shortcut_parts.append(("Ctrl+S", label_style))
+            shortcut_parts.append((" select mode", value_style))
+            shortcut_parts.append(sep)
+            shortcut_parts.append(("Ctrl+Y", label_style))
+            shortcut_parts.append((" copy response", value_style))
         else:
-            parts.append(("Ctrl+S", label_style))
-            parts.append((" select mode", value_style))
-            parts.append(sep)
-            parts.append(("Ctrl+Y", label_style))
-            parts.append((" copy response", value_style))
+            # Left: empty (no mode label)
+            # Right: shortcuts only
+            shortcut_parts.append(("Ctrl+S", label_style))
+            shortcut_parts.append((" select mode", value_style))
+            shortcut_parts.append(sep)
+            shortcut_parts.append(("Ctrl+Y", label_style))
+            shortcut_parts.append((" copy response", value_style))
 
-        self.update(Content.assemble(*parts))
+        # Update left and right sections
+        try:
+            left = self.query_one("#info-bar-left", Static)
+            right = self.query_one("#info-bar-right", Static)
+            left.update(Content.assemble(*mode_parts) if mode_parts else "")
+            right.update(Content.assemble(*shortcut_parts))
+        except Exception:
+            pass
