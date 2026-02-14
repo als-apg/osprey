@@ -30,17 +30,17 @@ class CommandPalette(ModalScreen[str | None]):
     COMMANDS: ClassVar[dict[str, dict[str, str]]] = {
         "focus_input": {
             "label": "Focus input",
-            "shortcut": "^l",
+            "shortcut": "Ctrl+L",
             "category": "Session",
         },
         "toggle_plan_progress": {
             "label": "Toggle plan",
-            "shortcut": "^o",
+            "shortcut": "Ctrl+O",
             "category": "Session",
         },
         "switch_theme": {
             "label": "Switch theme",
-            "shortcut": "^t",
+            "shortcut": "Ctrl+T",
             "category": "System",
         },
         # "view_status": {
@@ -50,7 +50,7 @@ class CommandPalette(ModalScreen[str | None]):
         # },
         "toggle_help_panel": {
             "label": "Toggle help",
-            "shortcut": "^h",
+            "shortcut": "Ctrl+H",
             "category": "System",
         },
         # "open_docs": {
@@ -60,7 +60,7 @@ class CommandPalette(ModalScreen[str | None]):
         # },
         "exit_app": {
             "label": "Exit the app",
-            "shortcut": "^c ^c",
+            "shortcut": "Ctrl+C Ctrl+C",
             "category": "System",
         },
         # "toggle_console": {
@@ -84,7 +84,7 @@ class CommandPalette(ModalScreen[str | None]):
         with Container(id="palette-container"):
             with Horizontal(id="palette-header"):
                 yield Static("Commands", id="palette-title")
-                yield Static("esc", id="palette-dismiss-hint")
+                yield Static("Esc", id="palette-dismiss-hint")
             yield Input(placeholder="Search", id="palette-search")
             yield OptionList(id="palette-options")
 

@@ -122,6 +122,19 @@ class OspreyTUI(App):
         # Selection mode state (Ctrl+S toggle for mouse tracking)
         self._selection_mode: bool = False
 
+    def get_key_display(self, binding: Binding) -> str:
+        """Format keys as Ctrl+X instead of Textual's default ^x."""
+        if binding.key_display:
+            return binding.key_display
+        modifiers, key = binding.parse_key()
+        from textual.keys import format_key
+
+        key = format_key(key)
+        tokens = [m.title() for m in modifiers] + [
+            key.upper() if len(key) == 1 else key
+        ]
+        return "+".join(tokens)
+
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
         # Welcome screen (shown initially)
@@ -159,7 +172,7 @@ class OspreyTUI(App):
             status.set_message(
                 [
                     ("Press ", "desc"),
-                    ("Ctrl-C", "cmd"),
+                    ("Ctrl+C", "cmd"),
                     (" again to exit", "desc"),
                 ]
             )

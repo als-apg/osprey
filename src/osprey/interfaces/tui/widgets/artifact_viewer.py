@@ -96,8 +96,8 @@ class ArtifactViewer(ModalScreen[None]):
                         for i, art in enumerate(self._artifacts):
                             yield self._compose_list_row(art, i)
                     yield Static(
-                        "[$text bold]r[/$text bold] to open dir \u00b7 "
-                        "[$text bold]j[/$text bold]/[$text bold]k[/$text bold] to nav",
+                        "[$text bold]r[/$text bold] open dir \u00b7 "
+                        "[$text bold]j[/$text bold]/[$text bold]k[/$text bold] nav",
                         id="artifact-list-footer",
                     )
 
@@ -106,17 +106,17 @@ class ArtifactViewer(ModalScreen[None]):
                     with Horizontal(id="artifact-viewer-header"):
                         yield Static(self._build_title(), id="artifact-viewer-title")
                         yield Static("", id="artifact-header-spacer")
-                        yield Static("esc", id="artifact-viewer-dismiss-hint")
+                        yield Static("Esc", id="artifact-viewer-dismiss-hint")
 
                     with ScrollableContainer(id="artifact-detail-panel"):
                         yield from self._compose_details()
 
                     yield Static(
-                        "[$text bold]o[/$text bold] to open \u00b7 "
-                        "[$text bold]c[/$text bold] to copy path \u00b7 "
-                        "[$text bold]\u2423[/$text bold] to pg down \u00b7 "
-                        "[$text bold]b[/$text bold] to pg up \u00b7 "
-                        "[$text bold]\u23ce[/$text bold] to close",
+                        "[$text bold]o[/$text bold] open \u00b7 "
+                        "[$text bold]c[/$text bold] copy path \u00b7 "
+                        "[$text bold]\u2423[/$text bold] pg down \u00b7 "
+                        "[$text bold]b[/$text bold] pg up \u00b7 "
+                        "[$text bold]\u23ce[/$text bold] close",
                         id="artifact-viewer-footer",
                     )
 

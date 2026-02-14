@@ -362,6 +362,6 @@ class ArtifactGallery(Static, can_focus=True):
                     "[dim]o[/] open \u00b7 [dim]Esc[/] exit"
                 )
             else:
-                footer.update("[dim]Press [/]Ctrl+a[dim] to browse artifacts[/]")
+                footer.update("[dim]Press [/]Ctrl+A[dim] to browse artifacts[/]")
         except Exception:
             pass

@@ -64,14 +64,14 @@ class ChatInput(TextArea):
 
     # Tips shown when input is focused
     INPUT_TIPS = [
-        ("/", "for commands"),
-        ("option + \u23ce", "for newline"),
-        ("\u2191\u2193", "for history"),
+        ("/", "commands"),
+        ("Option+Enter", "newline"),
+        ("\u2191\u2193", "history"),
     ]
 
     # Tips shown when focus is elsewhere (chat navigation)
     CHAT_TIPS = [
-        ("Ctrl-L", "focus input"),
+        ("Ctrl+L", "focus input"),
         ("tab", "cycle links"),
         ("j/k", "scroll"),
         ("g/G", "top/bottom"),
@@ -85,8 +85,8 @@ class ChatInput(TextArea):
 
     # Tips shown on welcome screen when focus is lost (no chat to navigate)
     WELCOME_BLUR_TIPS = [
-        ("Ctrl-L", "or"),
-        ("tab", "to focus input"),
+        ("Ctrl+L", "or"),
+        ("tab", "focus input"),
     ]
 
     def _on_blur(self, event: Blur) -> None:
@@ -727,10 +727,10 @@ class InfoBar(Static):
             parts.append(("SELECT MODE", label_style))
             parts.append(sep)
             parts.append(("drag", label_style))
-            parts.append((" to select", value_style))
+            parts.append((" select", value_style))
             parts.append(sep)
             parts.append(("Cmd+C", label_style))
-            parts.append((" to copy", value_style))
+            parts.append((" copy", value_style))
             parts.append(sep)
             parts.append(("Ctrl+S", label_style))
             parts.append((" exit", value_style))
@@ -738,7 +738,7 @@ class InfoBar(Static):
             parts.append(("SSH", label_style))
             parts.append(sep)
             parts.append(("Shift+drag", label_style))
-            parts.append((" to select", value_style))
+            parts.append((" select", value_style))
             parts.append((" (", value_style))
             parts.append(("Option+drag", label_style))
             parts.append((" in iTerm)", value_style))

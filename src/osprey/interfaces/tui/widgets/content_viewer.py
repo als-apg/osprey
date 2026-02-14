@@ -91,14 +91,14 @@ class ContentViewer(ModalScreen[None]):
     def _compose_footer(self) -> Static:
         """Compose footer with appropriate hints."""
         hints = [
-            "[$text bold]␣[/$text bold] to pg down",
-            "[$text bold]b[/$text bold] to pg up",
+            "[$text bold]␣[/$text bold] pg down",
+            "[$text bold]b[/$text bold] pg up",
         ]
         if self._is_tabbed:
-            hints.append("[$text bold]tab[/$text bold] to switch")
+            hints.append("[$text bold]tab[/$text bold] switch")
         if self.language:
-            hints.append("[$text bold]m[/$text bold] to toggle markdown")
-        hints.append("[$text bold]⏎[/$text bold] to close")
+            hints.append("[$text bold]m[/$text bold] toggle markdown")
+        hints.append("[$text bold]⏎[/$text bold] close")
         return Static(" · ".join(hints), id="content-viewer-footer")
 
     def compose(self) -> ComposeResult:
@@ -107,7 +107,7 @@ class ContentViewer(ModalScreen[None]):
             with Horizontal(id="content-viewer-header"):
                 yield Static(self.viewer_title, id="content-viewer-title")
                 yield Static("", id="header-spacer")
-                yield Static("esc", id="content-viewer-dismiss-hint")
+                yield Static("Esc", id="content-viewer-dismiss-hint")
 
             # Tab bar (only if multiple tabs)
             if self._is_tabbed:

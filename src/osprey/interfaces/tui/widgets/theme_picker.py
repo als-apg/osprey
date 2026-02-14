@@ -31,7 +31,7 @@ class ThemePicker(ModalScreen[str | None]):
         with Container(id="theme-container"):
             with Horizontal(id="theme-header"):
                 yield Static("Themes", id="theme-title")
-                yield Static("esc", id="theme-dismiss-hint")
+                yield Static("Esc", id="theme-dismiss-hint")
             yield Input(placeholder="Search", id="theme-search")
             yield OptionList(id="theme-options")
 
