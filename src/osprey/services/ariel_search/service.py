@@ -23,7 +23,9 @@ from osprey.services.ariel_search.models import (
     ARIELSearchRequest,
     ARIELSearchResult,
     ARIELStatusResult,
+    DiagnosticLevel,
     EmbeddingTableInfo,
+    SearchDiagnostic,
     SearchMode,
 )
 from osprey.utils.logger import get_logger
@@ -107,14 +109,23 @@ class ARIELSearchService:
     async def _validate_search_model(self) -> None:
         """Validate that the configured search model's table exists.
 
-        Called lazily on first semantic search.
+        Called lazily on first semantic search. If validation fails (e.g.,
+        pgvector migration was skipped), disables semantic search at runtime
+        so other search modes continue working.
         """
         if self._validated_search_model:
             return
 
         model = self.config.get_search_model()
         if model:
-            await self.repository.validate_search_model_table(model)
+            try:
+                await self.repository.validate_search_model_table(model)
+            except ConfigurationError as e:
+                logger.warning(
+                    f"Semantic search disabled: embedding table not found ({e}). "
+                    f"Install pgvector and re-run 'osprey ariel quickstart' to enable."
+                )
+                self.config.search_modules["semantic"].enabled = False
 
         self._validated_search_model = True
 
@@ -212,6 +223,16 @@ class ARIELSearchService:
                     f"Search timed out before completion. "
                     f"{e.operation} timeout ({e.timeout_seconds}s) exceeded"
                 ),
+                diagnostics=(
+                    SearchDiagnostic(
+                        level=DiagnosticLevel.ERROR,
+                        source="service.timeout",
+                        message=(
+                            f"Search timed out: {e.operation} exceeded {e.timeout_seconds}s limit"
+                        ),
+                        category="timeout",
+                    ),
+                ),
             )
         except ARIELException:
             raise
@@ -251,21 +272,40 @@ class ARIELSearchService:
         include_highlights = ap.get("include_highlights", True)
         fuzzy_fallback = ap.get("fuzzy_fallback", True)
 
-        results = await keyword_search(
-            request.query,
-            self.repository,
-            self.config,
-            max_results=request.max_results,
-            start_date=start_date,
-            end_date=end_date,
-            author=ap.get("author"),
-            source_system=ap.get("source_system"),
-            include_highlights=include_highlights,
-            fuzzy_fallback=fuzzy_fallback,
-        )
+        try:
+            results = await keyword_search(
+                request.query,
+                self.repository,
+                self.config,
+                max_results=request.max_results,
+                start_date=start_date,
+                end_date=end_date,
+                author=ap.get("author"),
+                source_system=ap.get("source_system"),
+                include_highlights=include_highlights,
+                fuzzy_fallback=fuzzy_fallback,
+            )
+        except Exception as e:
+            logger.warning(f"Keyword search failed: {e}")
+            return ARIELSearchResult(
+                entries=(),
+                answer=None,
+                sources=(),
+                search_modes_used=(SearchMode.KEYWORD,),
+                reasoning=f"Keyword search failed: {e}",
+                diagnostics=(
+                    SearchDiagnostic(
+                        level=DiagnosticLevel.ERROR,
+                        source="service.keyword",
+                        message=f"Keyword search failed: {e}",
+                        category="search",
+                    ),
+                ),
+            )
 
         entries = tuple(
-            {**dict(entry), "_highlights": highlights} for entry, _score, highlights in results
+            {**dict(entry), "_score": score, "_highlights": highlights}
+            for entry, score, highlights in results
         )
         sources = tuple(entry["entry_id"] for entry, _score, _highlights in results)
 
@@ -301,20 +341,38 @@ class ARIELSearchService:
         ap = request.advanced_params
         similarity_threshold = ap.get("similarity_threshold")
 
-        results = await semantic_search(
-            request.query,
-            self.repository,
-            self.config,
-            self._get_embedder(),
-            max_results=request.max_results,
-            similarity_threshold=similarity_threshold,
-            start_date=start_date,
-            end_date=end_date,
-            author=ap.get("author"),
-            source_system=ap.get("source_system"),
-        )
+        try:
+            results = await semantic_search(
+                request.query,
+                self.repository,
+                self.config,
+                self._get_embedder(),
+                max_results=request.max_results,
+                similarity_threshold=similarity_threshold,
+                start_date=start_date,
+                end_date=end_date,
+                author=ap.get("author"),
+                source_system=ap.get("source_system"),
+            )
+        except Exception as e:
+            logger.warning(f"Semantic search failed: {e}")
+            return ARIELSearchResult(
+                entries=(),
+                answer=None,
+                sources=(),
+                search_modes_used=(SearchMode.SEMANTIC,),
+                reasoning=f"Semantic search failed: {e}",
+                diagnostics=(
+                    SearchDiagnostic(
+                        level=DiagnosticLevel.ERROR,
+                        source="service.semantic",
+                        message=f"Semantic search failed: {e}",
+                        category="search",
+                    ),
+                ),
+            )
 
-        entries = tuple(dict(entry) for entry, _similarity in results)
+        entries = tuple({**dict(entry), "_score": similarity} for entry, similarity in results)
         sources = tuple(entry["entry_id"] for entry, _similarity in results)
 
         return ARIELSearchResult(
@@ -343,12 +401,23 @@ class ARIELSearchService:
         similarity_threshold = ap.get("similarity_threshold")
         temperature = ap.get("temperature")
 
+        # Load prompt from framework prompt system
+        prompt_template = None
+        try:
+            from osprey.prompts.loader import get_framework_prompts
+
+            builder = get_framework_prompts().get_ariel_rag_prompt_builder()
+            prompt_template = builder.get_prompt_template()
+        except (ValueError, NotImplementedError, AttributeError):
+            pass  # Falls back to hardcoded default inside RAGPipeline
+
         pipeline = RAGPipeline(
             repository=self.repository,
             config=self.config,
             embedder_loader=self._get_embedder,
             max_context_chars=max_context_chars,
             max_chars_per_entry=max_chars_per_entry,
+            prompt_template=prompt_template,
         )
 
         start_date = request.time_range[0] if request.time_range else None
@@ -372,6 +441,8 @@ class ARIELSearchService:
             search_modes_used=(SearchMode.RAG,),
             reasoning=f"RAG pipeline: {rag_result.retrieval_count} retrieved, "
             f"{len(rag_result.entries)} in context",
+            diagnostics=rag_result.diagnostics,
+            pipeline_details=rag_result.pipeline_details,
         )
 
     async def _run_agent(self, request: ARIELSearchRequest) -> ARIELSearchResult:
@@ -385,11 +456,22 @@ class ARIELSearchService:
         """
         from osprey.services.ariel_search.agent import AgentExecutor
 
+        # Load prompt from framework prompt system
+        system_prompt = None
+        try:
+            from osprey.prompts.loader import get_framework_prompts
+
+            builder = get_framework_prompts().get_ariel_agent_prompt_builder()
+            system_prompt = builder.get_system_prompt()
+        except (ValueError, NotImplementedError, AttributeError):
+            pass  # Falls back to hardcoded default inside AgentExecutor
+
         # Create agent executor
         executor = AgentExecutor(
             repository=self.repository,
             config=self.config,
             embedder_loader=self._get_embedder,
+            system_prompt=system_prompt,
         )
 
         # Execute agent
@@ -406,6 +488,8 @@ class ARIELSearchService:
             sources=agent_result.sources,
             search_modes_used=agent_result.search_modes_used,
             reasoning=agent_result.reasoning,
+            diagnostics=agent_result.diagnostics,
+            pipeline_details=agent_result.pipeline_details,
         )
 
     # === Health Check ===

@@ -8,15 +8,20 @@ from __future__ import annotations
 import time
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, HTTPException, Request
 
 from osprey.interfaces.ariel.api.schemas import (
+    AgentStepResponse,
+    AgentToolInvocationResponse,
+    DiagnosticResponse,
     EntriesListResponse,
     EntryCreateRequest,
     EntryCreateResponse,
     EntryResponse,
+    PipelineDetailsResponse,
+    RAGStageStatsResponse,
     SearchMode,
     SearchRequest,
     SearchResponse,
@@ -49,6 +54,46 @@ def _entry_to_response(
         keywords=entry.get("keywords", []),
         score=score,
         highlights=highlights or [],
+    )
+
+
+def _pipeline_details_to_response(pd: Any) -> PipelineDetailsResponse | None:
+    """Convert a PipelineDetails dataclass to its API response model."""
+    if pd is None:
+        return None
+
+    rag_stats = None
+    if pd.rag_stats is not None:
+        rag_stats = RAGStageStatsResponse(
+            keyword_retrieved=pd.rag_stats.keyword_retrieved,
+            semantic_retrieved=pd.rag_stats.semantic_retrieved,
+            fused_count=pd.rag_stats.fused_count,
+            context_included=pd.rag_stats.context_included,
+            context_truncated=pd.rag_stats.context_truncated,
+        )
+
+    return PipelineDetailsResponse(
+        pipeline_type=pd.pipeline_type,
+        rag_stats=rag_stats,
+        agent_tool_invocations=[
+            AgentToolInvocationResponse(
+                tool_name=inv.tool_name,
+                tool_args=inv.tool_args,
+                result_summary=inv.result_summary,
+                order=inv.order,
+            )
+            for inv in pd.agent_tool_invocations
+        ],
+        agent_steps=[
+            AgentStepResponse(
+                step_type=s.step_type,
+                content=s.content,
+                tool_name=s.tool_name,
+                order=s.order,
+            )
+            for s in pd.agent_steps
+        ],
+        step_summary=pd.step_summary,
     )
 
 
@@ -153,7 +198,10 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
         execution_time = int((time.time() - start_time) * 1000)
 
         # Convert entries to response format
-        entries = [_entry_to_response(e, highlights=e.get("_highlights")) for e in result.entries]
+        entries = [
+            _entry_to_response(e, score=e.get("_score"), highlights=e.get("_highlights"))
+            for e in result.entries
+        ]
 
         return SearchResponse(
             entries=entries,
@@ -163,6 +211,18 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
             reasoning=result.reasoning,
             total_results=len(entries),
             execution_time_ms=execution_time,
+            diagnostics=[
+                DiagnosticResponse(
+                    level=d.level.value,
+                    source=d.source,
+                    message=d.message,
+                    category=d.category,
+                )
+                for d in result.diagnostics
+            ],
+            pipeline_details=_pipeline_details_to_response(
+                getattr(result, "pipeline_details", None)
+            ),
         )
 
     except Exception as e:

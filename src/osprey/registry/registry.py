@@ -468,15 +468,6 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                         "python_approval_node",
                     ],
                 ),
-                # Channel finder service (framework-level)
-                ServiceRegistration(
-                    name="channel_finder",
-                    module_path="osprey.services.channel_finder.service",
-                    class_name="ChannelFinderService",
-                    description="Channel address discovery and search service",
-                    provides=["CHANNEL_ADDRESSES"],
-                    requires=[],
-                ),
             ],
             # Framework prompt providers (defaults - typically overridden by applications)
             framework_prompt_providers=[
@@ -640,12 +631,12 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                 ArielPipelineRegistration(
                     name="rag",
                     module_path="osprey.services.ariel_search.pipelines",
-                    description="Deterministic RAG pipeline with hybrid retrieval and RRF fusion",
+                    description="Retrieval-augmented generation with text embeddings, keyword search, and LLM summarization",
                 ),
                 ArielPipelineRegistration(
                     name="agent",
                     module_path="osprey.services.ariel_search.pipelines",
-                    description="Autonomous ReAct agent with multi-step reasoning",
+                    description="Autonomous ReAct agent with multi-step reasoning and all available search modules as tools",
                 ),
             ],
             # ARIEL ingestion adapters

@@ -218,6 +218,3 @@ If you modify these scripts:
 - [Git and GitHub Workflow](../docs/source/contributing/02_git-and-github.rst)
 - [CI/CD Testing Guide](../docs/source/contributing/05_ci-cd-testing.rst)
 - [Code Standards](../docs/source/contributing/03_code-standards.rst)
-
-
-

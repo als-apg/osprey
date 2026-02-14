@@ -114,4 +114,3 @@ Documentation Structure
    api_reference/index
    example-applications/index
    contributing/index
-

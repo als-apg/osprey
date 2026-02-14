@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-02-13
+
+### Fixed
+- **Capabilities**: Replace hardcoded year constraint with training-anchor prompt in time range parsing (#158)
+- **Dependencies**: Move `psycopg[binary,pool]` from dev extra to core dependencies so ARIEL logbook search works without `pip install osprey[dev]`; fix macOS CI by bundling libpq via `[binary]`
+- **Dependencies**: Pin `claude-agent-sdk==0.1.26` — versions 0.1.27+ bundle a Claude CLI that breaks CBORG API proxy
+- **CI**: Fix broken pre-commit config (#154) — update ruff hook to v0.14.3, pre-commit-hooks to v6.0.0, remove invalid `--safe` flag from check-yaml, remove mypy hook (anti-pattern; stays in CI), apply formatting fixes across 180 files
+
+## [0.11.0] - 2026-02-12
+
 ### Added
 - **Capabilities**: Migrate control capabilities to native Python modules
   - `channel_finding`, `channel_read`, `channel_write`, `archiver_retrieval` moved from Jinja2 templates to `src/osprey/capabilities/`

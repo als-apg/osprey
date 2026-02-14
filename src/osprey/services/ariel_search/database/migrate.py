@@ -9,7 +9,7 @@ See 04_OSPREY_INTEGRATION.md Sections 11.1-11.8 for specification.
 import importlib
 from typing import TYPE_CHECKING
 
-from osprey.services.ariel_search.database.migration import BaseMigration
+from osprey.services.ariel_search.database.migration import BaseMigration, MigrationSkippedError
 from osprey.services.ariel_search.exceptions import ConfigurationError
 from osprey.utils.logger import get_logger
 
@@ -171,6 +171,8 @@ class MigrationRunner:
                     await migration.mark_applied(conn)
                     applied.append(migration.name)
                     logger.info(f"Applied migration: {migration.name}")
+                except MigrationSkippedError as e:
+                    logger.warning(f"Migration {migration.name} skipped: {e}")
                 except Exception as e:
                     logger.error(f"Failed to apply migration {migration.name}: {e}")
                     raise

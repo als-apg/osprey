@@ -395,8 +395,7 @@ def _get_time_parsing_system_prompt(user_query: str) -> str:
         - Use format 'YYYY-MM-DD HH:MM:SS' (e.g., "{current_time_str}")
         - Return as datetime objects, not strings with extra text or descriptions
         - **CRITICAL**: start_date MUST be BEFORE end_date (start < end)
-        - **CRITICAL**: Use ONLY the current year {now.year} - NO future years like 2025, 2026, etc.
-        - **CRITICAL**: Current time is {current_time_str} - use this as reference
+        - **CRITICAL**: Anchor ALL date calculations to the current datetime {current_time_str} — do NOT use your training data to infer what "now" is
         - For historical data requests, end_date should typically be close to current time
 
         Instructions:

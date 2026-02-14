@@ -13,7 +13,6 @@ See 03_AGENTIC_REASONING.md for specification.
 from __future__ import annotations
 
 import asyncio
-import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -22,7 +21,14 @@ from osprey.services.ariel_search.exceptions import (
     ConfigurationError,
     SearchTimeoutError,
 )
-from osprey.services.ariel_search.models import SearchMode
+from osprey.services.ariel_search.models import (
+    AgentStep,
+    AgentToolInvocation,
+    DiagnosticLevel,
+    PipelineDetails,
+    SearchDiagnostic,
+    SearchMode,
+)
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -82,6 +88,8 @@ class AgentResult:
     sources: tuple[str, ...] = field(default_factory=tuple)
     search_modes_used: tuple[SearchMode, ...] = field(default_factory=tuple)
     reasoning: str = ""
+    diagnostics: tuple[SearchDiagnostic, ...] = field(default_factory=tuple)
+    pipeline_details: PipelineDetails | None = None
 
 
 # === Agent Executor ===
@@ -108,11 +116,13 @@ class AgentExecutor:
         config: ARIELConfig,
         embedder_loader: Callable[[], BaseEmbeddingProvider],
         llm: BaseChatModel | None = None,
+        system_prompt: str | None = None,
     ) -> None:
         self.repository = repository
         self.config = config
         self._embedder_loader = embedder_loader
         self._llm = llm
+        self._system_prompt = system_prompt or AGENT_SYSTEM_PROMPT
 
     def _get_llm(self) -> BaseChatModel:
         """Lazy-load the LLM for the agent.
@@ -188,6 +198,7 @@ class AgentExecutor:
         self,
         descriptor: SearchToolDescriptor,
         time_range: tuple[datetime, datetime] | None = None,
+        collected_ids: list[str] | None = None,
     ) -> StructuredTool:
         """Build a LangChain StructuredTool from a descriptor.
 
@@ -202,6 +213,7 @@ class AgentExecutor:
         Args:
             descriptor: Search tool descriptor
             time_range: Optional default time range for searches
+            collected_ids: Mutable list to collect entry IDs from tool results
 
         Returns:
             Configured StructuredTool
@@ -223,6 +235,8 @@ class AgentExecutor:
         _format = descriptor.format_result
         _needs_embedder = descriptor.needs_embedder
 
+        _collected_ids = collected_ids
+
         async def _tool_fn(**kwargs: Any) -> list[dict[str, Any]]:
             start_date = kwargs.pop("start_date", None)
             end_date = kwargs.pop("end_date", None)
@@ -242,9 +256,17 @@ class AgentExecutor:
 
             results = await _execute(**call_kwargs)
 
-            return [
+            formatted = [
                 _format(*item) if isinstance(item, tuple) else _format(item) for item in results
             ]
+
+            if _collected_ids is not None:
+                for item in formatted:
+                    eid = item.get("entry_id")
+                    if eid:
+                        _collected_ids.append(eid)
+
+            return formatted
 
         return StructuredTool.from_function(
             func=_tool_fn,
@@ -257,17 +279,19 @@ class AgentExecutor:
     def _create_tools(
         self,
         time_range: tuple[datetime, datetime] | None = None,
+        collected_ids: list[str] | None = None,
     ) -> tuple[list[StructuredTool], list[SearchToolDescriptor]]:
         """Create LangChain tools from auto-discovered descriptors.
 
         Args:
             time_range: Optional default time range for searches
+            collected_ids: Mutable list to collect entry IDs from tool results
 
         Returns:
             Tuple of (tools list, descriptors list)
         """
         descriptors = self._load_descriptors()
-        tools = [self._build_tool(d, time_range) for d in descriptors]
+        tools = [self._build_tool(d, time_range, collected_ids) for d in descriptors]
         return tools, descriptors
 
     async def execute(
@@ -291,7 +315,10 @@ class AgentExecutor:
             AgentResult with answer, entries, sources, and reasoning
         """
         try:
-            tools, descriptors = self._create_tools(time_range=time_range)
+            collected_ids: list[str] = []
+            tools, descriptors = self._create_tools(
+                time_range=time_range, collected_ids=collected_ids
+            )
 
             if not tools:
                 return AgentResult(
@@ -300,10 +327,27 @@ class AgentExecutor:
                     sources=(),
                     search_modes_used=(),
                     reasoning="No search modules enabled in configuration",
+                    diagnostics=(
+                        SearchDiagnostic(
+                            level=DiagnosticLevel.WARNING,
+                            source="agent.tools",
+                            message="No search modules enabled",
+                        ),
+                    ),
                 )
 
             result = await self._run_agent(query, tools)
-            return self._parse_agent_result(result, descriptors)
+
+            # Deduplicate collected entry IDs (preserving order) and fetch full entries
+            unique_ids = list(dict.fromkeys(collected_ids))
+            entries: list[dict[str, Any]] = []
+            if unique_ids:
+                try:
+                    entries = await self.repository.get_entries_by_ids(unique_ids)
+                except Exception:
+                    logger.warning("Failed to fetch full entries for agent results", exc_info=True)
+
+            return self._parse_agent_result(result, descriptors, entries=entries)
 
         except SearchTimeoutError:
             raise
@@ -335,7 +379,7 @@ class AgentExecutor:
             agent = create_react_agent(
                 model=llm,
                 tools=tools,
-                prompt=AGENT_SYSTEM_PROMPT,
+                prompt=self._system_prompt,
             )
 
             initial_messages = [
@@ -372,6 +416,7 @@ class AgentExecutor:
         self,
         result: dict[str, Any],
         descriptors: list[SearchToolDescriptor],
+        entries: list[dict[str, Any]] | None = None,
     ) -> AgentResult:
         """Parse the agent's result into AgentResult.
 
@@ -380,6 +425,7 @@ class AgentExecutor:
         Args:
             result: Raw agent result
             descriptors: Loaded descriptors (for tool name → SearchMode mapping)
+            entries: Full entries fetched from the repository
 
         Returns:
             Structured AgentResult
@@ -394,29 +440,171 @@ class AgentExecutor:
                 answer = msg.content
                 break
 
-        # Extract entry IDs from citations in the answer
+        # Detect which retrieved entry IDs appear in the answer text
         sources: list[str] = []
-        if answer:
-            citation_pattern = r"\[(?:entry-)?#?(\w+)\]"
-            matches = re.findall(citation_pattern, answer)
-            sources = list(dict.fromkeys(matches))
+        if answer and entries:
+            sources = [
+                e["entry_id"] for e in entries if e.get("entry_id") and e["entry_id"] in answer
+            ]
 
         # Determine which search modes were used from tool calls
         search_modes_used: list[SearchMode] = []
+        tool_invocations: list[AgentToolInvocation] = []
+        steps: list[AgentStep] = []
+        tool_call_order = 0
+        step_order = 0
+
+        # Build a map of tool_call_id -> tool_name for result backfill
+        call_id_to_name: dict[str, str] = {}
+
         for msg in messages:
-            if hasattr(msg, "tool_calls"):
-                for tool_call in msg.tool_calls:
-                    tool_name = tool_call.get("name", "")
-                    mode = tool_name_to_mode.get(tool_name)
+            msg_type = getattr(msg, "type", None)
+
+            if msg_type == "human":
+                content = getattr(msg, "content", "")
+                steps.append(
+                    AgentStep(
+                        step_type="user_query",
+                        content=str(content)[:200],
+                        order=step_order,
+                    )
+                )
+                step_order += 1
+
+            elif msg_type == "ai":
+                content = getattr(msg, "content", "")
+                tool_calls = getattr(msg, "tool_calls", None) or []
+
+                # AI reasoning (non-empty content before/without tool calls)
+                if content and isinstance(content, str):
+                    if not tool_calls:
+                        # Final answer or reasoning without tools
+                        steps.append(
+                            AgentStep(
+                                step_type="final_answer" if msg is messages[-1] else "reasoning",
+                                content=str(content)[:200],
+                                order=step_order,
+                            )
+                        )
+                        step_order += 1
+                    else:
+                        steps.append(
+                            AgentStep(
+                                step_type="reasoning",
+                                content=str(content)[:200],
+                                order=step_order,
+                            )
+                        )
+                        step_order += 1
+
+                for tc in tool_calls:
+                    t_name = tc.get("name", "unknown")
+                    t_args = tc.get("args", {})
+                    t_id = tc.get("id", "")
+                    call_id_to_name[t_id] = t_name
+
+                    tool_invocations.append(
+                        AgentToolInvocation(
+                            tool_name=t_name,
+                            tool_args=t_args,
+                            order=tool_call_order,
+                        )
+                    )
+                    steps.append(
+                        AgentStep(
+                            step_type="tool_call",
+                            content=str(t_args)[:200],
+                            tool_name=t_name,
+                            order=step_order,
+                        )
+                    )
+                    tool_call_order += 1
+                    step_order += 1
+
+                    mode = tool_name_to_mode.get(t_name)
                     if mode is not None and mode not in search_modes_used:
                         search_modes_used.append(mode)
 
+            elif msg_type == "tool":
+                content = getattr(msg, "content", "")
+                t_id = getattr(msg, "tool_call_id", "")
+                t_name = call_id_to_name.get(t_id)
+                summary = str(content)[:200]
+
+                # Backfill result_summary on the matching invocation
+                for i, inv in enumerate(tool_invocations):
+                    if inv.tool_name == t_name and inv.result_summary == "":
+                        tool_invocations[i] = AgentToolInvocation(
+                            tool_name=inv.tool_name,
+                            tool_args=inv.tool_args,
+                            result_summary=summary,
+                            order=inv.order,
+                        )
+                        break
+
+                steps.append(
+                    AgentStep(
+                        step_type="tool_result",
+                        content=summary,
+                        tool_name=t_name,
+                        order=step_order,
+                    )
+                )
+                step_order += 1
+
+            else:
+                # Fallback: check for tool_calls on untyped messages
+                tool_calls = getattr(msg, "tool_calls", None) or []
+                for tc in tool_calls:
+                    t_name = tc.get("name", "unknown")
+                    t_args = tc.get("args", {})
+                    t_id = tc.get("id", "")
+                    call_id_to_name[t_id] = t_name
+
+                    tool_invocations.append(
+                        AgentToolInvocation(
+                            tool_name=t_name,
+                            tool_args=t_args,
+                            order=tool_call_order,
+                        )
+                    )
+                    steps.append(
+                        AgentStep(
+                            step_type="tool_call",
+                            content=str(t_args)[:200],
+                            tool_name=t_name,
+                            order=step_order,
+                        )
+                    )
+                    tool_call_order += 1
+                    step_order += 1
+
+                    mode = tool_name_to_mode.get(t_name)
+                    if mode is not None and mode not in search_modes_used:
+                        search_modes_used.append(mode)
+
+        # Build step summary
+        tool_names = [inv.tool_name for inv in tool_invocations]
+        unique_tools = list(dict.fromkeys(tool_names))
+        if tool_invocations:
+            step_summary = f"{len(tool_invocations)} tool call(s): {', '.join(unique_tools)}"
+        else:
+            step_summary = "No tool calls"
+
+        pd = PipelineDetails(
+            pipeline_type="agent",
+            agent_tool_invocations=tuple(tool_invocations),
+            agent_steps=tuple(steps),
+            step_summary=step_summary,
+        )
+
         return AgentResult(
             answer=answer,
-            entries=(),
+            entries=tuple(entries or ()),
             sources=tuple(sources),
             search_modes_used=tuple(search_modes_used),
             reasoning="",
+            pipeline_details=pd,
         )
 
 

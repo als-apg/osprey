@@ -10,10 +10,15 @@ RAG (direct question-answering, deterministic, auditable).
 from __future__ import annotations
 
 import asyncio
-import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from osprey.services.ariel_search.models import (
+    DiagnosticLevel,
+    PipelineDetails,
+    RAGStageStats,
+    SearchDiagnostic,
+)
 from osprey.services.ariel_search.prompts import RAG_PROMPT_TEMPLATE
 from osprey.utils.logger import get_logger
 
@@ -51,6 +56,8 @@ class RAGResult:
     citations: tuple[str, ...] = field(default_factory=tuple)
     retrieval_count: int = 0
     context_truncated: bool = False
+    diagnostics: tuple[SearchDiagnostic, ...] = field(default_factory=tuple)
+    pipeline_details: PipelineDetails | None = None
 
 
 class RAGPipeline:
@@ -69,6 +76,7 @@ class RAGPipeline:
         fusion_k: int = 60,
         max_context_chars: int = 12000,
         max_chars_per_entry: int = 2000,
+        prompt_template: str | None = None,
     ) -> None:
         self._repository = repository
         self._config = config
@@ -76,6 +84,7 @@ class RAGPipeline:
         self._fusion_k = fusion_k
         self._max_context_chars = max_context_chars
         self._max_chars_per_entry = max_chars_per_entry
+        self._prompt_template = prompt_template or RAG_PROMPT_TEMPLATE
 
     # === Public API ===
 
@@ -107,10 +116,17 @@ class RAGPipeline:
             RAGResult with answer, entries, and citations
         """
         if not query.strip():
-            return RAGResult(answer=_NO_CONTEXT_ANSWER)
+            pd = PipelineDetails(
+                pipeline_type="rag",
+                rag_stats=RAGStageStats(),
+                step_summary="Empty query — no retrieval performed",
+            )
+            return RAGResult(answer=_NO_CONTEXT_ANSWER, pipeline_details=pd)
+
+        diags: list[SearchDiagnostic] = []
 
         # 1. Retrieve — run enabled search modules in parallel
-        keyword_results, semantic_results = await self._retrieve(
+        keyword_results, semantic_results, retrieve_diags = await self._retrieve(
             query,
             max_results=max_results,
             similarity_threshold=similarity_threshold,
@@ -119,6 +135,10 @@ class RAGPipeline:
             author=author,
             source_system=source_system,
         )
+        diags.extend(retrieve_diags)
+
+        kw_count = len(keyword_results)
+        sem_count = len(semantic_results)
 
         # 2. Fuse — RRF if both returned results, otherwise use whichever returned
         entries = self._fuse(keyword_results, semantic_results, max_results)
@@ -126,22 +146,60 @@ class RAGPipeline:
         retrieval_count = len(entries)
 
         if not entries:
+            pd = PipelineDetails(
+                pipeline_type="rag",
+                rag_stats=RAGStageStats(
+                    keyword_retrieved=kw_count,
+                    semantic_retrieved=sem_count,
+                    fused_count=0,
+                    context_included=0,
+                ),
+                step_summary=f"Retrieved {kw_count} keyword + {sem_count} semantic, 0 after fusion",
+            )
             return RAGResult(
                 answer=_NO_CONTEXT_ANSWER,
                 retrieval_count=0,
+                diagnostics=tuple(diags),
+                pipeline_details=pd,
             )
 
         # 3. Assemble — build context window
         context_text, included_entries, truncated = self._assemble_context(entries)
+        if truncated:
+            diags.append(
+                SearchDiagnostic(
+                    level=DiagnosticLevel.INFO,
+                    source="rag.assemble",
+                    message="Context was truncated to fit token limits",
+                )
+            )
 
         # 4. Generate — LLM call
-        answer = await self._generate(query, context_text, temperature=temperature)
+        answer, gen_diag = await self._generate(query, context_text, temperature=temperature)
+        if gen_diag is not None:
+            diags.append(gen_diag)
 
-        # 5. Extract citations
-        citations = self._extract_citations(answer)
+        # 5. Detect which context entries are cited in the answer
+        context_ids = [e["entry_id"] for e in included_entries]
+        citations = self._find_cited_ids(answer, context_ids)
         if not citations:
-            # Fall back to all context entry IDs
-            citations = [e["entry_id"] for e in included_entries]
+            citations = context_ids  # fallback: all context entries
+
+        # Build pipeline details
+        pd = PipelineDetails(
+            pipeline_type="rag",
+            rag_stats=RAGStageStats(
+                keyword_retrieved=kw_count,
+                semantic_retrieved=sem_count,
+                fused_count=retrieval_count,
+                context_included=len(included_entries),
+                context_truncated=truncated,
+            ),
+            step_summary=(
+                f"Retrieved {kw_count} keyword + {sem_count} semantic, "
+                f"{retrieval_count} after fusion, {len(included_entries)} in context"
+            ),
+        )
 
         return RAGResult(
             answer=answer,
@@ -149,6 +207,8 @@ class RAGPipeline:
             citations=tuple(citations),
             retrieval_count=retrieval_count,
             context_truncated=truncated,
+            diagnostics=tuple(diags),
+            pipeline_details=pd,
         )
 
     # === Retrieval ===
@@ -166,6 +226,7 @@ class RAGPipeline:
     ) -> tuple[
         list[tuple[EnhancedLogbookEntry, float, list[str]]],
         list[tuple[EnhancedLogbookEntry, float]],
+        list[SearchDiagnostic],
     ]:
         """Run keyword and/or semantic search in parallel.
 
@@ -173,9 +234,10 @@ class RAGPipeline:
         otherwise falls back to checking which search modules are enabled.
 
         Returns:
-            Tuple of (keyword_results, semantic_results)
+            Tuple of (keyword_results, semantic_results, diagnostics)
         """
         tasks: dict[str, Any] = {}
+        diags: list[SearchDiagnostic] = []
 
         # Determine which retrieval modules to use
         retrieval_modules = self._config.get_pipeline_retrieval_modules("rag")
@@ -201,6 +263,14 @@ class RAGPipeline:
                 embedder = self._embedder_loader()
             except Exception as e:
                 logger.warning(f"Failed to load embedder, skipping semantic search: {e}")
+                diags.append(
+                    SearchDiagnostic(
+                        level=DiagnosticLevel.WARNING,
+                        source="rag.retrieve.semantic",
+                        message=f"Failed to load embedder, skipping semantic search: {e}",
+                        category="embedding",
+                    )
+                )
                 embedder = None
 
             if embedder is not None:
@@ -221,21 +291,41 @@ class RAGPipeline:
         semantic_results: list[tuple[EnhancedLogbookEntry, float]] = []
 
         if not tasks:
-            return keyword_results, semantic_results
+            return keyword_results, semantic_results, diags
 
         # Run in parallel
         results = await asyncio.gather(*tasks.values(), return_exceptions=True)
         keys = list(tasks.keys())
 
+        failed_keys: list[str] = []
         for key, result in zip(keys, results, strict=True):
             if isinstance(result, Exception):
                 logger.warning(f"RAG {key} retrieval failed: {result}")
+                diags.append(
+                    SearchDiagnostic(
+                        level=DiagnosticLevel.ERROR,
+                        source=f"rag.retrieve.{key}",
+                        message=f"{key.title()} retrieval failed: {result}",
+                        category="search",
+                    )
+                )
+                failed_keys.append(key)
             elif key == "keyword":
                 keyword_results = result
             elif key == "semantic":
                 semantic_results = result
 
-        return keyword_results, semantic_results
+        if len(failed_keys) == len(tasks) and len(tasks) > 0:
+            diags.append(
+                SearchDiagnostic(
+                    level=DiagnosticLevel.ERROR,
+                    source="rag.retrieve",
+                    message="All retrieval modules failed",
+                    category="search",
+                )
+            )
+
+        return keyword_results, semantic_results, diags
 
     # === Fusion ===
 
@@ -283,7 +373,7 @@ class RAGPipeline:
         # Sort by fused score descending
         sorted_items = sorted(scored.values(), key=lambda x: x[1], reverse=True)
 
-        return [entry for entry, _score in sorted_items[:max_results]]
+        return [{**entry, "_score": score} for entry, score in sorted_items[:max_results]]
 
     # === Context Assembly ===
 
@@ -351,7 +441,7 @@ class RAGPipeline:
         context: str,
         *,
         temperature: float | None = None,
-    ) -> str:
+    ) -> tuple[str, SearchDiagnostic | None]:
         """Generate an answer using the LLM.
 
         Args:
@@ -360,9 +450,9 @@ class RAGPipeline:
             temperature: Override temperature (None uses config default)
 
         Returns:
-            Generated answer text
+            Tuple of (answer_text, optional_diagnostic)
         """
-        prompt = RAG_PROMPT_TEMPLATE.format(context=context, question=query)
+        prompt = self._prompt_template.format(context=context, question=query)
 
         try:
             from osprey.models.completion import get_chat_completion
@@ -382,37 +472,48 @@ class RAGPipeline:
             else:
                 answer = str(response)
 
-            return answer if answer else "I was unable to generate an answer."
+            return (answer if answer else "I was unable to generate an answer.", None)
 
         except ImportError:
             logger.warning("osprey.models.completion not available for RAG")
-            return "LLM not available for answer generation."
+            return (
+                "LLM not available for answer generation.",
+                SearchDiagnostic(
+                    level=DiagnosticLevel.WARNING,
+                    source="rag.generate",
+                    message="LLM module not available for answer generation",
+                ),
+            )
         except Exception as e:
             logger.error(f"LLM call failed for RAG: {e}")
-            return f"Error generating answer: {e}"
+            return (
+                f"Error generating answer: {e}",
+                SearchDiagnostic(
+                    level=DiagnosticLevel.ERROR,
+                    source="rag.generate",
+                    message=f"LLM call failed: {e}",
+                ),
+            )
 
-    # === Citation Extraction ===
+    # === Citation Detection ===
 
     @staticmethod
-    def _extract_citations(text: str) -> list[str]:
-        """Extract citation IDs from [#id] patterns in text.
+    def _find_cited_ids(text: str, candidate_ids: list[str]) -> list[str]:
+        """Find which candidate entry IDs appear in the answer text.
+
+        Checks each candidate ID for presence in the text (case-sensitive).
+        Returns IDs in candidate order (not text order).
+
+        Args:
+            text: LLM-generated answer text
+            candidate_ids: Entry IDs from the retrieval context
 
         Returns:
-            List of unique entry IDs in order of appearance.
+            List of candidate IDs that appear as substrings in the text.
         """
-        if not text:
+        if not text or not candidate_ids:
             return []
-
-        matches = re.findall(r"\[#(\w+)\]", text)
-
-        seen: set[str] = set()
-        unique: list[str] = []
-        for match in matches:
-            if match not in seen:
-                seen.add(match)
-                unique.append(match)
-
-        return unique
+        return [eid for eid in candidate_ids if eid in text]
 
 
 __all__ = ["RAGPipeline", "RAGResult"]

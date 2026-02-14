@@ -46,4 +46,3 @@ fi
 echo "Starting pipelines server..."
 cd /app
 exec bash start.sh
-

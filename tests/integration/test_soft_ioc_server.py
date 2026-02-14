@@ -251,95 +251,110 @@ class IOCServer:
         if pairings is None:
             pairings = {}
 
-        # Use dynamic port allocation if no port specified
-        if port is None:
-            port = self._find_free_port()
+        # Try up to 2 ports to handle TOCTOU race with dynamic allocation
+        max_attempts = 1 if port is not None else 2
+        last_error = None
 
-        # Write tracking backend module
-        self.backend_file.write_text(TRACKING_BACKEND_MODULE)
+        for attempt in range(max_attempts):
+            # Use dynamic port allocation if no port specified
+            chosen_port = port if port is not None else self._find_free_port()
 
-        # Generate IOC code
-        config = {
-            "ioc": {"name": "test_ioc", "port": port},
-            "base": {
-                "type": "passthrough",  # We use wrapper's backend
-                "noise_level": 0.0,
-                "update_rate": update_rate,
-            },
-            "overlays": [],
-        }
-        ioc_code = generate_soft_ioc(config, channels, pairings)
+            # Clean up port file from any previous attempt
+            if self.port_file.exists():
+                self.port_file.unlink()
 
-        # Remove the if __name__ == '__main__' block since wrapper handles startup
-        # Find where the main block starts and truncate
-        main_marker = "if __name__ == '__main__':"
-        if main_marker in ioc_code:
-            ioc_code = ioc_code[: ioc_code.index(main_marker)]
+            # Write tracking backend module
+            self.backend_file.write_text(TRACKING_BACKEND_MODULE)
 
-        self.ioc_file.write_text(ioc_code)
+            # Generate IOC code
+            config = {
+                "ioc": {"name": "test_ioc", "port": chosen_port},
+                "base": {
+                    "type": "passthrough",  # We use wrapper's backend
+                    "noise_level": 0.0,
+                    "update_rate": update_rate,
+                },
+                "overlays": [],
+            }
+            ioc_code = generate_soft_ioc(config, channels, pairings)
 
-        # Get IOC class name from config
-        ioc_class = "TestIoc"  # _to_class_name("test_ioc")
+            # Remove the if __name__ == '__main__' block since wrapper handles startup
+            # Find where the main block starts and truncate
+            main_marker = "if __name__ == '__main__':"
+            if main_marker in ioc_code:
+                ioc_code = ioc_code[: ioc_code.index(main_marker)]
 
-        # Write wrapper script
-        wrapper_code = IOC_WRAPPER_TEMPLATE.format(
-            backend_path=self.backend_file,
-            ioc_path=self.ioc_file,
-            log_file=self.log_file,
-            port_file=self.port_file,
-            scale=scale,
-            offset=offset,
-            ioc_class=ioc_class,
-            port=port,
-        )
-        self.wrapper_file.write_text(wrapper_code)
+            self.ioc_file.write_text(ioc_code)
 
-        # Set up environment for subprocess
-        env = os.environ.copy()
-        # Ensure EPICS CA settings for localhost-only operation
-        env["EPICS_CA_ADDR_LIST"] = "127.0.0.1"
-        env["EPICS_CA_AUTO_ADDR_LIST"] = "NO"
-        env["EPICS_CA_SERVER_PORT"] = str(port)
+            # Get IOC class name from config
+            ioc_class = "TestIoc"  # _to_class_name("test_ioc")
 
-        # Start server subprocess
-        self.process = subprocess.Popen(
-            [sys.executable, str(self.wrapper_file)],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=env,
-        )
+            # Write wrapper script
+            wrapper_code = IOC_WRAPPER_TEMPLATE.format(
+                backend_path=self.backend_file,
+                ioc_path=self.ioc_file,
+                log_file=self.log_file,
+                port_file=self.port_file,
+                scale=scale,
+                offset=offset,
+                ioc_class=ioc_class,
+                port=chosen_port,
+            )
+            self.wrapper_file.write_text(wrapper_code)
 
-        # Wait for port file to appear (indicates server is starting)
-        timeout = 10.0
-        start_time = time.time()
-        while not self.port_file.exists():
-            if time.time() - start_time > timeout:
-                # Get any error output
-                if self.process.poll() is not None:
-                    _, stderr = self.process.communicate()
-                    raise TimeoutError(
-                        f"IOC server failed to start within {timeout}s. "
-                        f"Process exited with code {self.process.returncode}. "
-                        f"stderr: {stderr.decode()}"
-                    )
-                raise TimeoutError(f"IOC server failed to start within {timeout}s")
-            time.sleep(0.1)
+            # Set up environment for subprocess
+            env = os.environ.copy()
+            # Ensure EPICS CA settings for localhost-only operation
+            env["EPICS_CA_ADDR_LIST"] = "127.0.0.1"
+            env["EPICS_CA_AUTO_ADDR_LIST"] = "NO"
+            env["EPICS_CA_SERVER_PORT"] = str(chosen_port)
 
-        # Read port from file
-        self.port = int(self.port_file.read_text().strip())
-
-        # Wait for server to fully initialize (longer for CI environments)
-        time.sleep(1.0)
-
-        # Check if process is still running
-        if self.process.poll() is not None:
-            stdout, stderr = self.process.communicate()
-            raise RuntimeError(
-                f"IOC server exited unexpectedly with code {self.process.returncode}. "
-                f"stdout: {stdout.decode()}\nstderr: {stderr.decode()}"
+            # Start server subprocess
+            self.process = subprocess.Popen(
+                [sys.executable, str(self.wrapper_file)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=env,
             )
 
-        return self.port
+            # Wait for port file to appear (indicates server is starting)
+            timeout = 10.0
+            start_time = time.time()
+            while not self.port_file.exists():
+                if time.time() - start_time > timeout:
+                    # Get any error output
+                    if self.process.poll() is not None:
+                        _, stderr = self.process.communicate()
+                        raise TimeoutError(
+                            f"IOC server failed to start within {timeout}s. "
+                            f"Process exited with code {self.process.returncode}. "
+                            f"stderr: {stderr.decode()}"
+                        )
+                    raise TimeoutError(f"IOC server failed to start within {timeout}s")
+                time.sleep(0.1)
+
+            # Read port from file
+            self.port = int(self.port_file.read_text().strip())
+
+            # Wait for server to fully initialize (longer for CI environments)
+            time.sleep(1.0)
+
+            # Check if process is still running
+            if self.process.poll() is not None:
+                stdout, stderr = self.process.communicate()
+                last_error = (
+                    f"IOC server exited unexpectedly with code {self.process.returncode}. "
+                    f"stdout: {stdout.decode()}\nstderr: {stderr.decode()}"
+                )
+                # Retry with a new port if address was in use
+                if "Address already in use" in last_error and attempt < max_attempts - 1:
+                    self.process = None
+                    continue
+                raise RuntimeError(last_error)
+
+            return self.port
+
+        raise RuntimeError(last_error or "IOC server failed to start")
 
     def stop(self) -> None:
         """Stop the IOC server gracefully."""
@@ -1095,132 +1110,147 @@ class IOCServerWithBackends(IOCServer):
         if pairings is None:
             pairings = {}
 
-        if port is None:
-            port = self._find_free_port()
+        # Try up to 2 ports to handle TOCTOU race with dynamic allocation
+        max_attempts = 1 if port is not None else 2
+        last_error = None
 
-        # Write backend modules
-        backend_paths = []
-        backend_imports = []
-        backends_instantiation = []
+        for attempt in range(max_attempts):
+            chosen_port = port if port is not None else self._find_free_port()
 
-        for i, backend in enumerate(backends_config):
-            if "module_code" in backend:
-                # Custom backend with module code
-                module_code = backend["module_code"]
-                class_name = backend["class_name"]
-                params = backend.get("params", {})
+            # Clean up port file from any previous attempt
+            if self.port_file.exists():
+                self.port_file.unlink()
 
-                # Write module file
-                module_file = self.tmp_path / f"backend_{i}.py"
-                module_file.write_text(module_code)
-                backend_paths.append(str(module_file))
+            # Write backend modules
+            backend_paths = []
+            backend_imports = []
+            backends_instantiation = []
 
-                # Generate import
-                module_name = f"backend_{i}"
-                backend_imports.append(f"from {module_name} import {class_name}")
+            for i, backend in enumerate(backends_config):
+                if "module_code" in backend:
+                    # Custom backend with module code
+                    module_code = backend["module_code"]
+                    class_name = backend["class_name"]
+                    params = backend.get("params", {})
 
-                # Generate instantiation
-                if params:
-                    param_strs = [f"{k}={repr(v)}" for k, v in params.items()]
-                    backends_instantiation.append(f"{class_name}({', '.join(param_strs)})")
+                    # Write module file
+                    module_file = self.tmp_path / f"backend_{i}.py"
+                    module_file.write_text(module_code)
+                    backend_paths.append(str(module_file))
+
+                    # Generate import
+                    module_name = f"backend_{i}"
+                    backend_imports.append(f"from {module_name} import {class_name}")
+
+                    # Generate instantiation
+                    if params:
+                        param_strs = [f"{k}={repr(v)}" for k, v in params.items()]
+                        backends_instantiation.append(f"{class_name}({', '.join(param_strs)})")
+                    else:
+                        backends_instantiation.append(f"{class_name}()")
+                elif backend.get("type") == "mock_style":
+                    # Built-in mock_style backend
+                    noise = backend.get("noise_level", 0.01)
+                    backends_instantiation.append(f"MockStyleBackend(noise_level={noise})")
+
+            # Build base + overlays config for generator
+            # First backend becomes the base, rest become overlays
+            base_config = None
+            overlay_configs = []
+
+            for i, backend in enumerate(backends_config):
+                if "module_code" in backend:
+                    backend_spec = {
+                        "module_path": f"backend_{i}",
+                        "class_name": backend["class_name"],
+                        "params": backend.get("params", {}),
+                    }
+                elif backend.get("type") == "mock_style":
+                    backend_spec = {
+                        "type": "mock_style",
+                        "noise_level": backend.get("noise_level", 0.01),
+                    }
                 else:
-                    backends_instantiation.append(f"{class_name}()")
-            elif backend.get("type") == "mock_style":
-                # Built-in mock_style backend
-                noise = backend.get("noise_level", 0.01)
-                backends_instantiation.append(f"MockStyleBackend(noise_level={noise})")
+                    backend_spec = backend.copy()
 
-        # Build base + overlays config for generator
-        # First backend becomes the base, rest become overlays
-        base_config = None
-        overlay_configs = []
+                if base_config is None:
+                    base_config = backend_spec
+                else:
+                    overlay_configs.append(backend_spec)
 
-        for i, backend in enumerate(backends_config):
-            if "module_code" in backend:
-                backend_spec = {
-                    "module_path": f"backend_{i}",
-                    "class_name": backend["class_name"],
-                    "params": backend.get("params", {}),
-                }
-            elif backend.get("type") == "mock_style":
-                backend_spec = {
-                    "type": "mock_style",
-                    "noise_level": backend.get("noise_level", 0.01),
-                }
-            else:
-                backend_spec = backend.copy()
+            # Generate IOC code with base + overlays
+            config = {
+                "ioc": {"name": "test_ioc", "port": chosen_port},
+                "base": base_config
+                or {"type": "mock_style", "noise_level": 0.0, "update_rate": update_rate},
+                "overlays": overlay_configs,
+            }
+            ioc_code = generate_soft_ioc(config, channels, pairings)
 
-            if base_config is None:
-                base_config = backend_spec
-            else:
-                overlay_configs.append(backend_spec)
+            # Remove the main block since wrapper handles startup
+            main_marker = "if __name__ == '__main__':"
+            if main_marker in ioc_code:
+                ioc_code = ioc_code[: ioc_code.index(main_marker)]
 
-        # Generate IOC code with base + overlays
-        config = {
-            "ioc": {"name": "test_ioc", "port": port},
-            "base": base_config
-            or {"type": "mock_style", "noise_level": 0.0, "update_rate": update_rate},
-            "overlays": overlay_configs,
-        }
-        ioc_code = generate_soft_ioc(config, channels, pairings)
+            self.ioc_file.write_text(ioc_code)
 
-        # Remove the main block since wrapper handles startup
-        main_marker = "if __name__ == '__main__':"
-        if main_marker in ioc_code:
-            ioc_code = ioc_code[: ioc_code.index(main_marker)]
+            # Write wrapper script
+            wrapper_code = IOC_BACKENDS_WRAPPER_TEMPLATE.format(
+                backend_paths=repr(backend_paths),
+                backend_imports="\n".join(backend_imports) if backend_imports else "pass",
+                ioc_path=self.ioc_file,
+                port_file=self.port_file,
+                port=chosen_port,
+                backends_list="[" + ", ".join(backends_instantiation) + "]",
+                ioc_class="TestIoc",
+            )
+            self.wrapper_file.write_text(wrapper_code)
 
-        self.ioc_file.write_text(ioc_code)
+            # Set up environment for subprocess
+            env = os.environ.copy()
+            env["EPICS_CA_ADDR_LIST"] = "127.0.0.1"
+            env["EPICS_CA_AUTO_ADDR_LIST"] = "NO"
+            env["EPICS_CA_SERVER_PORT"] = str(chosen_port)
 
-        # Write wrapper script
-        wrapper_code = IOC_BACKENDS_WRAPPER_TEMPLATE.format(
-            backend_paths=repr(backend_paths),
-            backend_imports="\n".join(backend_imports) if backend_imports else "pass",
-            ioc_path=self.ioc_file,
-            port_file=self.port_file,
-            port=port,
-            backends_list="[" + ", ".join(backends_instantiation) + "]",
-            ioc_class="TestIoc",
-        )
-        self.wrapper_file.write_text(wrapper_code)
-
-        # Set up environment for subprocess
-        env = os.environ.copy()
-        env["EPICS_CA_ADDR_LIST"] = "127.0.0.1"
-        env["EPICS_CA_AUTO_ADDR_LIST"] = "NO"
-        env["EPICS_CA_SERVER_PORT"] = str(port)
-
-        # Start server subprocess
-        self.process = subprocess.Popen(
-            [sys.executable, str(self.wrapper_file)],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=env,
-        )
-
-        # Wait for port file
-        timeout = 10.0
-        start_time = time.time()
-        while not self.port_file.exists():
-            if time.time() - start_time > timeout:
-                if self.process.poll() is not None:
-                    _, stderr = self.process.communicate()
-                    raise TimeoutError(
-                        f"IOC server with backends failed to start. stderr: {stderr.decode()}"
-                    )
-                raise TimeoutError(f"IOC server failed to start within {timeout}s")
-            time.sleep(0.1)
-
-        self.port = int(self.port_file.read_text().strip())
-        time.sleep(1.0)  # Wait for server to fully initialize (longer for CI)
-
-        if self.process.poll() is not None:
-            stdout, stderr = self.process.communicate()
-            raise RuntimeError(
-                f"IOC server exited unexpectedly. "
-                f"stdout: {stdout.decode()}\nstderr: {stderr.decode()}"
+            # Start server subprocess
+            self.process = subprocess.Popen(
+                [sys.executable, str(self.wrapper_file)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=env,
             )
 
-        return self.port
+            # Wait for port file
+            timeout = 10.0
+            start_time = time.time()
+            while not self.port_file.exists():
+                if time.time() - start_time > timeout:
+                    if self.process.poll() is not None:
+                        _, stderr = self.process.communicate()
+                        raise TimeoutError(
+                            f"IOC server with backends failed to start. stderr: {stderr.decode()}"
+                        )
+                    raise TimeoutError(f"IOC server failed to start within {timeout}s")
+                time.sleep(0.1)
+
+            self.port = int(self.port_file.read_text().strip())
+            time.sleep(1.0)  # Wait for server to fully initialize (longer for CI)
+
+            if self.process.poll() is not None:
+                stdout, stderr = self.process.communicate()
+                last_error = (
+                    f"IOC server exited unexpectedly. "
+                    f"stdout: {stdout.decode()}\nstderr: {stderr.decode()}"
+                )
+                # Retry with a new port if address was in use
+                if "Address already in use" in last_error and attempt < max_attempts - 1:
+                    self.process = None
+                    continue
+                raise RuntimeError(last_error)
+
+            return self.port
+
+        raise RuntimeError(last_error or "IOC server with backends failed to start")
 
 
 @pytest.fixture

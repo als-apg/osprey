@@ -30,11 +30,11 @@ class TestEjectList:
         assert result.exit_code == 0
         assert "channel_finding" in result.output
 
-    def test_list_shows_channel_finder_service(self, runner):
-        """Test that channel_finder service appears in ejectable list."""
+    def test_list_shows_python_executor_service(self, runner):
+        """Test that python_executor service appears in ejectable list."""
         result = runner.invoke(eject, ["list"])
         assert result.exit_code == 0
-        assert "channel_finder" in result.output
+        assert "python_executor" in result.output
 
 
 class TestEjectCapability:
@@ -98,8 +98,8 @@ class TestEjectService:
 
     def test_eject_service_to_output_path(self, runner, tmp_path):
         """Test ejecting a service to a specific output directory."""
-        output_dir = tmp_path / "channel_finder"
-        result = runner.invoke(eject, ["service", "channel_finder", "--output", str(output_dir)])
+        output_dir = tmp_path / "python_executor"
+        result = runner.invoke(eject, ["service", "python_executor", "--output", str(output_dir)])
         assert result.exit_code == 0
         assert "Ejected service" in result.output
         assert output_dir.exists()

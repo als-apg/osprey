@@ -1063,7 +1063,7 @@ class TestALSLogbookAdapterHTTPMocked:
                         except ImportError as e:
                             raise IngestionError(
                                 "SOCKS proxy configured but aiohttp-socks is not installed. "
-                                "Install with: pip install 'osprey-framework[ariel-proxy]'",
+                                "Install with: pip install osprey-framework",
                                 source_system=adapter.source_system_name,
                             ) from e
                     return original_method()
@@ -1074,7 +1074,6 @@ class TestALSLogbookAdapterHTTPMocked:
                     adapter._create_connector()
 
                 assert "aiohttp-socks" in str(exc_info.value)
-                assert "ariel-proxy" in str(exc_info.value)
 
 
 class TestALSLogbookAdapterHTTPConfigParsing:

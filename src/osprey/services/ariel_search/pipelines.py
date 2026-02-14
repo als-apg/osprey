@@ -33,7 +33,7 @@ class PipelineDescriptor:
 RAG_PIPELINE = PipelineDescriptor(
     name="rag",
     label="RAG",
-    description="AI-powered search with hybrid retrieval and answer generation",
+    description="Retrieval-augmented generation with text embeddings, keyword search, and LLM summarization",
     category="llm",
     parameters=[
         ParameterDescriptor(
@@ -41,7 +41,7 @@ RAG_PIPELINE = PipelineDescriptor(
             label="Similarity Threshold",
             description="Minimum cosine similarity for semantic retrieval",
             param_type="float",
-            default=0.7,
+            default=0.5,
             min_value=0.0,
             max_value=1.0,
             step=0.01,
@@ -86,7 +86,7 @@ RAG_PIPELINE = PipelineDescriptor(
 AGENT_PIPELINE = PipelineDescriptor(
     name="agent",
     label="Agent",
-    description="Autonomous ReAct agent with multi-step reasoning",
+    description="Autonomous ReAct agent with multi-step reasoning and all available search modules as tools",
     category="llm",
     parameters=[
         ParameterDescriptor(

@@ -22,4 +22,3 @@
       ~NotebookType.EXECUTION_ATTEMPT
       ~NotebookType.FINAL_SUCCESS
       ~NotebookType.FINAL_FAILURE
-

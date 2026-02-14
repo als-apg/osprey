@@ -8,7 +8,11 @@ See 01_DATA_LAYER.md Section 2.5 for SQL specification.
 
 from typing import TYPE_CHECKING
 
-from osprey.services.ariel_search.database.migration import BaseMigration, model_to_table_name
+from osprey.services.ariel_search.database.migration import (
+    BaseMigration,
+    MigrationSkippedError,
+    model_to_table_name,
+)
 
 if TYPE_CHECKING:
     from psycopg import AsyncConnection
@@ -57,8 +61,28 @@ class TextEmbeddingMigration(BaseMigration):
         # Default: nomic-embed-text (most common)
         return [("nomic-embed-text", 768)]
 
+    async def _is_pgvector_available(self, conn: "AsyncConnection") -> bool:
+        """Check if the pgvector extension is available in PostgreSQL.
+
+        Returns:
+            True if pgvector is available for installation
+        """
+        result = await conn.execute(
+            "SELECT EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'vector')"
+        )
+        row = await result.fetchone()
+        return bool(row and row[0])
+
     async def up(self, conn: "AsyncConnection") -> None:
         """Apply the text embedding migration."""
+        # Check pgvector availability before attempting to create the extension
+        if not await self._is_pgvector_available(conn):
+            raise MigrationSkippedError(
+                "pgvector extension is not available in this PostgreSQL installation. "
+                "Install pgvector to enable semantic search. "
+                "ARIEL will fall back to keyword-only search."
+            )
+
         # Enable pgvector extension
         await conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
 

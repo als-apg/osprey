@@ -117,4 +117,3 @@ else
   echo "See: src/osprey/assist/tasks/pre-merge-cleanup/instructions.md for detailed guidance"
   exit 1
 fi
-

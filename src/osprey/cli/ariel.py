@@ -14,6 +14,9 @@ import click
 
 # Import get_config_value at module level for easier patching in tests
 from osprey.utils.config import get_config_value
+from osprey.utils.logger import get_logger
+
+logger = get_logger("ariel")
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -875,13 +878,51 @@ def quickstart_command(source: str | None) -> None:
                 click.echo(f"Ingesting data from: {config.ingestion.source_url}")
                 adapter_instance = get_adapter(config)
 
+                from osprey.services.ariel_search.enhancement import (
+                    create_enhancers_from_config,
+                )
+
+                enhancers = create_enhancers_from_config(config)
+                if enhancers:
+                    click.echo(f"  Enhancement modules: {[e.name for e in enhancers]}")
+
                 service = await create_ariel_service(config)
                 async with service:
                     count = 0
-                    async for entry in adapter_instance.fetch_entries():
-                        await service.repository.upsert_entry(entry)
-                        count += 1
+                    enhanced_count = 0
+                    failed_count = 0
+
+                    async with service.pool.connection() as conn:
+                        async for entry in adapter_instance.fetch_entries():
+                            await service.repository.upsert_entry(entry)
+                            count += 1
+
+                            if enhancers:
+                                for enhancer in enhancers:
+                                    try:
+                                        await enhancer.enhance(entry, conn)
+                                        await service.repository.mark_enhancement_complete(
+                                            entry["entry_id"],
+                                            enhancer.name,
+                                        )
+                                        enhanced_count += 1
+                                    except Exception as e:
+                                        await service.repository.mark_enhancement_failed(
+                                            entry["entry_id"],
+                                            enhancer.name,
+                                            str(e),
+                                        )
+                                        failed_count += 1
+                                        logger.debug(
+                                            f"Enhancement failed for {entry['entry_id']}: {e}"
+                                        )
+
                     click.echo(f"  Entries: {count} ingested")
+                    if enhancers:
+                        click.echo(
+                            f"  Enhancements: {enhanced_count} applied"
+                            + (f", {failed_count} failed" if failed_count else "")
+                        )
 
             # 5. Summary
             enabled_search = config.get_enabled_search_modules()
@@ -927,10 +968,6 @@ def web_command(port: int, host: str, reload: bool) -> None:
         from osprey.interfaces.ariel import run_web
 
         run_web(host=host, port=port, reload=reload)
-    except ImportError as err:
-        click.echo("Error: Required dependencies not installed.", err=True)
-        click.echo("Install with: pip install 'osprey-framework[web]'", err=True)
-        raise SystemExit(1) from err
     except KeyboardInterrupt:
         click.echo("\nShutting down...")
 

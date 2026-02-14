@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "osprey-framework"
-version = "0.10.9"
+version = "0.11.1"
 description = "An open-source, domain-agnostic, capability-based architecture for building intelligent agents"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -70,7 +70,7 @@ dependencies = [
     "ollama>=0.5.1",
 
     # Advanced code generation
-    "claude-agent-sdk>=0.1.26",  # Claude Code SDK - 0.1.25 has CBORG-incompatible beta headers
+    "claude-agent-sdk==0.1.26",  # Claude Code SDK - pinned; 0.1.27+ bundled CLI breaks CBORG API
 
     # Data processing - required for archiver connectors and data handling
     # Archiver connectors return pandas DataFrames for time-series data
@@ -111,6 +111,17 @@ dependencies = [
 
     # Control system simulation (soft IOC generation)
     "caproto",
+
+    # PostgreSQL (required for native logbook_search capability and checkpointing)
+    "psycopg[binary,pool]>=3.1.0,<4.0.0",
+    "psycopg-pool>=3.1.0,<4.0.0",
+
+    # ARIEL Web Interface (FastAPI server for web-based logbook search)
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+
+    # ARIEL proxy support for HTTP ingestion through SOCKS tunnels
+    "aiohttp-socks>=0.8.0",
 ]
 
 [project.optional-dependencies]
@@ -142,9 +153,6 @@ dev = [
     "build",  # Required for 'osprey deploy up --dev' to build local wheel
     "testcontainers[postgres]>=4.0.0",  # Real PostgreSQL for integration tests
     "docker>=7.0.0",  # Docker SDK for testcontainers availability check
-    "fastapi>=0.109.0",  # For ARIEL Web API tests
-    "psycopg[pool]>=3.1.0,<4.0.0",  # ARIEL search integration tests
-    "psycopg-pool>=3.1.0,<4.0.0",  # ARIEL search integration tests
 ]
 
 # Storage backends (databases, PostgreSQL checkpointing, vector/memory storage)
@@ -164,31 +172,9 @@ storage = [
     "vecs>=0.4.5",
 ]
 
-# ARIEL (Agentic Retrieval Interface for Electronic Logbooks)
-# See _ISSUES/MAJOR/ARIEL/ for specification
-ariel = [
-    # PostgreSQL with pgvector for vector similarity search
-    "psycopg[pool]>=3.1.0,<4.0.0",
-    "psycopg-pool>=3.1.0,<4.0.0",
-    # LangGraph for ReAct agent
-    "langgraph>=0.5.2",
-    "langchain-openai>=0.3.0",
-]
-
-# ARIEL proxy support for HTTP ingestion through SOCKS tunnels
-ariel-proxy = [
-    "aiohttp-socks>=0.8.0",
-]
-
-# ARIEL Web Interface - FastAPI server for web-based search
-web = [
-    "fastapi>=0.109.0",
-    "uvicorn[standard]>=0.27.0",
-]
-
 # All optional dependencies for complete installation
 all = [
-    "osprey-framework[docs,dev,storage,ariel,web]"
+    "osprey-framework[docs,dev,storage]"
 ]
 
 [project.urls]

@@ -8,6 +8,8 @@ import { searchApi } from './api.js';
 import {
   renderEntryCard,
   renderAnswerBox,
+  renderDiagnosticsBar,
+  renderPipelineDetails,
   renderLoading,
   renderEmptyState,
   escapeHtml,
@@ -91,7 +93,7 @@ export async function performSearch(query = null) {
     });
 
     lastResults = results;
-    renderSearchResults(results);
+    renderSearchResults(results, mode);
   } catch (error) {
     console.error('Search failed:', error);
     if (resultsContainer) {
@@ -110,8 +112,9 @@ export async function performSearch(query = null) {
 /**
  * Render search results.
  * @param {Object} results - Search results from API
+ * @param {string} pipeline - The pipeline selected by the user (e.g. 'rag', 'agent')
  */
-function renderSearchResults(results) {
+function renderSearchResults(results, pipeline = 'rag') {
   const resultsContainer = document.getElementById('search-results');
   if (!resultsContainer) return;
 
@@ -121,9 +124,20 @@ function renderSearchResults(results) {
 
   let html = '';
 
-  // RAG answer if present
+  // Answer box with pipeline label and tools used
   if (results.answer) {
-    html += renderAnswerBox(results.answer, results.sources);
+    const toolsUsed = results.search_modes_used || [];
+    html += renderAnswerBox(results.answer, results.sources, pipeline, toolsUsed);
+  }
+
+  // Diagnostics bar if issues detected
+  if (results.diagnostics?.length > 0) {
+    html += renderDiagnosticsBar(results.diagnostics);
+  }
+
+  // Pipeline details (collapsible)
+  if (results.pipeline_details) {
+    html += renderPipelineDetails(results.pipeline_details);
   }
 
   // Results header
@@ -141,9 +155,11 @@ function renderSearchResults(results) {
 
   // Results list
   if (results.entries?.length > 0) {
+    const sourcesSet = results.sources?.length ? new Set(results.sources) : null;
     html += '<div class="results-list">';
     results.entries.forEach(entry => {
-      html += renderEntryCard(entry);
+      const isCited = sourcesSet ? sourcesSet.has(entry.entry_id) : false;
+      html += renderEntryCard(entry, isCited);
     });
     html += '</div>';
   } else {

@@ -74,7 +74,7 @@ class TestToolInputSchemas:
         input_schema = SemanticSearchInput(query="conceptual query")
         assert input_schema.query == "conceptual query"
         assert input_schema.max_results == 10
-        assert input_schema.similarity_threshold == 0.7
+        assert input_schema.similarity_threshold == 0.5
 
     def test_semantic_search_input_validation(self):
         """SemanticSearchInput validates similarity_threshold."""
@@ -490,18 +490,19 @@ class TestAgentExecutor:
         assert result.answer == "This is the answer from the agent."
 
     def test_executor_parse_agent_result_extracts_citations(self):
-        """_parse_agent_result extracts citations from answer."""
+        """_parse_agent_result detects entry IDs mentioned in the answer."""
         executor = self._create_mock_executor()
         _tools, descriptors = executor._create_tools()
 
         mock_ai_message = MagicMock()
-        mock_ai_message.content = "Found in [entry-001] and [entry-002] and [#003]."
+        mock_ai_message.content = "Found in entry 001 and entry 002 and also 003."
         mock_ai_message.type = "ai"
         mock_ai_message.tool_calls = []
 
         result_dict = {"messages": [mock_ai_message]}
+        entries = [{"entry_id": "001"}, {"entry_id": "002"}, {"entry_id": "003"}]
 
-        result = executor._parse_agent_result(result_dict, descriptors)
+        result = executor._parse_agent_result(result_dict, descriptors, entries=entries)
 
         assert "001" in result.sources
         assert "002" in result.sources
@@ -1041,9 +1042,9 @@ class TestToolInputSchemaDefaults:
         assert input_schema.max_results == 10
 
     def test_semantic_input_similarity_default(self):
-        """SemanticSearchInput has similarity_threshold default of 0.7."""
+        """SemanticSearchInput has similarity_threshold default of 0.5."""
         input_schema = SemanticSearchInput(query="test")
-        assert input_schema.similarity_threshold == 0.7
+        assert input_schema.similarity_threshold == 0.5
 
 
 class TestCitationInstruction:

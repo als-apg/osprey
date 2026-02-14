@@ -1423,7 +1423,7 @@ class TestThresholdInSQLVerification:
         assert call_kwargs["similarity_threshold"] == threshold
 
     def test_default_similarity_threshold_constant(self):
-        """DEFAULT_SIMILARITY_THRESHOLD is 0.7.
+        """DEFAULT_SIMILARITY_THRESHOLD is 0.5.
 
         QUAL-010: Verify default threshold value.
         """
@@ -1431,4 +1431,4 @@ class TestThresholdInSQLVerification:
             DEFAULT_SIMILARITY_THRESHOLD,
         )
 
-        assert DEFAULT_SIMILARITY_THRESHOLD == 0.7
+        assert DEFAULT_SIMILARITY_THRESHOLD == 0.5

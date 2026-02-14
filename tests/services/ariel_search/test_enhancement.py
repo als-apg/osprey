@@ -529,11 +529,13 @@ class TestTextEmbeddingModuleEnhance:
 
     @pytest.mark.asyncio
     async def test_enhance_empty_text_skipped(self, module):
-        """Enhance skips entries with empty text."""
+        """Enhance skips entries with empty text (no INSERT executed)."""
         from unittest.mock import AsyncMock, MagicMock
 
+        mock_result = MagicMock()
+        mock_result.fetchone = AsyncMock(return_value=(True,))
         mock_conn = MagicMock()
-        mock_conn.execute = AsyncMock()
+        mock_conn.execute = AsyncMock(return_value=mock_result)
 
         entry = {
             "entry_id": "entry-empty",
@@ -541,7 +543,9 @@ class TestTextEmbeddingModuleEnhance:
         }
 
         await module.enhance(entry, mock_conn)
-        mock_conn.execute.assert_not_called()
+        # Only the table existence check should have been called, no INSERT
+        for call in mock_conn.execute.call_args_list:
+            assert "INSERT" not in str(call)
 
 
 class TestSemanticProcessorEnhanceWithLLM:

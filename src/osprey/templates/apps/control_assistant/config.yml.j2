@@ -662,14 +662,14 @@ ariel:
 
   # Search modules (leaf-level search functions)
   # provider: references api.providers for credentials (api_key, base_url)
-  # Tutorial default: only keyword search enabled (no Ollama dependency)
-  # Enable semantic when you have Ollama running with nomic-embed-text
+  # Both keyword and semantic are enabled by default.
+  # If Ollama/pgvector are unavailable, ARIEL degrades gracefully to keyword-only.
   search_modules:
     keyword:
       enabled: true
     semantic:
-      enabled: false     # Requires Ollama + embedding model. Enable when ready.
-      provider: ollama   # References api.providers.ollama
+      enabled: true      # Degrades gracefully if Ollama/pgvector unavailable
+      provider: ollama    # References api.providers.ollama
       model: nomic-embed-text
 
   # Pipelines (compose search modules into higher-level strategies)
@@ -677,10 +677,10 @@ ariel:
   pipelines:
     rag:
       enabled: true
-      retrieval_modules: [keyword]  # Add semantic when embeddings are ready
+      retrieval_modules: [keyword, semantic]  # Semantic auto-disabled if unavailable
     agent:
       enabled: true
-      retrieval_modules: [keyword]  # Add semantic when embeddings are ready
+      retrieval_modules: [keyword, semantic]  # Semantic auto-disabled if unavailable
 
   # Enhancement modules
   # provider: references api.providers for credentials
@@ -696,9 +696,9 @@ ariel:
         max_tokens: 256
 
     # Text embedding: Vector embeddings for semantic search
-    # Requires Ollama running locally with the specified model
+    # Degrades gracefully if Ollama or pgvector is unavailable
     text_embedding:
-      enabled: false  # Requires Ollama. Enable for semantic search.
+      enabled: true   # Degrades gracefully if Ollama/pgvector unavailable
       provider: ollama  # References api.providers.ollama
       models:
         - name: nomic-embed-text

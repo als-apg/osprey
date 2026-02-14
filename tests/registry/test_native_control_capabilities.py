@@ -114,24 +114,6 @@ class TestNativeControlContextTypes:
         assert ctx.class_name == "ArchiverDataContext"
 
 
-class TestNativeControlService:
-    """Test that channel_finder service is registered."""
-
-    @pytest.fixture
-    def framework_config(self):
-        provider = FrameworkRegistryProvider()
-        return provider.get_registry_config()
-
-    def test_channel_finder_service_registered(self, framework_config):
-        """Test channel_finder service is in framework registry."""
-        svc_names = [s.name for s in framework_config.services]
-        assert "channel_finder" in svc_names
-
-        svc = next(s for s in framework_config.services if s.name == "channel_finder")
-        assert svc.module_path == "osprey.services.channel_finder.service"
-        assert svc.class_name == "ChannelFinderService"
-
-
 class TestNativeControlPromptBuilders:
     """Test that channel finder prompt builders are registered."""
 

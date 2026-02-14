@@ -11,7 +11,7 @@ button:has-text("Continue response"),
 
 /* Hide Regenerate button */
 button[title*="Regenerate"],
-button[aria-label*="Regenerate"], 
+button[aria-label*="Regenerate"],
 button:has-text("Regenerate"),
 .regenerate-button,
 [data-testid="regenerate-button"] {
@@ -55,4 +55,4 @@ button:contains("Regenerate") {
 .message-toolbar button:nth-child(2) {
     display: none !important;
 }
-*/ 
+*/

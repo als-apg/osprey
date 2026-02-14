@@ -50,6 +50,7 @@ class TextEmbeddingModule(BaseEnhancementModule):
         self._models: list[dict[str, Any]] = []
         self._provider_name: str = "ollama"
         self._resolved_provider_config: dict[str, Any] = {}
+        self._tables_exist: bool | None = None  # Cached result of table existence check
 
     @property
     def name(self) -> str:
@@ -120,6 +121,33 @@ class TextEmbeddingModule(BaseEnhancementModule):
 
         return self._provider
 
+    async def _check_tables_exist(self, conn: AsyncConnection) -> bool:
+        """Check if embedding tables exist (cached after first call).
+
+        Returns:
+            True if at least one configured model's table exists
+        """
+        if self._tables_exist is not None:
+            return self._tables_exist
+
+        for model_config in self._models:
+            table_name = model_to_table_name(model_config["name"])
+            result = await conn.execute(
+                "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = %s)",
+                [table_name],
+            )
+            row = await result.fetchone()
+            if row and row[0]:
+                self._tables_exist = True
+                return True
+
+        logger.warning(
+            "Embedding tables do not exist (pgvector migration was skipped). "
+            "Skipping text embedding enhancement."
+        )
+        self._tables_exist = False
+        return False
+
     async def enhance(
         self,
         entry: EnhancedLogbookEntry,
@@ -136,6 +164,9 @@ class TextEmbeddingModule(BaseEnhancementModule):
         """
         if not self._models:
             logger.warning("No embedding models configured, skipping text embedding")
+            return
+
+        if not await self._check_tables_exist(conn):
             return
 
         provider = self._get_provider()

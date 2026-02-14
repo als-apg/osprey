@@ -153,34 +153,38 @@ def _mock_ariel_registry():
         yield
 
 
-# Dev database URL (from docker/ariel-dev.yml)
-DEV_DATABASE_URL = "postgresql://ariel:ariel@localhost:5433/ariel_test"
+# Dev database URLs - try port 5432 (ariel-postgres), then 5433 (ariel-dev-db)
+DEV_DATABASE_URL_5432 = "postgresql://ariel:ariel@localhost:5432/ariel_test"
+DEV_DATABASE_URL_5433 = "postgresql://ariel:ariel@localhost:5433/ariel_test"
 
 
-def is_dev_database_available() -> bool:
-    """Check if the docker-compose dev database is running.
+def is_dev_database_available() -> tuple[bool, str]:
+    """Check if a dev database is running (tries 5432 then 5433).
 
     Returns:
-        True if ariel-dev-db container is running and accessible.
+        Tuple of (available, url).
     """
     try:
         import psycopg
+    except ImportError:
+        logger.debug("psycopg not available (libpq missing?), skipping dev database check")
+        return False, ""
 
-        # Try to connect to the dev database
-        with psycopg.connect(
-            DEV_DATABASE_URL.replace("/ariel_test", "/ariel"), autocommit=True
-        ) as conn:
-            # Create test database if it doesn't exist
-            conn.execute("SELECT 1")
-            try:
-                conn.execute("CREATE DATABASE ariel_test")
-                logger.info("Created ariel_test database")
-            except psycopg.errors.DuplicateDatabase:
-                pass  # Already exists
-        return True
-    except Exception as e:
-        logger.debug(f"Dev database not available: {e}")
-        return False
+    for dev_url in [DEV_DATABASE_URL_5432, DEV_DATABASE_URL_5433]:
+        try:
+            base_url = dev_url.replace("/ariel_test", "/ariel")
+            with psycopg.connect(base_url, autocommit=True) as conn:
+                conn.execute("SELECT 1")
+                try:
+                    conn.execute("CREATE DATABASE ariel_test")
+                    logger.info("Created ariel_test database")
+                except psycopg.errors.DuplicateDatabase:
+                    pass  # Already exists
+            return True, dev_url
+        except Exception as e:
+            logger.debug(f"Dev database at {dev_url} not available: {e}")
+            continue
+    return False, ""
 
 
 def is_docker_available() -> bool:
@@ -228,9 +232,10 @@ def database_url() -> str:
         return env_url
 
     # 2. Try existing docker-compose dev database (fastest)
-    if is_dev_database_available():
-        logger.info("Using existing docker-compose dev database (ariel-dev-db)")
-        return DEV_DATABASE_URL
+    available, dev_url = is_dev_database_available()
+    if available:
+        logger.info(f"Using existing dev database: {dev_url.split('@')[-1]}")
+        return dev_url
 
     # 3. Fall back to testcontainers
     if not is_docker_available():

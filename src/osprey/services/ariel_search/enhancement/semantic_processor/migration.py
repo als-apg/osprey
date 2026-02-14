@@ -20,7 +20,6 @@ class SemanticProcessorMigration(BaseMigration):
     Creates:
     - summary column on enhanced_entries
     - keywords column on enhanced_entries
-    - pg_trgm extension
     - Full-text search indexes
     """
 
@@ -58,9 +57,6 @@ class SemanticProcessorMigration(BaseMigration):
             """
         )
 
-        # pg_trgm extension for fuzzy text search
-        await conn.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
-
         # Full-text search index on raw_text and summary
         await conn.execute(
             """
@@ -70,19 +66,9 @@ class SemanticProcessorMigration(BaseMigration):
             """
         )
 
-        # Trigram index for fuzzy matching
-        await conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_entries_text_trgm
-            ON enhanced_entries
-            USING GIN(raw_text gin_trgm_ops)
-            """
-        )
-
     async def down(self, conn: "AsyncConnection") -> None:
         """Rollback the semantic processor migration."""
         # Drop indexes first
-        await conn.execute("DROP INDEX IF EXISTS idx_entries_text_trgm")
         await conn.execute("DROP INDEX IF EXISTS idx_entries_text_search")
         await conn.execute("DROP INDEX IF EXISTS idx_entries_keywords")
 

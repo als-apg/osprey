@@ -45,7 +45,7 @@ jobs:
       uses: codecov/codecov-action@v5
       if: matrix.python-version == '3.11' && matrix.os == 'ubuntu-latest'
       with:
-        file: ./coverage.xml
+        files: ./coverage.xml
         flags: unittests
         name: codecov-umbrella
         fail_ci_if_error: false
@@ -338,4 +338,3 @@ jobs:
           echo "✅ Deploy E2E test passed"
         fi
         echo "✅ All CI checks passed!"
-

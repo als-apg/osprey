@@ -4,6 +4,7 @@ from ..base import FrameworkPromptBuilder
 
 # Import the interface
 from ..loader import FrameworkPromptProvider
+from .ariel import DefaultARIELAgentPromptBuilder, DefaultARIELRAGPromptBuilder
 from .channel_finder import (
     DefaultHierarchicalPromptBuilder,
     DefaultInContextPromptBuilder,
@@ -49,6 +50,10 @@ class DefaultPromptProvider(FrameworkPromptProvider):
 
         # Logbook search prompt builder
         self._logbook_search_builder = DefaultLogbookSearchPromptBuilder()
+
+        # ARIEL prompt builders
+        self._ariel_agent_builder = DefaultARIELAgentPromptBuilder()
+        self._ariel_rag_builder = DefaultARIELRAGPromptBuilder()
 
     # =================================================================
     # Infrastructure prompts
@@ -105,8 +110,20 @@ class DefaultPromptProvider(FrameworkPromptProvider):
     def get_logbook_search_prompt_builder(self) -> "FrameworkPromptBuilder":
         return self._logbook_search_builder
 
+    # =================================================================
+    # ARIEL prompt builders
+    # =================================================================
+
+    def get_ariel_agent_prompt_builder(self) -> "FrameworkPromptBuilder":
+        return self._ariel_agent_builder
+
+    def get_ariel_rag_prompt_builder(self) -> "FrameworkPromptBuilder":
+        return self._ariel_rag_builder
+
 
 __all__ = [
+    "DefaultARIELAgentPromptBuilder",
+    "DefaultARIELRAGPromptBuilder",
     "DefaultClassificationPromptBuilder",
     "DefaultResponseGenerationPromptBuilder",
     "DefaultTaskExtractionPromptBuilder",

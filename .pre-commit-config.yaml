@@ -6,7 +6,7 @@
 repos:
   # Ruff - Fast Python linter and formatter
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.4
+    rev: v0.14.3
     hooks:
       # Run the linter
       - id: ruff
@@ -16,7 +16,7 @@ repos:
 
   # General file quality checks
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.5.0
+    rev: v6.0.0
     hooks:
       # Remove trailing whitespace
       - id: trailing-whitespace
@@ -28,7 +28,6 @@ repos:
       - id: check-merge-conflict
       # Check YAML syntax
       - id: check-yaml
-        args: ['--safe']
       # Check TOML syntax
       - id: check-toml
       # Prevent large files from being committed
@@ -44,32 +43,14 @@ repos:
       # Check for debugger imports
       - id: debug-statements
 
-  # Type checking with mypy (optional, can be slow)
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.11.2
-    hooks:
-      - id: mypy
-        additional_dependencies:
-          - types-PyYAML
-          - types-requests
-        args: [--no-error-summary, --ignore-missing-imports]
-        # Only run on changed files to keep it fast
-        pass_filenames: true
-        # Don't fail on type errors (just warn)
-        verbose: true
-
-# Configuration
+# pre-commit.ci configuration
 ci:
   autofix_commit_msg: |
     [pre-commit.ci] auto fixes from pre-commit hooks
 
     for more information, see https://pre-commit.ci
-  autofix_prs: true
+  autofix_prs: false
   autoupdate_branch: ''
   autoupdate_commit_msg: '[pre-commit.ci] pre-commit autoupdate'
-  autoupdate_schedule: weekly
-  skip: [mypy]  # Skip mypy on CI (too slow)
+  autoupdate_schedule: monthly
   submodules: false
-
-
-

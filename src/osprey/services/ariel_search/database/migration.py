@@ -13,6 +13,15 @@ if TYPE_CHECKING:
     from psycopg import AsyncConnection
 
 
+class MigrationSkippedError(Exception):
+    """Raised when a migration cannot run due to missing prerequisites.
+
+    The migration runner catches this and logs a warning instead of failing.
+    The migration is NOT marked as applied so it retries when prerequisites
+    are later installed (e.g., pgvector extension).
+    """
+
+
 class BaseMigration(ABC):
     """Base class for ARIEL database migrations.
 

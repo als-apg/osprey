@@ -214,7 +214,7 @@ class TestSemanticParameterDescriptors:
         assert "similarity_threshold" in params
         p = params["similarity_threshold"]
         assert p.param_type == "float"
-        assert p.default == 0.7
+        assert p.default == 0.5
         assert p.min_value == 0.0
         assert p.max_value == 1.0
         assert p.step == 0.01

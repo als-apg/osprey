@@ -216,10 +216,6 @@ class ExtendProvider(RegistryConfigProvider):
         assert "CHANNEL_WRITE_RESULTS" in ctx_types
         assert "ARCHIVER_DATA" in ctx_types
 
-        # Channel finder service present after merge
-        svc_names = [s.name for s in manager.config.services]
-        assert "channel_finder" in svc_names
-
     def test_extend_mode_excludes_native_capability(self, tmp_path):
         """Test that excluding native control capabilities removes them from merged config."""
         registry_file = tmp_path / "app" / "registry.py"
