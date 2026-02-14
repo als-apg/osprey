@@ -17,11 +17,11 @@ from datetime import datetime
 from pathlib import Path
 
 
-def load_csv(csv_path: Path) -> list[dict]:
+def load_csv(csv_path: Path, delimiter: str = ",") -> list[dict]:
     """Load CSV, skipping comment lines."""
     channels = []
     with open(csv_path, encoding="utf-8") as f:
-        reader = csv.DictReader(f)
+        reader = csv.DictReader(f, delimiter=delimiter)
         for row in reader:
             address = row.get("address", "").strip()
             # Skip comments and empty rows
@@ -159,6 +159,7 @@ def build_database(
     output_path: Path,
     use_llm: bool = False,
     config_path: Path | None = None,
+    delimiter: str = ",",
 ) -> dict:
     """Build channel database from CSV.
 
@@ -167,6 +168,7 @@ def build_database(
         output_path: Path for output JSON database.
         use_llm: Whether to use LLM for name generation.
         config_path: Optional path to config file for LLM settings.
+        delimiter: CSV field delimiter (default: ',').
 
     Returns:
         The built database dict.
@@ -177,7 +179,7 @@ def build_database(
     print(f"\nInput CSV: {csv_path}")
 
     # Load CSV
-    channels = load_csv(csv_path)
+    channels = load_csv(csv_path, delimiter=delimiter)
     print(f"Loaded {len(channels)} channels (excluding comments)")
 
     # Group by family
