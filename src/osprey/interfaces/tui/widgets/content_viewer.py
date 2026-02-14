@@ -107,7 +107,7 @@ class ContentViewer(ModalScreen[None]):
             with Horizontal(id="content-viewer-header"):
                 yield Static(self.viewer_title, id="content-viewer-title")
                 yield Static("", id="header-spacer")
-                yield Static("Esc", id="content-viewer-dismiss-hint")
+                yield Static("esc", id="content-viewer-dismiss-hint")
 
             # Tab bar (only if multiple tabs)
             if self._is_tabbed:

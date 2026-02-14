@@ -48,7 +48,7 @@ class PlanProgressBar(Vertical):
 
     def _build_hint(self) -> str:
         """Build the hint string with styled Ctrl+O (matches StatusPanel style)."""
-        return "[dim]([/dim][$text bold]Ctrl+O[/$text bold][dim] hide)[/dim]"
+        return "[dim]([/dim][$text bold]Ctrl+O[/$text bold][dim] to hide)[/dim]"
 
     def _build_header(self, status_text: str) -> str:
         """Build header text with dynamic styling based on streaming state.

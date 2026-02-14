@@ -84,7 +84,7 @@ class CommandPalette(ModalScreen[str | None]):
         with Container(id="palette-container"):
             with Horizontal(id="palette-header"):
                 yield Static("Commands", id="palette-title")
-                yield Static("Esc", id="palette-dismiss-hint")
+                yield Static("esc", id="palette-dismiss-hint")
             yield Input(placeholder="Search", id="palette-search")
             yield OptionList(id="palette-options")
 

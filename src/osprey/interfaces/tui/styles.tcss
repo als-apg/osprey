@@ -20,6 +20,11 @@ Screen {
     color: $text;
 }
 
+#info-bar.info-bar--select-mode {
+    background: $primary;
+    color: $text;
+}
+
 InfoBar > .info-bar--label {
     text-style: bold;
     color: $text;

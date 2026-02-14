@@ -65,7 +65,7 @@ class ChatInput(TextArea):
     # Tips shown when input is focused
     INPUT_TIPS = [
         ("/", "commands"),
-        ("Option+Enter", "newline"),
+        ("option + ⏎", "newline"),
         ("\u2191\u2193", "history"),
     ]
 
@@ -85,8 +85,7 @@ class ChatInput(TextArea):
 
     # Tips shown on welcome screen when focus is lost (no chat to navigate)
     WELCOME_BLUR_TIPS = [
-        ("Ctrl+L", "or"),
-        ("tab", "focus input"),
+        ("Ctrl+L", "focus input"),
     ]
 
     def _on_blur(self, event: Blur) -> None:
@@ -693,13 +692,15 @@ class InfoBar(Static):
     def set_selection_mode(self, enabled: bool) -> None:
         """Update mode display (no notification, just update content)."""
         self._selection_mode = enabled
+        if enabled:
+            self.add_class("info-bar--select-mode")
+        else:
+            self.remove_class("info-bar--select-mode")
         self._update_content()
 
     def show_temporary(self, msg: str, duration: float = 2.0) -> None:
         """Show temporary message, then restore previous content."""
-        label_style = Style.from_styles(
-            self.get_component_styles("info-bar--label")
-        )
+        label_style = Style.from_styles(self.get_component_styles("info-bar--label"))
         self.update(Content.assemble((msg, label_style)))
         # Cancel any pending restore
         if self._restore_timer is not None:
@@ -713,12 +714,8 @@ class InfoBar(Static):
 
     def _update_content(self) -> None:
         """Render the info bar content based on current state."""
-        label_style = Style.from_styles(
-            self.get_component_styles("info-bar--label")
-        )
-        value_style = Style.from_styles(
-            self.get_component_styles("info-bar--value")
-        )
+        label_style = Style.from_styles(self.get_component_styles("info-bar--label"))
+        value_style = Style.from_styles(self.get_component_styles("info-bar--value"))
 
         parts: list[tuple[str, Style]] = []
         sep = (" \u00b7 ", value_style)  # " · "
@@ -728,9 +725,6 @@ class InfoBar(Static):
             parts.append(sep)
             parts.append(("drag", label_style))
             parts.append((" select", value_style))
-            parts.append(sep)
-            parts.append(("Cmd+C", label_style))
-            parts.append((" copy", value_style))
             parts.append(sep)
             parts.append(("Ctrl+S", label_style))
             parts.append((" exit", value_style))

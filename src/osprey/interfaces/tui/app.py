@@ -205,7 +205,11 @@ class OspreyTUI(App):
             focused = self.focused
             if isinstance(focused, TextArea) and focused.selected_text:
                 # Copy selected text to clipboard
-                self._copy_to_clipboard(focused.selected_text)
+                self.copy_to_clipboard(focused.selected_text)  # OSC 52 for SSH
+                self._copy_to_clipboard(focused.selected_text)  # Native for local
+                info_bar = self._get_info_bar()
+                if info_bar:
+                    info_bar.show_temporary("Text copied to clipboard", duration=1.5)
                 return
         except Exception:
             logger.debug("Could not check text selection for clipboard copy", exc_info=True)

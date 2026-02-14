@@ -111,7 +111,7 @@ class LogViewer(ModalScreen[None]):
             with Horizontal(id="log-viewer-header"):
                 yield Static(self.log_title, id="log-viewer-title")
                 yield Static("", id="log-header-spacer")
-                yield Static("Esc", id="log-viewer-dismiss-hint")
+                yield Static("esc", id="log-viewer-dismiss-hint")
             with VerticalScroll(id="log-viewer-content"):
                 yield from self._build_log_entries()
             yield Static(

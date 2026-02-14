@@ -106,7 +106,7 @@ class ArtifactViewer(ModalScreen[None]):
                     with Horizontal(id="artifact-viewer-header"):
                         yield Static(self._build_title(), id="artifact-viewer-title")
                         yield Static("", id="artifact-header-spacer")
-                        yield Static("Esc", id="artifact-viewer-dismiss-hint")
+                        yield Static("esc", id="artifact-viewer-dismiss-hint")
 
                     with ScrollableContainer(id="artifact-detail-panel"):
                         yield from self._compose_details()
