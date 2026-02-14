@@ -115,6 +115,13 @@ dependencies = [
     # PostgreSQL (required for native logbook_search capability and checkpointing)
     "psycopg[binary,pool]>=3.1.0,<4.0.0",
     "psycopg-pool>=3.1.0,<4.0.0",
+
+    # ARIEL Web Interface (FastAPI server for web-based logbook search)
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+
+    # ARIEL proxy support for HTTP ingestion through SOCKS tunnels
+    "aiohttp-socks>=0.8.0",
 ]
 
 [project.optional-dependencies]
@@ -145,9 +152,6 @@ dev = [
     "build",  # Required for 'osprey deploy up --dev' to build local wheel
     "testcontainers[postgres]>=4.0.0",  # Real PostgreSQL for integration tests
     "docker>=7.0.0",  # Docker SDK for testcontainers availability check
-    "fastapi>=0.109.0",  # For ARIEL Web API tests
-    "psycopg[binary,pool]>=3.1.0,<4.0.0",  # ARIEL search integration tests
-    "psycopg-pool>=3.1.0,<4.0.0",  # ARIEL search integration tests
 ]
 
 # Storage backends (databases, PostgreSQL checkpointing, vector/memory storage)
@@ -167,31 +171,9 @@ storage = [
     "vecs>=0.4.5",
 ]
 
-# ARIEL (Agentic Retrieval Interface for Electronic Logbooks)
-# See _ISSUES/MAJOR/ARIEL/ for specification
-ariel = [
-    # PostgreSQL with pgvector for vector similarity search
-    "psycopg[pool]>=3.1.0,<4.0.0",
-    "psycopg-pool>=3.1.0,<4.0.0",
-    # LangGraph for ReAct agent
-    "langgraph>=0.5.2",
-    "langchain-openai>=0.3.0",
-]
-
-# ARIEL proxy support for HTTP ingestion through SOCKS tunnels
-ariel-proxy = [
-    "aiohttp-socks>=0.8.0",
-]
-
-# ARIEL Web Interface - FastAPI server for web-based search
-web = [
-    "fastapi>=0.109.0",
-    "uvicorn[standard]>=0.27.0",
-]
-
 # All optional dependencies for complete installation
 all = [
-    "osprey-framework[docs,dev,storage,ariel,web]"
+    "osprey-framework[docs,dev,storage]"
 ]
 
 [project.urls]

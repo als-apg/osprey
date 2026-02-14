@@ -408,7 +408,7 @@ class ALSLogbookAdapter(BaseAdapter):
         except ImportError as e:
             raise IngestionError(
                 "SOCKS proxy configured but aiohttp-socks is not installed. "
-                "Install with: pip install 'osprey-framework[ariel-proxy]'",
+                "Install with: pip install osprey-framework",
                 source_system=self.source_system_name,
             ) from e
 

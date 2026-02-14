@@ -968,10 +968,6 @@ def web_command(port: int, host: str, reload: bool) -> None:
         from osprey.interfaces.ariel import run_web
 
         run_web(host=host, port=port, reload=reload)
-    except ImportError as err:
-        click.echo("Error: Required dependencies not installed.", err=True)
-        click.echo("Install with: pip install 'osprey-framework[web]'", err=True)
-        raise SystemExit(1) from err
     except KeyboardInterrupt:
         click.echo("\nShutting down...")
 
