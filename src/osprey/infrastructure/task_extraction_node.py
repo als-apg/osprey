@@ -107,7 +107,7 @@ def _build_task_extraction_prompt(messages: list[BaseMessage], retrieval_result)
     prompt_provider = get_framework_prompts()
     task_extraction_builder = prompt_provider.get_task_extraction_prompt_builder()
 
-    return task_extraction_builder.get_system_instructions(
+    return task_extraction_builder.build_prompt(
         messages=messages, retrieval_result=retrieval_result
     )
 

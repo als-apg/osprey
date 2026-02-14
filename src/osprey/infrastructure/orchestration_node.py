@@ -559,7 +559,7 @@ class OrchestrationNode(BaseInfrastructureNode):
             # Get messages for chat history context (only used when task_depends_on_chat_history=True)
             messages = state.get("messages", [])
 
-            system_instructions = orchestrator_builder.get_planning_instructions(
+            prompt = orchestrator_builder.get_planning_instructions(
                 active_capabilities=active_capabilities,
                 context_manager=context_manager,
                 task_depends_on_chat_history=state.get("task_depends_on_chat_history", False),
@@ -568,7 +568,7 @@ class OrchestrationNode(BaseInfrastructureNode):
                 messages=messages,
             )
 
-            if not system_instructions:
+            if not prompt:
                 logger.error("No prompt text generated. The instructions will be empty.")
                 raise ValueError("No prompt text generated. The instructions will be empty.")
 
@@ -599,17 +599,17 @@ class OrchestrationNode(BaseInfrastructureNode):
                 logger.info(" - Error context for replanning (previous failure analysis)")
 
             logger.debug(
-                f"\n\n\n------------Orchestrator System Prompt:\n{system_instructions}\n------------\n\n\n"
+                f"\n\n\n------------Orchestrator System Prompt:\n{prompt}\n------------\n\n\n"
             )
 
-            return system_instructions
+            return prompt
 
         # =====================================================================
         # GENERATE EXECUTION PLAN
         # =====================================================================
 
         # Create system prompt
-        system_prompt = await create_system_prompt()
+        prompt = await create_system_prompt()
 
         logger.status("Generating execution plan...")
 
@@ -619,7 +619,7 @@ class OrchestrationNode(BaseInfrastructureNode):
 
         # Get model configuration and call LLM
         model_config = get_model_config("orchestrator")
-        message = f"{system_prompt}\n\nTASK TO PLAN: {current_task}"
+        message = f"{prompt}\n\nTASK TO PLAN: {current_task}"
 
         # Emit LLM prompt event for TUI display
         logger.emit_llm_request(message)

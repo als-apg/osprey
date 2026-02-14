@@ -150,7 +150,7 @@ Orchestrator generates plans using comprehensive prompts with capability context
        # Generate structured plan
        execution_plan = await asyncio.to_thread(
            get_chat_completion,
-           message=f"{system_instructions}\n\nTASK TO PLAN: {current_task}",
+           message=f"{prompt}\n\nTASK TO PLAN: {current_task}",
            model_config=get_model_config("orchestrator"),
            output_model=ExecutionPlan
        )

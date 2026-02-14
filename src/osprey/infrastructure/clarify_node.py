@@ -160,17 +160,17 @@ def _generate_clarifying_questions(state, task_objective: str) -> ClarifyingQues
     prompt_provider = get_framework_prompts()
     clarification_builder = prompt_provider.get_clarification_prompt_builder()
 
-    # Use prompt builder's get_system_instructions() which handles all composition
+    # Use prompt builder's build_prompt() which handles all composition
     # This extracts runtime data (user_query, chat_history, context) from state
     # and composes the complete prompt with PRIMARY TASK prioritization
-    message = clarification_builder.get_system_instructions(state, task_objective)
+    prompt = clarification_builder.build_prompt(state, task_objective)
 
     # Emit LLM prompt event for TUI display
-    logger.emit_llm_request(message)
+    logger.emit_llm_request(prompt)
 
     response_config = get_model_config("response")
     result = get_chat_completion(
-        message=message, model_config=response_config, output_model=ClarifyingQuestionsResponse
+        message=prompt, model_config=response_config, output_model=ClarifyingQuestionsResponse
     )
 
     # Emit LLM response event for TUI display

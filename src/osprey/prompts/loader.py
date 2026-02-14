@@ -301,6 +301,64 @@ class FrameworkPromptProvider:
         raise NotImplementedError
 
     # =================================================================
+    # Capability prompt builders (guides for orchestrator/classifier)
+    # =================================================================
+
+    def get_channel_read_prompt_builder(self) -> "FrameworkPromptBuilder":
+        """Provide prompt builder for channel read capability guides.
+
+        Returns a default implementation. Override in application prompt providers
+        to supply facility-specific orchestrator and classifier guidance.
+        """
+        from osprey.prompts.defaults.channel_read import DefaultChannelReadPromptBuilder
+
+        return DefaultChannelReadPromptBuilder()
+
+    def get_channel_write_prompt_builder(self) -> "FrameworkPromptBuilder":
+        """Provide prompt builder for channel write capability guides.
+
+        Returns a default implementation. Override in application prompt providers
+        to supply facility-specific orchestrator and classifier guidance.
+        """
+        from osprey.prompts.defaults.channel_write import DefaultChannelWritePromptBuilder
+
+        return DefaultChannelWritePromptBuilder()
+
+    def get_channel_finding_orchestration_prompt_builder(self) -> "FrameworkPromptBuilder":
+        """Provide prompt builder for channel finding orchestration guides.
+
+        Returns a default implementation. Override in application prompt providers
+        to supply facility-specific orchestrator and classifier guidance.
+        """
+        from osprey.prompts.defaults.channel_finding_orchestration import (
+            DefaultChannelFindingOrchestrationPromptBuilder,
+        )
+
+        return DefaultChannelFindingOrchestrationPromptBuilder()
+
+    def get_archiver_retrieval_prompt_builder(self) -> "FrameworkPromptBuilder":
+        """Provide prompt builder for archiver retrieval capability guides.
+
+        Returns a default implementation. Override in application prompt providers
+        to supply facility-specific orchestrator and classifier guidance.
+        """
+        from osprey.prompts.defaults.archiver_retrieval import (
+            DefaultArchiverRetrievalPromptBuilder,
+        )
+
+        return DefaultArchiverRetrievalPromptBuilder()
+
+    def get_logbook_search_prompt_builder(self) -> "FrameworkPromptBuilder":
+        """Provide prompt builder for logbook search capability guides.
+
+        Returns a default implementation. Override in application prompt providers
+        to supply facility-specific orchestrator and classifier guidance.
+        """
+        from osprey.prompts.defaults.logbook_search import DefaultLogbookSearchPromptBuilder
+
+        return DefaultLogbookSearchPromptBuilder()
+
+    # =================================================================
     # Channel finder prompt builders (used by native channel finder service)
     # =================================================================
 

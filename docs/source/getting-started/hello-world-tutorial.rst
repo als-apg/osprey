@@ -682,7 +682,7 @@ The project includes a custom prompt builder that extends the framework's task e
            super().__init__(include_default_examples=False)
            self._add_weather_examples()
 
-       def get_role_definition(self) -> str:
+       def get_role(self) -> str:
            return "You are a weather assistant task extraction specialist..."
 
        def _add_weather_examples(self):
@@ -721,7 +721,7 @@ The project includes a custom prompt builder that extends the framework's task e
               super().__init__(include_default_examples=False)
               self._add_weather_examples()
 
-          def get_role_definition(self) -> str:
+          def get_role(self) -> str:
               """Get the weather-specific role definition."""
               return "You are a weather assistant task extraction specialist that analyzes conversations to extract actionable weather-related tasks."
 

@@ -66,7 +66,26 @@ Depends on User Memory: {self.depends_on_user_memory}
 
 
 class DefaultTaskExtractionPromptBuilder(FrameworkPromptBuilder):
-    """Framework prompt builder for task extraction."""
+    """Framework prompt builder for task extraction.
+
+    **Customization Points:**
+
+    +---------------------------------+------------------------------------------+
+    | I want to...                    | Override...                              |
+    +=================================+==========================================+
+    | Change the agent identity       | ``get_role()``                |
+    +---------------------------------+------------------------------------------+
+    | Change extraction guidelines    | ``get_instructions()``                   |
+    +---------------------------------+------------------------------------------+
+    | Replace default examples        | ``load_examples()``                      |
+    +---------------------------------+------------------------------------------+
+    | Change examples formatting      | ``build_examples_section()``             |
+    +---------------------------------+------------------------------------------+
+    | Change chat history formatting  | ``build_chat_history_section(messages)`` |
+    +---------------------------------+------------------------------------------+
+    | Change data source formatting   | ``build_data_source_section(result)``    |
+    +---------------------------------+------------------------------------------+
+    """
 
     PROMPT_TYPE = "task_extraction"
 
@@ -80,9 +99,9 @@ class DefaultTaskExtractionPromptBuilder(FrameworkPromptBuilder):
         super().__init__()
         self.examples = []
         if include_default_examples:
-            self._load_examples()
+            self.load_examples()
 
-    def _load_examples(self):
+    def load_examples(self):
         """Load task extraction examples with native LangGraph messages."""
 
         # Examples without memory first
@@ -309,7 +328,7 @@ class DefaultTaskExtractionPromptBuilder(FrameworkPromptBuilder):
             )
         )
 
-    def get_role_definition(self) -> str:
+    def get_role(self) -> str:
         """Get the role definition (generic for task extraction)."""
         return "Convert chat conversations into actionable task descriptions."
 
@@ -325,77 +344,90 @@ Core requirements:
 • Set depends_on_user_memory=true only when the task directly incorporates specific information from user memory
         """.strip()
 
-    def get_system_instructions(self, messages: list[BaseMessage], retrieval_result=None) -> str:
+    def build_examples_section(self) -> str:
+        """Build the formatted examples section.
+
+        :return: Formatted examples text
+        :rtype: str
+        """
+        return "\n\n".join(
+            f"## Example {i + 1}:\n{example.format_for_prompt()}"
+            for i, example in enumerate(self.examples)
+        )
+
+    def build_chat_history_section(self, messages: list[BaseMessage]) -> str:
+        """Build the chat history section from messages.
+
+        :param messages: Native LangGraph messages
+        :return: Formatted chat history
+        :rtype: str
+        """
+        return ChatHistoryFormatter.format_for_llm(messages)
+
+    def build_data_source_section(self, retrieval_result) -> str:
+        """Build the data source context section from retrieval results.
+
+        :param retrieval_result: Data retrieval result with context_data
+        :return: Formatted data source context (may be empty string)
+        :rtype: str
+        """
+        if not retrieval_result or not retrieval_result.has_data:
+            return ""
+
+        try:
+            formatted_contexts = []
+            for source_name, context in retrieval_result.context_data.items():
+                try:
+                    formatted_content = context.format_for_prompt()
+                    if formatted_content and formatted_content.strip():
+                        formatted_contexts.append(f"**{source_name}:**\n{formatted_content}")
+                except Exception:
+                    pass
+
+            if formatted_contexts:
+                return "\n\n**Retrieved Data:**\n" + "\n\n".join(formatted_contexts)
+            else:
+                return f"\n\n**Available Data Sources:**\n{retrieval_result.get_summary()}"
+
+        except Exception:
+            return f"\n\n**Available Data Sources:**\n{retrieval_result.get_summary()}"
+
+    def build_prompt(self, messages: list[BaseMessage], retrieval_result=None) -> str:
         """Get system instructions for task extraction agent configuration.
+
+        Composes the prompt from overridable methods so that subclass overrides
+        of ``get_role()`` and ``get_instructions()`` take effect.
 
         :param messages: Native LangGraph messages to extract task from
         :param retrieval_result: Optional data retrieval result
         :return: Complete prompt for task extraction
         """
-        examples_text = "\n\n".join(
-            [
-                f"## Example {i + 1}:\n{example.format_for_prompt()}"
-                for i, example in enumerate(self.examples)
-            ]
-        )
+        sections = []
 
-        # Format the actual chat history using native message formatter
-        chat_formatted = ChatHistoryFormatter.format_for_llm(messages)
+        # 1. Role definition (overridable)
+        sections.append(self.get_role())
 
-        # Add data source context if available
-        data_context = ""
-        if retrieval_result and retrieval_result.has_data:
-            # Get the actual retrieved content formatted for LLM consumption
-            try:
-                formatted_contexts = []
-                for source_name, context in retrieval_result.context_data.items():
-                    try:
-                        formatted_content = context.format_for_prompt()
-                        if formatted_content and formatted_content.strip():
-                            formatted_contexts.append(f"**{source_name}:**\n{formatted_content}")
-                    except Exception:
-                        # Log error but continue with other sources
-                        pass
+        # 2. Instructions (overridable)
+        sections.append(f"## Guidelines:\n{self.get_instructions()}")
 
-                if formatted_contexts:
-                    data_context = "\n\n**Retrieved Data:**\n" + "\n\n".join(formatted_contexts)
-                else:
-                    # Fallback to summary if no content could be formatted
-                    data_context = (
-                        f"\n\n**Available Data Sources:**\n{retrieval_result.get_summary()}"
-                    )
+        # 3. Examples
+        examples_text = self.build_examples_section()
+        sections.append(f"## Examples:\n{examples_text}")
 
-            except Exception:
-                # Fallback to summary on any error
-                data_context = f"\n\n**Available Data Sources:**\n{retrieval_result.get_summary()}"
+        # 4. Chat history
+        chat_formatted = self.build_chat_history_section(messages)
+        sections.append(f"## Current Chat History:\n{chat_formatted}")
 
-        final_prompt = f"""
-You are a task extraction system that analyzes chat history and user memory to extract actionable tasks.
+        # 5. Data source context
+        data_context = self.build_data_source_section(retrieval_result)
+        if data_context:
+            sections.append(data_context)
 
-Your job is to:
-1. Understand what the user is asking for
-2. Extract a clear, actionable task
-3. Determine if the task depends on chat history context
-4. Determine if the task depends on user memory
+        # 6. User memory placeholder + final instruction
+        sections.append("## User Memory:\nNo stored memories")
+        sections.append("Now extract the task from the provided chat history and user memory.")
 
-## Guidelines:
-- Extract the core task the user wants accomplished
-- Set depends_on_chat_history=True if the task references previous messages or needs conversation context
-- Set depends_on_user_memory=True if the task references stored user information or patterns
-- Be specific and actionable in task descriptions
-- Consider the full conversation context when determining dependencies
-
-## Examples:
-{examples_text}
-
-## Current Chat History:
-{chat_formatted}{data_context}
-
-## User Memory:
-No stored memories
-
-Now extract the task from the provided chat history and user memory.
-"""
+        final_prompt = "\n\n".join(sections)
 
         # Debug: Print prompt if enabled
         self.debug_print_prompt(final_prompt)

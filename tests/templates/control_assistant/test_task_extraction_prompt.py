@@ -24,7 +24,7 @@ class MockControlSystemTaskExtractionPromptBuilder(DefaultTaskExtractionPromptBu
         # Don't call super().__init__ to avoid loading framework examples
         self.examples = []
 
-    def get_system_instructions(self, messages, retrieval_result=None):
+    def build_prompt(self, messages, retrieval_result=None):
         """Override to return control system specific prompt."""
         from osprey.state import ChatHistoryFormatter
 

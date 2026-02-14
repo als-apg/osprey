@@ -76,7 +76,6 @@ both Python-based writes (via epics.caput) and direct channel writes.
 
 import asyncio
 import json
-import textwrap
 from typing import Any, ClassVar
 
 from pydantic import BaseModel, Field
@@ -85,13 +84,9 @@ from osprey.base.capability import BaseCapability
 from osprey.base.decorators import capability_node
 from osprey.base.errors import ErrorClassification, ErrorSeverity
 from osprey.base.examples import (
-    ClassifierActions,
-    ClassifierExample,
-    OrchestratorExample,
     OrchestratorGuide,
     TaskClassifierGuide,
 )
-from osprey.base.planning import PlannedStep
 from osprey.connectors.factory import ConnectorFactory
 from osprey.context import CapabilityContext
 from osprey.utils.config import get_model_config
@@ -335,8 +330,8 @@ def _get_write_parsing_system_prompt(
 ) -> str:
     """Create context-agnostic system prompt for parsing write operations.
 
-    This uses get_summary() from all available input contexts to present
-    human-readable data to the LLM for value extraction.
+    Builds capability-specific runtime context (context summaries, channel mapping)
+    and delegates prompt composition to the prompt builder system.
 
     Args:
         task_objective: The write task to parse
@@ -345,6 +340,7 @@ def _get_write_parsing_system_prompt(
         step_inputs: Input contexts from the execution plan
         state: Agent state for accessing other context data (PYTHON_RESULTS, etc.)
     """
+    from osprey.prompts.loader import get_framework_prompts
     from osprey.registry import get_registry
 
     # Build context summaries section - CONTEXT TYPE AGNOSTIC
@@ -382,7 +378,7 @@ def _get_write_parsing_system_prompt(
                             f"Could not get summary for {context_type}.{context_key}: {e}"
                         )
 
-    available_data_section = (
+    available_data = (
         "\n".join(context_summaries)
         if context_summaries
         else "No additional context data available"
@@ -397,109 +393,15 @@ def _get_write_parsing_system_prompt(
         else:
             channel_mapping_lines.append(f"  {address}")
 
-    channel_mapping_section = "\n".join(channel_mapping_lines)
+    channel_mapping = "\n".join(channel_mapping_lines)
 
-    return textwrap.dedent(f"""
-        You are an expert at parsing control system write operations.
-
-        TASK: {task_objective}
-
-        AVAILABLE CHANNEL ADDRESSES (with semantic links):
-        {channel_mapping_section}
-
-        AVAILABLE DATA (from previous steps):
-        {available_data_section}
-
-        YOUR JOB:
-        1. Identify which channels to write from the task
-        2. Extract the value for each channel from:
-           - Direct specification in task ("set X to 5")
-           - Values in the available data above (computed results, statistics, etc.)
-        3. Match channels using the semantic links shown above:
-           - Use the original query ("beam energy", "HCM01", etc.) to find the right channel
-           - The mapping shows: "original query" → CHANNEL:ADDRESS
-        4. Return structured write operations with the exact CHANNEL:ADDRESS from the mapping
-
-        VALUE EXTRACTION EXAMPLES:
-
-        Example 1 - Direct values with semantic matching:
-        Task: "Set HCM01 to 5.0 and HCM02 to -3.2"
-        Available channels:
-          "horizontal corrector HCM01" → HCM01:CURRENT:SP
-          "horizontal corrector HCM02" → HCM02:CURRENT:SP
-        Response:
-        {{
-            "write_operations": [
-                {{"channel_address": "HCM01:CURRENT:SP", "value": 5.0}},
-                {{"channel_address": "HCM02:CURRENT:SP", "value": -3.2}}
-            ]
-        }}
-
-        Example 1b - Channel name with extra words:
-        Task: "Set the TerminalVoltageSetPoint parameter to 50"
-        Available channels:
-          "terminal voltage" → TerminalVoltageSetPoint
-        Response:
-        {{
-            "write_operations": [
-                {{"channel_address": "TerminalVoltageSetPoint", "value": 50.0}}
-            ]
-        }}
-        Note: Task mentions "TerminalVoltageSetPoint" which matches the original query "terminal voltage".
-
-        Example 2 - Extract from PYTHON_RESULTS:
-        Task: "Set the magnet to the calculated optimal value"
-        Available channels:
-          "horizontal corrector magnet" → HCM01:CURRENT:SP
-        Available data shows:
-        PYTHON_RESULTS: {{"computed_results": {{"optimal_current": 12.5}}}}
-        Response:
-        {{
-            "write_operations": [
-                {{"channel_address": "HCM01:CURRENT:SP", "value": 12.5,
-                  "notes": "Using optimal_current from calculation"}}
-            ]
-        }}
-
-        Example 3 - Missing required data:
-        Task: "Set magnet to sqrt(165)"
-        Available channels:
-          "corrector magnet" → HCM01:CURRENT:SP
-        Available data: (none)
-        Response:
-        {{
-            "write_operations": []
-        }}
-
-        Example 4 - Extract from statistics:
-        Task: "Set corrector to yesterday's average current"
-        Available channels:
-          "horizontal corrector" → HCM01:CURRENT:SP
-        Available data shows:
-        ARCHIVER_DATA: {{"channel_data": {{"HCM01:CURRENT:RB": {{"statistics": {{"mean_value": 8.5}}}}}}}}
-        Response:
-        {{
-            "write_operations": [
-                {{"channel_address": "HCM01:CURRENT:SP", "value": 8.5,
-                  "notes": "Using mean from historical data"}}
-            ]
-        }}
-
-        CRITICAL RULES:
-        - Use the semantic mapping to match task references to channel addresses
-        - Match task words ("beam energy", "magnet", "HCM01") to the original queries shown in the mapping
-        - ALWAYS return the exact channel address (right side of →) in your response
-        - Example: If task says "Set beam energy to 50" and mapping shows "beam energy" → SR:ENERGY:SP,
-          then use "SR:ENERGY:SP" in your write_operations
-        - All values must be numeric (float or int)
-        - If task requires calculation but no computed results available → return empty write_operations list
-        - Extract units if mentioned in task (optional)
-        - Add notes about value source if helpful (optional)
-
-        IMPORTANT: Always use the exact channel address from the right side of the → mapping.
-
-        Return JSON matching WriteOperationsOutput schema.
-    """).strip()
+    # Delegate prompt composition to the builder
+    builder = get_framework_prompts().get_channel_write_prompt_builder()
+    return builder.build_prompt(
+        task_objective=task_objective,
+        channel_mapping=channel_mapping,
+        available_data=available_data,
+    )
 
 
 # ========================================================
@@ -915,123 +817,15 @@ class ChannelWriteCapability(BaseCapability):
         }
 
     def _create_orchestrator_guide(self) -> OrchestratorGuide | None:
-        """Create orchestrator guide for channel write planning."""
+        """Delegate orchestrator guide to prompt builder."""
+        from osprey.prompts.loader import get_framework_prompts
 
-        # Define structured examples for the orchestrator
-        simple_write_example = OrchestratorExample(
-            step=PlannedStep(
-                context_key="write_setpoint_value",
-                capability="channel_write",
-                task_objective="Set the beam energy setpoint to 50 GeV",
-                expected_output="CHANNEL_WRITE_RESULTS",
-                success_criteria="Setpoint value successfully written",
-                inputs=[{"CHANNEL_ADDRESSES": "energy_setpoint_address"}],
-            ),
-            scenario_description="Writing a single setpoint value",
-            notes="Output stored under CHANNEL_WRITE_RESULTS context type. Can use additional inputs like PYTHON_RESULTS for calculated values.",
-        )
-
-        calculated_write_example = OrchestratorExample(
-            step=PlannedStep(
-                context_key="write_optimized_current",
-                capability="channel_write",
-                task_objective="Set the corrector magnet to the calculated optimal current value",
-                expected_output="CHANNEL_WRITE_RESULTS",
-                success_criteria="Optimal current value successfully written",
-                inputs=[
-                    {"CHANNEL_ADDRESSES": "corrector_address"},
-                    {"PYTHON_RESULTS": "optimization_calculation"},
-                ],
-            ),
-            scenario_description="Writing a calculated value from Python step",
-            notes="This capability automatically extracts values from PYTHON_RESULTS context. Supports any context type the orchestrator provides.",
-        )
-
-        return OrchestratorGuide(
-            instructions=textwrap.dedent("""
-            **When to plan "channel_write" steps:**
-            - When user requests to SET, CHANGE, or WRITE channel values
-            - For direct value assignment to control system parameters
-            - This capability handles parsing internally - just provide the task and relevant contexts
-
-            **Context-Agnostic Value Extraction:**
-            - This capability can extract values from ANY context type you provide in inputs
-            - Common patterns:
-              * Task only: "Set HCM01 to 5.0" (direct value in task)
-              * Task + PYTHON_RESULTS: "Set magnet to calculated value" (extracts from Python results)
-              * Task + ARCHIVER_DATA: "Set to yesterday's average" (extracts from statistics)
-              * Any combination of contexts
-
-            **Step Structure:**
-            - context_key: Unique identifier for output (e.g., "write_magnet_current")
-            - task_objective: Clear description of what to write (include values if direct, or reference to context data)
-            - inputs: ALWAYS include CHANNEL_ADDRESSES, optionally include other contexts with values:
-              [{"CHANNEL_ADDRESSES": "channel_step"}, {"PYTHON_RESULTS": "calc_step"}]
-
-            **Required Inputs:**
-            - CHANNEL_ADDRESSES: Required (from channel_finding step)
-            - Optional: PYTHON_RESULTS, CHANNEL_VALUES, ARCHIVER_DATA, or any other context with values
-
-            **Output: CHANNEL_WRITE_RESULTS**
-            - Contains: Dictionary mapping channel addresses to write results (success/failure)
-            - Available to downstream steps via context system
-
-            **Dependencies and sequencing:**
-            1. Channel finding step must precede this step
-            2. If task requires calculation, add Python step before channel_write
-            3. If task references historical data, add archiver_retrieval before channel_write
-
-            **IMPORTANT Safety Notes:**
-            - Write operations may trigger approval workflows
-            - Limits checking may reject writes outside configured limits
-            - This capability uses LLM to parse values from task and available contexts
-
-            **NEVER** plan steps that would require making up channel addresses or values.
-            """).strip(),
-            examples=[simple_write_example, calculated_write_example],
-            priority=10,
-        )
+        builder = get_framework_prompts().get_channel_write_prompt_builder()
+        return builder.get_orchestrator_guide()
 
     def _create_classifier_guide(self) -> TaskClassifierGuide | None:
-        """Create classifier for channel write capability."""
-        return TaskClassifierGuide(
-            instructions="Determine if task requires writing channel values. Look for SET, CHANGE, WRITE, ADJUST keywords. This capability handles both parsing and execution internally.",
-            examples=[
-                ClassifierExample(
-                    query="Which tools do you have?",
-                    result=False,
-                    reason="Question about capabilities, not writing.",
-                ),
-                ClassifierExample(
-                    query="Set the beam energy to 50 GeV",
-                    result=True,
-                    reason="Direct write request.",
-                ),
-                ClassifierExample(
-                    query="Change the corrector magnet current to 2.5 A",
-                    result=True,
-                    reason="Write request.",
-                ),
-                ClassifierExample(
-                    query="Set the magnet to the calculated optimal value",
-                    result=True,
-                    reason="Write request using calculated value (requires Python step first).",
-                ),
-                ClassifierExample(
-                    query="What is the current beam energy?",
-                    result=False,
-                    reason="Reading value, not writing.",
-                ),
-                ClassifierExample(
-                    query="Set magnet A to 5 and magnet B to 3",
-                    result=True,
-                    reason="Multiple write operations.",
-                ),
-                ClassifierExample(
-                    query="Adjust correctors to compensate for drift",
-                    result=True,
-                    reason="Adjustment implies writing new values.",
-                ),
-            ],
-            actions_if_true=ClassifierActions(),
-        )
+        """Delegate classifier guide to prompt builder."""
+        from osprey.prompts.loader import get_framework_prompts
+
+        builder = get_framework_prompts().get_channel_write_prompt_builder()
+        return builder.get_classifier_guide()

@@ -68,16 +68,37 @@ class MemoryExtractionExample(BaseExample):
 
 
 class DefaultMemoryExtractionPromptBuilder(FrameworkPromptBuilder):
-    """Framework prompt builder for memory extraction."""
+    """Framework prompt builder for memory extraction.
+
+    **Customization Points:**
+
+    +---------------------------------+----------------------------------------------+
+    | I want to...                    | Override...                                  |
+    +=================================+==============================================+
+    | Change the agent identity       | ``get_role()``                    |
+    +---------------------------------+----------------------------------------------+
+    | Change the task statement       | ``get_task()``                    |
+    +---------------------------------+----------------------------------------------+
+    | Change extraction instructions  | ``get_instructions()``                       |
+    +---------------------------------+----------------------------------------------+
+    | Replace default examples        | ``load_examples()``                          |
+    +---------------------------------+----------------------------------------------+
+    | Supply different examples       | ``get_examples(**kwargs)``                   |
+    +---------------------------------+----------------------------------------------+
+    | Change example formatting       | ``format_examples(examples)``                |
+    +---------------------------------+----------------------------------------------+
+    | Change response format section  | ``build_dynamic_context(**kwargs)``           |
+    +---------------------------------+----------------------------------------------+
+    """
 
     PROMPT_TYPE = "memory_extraction"
 
     def __init__(self):
         super().__init__()
         self.examples = []
-        self._load_examples()
+        self.load_examples()
 
-    def _load_examples(self):
+    def load_examples(self):
         """Load memory extraction examples with native LangGraph messages."""
 
         # Explicit save instruction with quoted content
@@ -186,11 +207,11 @@ class DefaultMemoryExtractionPromptBuilder(FrameworkPromptBuilder):
             )
         )
 
-    def get_role_definition(self) -> str:
+    def get_role(self) -> str:
         """Get the role definition."""
         return "You are an expert content extraction assistant. Your task is to identify and extract content that a user wants to save to their memory from their message."
 
-    def get_task_definition(self) -> str:
+    def get_task(self) -> str:
         """Get the task definition."""
         return (
             "TASK: Extract content from the user's message that they want to save/store/remember."
@@ -222,15 +243,15 @@ class DefaultMemoryExtractionPromptBuilder(FrameworkPromptBuilder):
             """
         ).strip()
 
-    def _get_examples(self, **kwargs) -> list[MemoryExtractionExample]:
+    def get_examples(self, **kwargs) -> list[MemoryExtractionExample]:
         """Get generic memory extraction examples."""
         return self.examples
 
-    def _format_examples(self, examples: list[MemoryExtractionExample]) -> str:
+    def format_examples(self, examples: list[MemoryExtractionExample]) -> str:
         """Format multiple MemoryExtractionExample objects for inclusion in prompts."""
         return MemoryExtractionExample.join(examples, add_numbering=True)
 
-    def _get_dynamic_context(self, **kwargs) -> str:
+    def build_dynamic_context(self, **kwargs) -> str:
         """Build the response format section."""
         return textwrap.dedent(
             """

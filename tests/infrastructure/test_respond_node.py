@@ -253,7 +253,7 @@ class TestGetBaseSystemPrompt:
         """Test building base system prompt with just task."""
         with patch("osprey.infrastructure.respond_node.get_framework_prompts") as mock_get_prompts:
             mock_builder = Mock()
-            mock_builder.get_system_instructions.return_value = "System prompt"
+            mock_builder.build_prompt.return_value = "System prompt"
             mock_prompts = Mock()
             mock_prompts.get_response_generation_prompt_builder.return_value = mock_builder
             mock_get_prompts.return_value = mock_prompts
@@ -261,9 +261,7 @@ class TestGetBaseSystemPrompt:
             prompt = _get_base_system_prompt("Test task")
 
         assert prompt == "System prompt"
-        mock_builder.get_system_instructions.assert_called_once_with(
-            current_task="Test task", info=None
-        )
+        mock_builder.build_prompt.assert_called_once_with(current_task="Test task", info=None)
 
     def test_get_base_system_prompt_with_context(self):
         """Test building prompt with response context."""
@@ -286,7 +284,7 @@ class TestGetBaseSystemPrompt:
 
         with patch("osprey.infrastructure.respond_node.get_framework_prompts") as mock_get_prompts:
             mock_builder = Mock()
-            mock_builder.get_system_instructions.return_value = "Detailed prompt"
+            mock_builder.build_prompt.return_value = "Detailed prompt"
             mock_prompts = Mock()
             mock_prompts.get_response_generation_prompt_builder.return_value = mock_builder
             mock_get_prompts.return_value = mock_prompts
@@ -294,8 +292,8 @@ class TestGetBaseSystemPrompt:
             prompt = _get_base_system_prompt("Task", response_context)
 
         assert prompt == "Detailed prompt"
-        mock_builder.get_system_instructions.assert_called_once()
-        call_kwargs = mock_builder.get_system_instructions.call_args.kwargs
+        mock_builder.build_prompt.assert_called_once()
+        call_kwargs = mock_builder.build_prompt.call_args.kwargs
         assert call_kwargs["current_task"] == "Task"
         assert call_kwargs["info"] == response_context
 

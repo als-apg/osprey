@@ -507,13 +507,13 @@ class CapabilityClassifier:
 
         prompt_provider = get_framework_prompts()
         classification_builder = prompt_provider.get_classification_prompt_builder()
-        system_prompt = classification_builder.get_system_instructions(
+        prompt = classification_builder.build_prompt(
             capability_instructions=capability_instructions,
             classifier_examples=examples_string,
             context=None,
             previous_failure=self.previous_failure,
         )
-        return f"{system_prompt}\n\nUser request:\n{self.task}"
+        return f"{prompt}\n\nUser request:\n{self.task}"
 
     def _process_classification_response(self, capability: BaseCapability, response_data) -> bool:
         """Process and validate classification response."""

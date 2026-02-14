@@ -157,9 +157,20 @@ class TestChannelWriteContextClasses:
         )
         assert len(output.write_operations) == 1
 
+    def test_write_operations_output_empty(self):
+        output = WriteOperationsOutput(write_operations=[])
+        assert len(output.write_operations) == 0
+
 
 class TestChannelWriteGuides:
     """Test orchestrator and classifier guides."""
+
+    def setup_method(self):
+        """Register default prompt provider for guide delegation."""
+        from osprey.prompts.defaults import DefaultPromptProvider
+        from osprey.prompts.loader import register_framework_prompt_provider
+
+        register_framework_prompt_provider("test", DefaultPromptProvider())
 
     def test_orchestrator_guide_exists(self):
         cap = ChannelWriteCapability()

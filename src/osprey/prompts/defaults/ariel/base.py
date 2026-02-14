@@ -20,12 +20,12 @@ class ARIELPromptBuilder(FrameworkPromptBuilder):
     that gets combined into prompts for the agent and RAG pipelines.
 
     Note: ARIEL prompt builders are specialized and don't use the
-    standard get_role_definition()/get_instructions() pattern. Instead they
+    standard get_role()/get_instructions() pattern. Instead they
     provide get_facility_context() and get_response_guidelines() which are
     assembled by subclass-specific methods (get_system_prompt, get_prompt_template).
     """
 
-    def get_role_definition(self) -> str:
+    def get_role(self) -> str:
         """Delegate to get_facility_context() for interface compliance."""
         return self.get_facility_context()
 

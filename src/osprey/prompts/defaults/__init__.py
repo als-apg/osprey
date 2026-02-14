@@ -4,12 +4,16 @@ from ..base import FrameworkPromptBuilder
 
 # Import the interface
 from ..loader import FrameworkPromptProvider
+from .archiver_retrieval import DefaultArchiverRetrievalPromptBuilder
 from .ariel import DefaultARIELAgentPromptBuilder, DefaultARIELRAGPromptBuilder
 from .channel_finder import (
     DefaultHierarchicalPromptBuilder,
     DefaultInContextPromptBuilder,
     DefaultMiddleLayerPromptBuilder,
 )
+from .channel_finding_orchestration import DefaultChannelFindingOrchestrationPromptBuilder
+from .channel_read import DefaultChannelReadPromptBuilder
+from .channel_write import DefaultChannelWritePromptBuilder
 from .clarification import DefaultClarificationPromptBuilder
 from .classification import DefaultClassificationPromptBuilder
 from .error_analysis import DefaultErrorAnalysisPromptBuilder
@@ -50,6 +54,14 @@ class DefaultPromptProvider(FrameworkPromptProvider):
 
         # Logbook search prompt builder
         self._logbook_search_builder = DefaultLogbookSearchPromptBuilder()
+
+        # Capability guide prompt builders
+        self._channel_read_builder = DefaultChannelReadPromptBuilder()
+        self._channel_write_builder = DefaultChannelWritePromptBuilder()
+        self._channel_finding_orchestration_builder = (
+            DefaultChannelFindingOrchestrationPromptBuilder()
+        )
+        self._archiver_retrieval_builder = DefaultArchiverRetrievalPromptBuilder()
 
         # ARIEL prompt builders
         self._ariel_agent_builder = DefaultARIELAgentPromptBuilder()
@@ -111,6 +123,22 @@ class DefaultPromptProvider(FrameworkPromptProvider):
         return self._logbook_search_builder
 
     # =================================================================
+    # Capability guide prompt builders
+    # =================================================================
+
+    def get_channel_read_prompt_builder(self) -> "FrameworkPromptBuilder":
+        return self._channel_read_builder
+
+    def get_channel_write_prompt_builder(self) -> "FrameworkPromptBuilder":
+        return self._channel_write_builder
+
+    def get_channel_finding_orchestration_prompt_builder(self) -> "FrameworkPromptBuilder":
+        return self._channel_finding_orchestration_builder
+
+    def get_archiver_retrieval_prompt_builder(self) -> "FrameworkPromptBuilder":
+        return self._archiver_retrieval_builder
+
+    # =================================================================
     # ARIEL prompt builders
     # =================================================================
 
@@ -124,6 +152,10 @@ class DefaultPromptProvider(FrameworkPromptProvider):
 __all__ = [
     "DefaultARIELAgentPromptBuilder",
     "DefaultARIELRAGPromptBuilder",
+    "DefaultArchiverRetrievalPromptBuilder",
+    "DefaultChannelFindingOrchestrationPromptBuilder",
+    "DefaultChannelReadPromptBuilder",
+    "DefaultChannelWritePromptBuilder",
     "DefaultClassificationPromptBuilder",
     "DefaultResponseGenerationPromptBuilder",
     "DefaultTaskExtractionPromptBuilder",

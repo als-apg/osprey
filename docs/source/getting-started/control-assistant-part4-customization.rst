@@ -285,7 +285,7 @@ Create a new module in your agent project (e.g., ``src/my_control_assistant/fram
               super().__init__(include_default_examples=False)  # Use only control system examples
               self._add_control_system_examples()
 
-          def get_role_definition(self) -> str:
+          def get_role(self) -> str:
               """Get the control-system-specific role definition."""
               return "You are a control system assistant task extraction specialist that analyzes conversations to extract actionable tasks related to control system operations."
 
@@ -498,7 +498,7 @@ Set ``latest_only: false`` to preserve multiple versions (timestamped) when iter
       class MyFacilityOrchestratorPromptBuilder(DefaultOrchestratorPromptBuilder):
           """Facility-specific orchestrator prompt customization."""
 
-          def get_role_definition(self) -> str:
+          def get_role(self) -> str:
               """Override the agent's role description."""
               return "You are an expert execution planner for the MyFacility control system assistant."
 
@@ -545,7 +545,7 @@ Set ``latest_only: false`` to preserve multiple versions (timestamped) when iter
       class MyFacilityClassificationPromptBuilder(DefaultClassificationPromptBuilder):
           """Custom classification for facility-specific task routing."""
 
-          def get_role_definition(self) -> str:
+          def get_role(self) -> str:
               return "You are an expert task classification assistant for MyFacility."
 
           def get_instructions(self) -> str:
@@ -573,7 +573,7 @@ Set ``latest_only: false`` to preserve multiple versions (timestamped) when iter
       class MyFacilityResponseGenerationPromptBuilder(DefaultResponseGenerationPromptBuilder):
           """Custom response formatting for facility standards."""
 
-          def get_role_definition(self) -> str:
+          def get_role(self) -> str:
               return "You are an expert assistant for the MyFacility accelerator."
 
           def _get_conversational_guidelines(self) -> list[str]:

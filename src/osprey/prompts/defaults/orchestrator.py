@@ -24,7 +24,7 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
     ======================================  ================================
     I want to...                            Override...
     ======================================  ================================
-    Change the agent's identity             ``get_role_definition()``
+    Change the agent's identity             ``get_role()``
     Change step field definitions           ``get_step_format()``
     Change how capabilities are shown       ``build_capability_sections()``
     Change multi-step planning rules        ``get_planning_strategy()``
@@ -36,11 +36,11 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
 
     PROMPT_TYPE = "orchestrator"
 
-    def get_role_definition(self) -> str:
+    def get_role(self) -> str:
         """Get the generic role definition."""
         return "You are an expert execution planner for the assistant system."
 
-    def get_task_definition(self) -> str:
+    def get_task(self) -> str:
         """Get the task definition."""
         return "TASK: Create a detailed execution plan that breaks down the user's request into specific, actionable steps."
 
@@ -176,8 +176,8 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
 
         # 1. Add base orchestrator prompt (role, task, step format, planning strategy)
         base_prompt_parts = [
-            self.get_role_definition(),
-            self.get_task_definition(),
+            self.get_role(),
+            self.get_task(),
             self.get_step_format(),
             self.get_planning_strategy(),
         ]
@@ -270,7 +270,7 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
         prompt_sections = []
 
         # 1. Role definition
-        prompt_sections.append(self.get_role_definition())
+        prompt_sections.append(self.get_role())
 
         # 2. Step format (shared)
         prompt_sections.append(self.get_step_format())

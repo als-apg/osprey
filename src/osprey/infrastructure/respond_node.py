@@ -372,4 +372,4 @@ def _get_base_system_prompt(current_task: str, info=None) -> str:
     prompt_provider = get_framework_prompts()
     response_builder = prompt_provider.get_response_generation_prompt_builder()
 
-    return response_builder.get_system_instructions(current_task=current_task, info=info)
+    return response_builder.build_prompt(current_task=current_task, info=info)

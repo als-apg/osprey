@@ -29,6 +29,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Capabilities**: Remove redundant `found` field from `WriteOperationsOutput` schema — CBORG Haiku omits it from structured output, causing Pydantic validation failures
 - **Capabilities**: Clear approval state after approved `channel_write` completes to prevent reactive orchestrator from misinterpreting stale approval flags
 
+### Changed
+- **Prompts**: Refactor all LLM prompts into composable `FrameworkPromptBuilder` subclasses
+  - Rename `get_role_definition()` / `get_task_definition()` → `get_role()` / `get_task()` with deprecation bridges
+  - Add `build_dynamic_context(**kwargs)` for runtime context injection (current datetime, user queries, channel mappings)
+  - Move `channel_write` and `time_range_parsing` hardcoded runtime prompts (~300 lines) into builder `get_instructions()` + `build_dynamic_context()` methods
+  - Capabilities retain runtime context assembly (registry lookups, state access) and delegate prompt composition to builders
+  - Extract 4 new capability guide builders: `channel_read`, `channel_write`, `channel_finding_orchestration`, `archiver_retrieval`
+  - All framework infrastructure nodes updated to use new builder API
+  - Applications can now customize any LLM prompt via subclass overrides without forking capability code
+
 ## [0.11.1] - 2026-02-13
 
 ### Fixed

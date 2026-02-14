@@ -29,7 +29,7 @@ Here's a minimal example of creating a custom prompt provider:
    from osprey.prompts.defaults import DefaultPromptProvider
 
    class MyDomainPromptBuilder(FrameworkPromptBuilder):
-       def get_role_definition(self) -> str:
+       def get_role(self) -> str:
            return "You are a domain-specific expert system."
 
        def get_instructions(self) -> str:
@@ -460,15 +460,15 @@ Test your custom prompts in isolation:
        builder = MyOrchestratorPromptBuilder()
 
        # Test role definition
-       role = builder.get_role_definition()
+       role = builder.get_role()
        assert "domain-specific" in role.lower()
 
        # Test full prompt generation
-       system_prompt = builder.get_system_instructions(
+       prompt = builder.build_prompt(
            capabilities=["test_capability"],
            context_manager=mock_context
        )
-       assert len(system_prompt) > 0
+       assert len(prompt) > 0
 
 .. seealso::
 

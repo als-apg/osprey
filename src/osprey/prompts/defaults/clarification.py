@@ -11,15 +11,30 @@ if TYPE_CHECKING:
 
 
 class DefaultClarificationPromptBuilder(FrameworkPromptBuilder):
-    """Default clarification prompt builder."""
+    """Default clarification prompt builder.
+
+    **Customization Points:**
+
+    +---------------------------------+----------------------------------------------+
+    | I want to...                    | Override...                                  |
+    +=================================+==============================================+
+    | Change the agent identity       | ``get_role()``                    |
+    +---------------------------------+----------------------------------------------+
+    | Change the task statement       | ``get_task()``                    |
+    +---------------------------------+----------------------------------------------+
+    | Change guidelines               | ``get_instructions()``                       |
+    +---------------------------------+----------------------------------------------+
+    | Change question generation      | ``build_clarification_query(...)``            |
+    +---------------------------------+----------------------------------------------+
+    """
 
     PROMPT_TYPE = "clarification"
 
-    def get_role_definition(self) -> str:
+    def get_role(self) -> str:
         """Get the generic role definition."""
         return "You are helping to clarify ambiguous user queries for the assistant system."
 
-    def get_task_definition(self) -> str:
+    def get_task(self) -> str:
         """Get the task definition."""
         return "Your task is to generate specific, targeted questions that will help clarify what the user needs."
 
@@ -68,7 +83,7 @@ class DefaultClarificationPromptBuilder(FrameworkPromptBuilder):
         """Clarify has no classifier guide - it's orchestrator-driven."""
         return None  # Always available, not detected from user intent
 
-    def get_system_instructions(self, state: "AgentState", task_objective: str) -> str:
+    def build_prompt(self, state: "AgentState", task_objective: str) -> str:
         """Compose complete clarification prompt with runtime context.
 
         This override provides clarification-specific prompt composition where
@@ -126,7 +141,7 @@ class DefaultClarificationPromptBuilder(FrameworkPromptBuilder):
         # Compose final prompt with role and the complete clarification query
         # The clarification_query already contains all necessary instructions and examples
         # No need for additional generic guidelines that would create redundancy
-        role = self.get_role_definition()
+        role = self.get_role()
 
         final_prompt = f"""{role}
 

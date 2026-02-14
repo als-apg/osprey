@@ -64,7 +64,7 @@ class TestClarificationPromptGeneration:
         builder = DefaultClarificationPromptBuilder()
         task_objective = "Ask the user to specify the location for which they want to retrieve current weather information"
 
-        prompt = builder.get_system_instructions(sample_state, task_objective)
+        prompt = builder.build_prompt(sample_state, task_objective)
 
         # Verify all major sections are present
         assert "You are helping to clarify ambiguous user queries" in prompt
@@ -79,7 +79,7 @@ class TestClarificationPromptGeneration:
         builder = DefaultClarificationPromptBuilder()
         task_objective = "Ask the user to specify the location"
 
-        prompt = builder.get_system_instructions(sample_state, task_objective)
+        prompt = builder.build_prompt(sample_state, task_objective)
 
         # Extract the user query section and verify exact content
         query_section = PromptTestHelpers.extract_section(prompt, "USER'S ORIGINAL QUERY:")
@@ -90,7 +90,7 @@ class TestClarificationPromptGeneration:
         builder = DefaultClarificationPromptBuilder()
         task_objective = "Ask the user to specify the location for which they want to retrieve current weather information"
 
-        prompt = builder.get_system_instructions(sample_state, task_objective)
+        prompt = builder.build_prompt(sample_state, task_objective)
 
         # Extract and verify the orchestrator's instruction section
         instruction_section = PromptTestHelpers.extract_section(
@@ -104,7 +104,7 @@ class TestClarificationPromptGeneration:
         builder = DefaultClarificationPromptBuilder()
         task_objective = "Ask the user to specify the time range"
 
-        prompt = builder.get_system_instructions(multi_turn_state, task_objective)
+        prompt = builder.build_prompt(multi_turn_state, task_objective)
 
         # Extract and verify conversation history section
         history_section = PromptTestHelpers.extract_section(prompt, "CONVERSATION HISTORY:")
@@ -119,7 +119,7 @@ class TestClarificationPromptGeneration:
         builder = DefaultClarificationPromptBuilder()
         task_objective = "Ask the user to specify the location"
 
-        prompt = builder.get_system_instructions(sample_state, task_objective)
+        prompt = builder.build_prompt(sample_state, task_objective)
 
         # Verify examples section with good/bad questions
         assert "Good question:" in prompt
@@ -131,7 +131,7 @@ class TestClarificationPromptGeneration:
         builder = DefaultClarificationPromptBuilder()
         task_objective = "Ask the user to specify the location"
 
-        prompt = builder.get_system_instructions(sample_state, task_objective)
+        prompt = builder.build_prompt(sample_state, task_objective)
 
         # Get positions of key sections
         positions = PromptTestHelpers.get_section_positions(
@@ -158,7 +158,7 @@ class TestClarificationPromptGeneration:
         builder = DefaultClarificationPromptBuilder()
         task_objective = "Ask the user to specify the location"
 
-        prompt = builder.get_system_instructions(sample_state, task_objective)
+        prompt = builder.build_prompt(sample_state, task_objective)
 
         # The prompt should NOT have a separate "SUPPORTING GUIDELINES" section
         # (we removed this to avoid redundancy)
@@ -169,7 +169,7 @@ class TestClarificationPromptGeneration:
         builder = DefaultClarificationPromptBuilder()
         task_objective = "Ask the user to specify the location for weather"
 
-        prompt = builder.get_system_instructions(sample_state, task_objective)
+        prompt = builder.build_prompt(sample_state, task_objective)
 
         # The orchestrator's specific instruction should appear prominently
         instruction_section = PromptTestHelpers.extract_section(
@@ -197,7 +197,7 @@ class TestClarificationPromptGeneration:
         task_objective = "Ask the user for more details"
 
         # Should not raise an error
-        prompt = builder.get_system_instructions(state, task_objective)
+        prompt = builder.build_prompt(state, task_objective)
 
         assert "CONVERSATION HISTORY:" in prompt
         assert "Ask the user for more details" in prompt
@@ -215,7 +215,7 @@ class TestClarificationPromptGeneration:
         builder = DefaultClarificationPromptBuilder()
         task_objective = "Ask which specific metric for system status"
 
-        prompt = builder.get_system_instructions(state, task_objective)
+        prompt = builder.build_prompt(state, task_objective)
 
         # Extract user query section and verify special characters are preserved
         query_section = PromptTestHelpers.extract_section(prompt, "USER'S ORIGINAL QUERY:")
@@ -243,7 +243,7 @@ class TestClarificationErrorHandling:
         builder = DefaultClarificationPromptBuilder()
 
         # Should handle gracefully, not crash
-        prompt = builder.get_system_instructions(state, "Ask for details")
+        prompt = builder.build_prompt(state, "Ask for details")
 
         # Should still generate a valid prompt
         assert "You are helping" in prompt
@@ -260,7 +260,7 @@ class TestClarificationErrorHandling:
 
         # This should raise an error since we can't get current step
         with pytest.raises((RuntimeError, AttributeError, TypeError)):
-            builder.get_system_instructions(state, "Ask for details")
+            builder.build_prompt(state, "Ask for details")
 
     def test_empty_task_objective(self):
         """Test handling when task_objective is empty string."""
@@ -271,7 +271,7 @@ class TestClarificationErrorHandling:
         builder = DefaultClarificationPromptBuilder()
 
         # Should not crash, but prompt may be less useful
-        prompt = builder.get_system_instructions(state, "")
+        prompt = builder.build_prompt(state, "")
 
         assert "You are helping" in prompt
         assert "ORCHESTRATOR'S CLARIFICATION INSTRUCTION:" in prompt
@@ -287,7 +287,7 @@ class TestClarificationErrorHandling:
         # Pass None as task_objective
         # This might fail depending on implementation
         try:
-            prompt = builder.get_system_instructions(state, None)
+            prompt = builder.build_prompt(state, None)
             # If it doesn't crash, verify basic structure
             assert "You are helping" in prompt
         except (TypeError, AttributeError):
@@ -306,7 +306,7 @@ class TestClarificationErrorHandling:
 
         # Should either handle gracefully or raise appropriate error
         try:
-            prompt = builder.get_system_instructions(state, "Ask for details")
+            prompt = builder.build_prompt(state, "Ask for details")
             # If successful, verify basic structure
             assert "You are helping" in prompt
         except (AttributeError, TypeError, KeyError):
@@ -322,7 +322,7 @@ class TestClarificationErrorHandling:
         )
 
         builder = DefaultClarificationPromptBuilder()
-        prompt = builder.get_system_instructions(state, "Ask user to specify which city")
+        prompt = builder.build_prompt(state, "Ask user to specify which city")
 
         # Should handle unicode without crashing
         assert "You are helping" in prompt
@@ -345,7 +345,7 @@ class TestClarificationErrorHandling:
         )
 
         builder = DefaultClarificationPromptBuilder()
-        prompt = builder.get_system_instructions(state, "Ask for clarification")
+        prompt = builder.build_prompt(state, "Ask for clarification")
 
         # Should handle without crashing
         assert "You are helping" in prompt
@@ -365,7 +365,7 @@ class TestClarificationErrorHandling:
 
         # Should either use default (0) or handle gracefully
         try:
-            prompt = builder.get_system_instructions(state, "Ask for details")
+            prompt = builder.build_prompt(state, "Ask for details")
             assert "You are helping" in prompt
         except (KeyError, RuntimeError):
             # Expected if implementation requires the field
@@ -383,7 +383,7 @@ class TestClarificationErrorHandling:
 
         # Should raise appropriate error
         with pytest.raises((IndexError, RuntimeError)):
-            builder.get_system_instructions(state, "Ask for details")
+            builder.build_prompt(state, "Ask for details")
 
 
 # ===================================================================
@@ -422,7 +422,7 @@ class TestClarificationIntegration:
 
         # Step 2: Get prompt builder and generate prompt
         builder = DefaultClarificationPromptBuilder()
-        prompt = builder.get_system_instructions(sample_state, task_objective)
+        prompt = builder.build_prompt(sample_state, task_objective)
 
         # Step 3: Verify the prompt is complete and correct
         assert len(prompt) > 100  # Should be substantial

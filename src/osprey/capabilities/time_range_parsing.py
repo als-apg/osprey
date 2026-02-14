@@ -43,8 +43,7 @@ type safety through Pydantic models and comprehensive error handling.
 """
 
 import asyncio
-import textwrap
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 from typing import Any, ClassVar
 
 from pydantic import BaseModel, Field, field_validator
@@ -342,108 +341,17 @@ class TimeRangeOutput(BaseModel):
 def _get_time_parsing_system_prompt(user_query: str) -> str:
     """Create comprehensive system prompt for LLM-based time range parsing.
 
-    Constructs a sophisticated system prompt that provides the LLM with complete
-    context for accurate time parsing including current time reference, timezone
-    information, common patterns, validation rules, and detailed examples.
-
-    The prompt includes critical validation rules to prevent common parsing errors
-    such as future dates, invalid ranges, and incorrect relative time calculations.
-    It provides step-by-step calculation examples to ensure consistent parsing behavior.
+    Delegates to the prompt builder system, which composes the role, static
+    instructions, and dynamic context (current datetime, examples, user query).
 
     :param user_query: User query containing time expressions to parse
     :type user_query: str
     :return: Complete system prompt for LLM time parsing with examples and validation rules
     :rtype: str
-
-    .. note::
-       Uses UTC timezone as reference and includes extensive examples with
-       current time calculations to ensure accurate relative time parsing.
-
-    .. warning::
-       Includes critical validation rules to prevent future dates and
-       invalid ranges that could cause downstream processing errors.
-
-    .. seealso::
-       :class:`TimeRangeOutput` : Pydantic model that structures the LLM response
-       :meth:`TimeRangeParsingCapability.execute` : Main capability method using this prompt
-       :mod:`datetime` : Python module providing time calculation functionality
-       :class:`TimeRangeContext` : Final context object created from parsed results
     """
-
-    # Use UTC timezone to avoid confusion
-    now = datetime.now(UTC)
-    current_time_str = now.strftime("%Y-%m-%d %H:%M:%S")
-    current_weekday = now.strftime("%A")
-
-    # Calculate example dates for the prompt
-    two_hours_ago = (now - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")
-    yesterday_start = (now - timedelta(days=1)).strftime("%Y-%m-%d") + " 00:00:00"
-    yesterday_end = (now - timedelta(days=1)).strftime("%Y-%m-%d") + " 23:59:59"
-    twenty_four_hours_ago = (now - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
-    two_weeks_ago = (now - timedelta(days=14)).strftime("%Y-%m-%d %H:%M:%S")
-
-    prompt = textwrap.dedent(
-        f"""
-        You are an expert time range parser. Your task is to extract time ranges from user queries and convert them to absolute datetime values.
-
-        Current time context:
-        - Current datetime: {current_time_str}
-        - Current weekday: {current_weekday}
-
-        CRITICAL REQUIREMENTS:
-        - start_date and end_date must be valid datetime values in ISO format
-        - Use format 'YYYY-MM-DD HH:MM:SS' (e.g., "{current_time_str}")
-        - Return as datetime objects, not strings with extra text or descriptions
-        - **CRITICAL**: start_date MUST be BEFORE end_date (start < end)
-        - **CRITICAL**: Anchor ALL date calculations to the current datetime {current_time_str} — do NOT use your training data to infer what "now" is
-        - For historical data requests, end_date should typically be close to current time
-
-        Instructions:
-        1. Parse the user query to identify time range references
-        2. Convert relative time references to absolute datetime values
-        3. Set found=true if you can identify a time range, found=false if no time reference exists
-        4. If found=false, use current time for both start_date and end_date as placeholders
-
-        Common patterns and their conversions:
-        - "last X hours/minutes/days" → X time units BEFORE current time to NOW
-        - "past X hours/minutes/days" → X time units BEFORE current time to NOW
-        - "yesterday" → previous day from 00:00:00 to 23:59:59
-        - "today" → current day from 00:00:00 to current time
-        - "this week" → from start of current week to now
-        - "last week" → previous week (Monday to Sunday)
-        - Current/real-time requests → very recent time (last few minutes)
-
-        CRITICAL CALCULATION RULES FOR RELATIVE TIMES:
-        **STEP-BY-STEP for "past/last X hours":**
-        1. start_date = current_time MINUS X hours (earlier time)
-        2. end_date = current_time (later time)
-        3. Verify: start_date < end_date
-
-        **STEP-BY-STEP for "past/last X days":**
-        1. start_date = current_time MINUS X days (earlier time)
-        2. end_date = current_time (later time)
-        3. Verify: start_date < end_date
-
-        **EXAMPLE CALCULATION for "past 24 hours" when current time is {current_time_str}:**
-        1. start_date = {current_time_str} - 24 hours = {twenty_four_hours_ago}
-        2. end_date = {current_time_str}
-        3. Check: {twenty_four_hours_ago} < {current_time_str} ✓
-
-        EXAMPLES with exact format expected:
-        - "last 2 hours" → start_date: "{two_hours_ago}", end_date: "{current_time_str}"
-        - "yesterday" → start_date: "{yesterday_start}", end_date: "{yesterday_end}"
-        - "last 24 hours" → start_date: "{twenty_four_hours_ago}", end_date: "{current_time_str}"
-        - "past 24 hours" → start_date: "{twenty_four_hours_ago}", end_date: "{current_time_str}"
-        - "past 2 weeks" → start_date: "{two_weeks_ago}", end_date: "{current_time_str}"
-
-        Respond with a JSON object containing start_date, end_date, and found.
-        The start_date and end_date fields should be datetime values in YYYY-MM-DD HH:MM:SS format
-        that will be automatically converted to Python datetime objects.
-
-        User query to parse: {user_query}"""
-    )
-
-    return prompt
+    prompt_provider = get_framework_prompts()
+    builder = prompt_provider.get_time_range_parsing_prompt_builder()
+    return builder.build_prompt(user_query=user_query)
 
 
 # ========================================================
