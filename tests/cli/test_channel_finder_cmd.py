@@ -258,6 +258,7 @@ class TestBuildDatabaseSubcommand:
         assert "--csv" in result.output
         assert "--output" in result.output
         assert "--use-llm" in result.output
+        assert "--delimiter" in result.output
 
     def test_build_database_with_csv(self, runner, tmp_path):
         """build-database builds a database from CSV."""
@@ -273,6 +274,38 @@ class TestBuildDatabaseSubcommand:
         result = runner.invoke(
             channel_finder,
             ["build-database", "--csv", str(csv_file), "--output", str(output_file)],
+        )
+        assert result.exit_code == 0
+        assert output_file.exists()
+
+        import json
+
+        db = json.loads(output_file.read_text())
+        assert "channels" in db
+        assert len(db["channels"]) > 0
+
+    def test_build_database_with_delimiter(self, runner, tmp_path):
+        """build-database accepts --delimiter for pipe-separated CSV."""
+        csv_file = tmp_path / "test.csv"
+        csv_file.write_text(
+            "address|description|family_name|instances|sub_channel\n"
+            "BEAM:CURRENT|Total beam current|||\n"
+            "BPM01X|BPM horizontal|BPM|3|X\n"
+            "BPM01Y|BPM vertical|BPM|3|Y\n"
+        )
+        output_file = tmp_path / "output.json"
+
+        result = runner.invoke(
+            channel_finder,
+            [
+                "build-database",
+                "--csv",
+                str(csv_file),
+                "--output",
+                str(output_file),
+                "--delimiter",
+                "|",
+            ],
         )
         assert result.exit_code == 0
         assert output_file.exists()

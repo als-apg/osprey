@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Channel Finder**: Add `--delimiter` option to `build-database` for CSV files (#161, @RemiLehe)
+- **Build**: Add `uv.lock` for reproducible dependency resolution; consolidate `pytest.ini` into `pyproject.toml`
+
 ## [0.11.1] - 2026-02-13
 
 ### Fixed

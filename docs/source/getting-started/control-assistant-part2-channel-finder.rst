@@ -362,6 +362,9 @@ That's it—no code changes required. The framework includes complete implementa
                # With LLM-generated descriptive names (recommended)
                osprey channel-finder build-database --use-llm
 
+               # If your channel names contain commas, use a different delimiter
+               osprey channel-finder build-database --delimiter "|"
+
 
             The template includes working UCSB FEL accelerator data by default:
 

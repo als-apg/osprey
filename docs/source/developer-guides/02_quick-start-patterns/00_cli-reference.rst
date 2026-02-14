@@ -1461,6 +1461,9 @@ Commands
    ``--config PATH``
       Path to facility config file (optional, auto-detected)
 
+   ``--delimiter CHAR``
+      CSV field delimiter (default: ``,``). Use ``|`` or ``\t`` if channel names contain commas.
+
 ``osprey channel-finder validate``
    Validate a channel database JSON file. Checks JSON structure, schema validity,
    and database loading. Auto-detects pipeline type (hierarchical vs in_context).

@@ -232,7 +232,12 @@ def benchmark(
     default=None,
     help="Path to facility config file (optional, auto-detected if not provided)",
 )
-def build_database(csv: str, output: str, use_llm: bool, config_path: str | None):
+@click.option(
+    "--delimiter",
+    default=",",
+    help="CSV field delimiter (default: ',')",
+)
+def build_database(csv: str, output: str, use_llm: bool, config_path: str | None, delimiter: str):
     """Build a channel database from a CSV file.
 
     Reads a CSV with columns: address, description, family_name, instances, sub_channel.
@@ -243,6 +248,7 @@ def build_database(csv: str, output: str, use_llm: bool, config_path: str | None
     \b
       osprey channel-finder build-database
       osprey channel-finder build-database --csv data/raw/channels.csv
+      osprey channel-finder build-database --delimiter "|"
       osprey channel-finder build-database --use-llm --config config.yml
       osprey channel-finder build-database --output data/processed/my_db.json
     """
@@ -261,6 +267,7 @@ def build_database(csv: str, output: str, use_llm: bool, config_path: str | None
             output_path=output_path,
             use_llm=use_llm,
             config_path=Path(config_path) if config_path else None,
+            delimiter=delimiter,
         )
     except Exception as e:
         console.print(f"\n{Messages.error(str(e))}")
