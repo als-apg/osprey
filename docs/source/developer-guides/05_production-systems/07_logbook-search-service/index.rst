@@ -2,98 +2,125 @@
 Logbook Search Service (ARIEL)
 ================================
 
-ARIEL (Agentic Retrieval Interface for Electronic Logbooks) provides intelligent search over facility electronic logbooks. It combines keyword full-text search, semantic embedding similarity, RAG-powered question answering, and an agentic ReAct executor into a single service that integrates with Osprey's capability system.
+ARIEL (Agentic Retrieval Interface for Electronic Logbooks) provides intelligent search over facility electronic logbooks. It is built around a **modular architecture** with three main layers: a :doc:`data ingestion pipeline <data-ingestion>` that normalizes logbook entries from any facility into a common PostgreSQL schema, composable :doc:`search modules <search-modes>` such as keyword matching, semantic similarity, and RAG-powered question answering, and a :doc:`web interface <web-interface>` for interactive exploration. These components connect to the rest of Osprey through the ``logbook_search`` :doc:`capability integration <osprey-integration>`.
 
-ARIEL is designed to be **facility-agnostic**. Pluggable ingestion adapters normalize logbook data from any source (ALS, JLab, ORNL, or custom JSON) into a common PostgreSQL schema. At query time, Osprey's ``logbook_search`` capability forwards the user's natural language question to the ARIEL service, which routes it through the configured search strategy --- keyword lookup for specific terms, semantic similarity for conceptual queries, or a full RAG pipeline that retrieves, fuses, and generates a cited answer. An optional ReAct agent mode can chain multiple searches autonomously to answer complex questions.
+Every layer is designed to be **facility-agnostic and extensible**. Ingestion adapters, search modules, and enhancement stages are all registerable --- you can implement your own and plug them into the full pipeline without modifying ARIEL's source code. Out of the box, adapters are included for facilities such as ALS, JLab, and ORNL, and search strategies range from keyword lookup to a multi-step ReAct agent that chains searches autonomously.
 
 .. figure:: /_static/resources/ariel_overview.pdf
    :alt: ARIEL Logbook Search Architecture
    :align: center
    :width: 100%
 
+   ARIEL data flow: facility logbooks are normalized through pluggable adapters into a shared PostgreSQL database, enhanced by modular processing stages, and queried through composable search modules and pipelines.
+
+.. dropdown:: Prerequisites
+   :color: info
+   :icon: checklist
+
+   ARIEL requires a working Osprey installation. Make sure you have the following
+   ready before proceeding. See the :doc:`/getting-started/installation` guide for
+   detailed setup instructions.
+
+   - **Python 3.11+** with a virtual environment
+   - **Osprey installed:** ``pip install osprey-framework``
+   - **Container runtime:** `Docker Desktop 4.0+ <https://docs.docker.com/get-docker/>`_ or `Podman 4.0+ <https://podman.io/getting-started/installation>`_ (for PostgreSQL and the web interface)
+   - **LLM API access:** An API key for your configured provider (e.g., ``ANTHROPIC_API_KEY``)
+   - **(Recommended) Ollama** --- for local text embeddings powering semantic search:
+
+     .. tab-set::
+
+        .. tab-item:: macOS
+
+           .. code-block:: bash
+
+              brew install ollama
+              ollama serve &            # Start Ollama in the background
+              ollama pull nomic-embed-text
+
+        .. tab-item:: Linux
+
+           .. code-block:: bash
+
+              curl -fsSL https://ollama.com/install.sh | sh
+              ollama serve &            # Start Ollama in the background
+              ollama pull nomic-embed-text
+
+     Ollama is optional. ARIEL degrades gracefully to keyword-only search
+     if Ollama or pgvector is unavailable. You can install them later and
+     re-run ``osprey ariel quickstart`` to enable semantic search.
+
 .. dropdown:: Quick Start
-
-   **0. (Recommended) Install Ollama** --- for semantic search with text embeddings:
-
-   .. tab-set::
-
-      .. tab-item:: macOS
-
-         .. code-block:: bash
-
-            brew install ollama
-            ollama serve &            # Start Ollama in the background
-            ollama pull nomic-embed-text
-
-      .. tab-item:: Linux
-
-         .. code-block:: bash
-
-            curl -fsSL https://ollama.com/install.sh | sh
-            ollama serve &            # Start Ollama in the background
-            ollama pull nomic-embed-text
-
-   Ollama is optional. ARIEL degrades gracefully to keyword-only search
-   if Ollama or pgvector is unavailable. You can install them later and
-   re-run ``osprey ariel quickstart`` to enable semantic search.
 
    .. tab-set::
 
       .. tab-item:: 1. Configure
 
-         Add the ARIEL section to your ``config.yml`` and include the ``postgresql``
-         and ``ariel_web`` deployed services. If you created your project with
-         ``osprey init --template control_assistant``, this is already done --- skip
-         to Step 2.
+         The easiest way to get started is to create a new project from the
+         ``control_assistant`` template, which includes ARIEL pre-configured:
 
-         .. code-block:: yaml
+         .. code-block:: bash
 
-            # -- Deployed Services (add to existing list) --
-            deployed_services:
-              - jupyter
-              - postgresql          # Required for ARIEL
-              - ariel_web           # ARIEL web interface
+            osprey init my-project --template control_assistant
+            cd my-project
 
-            # -- Container Configuration --
-            services:
-              postgresql:
-                database: ariel
-                username: ariel
-                password: ariel
-                port_host: 5432
+         This generates a ready-to-use ``config.yml`` with PostgreSQL, the ARIEL
+         web interface, and all search modules enabled --- skip to Step 2.
 
-              ariel_web:
-                path: ./services/ariel-web
-                port_host: 8085
+         .. dropdown:: Manual configuration (existing projects)
+            :color: light
+            :icon: pencil
 
-            # -- ARIEL Search Configuration --
-            ariel:
-              database:
-                uri: postgresql://ariel:ariel@localhost:5432/ariel
-              search_modules:
-                keyword:
-                  enabled: true
-                semantic:
-                  enabled: true        # Degrades gracefully if unavailable
-                  provider: ollama
-                  model: nomic-embed-text
-              pipelines:
-                rag:
-                  enabled: true
-                  retrieval_modules: [keyword, semantic]
-                agent:
-                  enabled: true
-                  retrieval_modules: [keyword, semantic]
-              enhancement_modules:
-                text_embedding:
-                  enabled: true        # Degrades gracefully if unavailable
-                  provider: ollama
-                  models:
-                    - name: nomic-embed-text
-                      dimension: 768
-              reasoning:
-                provider: cborg
-                model_id: anthropic/claude-haiku
+            If you already have an Osprey project, add the following to your
+            ``config.yml``:
+
+            .. code-block:: yaml
+
+               # -- Deployed Services (add to existing list) --
+               deployed_services:
+                 - jupyter
+                 - postgresql          # Required for ARIEL
+                 - ariel_web           # ARIEL web interface
+
+               # -- Container Configuration --
+               services:
+                 postgresql:
+                   database: ariel
+                   username: ariel
+                   password: ariel
+                   port_host: 5432
+
+                 ariel_web:
+                   path: ./services/ariel-web
+                   port_host: 8085
+
+               # -- ARIEL Search Configuration --
+               ariel:
+                 database:
+                   uri: postgresql://ariel:ariel@localhost:5432/ariel
+                 search_modules:
+                   keyword:
+                     enabled: true
+                   semantic:
+                     enabled: true        # Degrades gracefully if unavailable
+                     provider: ollama
+                     model: nomic-embed-text
+                 pipelines:
+                   rag:
+                     enabled: true
+                     retrieval_modules: [keyword, semantic]
+                   agent:
+                     enabled: true
+                     retrieval_modules: [keyword, semantic]
+                 enhancement_modules:
+                   text_embedding:
+                     enabled: true        # Degrades gracefully if unavailable
+                     provider: ollama
+                     models:
+                       - name: nomic-embed-text
+                         dimension: 768
+                 reasoning:
+                   provider: cborg
+                   model_id: anthropic/claude-haiku
 
       .. tab-item:: 2. Deploy
 
