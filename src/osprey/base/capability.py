@@ -7,7 +7,6 @@ Implements the LangGraph-native architecture with configuration-driven patterns.
 
 from __future__ import annotations
 
-import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -537,7 +536,8 @@ class BaseCapability(ABC):
             async def execute(self) -> dict[str, Any]:
                 # Get task objective with automatic fallback
                 task = self.get_task_objective()
-                logger.info(f"Starting: {task}")
+                logger = self.get_logger()
+                logger.status(f"Starting: {task}")  # Emits StatusEvent
 
                 # Or with custom default
                 task = self.get_task_objective(default="unknown task")
@@ -751,28 +751,28 @@ class BaseCapability(ABC):
             async def execute(self) -> dict[str, Any]:
                 logger = self.get_logger()
 
-                # High-level status - logs + streams automatically
+                # Status updates - emits StatusEvent
                 logger.status("Creating execution plan...")
 
-                # Detailed info - logs only (unless explicitly requested)
+                # Info messages - emits StatusEvent with level="info"
                 logger.info(f"Active capabilities: {capabilities}")
 
-                # Explicit streaming for specific info
-                logger.info("Step 1 of 5 complete", stream=True, progress=0.2)
+                # Debug messages - emits StatusEvent with level="debug"
+                logger.debug("Detailed state information...")
 
-                # Errors always stream
+                # Errors - emits ErrorEvent
                 logger.error("Validation failed", validation_errors=[...])
 
-                # Success with metadata
+                # Success with metadata - emits StatusEvent with level="success"
                 logger.success("Plan created", steps=5, total_time=2.3)
 
                 return self.store_output_context(result)
             ```
 
         .. note::
-           The logger uses lazy initialization for streaming, so it gracefully
-           handles contexts where LangGraph streaming is not available (tests,
-           utilities, CLI-only execution).
+           All logger methods emit TypedEvents. The transport is handled automatically
+           via LangGraph streaming (during graph execution) or fallback handlers
+           (outside graph). Downstream clients (CLI, TUI) filter and render events.
 
         .. seealso::
            :class:`ComponentLogger` : Logger class with streaming methods
@@ -885,9 +885,16 @@ class BaseCapability(ABC):
            :meth:`get_required_contexts` : Automatic context extraction
            :meth:`store_output_context` : Automatic context storage
         """
-        logger = logging.getLogger(__name__)
-        logger.warning(
-            "⚠️  Capability is using the empty base execute() - consider implementing execute() for proper functionality."
+        # Emit warning via TypedEvent system
+        from osprey.events import EventEmitter, StatusEvent
+
+        emitter = EventEmitter(self.name if hasattr(self, "name") and self.name else "unknown")
+        emitter.emit(
+            StatusEvent(
+                component=self.name if hasattr(self, "name") and self.name else "unknown",
+                message="Capability is using empty base execute() - consider implementing execute() for proper functionality",
+                level="warning",
+            )
         )
         pass
 
@@ -1051,11 +1058,16 @@ class BaseCapability(ABC):
                     example_usage="For 'show me data from last week' or 'yesterday's performance'"
                 )
         """
-        logger = logging.getLogger(__name__)
-        logger.warning(
-            f"⚠️  Capability '{self.name}' is using base _create_orchestrator_guide() - "
-            "this may cause orchestrator hallucination. Consider implementing "
-            "_create_orchestrator_guide() for proper integration."
+        # Emit warning via TypedEvent system
+        from osprey.events import EventEmitter, StatusEvent
+
+        emitter = EventEmitter(self.name)
+        emitter.emit(
+            StatusEvent(
+                component=self.name,
+                message=f"Capability '{self.name}' is using base _create_orchestrator_guide() - consider implementing for proper integration",
+                level="warning",
+            )
         )
         return None
 
@@ -1093,11 +1105,16 @@ class BaseCapability(ABC):
         :return: Classifier guide for capability selection, or None if not needed
         :rtype: Optional[TaskClassifierGuide]
         """
-        logger = logging.getLogger(__name__)
-        logger.warning(
-            f"⚠️  Capability '{self.name}' is using base _create_classifier_guide() - "
-            "this may cause classification issues. Consider implementing "
-            "_create_classifier_guide() for proper task classification."
+        # Emit warning via TypedEvent system
+        from osprey.events import EventEmitter, StatusEvent
+
+        emitter = EventEmitter(self.name)
+        emitter.emit(
+            StatusEvent(
+                component=self.name,
+                message=f"Capability '{self.name}' is using base _create_classifier_guide() - consider implementing for proper task classification",
+                level="warning",
+            )
         )
         return None
 

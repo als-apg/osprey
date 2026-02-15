@@ -1,5 +1,8 @@
-"""TUI Handlers."""
+"""TUI Handlers.
 
-from osprey.interfaces.tui.handlers.log_handler import QueueLogHandler
+Note: QueueLogHandler and log_handler.py were removed as part of Phase 4
+migration. TUI now relies solely on typed events via LangGraph streaming.
+See EVENT_STREAMING.md for architecture details.
+"""
 
-__all__ = ["QueueLogHandler"]
+__all__: list[str] = []

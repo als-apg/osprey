@@ -4,13 +4,14 @@ This provider uses LiteLLM as the backend for unified API access,
 while preserving Ollama-specific fallback URL logic for development workflows.
 """
 
-import logging
 from typing import Any
+
+from osprey.utils.logger import get_logger
 
 from .base import BaseProvider
 from .litellm_adapter import execute_litellm_completion
 
-logger = logging.getLogger(__name__)
+logger = get_logger("ollama")
 
 
 class OllamaProviderAdapter(BaseProvider):

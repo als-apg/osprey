@@ -707,12 +707,17 @@ class FileBasedResultCollector:
         file_path = self.execution_folder / filename
 
         try:
-            if not file_path.exists():
+            import asyncio
+
+            import aiofiles
+
+            if not await asyncio.to_thread(file_path.exists):
                 logger.debug(f"File {filename} does not exist in execution folder")
                 return None
 
-            with open(file_path, encoding="utf-8") as f:
-                data = json.load(f)
+            async with aiofiles.open(file_path, encoding="utf-8") as f:
+                content = await f.read()
+                data = json.loads(content)
 
             logger.debug(f"Successfully read {filename}")
             return data
@@ -733,17 +738,28 @@ class FileBasedResultCollector:
             return figure_paths
 
         try:
+            import asyncio
+
             # Common image file extensions (PNG is most common from matplotlib)
             image_extensions = ["*.png", "*.jpg", "*.jpeg", "*.svg"]
 
-            # Scan main directory and all subdirectories except 'attempts'
-            for root_path in [self.execution_folder] + [
-                d for d in self.execution_folder.iterdir() if d.is_dir() and d.name != "attempts"
-            ]:
-                for extension in image_extensions:
-                    for figure_file in sorted(root_path.glob(extension)):
-                        if figure_file.is_file():
-                            figure_paths.append(figure_file)
+            def collect_figures():
+                """Synchronous helper for directory traversal."""
+                paths = []
+                # Scan main directory and all subdirectories except 'attempts'
+                for root_path in [self.execution_folder] + [
+                    d
+                    for d in self.execution_folder.iterdir()
+                    if d.is_dir() and d.name != "attempts"
+                ]:
+                    for extension in image_extensions:
+                        for figure_file in sorted(root_path.glob(extension)):
+                            if figure_file.is_file():
+                                paths.append(figure_file)
+                return paths
+
+            # Run directory traversal in thread pool to avoid blocking
+            figure_paths = await asyncio.to_thread(collect_figures)
 
             if figure_paths:
                 logger.info(f"CONTAINER EXECUTION: Collected {len(figure_paths)} figure files")

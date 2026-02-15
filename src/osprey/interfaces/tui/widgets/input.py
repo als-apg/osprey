@@ -6,8 +6,10 @@ import os
 from datetime import datetime
 from typing import TYPE_CHECKING, ClassVar
 
+from textual.app import ComposeResult
+from textual.containers import Horizontal
 from textual.content import Content
-from textual.events import Key
+from textual.events import Blur, Focus, Key
 from textual.message import Message
 from textual.style import Style
 from textual.widgets import OptionList, Static, TextArea
@@ -62,6 +64,42 @@ class ChatInput(TextArea):
         self._expected_text: str = ""  # Track expected text after programmatic changes
         self._load_history()
 
+    # Tips shown when input is focused
+    INPUT_TIPS = [
+        ("/", "commands"),
+        ("option + ⏎", "newline"),
+        ("\u2191\u2193", "history"),
+    ]
+
+    # Tips shown when focus is elsewhere (chat navigation)
+    CHAT_TIPS = [
+        ("Ctrl+L", "focus input"),
+        ("tab", "cycle links"),
+        ("j/k", "scroll"),
+        ("g/G", "top/bottom"),
+    ]
+
+    def _on_focus(self, event: Focus) -> None:
+        """Show input-specific tips when focused."""
+        status = self._get_status_panel()
+        if status:
+            status.set_tips(self.INPUT_TIPS)
+
+    # Tips shown on welcome screen when focus is lost (no chat to navigate)
+    WELCOME_BLUR_TIPS = [
+        ("Ctrl+L", "focus input"),
+    ]
+
+    def _on_blur(self, event: Blur) -> None:
+        """Show navigation tips when focus leaves input."""
+        status = self._get_status_panel()
+        if status:
+            # On welcome screen, show simplified refocus hint
+            if self.id == "welcome-input":
+                status.set_tips(self.WELCOME_BLUR_TIPS)
+            else:
+                status.set_tips(self.CHAT_TIPS)
+
     def _load_history(self) -> None:
         """Load history from file (prompt_toolkit FileHistory format)."""
         try:
@@ -93,7 +131,7 @@ class ChatInput(TextArea):
                 # Write query with + prefix
                 f.write(f"+{query}\n")
         except Exception:
-            pass
+            pass  # Non-critical: history file write failed
 
     def _history_up(self) -> None:
         """Navigate to previous history entry."""
@@ -188,16 +226,10 @@ class ChatInput(TextArea):
             status.set_tips([("Options:", options_str)])
 
     def _reset_status_panel(self) -> None:
-        """Reset status panel to default tips."""
+        """Reset status panel to input tips (called when input has focus)."""
         status = self._get_status_panel()
         if status:
-            status.set_tips(
-                [
-                    ("/", "for commands"),
-                    ("option + ⏎", "for newline"),
-                    ("↑↓", "for history"),
-                ]
-            )
+            status.set_tips(self.INPUT_TIPS)
 
     def _on_key(self, event: Key) -> None:
         """Handle key events - Enter submits, Option+Enter for newline."""
@@ -358,11 +390,7 @@ class StatusPanel(Static):
         """Initialize the status panel with default tips."""
         super().__init__(**kwargs)
         # Defer styled tips until mounted (CSS not available in __init__)
-        self._default_tips = [
-            ("/", "for commands"),
-            ("option + ⏎", "for newline"),
-            ("↑↓", "for history"),
-        ]
+        self._default_tips = ChatInput.INPUT_TIPS
 
     def on_mount(self) -> None:
         """Set styled tips after mount when CSS is available."""
@@ -419,7 +447,10 @@ class CommandDropdown(OptionList):
         "/exit": {"desc": "Exit the application", "options": None},
         # Toggle commands (with options)
         "/planning": {"desc": "Toggle planning mode", "options": ["on", "off"]},
-        "/approval": {"desc": "Control approval workflow", "options": ["on", "off", "selective"]},
+        "/approval": {
+            "desc": "Control approval workflow",
+            "options": ["on", "off", "selective"],
+        },
         "/task": {"desc": "Toggle task extraction", "options": ["on", "off"]},
         "/caps": {"desc": "Toggle capability selection", "options": ["on", "off"]},
     }
@@ -452,6 +483,17 @@ class CommandDropdown(OptionList):
         Args:
             prefix: The current input text (should start with /).
         """
+        # Hide plan progress bar (mutual exclusivity with overlays)
+        try:
+            from osprey.interfaces.tui.widgets.plan_progress import PlanProgressBar
+
+            progress_bar = self.app.query_one("#plan-progress", PlanProgressBar)
+            if progress_bar.display:
+                progress_bar.display = False
+                progress_bar.refresh()
+        except Exception:
+            pass  # Progress bar may not exist
+
         self.clear_options()
         prefix_lower = prefix.lower()
 
@@ -610,3 +652,122 @@ class CommandDropdown(OptionList):
                 self.highlighted = 0  # Cycle to first
             else:
                 self.highlighted = self.highlighted + 1
+
+
+class InfoBar(Horizontal):
+    """Bottom info bar showing environment, mode, and tips.
+
+    Always visible at the bottom of the window (1 line height).
+    SSH mode uses $warning background via CSS class.
+    Split layout: mode on left, shortcuts on right.
+    """
+
+    COMPONENT_CLASSES: ClassVar[set[str]] = {
+        "info-bar--label",
+        "info-bar--value",
+    }
+
+    def __init__(self, is_ssh: bool = False, **kwargs):
+        """Initialize the info bar.
+
+        Args:
+            is_ssh: Whether the session is running over SSH.
+        """
+        super().__init__(**kwargs)
+        self._is_ssh = is_ssh
+        self._selection_mode = False
+        self._restore_timer = None
+
+    def compose(self) -> ComposeResult:
+        """Compose InfoBar with left (mode) and right (shortcuts) sections."""
+        yield Static("", id="info-bar-left")
+        yield Static("", id="info-bar-right")
+
+    def on_mount(self) -> None:
+        """Apply SSH class and render initial content."""
+        if self._is_ssh:
+            self.add_class("info-bar--ssh")
+        self._update_content()
+
+    def set_selection_mode(self, enabled: bool) -> None:
+        """Update mode display (no notification, just update content)."""
+        self._selection_mode = enabled
+        if enabled:
+            self.add_class("info-bar--select-mode")
+        else:
+            self.remove_class("info-bar--select-mode")
+        self._update_content()
+
+    def show_temporary(self, msg: str, duration: float = 2.0) -> None:
+        """Show temporary message, then restore previous content."""
+        label_style = Style.from_styles(self.get_component_styles("info-bar--label"))
+        # Show message in right section
+        try:
+            right = self.query_one("#info-bar-right", Static)
+            right.update(Content.assemble((msg, label_style)))
+        except Exception:
+            pass
+        # Cancel any pending restore
+        if self._restore_timer is not None:
+            self._restore_timer.stop()
+        self._restore_timer = self.set_timer(duration, self._restore_content)
+
+    def _restore_content(self) -> None:
+        """Restore normal content after temporary message."""
+        self._restore_timer = None
+        self._update_content()
+
+    def _update_content(self) -> None:
+        """Render the info bar content based on current state."""
+        label_style = Style.from_styles(self.get_component_styles("info-bar--label"))
+        value_style = Style.from_styles(self.get_component_styles("info-bar--value"))
+
+        # Build mode label (left) and shortcuts (right) separately
+        mode_parts: list[tuple[str, Style]] = []
+        shortcut_parts: list[tuple[str, Style]] = []
+        sep = (" \u00b7 ", value_style)  # " · "
+
+        if self._selection_mode:
+            # Left: mode label
+            mode_parts.append(("SELECT MODE", label_style))
+            # Right: shortcuts
+            shortcut_parts.append(("drag", label_style))
+            shortcut_parts.append((" to copy", value_style))
+            shortcut_parts.append(sep)
+            shortcut_parts.append(("Ctrl+S", label_style))
+            shortcut_parts.append((" exit", value_style))
+            shortcut_parts.append(sep)
+            shortcut_parts.append(("Ctrl+Y", label_style))
+            shortcut_parts.append((" copy response", value_style))
+        elif self._is_ssh:
+            # Left: mode label
+            mode_parts.append(("SSH", label_style))
+            # Right: shortcuts
+            shortcut_parts.append(("Shift+drag", label_style))
+            shortcut_parts.append((" to select", value_style))
+            shortcut_parts.append((" (", value_style))
+            shortcut_parts.append(("Option+drag", label_style))
+            shortcut_parts.append((" in iTerm)", value_style))
+            shortcut_parts.append(sep)
+            shortcut_parts.append(("Ctrl+S", label_style))
+            shortcut_parts.append((" select mode", value_style))
+            shortcut_parts.append(sep)
+            shortcut_parts.append(("Ctrl+Y", label_style))
+            shortcut_parts.append((" copy response", value_style))
+        else:
+            # Left: empty (no mode label)
+            # Right: shortcuts only
+            shortcut_parts.append(("Ctrl+S", label_style))
+            shortcut_parts.append((" select mode", value_style))
+            shortcut_parts.append(sep)
+            shortcut_parts.append(("Ctrl+Y", label_style))
+            shortcut_parts.append((" copy response", value_style))
+
+        # Update left and right sections
+        try:
+            left = self.query_one("#info-bar-left", Static)
+            right = self.query_one("#info-bar-right", Static)
+            left.update(Content.assemble(*mode_parts) if mode_parts else "")
+            right.update(Content.assemble(*shortcut_parts))
+        except Exception:
+            pass

@@ -253,19 +253,47 @@ async def test_end_to_end_factory_and_generation(mock_llm_response):
 # =============================================================================
 
 
+class _MockChunk:
+    """Mock LangChain AIMessageChunk with .content attribute."""
+
+    def __init__(self, content: str):
+        self.content = content
+
+
+class _MockModel:
+    """Mock LangChain model with async astream()."""
+
+    def __init__(self, response_text: str):
+        self._response = response_text
+
+    async def astream(self, messages):
+        yield _MockChunk(self._response)
+
+
+class _MockErrorModel:
+    """Mock LangChain model that raises on astream()."""
+
+    def __init__(self, error):
+        self._error = error
+
+    async def astream(self, messages):
+        raise self._error
+        yield  # Make it a generator
+
+
 @pytest.fixture
 def mock_llm_response(monkeypatch):
-    """Mock get_chat_completion to return specified response."""
+    """Mock get_langchain_model to return specified response via astream."""
     from contextlib import contextmanager
 
     @contextmanager
     def _mock_response(response_text):
-        def mock_completion(*args, **kwargs):
-            return response_text
+        def mock_get_model(**kwargs):
+            return _MockModel(response_text)
 
         monkeypatch.setattr(
-            "osprey.services.python_executor.generation.basic_generator.get_chat_completion",
-            mock_completion,
+            "osprey.services.python_executor.generation.basic_generator.get_langchain_model",
+            mock_get_model,
         )
         yield
 
@@ -274,17 +302,17 @@ def mock_llm_response(monkeypatch):
 
 @pytest.fixture
 def mock_llm_error(monkeypatch):
-    """Mock get_chat_completion to raise specified error."""
+    """Mock get_langchain_model to raise specified error on astream."""
     from contextlib import contextmanager
 
     @contextmanager
     def _mock_error(error):
-        def mock_completion(*args, **kwargs):
-            raise error
+        def mock_get_model(**kwargs):
+            return _MockErrorModel(error)
 
         monkeypatch.setattr(
-            "osprey.services.python_executor.generation.basic_generator.get_chat_completion",
-            mock_completion,
+            "osprey.services.python_executor.generation.basic_generator.get_langchain_model",
+            mock_get_model,
         )
         yield
 
@@ -361,13 +389,17 @@ async def test_basic_generator_receives_structured_errors(monkeypatch):
     # Track what prompt was built
     received_prompts = []
 
-    def capture_prompt(model_config, message):
-        received_prompts.append(message)
-        return "print('fixed code')"
+    class _CapturingModel:
+        async def astream(self, messages):
+            received_prompts.append(messages[0].content)
+            yield _MockChunk("print('fixed code')")
+
+    def mock_get_model(**kwargs):
+        return _CapturingModel()
 
     monkeypatch.setattr(
-        "osprey.services.python_executor.generation.basic_generator.get_chat_completion",
-        capture_prompt,
+        "osprey.services.python_executor.generation.basic_generator.get_langchain_model",
+        mock_get_model,
     )
 
     generator = BasicLLMCodeGenerator(model_config={})
@@ -407,12 +439,12 @@ async def test_basic_generator_uses_to_prompt_text(monkeypatch):
     """Verify BasicLLMCodeGenerator calls to_prompt_text() method."""
 
     # Mock the LLM call
-    def mock_completion(model_config, message):
-        return "print('code')"
+    def mock_get_model(**kwargs):
+        return _MockModel("print('code')")
 
     monkeypatch.setattr(
-        "osprey.services.python_executor.generation.basic_generator.get_chat_completion",
-        mock_completion,
+        "osprey.services.python_executor.generation.basic_generator.get_langchain_model",
+        mock_get_model,
     )
 
     # Spy on to_prompt_text calls

@@ -70,7 +70,7 @@ class TemplateManager:
             if template_path.exists():
                 return template_path
         except (ImportError, AttributeError):
-            pass
+            pass  # Fall through to development fallback path below
 
         # Fallback for development: relative to this file
         fallback_path = Path(__file__).parent.parent / "templates"

@@ -38,6 +38,40 @@ framework chat
 
 Edit files in `{{ package_name }}/` to add functionality. Changes are reflected immediately.
 
+### Development Mode (Using Local Framework)
+
+When developing the osprey framework itself (not just your application), use the `--dev` flag to install your local osprey version into containers instead of the PyPI version:
+
+```bash
+# Stop services
+framework deploy down
+
+# Deploy with local osprey framework
+framework deploy up --dev
+
+# This will:
+# - Build a wheel from your local osprey source
+# - Install it in containers, overriding PyPI version
+# - Enable testing of framework changes immediately
+```
+
+**Prerequisites for --dev mode:**
+```bash
+# Install the Python build module (one-time setup)
+uv pip install build
+# OR
+pip install build
+```
+
+**When to use --dev:**
+- Testing changes to osprey framework code
+- Testing unreleased osprey features
+- Debugging framework issues
+
+**When NOT to use --dev:**
+- Normal application development (default mode is fine)
+- Production deployments (always use PyPI releases)
+
 ## Documentation
 
 - Framework: https://als-apg.github.io/osprey

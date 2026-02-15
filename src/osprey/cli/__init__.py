@@ -7,7 +7,7 @@ Commands:
     - init: Create new projects from templates
     - config: Manage project configuration (show, export, set)
     - deploy: Manage Docker/Podman services
-    - chat: Interactive conversation interface
+    - chat: Interactive conversation interface (--tui for TUI, --web for Web Debug UI)
     - generate: Generate capabilities and servers
     - remove: Remove components from project
     - health: Check system health

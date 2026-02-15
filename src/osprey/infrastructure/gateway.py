@@ -19,6 +19,7 @@ Architecture:
 from __future__ import annotations
 
 import time
+import traceback
 from dataclasses import dataclass
 from typing import Any
 
@@ -26,6 +27,7 @@ from langgraph.types import Command
 from pydantic import BaseModel
 
 from osprey.commands import CommandContext, CommandResult, get_command_registry
+from osprey.events import ErrorEvent, EventEmitter, StatusEvent
 from osprey.models import get_chat_completion
 from osprey.state import StateManager
 from osprey.utils.config import get_model_config
@@ -39,6 +41,7 @@ class ApprovalResponse(BaseModel):
 
 
 logger = get_logger("gateway")
+emitter = EventEmitter("gateway")
 
 
 @dataclass
@@ -108,10 +111,16 @@ class Gateway:
             # Using config - no need to store config instance
             pass
         except Exception as e:
-            self.logger.warning(f"Could not load config system: {e}")
+            emitter.emit(
+                StatusEvent(
+                    component="gateway",
+                    message=f"Could not load config system: {e}",
+                    level="warning",
+                )
+            )
 
         # Agent control commands are now registered by default in CommandRegistry
-        self.logger.info("Gateway initialized")
+        emitter.emit(StatusEvent(component="gateway", message="Gateway initialized", level="info"))
 
     async def process_message(
         self, user_input: str, compiled_graph: Any = None, config: dict[str, Any] | None = None
@@ -133,20 +142,46 @@ class Gateway:
         Returns:
             GatewayResult: Complete processing result ready for execution
         """
-        self.logger.info(f"Processing message: '{user_input[:50]}...'")
+        emitter.emit(
+            StatusEvent(
+                component="gateway",
+                message=f"Processing message: '{user_input[:50]}...'",
+                level="info",
+            )
+        )
 
         try:
             # Check for pending interrupts first
             if self._has_pending_interrupts(compiled_graph, config):
-                self.logger.info("Pending interrupt detected - processing as approval response")
+                emitter.emit(
+                    StatusEvent(
+                        component="gateway",
+                        message="Pending interrupt detected - processing as approval response",
+                        level="info",
+                    )
+                )
                 return await self._handle_interrupt_flow(user_input, compiled_graph, config)
 
             # Process as new conversation turn
-            self.logger.info("Processing as new conversation turn")
+            emitter.emit(
+                StatusEvent(
+                    component="gateway",
+                    message="Processing as new conversation turn",
+                    level="info",
+                )
+            )
             return await self._handle_new_message_flow(user_input, compiled_graph, config)
 
         except Exception as e:
-            self.logger.exception(f"Error in message processing: {e}")
+            emitter.emit(
+                ErrorEvent(
+                    component="gateway",
+                    error_type="message_processing_error",
+                    error_message=f"Error in message processing: {e}",
+                    stack_trace=traceback.format_exc(),
+                    recoverable=False,
+                )
+            )
             return GatewayResult(error=str(e))
 
     async def _handle_interrupt_flow(
@@ -162,7 +197,13 @@ class Gateway:
         approval_data = self._detect_approval_response(user_input)
 
         if approval_data:
-            self.logger.key_info(f"Detected {approval_data['type']} response")
+            emitter.emit(
+                StatusEvent(
+                    component="gateway",
+                    message=f"Detected {approval_data['type']} response",
+                    level="info",
+                )
+            )
 
             # Get interrupt payload and extract just the business data
             success, interrupt_payload = self._extract_resume_payload(compiled_graph, config)
@@ -182,14 +223,24 @@ class Gateway:
                     resume_command=resume_command, approval_detected=True, is_interrupt_resume=True
                 )
             else:
-                self.logger.warning(
-                    "Could not extract resume payload, proceeding without resume command."
+                emitter.emit(
+                    StatusEvent(
+                        component="gateway",
+                        message="Could not extract resume payload, proceeding without resume command.",
+                        level="warning",
+                    )
                 )
                 return GatewayResult(
                     error="Could not extract resume payload, please try again or provide a clear approval/rejection response."
                 )
         else:
-            self.logger.warning("No clear approval/rejection detected in interrupt context")
+            emitter.emit(
+                StatusEvent(
+                    component="gateway",
+                    message="No clear approval/rejection detected in interrupt context",
+                    level="warning",
+                )
+            )
             return GatewayResult(
                 error="Please provide a clear approval (yes/ok/approve) or rejection (no/cancel/reject) response"
             )
@@ -209,9 +260,21 @@ class Gateway:
                 # Show what we're starting with
                 if current_state:
                     exec_history = current_state.get("execution_history", [])
-                    self.logger.debug(f"Previous state has {len(exec_history)} execution records")
+                    emitter.emit(
+                        StatusEvent(
+                            component="gateway",
+                            message=f"Previous state has {len(exec_history)} execution records",
+                            level="debug",
+                        )
+                    )
             except Exception as e:
-                self.logger.warning(f"Could not get current state: {e}")
+                emitter.emit(
+                    StatusEvent(
+                        component="gateway",
+                        message=f"Could not get current state: {e}",
+                        level="warning",
+                    )
+                )
 
         # Parse and execute slash commands using centralized system
         # Pass current_state so commands like /exit can check direct chat mode
@@ -224,7 +287,9 @@ class Gateway:
 
         # Handle exit_interface request (e.g., /exit outside direct chat mode)
         if exit_requested:
-            self.logger.info("Exit interface requested")
+            emitter.emit(
+                StatusEvent(component="gateway", message="Exit interface requested", level="info")
+            )
             return GatewayResult(
                 slash_commands_processed=["/exit"],
                 exit_interface=True,
@@ -245,7 +310,13 @@ class Gateway:
         # Mode switch only: entering/exiting direct chat with no actual message
         # Use is_state_only_update=True so callers use update_state() instead of ainvoke()
         if is_mode_switch and not cleaned_message.strip():
-            self.logger.info("Direct chat mode switch only - no message to process")
+            emitter.emit(
+                StatusEvent(
+                    component="gateway",
+                    message="Direct chat mode switch only - no message to process",
+                    level="info",
+                )
+            )
             # Build processed commands list based on the actual switch
             if in_direct_chat:
                 processed = [f"/chat:{session_state.get('direct_chat_capability')}"]
@@ -269,7 +340,13 @@ class Gateway:
 
         if in_direct_chat:
             # Direct chat mode: preserve message history for multi-turn conversation
-            self.logger.info("Direct chat mode: preserving message history")
+            emitter.emit(
+                StatusEvent(
+                    component="gateway",
+                    message="Direct chat mode: preserving message history",
+                    level="info",
+                )
+            )
 
             # Create new user message
             message_content = cleaned_message.strip() if cleaned_message.strip() else user_input
@@ -296,7 +373,13 @@ class Gateway:
                 state_update["agent_control"] = apply_slash_commands_to_agent_control_state(
                     current_agent_control, slash_commands
                 )
-                self.logger.info("Applied agent control changes from slash commands")
+                emitter.emit(
+                    StatusEvent(
+                        component="gateway",
+                        message="Applied agent control changes from slash commands",
+                        level="info",
+                    )
+                )
 
             # Create readable command list for user feedback
             processed_commands = []
@@ -340,7 +423,13 @@ class Gateway:
 
         # Show fresh state execution history
         fresh_exec_history = fresh_state.get("execution_history", [])
-        self.logger.debug(f"Fresh state created with {len(fresh_exec_history)} execution records")
+        emitter.emit(
+            StatusEvent(
+                component="gateway",
+                message=f"Fresh state created with {len(fresh_exec_history)} execution records",
+                level="debug",
+            )
+        )
 
         # Apply agent control changes from slash commands if any
         if slash_commands:
@@ -349,7 +438,13 @@ class Gateway:
             fresh_state["agent_control"] = apply_slash_commands_to_agent_control_state(
                 fresh_state["agent_control"], slash_commands
             )
-            self.logger.info("Applied agent control changes from slash commands")
+            emitter.emit(
+                StatusEvent(
+                    component="gateway",
+                    message="Applied agent control changes from slash commands",
+                    level="info",
+                )
+            )
 
         # Apply capability commands for downstream capability handling
         if capability_commands:
@@ -358,7 +453,13 @@ class Gateway:
         # Add execution metadata
         fresh_state["execution_start_time"] = time.time()
 
-        self.logger.info("Created fresh state for new conversation turn")
+        emitter.emit(
+            StatusEvent(
+                component="gateway",
+                message="Created fresh state for new conversation turn",
+                level="info",
+            )
+        )
 
         # Create readable command list for user feedback with detailed changes
         processed_commands = []
@@ -388,7 +489,13 @@ class Gateway:
             graph_state = compiled_graph.get_state(config)
             return bool(graph_state and graph_state.interrupts)
         except Exception as e:
-            self.logger.warning(f"Could not check graph interrupts: {e}")
+            emitter.emit(
+                StatusEvent(
+                    component="gateway",
+                    message=f"Could not check graph interrupts: {e}",
+                    level="warning",
+                )
+            )
             return False
 
     def _detect_approval_response(self, user_input: str) -> dict[str, Any] | None:
@@ -405,7 +512,13 @@ class Gateway:
 
             # Check for explicit "yes" responses
             if normalized_input in ["yes", "y", "yep", "yeah", "ok", "okay"]:
-                self.logger.info(f"Detected explicit approval: '{user_input}'")
+                emitter.emit(
+                    StatusEvent(
+                        component="gateway",
+                        message=f"Detected explicit approval: '{user_input}'",
+                        level="info",
+                    )
+                )
                 return {
                     "type": "approval",
                     "approved": True,
@@ -415,7 +528,13 @@ class Gateway:
 
             # Check for explicit "no" responses
             if normalized_input in ["no", "n", "nope", "nah", "cancel"]:
-                self.logger.info(f"Detected explicit rejection: '{user_input}'")
+                emitter.emit(
+                    StatusEvent(
+                        component="gateway",
+                        message=f"Detected explicit rejection: '{user_input}'",
+                        level="info",
+                    )
+                )
                 return {
                     "type": "rejection",
                     "approved": False,
@@ -424,13 +543,23 @@ class Gateway:
                 }
 
             # If not a simple yes/no, use LLM-based detection for complex responses
-            self.logger.info(f"Using LLM-based approval detection for: '{user_input}'")
+            emitter.emit(
+                StatusEvent(
+                    component="gateway",
+                    message=f"Using LLM-based approval detection for: '{user_input}'",
+                    level="info",
+                )
+            )
 
             # Get approval model configuration from framework config
             approval_config = get_model_config("approval")
             if not approval_config:
-                self.logger.warning(
-                    "No approval model configuration found - defaulting to not approved"
+                emitter.emit(
+                    StatusEvent(
+                        component="gateway",
+                        message="No approval model configuration found - defaulting to not approved",
+                        level="warning",
+                    )
                 )
                 return {
                     "type": "rejection",
@@ -463,7 +592,13 @@ Respond with true if the message indicates approval (yes, okay, proceed, continu
             }
 
         except Exception as e:
-            self.logger.warning(f"Approval detection failed: {e} - defaulting to not approved")
+            emitter.emit(
+                StatusEvent(
+                    component="gateway",
+                    message=f"Approval detection failed: {e} - defaulting to not approved",
+                    level="warning",
+                )
+            )
             return {
                 "type": "rejection",
                 "approved": False,
@@ -492,7 +627,13 @@ Respond with true if the message indicates approval (yes, okay, proceed, continu
             graph_state = compiled_graph.get_state(config)
 
             if not graph_state or not hasattr(graph_state, "interrupts"):
-                self.logger.debug("No graph state or interrupts available")
+                emitter.emit(
+                    StatusEvent(
+                        component="gateway",
+                        message="No graph state or interrupts available",
+                        level="debug",
+                    )
+                )
                 return False, {}
 
             # Check if there are any interrupts in the graph state
@@ -503,19 +644,42 @@ Respond with true if the message indicates approval (yes, okay, proceed, continu
                 if hasattr(latest_interrupt, "value") and latest_interrupt.value:
                     interrupt_payload = latest_interrupt.value
 
-                    self.logger.info(
-                        f"Successfully extracted interrupt payload: {list(interrupt_payload.keys())}"
+                    emitter.emit(
+                        StatusEvent(
+                            component="gateway",
+                            message=f"Successfully extracted interrupt payload: {list(interrupt_payload.keys())}",
+                            level="info",
+                        )
                     )
                     return True, interrupt_payload
                 else:
-                    self.logger.debug("No value found in interrupt data")
+                    emitter.emit(
+                        StatusEvent(
+                            component="gateway",
+                            message="No value found in interrupt data",
+                            level="debug",
+                        )
+                    )
                     return False, {}
 
-            self.logger.debug("No interrupts found in graph state")
+            emitter.emit(
+                StatusEvent(
+                    component="gateway",
+                    message="No interrupts found in graph state",
+                    level="debug",
+                )
+            )
             return False, {}
 
         except Exception as e:
-            self.logger.error(f"Failed to extract resume payload: {e}")
+            emitter.emit(
+                ErrorEvent(
+                    component="gateway",
+                    error_type="resume_payload_extraction_error",
+                    error_message=f"Failed to extract resume payload: {e}",
+                    recoverable=True,
+                )
+            )
             return False, {}
 
     def _clear_approval_state(self) -> dict[str, Any]:
@@ -595,33 +759,82 @@ Respond with true if the message indicates approval (yes, okay, proceed, continu
 
                         # Verbose logging for each specific change
                         for key, value in result.items():
-                            self.logger.info(f"Set {key} = {value} via slash command {part}")
+                            emitter.emit(
+                                StatusEvent(
+                                    component="gateway",
+                                    message=f"Set {key} = {value} via slash command {part}",
+                                    level="info",
+                                )
+                            )
 
                     elif result == CommandResult.EXIT:
                         # Interface should terminate (e.g., /exit outside direct chat)
                         processed_commands.append(part)
                         exit_interface = True
-                        self.logger.info(f"Exit interface requested by command: {part}")
+                        emitter.emit(
+                            StatusEvent(
+                                component="gateway",
+                                message=f"Exit interface requested by command: {part}",
+                                level="info",
+                            )
+                        )
                     elif result == CommandResult.AGENT_STATE_CHANGED:
                         processed_commands.append(part)
-                        self.logger.info(f"Agent state changed by command: {part}")
+                        emitter.emit(
+                            StatusEvent(
+                                component="gateway",
+                                message=f"Agent state changed by command: {part}",
+                                level="info",
+                            )
+                        )
                     elif result in [CommandResult.HANDLED, CommandResult.CONTINUE]:
                         processed_commands.append(part)
-                        self.logger.debug(f"Command handled: {part}")
+                        emitter.emit(
+                            StatusEvent(
+                                component="gateway",
+                                message=f"Command handled: {part}",
+                                level="debug",
+                            )
+                        )
                     else:
-                        self.logger.warning(f"Unexpected command result for {part}: {result}")
+                        emitter.emit(
+                            StatusEvent(
+                                component="gateway",
+                                message=f"Unexpected command result for {part}: {result}",
+                                level="warning",
+                            )
+                        )
 
                 except Exception as e:
-                    self.logger.error(f"Error processing command {part}: {e}")
+                    emitter.emit(
+                        ErrorEvent(
+                            component="gateway",
+                            error_type="command_processing_error",
+                            error_message=f"Error processing command {part}: {e}",
+                            recoverable=True,
+                        )
+                    )
                     remaining_parts.append(part)  # Keep invalid commands in message
             else:
                 remaining_parts.append(part)
 
         # Log summary of processed commands
         if processed_commands:
-            self.logger.info(f"Processing slash commands: {processed_commands}")
+            emitter.emit(
+                StatusEvent(
+                    component="gateway",
+                    message=f"Processing slash commands: {processed_commands}",
+                    level="info",
+                )
+            )
         if capability_commands:
-            self.logger.info(f"Capability commands for downstream handling: {capability_commands}")
+            emitter.emit(
+                StatusEvent(
+                    component="gateway",
+                    message=f"Capability commands for downstream handling: {capability_commands}",
+                    level="info",
+                )
+            )
 
         remaining_message = " ".join(remaining_parts)
         return agent_control_changes, remaining_message, exit_interface, capability_commands

@@ -98,7 +98,7 @@ def router_conditional_edge(state: AgentState) -> str:
         last_result = state.get("execution_last_result") or {}
         if last_result.get("capability") == direct_chat_capability:
             # Direct chat turn complete - end execution
-            logger.key_info(f"🎯 Direct chat turn complete for {direct_chat_capability}")
+            logger.status(f"🎯 Direct chat turn complete for {direct_chat_capability}")
             return "END"
 
         # Validate capability exists and supports direct chat
@@ -124,7 +124,7 @@ def router_conditional_edge(state: AgentState) -> str:
                 }
             else:
                 # Valid direct chat mode - route directly to capability
-                logger.key_info(f"🎯 Direct chat mode: routing to {direct_chat_capability}")
+                logger.status(f"🎯 Direct chat mode: routing to {direct_chat_capability}")
                 return direct_chat_capability
 
     # ==== MANUAL RETRY HANDLING - Check first before normal routing ====
@@ -238,28 +238,28 @@ def router_conditional_edge(state: AgentState) -> str:
     # Check if killed
     if state.get("control_is_killed", False):
         kill_reason = state.get("control_kill_reason", "Unknown reason")
-        logger.key_info(f"Execution terminated: {kill_reason}")
+        logger.status(f"Execution terminated: {kill_reason}")
         return "error"
 
     # Check if task extraction is needed first
     current_task = StateManager.get_current_task(state)
     if not current_task:
         if is_active_execution:
-            logger.key_info("No current task extracted, routing to task extraction")
+            logger.status("No current task extracted, routing to task extraction")
         return "task_extraction"
 
     # Check if has active capabilities from prefixed state structure
     active_capabilities = state.get("planning_active_capabilities")
     if not active_capabilities:
         if is_active_execution:
-            logger.key_info("No active capabilities, routing to classifier")
+            logger.status("No active capabilities, routing to classifier")
         return "classifier"
 
     # Check if has execution plan using StateManager utility
     execution_plan = StateManager.get_execution_plan(state)
     if not execution_plan:
         if is_active_execution:
-            logger.key_info("No execution plan, routing to orchestrator")
+            logger.status("No execution plan, routing to orchestrator")
         return "orchestrator"
 
     # Check if more steps to execute using StateManager utility
@@ -283,7 +283,7 @@ def router_conditional_edge(state: AgentState) -> str:
     step_capability = current_step.get("capability", "respond")
 
     if is_active_execution:
-        logger.key_info(
+        logger.status(
             f"Executing step {current_index + 1}/{len(plan_steps)} - capability: {step_capability}"
         )
 

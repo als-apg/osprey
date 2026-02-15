@@ -18,14 +18,25 @@ Key features:
    :mod:`configs.config` : Provider configuration management
 """
 
-from .completion import get_chat_completion
-from .langchain import (
+import warnings
+
+# Suppress Pydantic serialization warnings from LiteLLM response types.
+# LiteLLM's response objects have model_dump() but non-standard schemas that
+# cause harmless Pydantic validation warnings. Applied early to catch all cases.
+warnings.filterwarnings(
+    "ignore",
+    message=r"Pydantic serializer warnings.*",
+    category=UserWarning,
+)
+
+from .completion import get_chat_completion  # noqa: E402
+from .langchain import (  # noqa: E402
     SUPPORTED_PROVIDERS,
     get_langchain_model,
     get_langchain_model_from_name,
     list_supported_providers,
 )
-from .logging import set_api_call_context
+from .logging import set_api_call_context  # noqa: E402
 
 __all__ = [
     "get_chat_completion",

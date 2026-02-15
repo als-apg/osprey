@@ -5,10 +5,42 @@ Screen {
     scrollbar-size: 0 0;  /* Hide scrollbars, keep scroll functionality */
 }
 
-/* Header */
-Header {
+/* Info bar — top status bar (env, mode, tips) */
+#info-bar {
     dock: top;
-    background: $background;
+    width: 100%;
+    height: 1;
+    padding: 0 3;
+    color: $text;
+    background: $surface;
+}
+
+#info-bar.info-bar--ssh {
+    background: $warning;
+    color: $text;
+}
+
+#info-bar.info-bar--select-mode {
+    background: $primary;
+    color: $text;
+}
+
+#info-bar-left {
+    width: auto;
+}
+
+#info-bar-right {
+    width: 1fr;
+    text-align: right;
+}
+
+InfoBar > .info-bar--label {
+    text-style: bold;
+    color: $text;
+}
+
+InfoBar > .info-bar--value {
+    color: $text-muted;
 }
 
 /* Footer */
@@ -197,6 +229,30 @@ StatusPanel > .status-panel--description {
     color: $text-muted;
 }
 
+/* Plan progress bar - overlay floating above input */
+/* Styled to match command dropdown (overlay, no visible border) */
+#plan-progress {
+    width: 1fr;
+    height: auto;
+    max-height: 30vh;
+    padding: 0 2;
+    margin: 0 2 6 2;  /* margin-bottom: 6 to position above input */
+    background: $surface;
+    border: tall $background;
+    display: none;
+    overlay: screen;           /* Float above content, not in flow */
+    constrain: none inside;    /* Same as command-dropdown */
+}
+
+#plan-progress #progress-header {
+    color: $text-muted;
+    padding: 0 0 0 0;
+}
+
+#plan-progress #progress-todos {
+    padding: 0 0 0 2;
+}
+
 /* Banner "os" portion - muted */
 WelcomeBanner > .banner--muted {
     color: $text-muted;
@@ -239,6 +295,7 @@ ChatMessage.message-user {
 /* Assistant message - base immersive style */
 ChatMessage.message-assistant {
     padding: 1 4;
+    margin-bottom: 0;
     background: transparent;
     border: none;
 }
@@ -534,29 +591,6 @@ OrchestrationStep {
     border: none;
 }
 
-/* =============================================================================
-   Todo Update Step (semi-step for showing todo list updates during execution)
-   ============================================================================= */
-
-TodoUpdateStep {
-    /* Same as ProcessingStep for now - can differentiate later */
-    width: 100%;
-    height: auto;
-    margin: 0 2 1 2;
-    padding: 0 2;
-    background: transparent;
-    border: none;
-}
-
-/* TodoUpdateStep should stay bright even when "success" - override ProcessingStep muted styling */
-TodoUpdateStep.step-success #step-title {
-    color: $text;
-}
-
-TodoUpdateStep.step-success #step-output {
-    color: $text;
-}
-
 /* ExecutionStep should stay bright even when "success" - capability results are important */
 ExecutionStep.step-success #step-title {
     color: $text;
@@ -619,6 +653,51 @@ TodoItem.todo-current {
 }
 
 /* =============================================================================
+   Collapsible Code Message - streaming code display in chat flow
+   ============================================================================= */
+
+CollapsibleCodeMessage {
+    width: 100%;
+    height: auto;
+    background: transparent;
+    margin-bottom: 1;
+    padding: 0;
+}
+
+CollapsibleCodeMessage .code-toggle-link {
+    width: auto;
+    color: $text-muted;
+    text-style: none;
+    padding: 0 6;
+}
+
+CollapsibleCodeMessage .code-toggle-link:hover,
+CollapsibleCodeMessage .code-toggle-link:focus {
+    color: $accent;
+    text-style: underline;
+}
+
+CollapsibleCodeMessage .code-content {
+    width: 100%;
+    height: auto;
+    margin: 0;
+    padding: 0;
+}
+
+/* Target rendered code blocks inside Markdown widget */
+CollapsibleCodeMessage .code-content MarkdownFence {
+    padding: 0;
+    margin: 0;
+    width: 1fr;
+}
+
+/* Increase horizontal padding to match standard indentation */
+CollapsibleCodeMessage .code-content MarkdownFence > Label {
+    padding: 1 6;
+    width: 1fr;
+}
+
+/* =============================================================================
    Log Viewer Modal
    ============================================================================= */
 
@@ -660,9 +739,22 @@ LogViewer {
     scrollbar-size: 0 0;
 }
 
-#log-viewer-logs {
+/* LogEntry - horizontal layout for message + timestamp columns */
+LogEntry {
     width: 100%;
     height: auto;
+    layout: horizontal;
+}
+
+LogEntry .log-message {
+    width: 1fr;
+}
+
+LogEntry .log-timestamp {
+    width: auto;
+    min-width: 17;  /* "Jan 20 14:30:45" = 15 chars + padding */
+    text-align: right;
+    color: $text-disabled;
 }
 
 /* =============================================================================
@@ -703,7 +795,6 @@ ContentViewer {
 #log-viewer-content {
     width: 100%;
     height: auto;
-    max-height: 100%;
     scrollbar-size: 0 0;
 }
 
@@ -721,7 +812,7 @@ ContentViewer {
 #log-viewer-footer {
     dock: bottom;
     width: 100%;
-    height: 2;
+    height: auto;
     padding-top: 1;
     text-align: right;
     color: $text-muted;
@@ -1017,13 +1108,69 @@ ArtifactViewer {
 }
 
 #artifact-viewer-container {
-    width: 110;
-    height: auto;
-    max-height: 90%;
+    width: 100%;
+    height: 80%;
     margin: 0;
-    padding: 1 4;
+    padding: 0;
     background: $surface;
     border: none;
+}
+
+#artifact-viewer-body {
+    width: 100%;
+    height: 1fr;
+}
+
+/* Left panel: wrapper holds scrollable list + footer */
+#artifact-list-wrapper {
+    width: 32;
+    min-width: 32;
+    max-width: 32;
+    height: 1fr;
+    &:dark {
+        background: $surface-darken-1;
+    }
+    &:light {
+        background: $surface-lighten-1;
+    }
+}
+
+#artifact-list-panel {
+    width: 100%;
+    height: 1fr;
+    scrollbar-size: 0 0;
+    padding: 1 0;
+}
+
+#artifact-list-footer {
+    dock: bottom;
+    width: 100%;
+    height: auto;
+    padding: 1 2 1 4;
+    text-align: right;
+    color: $text-muted;
+}
+
+.artifact-list-row {
+    width: 100%;
+    height: auto;
+    padding: 0 1 0 3;
+    color: $text;
+}
+
+.artifact-list-row:hover {
+    background: $surface;
+}
+
+.artifact-row-selected {
+    background: $primary-muted;
+}
+
+/* Right panel wrapper: header + detail + footer */
+#artifact-viewer-right {
+    width: 1fr;
+    height: 1fr;
+    padding: 1 4 0 2;
 }
 
 #artifact-viewer-header {
@@ -1046,74 +1193,119 @@ ArtifactViewer {
     color: $text-muted;
 }
 
-#artifact-viewer-content {
-    width: 100%;
-    height: auto;
-    margin-bottom: 1;
+#artifact-detail-panel {
+    width: 1fr;
+    height: 1fr;
+    scrollbar-size: 0 0;
 }
 
-#image-preview {
+.image-preview {
     width: 100%;
     height: auto;
 }
 
-#artifact-viewer-actions {
-    width: 100%;
+.artifact-meta-display {
+    width: 1fr;
     height: auto;
-    margin: 1 0;
+    margin: 0;
+    padding: 0;
 }
 
-#artifact-viewer-actions Button {
-    margin-right: 1;
+.artifact-path-link {
+    width: 1fr;
+    height: auto;
+    layout: horizontal;
+}
+
+.artifact-path-value:hover {
+    color: $accent;
+}
+
+.artifact-path-label {
+    width: 14;
+    min-width: 14;
+    max-width: 14;
+}
+
+.artifact-path-value {
+    width: 1fr;
 }
 
 #artifact-viewer-footer {
+    dock: bottom;
     width: 100%;
-    height: 1;
+    height: auto;
+    padding-top: 1;
+    padding-bottom: 1;
     text-align: right;
     color: $text-muted;
 }
 
-/* Detail rows in artifact viewer */
+/* Detail rows (used for image fallback messages) */
 .detail-row {
     width: 100%;
     height: auto;
     margin-bottom: 0;
 }
 
-.detail-label {
-    width: 100%;
-    color: $text;
-    margin-top: 1;
-}
-
-.detail-value {
-    width: 100%;
+/* Notebook cell label (execution count) */
+.notebook-cell-label {
+    width: 1fr;
+    height: auto;
+    margin: 1 0 0 0;
+    padding: 0 2;
     color: $text-muted;
+}
+
+/* Notebook code cell — Textual Markdown for theme-adaptive highlighting */
+.notebook-code-cell {
+    width: 1fr;
+    height: auto;
+    margin: 0;
+}
+
+/* Remove default MarkdownFence margin inside notebook code cells */
+.notebook-code-cell MarkdownFence {
+    margin: 0;
+}
+
+/* Notebook markdown cell */
+.notebook-md-cell {
+    width: 1fr;
+    height: auto;
+    margin: 0 0 1 0;
+}
+
+/* Notebook cell output (stdout, execution results) */
+.notebook-cell-output {
+    width: 1fr;
+    height: auto;
+    margin: 0;
+    padding: 0 2;
+    color: $text-muted;
+}
+
+/* =============================================================================
+   Per-Query Artifact Section (inline link in chat flow)
+   ============================================================================= */
+
+ArtifactSection {
+    width: 100%;
+    height: auto;
+    background: transparent;
     margin-bottom: 1;
+    padding: 0;
 }
 
-.detail-path {
-    color: $primary;
+ArtifactSection .artifact-toggle-link {
+    width: auto;
+    color: $text-muted;
+    text-style: none;
+    padding: 0 4;
 }
 
-.detail-url {
+ArtifactSection .artifact-toggle-link:hover,
+ArtifactSection .artifact-toggle-link:focus {
     color: $accent;
     text-style: underline;
-}
-
-.detail-separator {
-    width: 100%;
-    height: 1;
-    color: $surface;
-    margin: 1 0;
-}
-
-.detail-section-header {
-    color: $text;
-    margin-top: 1;
-}
-
-.detail-metadata {
-    color: $text-muted;
 }

@@ -125,7 +125,7 @@ if TYPE_CHECKING:
     from osprey.base import BaseCapability, BaseCapabilityNode
     from osprey.context import CapabilityContext
 
-logger = get_logger(name="REGISTRY", color="sky_blue2")
+logger = get_logger(name="registry", color="sky_blue2")
 
 
 class RegistryManager:
@@ -1102,7 +1102,7 @@ class RegistryManager:
         if silent:
             # Suppress INFO and DEBUG output from registry-related loggers
             loggers_to_silence = [
-                "REGISTRY",  # Main registry logger
+                "registry",  # Main registry logger
                 "connector_factory",  # Control system connector factory
                 "memory_storage",  # Memory storage system
             ]

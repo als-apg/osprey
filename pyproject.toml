@@ -89,6 +89,7 @@ dependencies = [
 
     # Terminal User Interface (TUI) - Textual-based full-screen interface
     "textual>=0.70.0",
+    "aiofiles>=24.1.0",  # Async file I/O for non-blocking Python executor
 
     # LangChain integration (required for channel finder middle layer pipeline)
     "langchain-openai>=0.3.0",

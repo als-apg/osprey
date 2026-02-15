@@ -40,7 +40,6 @@ Examples:
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -50,8 +49,10 @@ if TYPE_CHECKING:
 from langgraph.types import interrupt
 
 from osprey.base.planning import ExecutionPlan
+from osprey.events import ErrorEvent, EventEmitter, StatusEvent
+from osprey.utils.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger("approval_system")
 
 
 # =============================================================================
@@ -693,10 +694,21 @@ async def handle_service_with_interrupts(
        The interrupt() call should pause execution - if it returns normally,
        a RuntimeError is raised as this indicates a system malfunction.
     """
+    # Create event emitter for typed events
+    emitter = EventEmitter(capability_name)
+
     try:
         # Call the service - may return normally or raise GraphInterrupt
         service_result = await service.ainvoke(request, config)
-        logger.info(f"{capability_name}: Service completed normally")
+
+        # Emit completion status
+        emitter.emit(
+            StatusEvent(
+                component=capability_name,
+                message="Service completed normally",
+                level="info",
+            )
+        )
         return service_result
 
     except Exception as e:
@@ -705,39 +717,71 @@ async def handle_service_with_interrupts(
 
         # Check if this is a GraphInterrupt from the subgraph
         if isinstance(e, GraphInterrupt):
-            logger.info(
-                f"{capability_name}: Service was interrupted - extracting interrupt data for main graph"
+            # Emit interrupt status
+            emitter.emit(
+                StatusEvent(
+                    component=capability_name,
+                    message="Service interrupted - waiting for approval",
+                    level="info",
+                )
             )
 
             try:
                 # Extract interrupt data from GraphInterrupt using standard structure
                 # GraphInterrupt structure: e.args[0][0].value contains the interrupt data
                 interrupt_data = e.args[0][0].value
-                logger.debug(
-                    f"{capability_name}: Extracted interrupt data with keys: {list(interrupt_data.keys())}"
+                emitter.emit(
+                    StatusEvent(
+                        component=capability_name,
+                        message=f"Extracted interrupt data with keys: {list(interrupt_data.keys())}",
+                        level="debug",
+                    )
                 )
 
                 # Create new interrupt in main graph context using the extracted data
-                logger.info(
-                    f"⏸️  {capability_name}: Creating approval interrupt in main graph context"
-                )
+                # Note: Interrupt event is already emitted via ApprovalRequiredEvent
                 interrupt(interrupt_data)
 
                 # This line should never be reached - interrupt() should pause execution
-                logger.error(
-                    f"UNEXPECTED: interrupt() returned instead of pausing execution in {capability_name}"
+                emitter.emit(
+                    ErrorEvent(
+                        component=capability_name,
+                        error_type="SystemError",
+                        error_message="UNEXPECTED: interrupt() returned instead of pausing execution",
+                        recoverable=False,
+                    )
                 )
                 raise RuntimeError(f"Interrupt mechanism failed in {capability_name}")
 
             except (IndexError, KeyError, AttributeError) as extract_error:
-                logger.error(
-                    f"{capability_name}: Failed to extract interrupt data from GraphInterrupt: {extract_error}"
+                # Emit error event for user visibility
+                emitter.emit(
+                    ErrorEvent(
+                        component=capability_name,
+                        error_type="InterruptError",
+                        error_message=f"Failed to extract interrupt data: {extract_error}",
+                        recoverable=False,
+                        stack_trace=str(extract_error),
+                    )
                 )
-                logger.debug(f"{capability_name}: GraphInterrupt args structure: {e.args}")
+                emitter.emit(
+                    StatusEvent(
+                        component=capability_name,
+                        message=f"GraphInterrupt args structure: {e.args}",
+                        level="debug",
+                    )
+                )
                 raise RuntimeError(
                     f"{capability_name}: Failed to handle service interrupt: {extract_error}"
                 ) from extract_error
         else:
             # Handle all other exceptions as actual errors - re-raise as-is
-            logger.error(f"{capability_name}: Service failed with non-interrupt exception: {e}")
+            emitter.emit(
+                ErrorEvent(
+                    component=capability_name,
+                    error_type="ServiceError",
+                    error_message=f"Service failed: {str(e)}",
+                    recoverable=False,
+                )
+            )
             raise

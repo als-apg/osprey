@@ -1,15 +1,16 @@
 """AskSage Provider Adapter Implementation."""
 
 import json
-import logging
 from typing import Any
 
 import openai
 
+from osprey.utils.logger import get_logger
+
 from .base import BaseProvider
 from .litellm_adapter import _clean_json_response
 
-logger = logging.getLogger(__name__)
+logger = get_logger("asksage")
 
 
 class AskSageProviderAdapter(BaseProvider):
@@ -122,7 +123,7 @@ class AskSageProviderAdapter(BaseProvider):
         try:
             self.get_available_models(api_key=api_key, base_url=base_url)
         except Exception:
-            pass
+            pass  # Best-effort model list refresh; not required for completion
 
         # Check for thinking parameters (not supported by AskSage)
         enable_thinking = kwargs.get("enable_thinking", False)

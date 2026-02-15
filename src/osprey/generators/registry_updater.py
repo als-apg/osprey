@@ -32,7 +32,7 @@ def find_registry_file() -> Path | None:
             return registry_file
 
     except Exception:
-        pass
+        pass  # Registry file lookup failed; return None below
 
     return None
 

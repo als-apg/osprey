@@ -25,7 +25,6 @@ Configuration:
     The capability code remains the same - just change the config!
 """
 
-import logging
 import textwrap
 from datetime import datetime
 from typing import Any, ClassVar
@@ -162,8 +161,9 @@ class ArchiverDataContext(CapabilityContext):
             }
 
         except Exception as e:
-            logger = logging.getLogger(__name__)
-            logger.error(f"Error downsampling archiver data: {e}")
+            from osprey.utils.logger import get_logger
+
+            get_logger("archiver_retrieval").error(f"Error downsampling archiver data: {e}")
             return {
                 "ERROR": f"Failed to downsample archiver data: {str(e)}",
                 "WARNING": "Could not process archiver data - use ANALYSIS_RESULTS instead",

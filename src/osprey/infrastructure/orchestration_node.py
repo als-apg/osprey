@@ -110,7 +110,7 @@ def _validate_and_fix_execution_plan(
         logger.error(error_msg)
         raise ValueError(error_msg)
 
-    logger.debug("✅ All capabilities in execution plan exist in registry")
+    logger.info("✅ All capabilities in execution plan exist in registry")
 
     # =====================================================================
     # STEP 2: VALIDATE INPUT CONTEXT KEY REFERENCES
@@ -198,7 +198,7 @@ def _validate_and_fix_execution_plan(
     last_capability = last_step.get("capability", "").lower()
 
     if last_capability in ["respond", "clarify"]:
-        logger.debug(f"Execution plan correctly ends with {last_capability} step")
+        logger.info(f"Execution plan correctly ends with {last_capability} step")
         return execution_plan
 
     # Plan doesn't end with respond/clarify - add respond step
@@ -340,10 +340,21 @@ class OrchestrationNode(BaseInfrastructureNode):
         :return: Dictionary of state updates for LangGraph
         :rtype: Dict[str, Any]
         """
+        from osprey.events import PhaseCompleteEvent, PhaseStartEvent, PlanCreatedEvent
+
         state = self._state
+        start_time = time.time()
 
         # Get unified logger with automatic streaming support
         logger = self.get_logger()
+
+        # Emit phase start event
+        logger.emit_event(
+            PhaseStartEvent(
+                phase="planning",
+                description="Creating execution plan from task and capabilities",
+            )
+        )
 
         # =====================================================================
         # STEP 1: CHECK FOR APPROVED PLAN IN AGENT STATE (HIGHEST PRIORITY)
@@ -366,6 +377,15 @@ class OrchestrationNode(BaseInfrastructureNode):
                 # Clean up processed plan files
                 _cleanup_processed_plan_files(logger=logger)
 
+                # Emit data event with execution plan
+                logger.emit_event(PlanCreatedEvent(steps=approved_plan.get("steps", [])))
+
+                # Emit phase complete event
+                duration_ms = int((time.time() - start_time) * 1000)
+                logger.emit_event(
+                    PhaseCompleteEvent(phase="planning", duration_ms=duration_ms, success=True)
+                )
+
                 # Create state updates with explicit cleanup of approval and error state
                 return {
                     **_create_state_updates(
@@ -379,6 +399,15 @@ class OrchestrationNode(BaseInfrastructureNode):
                 if approved_plan:
                     logger.warning(
                         f"File loading failed ({file_load_result.get('error')}), using in-memory plan"
+                    )
+
+                    # Emit data event with execution plan
+                    logger.emit_event(PlanCreatedEvent(steps=approved_plan.get("steps", [])))
+
+                    # Emit phase complete event
+                    duration_ms = int((time.time() - start_time) * 1000)
+                    logger.emit_event(
+                        PhaseCompleteEvent(phase="planning", duration_ms=duration_ms, success=True)
                     )
 
                     # Create state updates with explicit cleanup of approval and error state
@@ -401,12 +430,22 @@ class OrchestrationNode(BaseInfrastructureNode):
 
         current_task = self.get_current_task()
         if not current_task:
+            # Emit phase complete with failure
+            duration_ms = int((time.time() - start_time) * 1000)
+            logger.emit_event(
+                PhaseCompleteEvent(phase="planning", duration_ms=duration_ms, success=False)
+            )
             raise ValueError("No current task available for orchestration")
 
         # Get active capabilities from state
         active_capability_names = state.get("planning_active_capabilities")
 
         if not active_capability_names:
+            # Emit phase complete with failure
+            duration_ms = int((time.time() - start_time) * 1000)
+            logger.emit_event(
+                PhaseCompleteEvent(phase="planning", duration_ms=duration_ms, success=False)
+            )
             logger.error("No active capabilities found in state")
             raise ReclassificationRequiredError("No active capabilities found for task")
 
@@ -423,6 +462,11 @@ class OrchestrationNode(BaseInfrastructureNode):
                 logger.warning(f"Capability '{cap_name}' not found in registry")
 
         if not active_capabilities:
+            # Emit phase complete with failure
+            duration_ms = int((time.time() - start_time) * 1000)
+            logger.emit_event(
+                PhaseCompleteEvent(phase="planning", duration_ms=duration_ms, success=False)
+            )
             raise ValueError("No valid capability instances found for orchestration")
 
         logger.info(f"Planning for task: {current_task}")
@@ -530,8 +574,8 @@ class OrchestrationNode(BaseInfrastructureNode):
         model_config = get_model_config("orchestrator")
         message = f"{system_prompt}\n\nTASK TO PLAN: {current_task}"
 
-        # Log the prompt for TUI visibility
-        logger.info("LLM prompt built", llm_prompt=message, stream=False)
+        # Emit LLM prompt event for TUI display
+        logger.emit_llm_request(message)
 
         # Set caller context for API call logging (propagates through asyncio.to_thread)
         from osprey.models import set_api_call_context
@@ -554,9 +598,9 @@ class OrchestrationNode(BaseInfrastructureNode):
         execution_time = time.time() - plan_start_time
         logger.info(f"Orchestrator LLM execution time: {execution_time:.2f} seconds")
 
-        # Log the response for TUI visibility
+        # Emit LLM response event for TUI display
         response_json = json.dumps(execution_plan, indent=2)
-        logger.info("LLM response received", llm_response=response_json, stream=False)
+        logger.emit_llm_response(response_json)
 
         # =====================================================================
         # STEP 3.5: VALIDATE AND FIX EXECUTION PLAN
@@ -588,7 +632,13 @@ class OrchestrationNode(BaseInfrastructureNode):
             raise
 
         except ValueError as e:
-            # Orchestrator hallucinated non-existent capabilities - trigger reclassification
+            # Emit phase complete with failure
+            duration_ms = int((time.time() - start_time) * 1000)
+            logger.emit_event(
+                PhaseCompleteEvent(phase="planning", duration_ms=duration_ms, success=False)
+            )
+
+            # Orchestrator hallucinated non-existent capabilities - trigger re-classification
             logger.error(f"Execution plan validation failed: {e}")
             logger.warning("Triggering reclassification due to hallucinated capabilities")
             logger.status("Reclassifying due to invalid capabilities...")
@@ -610,6 +660,15 @@ class OrchestrationNode(BaseInfrastructureNode):
         logger.status("Execution plan created")
 
         logger.key_info("Orchestration processing completed")
+
+        # Emit data event with execution plan
+        logger.emit_event(PlanCreatedEvent(steps=execution_plan.get("steps", [])))
+
+        # Emit phase complete event
+        duration_ms = int((time.time() - start_time) * 1000)
+        logger.emit_event(
+            PhaseCompleteEvent(phase="planning", duration_ms=duration_ms, success=True)
+        )
 
         return _create_state_updates(state, execution_plan, "llm_based")
 

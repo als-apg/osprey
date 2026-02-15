@@ -132,8 +132,8 @@ def _extract_task(messages: list[BaseMessage], retrieval_result, logger) -> Extr
 
     prompt = _build_task_extraction_prompt(messages, retrieval_result)
 
-    # Log the prompt for TUI visibility
-    logger.info("LLM prompt built", llm_prompt=prompt, stream=False)
+    # Emit LLM prompt event for TUI display
+    logger.emit_llm_request(prompt)
 
     # Use structured LLM generation for task extraction
     task_extraction_config = get_model_config("task_extraction")
@@ -141,9 +141,9 @@ def _extract_task(messages: list[BaseMessage], retrieval_result, logger) -> Extr
         message=prompt, model_config=task_extraction_config, output_model=ExtractedTask
     )
 
-    # Log the response for TUI visibility
+    # Emit LLM response event for TUI display
     response_json = response.model_dump_json(indent=2)
-    logger.info("LLM response received", llm_response=response_json, stream=False)
+    logger.emit_llm_response(response_json)
 
     return response
 
@@ -248,10 +248,23 @@ class TaskExtractionNode(BaseInfrastructureNode):
         :return: Dictionary of state updates to apply
         :rtype: Dict[str, Any]
         """
+        import time
+
+        from osprey.events import PhaseCompleteEvent, PhaseStartEvent, TaskExtractedEvent
+
         state = self._state
+        start_time = time.time()
 
         # Get unified logger with automatic streaming support
         logger = self.get_logger()
+
+        # Emit phase start event
+        logger.emit_event(
+            PhaseStartEvent(
+                phase="task_extraction",
+                description="Extracting actionable task from conversation",
+            )
+        )
 
         # Get native LangGraph messages from flat state structure (move outside try block)
         messages = state["messages"]
@@ -261,7 +274,6 @@ class TaskExtractionNode(BaseInfrastructureNode):
 
         if bypass_enabled:
             logger.info("Task extraction bypass enabled - using full context with data sources")
-            logger.status("Bypassing task extraction - retrieving data and formatting full context")
         else:
             logger.status("Extracting actionable task from conversation")
         try:
@@ -310,6 +322,25 @@ class TaskExtractionNode(BaseInfrastructureNode):
                 logger.info(f" * Depends on user memory: {processed_task.depends_on_user_memory}")
                 logger.success("Task extraction completed", task=processed_task.task)
 
+            # Emit data event with extracted task output
+            logger.emit_event(
+                TaskExtractedEvent(
+                    task=processed_task.task,
+                    depends_on_chat_history=processed_task.depends_on_chat_history,
+                    depends_on_user_memory=processed_task.depends_on_user_memory,
+                )
+            )
+
+            # Emit phase complete event
+            duration_ms = int((time.time() - start_time) * 1000)
+            logger.emit_event(
+                PhaseCompleteEvent(
+                    phase="task_extraction",
+                    duration_ms=duration_ms,
+                    success=True,
+                )
+            )
+
             # Create direct state update with correct field names
             return {
                 "task_current_task": processed_task.task,
@@ -318,6 +349,16 @@ class TaskExtractionNode(BaseInfrastructureNode):
             }
 
         except Exception as e:
+            # Emit phase complete event with failure
+            duration_ms = int((time.time() - start_time) * 1000)
+            logger.emit_event(
+                PhaseCompleteEvent(
+                    phase="task_extraction",
+                    duration_ms=duration_ms,
+                    success=False,
+                )
+            )
+
             # Task extraction failed - error() automatically streams
             logger.error(f"Task extraction failed: {e}")
             raise e  # Raise original error for better debugging

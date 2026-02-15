@@ -96,7 +96,7 @@ def show_banner(context: str = "interactive", config_path: str | None = None):
     try:
         # Check if config exists before trying to load
         # Suppress config loading messages in interactive menu
-        with quiet_logger(["REGISTRY", "CONFIG"]):
+        with quiet_logger(["registry", "CONFIG"]):
             if config_path:
                 banner_text = get_config_value("cli.banner", None, config_path)
             elif (Path.cwd() / "config.yml").exists():
@@ -2249,7 +2249,7 @@ def handle_health_action(project_path: Path | None = None):
 
         # Create and run health checker (full mode by default)
         # Suppress config/registry initialization messages
-        with quiet_logger(["REGISTRY", "CONFIG"]):
+        with quiet_logger(["registry", "CONFIG"]):
             checker = HealthChecker(verbose=False, full=True)
             success = checker.check_all()
 

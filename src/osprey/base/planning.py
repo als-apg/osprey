@@ -46,13 +46,15 @@ throughout the execution lifecycle.
 """
 
 import json
-import logging
 from datetime import datetime
 from pathlib import Path
 
 from typing_extensions import TypedDict
 
-logger = logging.getLogger(__name__)
+from osprey.events import EventEmitter, StatusEvent
+from osprey.utils.logger import get_logger
+
+logger = get_logger("planning")
 
 
 class PlannedStep(TypedDict, total=False):
@@ -265,7 +267,14 @@ def save_execution_plan_to_file(plan: ExecutionPlan, file_path: str) -> None:
     with open(file_path, "w", encoding="utf-8") as f:
         json.dump(plan_with_metadata, f, indent=2, ensure_ascii=False)
 
-    logger.info(f"Saved ExecutionPlan with {len(plan.get('steps', []))} steps to: {file_path}")
+    emitter = EventEmitter("planning")
+    emitter.emit(
+        StatusEvent(
+            component="planning",
+            message=f"Saved ExecutionPlan with {len(plan.get('steps', []))} steps to: {file_path}",
+            level="info",
+        )
+    )
 
 
 def load_execution_plan_from_file(file_path: str) -> ExecutionPlan:
@@ -283,6 +292,13 @@ def load_execution_plan_from_file(file_path: str) -> ExecutionPlan:
     if "__metadata__" in data:
         del data["__metadata__"]
 
-    logger.info(f"Loaded ExecutionPlan with {len(data.get('steps', []))} steps from: {file_path}")
+    emitter = EventEmitter("planning")
+    emitter.emit(
+        StatusEvent(
+            component="planning",
+            message=f"Loaded ExecutionPlan with {len(data.get('steps', []))} steps from: {file_path}",
+            level="info",
+        )
+    )
 
     return ExecutionPlan(data)

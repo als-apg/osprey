@@ -20,13 +20,14 @@ Provider Integration:
 """
 
 import json
-import logging
 import os
 import warnings
 from typing import TYPE_CHECKING, Any
 
 import litellm
 from pydantic import BaseModel
+
+from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
     from .base import BaseProvider
@@ -45,7 +46,7 @@ warnings.filterwarnings(
     module="pydantic.main",
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger("litellm_adapter")
 
 
 def get_litellm_model_name(
@@ -175,6 +176,10 @@ def execute_litellm_completion(
             # Google thinking config - handled differently
             # LiteLLM passes this through to the Google API
             completion_kwargs["thinking_config"] = {"thinking_budget": budget_tokens}
+
+    # Allow retries for transient errors (5xx, connection) with short backoff.
+    # The Retry-After cap in langchain.py prevents 60s waits on 429s.
+    completion_kwargs.setdefault("num_retries", 2)
 
     # Handle structured output
     output_format = kwargs.get("output_format")

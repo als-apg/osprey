@@ -30,6 +30,7 @@ import inspect
 import json
 import textwrap
 import traceback
+import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -393,6 +394,10 @@ def _sanitize_result_for_logging(result: Any) -> str:
     Handles different result types (str, BaseModel, list, dict) and
     converts them to readable string format for file output.
 
+    Note: LiteLLM response objects (Message, Choices, StreamingChoices) have model_dump()
+    but aren't standard Pydantic models - they have provider-specific fields that may not
+    match the expected schema, causing Pydantic serialization warnings.
+
     :param result: Result from get_chat_completion
     :return: String representation of result
     :rtype: str
@@ -400,8 +405,18 @@ def _sanitize_result_for_logging(result: Any) -> str:
     if isinstance(result, str):
         return result
     elif hasattr(result, "model_dump"):
-        # Pydantic BaseModel - use mode='json' to serialize datetime and other complex types
-        return json.dumps(result.model_dump(mode="json"), indent=2)
+        # Pydantic BaseModel or Pydantic-like objects (LiteLLM responses)
+        # Suppress warnings for non-standard Pydantic objects like LiteLLM's Message/Choices
+        try:
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
+                return json.dumps(result.model_dump(mode="json"), indent=2)
+        except Exception:
+            # Fallback for non-standard Pydantic-like objects that fail to serialize
+            try:
+                return json.dumps(result.__dict__, indent=2, default=str)
+            except Exception:
+                return str(result)
     elif isinstance(result, (dict, list)):
         # For plain dicts/lists, use default JSON encoder with fallback for non-serializable types
         return json.dumps(result, indent=2, default=str)

@@ -5,10 +5,11 @@ This module contains configuration classes for the Python executor service.
 Separated from service.py to avoid circular import issues.
 """
 
-import logging
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from osprey.utils.logger import get_logger
+
+logger = get_logger("python_executor_config")
 
 
 class PythonExecutorConfig:

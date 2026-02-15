@@ -378,10 +378,9 @@ def _get_write_parsing_system_prompt(
 {json.dumps(summary, indent=2, default=str)}
                             """)
                     except Exception as e:
-                        import logging
+                        from osprey.utils.logger import get_logger
 
-                        logger = logging.getLogger(__name__)
-                        logger.warning(
+                        get_logger("channel_write").warning(
                             f"Could not get summary for {context_type}.{context_key}: {e}"
                         )
 

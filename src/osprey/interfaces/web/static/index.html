@@ -1,0 +1,1859 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Osprey Debug</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      /* Theme variables */
+      :root {
+        --bg: #fff;
+        --bg-alt: #f9f9f9;
+        --text: #333;
+        --text-muted: #666;
+        --text-faint: #999;
+        --border: #ddd;
+        --btn-bg: #f5f5f5;
+        --btn-hover: #eee;
+      }
+      body.dark {
+        --bg: #1a1a1a;
+        --bg-alt: #252525;
+        --text: #e0e0e0;
+        --text-muted: #aaa;
+        --text-faint: #777;
+        --border: #444;
+        --btn-bg: #333;
+        --btn-hover: #444;
+      }
+
+      body {
+        font-family: monospace;
+        font-size: 13px;
+        line-height: 1.4;
+        background: var(--bg);
+        color: var(--text);
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+
+      /* Header bar */
+      .header {
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+      .header h1 {
+        font-size: 14px;
+        font-weight: bold;
+      }
+      .status {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--text-faint);
+      }
+      .status-dot.connected {
+        background: #090;
+      }
+      .status-dot.connecting {
+        background: #f90;
+      }
+      .status-dot.streaming {
+        background: #090;
+      }
+      @keyframes breathing {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.4;
+        }
+      }
+      .status-dot.breathing {
+        animation: breathing 1.5s ease-in-out infinite;
+      }
+      .theme-toggle {
+        margin-left: auto;
+        padding: 4px 8px;
+        font-size: 11px;
+      }
+
+      /* Controls row */
+      .controls {
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .query-input {
+        flex: 1;
+        min-width: 200px;
+        padding: 6px 8px;
+        border: 1px solid var(--border);
+        background: var(--bg);
+        color: var(--text);
+        font-family: inherit;
+        font-size: inherit;
+      }
+      .query-input:focus {
+        outline: 1px solid var(--text-muted);
+      }
+      button {
+        padding: 6px 12px;
+        border: 1px solid var(--border);
+        background: var(--btn-bg);
+        color: var(--text);
+        font-family: inherit;
+        font-size: inherit;
+        cursor: pointer;
+      }
+      button:hover {
+        background: var(--btn-hover);
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      /* Search and filters */
+      .filters {
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .search-input {
+        flex: 1;
+        min-width: 150px;
+        padding: 4px 8px;
+        border: 1px solid var(--border);
+        background: var(--bg);
+        color: var(--text);
+        font-family: inherit;
+        font-size: inherit;
+      }
+      .filter-group {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .filter-group label {
+        font-size: 12px;
+        color: var(--text-muted);
+      }
+      .filter-group select {
+        padding: 4px;
+        border: 1px solid var(--border);
+        background: var(--bg);
+        color: var(--text);
+        font-family: inherit;
+        font-size: 12px;
+      }
+
+      /* Event timeline */
+      .timeline {
+        flex: 1;
+        overflow-y: auto;
+        padding: 8px 12px;
+      }
+      .event {
+        border: 1px solid transparent;
+        margin-bottom: 4px;
+      }
+      .event:hover,
+      .event.expanded {
+        border-color: var(--border);
+      }
+      .event-row {
+        display: flex;
+        gap: 8px;
+        padding: 4px 8px;
+        cursor: pointer;
+        align-items: baseline;
+      }
+      .event-row:hover {
+        background: var(--bg-alt);
+      }
+      .event-tag {
+        font-size: 11px;
+        padding: 1px 4px;
+        border: 1px solid var(--text-faint);
+        white-space: nowrap;
+      }
+      .event-component {
+        color: var(--text-muted);
+        padding: 1px 4px;
+        border-radius: 2px;
+      }
+      .event-msg {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .event-time {
+        color: var(--text-faint);
+        font-size: 11px;
+      }
+      .event-details {
+        display: none;
+        padding: 8px;
+        border-top: 1px solid var(--border);
+        background: var(--bg-alt);
+      }
+      .event.expanded .event-details {
+        display: block;
+      }
+      .event-details pre {
+        white-space: pre-wrap;
+        word-break: break-all;
+        font-size: 12px;
+      }
+      .details-actions {
+        margin-bottom: 8px;
+        display: flex;
+        gap: 8px;
+      }
+
+      /* Streaming response area - flexible height bottom panel */
+      .streaming-response {
+        border-top: 1px solid var(--border);
+        background: var(--bg-alt);
+        padding: 4px 12px 12px 12px;
+        display: none;
+        /* Use min/max height for flexible sizing */
+        min-height: 150px;
+        max-height: 40vh;
+        overflow-y: auto;
+        flex-shrink: 0;
+      }
+      .streaming-response.active {
+        display: flex;
+        flex-direction: column;
+      }
+      .streaming-response-header {
+        font-weight: bold;
+        margin-bottom: 8px;
+        color: var(--text-muted);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .streaming-indicator {
+        width: 8px;
+        height: 8px;
+        background: #090;
+        border-radius: 50%;
+        animation: breathing 1s ease-in-out infinite;
+      }
+      .streaming-response.complete .streaming-indicator {
+        animation: none;
+      }
+      .streaming-response-content {
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-family: inherit;
+        line-height: 1.5;
+      }
+
+      /* Grouped token events */
+      .event-group {
+        margin-bottom: 4px;
+      }
+      .event-parent {
+        cursor: pointer;
+      }
+      .event-parent .toggle-icon {
+        display: inline-block;
+        width: 12px;
+        transition: transform 0.15s;
+      }
+      .event-parent.expanded .toggle-icon {
+        transform: rotate(90deg);
+      }
+      .event-children {
+        display: none;
+        margin-left: 20px;
+        border-left: 2px solid var(--border);
+        padding-top: 4px;
+        padding-left: 8px;
+        /* padding-right: 8px; */
+        /* background: var(--bg-alt); */
+      }
+      .event-parent.expanded + .event-children {
+        display: block;
+      }
+      .event-child {
+        padding: 2px 8px;
+        font-size: 12px;
+        color: var(--text-muted);
+        border-bottom: 1px solid var(--border);
+      }
+      .event-child:last-child {
+        border-bottom: none;
+      }
+      .event-child .token-content {
+        font-family: monospace;
+        background: var(--bg-alt);
+        padding: 1px 4px;
+        border-radius: 2px;
+      }
+      .event-child .token-time {
+        float: right;
+        font-size: 11px;
+        color: var(--text-faint);
+      }
+
+      /* Footer stats */
+      .footer {
+        padding: 6px 12px;
+        border-top: 1px solid var(--border);
+        font-size: 12px;
+        color: var(--text-muted);
+        display: flex;
+        gap: 16px;
+      }
+      .streaming-toggle {
+        margin-left: auto;
+        cursor: pointer;
+        user-select: none;
+      }
+      .streaming-toggle:hover {
+        color: var(--text);
+      }
+
+      /* Streaming tabs */
+      /* Container for tabs + close button (flex container, not scrollable) */
+      .streaming-tabs-container {
+        display: flex;
+        align-items: center; /* Vertically align tabs and button */
+        gap: 4px;
+        border-bottom: 1px solid var(--border);
+        padding-bottom: 4px;
+        margin-bottom: 8px;
+      }
+      /* Tabs area (scrollable) */
+      .streaming-tabs {
+        display: flex;
+        gap: 4px;
+        flex-wrap: nowrap; /* Don't wrap tabs */
+        overflow-x: auto; /* Horizontal scrolling */
+        overflow-y: hidden;
+        flex: 1; /* Take remaining space */
+        scrollbar-width: thin; /* Firefox */
+      }
+      /* Webkit scrollbar styling for tabs */
+      .streaming-tabs::-webkit-scrollbar {
+        height: 6px;
+      }
+      .streaming-tabs::-webkit-scrollbar-track {
+        background: var(--bg);
+      }
+      .streaming-tabs::-webkit-scrollbar-thumb {
+        background: var(--border);
+        border-radius: 3px;
+      }
+      .streaming-tabs::-webkit-scrollbar-thumb:hover {
+        background: var(--text-muted);
+      }
+      .streaming-tab {
+        padding: 4px 12px;
+        font-size: 12px;
+        cursor: pointer;
+        border: 1px solid var(--border);
+        border-radius: 4px 4px 0 0;
+        background: var(--bg);
+        color: var(--text-muted);
+        flex-shrink: 0; /* Prevent tabs from shrinking */
+        white-space: nowrap; /* Prevent text from wrapping inside tab */
+      }
+      .streaming-tab.active {
+        background: var(--bg-alt);
+        color: var(--text);
+        border-bottom-color: var(--bg-alt);
+      }
+      /* Close button for streaming viewer (fixed on right) */
+      .streaming-close-btn {
+        flex-shrink: 0; /* Don't shrink */
+        width: 24px;
+        height: 24px;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        background: var(--bg);
+        color: var(--text-muted);
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .streaming-close-btn:hover {
+        background: var(--bg-hover);
+        color: var(--text);
+      }
+      .streaming-tab-panel {
+        display: none;
+      }
+      .streaming-tab-panel.active {
+        display: block;
+      }
+      .streaming-tab-panel-header {
+        font-weight: bold;
+        margin-bottom: 8px;
+        color: var(--text-muted);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .streaming-tab-panel-content {
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-family: inherit;
+        line-height: 1.5;
+      }
+      /* Make tab content scrollable within fixed-height panel */
+      .streaming-tab-content {
+        flex: 1;
+        overflow-y: auto;
+      }
+
+      /* Meta info section (for streaming event structure) */
+      .meta-info {
+        padding: 8px;
+        margin-bottom: 8px;
+        background: var(--bg);
+        border: 1px dashed var(--border);
+        border-radius: 4px;
+      }
+      .meta-header {
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-bottom: 4px;
+      }
+      .meta-json {
+        font-size: 12px;
+        margin: 0;
+        white-space: pre-wrap;
+        color: var(--text-faint);
+      }
+      .tokens-header {
+        font-size: 11px;
+        color: var(--text-muted);
+        padding: 4px 0;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 4px;
+      }
+
+      /* Tooltip */
+      .tooltip {
+        position: fixed;
+        z-index: 1000;
+        padding: 8px 12px;
+        background: var(--bg-alt);
+        border: 1px solid var(--border);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        font-size: 12px;
+        max-width: 400px;
+        pointer-events: none;
+        display: none;
+      }
+      .tooltip.visible {
+        display: block;
+      }
+      .tooltip-header {
+        font-weight: bold;
+        margin-bottom: 4px;
+        padding-bottom: 4px;
+        border-bottom: 1px solid var(--border);
+      }
+      .tooltip-row {
+        display: flex;
+        gap: 8px;
+        margin: 2px 0;
+        align-items: flex-start;
+      }
+      .tooltip-label {
+        color: var(--text-muted);
+        min-width: 80px;
+        flex-shrink: 0;
+      }
+      .tooltip-value {
+        color: var(--text);
+        word-break: break-word;
+        max-width: 280px;
+        overflow-wrap: break-word;
+      }
+      .tooltip-separator {
+        border-top: 1px solid var(--border);
+        margin: 4px 0;
+      }
+
+      /* Special status event styling */
+      .event.status-success {
+        border: 1px solid var(--status-success-color, #090);
+      }
+      .event.status-warning {
+        border: 1px solid var(--status-warning-color, #f90);
+      }
+      .event.status-error {
+        border: 1px solid var(--status-error-color, #c00);
+      }
+      .event.status-key-info {
+        background: rgba(255, 255, 0, 0.15);
+        border-color: var(--border);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <h1>Osprey Debug</h1>
+      <div class="status">
+        <div class="status-dot connecting breathing" id="statusDot"></div>
+        <span id="statusText">Connecting...</span>
+      </div>
+      <button class="theme-toggle" id="themeToggle">Dark</button>
+    </div>
+
+    <div class="controls">
+      <input
+        type="text"
+        class="query-input"
+        id="queryInput"
+        placeholder="Enter query..."
+        value="What's the weather in San Francisco?"
+      />
+      <button id="executeBtn" disabled>Execute</button>
+      <button id="clearBtn">Clear</button>
+      <button id="exportBtn">Export YAML</button>
+    </div>
+
+    <div class="filters">
+      <input
+        type="text"
+        class="search-input"
+        id="searchInput"
+        placeholder="Search events..."
+      />
+      <div class="filter-group">
+        <label>Type:</label>
+        <select id="typeFilter">
+          <option value="">All</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Component:</label>
+        <select id="componentFilter">
+          <option value="">All</option>
+        </select>
+      </div>
+      <button id="resetFiltersBtn">Reset</button>
+    </div>
+
+    <div class="timeline" id="timeline">
+      <!-- Events appended here (latest at bottom) -->
+    </div>
+
+    <div class="streaming-response" id="streamingResponse">
+      <div class="streaming-tabs-container">
+        <div class="streaming-tabs" id="streamingTabs">
+          <!-- Tabs will be added dynamically -->
+        </div>
+        <button
+          class="streaming-close-btn"
+          id="streamingCloseBtn"
+          title="Close streaming viewer"
+        >
+          ×
+        </button>
+      </div>
+      <div class="streaming-tab-content" id="streamingTabContent">
+        <!-- Tab content panels will be added dynamically -->
+      </div>
+    </div>
+
+    <div class="footer">
+      <span>Events: <strong id="eventCount">0</strong></span>
+      <span>Filtered: <strong id="filteredCount">0</strong></span>
+      <span
+        class="streaming-toggle"
+        id="streamingToggle"
+        title="Click to toggle"
+      >
+        Streaming Viewer
+      </span>
+    </div>
+
+    <div class="tooltip" id="tooltip"></div>
+
+    <script>
+      // State
+      let ws = null;
+      let events = [];
+      let searchText = "";
+      let typeFilter = "";
+      let componentFilter = "";
+      let componentColors = {};
+      let colorPalette = {}; // Server-provided Rich color hex palette
+      let colorsReady = false;
+      let wsReady = false;
+
+      // DOM
+      const statusDot = document.getElementById("statusDot");
+      const statusText = document.getElementById("statusText");
+      const queryInput = document.getElementById("queryInput");
+      const executeBtn = document.getElementById("executeBtn");
+      const clearBtn = document.getElementById("clearBtn");
+      const exportBtn = document.getElementById("exportBtn");
+      const searchInput = document.getElementById("searchInput");
+      const typeFilterEl = document.getElementById("typeFilter");
+      const componentFilterEl = document.getElementById("componentFilter");
+      const timeline = document.getElementById("timeline");
+      const eventCount = document.getElementById("eventCount");
+      const filteredCount = document.getElementById("filteredCount");
+      const themeToggle = document.getElementById("themeToggle");
+      const resetFiltersBtn = document.getElementById("resetFiltersBtn");
+      const tooltip = document.getElementById("tooltip");
+      const streamingResponse = document.getElementById("streamingResponse");
+      const streamingToggle = document.getElementById("streamingToggle");
+      let tooltipTimeout = null;
+
+      // Streaming session state for grouped token display
+      let currentStreamingSession = null; // {parentEl, childrenEl, tokens: [], startTime, nodeName}
+      let streamingViewerHidden = false; // User preference to hide streaming viewer
+
+      // Streaming viewer tabs state
+      let streamingTabs = {}; // {groupKey: {tab, panel, content}} where groupKey = sessionId_nodeName
+      let activeStreamingTab = null;
+
+      // Theme toggle
+      function initTheme() {
+        const savedTheme = localStorage.getItem("osprey-theme");
+        if (savedTheme === "dark") {
+          document.body.classList.add("dark");
+          themeToggle.textContent = "Light";
+        }
+      }
+      themeToggle.onclick = () => {
+        document.body.classList.toggle("dark");
+        const isDark = document.body.classList.contains("dark");
+        themeToggle.textContent = isDark ? "Light" : "Dark";
+        localStorage.setItem("osprey-theme", isDark ? "dark" : "light");
+        updateEventColors();
+      };
+      initTheme();
+
+      // Update component colors when theme changes (always use font color)
+      function updateEventColors() {
+        document.querySelectorAll(".event-component").forEach((el) => {
+          const color = el.dataset.color;
+          if (color) {
+            el.style.backgroundColor = "transparent";
+            el.style.color = color;
+          }
+        });
+      }
+
+      // Check if fully ready (colors + WebSocket)
+      function checkReady() {
+        if (colorsReady && wsReady) {
+          statusDot.classList.remove("connecting", "breathing");
+          statusDot.classList.add("connected");
+          statusText.textContent = "Ready";
+          executeBtn.disabled = false;
+        }
+      }
+
+      // Fetch component colors and palette from server
+      async function fetchColors() {
+        try {
+          const res = await fetch("/api/colors");
+          const data = await res.json();
+          componentColors = data.colors || {};
+          colorPalette = data.palette || {};
+        } catch (e) {
+          componentColors = {};
+          colorPalette = {};
+        }
+        colorsReady = true;
+        checkReady();
+      }
+
+      // Get CSS color for a component using server-provided Rich palette
+      function getComponentColor(component) {
+        if (!component) return null;
+        const colorName = componentColors[component];
+        if (!colorName) return null;
+        // Use server-provided palette for accurate Rich colors, or use name as-is if it's already hex
+        return colorPalette[colorName] || colorName;
+      }
+
+      // Connect to WebSocket
+      function connect() {
+        const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+        ws = new WebSocket(`${protocol}//${location.host}/ws/events`);
+
+        ws.onopen = () => {
+          wsReady = true;
+          if (!colorsReady) {
+            statusText.textContent = "Initializing...";
+          }
+          checkReady();
+        };
+        ws.onclose = () => {
+          wsReady = false;
+          statusDot.classList.remove(
+            "connected",
+            "connecting",
+            "streaming",
+            "breathing",
+          );
+          statusText.textContent = "Disconnected";
+          executeBtn.disabled = true;
+          // Restart connection with connecting state
+          setTimeout(() => {
+            statusDot.classList.add("connecting", "breathing");
+            statusText.textContent = "Connecting...";
+            connect();
+          }, 3000);
+        };
+        ws.onmessage = (e) => handleEvent(JSON.parse(e.data));
+      }
+
+      // Handle event
+      function handleEvent(data) {
+        events.push(data);
+        eventCount.textContent = events.length;
+        updateFilterOptions();
+
+        if (data.type === "execution_started") {
+          statusDot.classList.remove("connecting");
+          statusDot.classList.add("streaming");
+          statusText.textContent = "Streaming...";
+          // Reset streaming response area for new execution
+          streamingResponse.classList.remove("active", "complete");
+          // Reset streaming session for grouped display
+          currentStreamingSession = null;
+        } else if (
+          data.type === "execution_completed" ||
+          data.type === "execution_error"
+        ) {
+          statusDot.classList.remove("streaming", "breathing");
+          statusDot.classList.add("connected");
+          statusText.textContent = "Ready";
+          // Mark streaming as complete
+          if (streamingResponse.classList.contains("active")) {
+            streamingResponse.classList.add("complete");
+          }
+          // Finalize streaming session group
+          if (currentStreamingSession) {
+            finalizeStreamingSession();
+          }
+        } else if (data.type === "streaming_token") {
+          // Add to grouped token display in timeline (handles tabs)
+          handleStreamingToken(data);
+          return; // Don't add as individual event
+        }
+
+        if (matchesFilters(data)) {
+          appendEvent(data);
+          timeline.scrollTop = timeline.scrollHeight;
+        }
+        updateFilteredCount();
+      }
+
+      // Handle streaming token for grouped display
+      function handleStreamingToken(data) {
+        const time = new Date(data.timestamp);
+        const sessionId = data.session_id || "default";
+        const nodeName = data.node_name || "respond";
+
+        // Key by session, node, AND attempt for retry distinction
+        // Each retry attempt (generation_attempt 1, 2, 3...) gets its own tab
+        const attempt = data.generation_attempt || 1; // Default to 1 for respond node
+        const groupKey = `${sessionId}_${nodeName}_attempt${attempt}`;
+
+        // Create new session on first token OR if group changed (new query or different component)
+        if (
+          !currentStreamingSession ||
+          currentStreamingSession.groupKey !== groupKey
+        ) {
+          // Finalize previous session if exists (for back-to-back queries or component changes)
+          if (currentStreamingSession) {
+            finalizeStreamingSession();
+          }
+
+          currentStreamingSession = {
+            tokens: [],
+            startTime: time,
+            nodeName: nodeName,
+            sessionId: sessionId,
+            groupKey: groupKey,
+            parentEl: null,
+            childrenEl: null,
+            groupId: null,
+            endTime: null,
+          };
+
+          // Create parent event group in timeline
+          createStreamingGroup(data);
+
+          // Create tab for new streaming group (keyed by groupKey)
+          createStreamingTab(groupKey, nodeName);
+
+          // Always auto-show viewer when streaming starts (ignore previous close action)
+          // This is a debug tool - developers need to see streaming if it's happening
+          streamingViewerHidden = false; // Reset hidden state
+          streamingResponse.classList.add("active");
+          streamingToggle.style.display = "none"; // Hide footer button when auto-shown
+        }
+
+        // Add token to session
+        currentStreamingSession.tokens.push({
+          content: data.token,
+          index: data.token_index,
+          time: time,
+          timestamp: data.timestamp,
+          token: data.token,
+          token_index: data.token_index,
+          node_name: data.node_name,
+          session_id: sessionId,
+        });
+
+        // Add child token row
+        addTokenChild(data);
+
+        // Update parent summary
+        updateStreamingGroupSummary();
+
+        // Update tab content with accumulated response (build from current session's tokens)
+        const accumulatedResponse = currentStreamingSession.tokens
+          .map((t) => t.token || t.content || "")
+          .join("");
+        updateStreamingTabContent(groupKey, accumulatedResponse);
+      }
+
+      // Create the parent streaming group element
+      function createStreamingGroup(data) {
+        const groupKey = currentStreamingSession.groupKey;
+        const nodeName = data.node_name || "respond";
+
+        // Explanatory text for developers building their own interface
+        const streamingExplanation = `LLM Token Streaming
+
+Streaming tokens come from LangGraph's "messages" stream mode (separate from typed events).
+
+Usage:
+  async for mode, chunk in graph.astream(..., stream_mode=["custom", "messages"]):
+      if mode == "messages":
+          message_chunk, metadata = chunk
+          token = message_chunk.content          # Token text
+          node = metadata.get("langgraph_node")  # Node name
+
+Raw structure:
+  message_chunk: AIMessageChunk  # from langchain_core.messages
+    .content = "${data.token || "Hello"}"
+  metadata: dict
+    {"langgraph_node": "${nodeName}", ...}`;
+
+        const group = document.createElement("div");
+        group.className = "event-group";
+        group.innerHTML = `
+                <div class="event event-parent">
+                    <div class="event-row">
+                        <span class="toggle-icon">▶</span>
+                        <span class="event-tag">LLM Streaming</span>
+                        <span class="event-component" style="color: ${getComponentColor(nodeName) || "inherit"}">[${nodeName}]</span>
+                        <span class="event-msg streaming-summary">Streaming...</span>
+                        <span class="event-time">${new Date(data.timestamp).toLocaleTimeString()}</span>
+                    </div>
+                </div>
+                <div class="event-children">
+                    <div class="details-actions">
+                        <button class="copy-btn" data-group-key="${groupKey}">Copy Text</button>
+                    </div>
+                    <div class="meta-header">Original Event Format (for building your own interface):</div>
+                    <div class="meta-info">
+                        <pre class="meta-json">${escapeHtml(streamingExplanation)}</pre>
+                    </div>
+                    <div class="tokens-header">Tokens:</div>
+                    <div class="tokens-container"></div>
+                </div>
+            `;
+
+        const parentEl = group.querySelector(".event-parent");
+        const childrenEl = group.querySelector(".event-children");
+        const tokensContainer = group.querySelector(".tokens-container");
+        const row = parentEl.querySelector(".event-row");
+
+        parentEl.onclick = () => parentEl.classList.toggle("expanded");
+
+        // Set up copy button click handler
+        const copyBtn = group.querySelector(".copy-btn");
+        copyBtn.onclick = (e) => copyStreamingJson(e, groupKey);
+
+        // Tooltip will be added after streaming completes (in finalizeStreamingSession)
+
+        currentStreamingSession.parentEl = parentEl;
+        currentStreamingSession.groupId =
+          group.id = `streaming-group-${Date.now()}`;
+        currentStreamingSession.childrenEl = childrenEl;
+        currentStreamingSession.tokensContainer = tokensContainer;
+
+        timeline.appendChild(group);
+        timeline.scrollTop = timeline.scrollHeight;
+      }
+
+      // Add a token as child row
+      function addTokenChild(data) {
+        if (!currentStreamingSession) return;
+
+        // Use tokensContainer if available, fall back to childrenEl
+        const container =
+          currentStreamingSession.tokensContainer ||
+          currentStreamingSession.childrenEl;
+        if (!container) return;
+
+        const child = document.createElement("div");
+        child.className = "event-child";
+        const displayToken = escapeHtml(data.token)
+          .replace(/\n/g, "↵")
+          .replace(/ /g, "·");
+        child.innerHTML = `
+                <span class="token-time">${new Date(data.timestamp).toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit", fractionalSecondDigits: 3 })}</span>
+                Token ${data.token_index}: <span class="token-content">${displayToken}</span>
+            `;
+        container.appendChild(child);
+      }
+
+      // Update parent summary with current stats
+      function updateStreamingGroupSummary() {
+        if (!currentStreamingSession || !currentStreamingSession.parentEl)
+          return;
+
+        const summary =
+          currentStreamingSession.parentEl.querySelector(".streaming-summary");
+        if (summary) {
+          summary.textContent = `${currentStreamingSession.tokens.length} tokens...`;
+        }
+      }
+
+      // Completed streaming sessions for rebuild during filtering
+      let completedStreamingSessions = [];
+
+      // Finalize streaming session with duration and tooltip
+      function finalizeStreamingSession() {
+        if (!currentStreamingSession || !currentStreamingSession.parentEl)
+          return;
+
+        const endTime = new Date();
+        currentStreamingSession.endTime = endTime;
+        const duration = (
+          (endTime - currentStreamingSession.startTime) /
+          1000
+        ).toFixed(2);
+        const tokenCount = currentStreamingSession.tokens.length;
+
+        const summary =
+          currentStreamingSession.parentEl.querySelector(".streaming-summary");
+        if (summary) {
+          summary.textContent = `${tokenCount} tokens in ${duration}s`;
+        }
+
+        // NOW add tooltip to the completed streaming group
+        const parentEl = document.getElementById(
+          currentStreamingSession.groupId,
+        );
+        if (parentEl) {
+          const row = parentEl.querySelector(".event-row");
+          if (row) {
+            const tooltipData = {
+              node_name: currentStreamingSession.nodeName,
+              token_count: tokenCount,
+              duration_s: duration,
+              start_time: currentStreamingSession.startTime.toISOString(),
+              end_time: endTime.toISOString(),
+            };
+            row.onmouseenter = (e) => {
+              tooltipTimeout = setTimeout(
+                () => showStreamingTooltip(tooltipData, e),
+                300,
+              );
+            };
+            row.onmousemove = (e) => {
+              if (tooltip.classList.contains("visible")) positionTooltip(e);
+            };
+            row.onmouseleave = () => {
+              clearTimeout(tooltipTimeout);
+              hideTooltip();
+            };
+          }
+        }
+
+        // Update tokens header with final count
+        const tokensHeader = parentEl.querySelector(".tokens-header");
+        if (tokensHeader) {
+          tokensHeader.textContent = `Tokens (${tokenCount}):`;
+        }
+
+        // Finalize streaming tab (stop animation) - use groupKey
+        finalizeStreamingTab(currentStreamingSession.groupKey);
+
+        // Store completed session for later rebuild during filtering
+        completedStreamingSessions.push({ ...currentStreamingSession });
+        currentStreamingSession = null;
+      }
+
+      // Check filters
+      function matchesFilters(data) {
+        const json = JSON.stringify(data).toLowerCase();
+        if (searchText && !json.includes(searchText.toLowerCase()))
+          return false;
+        // Handle "LLM Streaming" type filter to match streaming_token events
+        if (typeFilter === "LLM Streaming") {
+          if (data.type !== "streaming_token") return false;
+        } else if (typeFilter && data.type !== typeFilter) {
+          return false;
+        }
+        if (componentFilter && data.component !== componentFilter) return false;
+        return true;
+      }
+
+      // Append event to timeline
+      function appendEvent(data) {
+        const div = document.createElement("div");
+        div.className = "event";
+
+        // Add special styling for StatusEvent levels and ErrorEvent
+        if (data.type === "StatusEvent" && data.data?.level) {
+          const level = data.data.level;
+          if (level === "success") {
+            div.classList.add("status-success");
+            div.style.setProperty(
+              "--status-success-color",
+              colorPalette["green"] || "#090",
+            );
+          } else if (level === "warning") {
+            div.classList.add("status-warning");
+            div.style.setProperty(
+              "--status-warning-color",
+              colorPalette["yellow"] || "#f90",
+            );
+          } else if (level === "error") {
+            div.classList.add("status-error");
+            div.style.setProperty(
+              "--status-error-color",
+              colorPalette["red"] || "#c00",
+            );
+          } else if (level === "key_info" || level === "status") {
+            div.classList.add("status-key-info");
+          }
+        } else if (data.type === "ErrorEvent") {
+          div.classList.add("status-error");
+          div.style.setProperty(
+            "--status-error-color",
+            colorPalette["red"] || "#c00",
+          );
+        }
+
+        const msg = getMsg(data);
+        const time = data.created_at
+          ? new Date(data.created_at).toLocaleTimeString()
+          : "";
+        const json = JSON.stringify(data, null, 2);
+
+        // Get component color from config (always use font color)
+        const compColor = getComponentColor(data.component);
+        let compStyle = compColor ? `style="color: ${compColor}"` : "";
+
+        div.innerHTML = `
+                <div class="event-row">
+                    <span class="event-tag">${data.type || "unknown"}</span>
+                    ${data.component ? `<span class="event-component" data-color="${compColor || ""}" ${compStyle}>[${data.component}]</span>` : ""}
+                    <span class="event-msg">${escapeHtml(msg)}</span>
+                    <span class="event-time">${time}</span>
+                </div>
+                <div class="event-details">
+                    <div class="details-actions">
+                        <button class="copy-btn">Copy JSON</button>
+                    </div>
+                    <pre>${escapeHtml(json)}</pre>
+                </div>
+            `;
+
+        const row = div.querySelector(".event-row");
+        row.onclick = () => div.classList.toggle("expanded");
+        row.onmouseenter = (e) => {
+          tooltipTimeout = setTimeout(() => showTooltip(data, e), 300);
+        };
+        row.onmousemove = (e) => {
+          if (tooltip.classList.contains("visible")) positionTooltip(e);
+        };
+        row.onmouseleave = () => {
+          clearTimeout(tooltipTimeout);
+          hideTooltip();
+        };
+
+        div.querySelector(".event-details").onclick = (e) =>
+          e.stopPropagation();
+        div.querySelector(".copy-btn").onclick = (e) => {
+          e.stopPropagation();
+          navigator.clipboard.writeText(json);
+          e.target.textContent = "Copied!";
+          setTimeout(() => (e.target.textContent = "Copy JSON"), 1500);
+        };
+
+        timeline.appendChild(div);
+      }
+
+      // Get message preview based on event type
+      function getMsg(event) {
+        const d = event.data || {};
+        const type = event.type;
+
+        // Type-specific preview logic
+        switch (type) {
+          case "StatusEvent":
+            return d.message || d.level || "";
+          case "PhaseStartEvent":
+            return d.description || `Phase: ${d.phase}`;
+          case "PhaseCompleteEvent":
+            return `${d.phase} ${d.success ? "✓" : "✗"}`;
+          case "TaskExtractedEvent":
+            return d.task ? d.task.slice(0, 80) : "";
+          case "CapabilitiesSelectedEvent":
+            return d.capability_names?.join(", ") || "";
+          case "PlanCreatedEvent":
+            return d.steps ? `${d.steps.length} steps planned` : "";
+          case "CapabilityStartEvent":
+            return d.capability_name || d.description || "";
+          case "CapabilityCompleteEvent":
+            return `${d.capability_name} ${d.success ? "✓" : "✗"}`;
+          case "LLMRequestEvent":
+            return d.prompt_preview || `[${d.model}]`;
+          case "LLMResponseEvent":
+            return d.response_preview || `${d.output_tokens} tokens`;
+          case "ToolUseEvent":
+            return d.tool_name || "";
+          case "ToolResultEvent":
+            return d.result_preview || d.tool_name || "";
+          case "CodeGeneratedEvent":
+            return d.code_preview || `[${d.language}]`;
+          case "CodeExecutedEvent":
+            return d.success ? d.output_preview || "✓" : d.error_message || "✗";
+          case "ApprovalRequiredEvent":
+            return d.action_description || d.approval_type || "";
+          case "ApprovalReceivedEvent":
+            return `${d.approved ? "✓" : "✗"} ${d.user_message || ""}`.trim();
+          case "ResultEvent":
+            return d.response ? d.response.slice(0, 80) : d.success ? "✓" : "✗";
+          case "ErrorEvent":
+            return d.error_message || d.error_type || "";
+          // System events (not TypedEvents - fields at top level)
+          case "connected":
+            return event.message || "Connected";
+          case "execution_started":
+            return event.query ? `Query: ${event.query}` : "Started";
+          case "execution_completed":
+            return `Completed (${event.event_count || 0} events)`;
+          case "execution_error":
+            return event.error || "Error";
+          case "pong":
+            return "Pong";
+          default:
+            // Unknown types - check top-level fields first, then data
+            if (event.message) return event.message;
+            if (event.query) return `Query: ${event.query}`;
+            if (event.error) return event.error;
+            return Object.keys(d).length > 0
+              ? JSON.stringify(d).slice(0, 80)
+              : "";
+        }
+      }
+
+      // Update filter dropdowns
+      function updateFilterOptions() {
+        const types = [
+          ...new Set(events.map((e) => e.type).filter(Boolean)),
+        ].sort();
+        const comps = [
+          ...new Set(events.map((e) => e.component).filter(Boolean)),
+        ].sort();
+
+        const currentType = typeFilter;
+        const currentComp = componentFilter;
+
+        // Replace streaming_token with "LLM Streaming" in display
+        typeFilterEl.innerHTML =
+          '<option value="">All</option>' +
+          types
+            .map((t) => {
+              const displayName = t === "streaming_token" ? "LLM Streaming" : t;
+              const value = t === "streaming_token" ? "LLM Streaming" : t;
+              return `<option value="${value}" ${value === currentType ? "selected" : ""}>${displayName}</option>`;
+            })
+            .join("");
+        componentFilterEl.innerHTML =
+          '<option value="">All</option>' +
+          comps
+            .map(
+              (c) =>
+                `<option value="${c}" ${c === currentComp ? "selected" : ""}>${c}</option>`,
+            )
+            .join("");
+      }
+
+      // Refresh timeline - rebuild grouped view for streaming tokens by group (session + component)
+      function refreshTimeline() {
+        timeline.innerHTML = "";
+
+        // Check if we're filtering for streaming tokens specifically
+        const filteringForStreaming = typeFilter === "LLM Streaming";
+        const hasSearch = searchText.trim().length > 0;
+
+        // Track which groups we've rendered (by groupKey = sessionId_nodeName)
+        const renderedGroups = new Set();
+
+        // Process events in order
+        for (const event of events) {
+          if (event.type === "streaming_token") {
+            // Build groupKey for this token (including attempt for retry distinction)
+            const sessionId = event.session_id || "default";
+            const nodeName = event.node_name || "respond";
+            const attempt = event.generation_attempt || 1;
+            const groupKey = `${sessionId}_${nodeName}_attempt${attempt}`;
+
+            // Only render each group once (when we hit its first token)
+            if (!renderedGroups.has(groupKey)) {
+              renderedGroups.add(groupKey);
+
+              // Find the completed session for this groupKey
+              const session = completedStreamingSessions.find(
+                (s) => s.groupKey === groupKey,
+              );
+
+              if (session) {
+                // Check component filter
+                const matchesCompFilter =
+                  !componentFilter || componentFilter === session.nodeName;
+
+                // Check type filter
+                if (
+                  (filteringForStreaming || !typeFilter) &&
+                  matchesCompFilter
+                ) {
+                  // Filter tokens for search
+                  const matchingTokens = hasSearch
+                    ? session.tokens.filter((t) =>
+                        (t.token || t.content || "")
+                          .toLowerCase()
+                          .includes(searchText.toLowerCase()),
+                      )
+                    : session.tokens;
+
+                  // Render if we have matching tokens (or no search)
+                  if (!hasSearch || matchingTokens.length > 0) {
+                    appendStreamingGroupFromSession(
+                      session,
+                      matchingTokens,
+                      hasSearch,
+                    );
+                  }
+                }
+              }
+            }
+            continue; // Skip individual streaming tokens
+          }
+
+          // Append non-streaming event if it matches filters
+          if (matchesFilters(event)) {
+            appendEvent(event);
+          }
+        }
+
+        updateFilteredCount();
+        timeline.scrollTop = timeline.scrollHeight;
+      }
+
+      // Append streaming group from a completed session object
+      function appendStreamingGroupFromSession(
+        session,
+        matchingTokens,
+        hasSearch,
+      ) {
+        const allTokens = session.tokens;
+        if (allTokens.length === 0) return;
+        // Don't show empty group when searching with no matches
+        if (hasSearch && matchingTokens.length === 0) return;
+
+        const startTime = session.startTime;
+        const endTime = session.endTime || new Date();
+        const duration = ((endTime - startTime) / 1000).toFixed(2);
+        const nodeName = session.nodeName;
+        const groupKey = session.groupKey;
+
+        // Explanatory text for developers building their own interface
+        const firstToken = allTokens[0]?.token || "Hello";
+        const streamingExplanation = `LLM Token Streaming
+
+Streaming tokens come from LangGraph's "messages" stream mode (separate from typed events).
+
+Usage:
+  async for mode, chunk in graph.astream(..., stream_mode=["custom", "messages"]):
+      if mode == "messages":
+          message_chunk, metadata = chunk
+          token = message_chunk.content          # Token text
+          node = metadata.get("langgraph_node")  # Node name
+
+Raw structure:
+  message_chunk: AIMessageChunk  # from langchain_core.messages
+    .content = "${firstToken}"
+  metadata: dict
+    {"langgraph_node": "${nodeName}", ...}`;
+
+        const group = document.createElement("div");
+        group.className = "event-group";
+
+        // Determine which tokens to show as children
+        const tokensToShow = hasSearch ? matchingTokens : allTokens;
+        const summaryText = hasSearch
+          ? `${matchingTokens.length}/${allTokens.length} tokens match (${duration}s)`
+          : `${allTokens.length} tokens in ${duration}s`;
+
+        group.innerHTML = `
+                <div class="event event-parent">
+                    <div class="event-row">
+                        <span class="toggle-icon">▶</span>
+                        <span class="event-tag">LLM Streaming</span>
+                        <span class="event-component" style="color: ${getComponentColor(nodeName) || "inherit"}">[${nodeName}]</span>
+                        <span class="event-msg streaming-summary">${summaryText}</span>
+                        <span class="event-time">${startTime.toLocaleTimeString()}</span>
+                    </div>
+                </div>
+                <div class="event-children">
+                    <div class="details-actions">
+                        <button class="copy-btn" data-group-key="${groupKey}">Copy Text</button>
+                    </div>
+                    <div class="meta-info">
+                        <div class="meta-header">Original Event Format (for building your own interface):</div>
+                        <pre class="meta-json">${escapeHtml(streamingExplanation)}</pre>
+                    </div>
+                    <div class="tokens-header">Tokens (${allTokens.length}):</div>
+                    <div class="tokens-container"></div>
+                </div>
+            `;
+
+        const parentEl = group.querySelector(".event-parent");
+        const tokensContainer = group.querySelector(".tokens-container");
+        const row = parentEl.querySelector(".event-row");
+
+        parentEl.onclick = () => parentEl.classList.toggle("expanded");
+
+        // Set up copy button click handler
+        const copyBtn = group.querySelector(".copy-btn");
+        copyBtn.onclick = (e) => copyStreamingJson(e, groupKey);
+
+        // Add tooltip for streaming group (like other events)
+        const streamingData = {
+          node_name: nodeName,
+          token_count: allTokens.length,
+          duration_s: duration,
+          start_time: startTime.toISOString(),
+          end_time: endTime.toISOString(),
+        };
+        row.onmouseenter = (e) => {
+          tooltipTimeout = setTimeout(
+            () => showStreamingTooltip(streamingData, e),
+            300,
+          );
+        };
+        row.onmousemove = (e) => {
+          if (tooltip.classList.contains("visible")) positionTooltip(e);
+        };
+        row.onmouseleave = () => {
+          clearTimeout(tooltipTimeout);
+          hideTooltip();
+        };
+
+        // Add token children
+        tokensToShow.forEach((token) => {
+          const child = document.createElement("div");
+          child.className = "event-child";
+          const tokenContent = token.token || token.content || "";
+          const displayToken = escapeHtml(tokenContent)
+            .replace(/\n/g, "↵")
+            .replace(/ /g, "·");
+          const tokenIndex = token.token_index || token.index || 0;
+          const tokenTime = token.timestamp
+            ? new Date(token.timestamp)
+            : token.time;
+          child.innerHTML = `
+                    <span class="token-time">${tokenTime.toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit", fractionalSecondDigits: 3 })}</span>
+                    Token ${tokenIndex}: <span class="token-content">${displayToken}</span>
+                `;
+          tokensContainer.appendChild(child);
+        });
+
+        timeline.appendChild(group);
+      }
+
+      function updateFilteredCount() {
+        // Count non-streaming events that match filters
+        const nonStreamingCount = events.filter(
+          (e) => e.type !== "streaming_token" && matchesFilters(e),
+        ).length;
+
+        // Count individual streaming tokens that match filters
+        const filteringForStreaming = typeFilter === "LLM Streaming";
+        const hasSearch = searchText.trim().length > 0;
+
+        let streamingTokenCount = 0;
+        completedStreamingSessions.forEach((session) => {
+          // Check component filter
+          const matchesCompFilter =
+            !componentFilter || componentFilter === session.nodeName;
+
+          // Check type filter
+          if ((filteringForStreaming || !typeFilter) && matchesCompFilter) {
+            // Check search filter
+            if (hasSearch) {
+              // Count only tokens that match the search text
+              const matchingTokens = session.tokens.filter((t) =>
+                (t.token || t.content || "")
+                  .toLowerCase()
+                  .includes(searchText.toLowerCase()),
+              );
+              streamingTokenCount += matchingTokens.length;
+            } else {
+              // No search filter - count all tokens in this session
+              streamingTokenCount += session.tokens.length;
+            }
+          }
+        });
+
+        filteredCount.textContent = nonStreamingCount + streamingTokenCount;
+      }
+
+      // Execute
+      function executeQuery() {
+        const q = queryInput.value.trim();
+        if (!q || !ws || ws.readyState !== WebSocket.OPEN) return;
+        // Immediate visual feedback
+        statusDot.classList.remove("connected");
+        statusDot.classList.add("connecting", "breathing");
+        statusText.textContent = "Executing...";
+        ws.send(JSON.stringify({ action: "execute", query: q }));
+      }
+
+      // Clear
+      function clearEvents() {
+        events = [];
+        timeline.innerHTML = "";
+        eventCount.textContent = "0";
+        filteredCount.textContent = "0";
+        searchText = "";
+        typeFilter = "";
+        componentFilter = "";
+        searchInput.value = "";
+        typeFilterEl.innerHTML = '<option value="">All</option>';
+        componentFilterEl.innerHTML = '<option value="">All</option>';
+        // Reset streaming response area
+        streamingResponse.classList.remove("active", "complete");
+        // Clear streaming tabs
+        clearStreamingTabs();
+        // Reset streaming session
+        currentStreamingSession = null;
+        completedStreamingSessions = [];
+      }
+
+      // Export YAML
+      function exportYAML() {
+        // Simple YAML-like format (proper YAML would need a library)
+        const yaml = events
+          .map((e, i) => {
+            return (
+              `- # Event ${i + 1}\n` +
+              Object.entries(e)
+                .map(([k, v]) => {
+                  const val = typeof v === "object" ? JSON.stringify(v) : v;
+                  return `  ${k}: ${val}`;
+                })
+                .join("\n")
+            );
+          })
+          .join("\n\n");
+
+        const blob = new Blob([yaml], { type: "text/yaml" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `osprey-events-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.yaml`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+
+      function escapeHtml(text) {
+        const div = document.createElement("div");
+        div.textContent = text;
+        return div.innerHTML;
+      }
+
+      // Tooltip functions
+      function buildTooltipContent(event) {
+        const d = event.data || {};
+        const time = event.created_at
+          ? new Date(event.created_at).toLocaleTimeString()
+          : "";
+
+        let html = `<div class="tooltip-header">${escapeHtml(event.type || "Event")}</div>`;
+
+        let hasCommonFields = false;
+        if (event.component) {
+          html += `<div class="tooltip-row"><span class="tooltip-label">Component:</span><span class="tooltip-value">${escapeHtml(event.component)}</span></div>`;
+          hasCommonFields = true;
+        }
+        if (time) {
+          html += `<div class="tooltip-row"><span class="tooltip-label">Time:</span><span class="tooltip-value">${time}</span></div>`;
+          hasCommonFields = true;
+        }
+
+        const fields = getTooltipFields(event.type, d, event);
+        if (fields.length > 0) {
+          // Only add separator if we had common fields (header already has border-bottom)
+          if (hasCommonFields) {
+            html += '<div class="tooltip-separator"></div>';
+          }
+          for (const [label, value] of fields) {
+            const displayVal =
+              typeof value === "string" ? value.slice(0, 100) : String(value);
+            html += `<div class="tooltip-row"><span class="tooltip-label">${escapeHtml(label)}:</span><span class="tooltip-value">${escapeHtml(displayVal)}</span></div>`;
+          }
+        }
+
+        return html;
+      }
+
+      function getTooltipFields(type, d, event) {
+        switch (type) {
+          case "StatusEvent":
+            return [
+              ["message", d.message],
+              ["level", d.level],
+              ["phase", d.phase],
+            ].filter((f) => f[1]);
+          case "LLMRequestEvent":
+            return [
+              ["model", d.model],
+              ["prompt", d.prompt_preview],
+            ].filter((f) => f[1]);
+          case "LLMResponseEvent":
+            return [
+              ["response", d.response_preview],
+              ["tokens", `${d.input_tokens}→${d.output_tokens}`],
+            ].filter((f) => f[1]);
+          case "CapabilityStartEvent":
+            return [
+              ["capability", d.capability_name],
+              ["step", `${d.step_number}/${d.total_steps}`],
+            ].filter((f) => f[1]);
+          case "CapabilityCompleteEvent":
+            return [
+              ["capability", d.capability_name],
+              ["success", d.success],
+              ["duration", d.duration_ms ? `${d.duration_ms}ms` : null],
+            ].filter((f) => f[1] !== undefined && f[1] !== null);
+          case "PhaseStartEvent":
+            return [
+              ["phase", d.phase],
+              ["description", d.description],
+            ].filter((f) => f[1]);
+          case "PhaseCompleteEvent":
+            return [
+              ["phase", d.phase],
+              ["success", d.success],
+              ["duration", d.duration_ms ? `${d.duration_ms}ms` : null],
+            ].filter((f) => f[1] !== undefined && f[1] !== null);
+          case "CapabilitiesSelectedEvent":
+            const caps = d.capability_names?.join(", ") || "";
+            return [
+              [
+                "capabilities",
+                caps.length > 60 ? caps.slice(0, 60) + "..." : caps,
+              ],
+            ].filter((f) => f[1]);
+          case "PlanCreatedEvent":
+            return [
+              ["steps", d.steps ? `${d.steps.length} steps` : null],
+            ].filter((f) => f[1]);
+          case "TaskExtractedEvent":
+            return [["task", d.task]].filter((f) => f[1]);
+          case "ErrorEvent":
+            return [
+              ["error", d.error_message],
+              ["type", d.error_type],
+            ].filter((f) => f[1]);
+          case "connected":
+            return [["message", event.message]].filter((f) => f[1]);
+          case "execution_started":
+            return [["query", event.query]].filter((f) => f[1]);
+          case "execution_completed":
+            return [["events", event.event_count]].filter(
+              (f) => f[1] !== undefined,
+            );
+          default:
+            return Object.entries(d).slice(0, 3);
+        }
+      }
+
+      function showTooltip(event, e) {
+        tooltip.innerHTML = buildTooltipContent(event);
+        tooltip.classList.add("visible");
+        positionTooltip(e);
+      }
+
+      function showStreamingTooltip(data, e) {
+        // Shared info (like other events)
+        let html = `<div class="tooltip-header">LLM Streaming</div>`;
+        html += `<div class="tooltip-row"><span class="tooltip-label">Component:</span><span class="tooltip-value">${escapeHtml(data.node_name)}</span></div>`;
+        html += `<div class="tooltip-row"><span class="tooltip-label">Time:</span><span class="tooltip-value">${new Date(data.start_time).toLocaleTimeString()}</span></div>`;
+
+        // Meta info section
+        html += '<div class="tooltip-separator"></div>';
+        html += `<div class="tooltip-row"><span class="tooltip-label">Tokens:</span><span class="tooltip-value">${data.token_count}</span></div>`;
+        html += `<div class="tooltip-row"><span class="tooltip-label">Duration:</span><span class="tooltip-value">${data.duration_s}s</span></div>`;
+
+        tooltip.innerHTML = html;
+        tooltip.classList.add("visible");
+        positionTooltip(e);
+      }
+
+      function positionTooltip(e) {
+        const rect = tooltip.getBoundingClientRect();
+        let x = e.clientX + 10;
+        let y = e.clientY + 10;
+
+        if (x + rect.width > window.innerWidth) x = e.clientX - rect.width - 10;
+        if (y + rect.height > window.innerHeight)
+          y = e.clientY - rect.height - 10;
+
+        tooltip.style.left = x + "px";
+        tooltip.style.top = y + "px";
+      }
+
+      function hideTooltip() {
+        tooltip.classList.remove("visible");
+      }
+
+      // Copy streaming session JSON to clipboard (keyed by groupKey)
+      function copyStreamingJson(e, groupKey) {
+        e.stopPropagation();
+
+        // Find the session by groupKey
+        const session = completedStreamingSessions.find(
+          (s) => s.groupKey === groupKey,
+        );
+        if (!session) return;
+
+        // Build assembled response from tokens
+        const assembledResponse = session.tokens
+          .map((t) => t.token || t.content || "")
+          .join("");
+        const duration = session.endTime
+          ? ((session.endTime - session.startTime) / 1000).toFixed(2)
+          : "?";
+
+        // Developer-friendly format showing the response and how to capture it
+        const copyText = `# LLM Streaming Response
+# Node: ${session.nodeName}
+# Tokens: ${session.tokens.length}
+# Duration: ${duration}s
+
+## Assembled Response:
+${assembledResponse}
+
+## How to capture in your interface:
+async for mode, chunk in graph.astream(state, config, stream_mode=["custom", "messages"]):
+    if mode == "messages":
+        message_chunk, metadata = chunk
+        if hasattr(message_chunk, "content") and message_chunk.content:
+            # message_chunk.content is each token
+            # metadata["langgraph_node"] is the source node
+            yield message_chunk.content`;
+
+        navigator.clipboard.writeText(copyText);
+        e.target.textContent = "Copied!";
+        setTimeout(() => (e.target.textContent = "Copy Text"), 1500);
+      }
+
+      // Create a new streaming tab for a session (keyed by groupKey = sessionId_nodeName)
+      function createStreamingTab(groupKey, nodeName) {
+        const tabsContainer = document.getElementById("streamingTabs");
+        const contentContainer = document.getElementById("streamingTabContent");
+
+        // Create tab button with component name and attempt number
+        const tab = document.createElement("div");
+        tab.className = "streaming-tab";
+        // Extract attempt number from groupKey for display
+        const attemptNum = groupKey.match(/attempt(\d+)$/)?.[1];
+        tab.textContent = attemptNum
+          ? `[${nodeName}] #${attemptNum}`
+          : `[${nodeName}]`;
+        tab.onclick = () => activateStreamingTab(groupKey);
+
+        // Create content panel
+        const panel = document.createElement("div");
+        panel.className = "streaming-tab-panel";
+        panel.innerHTML = `
+            <div class="streaming-tab-panel-header">
+                <div class="streaming-indicator"></div>
+                <span>[${nodeName}] Response</span>
+            </div>
+            <div class="streaming-tab-panel-content"></div>
+        `;
+
+        tabsContainer.appendChild(tab);
+        contentContainer.appendChild(panel);
+
+        streamingTabs[groupKey] = {
+          tab: tab,
+          panel: panel,
+          content: panel.querySelector(".streaming-tab-panel-content"),
+        };
+
+        // Activate this new tab
+        activateStreamingTab(groupKey);
+
+        return streamingTabs[groupKey];
+      }
+
+      // Activate a streaming tab
+      function activateStreamingTab(sessionId) {
+        // Deactivate all tabs
+        Object.values(streamingTabs).forEach(({ tab, panel }) => {
+          tab.classList.remove("active");
+          panel.classList.remove("active");
+        });
+
+        // Activate requested tab
+        if (streamingTabs[sessionId]) {
+          streamingTabs[sessionId].tab.classList.add("active");
+          streamingTabs[sessionId].panel.classList.add("active");
+          activeStreamingTab = sessionId;
+        }
+      }
+
+      // Update streaming tab content
+      function updateStreamingTabContent(sessionId, content) {
+        if (streamingTabs[sessionId]) {
+          const contentEl = streamingTabs[sessionId].content;
+          contentEl.textContent = content;
+
+          // Auto-scroll to bottom to show latest text
+          // The scrollable container is #streamingTabContent (.streaming-tab-content)
+          const tabContentContainer = document.getElementById(
+            "streamingTabContent",
+          );
+          tabContentContainer.scrollTop = tabContentContainer.scrollHeight;
+        }
+      }
+
+      // Finalize streaming tab (stop animation)
+      function finalizeStreamingTab(sessionId) {
+        if (streamingTabs[sessionId]) {
+          const indicator = streamingTabs[sessionId].panel.querySelector(
+            ".streaming-indicator",
+          );
+          if (indicator) {
+            indicator.style.animation = "none";
+          }
+        }
+      }
+
+      // Clear all streaming tabs
+      function clearStreamingTabs() {
+        document.getElementById("streamingTabs").innerHTML = "";
+        document.getElementById("streamingTabContent").innerHTML = "";
+        streamingTabs = {};
+        activeStreamingTab = null;
+      }
+
+      // Reset filters
+      function resetFilters() {
+        searchText = "";
+        typeFilter = "";
+        componentFilter = "";
+        searchInput.value = "";
+        typeFilterEl.value = "";
+        componentFilterEl.value = "";
+        refreshTimeline();
+      }
+
+      // Streaming viewer toggle - click to hide/show
+      streamingToggle.onclick = () => {
+        streamingViewerHidden = !streamingViewerHidden;
+        if (streamingViewerHidden) {
+          streamingResponse.classList.remove("active");
+          streamingToggle.style.display = "inline"; // Show footer button
+        } else if (Object.keys(streamingTabs).length > 0) {
+          streamingResponse.classList.add("active");
+          streamingToggle.style.display = "none"; // Hide footer button
+        }
+      };
+
+      // Close button for streaming viewer
+      const streamingCloseBtn = document.getElementById("streamingCloseBtn");
+      streamingCloseBtn.onclick = () => {
+        streamingViewerHidden = true;
+        streamingResponse.classList.remove("active");
+        streamingToggle.style.display = "inline"; // Show footer button when closed
+      };
+
+      // Event listeners
+      executeBtn.onclick = executeQuery;
+      clearBtn.onclick = clearEvents;
+      exportBtn.onclick = exportYAML;
+      resetFiltersBtn.onclick = resetFilters;
+      queryInput.onkeydown = (e) => {
+        if (e.key === "Enter") executeQuery();
+      };
+      searchInput.oninput = () => {
+        searchText = searchInput.value;
+        refreshTimeline();
+      };
+      typeFilterEl.onchange = () => {
+        typeFilter = typeFilterEl.value;
+        refreshTimeline();
+      };
+      componentFilterEl.onchange = () => {
+        componentFilter = componentFilterEl.value;
+        refreshTimeline();
+      };
+
+      // Initialize on page load (both in parallel)
+      fetchColors();
+      connect();
+    </script>
+  </body>
+</html>

@@ -6,12 +6,12 @@ embeddings using Ollama's local models.
 See 01_DATA_LAYER.md Section 6.3.1 for specification.
 """
 
-import logging
 import os
 
 from osprey.models.embeddings.base import BaseEmbeddingProvider
+from osprey.utils.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger("ollama_embeddings")
 
 
 class OllamaEmbeddingProvider(BaseEmbeddingProvider):

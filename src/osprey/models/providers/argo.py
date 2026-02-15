@@ -10,7 +10,6 @@ instructing the model to respond with JSON, then parse and validate the response
 """
 
 import json
-import logging
 import os
 import re
 from typing import Any
@@ -18,10 +17,12 @@ from typing import Any
 import httpx
 from pydantic import BaseModel
 
+from osprey.utils.logger import get_logger
+
 from .base import BaseProvider
 from .litellm_adapter import check_litellm_health, execute_litellm_completion
 
-logger = logging.getLogger(__name__)
+logger = get_logger("argo")
 
 
 def _clean_json_response(text: str) -> str:

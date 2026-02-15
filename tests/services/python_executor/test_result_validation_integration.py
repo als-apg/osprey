@@ -164,7 +164,9 @@ class TestResultsValidationThroughAnalysis:
         return evaluator
 
     @pytest.mark.asyncio
-    async def test_analysis_node_warns_on_missing_results(self, caplog):
+    async def test_analysis_node_warns_on_missing_results(
+        self, captured_events, fallback_handler_with_capture
+    ):
         """Analysis node should warn (not fail) when results missing."""
         from osprey.services.python_executor.analysis.node import StaticCodeAnalyzer
 
@@ -181,16 +183,16 @@ print(np.mean(data))
             "osprey.approval.approval_manager.get_python_execution_evaluator",
             return_value=self._mock_approval_evaluator(),
         ):
-            # This should complete successfully but log a warning
-            with caplog.at_level("WARNING"):
-                result = await analyzer.analyze_code(code_without_results, context=None)
+            # This should complete successfully but emit a warning event
+            result = await analyzer.analyze_code(code_without_results, context=None)
 
         # Analysis should pass (no critical errors)
         assert result.passed is True
 
-        # Should have logged a warning about missing results
+        # Should have emitted a warning about missing results
         assert any(
-            "does not appear to assign to 'results'" in record.message for record in caplog.records
+            "does not appear to assign to 'results'" in e.get("message", "")
+            for e in captured_events
         )
 
     @pytest.mark.asyncio
