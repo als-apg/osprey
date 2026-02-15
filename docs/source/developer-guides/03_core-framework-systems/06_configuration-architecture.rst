@@ -87,6 +87,10 @@ Project Configuration
          mode: "control_writes"
 
    execution_control:
+     agent_control:
+       orchestration_mode: plan_first  # Options: plan_first | react
+       # task_extraction_bypass_enabled: false
+       # capability_selection_bypass_enabled: false
      epics:
        writes_enabled: false
      limits:
@@ -142,7 +146,12 @@ A complete ``config.yml`` includes these major sections:
 
 **Safety Controls:**
    - ``approval`` - Human approval workflows
-   - ``execution_control`` - Safety limits and constraints
+   - ``execution_control`` - Safety limits, constraints, and orchestration mode
+
+**Agent Control:**
+   - ``execution_control.agent_control.orchestration_mode`` - ``plan_first`` (default) or ``react``
+   - ``execution_control.agent_control.task_extraction_bypass_enabled`` - Skip task extraction
+   - ``execution_control.agent_control.capability_selection_bypass_enabled`` - Skip capability classification
 
 **Execution Settings:**
    - ``execution`` - Python execution method and environment

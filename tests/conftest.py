@@ -235,6 +235,11 @@ def create_test_state(
         "ui_agent_context": None,
         "runtime_checkpoint_metadata": None,
         "runtime_info": None,
+        # Reactive orchestration fields
+        "react_messages": [],
+        "react_step_count": 0,
+        "react_rejection_count": 0,
+        "react_response_generated": False,
     }
 
     # Apply any overrides

@@ -198,6 +198,58 @@ def create_plan_approval_interrupt(
     return {"user_message": user_message, "resume_payload": resume_payload}
 
 
+def create_step_approval_interrupt(
+    step: dict[str, Any],
+    step_number: int,
+    execution_plan: dict[str, Any],
+) -> dict[str, Any]:
+    """Create structured interrupt data for reactive orchestrator step approval.
+
+    Generates LangGraph-compatible interrupt data that presents a single
+    reactive step to the user for approval before execution.  Used when
+    ``planning_mode_enabled`` is ``True`` in reactive orchestration mode.
+
+    The resume payload includes the execution plan and reactive loop state
+    (``react_messages``, ``react_step_count``) so that the orchestrator can
+    restore its state on approval without re-calling the LLM.
+
+    :param step: The planned step dict (capability, task_objective, …)
+    :type step: dict[str, Any]
+    :param step_number: Human-readable step number (1-based)
+    :type step_number: int
+    :param execution_plan: Single-step execution plan containing the step
+    :type execution_plan: dict[str, Any]
+    :return: Dictionary containing user_message and resume_payload for LangGraph
+    :rtype: Dict[str, Any]
+    """
+    capability = step.get("capability", "unknown")
+    objective = step.get("task_objective", "unknown")
+    expected_output = step.get("expected_output", "N/A")
+
+    user_message = f"""
+⚠️ **HUMAN APPROVAL REQUIRED** ⚠️
+
+**Reactive Step {step_number}:**
+- **Capability:** {capability}
+- **Objective:** {objective}
+- **Expected Output:** {expected_output}
+
+**To proceed, respond with:**
+- **`yes`** to approve and execute this step
+- **`no`** to reject and choose a different approach
+""".strip()
+
+    return {
+        "user_message": user_message,
+        "resume_payload": {
+            "approval_type": create_approval_type("reactive_orchestrator", "step"),
+            "execution_plan": execution_plan,
+            "step": step,
+            "step_number": step_number,
+        },
+    }
+
+
 def create_memory_approval_interrupt(
     content: str,
     operation_type: str,

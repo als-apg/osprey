@@ -230,10 +230,8 @@ class WriteOperationsOutput(BaseModel):
     """Structured output from LLM-based write operation parser."""
 
     write_operations: list[WriteOperation] = Field(
-        description="List of parsed write operations with channel-value pairs"
-    )
-    found: bool = Field(
-        description="True if valid write operations were identified, False otherwise"
+        description="List of parsed write operations with channel-value pairs. "
+        "Empty list if no valid operations could be identified.",
     )
 
 
@@ -434,8 +432,7 @@ def _get_write_parsing_system_prompt(
             "write_operations": [
                 {{"channel_address": "HCM01:CURRENT:SP", "value": 5.0}},
                 {{"channel_address": "HCM02:CURRENT:SP", "value": -3.2}}
-            ],
-            "found": true
+            ]
         }}
 
         Example 1b - Channel name with extra words:
@@ -446,8 +443,7 @@ def _get_write_parsing_system_prompt(
         {{
             "write_operations": [
                 {{"channel_address": "TerminalVoltageSetPoint", "value": 50.0}}
-            ],
-            "found": true
+            ]
         }}
         Note: Task mentions "TerminalVoltageSetPoint" which matches the original query "terminal voltage".
 
@@ -462,8 +458,7 @@ def _get_write_parsing_system_prompt(
             "write_operations": [
                 {{"channel_address": "HCM01:CURRENT:SP", "value": 12.5,
                   "notes": "Using optimal_current from calculation"}}
-            ],
-            "found": true
+            ]
         }}
 
         Example 3 - Missing required data:
@@ -473,8 +468,7 @@ def _get_write_parsing_system_prompt(
         Available data: (none)
         Response:
         {{
-            "write_operations": [],
-            "found": false
+            "write_operations": []
         }}
 
         Example 4 - Extract from statistics:
@@ -488,8 +482,7 @@ def _get_write_parsing_system_prompt(
             "write_operations": [
                 {{"channel_address": "HCM01:CURRENT:SP", "value": 8.5,
                   "notes": "Using mean from historical data"}}
-            ],
-            "found": true
+            ]
         }}
 
         CRITICAL RULES:
@@ -499,7 +492,7 @@ def _get_write_parsing_system_prompt(
         - Example: If task says "Set beam energy to 50" and mapping shows "beam energy" → SR:ENERGY:SP,
           then use "SR:ENERGY:SP" in your write_operations
         - All values must be numeric (float or int)
-        - If task requires calculation but no computed results available → found=false
+        - If task requires calculation but no computed results available → return empty write_operations list
         - Extract units if mentioned in task (optional)
         - Add notes about value source if helpful (optional)
 
@@ -744,7 +737,17 @@ class ChannelWriteCapability(BaseCapability):
         )
 
         # Store result in execution context
-        return self.store_output_context(result)
+        state_updates = self.store_output_context(result)
+
+        # Clear approval state after successful approved write to prevent
+        # downstream nodes (e.g., reactive_orchestrator) from misinterpreting
+        # stale approval flags as their own approval resume.
+        if has_approval_resume:
+            from osprey.approval import clear_approval_state
+
+            state_updates.update(clear_approval_state())
+
+        return state_updates
 
     async def _parse_write_operations(self, channel_contexts: list) -> list[WriteOperation]:
         """
@@ -820,22 +823,16 @@ class ChannelWriteCapability(BaseCapability):
             logger.error(f"Invalid LLM response type: {type(response_data)}")
             raise WriteParsingError("LLM failed to return structured write operations output")
 
-        logger.debug(
-            f"LLM result: found={response_data.found}, operations={len(response_data.write_operations)}"
-        )
+        logger.debug(f"LLM result: {len(response_data.write_operations)} operation(s)")
 
         # Check if valid operations were found
-        if not response_data.found:
+        if not response_data.write_operations:
             logger.warning(f"No write operations found in: '{task_objective}'")
             raise AmbiguousWriteOperationError(
                 f"Could not parse write operations from task: '{task_objective}'. "
                 f"Available channels: {channel_addresses}. "
                 f"Task may require calculation or additional context data."
             )
-
-        if not response_data.write_operations:
-            logger.warning("LLM found operations but returned empty list")
-            raise WriteParsingError("Invalid parsing result: found=true but empty operations list")
 
         return response_data.write_operations
 

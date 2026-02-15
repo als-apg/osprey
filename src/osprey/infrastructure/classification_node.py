@@ -595,5 +595,66 @@ async def select_capabilities(
             elif result is True:
                 active_capabilities.append(capability.name)
 
+    # Step 3: Expand dependencies — ensure provider capabilities are included
+    active_capabilities = _expand_capability_dependencies(active_capabilities, state, logger)
+
     logger.info(f"{len(active_capabilities)} capabilities required: {active_capabilities}")
     return active_capabilities
+
+
+def _expand_capability_dependencies(
+    selected_names: list[str],
+    state: AgentState,
+    logger,
+) -> list[str]:
+    """Expand selected capabilities to include providers for unsatisfied dependencies.
+
+    For each selected capability, checks its ``requires`` list.  If a required
+    context type is not already available in ``capability_context_data`` (from a
+    previous turn), the capability that ``provides`` it is added to the selected
+    set.  This is applied transitively until no new capabilities are added.
+
+    :param selected_names: Initially selected capability names
+    :param state: Current agent state (used to check existing context data)
+    :param logger: Logger instance
+    :return: Expanded list of capability names
+    """
+    registry = get_registry()
+
+    # Build provider map: context_type → capability name (from ALL registered)
+    provider_map: dict[str, str] = {}
+    for cap in registry.get_all_capabilities():
+        for provided_type in getattr(cap, "provides", []) or []:
+            provider_map[provided_type] = getattr(cap, "name", "unknown")
+
+    context_data = state.get("capability_context_data", {})
+    expanded = list(selected_names)
+    expanded_set = set(selected_names)
+
+    # Iterative transitive closure
+    changed = True
+    while changed:
+        changed = False
+        for name in list(expanded):
+            cap = registry.get_capability(name)
+            if not cap:
+                continue
+            requires = getattr(cap, "requires", []) or []
+            for req in requires:
+                context_type = req[0] if isinstance(req, tuple) else req
+                # Skip if context already available from a previous turn
+                type_contexts = context_data.get(context_type, {})
+                if type_contexts and isinstance(type_contexts, dict):
+                    continue
+                # Look up provider and add if found
+                provider = provider_map.get(context_type)
+                if provider and provider not in expanded_set:
+                    expanded.append(provider)
+                    expanded_set.add(provider)
+                    changed = True
+                    logger.info(
+                        f"Dependency expansion: added '{provider}' "
+                        f"(provides {context_type} required by {name})"
+                    )
+
+    return expanded

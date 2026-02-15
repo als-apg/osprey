@@ -180,7 +180,8 @@ Complete Provider Interface
 
    .. tab-item:: Orchestrator
 
-      Controls execution planning and coordination:
+      Controls execution planning and coordination. The orchestrator prompt builder provides
+      two mode-specific methods:
 
       .. code-block:: python
 
@@ -188,8 +189,15 @@ Complete Provider Interface
              """
              Return prompt builder for orchestration operations.
 
-             Used by the orchestrator node to create execution plans
-             and coordinate capability execution sequences.
+             The returned builder provides mode-specific instruction methods:
+
+             - ``get_planning_instructions()`` — used by plan-first orchestrator
+               (OrchestrationNode) to create complete execution plans
+             - ``get_reactive_instructions()`` — used by reactive orchestrator
+               (ReactiveOrchestratorNode) to decide one step at a time
+
+             The legacy ``get_system_instructions()`` method is deprecated
+             in favor of these mode-specific methods.
              """
 
    .. tab-item:: Task Extraction

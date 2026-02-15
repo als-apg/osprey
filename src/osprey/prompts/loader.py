@@ -577,7 +577,7 @@ def get_framework_prompts(application_name: str | None = None) -> FrameworkPromp
             # In orchestration_node.py
             prompt_provider = get_framework_prompts()
             orchestrator_builder = prompt_provider.get_orchestrator_prompt_builder()
-            system_prompt = orchestrator_builder.get_system_instructions(
+            system_prompt = orchestrator_builder.get_planning_instructions(
                 capabilities=active_capabilities,
                 context_manager=context_manager
             )

@@ -1,11 +1,13 @@
 """Tests for classification node - task classification and capability selection."""
 
 import inspect
+from unittest.mock import MagicMock, patch
 
 from osprey.infrastructure.classification_node import (
     ClassificationNode,
     _create_classification_result,
     _detect_reclassification_scenario,
+    _expand_capability_dependencies,
 )
 
 # =============================================================================
@@ -295,3 +297,124 @@ class TestHelperFunctions:
         result = _detect_reclassification_scenario(state)
 
         assert result is None
+
+
+# =============================================================================
+# Test Dependency Expansion
+# =============================================================================
+
+
+def _make_mock_cap(name, provides=None, requires=None):
+    """Create a mock capability with name, provides, and requires."""
+    cap = MagicMock()
+    cap.name = name
+    cap.provides = provides or []
+    cap.requires = requires or []
+    return cap
+
+
+def _mock_registry_for_expansion(capabilities):
+    """Build a mock registry from a list of mock capabilities."""
+    registry = MagicMock()
+    cap_map = {cap.name: cap for cap in capabilities}
+    registry.get_capability.side_effect = lambda n: cap_map.get(n)
+    registry.get_all_capabilities.return_value = capabilities
+    return registry
+
+
+class TestExpandCapabilityDependencies:
+    """Test _expand_capability_dependencies transitive dependency resolution."""
+
+    def test_single_dependency_resolved(self):
+        """channel_write requires CHANNEL_ADDRESSES → adds channel_finding."""
+        caps = [
+            _make_mock_cap("channel_write", requires=["CHANNEL_ADDRESSES"]),
+            _make_mock_cap("channel_finding", provides=["CHANNEL_ADDRESSES"]),
+            _make_mock_cap("respond"),
+        ]
+        registry = _mock_registry_for_expansion(caps)
+        state = {"capability_context_data": {}}
+        logger = MagicMock()
+
+        with patch("osprey.infrastructure.classification_node.get_registry", return_value=registry):
+            result = _expand_capability_dependencies(["channel_write", "respond"], state, logger)
+
+        assert "channel_finding" in result
+        assert "channel_write" in result
+        assert "respond" in result
+
+    def test_dependency_satisfied_by_context_data(self):
+        """No expansion when required context already exists from a previous turn."""
+        caps = [
+            _make_mock_cap("channel_write", requires=["CHANNEL_ADDRESSES"]),
+            _make_mock_cap("channel_finding", provides=["CHANNEL_ADDRESSES"]),
+        ]
+        registry = _mock_registry_for_expansion(caps)
+        state = {
+            "capability_context_data": {"CHANNEL_ADDRESSES": {"beam_channels": {"pvs": ["SR:C01"]}}}
+        }
+        logger = MagicMock()
+
+        with patch("osprey.infrastructure.classification_node.get_registry", return_value=registry):
+            result = _expand_capability_dependencies(["channel_write"], state, logger)
+
+        assert result == ["channel_write"]
+
+    def test_transitive_dependencies(self):
+        """C requires B requires A → all three added."""
+        caps = [
+            _make_mock_cap("cap_c", requires=["TYPE_B"]),
+            _make_mock_cap("cap_b", provides=["TYPE_B"], requires=["TYPE_A"]),
+            _make_mock_cap("cap_a", provides=["TYPE_A"]),
+        ]
+        registry = _mock_registry_for_expansion(caps)
+        state = {"capability_context_data": {}}
+        logger = MagicMock()
+
+        with patch("osprey.infrastructure.classification_node.get_registry", return_value=registry):
+            result = _expand_capability_dependencies(["cap_c"], state, logger)
+
+        assert set(result) == {"cap_c", "cap_b", "cap_a"}
+
+    def test_no_requires_no_expansion(self):
+        """Capability with no requires → list unchanged."""
+        caps = [_make_mock_cap("respond")]
+        registry = _mock_registry_for_expansion(caps)
+        state = {"capability_context_data": {}}
+        logger = MagicMock()
+
+        with patch("osprey.infrastructure.classification_node.get_registry", return_value=registry):
+            result = _expand_capability_dependencies(["respond"], state, logger)
+
+        assert result == ["respond"]
+
+    def test_duplicate_prevention(self):
+        """Provider already in selected list → no duplicate added."""
+        caps = [
+            _make_mock_cap("channel_write", requires=["CHANNEL_ADDRESSES"]),
+            _make_mock_cap("channel_finding", provides=["CHANNEL_ADDRESSES"]),
+        ]
+        registry = _mock_registry_for_expansion(caps)
+        state = {"capability_context_data": {}}
+        logger = MagicMock()
+
+        with patch("osprey.infrastructure.classification_node.get_registry", return_value=registry):
+            result = _expand_capability_dependencies(
+                ["channel_write", "channel_finding"], state, logger
+            )
+
+        assert result == ["channel_write", "channel_finding"]
+
+    def test_unknown_provider_skipped(self):
+        """Required context type with no registered provider → no crash."""
+        caps = [
+            _make_mock_cap("channel_write", requires=["NONEXISTENT_TYPE"]),
+        ]
+        registry = _mock_registry_for_expansion(caps)
+        state = {"capability_context_data": {}}
+        logger = MagicMock()
+
+        with patch("osprey.infrastructure.classification_node.get_registry", return_value=registry):
+            result = _expand_capability_dependencies(["channel_write"], state, logger)
+
+        assert result == ["channel_write"]

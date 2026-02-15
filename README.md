@@ -64,7 +64,7 @@ See [TESTING_GUIDE.md](TESTING_GUIDE.md) and [tests/e2e/README.md](tests/e2e/REA
 
 ## Key Features
 
-- **Plan-First Orchestration** - Complete execution plans with explicit dependencies before any hardware interaction
+- **Dual-Mode Orchestration** - Plan-first (complete upfront plans) and reactive (ReAct, step-by-step) execution with explicit dependencies and operator oversight
 - **Control-System Safety** - Pattern detection, PV boundary checking, and mandatory approval for hardware writes
 - **Protocol-Agnostic Integration** - Seamless connection to EPICS, LabVIEW, Tango, and mock environments
 - **Scalable Capability Management** - Dynamic classification prevents prompt explosion as toolsets grow

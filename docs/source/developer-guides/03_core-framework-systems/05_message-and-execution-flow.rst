@@ -33,7 +33,8 @@ The framework uses a **router-controlled architecture** where a central RouterNo
 - :class:`RouterNode`: Central routing authority that determines next execution steps
 - :class:`TaskExtractionNode`: Converts conversations into actionable task descriptions
 - :class:`ClassificationNode`: Selects appropriate capabilities based on task analysis
-- :class:`OrchestrationNode`: Creates detailed execution plans for multi-step workflows
+- :class:`OrchestrationNode`: Creates detailed execution plans for multi-step workflows (plan-first mode)
+- :class:`ReactiveOrchestratorNode`: Decides one step at a time using the ReAct pattern (reactive mode)
 - **Capabilities**: Registry-discovered components that execute business logic
 - :class:`RespondCapability`: Final response generation
 - :class:`ErrorNode`: Error handling and recovery
@@ -43,8 +44,10 @@ The framework uses a **router-controlled architecture** where a central RouterNo
 
 1. Gateway processes user input and creates fresh state
 2. Router determines next step based on current state
-3. Infrastructure nodes (task extraction, classification, orchestration) prepare execution
-4. Router routes to appropriate capabilities for business logic execution
+3. Infrastructure nodes (task extraction, classification) prepare execution
+4. Orchestration depends on the configured mode:
+   - **Plan-first** (default): ``OrchestrationNode`` creates a complete plan, router executes each step sequentially
+   - **Reactive**: ``ReactiveOrchestratorNode`` decides one step at a time, router returns control after each capability execution
 5. Router coordinates multi-step workflows
 6. Response generation completes the cycle
 
@@ -162,10 +165,21 @@ The RouterNode serves as the central decision-making authority, determining exec
 
 **Router Conditional Edge Logic:**
 
+The router first checks the configured orchestration mode and delegates accordingly:
+
 .. code-block:: python
 
    def router_conditional_edge(state: AgentState) -> str:
        """Central routing logic that determines next execution step."""
+
+       # Reactive mode early exit
+       orchestration_mode = get_config_value(
+           "execution_control.agent_control.orchestration_mode", "plan_first"
+       )
+       if orchestration_mode == "react":
+           return _reactive_routing(state, logger)
+
+       # Plan-first routing:
 
        # Check for errors first
        if state.get('control_has_error'):
@@ -194,6 +208,8 @@ The RouterNode serves as the central decision-making authority, determining exec
 
        # Execution complete - generate response
        return "respond"
+
+In reactive mode, ``_reactive_routing()`` follows a different priority: it uses execution plan dispatch for all capabilities (including respond/clarify), routes errors back to the orchestrator for re-evaluation, and enforces a max iterations guard. See :doc:`../04_infrastructure-components/03_classification-and-routing` for details.
 
 Task Extraction
 ================

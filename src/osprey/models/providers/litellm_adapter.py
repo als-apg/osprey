@@ -135,13 +135,23 @@ def execute_litellm_completion(
     :param kwargs: Additional arguments (enable_thinking, budget_tokens, output_format, etc.)
     :return: Response text, Pydantic model instance, or list of content blocks
     """
+    # Pop chat_request and tools from kwargs (passed through from get_chat_completion)
+    chat_request = kwargs.pop("chat_request", None)
+    tools = kwargs.pop("tools", None)
+    tool_choice = kwargs.pop("tool_choice", None)
+
     # Get LiteLLM model name
     litellm_model = get_litellm_model_name(provider, model_id, base_url)
 
     # Build completion kwargs
+    if chat_request is not None:
+        messages = chat_request.to_litellm_messages(provider=provider)
+    else:
+        messages = [{"role": "user", "content": message}]
+
     completion_kwargs: dict[str, Any] = {
         "model": litellm_model,
-        "messages": [{"role": "user", "content": message}],
+        "messages": messages,
         "max_tokens": max_tokens,
         "temperature": temperature,
     }
@@ -153,6 +163,11 @@ def execute_litellm_completion(
     # Set base URL for OpenAI-compatible providers
     if base_url:
         completion_kwargs["api_base"] = base_url
+
+    # Add tools if provided
+    if tools is not None:
+        completion_kwargs["tools"] = tools
+        completion_kwargs["tool_choice"] = tool_choice if tool_choice is not None else "auto"
 
     # Handle HTTP proxy from environment
     proxy_url = os.environ.get("HTTP_PROXY")
@@ -185,6 +200,9 @@ def execute_litellm_completion(
     output_format = kwargs.get("output_format")
     is_typed_dict_output = kwargs.get("is_typed_dict_output", False)
 
+    if output_format is not None and tools is not None:
+        raise ValueError("Cannot use both 'tools' and 'output_format' simultaneously")
+
     if output_format is not None:
         return _handle_structured_output(
             provider=provider,
@@ -194,6 +212,7 @@ def execute_litellm_completion(
             completion_kwargs=completion_kwargs,
             output_format=output_format,
             is_typed_dict_output=is_typed_dict_output,
+            chat_request=chat_request,
         )
 
     # Ollama: Use direct API to bypass LiteLLM bug #15463 with thinking models
@@ -216,6 +235,22 @@ def execute_litellm_completion(
             if hasattr(choice.message, "content") and isinstance(choice.message.content, list):
                 return choice.message.content
 
+    # Handle tool call responses
+    if hasattr(response, "choices") and response.choices:
+        message = response.choices[0].message
+        if hasattr(message, "tool_calls") and message.tool_calls:
+            return [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    },
+                }
+                for tc in message.tool_calls
+            ]
+
     # Extract text from response
     if hasattr(response, "choices") and response.choices:
         return response.choices[0].message.content or ""
@@ -231,6 +266,7 @@ def _handle_structured_output(
     completion_kwargs: dict[str, Any],
     output_format: type[BaseModel],
     is_typed_dict_output: bool,
+    chat_request=None,
 ) -> BaseModel | dict:
     """Handle structured output generation.
 
@@ -244,6 +280,7 @@ def _handle_structured_output(
     :param completion_kwargs: Base completion kwargs
     :param output_format: Pydantic model for output validation
     :param is_typed_dict_output: Whether to convert result to dict
+    :param chat_request: Optional ChatCompletionRequest (preserves multi-turn messages)
     :return: Validated Pydantic model instance or dict
     """
     # Ollama: Use direct API to bypass LiteLLM bug #15463 with thinking models
@@ -270,7 +307,9 @@ def _handle_structured_output(
             "type": "json_schema",
             "json_schema": {"name": output_format.__name__, "schema": schema},
         }
-        completion_kwargs["messages"] = [{"role": "user", "content": message}]
+        # Only rebuild messages when chat_request is not providing them
+        if chat_request is None:
+            completion_kwargs["messages"] = [{"role": "user", "content": message}]
 
         response = litellm.completion(**completion_kwargs)
         response_text = response.choices[0].message.content or ""
@@ -278,14 +317,27 @@ def _handle_structured_output(
         response_text = _clean_json_response(response_text)
     else:
         # Prompt-based fallback for models without native support
-        structured_message = f"""{message}
+        schema_instruction = (
+            f"\n\nYou must respond with valid JSON that matches this schema:\n"
+            f"{json.dumps(schema, indent=2)}\n\n"
+            f"Respond ONLY with the JSON object, no additional text or markdown formatting."
+        )
 
-You must respond with valid JSON that matches this schema:
-{json.dumps(schema, indent=2)}
-
-Respond ONLY with the JSON object, no additional text or markdown formatting."""
-
-        completion_kwargs["messages"] = [{"role": "user", "content": structured_message}]
+        if chat_request is not None:
+            # Append schema instruction to the last user message
+            msgs = completion_kwargs["messages"]
+            for i in range(len(msgs) - 1, -1, -1):
+                if msgs[i]["role"] == "user":
+                    content = msgs[i]["content"]
+                    # Handle content that's already a list (Anthropic cache blocks)
+                    if isinstance(content, list):
+                        content[-1]["text"] += schema_instruction
+                    else:
+                        msgs[i]["content"] = content + schema_instruction
+                    break
+        else:
+            structured_message = f"{message}{schema_instruction}"
+            completion_kwargs["messages"] = [{"role": "user", "content": structured_message}]
 
         response = litellm.completion(**completion_kwargs)
         response_text = response.choices[0].message.content or ""

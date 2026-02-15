@@ -10,6 +10,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Channel Finder**: Add `--delimiter` option to `build-database` for CSV files (#161, @RemiLehe)
 - **Build**: Add `uv.lock` for reproducible dependency resolution; consolidate `pytest.ini` into `pyproject.toml`
+- **Infrastructure**: Add reactive orchestrator with ReAct-style tool loop
+  - `ReactiveOrchestratorNode`: autonomous Reason+Act loop that replaces rigid plan-then-execute with iterative, LLM-driven decision-making
+  - Reactive tool system with tool registry, argument parsing, and result formatting for native tool calling
+  - `ChatRequest`/`ChatResponse` models for structured LLM interactions with `tool_calls` and `tool_results` message support
+  - Router extensions for classifying reactive vs. planning mode
+  - Approval system hooks for gating tool execution
+- **Models**: Add `chat_request()` method to LiteLLM adapter for native message-based completions alongside existing text completion API
+- **Prompts**: Add ReAct-specific system, planning, and tool prompt templates for orchestrator
+- **State**: Add `reactive_mode` flag and tool execution tracking to conversation state
+- **Config**: Add `orchestration_mode` setting to project and app config templates
+- **Infrastructure**: Add classifier-level dependency expansion for reactive orchestration
+  - Capabilities with unsatisfied `requires` automatically pull in their providers (e.g., selecting `channel_write` adds `channel_finding`)
+  - Transitive resolution ensures multi-hop dependency chains are fully expanded
+  - Reactive orchestrator auto-expands active capabilities at dispatch time as a safety net
+
+### Fixed
+- **Capabilities**: Remove redundant `found` field from `WriteOperationsOutput` schema — CBORG Haiku omits it from structured output, causing Pydantic validation failures
+- **Capabilities**: Clear approval state after approved `channel_write` completes to prevent reactive orchestrator from misinterpreting stale approval flags
 
 ## [0.11.1] - 2026-02-13
 

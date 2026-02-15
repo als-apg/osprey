@@ -154,9 +154,7 @@ class TestChannelWriteContextClasses:
             write_operations=[
                 WriteOperation(channel_address="MAG:HCM01:CURRENT:SP", value=5.0),
             ],
-            found=True,
         )
-        assert output.found is True
         assert len(output.write_operations) == 1
 
 

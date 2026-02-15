@@ -112,7 +112,7 @@ class TestAnthropicHealthCheck:
 
         # Mock successful LiteLLM response
         mock_response = MagicMock()
-        mock_response.choices = [MagicMock(message=MagicMock(content="Hello"))]
+        mock_response.choices = [MagicMock(message=MagicMock(tool_calls=None, content="Hello"))]
         mock_completion.return_value = mock_response
 
         is_healthy, message = provider.check_health(
@@ -170,7 +170,7 @@ class TestAnthropicExecuteCompletion:
         provider = AnthropicProviderAdapter()
 
         mock_response = MagicMock()
-        mock_response.choices = [MagicMock(message=MagicMock(content="Hello!"))]
+        mock_response.choices = [MagicMock(message=MagicMock(tool_calls=None, content="Hello!"))]
         mock_completion.return_value = mock_response
 
         result = provider.execute_completion(
@@ -192,7 +192,9 @@ class TestAnthropicExecuteCompletion:
         provider = AnthropicProviderAdapter()
 
         mock_response = MagicMock()
-        mock_response.choices = [MagicMock(message=MagicMock(content="Thinking response"))]
+        mock_response.choices = [
+            MagicMock(message=MagicMock(tool_calls=None, content="Thinking response"))
+        ]
         mock_completion.return_value = mock_response
 
         result = provider.execute_completion(

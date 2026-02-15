@@ -288,6 +288,12 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     function_name="ErrorNode",
                     description="Error handling and recovery",
                 ),
+                NodeRegistration(
+                    name="reactive_orchestrator",
+                    module_path="osprey.infrastructure.reactive_orchestrator_node",
+                    function_name="ReactiveOrchestratorNode",
+                    description="Reactive orchestration",
+                ),
             ],
             # Framework-level capabilities (not application-specific)
             capabilities=[

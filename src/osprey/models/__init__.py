@@ -37,8 +37,11 @@ from .langchain import (  # noqa: E402
     list_supported_providers,
 )
 from .logging import set_api_call_context  # noqa: E402
+from .messages import ChatCompletionRequest, ChatMessage  # noqa: E402
 
 __all__ = [
+    "ChatCompletionRequest",
+    "ChatMessage",
     "get_chat_completion",
     "get_langchain_model",
     "get_langchain_model_from_name",

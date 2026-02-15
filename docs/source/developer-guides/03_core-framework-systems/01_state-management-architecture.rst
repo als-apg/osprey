@@ -77,6 +77,10 @@ AgentState extends LangGraph's MessagesState with framework-specific fields orga
    # Agent control state
    agent_control: Dict[str, Any]
 
+   # Reactive orchestration (execution-scoped, only used in react mode)
+   react_messages: list[dict]       # Accumulated LLM reasoning messages for ReAct loop
+   react_step_count: int            # Safety counter for max iterations
+
 **State Example:**
 
 .. code-block:: python

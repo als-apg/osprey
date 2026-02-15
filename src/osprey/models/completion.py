@@ -17,10 +17,17 @@ Key capabilities include:
    :mod:`configs.config` : Provider configuration management
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from pydantic import BaseModel, Field, create_model
 
 from osprey.utils.config import get_provider_config
 from osprey.utils.logger import get_logger
+
+if TYPE_CHECKING:
+    from osprey.models.messages import ChatCompletionRequest
 
 logger = get_logger("completion")
 
@@ -57,7 +64,7 @@ def _convert_typed_dict_to_pydantic(typed_dict_cls) -> type[BaseModel]:
 
 
 def get_chat_completion(
-    message: str,
+    message: str = "",
     max_tokens: int = 1024,
     model_config: dict | None = None,
     provider: str | None = None,
@@ -68,6 +75,9 @@ def get_chat_completion(
     base_url: str | None = None,
     provider_config: dict | None = None,
     temperature: float = 0.0,
+    chat_request: ChatCompletionRequest | None = None,
+    tools: list[dict] | None = None,
+    tool_choice: str | dict | None = None,
 ) -> str | BaseModel | list:
     """Execute direct chat completion requests across multiple AI providers via LiteLLM.
 
@@ -113,6 +123,16 @@ def get_chat_completion(
             ...     output_model=Result
             ... )
     """
+    # Validate message / chat_request exclusivity
+    if message and chat_request is not None:
+        raise ValueError("Cannot pass both 'message' and 'chat_request'")
+    if not message and chat_request is None:
+        raise ValueError("Must pass either 'message' or 'chat_request'")
+
+    # Mutual exclusion: tools and output_model cannot coexist
+    if tools is not None and output_model is not None:
+        raise ValueError("Cannot pass both 'tools' and 'output_model'")
+
     # Handle TypedDict to Pydantic conversion
     is_typed_dict_output = False
     if output_model is not None and _is_typed_dict(output_model):
@@ -164,6 +184,9 @@ def get_chat_completion(
         "budget_tokens": budget_tokens,
         "output_format": output_model,
         "is_typed_dict_output": is_typed_dict_output,
+        "chat_request": chat_request,
+        "tools": tools,
+        "tool_choice": tool_choice,
     }
 
     result = provider_instance.execute_completion(
@@ -179,8 +202,10 @@ def get_chat_completion(
     # Log API call for transparency and debugging
     from osprey.models.logging import log_api_call
 
+    log_message = message if message else chat_request.to_single_string()
+
     log_api_call(
-        message=message,
+        message=log_message,
         result=result,
         provider=provider,
         model_id=model_id,

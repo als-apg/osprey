@@ -32,7 +32,7 @@ from osprey.base.errors import (
 from osprey.base.nodes import BaseInfrastructureNode
 from osprey.base.planning import ExecutionPlan, PlannedStep
 from osprey.context.context_manager import ContextManager
-from osprey.models import get_chat_completion
+from osprey.models import get_chat_completion, set_api_call_context
 from osprey.prompts.loader import get_framework_prompts
 from osprey.registry import get_registry
 from osprey.state import AgentState
@@ -48,6 +48,103 @@ if TYPE_CHECKING:
 # =============================================================================
 # EXECUTION PLAN VALIDATION
 # =============================================================================
+
+
+def validate_single_step(
+    step: PlannedStep,
+    state: AgentState,
+    logger,
+    *,
+    available_keys: dict[str, tuple[int, str]] | None = None,
+    step_index: int = 0,
+) -> None:
+    """Validate a single execution step for correctness.
+
+    Checks that:
+    1. The step's capability exists in the registry
+    2. Input context key references are valid (if available_keys provided)
+
+    This function is used by both the plan-first orchestrator (via
+    ``_validate_and_fix_execution_plan``) and the reactive orchestrator
+    to validate individual steps.
+
+    :param step: The planned step to validate
+    :param state: Current agent state (for checking existing context keys)
+    :param logger: Logger instance
+    :param available_keys: Pre-built map of context_key -> (step_number, capability_name).
+        If None, builds from state's existing context data only.
+    :param step_index: The index of this step in the plan (for error messages)
+    :raises ValueError: If capability is not found in registry
+    :raises InvalidContextKeyError: If invalid context key references found
+    """
+    registry = get_registry()
+
+    capability_name = step.get("capability", "")
+    if not capability_name:
+        logger.warning(f"Step {step_index + 1} has no capability specified")
+        return
+
+    # Check if capability exists in registry
+    if not registry.get_node(capability_name):
+        error_msg = f"Capability '{capability_name}' not found in registry. Available capabilities: {registry.get_stats()['capability_names']}"
+        logger.error(f"Step {step_index + 1}: {error_msg}")
+        raise ValueError(error_msg)
+
+    # Build available_keys from state if not provided
+    if available_keys is None:
+        available_keys = {}
+        existing_context = state.get("capability_context_data", {})
+        for _context_type, contexts in existing_context.items():
+            if isinstance(contexts, dict):
+                for key in contexts.keys():
+                    available_keys[key] = (0, "existing_context")
+
+    # Validate input context key references
+    step_inputs = step.get("inputs") or []
+    for input_ref in step_inputs:
+        if not isinstance(input_ref, dict):
+            continue
+
+        for context_type, ref_key in input_ref.items():
+            if ref_key not in available_keys:
+                error_lines = [
+                    f"Step {step_index + 1} ({capability_name}) references invalid context key.",
+                    "",
+                    "**Invalid Input Reference:**",
+                    f'  {{"{context_type}": "{ref_key}"}}',
+                    "",
+                    "**Available Context Keys:**",
+                ]
+
+                sorted_keys = sorted(available_keys.items(), key=lambda x: x[1][0])
+                for key, (step_num, cap_name) in sorted_keys:
+                    if step_num == 0:
+                        error_lines.append(f'  - "{key}" (from existing context)')
+                    else:
+                        error_lines.append(f'  - "{key}" (created by step {step_num}: {cap_name})')
+
+                error_lines.extend(
+                    [
+                        "",
+                        "**Guidance:** Each step's input references must exactly match a context_key",
+                        "from an earlier step or existing context. Check for typos or inconsistent naming.",
+                    ]
+                )
+
+                error_msg = "\n".join(error_lines)
+                logger.error(f"Context key validation failed:\n{error_msg}")
+                raise InvalidContextKeyError(error_msg)
+
+            # Also check that referenced key comes from an EARLIER step (not same or later)
+            ref_step_num = available_keys[ref_key][0]
+            if ref_step_num > step_index:
+                error_msg = (
+                    f"Step {step_index + 1} ({capability_name}) references key '{ref_key}' "
+                    f"which is created by step {ref_step_num} (later in the plan). "
+                    f"Steps can only reference keys from earlier steps or existing context."
+                )
+                logger.error(f"Context key ordering error: {error_msg}")
+                raise InvalidContextKeyError(error_msg)
 
 
 def _validate_and_fix_execution_plan(
@@ -133,59 +230,9 @@ def _validate_and_fix_execution_plan(
         if context_key:
             available_keys[context_key] = (i + 1, step.get("capability", "unknown"))
 
-    # Validate each step's input references
+    # Validate each step's input references using validate_single_step
     for i, step in enumerate(steps):
-        step_inputs = step.get("inputs") or []
-        capability_name = step.get("capability", "unknown")
-
-        for input_ref in step_inputs:
-            if not isinstance(input_ref, dict):
-                continue
-
-            for context_type, ref_key in input_ref.items():
-                if ref_key not in available_keys:
-                    # Build helpful error message
-                    error_lines = [
-                        f"Step {i + 1} ({capability_name}) references invalid context key.",
-                        "",
-                        "**Invalid Input Reference:**",
-                        f'  {{"{context_type}": "{ref_key}"}}',
-                        "",
-                        "**Available Context Keys:**",
-                    ]
-
-                    # Sort keys by step number for clarity
-                    sorted_keys = sorted(available_keys.items(), key=lambda x: x[1][0])
-                    for key, (step_num, cap_name) in sorted_keys:
-                        if step_num == 0:
-                            error_lines.append(f'  - "{key}" (from existing context)')
-                        else:
-                            error_lines.append(
-                                f'  - "{key}" (created by step {step_num}: {cap_name})'
-                            )
-
-                    error_lines.extend(
-                        [
-                            "",
-                            "**Guidance:** Each step's input references must exactly match a context_key",
-                            "from an earlier step or existing context. Check for typos or inconsistent naming.",
-                        ]
-                    )
-
-                    error_msg = "\n".join(error_lines)
-                    logger.error(f"Context key validation failed:\n{error_msg}")
-                    raise InvalidContextKeyError(error_msg)
-
-                # Also check that referenced key comes from an EARLIER step (not same or later)
-                ref_step_num = available_keys[ref_key][0]
-                if ref_step_num > i:  # Key is created by a later step
-                    error_msg = (
-                        f"Step {i + 1} ({capability_name}) references key '{ref_key}' "
-                        f"which is created by step {ref_step_num} (later in the plan). "
-                        f"Steps can only reference keys from earlier steps or existing context."
-                    )
-                    logger.error(f"Context key ordering error: {error_msg}")
-                    raise InvalidContextKeyError(error_msg)
+        validate_single_step(step, state, logger, available_keys=available_keys, step_index=i)
 
     logger.debug("✅ All input context key references are valid")
 
@@ -512,7 +559,7 @@ class OrchestrationNode(BaseInfrastructureNode):
             # Get messages for chat history context (only used when task_depends_on_chat_history=True)
             messages = state.get("messages", [])
 
-            system_instructions = orchestrator_builder.get_system_instructions(
+            system_instructions = orchestrator_builder.get_planning_instructions(
                 active_capabilities=active_capabilities,
                 context_manager=context_manager,
                 task_depends_on_chat_history=state.get("task_depends_on_chat_history", False),
@@ -578,8 +625,6 @@ class OrchestrationNode(BaseInfrastructureNode):
         logger.emit_llm_request(message)
 
         # Set caller context for API call logging (propagates through asyncio.to_thread)
-        from osprey.models import set_api_call_context
-
         set_api_call_context(
             function="_create_execution_plan",
             module="orchestration_node",

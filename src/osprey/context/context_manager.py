@@ -88,6 +88,10 @@ class DictNamespace:
         """Support .get() method."""
         return getattr(self, key, default)
 
+    def get_summary(self) -> dict:
+        """Return a summary dict for compatibility with CapabilityContext."""
+        return {"type": "raw_data", "data": self._data}
+
     def __repr__(self):
         return f"DictNamespace({self._data!r})"
 

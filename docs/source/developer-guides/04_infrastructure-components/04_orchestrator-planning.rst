@@ -9,7 +9,9 @@ Orchestrator Planning
 
    **Key Concepts:**
 
-   - How orchestrator creates execution plans from tasks and capabilities
+   - How the plan-first orchestrator creates execution plans from tasks and capabilities
+   - How the reactive orchestrator decides one step at a time
+   - Shared step validation (``validate_single_step``) across both modes
    - LLM-powered planning with capability integration
    - Approval workflow integration with plan validation
    - Plan structure and execution coordination
@@ -21,15 +23,19 @@ Orchestrator Planning
 Core Concept
 ------------
 
-Orchestrator creates complete execution plans upfront, enabling validation, approval, and optimized execution without mid-stream planning decisions.
+Osprey supports two orchestration modes. This page focuses on the **plan-first** mode (default) which creates complete execution plans upfront. For the **reactive** mode (ReAct), see :ref:`reactive-orchestration-planning` below.
 
-**Traditional Approach:**
-   ``User Query → Tool Call 1 → Analyze → Tool Call 2 → Analyze → Tool Call 3 → Response``
-
-**Orchestrator-First Approach:**
+**Plan-First Approach:**
    ``User Query → Complete Plan Creation → Execute All Steps → Response``
 
-**Benefits:** Single planning phase, full context utilization, human oversight integration, fewer LLM calls.
+**Reactive Approach:**
+   ``User Query → Decide Step 1 → Execute → Observe → Decide Step 2 → Execute → ... → Respond``
+
+**Plan-first benefits:** Single planning phase, full context utilization, human oversight integration, fewer LLM calls.
+
+**Reactive benefits:** Dynamic adaptation, graceful error recovery, step-by-step observation.
+
+Both modes share the same ``validate_single_step()`` function and ``PlannedStep`` data model.
 
 Architecture
 ------------
@@ -135,7 +141,7 @@ Orchestrator generates plans using comprehensive prompts with capability context
        context_manager = ContextManager(state)
        orchestrator_builder = prompt_provider.get_orchestrator_prompt_builder()
 
-       system_instructions = orchestrator_builder.get_system_instructions(
+       system_instructions = orchestrator_builder.get_planning_instructions(
            active_capabilities=active_capabilities,
            context_manager=context_manager,
            task_depends_on_chat_history=state.get('task_depends_on_chat_history', False)
@@ -157,10 +163,35 @@ Orchestrator generates plans using comprehensive prompts with capability context
 - Context integration includes conversation history
 - Dependency management between steps
 
+Shared Step Validation
+----------------------
+
+Both plan-first and reactive orchestrators use the shared ``validate_single_step()`` function to validate individual execution steps:
+
+.. code-block:: python
+
+   from osprey.infrastructure.orchestration_node import validate_single_step
+
+   def validate_single_step(step, state, logger, *, available_keys=None, step_index=0):
+       """Validate a single execution step for correctness.
+
+       Used by both plan-first and reactive orchestrators.
+
+       Checks:
+       1. The step's capability exists in the registry
+       2. Input context key references are valid
+
+       Raises ValueError for hallucinated capabilities,
+       InvalidContextKeyError for bad context references.
+       """
+
+- **Plan-first usage**: Called inside ``_validate_and_fix_execution_plan()`` for each step, with ``available_keys`` pre-built from the plan
+- **Reactive usage**: Called directly on the single step, with ``available_keys`` built from existing state context
+
 Plan Validation and Fixing
 ---------------------------
 
-Orchestrator includes comprehensive validation to prevent execution failures:
+The plan-first orchestrator applies additional plan-level validation on top of ``validate_single_step()``:
 
 .. code-block:: python
 
@@ -328,7 +359,131 @@ Integration Examples
    # Execution pauses until user approves/rejects plan
    # Approved plans resume execution without re-planning
 
+.. _reactive-orchestration-planning:
+
+Reactive Orchestration
+-----------------------
+
+The reactive orchestrator (``ReactiveOrchestratorNode``) implements the **ReAct (Reasoning + Acting)** pattern, deciding one step at a time and observing results between steps.
+
+.. code-block:: python
+
+   from osprey.infrastructure.reactive_orchestrator_node import ReactiveOrchestratorNode
+
+   @infrastructure_node
+   class ReactiveOrchestratorNode(BaseInfrastructureNode):
+       name = "reactive_orchestrator"
+       description = "Reactive step-by-step orchestration using ReAct pattern"
+
+       async def execute(self) -> dict[str, Any]:
+           # 1. Resolve active capabilities from state
+           # 2. Build system prompt using shared prompt infrastructure
+           # 3. Build messages from react_messages + latest observation
+           # 4. Call LLM for next decision (output: ExecutionPlan with 1 step)
+           # 5. Validate step (internal retry loop for self-correction)
+           # 6. Create single-step execution plan for any capability (including respond/clarify)
+
+It uses the same prompt builder infrastructure but calls ``get_reactive_instructions()`` instead of ``get_planning_instructions()``:
+
+.. code-block:: python
+
+   # Reactive orchestrator prompt generation
+   builder = prompt_provider.get_orchestrator_prompt_builder()
+   system_prompt = builder.get_reactive_instructions(
+       active_capabilities=active_capabilities,
+       context_manager=context_manager,
+       execution_history=execution_history,
+   )
+
+**Key differences from plan-first:**
+
+- Produces a single-step ``ExecutionPlan`` per invocation (vs. a complete multi-step plan)
+- Includes an internal validation-retry loop (up to 2 retries) that re-prompts the LLM with feedback on validation failures
+- Auto-resolves capability inputs from available context data (vs. planned upfront)
+- Accumulates reasoning history in ``react_messages`` state field
+
+**Reactive execution plan example (single step):**
+
+.. code-block:: python
+
+   # Each reactive orchestrator invocation produces a plan with one step
+   single_step_plan = ExecutionPlan(
+       steps=[
+           PlannedStep(
+               context_key="beam_current_pvs",
+               capability="pv_address_finding",
+               task_objective="Find beam current PV addresses",
+               expected_output="PV_ADDRESSES",
+               inputs=[]  # auto-resolved from context
+           )
+       ]
+   )
+
+Auto-Input Resolution
+~~~~~~~~~~~~~~~~~~~~~~
+
+Unlike plan-first mode where input references are planned upfront, the reactive orchestrator automatically resolves inputs by matching a capability's ``requires`` list against available context data in state:
+
+.. code-block:: python
+
+   def _resolve_inputs(capability_name, state):
+       """Match capability's requires list against available context data."""
+       cap_instance = registry.get_capability(capability_name)
+       requires = getattr(cap_instance, "requires", [])
+
+       for req in requires:
+           context_type = req[0] if isinstance(req, tuple) else req
+           type_contexts = state["capability_context_data"].get(context_type, {})
+           if type_contexts:
+               latest_key = list(type_contexts.keys())[-1]
+               inputs.append({context_type: latest_key})
+
+Internal Validation-Retry Loop
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Before propagating errors to the infrastructure error system, the reactive orchestrator gives the LLM up to 2 additional attempts to self-correct validation failures (hallucinated capabilities, invalid context references, empty plans). Validation feedback is appended to the prompt so the LLM can fix its output.
+
+Graceful Error Recovery
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+When a capability fails, the router sends control back to the reactive orchestrator (instead of the error node). The orchestrator observes the error and can decide to retry a different approach, skip the step, or respond to the user. It clears the error state to enable this recovery.
+
+Reactive State Fields
+~~~~~~~~~~~~~~~~~~~~~~
+
+The reactive orchestrator introduces two execution-scoped state fields:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 15 55
+
+   * - Field
+     - Type
+     - Description
+   * - ``react_messages``
+     - ``list[dict]``
+     - Accumulated LLM reasoning messages (decisions + observations) for the ReAct loop
+   * - ``react_step_count``
+     - ``int``
+     - Safety counter tracking completed steps (max iterations guard)
+These fields are execution-scoped (reset each invocation) and only used in reactive orchestration mode.
+
+Reactive Routing
+~~~~~~~~~~~~~~~~~
+
+When ``orchestration_mode: react`` is configured, the router uses a separate ``_reactive_routing()`` function with the following priority:
+
+1. **Direct chat mode** -- same behavior as plan-first
+2. **Error handling** -- RETRIABLE errors retry the capability; all other severities route back to reactive orchestrator for re-evaluation
+3. **Max iterations guard** -- routes to error node if ``react_step_count`` exceeds ``graph_recursion_limit`` (default: 100)
+4. **Normal pipeline** -- ``task_extraction -> classifier -> reactive_orchestrator``
+5. **Execution plan dispatch** -- routes to the capability in the current execution plan step (including respond/clarify)
+6. **After capability execution** -- route back to reactive orchestrator for next decision
+
 .. seealso::
+
+   :doc:`../01_understanding-the-framework/04_orchestration-architecture`
+       High-level overview of orchestration modes and when to use each
 
    :doc:`../../api_reference/02_infrastructure/04_orchestration`
       API reference for orchestration classes and functions

@@ -1,6 +1,7 @@
 """Default orchestrator prompts."""
 
 import textwrap
+import warnings
 
 from langchain_core.messages import BaseMessage
 
@@ -11,7 +12,27 @@ from osprey.state import ChatHistoryFormatter
 
 
 class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
-    """Default orchestrator prompt builder."""
+    """Default orchestrator prompt builder.
+
+    Provides prompts for both plan-first and reactive orchestration modes.
+    The builder decomposes prompts into shared components (role, step format,
+    capabilities, context) and mode-specific strategies, allowing app
+    developers to override individual pieces without affecting the other mode.
+
+    Customization surface:
+
+    ======================================  ================================
+    I want to...                            Override...
+    ======================================  ================================
+    Change the agent's identity             ``get_role_definition()``
+    Change step field definitions           ``get_step_format()``
+    Change how capabilities are shown       ``build_capability_sections()``
+    Change multi-step planning rules        ``get_planning_strategy()``
+    Change single-step ReAct rules          ``get_reactive_strategy()``
+    Fully customize plan-first prompt       ``get_planning_instructions()``
+    Fully customize reactive prompt         ``get_reactive_instructions()``
+    ======================================  ================================
+    """
 
     PROMPT_TYPE = "orchestrator"
 
@@ -23,8 +44,15 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
         """Get the task definition."""
         return "TASK: Create a detailed execution plan that breaks down the user's request into specific, actionable steps."
 
-    def get_instructions(self) -> str:
-        """Get the generic planning instructions."""
+    # ------------------------------------------------------------------
+    # Shared components (used by both plan-first and reactive modes)
+    # ------------------------------------------------------------------
+
+    def get_step_format(self) -> str:
+        """Get the PlannedStep field definitions shared by both orchestration modes.
+
+        Override this to change the step schema description shown to the LLM.
+        """
         return textwrap.dedent(
             """
             Each step must follow the PlannedStep structure:
@@ -40,7 +68,20 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
               ]
               **CRITICAL**: Include ALL required context sources! Complex operations often need multiple inputs.
             - parameters: Optional dict for step-specific configuration (e.g., {"precision_ms": 1000})
+            """
+        ).strip()
 
+    # ------------------------------------------------------------------
+    # Mode-specific strategy sections
+    # ------------------------------------------------------------------
+
+    def get_planning_strategy(self) -> str:
+        """Get multi-step planning guidelines (plan-first mode only).
+
+        Override this to change how the orchestrator plans multi-step executions.
+        """
+        return textwrap.dedent(
+            """
             Planning Guidelines:
             1. Dependencies between steps (ensure proper sequencing)
             2. Cost optimization (avoid unnecessary expensive operations)
@@ -57,15 +98,54 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
             """
         ).strip()
 
-    def _get_dynamic_context(
-        self, context_manager: ContextManager | None = None, **kwargs
-    ) -> str | None:
-        """Get dynamic context showing available context data."""
-        if context_manager and context_manager.get_raw_data():
-            return self._build_context_section(context_manager)
-        return None
+    def get_reactive_strategy(self) -> str:
+        """Get single-step ReAct constraints (reactive mode only).
 
-    def get_system_instructions(
+        Override this to change how the orchestrator behaves in reactive mode.
+        The orchestrator uses function calling (tools) to dispatch actions.
+        """
+        return textwrap.dedent(
+            """
+            You are operating in REACTIVE MODE with tool calling.
+
+            **AVAILABLE TOOL TYPES:**
+            1. **Lightweight tools** (read_context, list_available_context, get_context_summary,
+               get_session_info, get_execution_status, list_system_capabilities):
+               Use these to inspect accumulated context and agent state BEFORE deciding
+               which capability to execute. They run inline — no graph cycle needed.
+
+            2. **Capability tools** (the registered capabilities listed below):
+               Call ONE capability tool to execute it. This exits the orchestrator
+               and dispatches the capability for execution.
+
+            **WORKFLOW:**
+            - Use lightweight tools first to inspect context if needed
+            - Then call exactly ONE capability tool to execute the next step
+            - Call "respond" when all work is done
+            - Call "clarify" when the request is unclear
+
+            **RULES:**
+            - Call at most ONE capability tool per response
+            - Use exact capability names as tool names
+            - Provide task_objective and context_key arguments for capability tools
+            - Each context_key must be unique across the session
+            """
+        ).strip()
+
+    def get_instructions(self) -> str:
+        """Get combined step format and planning strategy.
+
+        This satisfies the ``FrameworkPromptBuilder`` ABC contract.  App
+        developers should override ``get_step_format()`` or
+        ``get_planning_strategy()`` individually rather than this method.
+        """
+        return f"{self.get_step_format()}\n\n{self.get_planning_strategy()}"
+
+    # ------------------------------------------------------------------
+    # Plan-first composition
+    # ------------------------------------------------------------------
+
+    def get_planning_instructions(
         self,
         active_capabilities: list[BaseCapability] = None,
         context_manager: ContextManager = None,
@@ -75,8 +155,7 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
         messages: list[BaseMessage] | None = None,
         **kwargs,
     ) -> str:
-        """
-        Get system instructions for orchestrator agent configuration.
+        """Get system instructions for plan-first orchestrator agent configuration.
 
         Args:
             active_capabilities: List of active capabilities
@@ -95,25 +174,24 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
         # Build the main prompt sections
         prompt_sections = []
 
-        # 1. Add base orchestrator prompt (role, task, instructions)
-        # Build directly without textwrap.dedent to avoid indentation issues
+        # 1. Add base orchestrator prompt (role, task, step format, planning strategy)
         base_prompt_parts = [
             self.get_role_definition(),
             self.get_task_definition(),
-            self.get_instructions(),
+            self.get_step_format(),
+            self.get_planning_strategy(),
         ]
         base_prompt = "\n\n".join(base_prompt_parts)
         prompt_sections.append(base_prompt)
 
         # 2. Add chat history first (with visual separators) if task depends on conversation context
         if task_depends_on_chat_history and messages:
-            chat_history_section = self._build_chat_history_section(messages)
+            chat_history_section = self.build_chat_history_section(messages)
             if chat_history_section:
                 prompt_sections.append(chat_history_section)
 
         # 3. Add context reuse guidance if task builds on previous context
-        # (kept together with available context section below for clarity)
-        context_guidance = self._build_context_reuse_guidance(
+        context_guidance = self.build_context_reuse_guidance(
             task_depends_on_chat_history, task_depends_on_user_memory
         )
         if context_guidance:
@@ -121,32 +199,17 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
 
         # 4. Add error context for replanning if available
         if error_context:
-            error_section = textwrap.dedent(
-                f"""
-                **REPLANNING CONTEXT:**
-
-                The previous execution failed and needs replanning. Consider this error information when creating the new plan:
-
-                {error_context}
-
-                **Replanning Guidelines:**
-                - Analyze the error context to understand why the previous approach failed
-                - Consider alternative capabilities or different sequencing to avoid the same issue
-                - If required context is missing, include clarification steps to gather needed information
-                - Learn from the technical details and suggestions provided in the error context
-                - Adapt the execution strategy based on the specific failure mode identified"""
-            ).strip()
-
+            error_section = self.build_error_context_section(error_context)
             prompt_sections.append(error_section)
 
         # 5. Add context information if available
         if context_manager and context_manager.get_raw_data():
-            context_section = self._build_context_section(context_manager)
+            context_section = self.build_context_section(context_manager)
             if context_section:
                 prompt_sections.append(context_section)
 
         # 6. Add capability-specific prompts with examples
-        capability_sections = self._build_capability_sections(active_capabilities)
+        capability_sections = self.build_capability_sections(active_capabilities)
         prompt_sections.extend(capability_sections)
 
         # Combine all sections
@@ -157,7 +220,123 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
 
         return final_prompt
 
-    def _build_context_reuse_guidance(
+    def get_system_instructions(self, **kwargs) -> str:
+        """Deprecated: use ``get_planning_instructions()`` instead.
+
+        .. deprecated::
+            ``get_system_instructions()`` on the orchestrator builder is
+            deprecated and will be removed in a future release.  Use
+            ``get_planning_instructions()`` for plan-first mode or
+            ``get_reactive_instructions()`` for reactive mode.
+        """
+        warnings.warn(
+            "DefaultOrchestratorPromptBuilder.get_system_instructions() is deprecated. "
+            "Use get_planning_instructions() for plan-first mode or "
+            "get_reactive_instructions() for reactive mode.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.get_planning_instructions(**kwargs)
+
+    # ------------------------------------------------------------------
+    # Reactive composition
+    # ------------------------------------------------------------------
+
+    def get_reactive_instructions(
+        self,
+        active_capabilities: list[BaseCapability] = None,
+        context_manager: ContextManager = None,
+        execution_history: str = "No steps executed yet",
+        **kwargs,
+    ) -> str:
+        """Get system instructions for reactive (ReAct) orchestrator configuration.
+
+        Composes a prompt from shared components (role, step format, capabilities,
+        context) plus reactive-specific strategy and execution history.  Does NOT
+        include plan-first-only sections (chat history, error context, context
+        reuse guidance).
+
+        Args:
+            active_capabilities: List of active capabilities
+            context_manager: Current context manager with available data
+            execution_history: Formatted execution history from previous steps
+
+        Returns:
+            Complete reactive orchestrator prompt text
+        """
+        if not active_capabilities:
+            active_capabilities = []
+
+        prompt_sections = []
+
+        # 1. Role definition
+        prompt_sections.append(self.get_role_definition())
+
+        # 2. Step format (shared)
+        prompt_sections.append(self.get_step_format())
+
+        # 3. Reactive strategy (mode-specific)
+        prompt_sections.append(self.get_reactive_strategy())
+
+        # 4. Context information if available
+        if context_manager and context_manager.get_raw_data():
+            context_section = self.build_context_section(context_manager)
+            if context_section:
+                prompt_sections.append(context_section)
+
+        # 5. Capability-specific prompts with examples
+        capability_sections = self.build_capability_sections(active_capabilities)
+        prompt_sections.extend(capability_sections)
+
+        # 6. Execution history
+        prompt_sections.append(f"# EXECUTION HISTORY\n{execution_history}")
+
+        # Combine all sections
+        final_prompt = "\n\n".join(prompt_sections)
+
+        # Debug: Print prompt if enabled
+        self.debug_print_prompt(final_prompt, name="orchestrator_reactive")
+
+        return final_prompt
+
+    # ------------------------------------------------------------------
+    # Reactive response context formatting
+    # ------------------------------------------------------------------
+
+    def format_reactive_response_context(self, react_messages: list[dict]) -> str:
+        """Format the react_messages chain for the response-generation LLM.
+
+        This is the customization point — app developers can override to
+        format reactive context differently (e.g. include only observations,
+        add domain-specific annotations, etc.).
+
+        Args:
+            react_messages: Accumulated assistant decisions and observations
+                from the ReAct loop.
+
+        Returns:
+            Formatted text block to include in the response LLM's prompt.
+        """
+        if not react_messages:
+            return "No reactive context available."
+
+        lines: list[str] = []
+        for msg in react_messages:
+            role = msg.get("role", "unknown")
+            content = msg.get("content", "")
+            if role == "assistant":
+                lines.append(f"[Decision] {content}")
+            elif role == "observation":
+                lines.append(f"[Observation] {content}")
+            else:
+                lines.append(f"[{role}] {content}")
+        return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # Section builders (public API for overriding)
+    # ------------------------------------------------------------------
+
+    def build_context_reuse_guidance(
         self, task_depends_on_chat_history: bool, task_depends_on_user_memory: bool
     ) -> str | None:
         """Build context reuse guidance section when task builds on previous context."""
@@ -192,7 +371,7 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
             """
         ).strip()
 
-    def _build_chat_history_section(self, messages: list[BaseMessage]) -> str | None:
+    def build_chat_history_section(self, messages: list[BaseMessage]) -> str | None:
         """Build the chat history section when task depends on conversation context.
 
         This provides the orchestrator with visibility into the actual conversation,
@@ -226,7 +405,25 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
             """
         ).strip()
 
-    def _build_context_section(self, context_manager: ContextManager) -> str | None:
+    def build_error_context_section(self, error_context: str) -> str:
+        """Build the error context section for replanning after execution failure."""
+        return textwrap.dedent(
+            f"""
+            **REPLANNING CONTEXT:**
+
+            The previous execution failed and needs replanning. Consider this error information when creating the new plan:
+
+            {error_context}
+
+            **Replanning Guidelines:**
+            - Analyze the error context to understand why the previous approach failed
+            - Consider alternative capabilities or different sequencing to avoid the same issue
+            - If required context is missing, include clarification steps to gather needed information
+            - Learn from the technical details and suggestions provided in the error context
+            - Adapt the execution strategy based on the specific failure mode identified"""
+        ).strip()
+
+    def build_context_section(self, context_manager: ContextManager) -> str | None:
         """Build the context section of the prompt.
 
         Includes task_objective metadata when available to help the orchestrator
@@ -280,7 +477,7 @@ class DefaultOrchestratorPromptBuilder(FrameworkPromptBuilder):
             '- Reference existing context in step inputs using: {"CONTEXT_TYPE": "context_key"}'
         )
 
-    def _build_capability_sections(self, active_capabilities: list[BaseCapability]) -> list[str]:
+    def build_capability_sections(self, active_capabilities: list[BaseCapability]) -> list[str]:
         """Build capability-specific sections with examples."""
         sections = []
 

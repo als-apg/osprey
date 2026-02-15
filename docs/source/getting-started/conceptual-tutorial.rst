@@ -59,13 +59,13 @@ types of agentic AI applications: ReAct agents and Planning agents.
       since they decompose the task into smaller, easier steps. Each step can be
       handled with more focused prompts and potentially smaller models.
 
-      Osprey belongs to the Planning agents category. *That being said, you can still build
-      ReAct agents using Osprey*, which we will cover in advanced tutorials later.
-
-Osprey structures its functionality around **Capabilities** - modular components that
-encapsulate domain-specific business logic and tool integrations. Given a user query,
-the framework determines which capabilities to use, in what order, and with what inputs,
-effectively chaining them together to accomplish complex tasks.
+Osprey supports
+:doc:`both orchestration modes <../developer-guides/01_understanding-the-framework/04_orchestration-architecture>`
+and defaults to the Planning approach (switchable to ReAct in your project configuration).
+Regardless of which mode you choose, the building blocks are the same: **Capabilities** --
+modular components that encapsulate domain-specific business logic and tool integrations.
+Given a user query, the framework determines which capabilities to use, in what order, and
+with what inputs, effectively chaining them together to accomplish complex tasks.
 
 A critical architectural distinction of Osprey is how data flows between capabilities.
 Unlike standard ReAct agents where tool outputs are returned directly to the LLM's context
@@ -210,28 +210,57 @@ How Osprey Chains Capabilities Together
 =======================================
 
 Once you've designed your capabilities and contexts, Osprey's orchestrator automatically
-creates execution plans that chain them together. Let's see how this works with our
-weather assistant for different user queries.
+chains them together. The framework supports two orchestration modes that differ in *when*
+decisions are made, but both use the same capability and context infrastructure.
 
-**Query: "What's the weather in San Francisco today?"**
+.. tab-set::
 
-The orchestrator creates this plan:
+   .. tab-item:: Plan-First Mode (default)
 
-1. **ExtractLocationCapability** → produces ``LocationContext(location="San Francisco")``
-2. **ExtractDateCapability** → produces ``DateContext(date="today")``
-3. **FetchWeatherCapability** → uses ``LocationContext`` + ``DateContext`` → produces ``WeatherContext``
-4. **RespondCapability** → generates natural language response from ``WeatherContext``
+      The orchestrator creates a **complete plan upfront** before any execution begins.
 
-**Key Observations:**
+      **Query: "What's the weather in San Francisco today?"**
+
+      The orchestrator creates this plan:
+
+      1. **ExtractLocationCapability** → produces ``LocationContext(location="San Francisco")``
+      2. **ExtractDateCapability** → produces ``DateContext(date="today")``
+      3. **FetchWeatherCapability** → uses ``LocationContext`` + ``DateContext`` → produces ``WeatherContext``
+      4. **RespondCapability** → generates natural language response from ``WeatherContext``
+
+      **Key Observations:**
+
+      - Each plan is created **upfront** before execution begins
+      - Capabilities are **chained together** - the output of one becomes the input to another
+      - Predictable and efficient: a single LLM call creates the entire plan
+
+   .. tab-item:: Reactive Mode (ReAct)
+
+      The orchestrator decides **one step at a time**, observing results between steps.
+
+      **Query: "What's the weather in San Francisco today?"**
+
+      The reactive orchestrator loop:
+
+      1. **Decide** → ExtractLocationCapability → **Observe** result
+      2. **Decide** → ExtractDateCapability → **Observe** result
+      3. **Decide** → FetchWeatherCapability → **Observe** result
+      4. **Decide** → Respond to user
+
+      **Key Observations:**
+
+      - Each step is decided **after** observing previous results
+      - Adapts dynamically to intermediate outcomes and errors
+      - Better suited for exploratory or error-prone tasks
+
+      Enable with: ``execution_control.agent_control.orchestration_mode: react`` in ``config.yml``
+
+**In both modes:**
 
 - The orchestrator **selects capabilities** based on what's needed for each query
 - Capabilities are **chained together** - the output of one becomes the input to another
-- Each plan is created **upfront** before execution begins
 - **RespondCapability** accesses available contexts to generate responses
-
-This planning-first approach is what makes Osprey predictable and reliable for complex,
-multi-step tasks. The orchestrator handles all the coordination logic, so your capabilities
-can focus purely on their specific domain tasks.
+- Your capabilities work identically regardless of orchestration mode
 
 Next Steps
 ==========
