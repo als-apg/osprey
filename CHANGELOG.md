@@ -7,30 +7,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.2] - 2026-02-15
+
 ### Added
-- **Channel Finder**: Add `--delimiter` option to `build-database` for CSV files (#161, @RemiLehe)
-- **Build**: Add `uv.lock` for reproducible dependency resolution; consolidate `pytest.ini` into `pyproject.toml`
-- **Infrastructure**: Add reactive orchestrator with ReAct-style tool loop
+- **Infrastructure**: Add reactive orchestrator with ReAct-style tool loop (#162)
   - `ReactiveOrchestratorNode`: autonomous Reason+Act loop that replaces rigid plan-then-execute with iterative, LLM-driven decision-making
   - Reactive tool system with tool registry, argument parsing, and result formatting for native tool calling
   - `ChatRequest`/`ChatResponse` models for structured LLM interactions with `tool_calls` and `tool_results` message support
   - Router extensions for classifying reactive vs. planning mode
   - Approval system hooks for gating tool execution
+  - Classifier-level dependency expansion: capabilities with unsatisfied `requires` automatically pull in their providers (e.g., selecting `channel_write` adds `channel_finding`) with transitive resolution
+  - Pre-dispatch dependency validation to prevent premature capability execution
+- **Events**: Add unified typed event system replacing dict-based logging
+  - 18 typed dataclass events across 7 categories: status, phase lifecycle, data output, capability, LLM, tool/code, and control flow
+  - `EventEmitter` with LangGraph-first streaming and fallback handler support
+  - `parse_event()` for reconstructing typed events from serialized dicts
+  - `consume_stream()` multi-mode helper combining typed events with LLM token streaming
+  - `LLMRequestEvent`/`LLMResponseEvent` with token counts, cost, and duration metadata
+  - `ApprovalRequiredEvent`/`ApprovalReceivedEvent` for hardware write gating
+  - Completely eliminates raw Python logger usage across osprey core
+- **Interfaces**: Add web debug interface for real-time event visualization
+  - FastAPI server with WebSocket event streaming at `/ws/events`
+  - Dark-themed minimalist browser UI with component filtering and search
+  - Tooltips, event previews, and level-specific styling (warning/error/success/key_info)
+  - Color endpoint returning component color mappings with hex palette for terminal color matching
+  - LLM streaming groups with tabbed viewer
+- **Interfaces**: Add LLM token streaming across all interfaces
+  - CLI: streaming for respond node and code generator with Rich table-based output
+  - TUI: `StreamingChatMessage` with Textual `MarkdownStream` for buffered token rendering
+  - TUI: `CollapsibleCodeMessage` with auto-collapse, attempt tracking, and syntax highlighting
+  - Open WebUI: streaming support with event parser adapted to unified typed event system
+  - Multi-mode streaming architecture combining `custom`, `messages`, and `updates` stream modes
+  - Subgraph streaming (`subgraphs=True`) for nested service graphs (Python executor, etc.)
+- **TUI**: Improve terminal user interface
+  - Info bar with local/SSH environment awareness
+  - Consistent keyboard shortcut formatting
+  - Notebook preview in artifacts viewer with navigation shortcuts
+  - Debounced auto-scroll behavior; todo list accessible at any time
+  - Debug block widget showing `[component] STATUS | phase | message` with clear button
+  - Log viewer refinements: fix last-line cutoff, content height capping, log belonging
 - **Models**: Add `chat_request()` method to LiteLLM adapter for native message-based completions alongside existing text completion API
 - **Prompts**: Add ReAct-specific system, planning, and tool prompt templates for orchestrator
 - **State**: Add `reactive_mode` flag and tool execution tracking to conversation state
 - **Config**: Add `orchestration_mode` setting to project and app config templates
-- **Infrastructure**: Add classifier-level dependency expansion for reactive orchestration
-  - Capabilities with unsatisfied `requires` automatically pull in their providers (e.g., selecting `channel_write` adds `channel_finding`)
-  - Transitive resolution ensures multi-hop dependency chains are fully expanded
-  - Reactive orchestrator auto-expands active capabilities at dispatch time as a safety net
+- **Channel Finder**: Add `--delimiter` option to `build-database` for CSV files (#161, @RemiLehe)
+- **Build**: Add `uv.lock` for reproducible dependency resolution; consolidate `pytest.ini` into `pyproject.toml`
 
 ### Fixed
 - **Capabilities**: Remove redundant `found` field from `WriteOperationsOutput` schema — CBORG Haiku omits it from structured output, causing Pydantic validation failures
 - **Capabilities**: Clear approval state after approved `channel_write` completes to prevent reactive orchestrator from misinterpreting stale approval flags
+- **Reactive**: Classify rate-limit errors and fix E2E assertions
+- **E2E**: Rebuild `execution_trace` from graph state instead of Python logging
+- **Dependencies**: Move ARIEL dependencies from optional groups to core
+- **Open WebUI**: Fix 1-minute waiting issue, side-quest routing through osprey core, multiple code streams combined into one block
+- **TUI**: Fix duplicated steps, todo list rendered twice, auto-scroll to middle of todo list, final response style
+- **CLI**: Fix component message alignment, filter counter mismatch
+- **Streaming**: Fix missing starting tokens in TUI, unpack issue from subgraph streaming, sync call on Python script execution in async function
+- **Logging**: Suppress pydantic warnings on LiteLLM model calls
 
 ### Changed
-- **Prompts**: Refactor all LLM prompts into composable `FrameworkPromptBuilder` subclasses
+- **Prompts**: Refactor all LLM prompts into composable `FrameworkPromptBuilder` subclasses (#163)
   - Rename `get_role_definition()` / `get_task_definition()` → `get_role()` / `get_task()` with deprecation bridges
   - Add `build_dynamic_context(**kwargs)` for runtime context injection (current datetime, user queries, channel mappings)
   - Move `channel_write` and `time_range_parsing` hardcoded runtime prompts (~300 lines) into builder `get_instructions()` + `build_dynamic_context()` methods
@@ -38,6 +74,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Extract 4 new capability guide builders: `channel_read`, `channel_write`, `channel_finding_orchestration`, `archiver_retrieval`
   - All framework infrastructure nodes updated to use new builder API
   - Applications can now customize any LLM prompt via subclass overrides without forking capability code
+- **Logging**: Replace all Python logger calls with component logger calls using unified `get_logger` system
+  - Add explanatory comments to all remaining bare `except: pass` blocks
+  - Add debug logging to previously empty except blocks
+- **Registry**: Change `REGISTRY` constant to lowercase for naming consistency
+- **CI**: Disable auto Claude Code review in PR workflow
 
 ## [0.11.1] - 2026-02-13
 
