@@ -259,7 +259,6 @@ async def keyword_search(
     return results
 
 
-
 class KeywordSearchInput(BaseModel):
     """Input schema for keyword search tool."""
 
@@ -297,16 +296,9 @@ def format_keyword_result(
     Returns:
         Formatted dict for agent
     """
-    timestamp = entry.get("timestamp")
-    return {
-        "entry_id": entry.get("entry_id"),
-        "timestamp": timestamp.isoformat() if timestamp is not None else None,
-        "author": entry.get("author"),
-        "text": entry.get("raw_text", "")[:500],
-        "title": entry.get("metadata", {}).get("title"),
-        "score": score,
-        "highlights": highlights,
-    }
+    from osprey.services.ariel_search.models import _format_entry_base
+
+    return {**_format_entry_base(entry), "score": score, "highlights": highlights}
 
 
 def get_parameter_descriptors() -> list[ParameterDescriptor]:

@@ -3,7 +3,7 @@
 This module provides async connection pool management for the ARIEL database.
 """
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from psycopg_pool import AsyncConnectionPool
@@ -40,12 +40,3 @@ async def create_connection_pool(config: "DatabaseConfig") -> "AsyncConnectionPo
     )
     await pool.open()
     return pool
-
-
-async def close_connection_pool(pool: Any) -> None:
-    """Close the connection pool.
-
-    Args:
-        pool: The pool to close
-    """
-    await pool.close()

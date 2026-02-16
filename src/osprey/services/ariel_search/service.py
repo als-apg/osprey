@@ -84,21 +84,38 @@ class ARIELSearchService:
         """
         if self._embedder is None:
             provider_name = self.config.embedding.provider
-
-            if provider_name == "ollama":
-                from osprey.models.embeddings.ollama import OllamaEmbeddingProvider
-
-                self._embedder = OllamaEmbeddingProvider()
-            else:
+            if provider_name != "ollama":
                 logger.warning(
                     f"Embedding provider '{provider_name}' not yet supported, "
                     f"falling back to 'ollama'"
                 )
-                from osprey.models.embeddings.ollama import OllamaEmbeddingProvider
+            from osprey.models.embeddings.ollama import OllamaEmbeddingProvider
 
-                self._embedder = OllamaEmbeddingProvider()
-
+            self._embedder = OllamaEmbeddingProvider()
         return self._embedder
+
+    @staticmethod
+    def _error_result(
+        mode: SearchMode,
+        source: str,
+        error: Exception,
+    ) -> ARIELSearchResult:
+        msg = f"{mode.value.capitalize()} search failed: {error}"
+        return ARIELSearchResult(
+            entries=(),
+            answer=None,
+            sources=(),
+            search_modes_used=(mode,),
+            reasoning=msg,
+            diagnostics=(
+                SearchDiagnostic(
+                    level=DiagnosticLevel.ERROR,
+                    source=source,
+                    message=msg,
+                    category="search",
+                ),
+            ),
+        )
 
     async def _validate_search_model(self) -> None:
         """Validate that the configured search model's table exists.
@@ -253,8 +270,7 @@ class ARIELSearchService:
 
         from osprey.services.ariel_search.search.keyword import keyword_search
 
-        start_date = request.time_range[0] if request.time_range else None
-        end_date = request.time_range[1] if request.time_range else None
+        start_date, end_date = request.time_range if request.time_range else (None, None)
 
         ap = request.advanced_params
         include_highlights = ap.get("include_highlights", True)
@@ -275,21 +291,7 @@ class ARIELSearchService:
             )
         except Exception as e:
             logger.warning(f"Keyword search failed: {e}")
-            return ARIELSearchResult(
-                entries=(),
-                answer=None,
-                sources=(),
-                search_modes_used=(SearchMode.KEYWORD,),
-                reasoning=f"Keyword search failed: {e}",
-                diagnostics=(
-                    SearchDiagnostic(
-                        level=DiagnosticLevel.ERROR,
-                        source="service.keyword",
-                        message=f"Keyword search failed: {e}",
-                        category="search",
-                    ),
-                ),
-            )
+            return self._error_result(SearchMode.KEYWORD, "service.keyword", e)
 
         entries = tuple(
             {**dict(entry), "_score": score, "_highlights": highlights}
@@ -322,8 +324,7 @@ class ARIELSearchService:
 
         from osprey.services.ariel_search.search.semantic import semantic_search
 
-        start_date = request.time_range[0] if request.time_range else None
-        end_date = request.time_range[1] if request.time_range else None
+        start_date, end_date = request.time_range if request.time_range else (None, None)
 
         ap = request.advanced_params
         similarity_threshold = ap.get("similarity_threshold")
@@ -343,21 +344,7 @@ class ARIELSearchService:
             )
         except Exception as e:
             logger.warning(f"Semantic search failed: {e}")
-            return ARIELSearchResult(
-                entries=(),
-                answer=None,
-                sources=(),
-                search_modes_used=(SearchMode.SEMANTIC,),
-                reasoning=f"Semantic search failed: {e}",
-                diagnostics=(
-                    SearchDiagnostic(
-                        level=DiagnosticLevel.ERROR,
-                        source="service.semantic",
-                        message=f"Semantic search failed: {e}",
-                        category="search",
-                    ),
-                ),
-            )
+            return self._error_result(SearchMode.SEMANTIC, "service.semantic", e)
 
         entries = tuple({**dict(entry), "_score": similarity} for entry, similarity in results)
         sources = tuple(entry["entry_id"] for entry, _similarity in results)
@@ -392,7 +379,7 @@ class ARIELSearchService:
             from osprey.prompts.loader import get_framework_prompts
 
             builder = get_framework_prompts().get_ariel_rag_prompt_builder()
-            prompt_template = builder.get_prompt_template()
+            prompt_template = builder.get_prompt_template()  # type: ignore[attr-defined]
         except (ValueError, NotImplementedError, AttributeError):
             pass  # Falls back to hardcoded default inside RAGPipeline
 
@@ -405,8 +392,7 @@ class ARIELSearchService:
             prompt_template=prompt_template,
         )
 
-        start_date = request.time_range[0] if request.time_range else None
-        end_date = request.time_range[1] if request.time_range else None
+        start_date, end_date = request.time_range if request.time_range else (None, None)
 
         rag_result = await pipeline.execute(
             request.query,
@@ -447,7 +433,7 @@ class ARIELSearchService:
             from osprey.prompts.loader import get_framework_prompts
 
             builder = get_framework_prompts().get_ariel_agent_prompt_builder()
-            system_prompt = builder.get_system_prompt()
+            system_prompt = builder.get_system_prompt()  # type: ignore[attr-defined]
         except (ValueError, NotImplementedError, AttributeError):
             pass  # Falls back to hardcoded default inside AgentExecutor
 

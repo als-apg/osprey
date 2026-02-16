@@ -963,7 +963,8 @@ class ARIELRepository:
                 )
                 row = await result.fetchone()
                 if row and row[0]:
-                    return row[0]
+                    ts: datetime = row[0]
+                    return ts
                 return None
         except Exception as e:
             raise DatabaseQueryError(

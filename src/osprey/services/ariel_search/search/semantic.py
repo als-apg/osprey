@@ -69,9 +69,10 @@ async def semantic_search(
         f"threshold={similarity_threshold}, start_date={start_date}, end_date={end_date}"
     )
 
+    semantic_config = config.search_modules.get("semantic")
+
     threshold = similarity_threshold
     if threshold is None:
-        semantic_config = config.search_modules.get("semantic")
         if semantic_config and semantic_config.settings:
             threshold = semantic_config.settings.get(
                 "similarity_threshold",
@@ -86,9 +87,8 @@ async def semantic_search(
         return []
 
     # Priority: search module provider > embedding provider > default
-    semantic_module = config.search_modules.get("semantic")
     provider_name = (
-        (semantic_module.provider if semantic_module else None)
+        (semantic_config.provider if semantic_config else None)
         or config.embedding.provider
         or "ollama"
     )
@@ -118,7 +118,6 @@ async def semantic_search(
         query_embedding = embeddings[0]
 
         # Get expected dimension from config if available
-        semantic_config = config.search_modules.get("semantic")
         if semantic_config and semantic_config.settings:
             expected_dim = semantic_config.settings.get("embedding_dimension")
             if expected_dim and len(query_embedding) != expected_dim:
@@ -157,7 +156,6 @@ async def semantic_search(
 
     logger.info(f"semantic_search: returning {len(results)} results")
     return results
-
 
 
 class SemanticSearchInput(BaseModel):
@@ -199,15 +197,9 @@ def format_semantic_result(
     Returns:
         Formatted dict for agent
     """
-    timestamp = entry.get("timestamp")
-    return {
-        "entry_id": entry.get("entry_id"),
-        "timestamp": timestamp.isoformat() if timestamp is not None else None,
-        "author": entry.get("author"),
-        "text": entry.get("raw_text", "")[:500],
-        "title": entry.get("metadata", {}).get("title"),
-        "similarity": similarity,
-    }
+    from osprey.services.ariel_search.models import _format_entry_base
+
+    return {**_format_entry_base(entry), "similarity": similarity}
 
 
 def get_parameter_descriptors() -> list[ParameterDescriptor]:

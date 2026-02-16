@@ -248,7 +248,7 @@ class ARIELSearchResult:
         reasoning: Explanation of results
     """
 
-    entries: tuple[EnhancedLogbookEntry, ...]
+    entries: tuple[dict[str, Any], ...]
     answer: str | None = None
     sources: tuple[str, ...] = field(default_factory=tuple)
     search_modes_used: tuple[SearchMode, ...] = field(default_factory=tuple)
@@ -379,28 +379,47 @@ class MetadataSchema(TypedDict, total=False):
     facility_section: str | None
 
 
+def _format_entry_base(entry: EnhancedLogbookEntry) -> dict[str, Any]:
+    """Format the common fields of a logbook entry for agent consumption.
+
+    Args:
+        entry: EnhancedLogbookEntry
+
+    Returns:
+        Dict with entry_id, timestamp, author, text, and title
+    """
+    timestamp = entry.get("timestamp")
+    return {
+        "entry_id": entry.get("entry_id"),
+        "timestamp": timestamp.isoformat() if timestamp is not None else None,
+        "author": entry.get("author"),
+        "text": entry.get("raw_text", "")[:500],
+        "title": entry.get("metadata", {}).get("title"),
+    }
+
+
 def resolve_time_range(
     tool_start: datetime | None,
     tool_end: datetime | None,
-    request: ARIELSearchRequest,
+    fallback_range: tuple[datetime, datetime] | None = None,
 ) -> tuple[datetime | None, datetime | None]:
     """Resolve time range with 3-tier priority.
 
     Priority:
-    1. Explicit tool params override request context
-    2. Fall back to request context
+    1. Explicit tool params override fallback
+    2. Fall back to fallback_range
     3. No filtering
 
     Args:
         tool_start: Start date from tool call (highest priority)
         tool_end: End date from tool call (highest priority)
-        request: The original search request with potential time_range
+        fallback_range: Optional fallback time range tuple
 
     Returns:
         Tuple of (start_date, end_date), either or both may be None
     """
     if tool_start is not None or tool_end is not None:
         return (tool_start, tool_end)
-    if request.time_range:
-        return request.time_range
+    if fallback_range:
+        return fallback_range
     return (None, None)

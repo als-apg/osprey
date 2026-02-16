@@ -300,9 +300,9 @@ class RAGPipeline:
                 )
                 failed_keys.append(key)
             elif key == "keyword":
-                keyword_results = result
+                keyword_results = result  # type: ignore[assignment]
             elif key == "semantic":
-                semantic_results = result
+                semantic_results = result  # type: ignore[assignment]
 
         if len(failed_keys) == len(tasks) and len(tasks) > 0:
             diags.append(

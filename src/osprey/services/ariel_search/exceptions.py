@@ -62,7 +62,6 @@ class ARIELException(Exception):
         return self.category in (ErrorCategory.DATABASE, ErrorCategory.EMBEDDING)
 
 
-
 class DatabaseConnectionError(ARIELException):
     """Database connection failure.
 
@@ -114,7 +113,6 @@ class DatabaseQueryError(ARIELException):
         super().__init__(message, ErrorCategory.DATABASE, details)
 
 
-
 class EmbeddingGenerationError(ARIELException):
     """Embedding generation failure.
 
@@ -145,7 +143,6 @@ class EmbeddingGenerationError(ARIELException):
         self.input_text = input_text[:100] if input_text and len(input_text) > 100 else input_text
 
 
-
 class SearchExecutionError(ARIELException):
     """Search execution failure.
 
@@ -173,7 +170,6 @@ class SearchExecutionError(ARIELException):
         super().__init__(message, ErrorCategory.SEARCH, details)
         self.search_mode = search_mode
         self.query = query
-
 
 
 class IngestionError(ARIELException):
@@ -235,7 +231,6 @@ class AdapterNotFoundError(ARIELException):
         self.available_adapters = available_adapters or []
 
 
-
 class ConfigurationError(ARIELException):
     """Invalid configuration.
 
@@ -284,7 +279,6 @@ class ModuleNotEnabledError(ARIELException):
         details["module_name"] = module_name
         super().__init__(message, ErrorCategory.CONFIGURATION, details)
         self.module_name = module_name
-
 
 
 class SearchTimeoutError(ARIELException):
