@@ -70,7 +70,7 @@ dependencies = [
     "ollama>=0.5.1",
 
     # Advanced code generation
-    "claude-agent-sdk==0.1.26",  # Claude Code SDK - pinned; 0.1.27+ bundled CLI breaks CBORG API
+    "claude-agent-sdk==0.1.36",  # Claude Code SDK - pinned; 0.1.27+ bundled CLI breaks CBORG API
 
     # Data processing - required for archiver connectors and data handling
     # Archiver connectors return pandas DataFrames for time-series data
