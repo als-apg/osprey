@@ -13,6 +13,11 @@ to find channels by description (e.g., "beam current", "BPM positions").
 The agent has its own dedicated MCP server and returns verified addresses.
 {% endif %}
 
+**You have a `logbook-search` sub-agent** that searches the facility logbook.
+Delegate to this agent when the user asks about past events, shift logs,
+maintenance records, or operational history. The agent handles multi-strategy
+search (keyword, semantic, browsing) and returns synthesized results with citations.
+
 <!-- PROMPT-PROVIDER: section=safety_rules
      Future: source from FrameworkPromptProvider.get_safety_rules()
      Facility-customizable: additional safety rules, modified severity, facility-specific procedures -->
@@ -69,7 +74,7 @@ Tools are split across multiple MCP servers. Use the correct server prefix for e
 | **osprey-control-system** | `channel_read`, `channel_write`, `archiver_read` |
 | **osprey-python-executor** | `python_execute` |
 | **osprey-workspace** | `artifact_save`, `artifact_export`, `data_read`, `data_list`, `focus_artifact`, `memory_save`, `memory_recall`, `screen_capture` |
-| **ariel** | `ariel_search`, `ariel_browse`, `ariel_filter_options`, `ariel_entry_get`, `ariel_entry_create`, `ariel_capabilities`, `ariel_status` |
+| **ariel** | `ariel_entry_create` (direct), `ariel_status` (direct); search/browse/filter/get/capabilities used by logbook-search agent |
 {% if channel_finder_pipeline is defined -%}
 | **channel-finder** | `build_channels`, `get_options`, `hierarchy_info`, `validate`, `statistics` (used by channel-resolver agent, not directly) |
 {% endif -%}
@@ -115,31 +120,21 @@ Default to `execution_mode: "readonly"`.
 <!-- PROMPT-PROVIDER: section=logbook_tool_usage
      Future: source from FrameworkPromptProvider.get_logbook_search_prompt_builder().get_orchestrator_guide()
      Facility-customizable: logbook-specific workflows, search mode recommendations -->
-### ARIEL Logbook (7 tools via dedicated ariel MCP server)
+### Logbook search
+When the user asks about past events, shift logs, maintenance records, or operational
+history, delegate to the **logbook-search** agent. It handles all search strategies
+(keyword, semantic, browsing) and returns synthesized, cited results.
 
-Use the ARIEL tools when the user asks about past events, shift logs, maintenance records,
-or operational history. The ARIEL server provides full access to the facility logbook.
+**IMPORTANT:** For logbook *searches*, always delegate to the logbook-search agent
+rather than calling ARIEL search tools directly.
 
-**Search** (`ariel_search`): Primary search tool with 4 modes:
-- `keyword`: Fast full-text search (exact matching)
-- `semantic`: Embedding similarity search (conceptual matching)
-- `rag` (default): Hybrid retrieval + LLM-generated answer with citations
-- `agent`: Multi-step ReAct agent for complex questions
-Supports date filtering, author/source_system filters, and advanced params.
+### Creating logbook entries
+Use `ariel_entry_create` directly (on the `ariel` MCP server) to create new logbook entries.
+This requires confirmation. Pass `artifact_ids` to attach artifacts — HTML artifacts
+(Plotly plots) are auto-converted to PNG.
 
-**Browse** (`ariel_browse`): List recent entries with optional filters.
-**Filter options** (`ariel_filter_options`): Get available authors/source_systems for filtering.
-**Get entry** (`ariel_entry_get`): Retrieve a single entry by ID.
-**Create entry** (`ariel_entry_create`): Create a new logbook entry (requires confirmation).
-**Capabilities** (`ariel_capabilities`): Check enabled modules and search modes.
-**Status** (`ariel_status`): Check service health and database connectivity.
-
-**Typical workflows:**
-- Quick lookup: `ariel_search` with `mode="keyword"`
-- Understanding events: `ariel_search` with `mode="rag"` for an LLM-generated answer
-- Browsing recent activity: `ariel_browse` then `ariel_entry_get` for details
-- Recording observations: `ariel_entry_create` with subject, details, and shift
-- Attaching artifacts to entries: pass `artifact_ids` to `ariel_entry_create` — HTML artifacts (Plotly plots) are auto-converted to PNG
+### Logbook diagnostics
+Use `ariel_status` directly to check service health and database connectivity.
 
 {% if confluence is defined %}
 ### Confluence Wiki (via mcp-atlassian MCP server)
