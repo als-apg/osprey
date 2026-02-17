@@ -35,6 +35,8 @@ services:
       - {{ project_root }}/config.yml:/app/config.yml:ro
       # Mount build directory for dev mode osprey wheel override
       - ./ariel-web:/app/build:ro
+      # Mount workspace for draft sharing between MCP tools and web UI
+      - {{ project_root }}/osprey-workspace:/app/osprey-workspace
     networks:
       - osprey-network
     healthcheck:

@@ -53,6 +53,28 @@ export const api = {
     }
     return response.json();
   },
+
+  /**
+   * Make a PUT request.
+   * @param {string} endpoint - API endpoint
+   * @param {Object} data - Request body
+   * @returns {Promise<Object>} Response data
+   */
+  async put(endpoint, data = {}) {
+    const response = await fetch(API_BASE + endpoint, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.detail || `HTTP ${response.status}`);
+    }
+    return response.json();
+  },
 };
 
 /**
@@ -134,6 +156,51 @@ export const entriesApi = {
       tags: data.tags || [],
     });
   },
+
+  /**
+   * Create a new entry with file attachments via multipart form.
+   * @param {Object} data - Entry data fields
+   * @param {FileList|File[]} files - Files to attach
+   * @returns {Promise<Object>} Created entry with attachment_count
+   */
+  async createWithAttachments(data, files) {
+    const formData = new FormData();
+    formData.append('subject', data.subject);
+    formData.append('details', data.details);
+    if (data.author) formData.append('author', data.author);
+    if (data.logbook) formData.append('logbook', data.logbook);
+    if (data.shift) formData.append('shift', data.shift);
+    formData.append('tags', (data.tags || []).join(','));
+
+    for (const file of files) {
+      formData.append('files', file);
+    }
+
+    const response = await fetch(API_BASE + '/entries/upload', {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.detail || `HTTP ${response.status}`);
+    }
+    return response.json();
+  },
+};
+
+/**
+ * Drafts API functions.
+ */
+export const draftsApi = {
+  /**
+   * Get a draft by ID.
+   * @param {string} draftId - Draft ID
+   * @returns {Promise<Object>} Draft data
+   */
+  async get(draftId) {
+    return api.get(`/drafts/${draftId}`);
+  },
 };
 
 /**
@@ -149,10 +216,40 @@ export const statusApi = {
   },
 };
 
+/**
+ * Config API — read/write config.yml.
+ */
+export const configApi = {
+  async get() {
+    return api.get('/config');
+  },
+  async update(content) {
+    return api.put('/config', { content });
+  },
+};
+
+/**
+ * Claude Setup API — browse/edit Claude Code setup files.
+ */
+export const claudeSetupApi = {
+  async list() {
+    return api.get('/claude-setup');
+  },
+  async getFile(path) {
+    return api.get(`/claude-setup/${path}`);
+  },
+  async updateFile(path, content) {
+    return api.put(`/claude-setup/${path}`, { content });
+  },
+};
+
 export default {
   api,
   capabilitiesApi,
   searchApi,
   entriesApi,
+  draftsApi,
   statusApi,
+  configApi,
+  claudeSetupApi,
 };

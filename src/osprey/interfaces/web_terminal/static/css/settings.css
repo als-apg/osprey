@@ -1,0 +1,423 @@
+/* OSPREY Web Terminal — Settings Panel */
+
+/* ---- Mode Toggle (Form / Raw) ---- */
+
+.settings-mode-bar {
+  display: flex;
+  align-items: center;
+  padding: 8px 16px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-default);
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.settings-mode-btn {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: 3px;
+  padding: 3px 10px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.settings-mode-btn:hover {
+  color: var(--color-accent-light);
+  border-color: var(--color-accent);
+}
+
+.settings-mode-btn.active {
+  color: var(--color-accent-light);
+  border-color: var(--color-accent);
+  background: rgba(79, 209, 197, 0.1);
+}
+
+/* ---- Form View ---- */
+
+.settings-form {
+  padding: 0;
+}
+
+.settings-section {
+  border-bottom: 1px solid var(--border-default);
+}
+
+.settings-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  cursor: pointer;
+  user-select: none;
+  background: rgba(212, 165, 116, 0.04);
+  transition: background var(--transition-fast);
+}
+
+.settings-section-header:hover {
+  background: rgba(212, 165, 116, 0.08);
+}
+
+.settings-section-chevron {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  transition: transform var(--transition-fast);
+  width: 12px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.settings-section.expanded .settings-section-chevron {
+  transform: rotate(90deg);
+}
+
+.settings-section-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--color-amber);
+}
+
+.settings-section-body {
+  display: none;
+  padding: 8px 16px 12px;
+}
+
+.settings-section.expanded .settings-section-body {
+  display: block;
+}
+
+/* ---- Sub-group (nested YAML sections) ---- */
+
+.settings-subgroup {
+  margin-top: 8px;
+  padding-left: 12px;
+  border-left: 1px solid rgba(212, 165, 116, 0.15);
+}
+
+.settings-subgroup-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-amber);
+  opacity: 0.7;
+  padding: 6px 0 2px;
+}
+
+/* ---- Field Rows ---- */
+
+.settings-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  min-height: 32px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.06);
+}
+
+.settings-field:last-child {
+  border-bottom: none;
+}
+
+.settings-field-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  max-width: 55%;
+}
+
+.settings-field-input {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 1;
+  min-width: 0;
+}
+
+/* ---- Toggle Switch ---- */
+
+.toggle-switch {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  position: absolute;
+}
+
+.toggle-slider {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.toggle-slider::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: all var(--transition-fast);
+}
+
+.toggle-switch input:checked + .toggle-slider {
+  background: rgba(79, 209, 197, 0.2);
+  border-color: var(--color-accent);
+}
+
+.toggle-switch input:checked + .toggle-slider::after {
+  transform: translateX(16px);
+  background: var(--color-accent-light);
+}
+
+/* ---- Text / Number Inputs ---- */
+
+.settings-input {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 3px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 4px 8px;
+  width: 100%;
+  max-width: 180px;
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.settings-input:focus {
+  border-color: var(--color-accent);
+}
+
+.settings-input[type="number"] {
+  max-width: 80px;
+  text-align: right;
+}
+
+/* ---- Select Dropdown ---- */
+
+.settings-select {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 3px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 4px 8px;
+  max-width: 180px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%2364748b'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  padding-right: 20px;
+}
+
+.settings-select:focus {
+  border-color: var(--color-accent);
+}
+
+/* ---- Raw YAML Editor ---- */
+
+.settings-raw {
+  display: none;
+  height: 100%;
+}
+
+.settings-raw.active {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-raw textarea {
+  flex: 1;
+  background: var(--bg-terminal);
+  color: var(--terminal-text);
+  border: none;
+  padding: 12px 16px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  resize: none;
+  outline: none;
+  tab-size: 2;
+}
+
+/* ---- Save Bar ---- */
+
+.settings-save-bar {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-default);
+  flex-shrink: 0;
+}
+
+.settings-save-bar.visible {
+  display: flex;
+}
+
+.settings-save-bar .settings-status {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.settings-apply-btn {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--bg-primary);
+  background: var(--color-accent-light);
+  border: none;
+  border-radius: 3px;
+  padding: 5px 14px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.settings-apply-btn:hover {
+  background: var(--color-accent);
+}
+
+.settings-apply-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ---- Confirmation Dialog ---- */
+
+.settings-confirm-overlay {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 10;
+  align-items: center;
+  justify-content: center;
+}
+
+.settings-confirm-overlay.visible {
+  display: flex;
+}
+
+.settings-confirm-dialog {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-accent);
+  border-radius: 6px;
+  padding: 20px 24px;
+  max-width: 340px;
+  text-align: center;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.settings-confirm-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.settings-confirm-message {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+.settings-confirm-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.settings-confirm-actions button {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-radius: 3px;
+  padding: 5px 16px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.settings-cancel-btn {
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border-default);
+}
+
+.settings-cancel-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+}
+
+.settings-confirm-btn {
+  color: var(--bg-primary);
+  background: var(--color-warning);
+  border: none;
+}
+
+.settings-confirm-btn:hover {
+  background: #e08e00;
+}
+
+/* ---- Loading / Error ---- */
+
+.settings-loading,
+.settings-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.settings-error {
+  color: var(--color-error);
+}

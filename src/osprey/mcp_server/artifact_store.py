@@ -1,0 +1,382 @@
+"""Artifact storage for OSPREY MCP tools.
+
+Manages interactive artifacts (plots, tables, HTML, markdown) produced by
+Claude during analysis sessions.  Artifacts are stored in
+``osprey-workspace/artifacts/`` and served by the Artifact Server gallery.
+
+Two entry points create artifacts:
+  1. ``save_artifact()`` — injected into ``python_execute`` namespace
+  2. ``artifact_save`` — standalone MCP tool for files / inline content
+
+This module provides the low-level storage layer used by both.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import mimetypes
+import uuid
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from osprey.mcp_server.base_store import BaseStore
+
+logger = logging.getLogger("osprey.mcp_server.artifact_store")
+
+
+# ---------------------------------------------------------------------------
+# Backward-compatible listener API
+# ---------------------------------------------------------------------------
+
+
+def register_artifact_listener(fn: Callable[[ArtifactEntry], None]) -> None:
+    """Register a callback invoked after every artifact save."""
+    ArtifactStore.register_listener(fn)
+
+
+def unregister_artifact_listener(fn: Callable[[ArtifactEntry], None]) -> None:
+    """Remove a previously registered listener."""
+    ArtifactStore.unregister_listener(fn)
+
+
+# ---------------------------------------------------------------------------
+# Artifact entry dataclass
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ArtifactEntry:
+    """Metadata for a single artifact stored on disk."""
+
+    id: str
+    artifact_type: str
+    title: str
+    description: str
+    filename: str
+    mime_type: str
+    size_bytes: int
+    timestamp: str
+    tool_source: str
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    def to_tool_response(self, gallery_url: str | None = None) -> dict[str, Any]:
+        """Compact response returned to Claude after artifact creation."""
+        resp: dict[str, Any] = {
+            "status": "success",
+            "artifact_id": self.id,
+            "title": self.title,
+            "artifact_type": self.artifact_type,
+            "size_bytes": self.size_bytes,
+        }
+        if gallery_url:
+            resp["gallery_url"] = gallery_url
+        return resp
+
+
+# ---------------------------------------------------------------------------
+# Smart serialization helpers
+# ---------------------------------------------------------------------------
+
+
+def _serialize_object(obj: Any, title: str) -> tuple[bytes, str, str, str]:
+    """Detect the type of *obj* and serialise it to bytes.
+
+    Returns:
+        (content_bytes, artifact_type, filename_ext, mime_type)
+    """
+    slug = _slugify(title)
+
+    # --- Plotly Figure ---
+    try:
+        import plotly.graph_objects as go  # type: ignore[import-untyped]
+
+        if isinstance(obj, go.Figure):
+            html = obj.to_html(include_plotlyjs="cdn", full_html=True)
+            return html.encode(), "plot_html", f"{slug}.html", "text/html"
+    except ImportError:
+        pass
+
+    # --- Matplotlib Figure ---
+    try:
+        import matplotlib.figure  # type: ignore[import-untyped]
+
+        if isinstance(obj, matplotlib.figure.Figure):
+            import io
+
+            buf = io.BytesIO()
+            obj.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+            buf.seek(0)
+            return buf.read(), "plot_png", f"{slug}.png", "image/png"
+    except ImportError:
+        pass
+
+    # --- Pandas DataFrame ---
+    try:
+        import pandas as pd  # type: ignore[import-untyped]
+
+        if isinstance(obj, pd.DataFrame):
+            html = obj.to_html(classes="artifact-table", border=0)
+            return html.encode(), "table_html", f"{slug}.html", "text/html"
+    except ImportError:
+        pass
+
+    # --- str ---
+    if isinstance(obj, str):
+        if obj.lstrip().startswith(("<", "<!")) and "</" in obj:
+            return obj.encode(), "html", f"{slug}.html", "text/html"
+        return obj.encode(), "markdown", f"{slug}.md", "text/markdown"
+
+    # --- dict / list ---
+    if isinstance(obj, (dict, list)):
+        return (
+            json.dumps(obj, indent=2, default=str).encode(),
+            "json",
+            f"{slug}.json",
+            "application/json",
+        )
+
+    # --- bytes ---
+    if isinstance(obj, bytes):
+        return obj, "binary", f"{slug}.bin", "application/octet-stream"
+
+    # Fallback: repr as text
+    return repr(obj).encode(), "text", f"{slug}.txt", "text/plain"
+
+
+def _slugify(title: str) -> str:
+    """Convert title to a filesystem-safe slug."""
+    slug = title.lower().strip()
+    slug = "".join(c if c.isalnum() or c in (" ", "-", "_") else "" for c in slug)
+    slug = slug.replace(" ", "_")
+    return slug[:60] or "artifact"
+
+
+def _guess_mime(path: Path) -> str:
+    """Guess MIME type from file extension."""
+    mime, _ = mimetypes.guess_type(str(path))
+    return mime or "application/octet-stream"
+
+
+def _artifact_type_from_mime(mime: str) -> str:
+    """Map MIME type to an artifact_type string."""
+    if mime.startswith("image/"):
+        return "image"
+    if mime == "text/html":
+        return "html"
+    if mime in ("text/markdown", "text/x-markdown"):
+        return "markdown"
+    if mime == "application/json":
+        return "json"
+    if mime.startswith("text/"):
+        return "text"
+    return "file"
+
+
+# ---------------------------------------------------------------------------
+# ArtifactStore
+# ---------------------------------------------------------------------------
+
+
+class ArtifactStore(BaseStore[ArtifactEntry]):
+    """Manages artifact files and the artifacts.json index."""
+
+    _store_name = "artifacts"
+    _subdir = "artifacts"
+    _index_filename = "artifacts.json"
+
+    def _entry_from_dict(self, d: dict) -> ArtifactEntry:
+        return ArtifactEntry(**d)
+
+    def _entry_to_dict(self, entry: ArtifactEntry) -> dict:
+        return entry.to_dict()
+
+    def _make_id(self) -> str:
+        return uuid.uuid4().hex[:12]
+
+    @property
+    def artifact_dir(self) -> Path:
+        return self._store_dir
+
+    # ---- public API --------------------------------------------------------
+
+    def save_file(
+        self,
+        file_content: bytes,
+        filename: str,
+        artifact_type: str,
+        title: str,
+        description: str = "",
+        mime_type: str = "application/octet-stream",
+        tool_source: str = "unknown",
+        metadata: dict[str, Any] | None = None,
+    ) -> ArtifactEntry:
+        """Low-level save: write raw bytes to disk and register in the index."""
+        with self._with_index_lock():
+            art_id = self._make_id()
+            # Prefix filename with id to avoid collisions
+            safe_filename = f"{art_id}_{filename}"
+            filepath = self._store_dir / safe_filename
+            filepath.write_bytes(file_content)
+
+            entry = ArtifactEntry(
+                id=art_id,
+                artifact_type=artifact_type,
+                title=title,
+                description=description,
+                filename=safe_filename,
+                mime_type=mime_type,
+                size_bytes=len(file_content),
+                timestamp=datetime.now(UTC).isoformat(),
+                tool_source=tool_source,
+                metadata=metadata or {},
+            )
+            self._entries.append(entry)
+            self._save_index()
+
+        self._notify_listeners(entry)
+
+        # Auto-launch artifact server on first save
+        try:
+            from osprey.mcp_server.server_launcher import ensure_artifact_server
+
+            ensure_artifact_server()
+        except Exception as exc:
+            logger.warning("Artifact server auto-launch failed: %s", exc, exc_info=True)
+
+        return entry
+
+    def save_object(
+        self,
+        obj: Any,
+        title: str,
+        description: str = "",
+        artifact_type: str | None = None,
+        tool_source: str = "python_execute",
+        metadata: dict[str, Any] | None = None,
+    ) -> ArtifactEntry:
+        """Smart-serialize a Python object and save it.
+
+        Detects Plotly figures, matplotlib figures, DataFrames, strings, dicts.
+        """
+        content, detected_type, filename, mime = _serialize_object(obj, title)
+
+        return self.save_file(
+            file_content=content,
+            filename=filename,
+            artifact_type=artifact_type or detected_type,
+            title=title,
+            description=description,
+            mime_type=mime,
+            tool_source=tool_source,
+            metadata=metadata,
+        )
+
+    def save_from_path(
+        self,
+        source_path: str | Path,
+        title: str,
+        description: str = "",
+        artifact_type: str | None = None,
+        tool_source: str = "artifact_save",
+        metadata: dict[str, Any] | None = None,
+    ) -> ArtifactEntry:
+        """Copy an existing file into the artifact store."""
+        source = Path(source_path)
+        if not source.exists():
+            raise FileNotFoundError(f"Source file not found: {source}")
+
+        mime = _guess_mime(source)
+        a_type = artifact_type or _artifact_type_from_mime(mime)
+
+        content = source.read_bytes()
+        return self.save_file(
+            file_content=content,
+            filename=source.name,
+            artifact_type=a_type,
+            title=title,
+            description=description,
+            mime_type=mime,
+            tool_source=tool_source,
+            metadata=metadata,
+        )
+
+    def list_entries(
+        self,
+        type_filter: str | None = None,
+        search: str | None = None,
+    ) -> list[ArtifactEntry]:
+        """Return artifact entries, optionally filtered."""
+        self._refresh_if_stale()
+        entries = list(self._entries)
+        if type_filter:
+            entries = [e for e in entries if e.artifact_type == type_filter]
+        if search:
+            q = search.lower()
+            entries = [e for e in entries if q in e.title.lower() or q in e.description.lower()]
+        return entries
+
+    def get_entry(self, artifact_id: str) -> ArtifactEntry | None:
+        self._refresh_if_stale()
+        for e in self._entries:
+            if e.id == artifact_id:
+                return e
+        return None
+
+    def delete_entry(self, artifact_id: str) -> bool:
+        """Delete an artifact by ID, removing both the index entry and physical file.
+
+        Returns:
+            ``True`` if the entry was found and deleted, ``False`` otherwise.
+        """
+        with self._with_index_lock():
+            for i, e in enumerate(self._entries):
+                if e.id == artifact_id:
+                    # Delete physical file
+                    filepath = self._store_dir / e.filename
+                    if filepath.exists():
+                        filepath.unlink()
+                    del self._entries[i]
+                    self._save_index()
+                    return True
+        return False
+
+    def get_file_path(self, artifact_id: str) -> Path | None:
+        entry = self.get_entry(artifact_id)
+        if entry is None:
+            return None
+        return self._store_dir / entry.filename
+
+
+# ---------------------------------------------------------------------------
+# Module-level singleton
+# ---------------------------------------------------------------------------
+
+_artifact_store: ArtifactStore | None = None
+
+
+def get_artifact_store() -> ArtifactStore:
+    """Return the module-level ArtifactStore singleton (lazy-initialised)."""
+    global _artifact_store
+    if _artifact_store is None:
+        _artifact_store = ArtifactStore()
+    return _artifact_store
+
+
+def initialize_artifact_store(workspace_root: Path | None = None) -> ArtifactStore:
+    """(Re-)initialise the ArtifactStore singleton with an explicit workspace root."""
+    global _artifact_store
+    _artifact_store = ArtifactStore(workspace_root=workspace_root)
+    return _artifact_store
+
+
+def reset_artifact_store() -> None:
+    """Reset the singleton — used between tests."""
+    global _artifact_store
+    _artifact_store = None

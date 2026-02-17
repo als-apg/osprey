@@ -150,6 +150,7 @@ class EntryCreateResponse(BaseModel):
 
     entry_id: str
     message: str = "Entry created successfully"
+    attachment_count: int = 0
 
 
 class EmbeddingTableStatus(BaseModel):

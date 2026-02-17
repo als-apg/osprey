@@ -15,6 +15,7 @@ services:
     volumes:
       - ./jupyter:/jupyter
       - {{project_root}}/{{file_paths.agent_data_dir}}/{{file_paths.executed_python_scripts_dir}}:/home/jovyan/work/executed_scripts/
+      - {{project_root}}/osprey-workspace/artifacts:/home/jovyan/work/artifacts/
       # Mount safe kernels only
       - ./jupyter/python3-epics-readonly:/opt/conda/share/jupyter/kernels/python3-epics-readonly
     environment:
@@ -57,6 +58,7 @@ services:
     volumes:
       - ./jupyter:/jupyter
       - {{project_root}}/{{file_paths.agent_data_dir}}/{{file_paths.executed_python_scripts_dir}}:/home/jovyan/work/executed_scripts/
+      - {{project_root}}/osprey-workspace/artifacts:/home/jovyan/work/artifacts/
       # Mount all kernels (full flexibility in write container)
       - ./jupyter/python3-epics-readonly:/opt/conda/share/jupyter/kernels/python3-epics-readonly
       - ./jupyter/python3-epics-write:/opt/conda/share/jupyter/kernels/python3-epics-write

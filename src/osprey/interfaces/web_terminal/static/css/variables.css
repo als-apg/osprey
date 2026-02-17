@@ -1,0 +1,84 @@
+/* OSPREY Web Terminal — Design Tokens
+   Harmonized with ARIEL + Artifacts palette */
+
+:root {
+  /* Backgrounds — deeper than Artifacts for CRT terminal feel */
+  --bg-terminal: #050a10;
+  --bg-primary: #0a0f1a;
+  --bg-secondary: #111a2e;
+  --bg-panel: #0e1525;
+  --bg-elevated: #1a2332;
+
+  /* OSPREY accent palette */
+  --color-accent: #319795;
+  --color-accent-light: #4fd1c5;
+  --color-amber: #d4a574;
+  --color-amber-light: #e8c9a0;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+
+  /* Text */
+  --text-primary: #f1f5f9;
+  --text-secondary: #8b9ab5;
+  --text-muted: #64748b;
+
+  /* Terminal-specific */
+  --terminal-cursor: #4fd1c5;
+  --terminal-text: #c8d6e5;
+  --terminal-selection: rgba(79, 209, 197, 0.25);
+
+  /* Typography */
+  --font-display: 'Outfit', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Borders */
+  --border-default: rgba(148, 163, 184, 0.12);
+  --border-accent: rgba(79, 209, 197, 0.15);
+
+  /* Transitions */
+  --transition-fast: 120ms ease;
+  --transition-normal: 200ms ease;
+
+  /* Layout */
+  --header-height: 48px;
+  --status-bar-height: 24px;
+}
+
+/* Reset */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.2);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.35);
+}

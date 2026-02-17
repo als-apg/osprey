@@ -29,6 +29,18 @@ class AttachmentInfo(TypedDict):
     caption: NotRequired[str | None]  # Caption (JLab)
 
 
+class AttachmentFileRecord(TypedDict):
+    """Row from the attachment_files table."""
+
+    attachment_id: str
+    entry_id: str
+    filename: str
+    mime_type: str | None
+    data: NotRequired[bytes]  # Omitted in metadata-only queries
+    size_bytes: int
+    created_at: datetime
+
+
 class EnhancedLogbookEntry(TypedDict):
     """ARIEL's enriched logbook entry - the core data model.
 

@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OSPREY Web Terminal</title>
+
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <!-- xterm.js -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.min.js"></script>
+
+  <!-- OSPREY styles -->
+  <link rel="stylesheet" href="/static/css/variables.css">
+  <link rel="stylesheet" href="/static/css/terminal.css">
+  <link rel="stylesheet" href="/static/css/files.css">
+  <link rel="stylesheet" href="/static/css/operator.css">
+  <link rel="stylesheet" href="/static/css/cui.css">
+  <link rel="stylesheet" href="/static/css/drawer.css">
+  <link rel="stylesheet" href="/static/css/settings.css">
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-left">
+      <span class="header-logo">OSPREY</span>
+      <span class="header-title">Web Terminal</span>
+    </div>
+    <div class="header-right">
+      <div class="header-tabs" id="header-tabs">
+        <!-- Populated by panel-manager.js -->
+      </div>
+      <div class="header-actions">
+        <a class="header-icon-btn" id="wiki-link" title="Open Wiki" style="display:none" target="_blank" rel="noopener">&#128214;</a>
+        <button class="header-icon-btn" data-drawer="settings-drawer" title="Settings">&#9881;</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Split Pane -->
+  <div class="main-container">
+
+    <!-- Terminal Panel (Left) -->
+    <div class="terminal-panel">
+      <div class="terminal-header">
+        <span class="session-led" id="session-led"></span>
+        <span class="terminal-label" id="terminal-label">Session</span>
+        <button class="new-session-btn" id="new-session-btn" title="New Session">+ New</button>
+        <button class="mode-toggle-btn" id="mode-toggle" title="Switch to CUI">CUI</button>
+      </div>
+      <div class="terminal-body" id="terminal-body">
+        <div id="terminal-container"></div>
+        <div id="operator-container" class="operator-container"></div>
+        <div id="cui-container" class="cui-container" style="display: none;"></div>
+        <div class="terminal-bezel"></div>
+      </div>
+    </div>
+
+    <!-- Resize Handle -->
+    <div class="resize-handle" id="resize-handle">
+      <div class="resize-handle-grip"></div>
+    </div>
+
+    <!-- Right Panel — Tabbed service panes -->
+    <div class="files-panel" id="right-panel">
+      <div class="panel-content" id="panel-content">
+        <!-- Active tab's iframe or empty state -->
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Status Bar -->
+  <footer class="status-bar">
+    <div class="status-left">
+      <div class="status-item">
+        <span class="status-dot" id="ws-dot"></span>
+        <span>WS</span>
+      </div>
+      <div class="status-item" id="operator-status" style="display: none;">
+        <span class="status-dot" id="operator-dot"></span><span>OP</span>
+      </div>
+      <div class="status-item" id="cui-status" style="display: none;">
+        <span class="status-dot" id="cui-dot"></span><span>CUI</span>
+      </div>
+      <div class="status-item" id="ariel-status" style="display: none;">
+        <span class="status-dot" id="ariel-dot"></span><span>ARIEL</span>
+      </div>
+      <div class="status-item" id="term-dims">--x--</div>
+    </div>
+    <div class="status-right">
+      <div class="status-item" id="status-clock">--:--:--</div>
+    </div>
+  </footer>
+
+  <!-- Drawer Backdrop -->
+  <div class="drawer-backdrop" id="drawer-backdrop"></div>
+
+  <!-- Unified Settings Drawer -->
+  <div class="drawer" id="settings-drawer">
+    <div class="drawer-resize-handle"></div>
+    <div class="drawer-header">
+      <div class="drawer-header-left">
+        <span class="drawer-icon">&#9881;</span>
+        <span class="drawer-title">Settings</span>
+      </div>
+      <div class="drawer-tabs">
+        <button class="drawer-tab active" data-tab="tab-agent">Agent</button>
+        <button class="drawer-tab" data-tab="tab-claude">Claude</button>
+      </div>
+      <button class="drawer-close-btn">&times;</button>
+    </div>
+
+    <!-- Agent Settings Tab -->
+    <div class="drawer-tab-panel active" id="tab-agent">
+      <div class="settings-mode-bar">
+        <button class="settings-mode-btn active" data-mode="form">Form</button>
+        <button class="settings-mode-btn" data-mode="raw">Raw YAML</button>
+      </div>
+      <div class="drawer-body" style="position: relative;">
+        <div id="settings-loading" class="settings-loading" style="display: none;">Loading config...</div>
+        <div id="settings-error" class="settings-error" style="display: none;"></div>
+        <div id="settings-form-view">
+          <div id="settings-form" class="settings-form"></div>
+        </div>
+        <div id="settings-raw-view" class="settings-raw">
+          <textarea id="settings-raw-editor" spellcheck="false"></textarea>
+        </div>
+        <!-- Confirmation dialog overlay -->
+        <div class="settings-confirm-overlay">
+          <div class="settings-confirm-dialog">
+            <div class="settings-confirm-title">Apply Settings?</div>
+            <div class="settings-confirm-message">Applying settings will restart the terminal session. Any running processes will be terminated.</div>
+            <div class="settings-confirm-actions">
+              <button class="settings-cancel-btn">Cancel</button>
+              <button class="settings-confirm-btn">Apply &amp; Restart</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="settings-save-bar">
+        <span class="settings-status"></span>
+        <button class="settings-apply-btn">Apply Settings</button>
+      </div>
+    </div>
+
+    <!-- Claude Setup Tab -->
+    <div class="drawer-tab-panel" id="tab-claude">
+      <div class="drawer-body">
+        <div id="claude-setup-loading" class="claude-setup-loading" style="display: none;">Loading files...</div>
+        <div id="claude-setup-error" class="claude-setup-error" style="display: none;"></div>
+        <div class="claude-setup-layout">
+          <div class="claude-setup-sidebar" id="claude-setup-list"></div>
+          <div class="claude-setup-main" id="claude-setup-viewer">
+            <div class="claude-setup-empty">Select a file to view</div>
+          </div>
+        </div>
+      </div>
+      <div class="claude-setup-save-bar">
+        <span class="claude-setup-status"></span>
+        <button class="claude-setup-save-btn">Save File</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- App entry point -->
+  <script type="module" src="/static/js/app.js"></script>
+
+</body>
+</html>

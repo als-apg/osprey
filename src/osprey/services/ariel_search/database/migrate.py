@@ -40,6 +40,12 @@ KNOWN_MIGRATIONS: list[tuple[str, str, str, str | None]] = [
         "TextEmbeddingMigration",
         "text_embedding",
     ),
+    (
+        "attachment_files",
+        "osprey.services.ariel_search.database.attachment_migration",
+        "AttachmentMigration",
+        None,  # Always runs
+    ),
 ]
 
 

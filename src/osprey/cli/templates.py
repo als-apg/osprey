@@ -17,6 +17,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from osprey.cli.styles import console
@@ -108,6 +110,7 @@ class TemplateManager:
             "STANFORD_API_KEY",
             "PROJECT_ROOT",
             "LOCAL_PYTHON_VENV",
+            "CONFLUENCE_ACCESS_TOKEN",
             "TZ",
         ]
 
@@ -265,6 +268,12 @@ class TemplateManager:
             else:
                 default_pipeline = channel_finder_mode
 
+            # Determine which pipeline module to use for MCP server
+            if channel_finder_mode == "all":
+                channel_finder_pipeline = default_pipeline  # "hierarchical"
+            else:
+                channel_finder_pipeline = channel_finder_mode
+
             # Add channel finder context variables
             ctx.update(
                 {
@@ -273,6 +282,8 @@ class TemplateManager:
                     "enable_hierarchical": enable_hierarchical,
                     "enable_middle_layer": enable_middle_layer,
                     "default_pipeline": default_pipeline,
+                    "channel_finder_pipeline": channel_finder_pipeline,
+                    "facility_name": ctx.get("facility_name", project_name),
                 }
             )
 
@@ -291,6 +302,18 @@ class TemplateManager:
 
         # 7. Create _agent_data directory structure
         self._create_agent_data_structure(project_dir, ctx)
+
+        # 8. Create Claude Code integration files (if requested)
+        if ctx.get("claude_code", True):  # Default ON
+            # Load rendered config.yml so conditional sections (confluence, etc.)
+            # are available to Claude Code templates (mcp.json.j2, CLAUDE.md.j2).
+            config_file = project_dir / "config.yml"
+            if config_file.exists():
+                with open(config_file) as f:
+                    rendered_config = yaml.safe_load(f) or {}
+                if "confluence" in rendered_config:
+                    ctx["confluence"] = rendered_config["confluence"]
+            self._create_claude_code_integration(project_dir, ctx)
 
         return project_dir
 
@@ -781,6 +804,76 @@ proper framework operation, especially when using containerized services.
         with open(readme_path, "w", encoding="utf-8") as f:
             f.write(readme_content)
 
+    def _create_claude_code_integration(self, project_dir: Path, ctx: dict):
+        """Create Claude Code integration files for the project.
+
+        Copies template files from templates/claude_code/ into the project,
+        applying dotless-to-dotted naming convention (claude/ -> .claude/,
+        mcp.json.j2 -> .mcp.json).
+
+        Args:
+            project_dir: Root directory of the project
+            ctx: Template context variables
+        """
+        claude_code_dir = self.template_root / "claude_code"
+
+        if not claude_code_dir.exists():
+            console.print(
+                "  [warning]⚠[/warning] Claude Code templates not found — skipping",
+                style="yellow",
+            )
+            return
+
+        files_created = 0
+
+        # 1. Render mcp.json.j2 -> .mcp.json
+        mcp_template = claude_code_dir / "mcp.json.j2"
+        if mcp_template.exists():
+            self.render_template("claude_code/mcp.json.j2", ctx, project_dir / ".mcp.json")
+            files_created += 1
+
+        # 2. Render CLAUDE.md.j2 -> CLAUDE.md (or copy static CLAUDE.md)
+        claude_md_j2 = claude_code_dir / "CLAUDE.md.j2"
+        claude_md_static = claude_code_dir / "CLAUDE.md"
+        if claude_md_j2.exists():
+            self.render_template("claude_code/CLAUDE.md.j2", ctx, project_dir / "CLAUDE.md")
+        elif claude_md_static.exists():
+            shutil.copy2(claude_md_static, project_dir / "CLAUDE.md")
+        files_created += 1
+
+        # 3. Recursively copy/render claude/ -> .claude/ (dotless to dotted)
+        #    Files with .j2 extension are rendered as Jinja2 templates.
+        claude_src = claude_code_dir / "claude"
+        if claude_src.exists():
+            for src_file in claude_src.rglob("*"):
+                if not src_file.is_file():
+                    continue
+                rel_path = src_file.relative_to(claude_src)
+
+                if src_file.suffix == ".j2":
+                    # Render Jinja2 template, strip .j2 extension
+                    dst_file = project_dir / ".claude" / rel_path.with_suffix("")
+                    dst_file.parent.mkdir(parents=True, exist_ok=True)
+                    template_path = f"claude_code/claude/{rel_path}"
+                    self.render_template(template_path, ctx, dst_file)
+                else:
+                    # Static copy (existing behavior)
+                    dst_file = project_dir / ".claude" / rel_path
+                    dst_file.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src_file, dst_file)
+                files_created += 1
+
+        # 4. Set hook scripts executable
+        hooks_dir = project_dir / ".claude" / "hooks"
+        if hooks_dir.exists():
+            for hook in hooks_dir.iterdir():
+                if hook.is_file() and hook.suffix == ".py":
+                    hook.chmod(hook.stat().st_mode | 0o755)
+
+        console.print(
+            f"  [success]✓[/success] Created {files_created} Claude Code integration file(s)"
+        )
+
     def generate_manifest(
         self,
         project_dir: Path,
@@ -884,11 +977,15 @@ proper framework operation, especially when using containerized services.
             ("default_model", "model"),
             ("channel_finder_mode", "channel_finder_mode"),
             ("code_generator", "code_generator"),
+            ("claude_code", "claude_code"),
         ]
 
         for context_key, arg_key in optional_keys:
-            if context_key in context and context[context_key]:
-                init_args[arg_key] = context[context_key]
+            if context_key in context and context[context_key] is not None:
+                # For boolean keys, include even when False; for strings, skip empty
+                value = context[context_key]
+                if isinstance(value, bool) or value:
+                    init_args[arg_key] = value
 
         return init_args
 
@@ -926,6 +1023,10 @@ proper framework operation, especially when using containerized services.
         # Add code_generator if specified
         if init_args.get("code_generator"):
             parts.extend(["--code-generator", init_args["code_generator"]])
+
+        # Add --no-claude-code if claude_code is explicitly False
+        if init_args.get("claude_code") is False:
+            parts.append("--no-claude-code")
 
         return " ".join(parts)
 

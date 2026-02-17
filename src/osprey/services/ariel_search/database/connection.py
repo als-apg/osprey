@@ -37,6 +37,7 @@ async def create_connection_pool(config: "DatabaseConfig") -> "AsyncConnectionPo
         max_size=10,
         kwargs={"autocommit": True},
         open=False,  # Don't open immediately
+        reconnect_timeout=0,  # Don't retry on failure
     )
-    await pool.open()
+    await pool.open(wait=True, timeout=5.0)
     return pool

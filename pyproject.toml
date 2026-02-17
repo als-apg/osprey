@@ -61,6 +61,7 @@ dependencies = [
     # Jupyter notebook support
     "nbformat>=5.0.0",
     "nbclient",
+    "nbconvert>=7.0.0",
 
     # AI/ML provider integrations
     "litellm>=1.56.0",  # Unified LLM provider interface (100+ providers)
@@ -102,6 +103,8 @@ dependencies = [
     "scipy>=1.15.3",
     "seaborn",
     "scikit-learn",
+    "plotly>=5.0.0",
+    "playwright>=1.40.0",
     "ipywidgets",  # Interactive widgets for Jupyter notebooks
 
     # Natural language processing
@@ -127,6 +130,9 @@ dependencies = [
 
     # ARIEL proxy support for HTTP ingestion through SOCKS tunnels
     "aiohttp-socks>=0.8.0",
+
+    # File system monitoring for web terminal
+    "watchdog>=3.0.0",
 ]
 
 [project.optional-dependencies]
@@ -194,9 +200,15 @@ ariel-proxy = [
     "aiohttp-socks>=0.8.0",
 ]
 
+# Screen capture on Linux (X11) — not needed on macOS
+screen-capture-linux = [
+    "mss>=9.0.0",
+    "python-xlib>=0.33",
+]
+
 # All optional dependencies for complete installation
 all = [
-    "osprey-framework[docs,dev,storage,ariel]"
+    "osprey-framework[docs,dev,storage,ariel,screen-capture-linux]"
 ]
 
 [project.urls]

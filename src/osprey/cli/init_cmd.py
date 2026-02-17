@@ -62,6 +62,12 @@ from .templates import TemplateManager
     default=None,
     help="Code generator to use (e.g., basic, claude_code)",
 )
+@click.option(
+    "--no-claude-code",
+    is_flag=True,
+    default=False,
+    help="Skip generating Claude Code integration files (.mcp.json, CLAUDE.md, hooks)",
+)
 def init(
     project_name: str,
     template: str,
@@ -72,6 +78,7 @@ def init(
     model: str,
     channel_finder_mode: str,
     code_generator: str,
+    no_claude_code: bool,
 ):
     """Create a new Osprey project.
 
@@ -187,6 +194,8 @@ def init(
             context["channel_finder_mode"] = channel_finder_mode
         if code_generator:
             context["code_generator"] = code_generator
+        if no_claude_code:
+            context["claude_code"] = False
 
         project_path = manager.create_project(
             project_name=project_name,
@@ -207,6 +216,7 @@ def init(
             manifest_context["channel_finder_mode"] = channel_finder_mode
         if code_generator:
             manifest_context["code_generator"] = code_generator
+        manifest_context["claude_code"] = not no_claude_code
         manager.generate_manifest(
             project_dir=project_path,
             project_name=project_name,
@@ -218,6 +228,8 @@ def init(
         console.print("  ✓ Creating application code...", style=Styles.SUCCESS)
         console.print("  ✓ Creating service configurations...", style=Styles.SUCCESS)
         console.print("  ✓ Creating project configuration...", style=Styles.SUCCESS)
+        if not no_claude_code:
+            console.print("  ✓ Creating Claude Code integration...", style=Styles.SUCCESS)
 
         # Check if API keys were detected and .env was created
         api_keys = [
@@ -253,11 +265,15 @@ def init(
             console.print("  2. # .env already configured with detected API keys")
             console.print(f"  3. {Messages.command('osprey deploy up')}")
             console.print(f"  4. {Messages.command('osprey chat')}")
+            if not no_claude_code:
+                console.print(f"     # or: {Messages.command('claude')}")
         else:
             console.print(f"  2. {Messages.command('cp .env.example .env')}")
             console.print("  3. # Edit .env with your API keys (OPENAI_API_KEY, etc.)")
             console.print(f"  4. {Messages.command('osprey deploy up')}")
             console.print(f"  5. {Messages.command('osprey chat')}")
+            if not no_claude_code:
+                console.print(f"     # or: {Messages.command('claude')}")
 
     except ValueError as e:
         console.print(f"❌ Error: {e}", style=Styles.ERROR)
