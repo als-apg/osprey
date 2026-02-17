@@ -6,9 +6,12 @@ Transformed for LangGraph integration with TypedDict state management.
 """
 
 import asyncio
+import json
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+import aiofiles
 
 from osprey.context.context_manager import ContextManager
 from osprey.utils.logger import get_logger
@@ -177,10 +180,6 @@ class LocalCodeExecutor:
                 )
 
             try:
-                import json
-
-                import aiofiles
-
                 async with aiofiles.open(metadata_path, encoding="utf-8") as f:
                     content = await f.read()
                     metadata = json.loads(content)
