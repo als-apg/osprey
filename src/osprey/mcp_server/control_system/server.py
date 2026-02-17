@@ -1,0 +1,42 @@
+"""OSPREY Control System MCP Server.
+
+FastMCP server exposing channel_read, channel_write, and archiver_read.
+
+Usage:
+    python -m osprey.mcp_server.control_system
+"""
+
+import logging
+
+from fastmcp import FastMCP
+
+logger = logging.getLogger("osprey.mcp_server.control_system")
+
+mcp = FastMCP("osprey-control-system")
+
+
+def create_server() -> FastMCP:
+    """Initialize the registry and import tool modules, then return the server."""
+    from osprey.mcp_server.common import (
+        initialize_workspace_singletons,
+        prime_config_builder,
+        resolve_workspace_root,
+    )
+    from osprey.mcp_server.control_system.registry import initialize_mcp_registry
+
+    prime_config_builder()
+    initialize_mcp_registry()
+
+    workspace_root = resolve_workspace_root()
+    logger.info("Workspace root: %s", workspace_root)
+    initialize_workspace_singletons(workspace_root)
+
+    # Import tool modules (each registers itself via @mcp.tool())
+    from osprey.mcp_server.control_system.tools import (  # noqa: F401
+        archiver_read,
+        channel_read,
+        channel_write,
+    )
+
+    logger.info("Control System MCP server initialised with all tools registered")
+    return mcp

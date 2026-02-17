@@ -56,6 +56,7 @@ class ExecutionWrapper:
         environment_setup = self._get_environment_setup(execution_folder)
         limits_checking = self._get_limits_checking_monkeypatch()
         metadata_init = self._get_metadata_init()
+        save_artifact_injection = self._get_save_artifact_injection()
         context_loading = self._get_context_loading()
         output_capture_start = self._get_output_capture_start()
         user_code_section = self._wrap_user_code(user_code)
@@ -68,6 +69,7 @@ class ExecutionWrapper:
                 environment_setup,
                 limits_checking,
                 metadata_init,
+                save_artifact_injection,
                 context_loading,
                 output_capture_start,
                 user_code_section,
@@ -180,16 +182,16 @@ except Exception as e:
     print("Context loading may not work properly", file=sys.stderr)
 """
 
-            # Add directory change for local execution
+            # Set execution directory variable (but do NOT chdir — user code
+            # needs cwd to be the project root so relative workspace paths work)
             if execution_folder:
                 setup += f"""
-# Change to execution directory
-execution_dir = Path(r"{execution_folder}")
-if execution_dir.exists():
-    os.chdir(execution_dir)
-    print(f"Changed to execution directory: {{execution_dir}}")
-else:
-    print(f"Warning: Execution directory {{execution_dir}} does not exist")
+# Execution directory for wrapper outputs (results, figures, artifacts).
+# User code cwd stays at the project root so relative paths like
+# "osprey-workspace/data/002_archiver_read.json" resolve correctly.
+_execution_dir = Path(r"{execution_folder}")
+if not _execution_dir.exists():
+    print(f"Warning: Execution directory {{_execution_dir}} does not exist")
 """
 
         else:  # Container execution
@@ -331,17 +333,169 @@ print(f"Container working directory: {{Path.cwd()}}")
         """
         ).strip()
 
+    def _get_save_artifact_injection(self) -> str:
+        """Generate a save_artifact() function for use inside the subprocess.
+
+        The function serializes objects to files in an ``artifacts/`` subdirectory
+        and writes a ``artifacts/manifest.json`` listing all saved artifacts.
+        The executor collects these post-execution, mirroring the figure collection
+        pattern.
+        """
+        return textwrap.dedent(
+            """
+            # Inject save_artifact() for subprocess/container execution
+            def save_artifact(obj, title="Untitled", description="", artifact_type=None):
+                \"\"\"Save an object as a gallery artifact.
+
+                Supported types:
+                  - plotly Figure -> interactive HTML
+                  - matplotlib Figure -> PNG image
+                  - pandas DataFrame -> HTML table
+                  - str -> markdown or HTML (auto-detected)
+                  - dict / list -> JSON
+                  - bytes -> binary file
+
+                Args:
+                    obj: The object to save.
+                    title: Human-readable title shown in the gallery.
+                    description: Optional longer description.
+                    artifact_type: Override the auto-detected type.
+                \"\"\"
+                import json as _json
+                import uuid as _uuid
+                from pathlib import Path as _Path
+
+                # Use _execution_dir if set (local subprocess), else cwd (container)
+                _art_base = globals().get('_execution_dir', _Path.cwd())
+                artifacts_dir = _art_base / "artifacts"
+                artifacts_dir.mkdir(exist_ok=True)
+
+                art_id = _uuid.uuid4().hex[:12]
+
+                # Slugify title for filename
+                _slug = title.lower().strip()
+                _slug = "".join(c if c.isalnum() or c in (" ", "-", "_") else "" for c in _slug)
+                _slug = _slug.replace(" ", "_")[:60] or "artifact"
+
+                # Smart type detection and serialization
+                content = None
+                detected_type = None
+                filename = None
+                mime_type = None
+
+                # Plotly Figure
+                try:
+                    import plotly.graph_objects as _go
+                    if isinstance(obj, _go.Figure):
+                        content = obj.to_html(include_plotlyjs="cdn", full_html=True).encode()
+                        detected_type = "plot_html"
+                        filename = f"{art_id}_{_slug}.html"
+                        mime_type = "text/html"
+                except ImportError:
+                    pass
+
+                # Matplotlib Figure
+                if content is None:
+                    try:
+                        import matplotlib.figure as _mfig
+                        if isinstance(obj, _mfig.Figure):
+                            import io as _io
+                            _buf = _io.BytesIO()
+                            obj.savefig(_buf, format="png", dpi=150, bbox_inches="tight")
+                            _buf.seek(0)
+                            content = _buf.read()
+                            detected_type = "plot_png"
+                            filename = f"{art_id}_{_slug}.png"
+                            mime_type = "image/png"
+                    except ImportError:
+                        pass
+
+                # Pandas DataFrame
+                if content is None:
+                    try:
+                        import pandas as _pd
+                        if isinstance(obj, _pd.DataFrame):
+                            content = obj.to_html(classes="artifact-table", border=0).encode()
+                            detected_type = "table_html"
+                            filename = f"{art_id}_{_slug}.html"
+                            mime_type = "text/html"
+                    except ImportError:
+                        pass
+
+                # str
+                if content is None and isinstance(obj, str):
+                    if obj.lstrip().startswith(("<", "<!")) and "</" in obj:
+                        content = obj.encode()
+                        detected_type = "html"
+                        filename = f"{art_id}_{_slug}.html"
+                        mime_type = "text/html"
+                    else:
+                        content = obj.encode()
+                        detected_type = "markdown"
+                        filename = f"{art_id}_{_slug}.md"
+                        mime_type = "text/markdown"
+
+                # dict / list
+                if content is None and isinstance(obj, (dict, list)):
+                    content = _json.dumps(obj, indent=2, default=str).encode()
+                    detected_type = "json"
+                    filename = f"{art_id}_{_slug}.json"
+                    mime_type = "application/json"
+
+                # bytes
+                if content is None and isinstance(obj, bytes):
+                    content = obj
+                    detected_type = "binary"
+                    filename = f"{art_id}_{_slug}.bin"
+                    mime_type = "application/octet-stream"
+
+                # Fallback: repr as text
+                if content is None:
+                    content = repr(obj).encode()
+                    detected_type = "text"
+                    filename = f"{art_id}_{_slug}.txt"
+                    mime_type = "text/plain"
+
+                final_type = artifact_type or detected_type
+
+                # Write artifact file
+                artifact_path = artifacts_dir / filename
+                artifact_path.write_bytes(content)
+
+                # Update manifest
+                manifest_path = artifacts_dir / "manifest.json"
+                if manifest_path.exists():
+                    manifest = _json.loads(manifest_path.read_text())
+                else:
+                    manifest = []
+
+                manifest.append({
+                    "id": art_id,
+                    "filename": filename,
+                    "title": title,
+                    "description": description,
+                    "artifact_type": final_type,
+                    "mime_type": mime_type,
+                    "size_bytes": len(content),
+                })
+                manifest_path.write_text(_json.dumps(manifest, indent=2))
+
+                print(f"Artifact saved: {title} ({final_type}, {len(content)} bytes)")
+        """
+        ).strip()
+
     def _get_context_loading(self) -> str:
         """Get context loading code with error handling."""
         return textwrap.dedent(
             """
             # Load execution context
             try:
-                print(f"Looking for context.json at: {{Path.cwd() / 'context.json'}}")
-                print(f"context.json exists: {{(Path.cwd() / 'context.json').exists()}}")
+                _ctx_path = globals().get('_execution_dir', Path.cwd()) / 'context.json'
+                print(f"Looking for context.json at: {{_ctx_path}}")
+                print(f"context.json exists: {{_ctx_path.exists()}}")
 
                 from osprey.context import load_context
-                context = load_context('context.json')
+                context = load_context(str(_ctx_path))
 
                 if context:
                     print("✅ Agent context loaded successfully!")
@@ -385,7 +539,7 @@ print(f"Container working directory: {{Path.cwd()}}")
                 from osprey.runtime import cleanup_runtime
                 asyncio.run(cleanup_runtime())
             except Exception as e:
-                print(f"⚠️  Cleanup warning: {{e}}")
+                print(f"⚠️  Cleanup warning: {e}")
         """
         ).strip()
 
@@ -487,10 +641,10 @@ print(f"Container working directory: {{Path.cwd()}}")
                 print(f"\\n{'='*60}", file=sys.stderr)
                 print(f"PYTHON EXECUTION ERROR", file=sys.stderr)
                 print(f"{'='*60}", file=sys.stderr)
-                print(f"Error Type: {{type(e).__name__}}", file=sys.stderr)
-                print(f"Error Message: {{str(e)}}", file=sys.stderr)
+                print(f"Error Type: {type(e).__name__}", file=sys.stderr)
+                print(f"Error Message: {str(e)}", file=sys.stderr)
                 print(f"\\nFull Traceback:", file=sys.stderr)
-                print(f"{{traceback.format_exc()}}", file=sys.stderr)
+                print(f"{traceback.format_exc()}", file=sys.stderr)
                 print(f"{'='*60}\\n", file=sys.stderr)
 
             finally:
@@ -502,6 +656,13 @@ print(f"Container working directory: {{Path.cwd()}}")
                 execution_metadata["stderr"] = stderr_capture.getvalue()
                 execution_metadata["end_time"] = _datetime.now().isoformat()
 
+                # Switch to execution directory for file persistence (results,
+                # figures, metadata).  User code ran with cwd=project_root;
+                # cleanup outputs go to the execution sandbox.
+                _exec_dir = globals().get('_execution_dir')
+                if _exec_dir:
+                    os.chdir(_exec_dir)
+
                 # Cleanup runtime resources
                 try:
                     import asyncio
@@ -509,7 +670,7 @@ print(f"Container working directory: {{Path.cwd()}}")
                     # We're in a subprocess with no running event loop
                     asyncio.run(cleanup_runtime())
                 except Exception as e:
-                    print(f"⚠️  Cleanup warning: {{e}}")
+                    print(f"⚠️  Cleanup warning: {e}")
         """
         ).strip()
 

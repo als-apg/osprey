@@ -4,7 +4,7 @@
  * Entry browsing, detail view, and creation.
  */
 
-import { entriesApi } from './api.js';
+import { entriesApi, draftsApi } from './api.js';
 import {
   formatTimestamp,
   renderEntryCard,
@@ -18,6 +18,20 @@ import {
 let currentEntry = null;
 
 /**
+ * Check if an attachment is an image, inferring from filename when type is missing.
+ * @param {Object} att - Attachment object with optional type and filename
+ * @returns {boolean} True if the attachment is an image
+ */
+function isImageAttachment(att) {
+  if (att.type && att.type.startsWith('image/')) return true;
+  if (att.filename) {
+    const ext = att.filename.split('.').pop().toLowerCase();
+    return ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'].includes(ext);
+  }
+  return false;
+}
+
+/**
  * Initialize entries module.
  */
 export function initEntries() {
@@ -28,6 +42,10 @@ export function initEntries() {
   // Tag input
   const tagInput = document.getElementById('entry-tags-input');
   tagInput?.addEventListener('keydown', handleTagInput);
+
+  // File input preview
+  const fileInput = document.getElementById('entry-files');
+  fileInput?.addEventListener('change', handleFilePreview);
 }
 
 /**
@@ -183,15 +201,34 @@ function renderEntryDetail(container, entry) {
             <div class="entry-detail-content" style="margin-top: 24px;">
               <h3>Attachments (${attachments.length})</h3>
               <div style="display: flex; flex-wrap: wrap; gap: 16px;">
-                ${attachments.map(att => `
-                  <div class="card" style="width: 150px;">
+                ${attachments.map(att => {
+                  const image = isImageAttachment(att);
+                  const url = att.url || '#';
+                  const escapedUrl = escapeHtml(url);
+                  const escapedName = escapeHtml(att.filename || 'attachment');
+                  if (image) {
+                    return `
+                    <div class="card" style="width: 150px; cursor: pointer;"
+                         onclick="window.app.showImageLightbox('${escapedUrl}', '${escapedName}')">
+                      <div class="card-body" style="padding: 12px; text-align: center;">
+                        <img src="${escapedUrl}" alt="${escapedName}"
+                             style="width: 126px; height: 100px; object-fit: cover; border-radius: 4px; margin-bottom: 8px;"
+                             onerror="this.outerHTML='<div style=&quot;font-size: 32px; margin-bottom: 8px;&quot;>\u{1F4CE}</div>'">
+                        <div class="truncate text-sm">${escapedName}</div>
+                        <div class="text-xs text-muted">${escapeHtml(att.type || 'image')}</div>
+                      </div>
+                    </div>`;
+                  }
+                  return `
+                  <a href="${escapedUrl}" target="_blank" rel="noopener"
+                     class="card" style="width: 150px; text-decoration: none; color: inherit; cursor: pointer;">
                     <div class="card-body" style="padding: 12px; text-align: center;">
-                      <div style="font-size: 32px; margin-bottom: 8px;">📎</div>
-                      <div class="truncate text-sm">${escapeHtml(att.filename || 'attachment')}</div>
+                      <div style="font-size: 32px; margin-bottom: 8px;">\u{1F4CE}</div>
+                      <div class="truncate text-sm">${escapedName}</div>
                       <div class="text-xs text-muted">${escapeHtml(att.type || 'file')}</div>
                     </div>
-                  </div>
-                `).join('')}
+                  </a>`;
+                }).join('')}
               </div>
             </div>
           ` : ''}
@@ -283,21 +320,53 @@ async function handleCreateEntry(e) {
     const tags = Array.from(document.querySelectorAll('#entry-tags .tag'))
       .map(t => t.dataset.value);
 
-    const result = await entriesApi.create({
+    const entryData = {
       subject: formData.get('subject'),
       details: formData.get('details'),
       author: formData.get('author'),
       logbook: formData.get('logbook'),
       shift: formData.get('shift'),
       tags,
-    });
+    };
+
+    const fileInput = document.getElementById('entry-files');
+    const files = Array.from(fileInput?.files || []);
+
+    // Check for draft attachments (staged by Claude via artifact_ids)
+    const preview = document.getElementById('file-preview');
+    const draftAttachmentsJson = preview?.dataset?.draftAttachments;
+    if (draftAttachmentsJson) {
+      try {
+        const draftAttachments = JSON.parse(draftAttachmentsJson);
+        for (const att of draftAttachments) {
+          const resp = await fetch(att.url);
+          if (resp.ok) {
+            const blob = await resp.blob();
+            files.push(new File([blob], att.filename, { type: blob.type }));
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to fetch draft attachments:', err);
+      }
+    }
+
+    let result;
+    if (files.length > 0) {
+      result = await entriesApi.createWithAttachments(entryData, files);
+    } else {
+      result = await entriesApi.create(entryData);
+    }
 
     // Show success message
-    alert(`Entry created: ${result.entry_id}`);
+    const attachMsg = result.attachment_count
+      ? ` with ${result.attachment_count} attachment(s)`
+      : '';
+    alert(`Entry created: ${result.entry_id}${attachMsg}`);
 
-    // Reset form
+    // Reset form and file preview
     form.reset();
     document.getElementById('entry-tags').innerHTML = '';
+    if (preview) preview.innerHTML = '';
 
     // Navigate to entry
     window.app.showEntry(result.entry_id);
@@ -353,11 +422,197 @@ function addTag(value) {
 }
 
 /**
+ * Handle file input change to show preview thumbnails.
+ * @param {Event} e - Change event
+ */
+function handleFilePreview(e) {
+  const container = document.getElementById('file-preview');
+  if (!container) return;
+  container.innerHTML = '';
+
+  const files = e.target.files;
+  if (!files || files.length === 0) return;
+
+  for (const file of files) {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.style.cssText = 'width: 120px; text-align: center; padding: 8px;';
+
+    if (file.type.startsWith('image/')) {
+      const img = document.createElement('img');
+      img.style.cssText = 'width: 100px; height: 80px; object-fit: cover; border-radius: 4px;';
+      img.src = URL.createObjectURL(file);
+      img.onload = () => URL.revokeObjectURL(img.src);
+      card.appendChild(img);
+    } else {
+      const icon = document.createElement('div');
+      icon.style.cssText = 'font-size: 32px; margin: 8px 0;';
+      icon.textContent = '\u{1F4CE}';
+      card.appendChild(icon);
+    }
+
+    const name = document.createElement('div');
+    name.className = 'truncate text-xs';
+    name.textContent = file.name;
+    card.appendChild(name);
+
+    const size = document.createElement('div');
+    size.className = 'text-xs text-muted';
+    size.textContent = formatFileSize(file.size);
+    card.appendChild(size);
+
+    container.appendChild(card);
+  }
+}
+
+/**
+ * Format file size in human-readable format.
+ * @param {number} bytes - Size in bytes
+ * @returns {string} Formatted size
+ */
+function formatFileSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+/**
+ * Show a lightbox overlay for an image attachment.
+ * @param {string} url - Image URL
+ * @param {string} filename - Display filename
+ */
+export function showImageLightbox(url, filename) {
+  // Remove existing lightbox if any
+  const existing = document.getElementById('image-lightbox');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'image-lightbox';
+  overlay.style.cssText =
+    'position: fixed; inset: 0; background: rgba(0,0,0,0.85); display: flex; ' +
+    'flex-direction: column; align-items: center; justify-content: center; z-index: 10000; ' +
+    'cursor: pointer;';
+
+  overlay.innerHTML = `
+    <img src="${escapeHtml(url)}" alt="${escapeHtml(filename)}"
+         style="max-width: 90vw; max-height: 80vh; object-fit: contain; border-radius: 8px; cursor: default;"
+         onclick="event.stopPropagation()"
+         onerror="this.outerHTML='<div style=&quot;color:#fff;font-size:1.2rem;&quot;>Failed to load image</div>'">
+    <div style="margin-top: 16px; display: flex; align-items: center; gap: 16px;">
+      <span style="color: #ccc; font-size: 0.9rem;">${escapeHtml(filename)}</span>
+      <a href="${escapeHtml(url)}" target="_blank" rel="noopener"
+         style="color: var(--amber, #f59e0b); font-size: 0.85rem; text-decoration: none;"
+         onclick="event.stopPropagation()">Open in new tab &#x2197;</a>
+    </div>
+  `;
+
+  overlay.addEventListener('click', () => overlay.remove());
+  document.addEventListener('keydown', function onKey(e) {
+    if (e.key === 'Escape') {
+      overlay.remove();
+      document.removeEventListener('keydown', onKey);
+    }
+  });
+
+  document.body.appendChild(overlay);
+}
+
+/**
  * Get current entry.
  * @returns {Object|null} Current entry or null
  */
 export function getCurrentEntry() {
   return currentEntry;
+}
+
+/**
+ * Load a draft into the entry creation form.
+ * @param {string} draftId - Draft ID to load
+ */
+export async function loadDraft(draftId) {
+  try {
+    const draft = await draftsApi.get(draftId);
+
+    // Populate form fields
+    const subjectInput = document.querySelector('#create-entry-form [name="subject"]');
+    const detailsInput = document.querySelector('#create-entry-form [name="details"]');
+    const authorInput = document.querySelector('#create-entry-form [name="author"]');
+    const logbookSelect = document.querySelector('#create-entry-form [name="logbook"]');
+    const shiftSelect = document.querySelector('#create-entry-form [name="shift"]');
+
+    if (subjectInput) subjectInput.value = draft.subject || '';
+    if (detailsInput) detailsInput.value = draft.details || '';
+    if (authorInput) authorInput.value = draft.author || '';
+    if (logbookSelect && draft.logbook) logbookSelect.value = draft.logbook;
+    if (shiftSelect && draft.shift) shiftSelect.value = draft.shift;
+
+    // Clear existing tags and add draft tags
+    const tagsContainer = document.getElementById('entry-tags');
+    if (tagsContainer) tagsContainer.innerHTML = '';
+    if (draft.tags && draft.tags.length > 0) {
+      draft.tags.forEach(tag => addTag(tag));
+    }
+
+    // Show draft attachments if present
+    if (draft.attachment_paths && draft.attachment_paths.length > 0) {
+      const preview = document.getElementById('file-preview');
+      if (preview) {
+        preview.innerHTML = '';
+        const attachmentData = [];
+
+        for (const fullPath of draft.attachment_paths) {
+          const filename = fullPath.split('/').pop();
+          const url = `/api/drafts/${draftId}/attachments/${encodeURIComponent(filename)}`;
+          attachmentData.push({ filename, url });
+
+          const card = document.createElement('div');
+          card.className = 'card';
+          card.style.cssText = 'width: 120px; text-align: center; padding: 8px;';
+
+          const isImage = /\.(png|jpe?g|gif|webp|svg)$/i.test(filename);
+          if (isImage) {
+            const img = document.createElement('img');
+            img.style.cssText = 'width: 100px; height: 80px; object-fit: cover; border-radius: 4px;';
+            img.src = url;
+            img.alt = filename;
+            card.appendChild(img);
+          } else {
+            const icon = document.createElement('div');
+            icon.style.cssText = 'font-size: 32px; margin: 8px 0;';
+            icon.textContent = '\u{1F4CE}';
+            card.appendChild(icon);
+          }
+
+          const name = document.createElement('div');
+          name.className = 'truncate text-xs';
+          name.textContent = filename;
+          card.appendChild(name);
+
+          preview.appendChild(card);
+        }
+
+        preview.dataset.draftAttachments = JSON.stringify(attachmentData);
+        preview.dataset.draftId = draftId;
+      }
+    }
+
+    // Show banner
+    const form = document.getElementById('create-entry-form');
+    if (form) {
+      const existing = document.getElementById('draft-banner');
+      if (existing) existing.remove();
+      const banner = document.createElement('div');
+      banner.id = 'draft-banner';
+      banner.className = 'text-muted';
+      banner.dataset.draftId = draftId;
+      banner.style.cssText =
+        'padding: 8px 12px; margin-bottom: 12px; border-left: 3px solid var(--amber); font-size: 0.85rem;';
+      banner.textContent = 'Draft loaded from Claude \u2014 review and submit';
+      form.prepend(banner);
+    }
+  } catch (error) {
+    console.error('Failed to load draft:', error);
+  }
 }
 
 export default {
@@ -366,4 +621,6 @@ export default {
   showEntry,
   closeEntryModal,
   getCurrentEntry,
+  loadDraft,
+  showImageLightbox,
 };

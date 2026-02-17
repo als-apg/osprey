@@ -152,6 +152,7 @@ class EntryCreateResponse(BaseModel):
     message: str = "Entry created successfully"
     sync_status: str | None = None
     source_system: str | None = None
+    attachment_count: int = 0
 
 
 class EmbeddingTableStatus(BaseModel):

@@ -6,7 +6,6 @@ Enhanced with EPICS operation detection and execution mode selection.
 Transformed for LangGraph integration with TypedDict state management.
 """
 
-import ast
 from typing import Any
 
 from osprey.approval.approval_system import create_code_approval_interrupt
@@ -173,67 +172,28 @@ class StaticCodeAnalyzer:
             ) from e
 
     def _check_syntax(self, code: str) -> list[str]:
-        """Check Python syntax validity"""
-        issues = []
-        try:
-            ast.parse(code)
-            logger.debug("Syntax validation passed")
-        except SyntaxError as e:
-            issues.append(f"Syntax error at line {e.lineno}: {e.msg}")
-            logger.warning(f"Syntax error found: {e.msg}")
-        except Exception as e:
-            issues.append(f"Syntax parsing error: {str(e)}")
-            logger.warning(f"Syntax parsing failed: {str(e)}")
+        """Check Python syntax validity."""
+        from .safety_checks import check_syntax
 
+        issues = check_syntax(code)
+        if issues:
+            for issue in issues:
+                logger.warning(f"Syntax issue found: {issue}")
+        else:
+            logger.debug("Syntax validation passed")
         return issues
 
     def _check_security(self, code: str) -> list[str]:
-        """Basic security checks for dangerous operations"""
-        issues = []
+        """Basic security checks for dangerous operations."""
+        from .safety_checks import check_security
 
-        # Check for potentially dangerous operations
-        dangerous_patterns = [
-            ("exec(", "Use of exec() function"),
-            ("eval(", "Use of eval() function"),
-            ("__import__", "Dynamic import usage"),
-            ("open(", "File operations - ensure proper handling"),
-            ("subprocess", "Subprocess usage - potential security risk"),
-            ("os.system", "System command execution"),
-        ]
-
-        for pattern, warning in dangerous_patterns:
-            if pattern in code:
-                if pattern in ["open(", "subprocess"]:
-                    # These might be legitimate, just warn
-                    issues.append(f"Warning: {warning}")
-                else:
-                    # These are more concerning
-                    issues.append(f"Security risk: {warning}")
-
-        return issues
+        return check_security(code)
 
     def _check_imports(self, code: str) -> list[str]:
-        """Check for prohibited imports - returns list of issues"""
-        issues = []
+        """Check for prohibited imports - returns list of issues."""
+        from .safety_checks import check_imports
 
-        prohibited_imports = ["subprocess", "os.system", "eval", "exec"]
-
-        try:
-            tree = ast.parse(code)
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    for alias in node.names:
-                        if alias.name in prohibited_imports:
-                            issues.append(f"Prohibited import detected: {alias.name}")
-                elif isinstance(node, ast.ImportFrom):
-                    if node.module in prohibited_imports:
-                        issues.append(f"Prohibited import detected: {node.module}")
-
-        except SyntaxError:
-            # Syntax errors are handled elsewhere
-            pass
-
-        return issues
+        return check_imports(code)
 
     def _determine_security_risk_level(self, security_issues: list[str]) -> str:
         """Determine security risk level based on security issues"""

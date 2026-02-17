@@ -43,3 +43,6 @@ _agent_data/
 # Temporary
 tmp/
 temp/
+
+# OSPREY workspace (runtime data, not tracked)
+osprey-workspace/

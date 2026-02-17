@@ -1,0 +1,52 @@
+{
+  "mcpServers": {
+    "osprey-control-system": {
+      "command": "{{ current_python_env }}",
+      "args": ["-m", "osprey.mcp_server.control_system"],
+      "env": {
+        "OSPREY_CONFIG": "{{ project_root }}/config.yml",
+        "CONFIG_FILE": "{{ project_root }}/config.yml",
+        "EPICS_CA_ADDR_LIST": "${EPICS_CA_ADDR_LIST:-}"
+      }
+    },
+    "osprey-python-executor": {
+      "command": "{{ current_python_env }}",
+      "args": ["-m", "osprey.mcp_server.python_executor"],
+      "env": {
+        "OSPREY_CONFIG": "{{ project_root }}/config.yml",
+        "CONFIG_FILE": "{{ project_root }}/config.yml",
+        "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY:-}"
+      }
+    },
+    "osprey-workspace": {
+      "command": "{{ current_python_env }}",
+      "args": ["-m", "osprey.mcp_server.workspace"],
+      "env": {
+        "OSPREY_CONFIG": "{{ project_root }}/config.yml"
+      }
+    },
+    "ariel": {
+      "command": "{{ current_python_env }}",
+      "args": ["-m", "osprey.interfaces.ariel.mcp"],
+      "env": {
+        "OSPREY_CONFIG": "{{ project_root }}/config.yml",
+        "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY:-}"
+      }
+    }{% if channel_finder_pipeline is defined %},
+    "channel-finder": {
+      "command": "{{ current_python_env }}",
+      "args": ["-m", "osprey.services.channel_finder.mcp.{{ channel_finder_pipeline }}"],
+      "env": {
+        "OSPREY_CONFIG": "{{ project_root }}/config.yml"
+      }
+    }{% endif %}{% if confluence is defined %},
+    "confluence": {
+      "command": "uvx",
+      "args": ["--python=3.12", "mcp-atlassian"],
+      "env": {
+        "CONFLUENCE_URL": "{{ confluence.url }}",
+        "CONFLUENCE_PERSONAL_TOKEN": "${CONFLUENCE_ACCESS_TOKEN:-}"
+      }
+    }{% endif %}
+  }
+}

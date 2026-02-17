@@ -1,0 +1,149 @@
+{
+  "_PROMPT_PROVIDER_NOTE": "PROMPT-PROVIDER: section=permissions_policy. Future: source from FrameworkPromptProvider.get_permissions_policy(). Facility-customizable: allow/deny/ask tool lists, file access paths, additional facility-specific tools or restrictions.",
+  "permissions": {
+    "allow": [
+      "Read(_agent_data/**)",
+      "Read(osprey-workspace/data/**)",
+      "Read(osprey-workspace/memory/**)",
+      "Read(osprey-workspace/plots/**)",
+      "Read(osprey-workspace/results/**)",
+      "mcp__osprey-control-system__channel_read",
+      "mcp__osprey-control-system__archiver_read",
+      "mcp__osprey-workspace__memory_recall",
+      "mcp__ariel__ariel_search",
+      "mcp__ariel__ariel_browse",
+      "mcp__ariel__ariel_entry_get",
+      "mcp__ariel__ariel_capabilities",
+      "mcp__ariel__ariel_status",
+      "mcp__ariel__ariel_filter_options",
+      "mcp__osprey-workspace__screenshot_capture",
+      "mcp__osprey-workspace__list_windows",
+      "mcp__osprey-workspace__manage_window",
+      "mcp__osprey-workspace__data_context_list",
+      "mcp__osprey-workspace__artifact_focus",
+      "NotebookEdit(osprey-workspace/artifacts/**)",
+      "Task(channel-resolver)"{% if channel_finder_pipeline is defined %},
+      "mcp__channel-finder"{% endif %}{% if confluence is defined %},
+      "mcp__confluence"{% endif %}
+
+    ],
+    "deny": [
+      "Bash",
+      "Edit",
+      "Write",
+      "WebFetch",
+      "WebSearch",
+      "mcp__plugin_playwright_playwright__*",
+      "mcp__plugin_context7_context7__*"
+    ],
+    "ask": [
+      "mcp__osprey-control-system__channel_write",
+      "mcp__osprey-python-executor__python_execute",
+      "mcp__osprey-workspace__memory_save",
+      "mcp__osprey-workspace__artifact_save",
+      "mcp__ariel__ariel_entry_create"
+    ]
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cat \"$CLAUDE_PROJECT_DIR/osprey-workspace/focus_state.txt\" 2>/dev/null || true",
+            "timeout": 1
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "mcp__osprey-control-system__channel_write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_writes_check.py\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_limits.py\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_approval.py\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__osprey-python-executor__python_execute",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_writes_check.py\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_approval.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "mcp__osprey-control-system__*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_audit.py\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__osprey-python-executor__*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_audit.py\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__osprey-workspace__*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_audit.py\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__ariel__*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_audit.py\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_notebook_update.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

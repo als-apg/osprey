@@ -293,6 +293,102 @@ class ARIELRepository:
                 query="SELECT DISTINCT source_system",
             ) from e
 
+    # === Attachment Methods ===
+
+    async def store_attachment(
+        self,
+        entry_id: str,
+        attachment_id: str,
+        filename: str,
+        mime_type: str | None,
+        data: bytes,
+        size_bytes: int,
+    ) -> None:
+        """Store an attachment file in the database.
+
+        Args:
+            entry_id: The entry this attachment belongs to.
+            attachment_id: Unique attachment identifier.
+            filename: Original filename.
+            mime_type: MIME type (e.g. "image/png").
+            data: Raw file bytes.
+            size_bytes: Size of data in bytes.
+        """
+        try:
+            async with self.pool.connection() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO attachment_files
+                        (attachment_id, entry_id, filename, mime_type, data, size_bytes)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    [attachment_id, entry_id, filename, mime_type, data, size_bytes],
+                )
+        except Exception as e:
+            raise DatabaseQueryError(
+                f"Failed to store attachment {attachment_id}: {e}",
+                query=f"INSERT attachment_files attachment_id={attachment_id}",
+            ) from e
+
+    async def get_attachment(self, attachment_id: str) -> dict | None:
+        """Get a single attachment including its binary data.
+
+        Args:
+            attachment_id: The attachment ID.
+
+        Returns:
+            Dict with attachment fields including 'data', or None if not found.
+        """
+        from psycopg.rows import dict_row
+
+        try:
+            async with self.pool.connection() as conn:
+                async with conn.cursor(row_factory=dict_row) as cur:
+                    await cur.execute(
+                        "SELECT * FROM attachment_files WHERE attachment_id = %s",
+                        [attachment_id],
+                    )
+                    row = await cur.fetchone()
+                    return dict(row) if row else None
+        except Exception as e:
+            raise DatabaseQueryError(
+                f"Failed to get attachment {attachment_id}: {e}",
+                query=f"SELECT attachment_id={attachment_id}",
+            ) from e
+
+    async def get_attachments_for_entry(self, entry_id: str) -> list[dict]:
+        """Get attachment metadata (without binary data) for an entry.
+
+        Args:
+            entry_id: The entry ID.
+
+        Returns:
+            List of attachment metadata dicts.
+        """
+        from psycopg.rows import dict_row
+
+        try:
+            async with self.pool.connection() as conn:
+                async with conn.cursor(row_factory=dict_row) as cur:
+                    await cur.execute(
+                        """
+                        SELECT attachment_id, entry_id, filename, mime_type,
+                               size_bytes, created_at
+                        FROM attachment_files
+                        WHERE entry_id = %s
+                        ORDER BY created_at
+                        """,
+                        [entry_id],
+                    )
+                    rows = await cur.fetchall()
+                    return [dict(row) for row in rows]
+        except Exception as e:
+            raise DatabaseQueryError(
+                f"Failed to get attachments for entry {entry_id}: {e}",
+                query=f"SELECT attachments entry_id={entry_id}",
+            ) from e
+
+    # === Enhancement Status Methods ===
     async def get_incomplete_entries(
         self,
         module_name: str | None = None,

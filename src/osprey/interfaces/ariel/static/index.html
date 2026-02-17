@@ -18,6 +18,8 @@
   <link rel="stylesheet" href="/static/css/base.css">
   <link rel="stylesheet" href="/static/css/components.css">
   <link rel="stylesheet" href="/static/css/layout.css">
+  <link rel="stylesheet" href="/static/css/drawer.css">
+  <link rel="stylesheet" href="/static/css/settings.css">
 
   <!-- Favicon -->
   <link rel="icon" type="image/svg+xml" href="/static/assets/ariel-logo.svg">
@@ -53,6 +55,12 @@
             <span class="status-dot healthy"></span>
             <span class="text-sm">Connected</span>
           </span>
+          <button class="header-icon-btn" data-drawer="settings-drawer" title="Settings">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
+            </svg>
+          </button>
         </div>
       </div>
     </header>
@@ -233,8 +241,23 @@
             </div>
           </div>
 
+          <div class="form-section">
+            <div class="form-section-title">Attachments</div>
+            <div class="input-group">
+              <input
+                type="file"
+                id="entry-files"
+                class="input"
+                multiple
+                style="padding: 8px;"
+              >
+              <div class="text-xs text-muted" style="margin-top: 4px;">Max 10 MB per file. Images will show previews.</div>
+              <div id="file-preview" style="display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px;"></div>
+            </div>
+          </div>
+
           <div class="form-actions">
-            <button type="button" class="btn btn-secondary" onclick="document.getElementById('create-entry-form').reset()">
+            <button type="button" class="btn btn-secondary" onclick="document.getElementById('create-entry-form').reset(); document.getElementById('file-preview').innerHTML = '';">
               Cancel
             </button>
             <button type="submit" class="btn btn-primary">
@@ -264,6 +287,98 @@
         </div>
       </section>
     </main>
+  </div>
+
+  <!-- Drawer backdrop -->
+  <div class="drawer-backdrop" id="drawer-backdrop"></div>
+
+  <!-- Unified Settings Drawer -->
+  <div class="drawer" id="settings-drawer">
+    <div class="drawer-header">
+      <span class="drawer-title">Settings</span>
+      <button class="drawer-close-btn">&times;</button>
+    </div>
+
+    <!-- Tab bar -->
+    <div class="settings-tab-bar">
+      <button class="settings-tab active" data-tab="config">OSPREY Config</button>
+      <button class="settings-tab" data-tab="claude">Claude Setup</button>
+    </div>
+
+    <!-- Tab: OSPREY Config -->
+    <div class="settings-tab-pane active" id="config-pane">
+      <div class="settings-mode-bar">
+        <button class="settings-mode-btn active" data-mode="form">Form</button>
+        <button class="settings-mode-btn" data-mode="raw">Raw YAML</button>
+      </div>
+      <div class="drawer-body">
+        <!-- Form view -->
+        <div id="config-form-view">
+          <div class="settings-form" id="config-form-fields">
+            <div class="claude-setup-empty">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09"/>
+              </svg>
+              <span>Loading config...</span>
+            </div>
+          </div>
+        </div>
+        <!-- Raw YAML view -->
+        <div id="config-raw-view" style="display: none;">
+          <textarea class="settings-raw-editor" id="config-raw-editor" spellcheck="false"></textarea>
+        </div>
+      </div>
+      <div class="settings-save-bar">
+        <span class="settings-status" id="config-status">No changes</span>
+        <button class="settings-apply-btn" id="config-apply-btn" disabled>Apply &amp; Restart</button>
+      </div>
+    </div>
+
+    <!-- Tab: Claude Setup -->
+    <div class="settings-tab-pane" id="claude-pane">
+      <div class="drawer-body" style="padding: 0;">
+        <div class="claude-setup-layout">
+          <div class="claude-setup-sidebar" id="claude-setup-list">
+            <div class="claude-setup-empty">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+              </svg>
+              <span>Loading files...</span>
+            </div>
+          </div>
+          <div class="claude-setup-resize-handle"></div>
+          <div class="claude-setup-main" id="claude-setup-viewer">
+            <div class="claude-setup-empty">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="16" y1="13" x2="8" y2="13"/>
+                <line x1="16" y1="17" x2="8" y2="17"/>
+              </svg>
+              <span>Select a file to view</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="settings-save-bar" id="claude-save-bar" style="display: none;">
+        <span class="settings-status" id="claude-status"></span>
+        <button class="settings-apply-btn" id="claude-apply-btn" disabled>Apply &amp; Restart</button>
+      </div>
+    </div>
+
+    <!-- Shared confirmation dialog overlay -->
+    <div class="settings-confirm-overlay" id="settings-confirm-overlay">
+      <div class="settings-confirm-dialog">
+        <div class="settings-confirm-title" id="settings-confirm-title">Confirm</div>
+        <div class="settings-confirm-text" id="settings-confirm-text">Are you sure?</div>
+        <div class="settings-confirm-actions">
+          <button class="btn btn-secondary" id="settings-confirm-no">Cancel</button>
+          <button class="btn btn-primary" id="settings-confirm-yes">Confirm</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Entry Detail Modal -->

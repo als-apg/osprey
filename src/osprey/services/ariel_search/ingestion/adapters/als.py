@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import aiohttp
 
+from osprey.services.ariel_search.attachments import guess_mime_type
 from osprey.services.ariel_search.exceptions import IngestionError
 from osprey.services.ariel_search.ingestion.base import FacilityAdapter
 from osprey.services.ariel_search.models import AttachmentInfo, EnhancedLogbookEntry
@@ -68,7 +69,7 @@ def transform_als_attachments(
                 {
                     "url": url_prefix.rstrip("/") + "/" + path.lstrip("/"),
                     "filename": filename,
-                    "type": None,  # ALS source doesn't include MIME type
+                    "type": guess_mime_type(filename),
                 }
             )
     return result

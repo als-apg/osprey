@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OSPREY Workspace</title>
+  <meta name="description" content="Artifact Gallery for OSPREY Control System Agent">
+
+  <!-- Preconnect to font services -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+  <!-- Fonts — DM Mono for that instrument-readout feel, Outfit for display -->
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="/static/css/gallery.css">
+
+  <style>
+    /* Inline critical styles */
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-inner">
+        <div class="header-left">
+          <a href="/" class="logo">
+            <div class="logo-glyph">
+              <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                <path d="M2 17l10 5 10-5"/>
+                <path d="M2 12l10 5 10-5"/>
+              </svg>
+            </div>
+            <span class="logo-text">WORKSPACE</span>
+          </a>
+
+          <!-- Domain switcher — segmented instrument panel with nested view modes -->
+          <div class="domain-switcher" id="domain-switcher">
+            <div class="domain-segment active" data-domain="artifacts">
+              <button class="domain-btn" data-domain="artifacts">
+                ARTIFACTS
+                <span class="domain-count" id="header-count">0</span>
+              </button>
+              <div class="view-toggle">
+                <button class="view-btn active" data-subview="focus">
+                  <span class="view-pip"></span>
+                  Focus
+                </button>
+                <button class="view-btn" data-subview="browse">Browse</button>
+              </div>
+            </div>
+            <div class="domain-segment" data-domain="context">
+              <button class="domain-btn" data-domain="context">
+                CONTEXT
+                <span class="domain-count" id="header-context-count">0</span>
+              </button>
+              <div class="view-toggle">
+                <button class="view-btn active" data-subview="focus">
+                  <span class="view-pip"></span>
+                  Focus
+                </button>
+                <button class="view-btn" data-subview="browse">Browse</button>
+              </div>
+            </div>
+            <div class="domain-segment" data-domain="memory">
+              <button class="domain-btn" data-domain="memory">
+                MEMORY
+                <span class="domain-count" id="header-memory-count">0</span>
+              </button>
+              <div class="view-toggle">
+                <button class="view-btn active" data-subview="focus">
+                  <span class="view-pip"></span>
+                  Focus
+                </button>
+                <button class="view-btn" data-subview="browse">Browse</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Stats — standalone (shared across domains) -->
+          <a href="#stats" class="stats-link" id="stats-link" data-subview="stats">Stats</a>
+        </div>
+        <div class="header-right">
+          <button class="btn btn-icon btn-header-refresh" id="refresh-btn" title="Refresh all data">
+            <svg class="refresh-icon" width="16" height="16" viewBox="0 0 24 24"
+                 fill="none" stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round" stroke-linejoin="round">
+              <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
+              <path d="M3.51 9a9 9 0 0114.85-3.36L23 10"/>
+              <path d="M20.49 15a9 9 0 01-14.85 3.36L1 14"/>
+            </svg>
+          </button>
+          <span class="status-indicator" id="health-indicator">
+            <span class="status-dot healthy"></span>
+            <span class="status-label">Connected</span>
+          </span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main">
+      <!-- Artifacts Focus View -->
+      <section id="view-artifacts-focus" class="view active">
+        <div id="focus-container" class="focus-container">
+          <!-- Focus artifact rendered dynamically -->
+        </div>
+        <div id="focus-empty" class="focus-empty hidden">
+          <div class="empty-state-glyph">
+            <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1">
+              <circle cx="24" cy="24" r="20" stroke-dasharray="4 4"/>
+              <circle cx="24" cy="24" r="8"/>
+              <path d="M24 4v8M24 36v8M4 24h8M36 24h8" stroke-dasharray="2 2"/>
+            </svg>
+          </div>
+          <h3 class="empty-state-title">Waiting for Artifacts</h3>
+          <p class="empty-state-text">
+            Artifacts will appear here when created via
+            <code>save_artifact()</code> in python_execute or the
+            <code>artifact_save</code> MCP tool.
+          </p>
+        </div>
+      </section>
+
+      <!-- Artifacts Browse View — Split Pane: sidebar (tree/timeline) + preview -->
+      <section id="view-artifacts-browse" class="view">
+        <div class="browse-layout">
+          <!-- Left sidebar — file tree / activity timeline -->
+          <aside class="browse-sidebar" id="browse-sidebar">
+            <div class="sidebar-header">
+              <div class="sidebar-controls-row">
+                <div class="sidebar-mode-toggle">
+                  <button class="mode-btn active" data-mode="tree" title="Group by type">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+                    </svg>
+                    Types
+                  </button>
+                  <button class="mode-btn" data-mode="activity" title="Sort chronologically">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <circle cx="12" cy="12" r="10"/>
+                      <path d="M12 6v6l4 2"/>
+                    </svg>
+                    Activity
+                  </button>
+                </div>
+                <div class="sidebar-layout-toggle" id="layout-toggle">
+                  <button class="layout-btn active" data-layout="list" title="List view">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>
+                    </svg>
+                  </button>
+                  <button class="layout-btn" data-layout="gallery" title="Gallery view">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <rect x="3" y="3" width="7" height="7" rx="1"/>
+                      <rect x="14" y="3" width="7" height="7" rx="1"/>
+                      <rect x="3" y="14" width="7" height="7" rx="1"/>
+                      <rect x="14" y="14" width="7" height="7" rx="1"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div class="sidebar-search">
+                <svg class="sidebar-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="7"/>
+                  <path d="M21 21l-4.35-4.35"/>
+                </svg>
+                <input
+                  type="text"
+                  id="search"
+                  class="sidebar-search-input"
+                  placeholder="Filter..."
+                  autocomplete="off"
+                >
+              </div>
+            </div>
+            <div class="sidebar-body" id="sidebar-body">
+              <!-- Tree or timeline rendered here -->
+            </div>
+          </aside>
+
+          <!-- Drag handle for resizing -->
+          <div class="resize-handle" id="resize-handle">
+            <div class="resize-handle-grip"></div>
+          </div>
+
+          <!-- Right pane — inline preview -->
+          <div class="browse-preview-pane" id="browse-preview-pane">
+            <div class="preview-empty" id="preview-empty">
+              <div class="preview-empty-inner">
+                <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1">
+                  <rect x="6" y="6" width="36" height="36" rx="4" stroke-dasharray="4 4"/>
+                  <path d="M6 32l12-12 8 8 6-6 10 10"/>
+                  <circle cx="16" cy="16" r="3"/>
+                </svg>
+                <p>Select an artifact to preview</p>
+              </div>
+            </div>
+            <div class="preview-content hidden" id="preview-content">
+              <!-- Preview rendered dynamically -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Context Focus View -->
+      <section id="view-context-focus" class="view">
+        <div id="ctx-focus-container" class="focus-container">
+          <!-- Context focus rendered dynamically -->
+        </div>
+        <div id="ctx-focus-empty" class="focus-empty hidden">
+          <div class="empty-state-glyph">
+            <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1">
+              <rect x="6" y="6" width="36" height="36" rx="4" stroke-dasharray="4 4"/>
+              <path d="M16 18h16M16 24h12M16 30h8"/>
+            </svg>
+          </div>
+          <h3 class="empty-state-title">Waiting for Context</h3>
+          <p class="empty-state-text">
+            Context entries will appear here when MCP tools
+            (<code>channel_read</code>, <code>python_execute</code>, etc.)
+            produce output data.
+          </p>
+        </div>
+      </section>
+
+      <!-- Context Browse View — Split Pane: sidebar (tools/activity) + preview -->
+      <section id="view-context-browse" class="view">
+        <div class="browse-layout">
+          <!-- Left sidebar — tool groups / activity timeline -->
+          <aside class="browse-sidebar" id="ctx-sidebar">
+            <div class="sidebar-header">
+              <div class="sidebar-controls-row">
+                <div class="sidebar-mode-toggle">
+                  <button class="ctx-mode-btn mode-btn active" data-mode="tree" title="Group by tool">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+                    </svg>
+                    Tools
+                  </button>
+                  <button class="ctx-mode-btn mode-btn" data-mode="activity" title="Sort chronologically">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <circle cx="12" cy="12" r="10"/>
+                      <path d="M12 6v6l4 2"/>
+                    </svg>
+                    Activity
+                  </button>
+                </div>
+                <div class="sidebar-layout-toggle">
+                  <button class="ctx-layout-btn layout-btn active" data-layout="list" title="List view">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>
+                    </svg>
+                  </button>
+                  <button class="ctx-layout-btn layout-btn" data-layout="gallery" title="Gallery view">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <rect x="3" y="3" width="7" height="7" rx="1"/>
+                      <rect x="14" y="3" width="7" height="7" rx="1"/>
+                      <rect x="3" y="14" width="7" height="7" rx="1"/>
+                      <rect x="14" y="14" width="7" height="7" rx="1"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div class="sidebar-search">
+                <svg class="sidebar-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="7"/>
+                  <path d="M21 21l-4.35-4.35"/>
+                </svg>
+                <input
+                  type="text"
+                  id="ctx-search"
+                  class="sidebar-search-input"
+                  placeholder="Filter context..."
+                  autocomplete="off"
+                >
+              </div>
+            </div>
+            <div class="sidebar-body" id="ctx-sidebar-body">
+              <!-- Tree or timeline rendered here -->
+            </div>
+          </aside>
+
+          <!-- Drag handle for resizing -->
+          <div class="resize-handle" id="ctx-resize-handle">
+            <div class="resize-handle-grip"></div>
+          </div>
+
+          <!-- Right pane — context preview -->
+          <div class="browse-preview-pane" id="ctx-preview-pane">
+            <div class="preview-empty" id="ctx-preview-empty">
+              <div class="preview-empty-inner">
+                <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1">
+                  <rect x="6" y="6" width="36" height="36" rx="4" stroke-dasharray="4 4"/>
+                  <path d="M16 18h16M16 24h12M16 30h8"/>
+                </svg>
+                <p>Select a context entry to preview</p>
+              </div>
+            </div>
+            <div class="preview-content hidden" id="ctx-preview-content">
+              <!-- Preview rendered dynamically -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Memory Focus View -->
+      <section id="view-memory-focus" class="view">
+        <div id="mem-focus-container" class="focus-container">
+          <!-- Memory focus rendered dynamically -->
+        </div>
+        <div id="mem-focus-empty" class="focus-empty hidden">
+          <div class="empty-state-glyph">
+            <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1">
+              <rect x="6" y="6" width="36" height="36" rx="4" stroke-dasharray="4 4"/>
+              <path d="M19 16h10v4H19zM16 22h16v2H16zM16 26h12v2H16zM16 30h8v2H16z"/>
+            </svg>
+          </div>
+          <h3 class="empty-state-title">Waiting for Memories</h3>
+          <p class="empty-state-text">
+            Memories will appear here when created via
+            <code>memory_save</code> MCP tool.
+            Save notes, observations, or pin artifacts and context entries.
+          </p>
+        </div>
+      </section>
+
+      <!-- Memory Browse View — Split Pane: sidebar (type/activity) + preview -->
+      <section id="view-memory-browse" class="view">
+        <div class="browse-layout">
+          <!-- Left sidebar — type groups / activity timeline -->
+          <aside class="browse-sidebar" id="mem-sidebar">
+            <div class="sidebar-header">
+              <div class="sidebar-controls-row">
+                <div class="sidebar-mode-toggle">
+                  <button class="mem-mode-btn mode-btn active" data-mode="tree" title="Group by type">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+                    </svg>
+                    Types
+                  </button>
+                  <button class="mem-mode-btn mode-btn" data-mode="activity" title="Sort chronologically">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <circle cx="12" cy="12" r="10"/>
+                      <path d="M12 6v6l4 2"/>
+                    </svg>
+                    Activity
+                  </button>
+                </div>
+                <div class="sidebar-layout-toggle">
+                  <button class="mem-layout-btn layout-btn active" data-layout="list" title="List view">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>
+                    </svg>
+                  </button>
+                  <button class="mem-layout-btn layout-btn" data-layout="gallery" title="Gallery view">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <rect x="3" y="3" width="7" height="7" rx="1"/>
+                      <rect x="14" y="3" width="7" height="7" rx="1"/>
+                      <rect x="3" y="14" width="7" height="7" rx="1"/>
+                      <rect x="14" y="14" width="7" height="7" rx="1"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div class="sidebar-search">
+                <svg class="sidebar-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="7"/>
+                  <path d="M21 21l-4.35-4.35"/>
+                </svg>
+                <input
+                  type="text"
+                  id="mem-search"
+                  class="sidebar-search-input"
+                  placeholder="Filter memories..."
+                  autocomplete="off"
+                >
+              </div>
+            </div>
+            <div class="sidebar-body" id="mem-sidebar-body">
+              <!-- Tree or timeline rendered here -->
+            </div>
+          </aside>
+
+          <!-- Drag handle for resizing -->
+          <div class="resize-handle" id="mem-resize-handle">
+            <div class="resize-handle-grip"></div>
+          </div>
+
+          <!-- Right pane — memory preview -->
+          <div class="browse-preview-pane" id="mem-preview-pane">
+            <div class="preview-empty" id="mem-preview-empty">
+              <div class="preview-empty-inner">
+                <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1">
+                  <rect x="6" y="6" width="36" height="36" rx="4" stroke-dasharray="4 4"/>
+                  <path d="M19 16h10v4H19zM16 22h16v2H16zM16 26h12v2H16z"/>
+                </svg>
+                <p>Select a memory to preview</p>
+              </div>
+            </div>
+            <div class="preview-content hidden" id="mem-preview-content">
+              <!-- Preview rendered dynamically -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Stats View -->
+      <section id="view-stats" class="view dashboard-view">
+        <div class="dashboard-header">
+          <h2>Artifact Statistics</h2>
+          <p class="text-secondary">Overview of generated artifacts by type and size</p>
+        </div>
+        <div id="stats-content" class="dashboard-grid">
+          <!-- Stats rendered dynamically -->
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/static/js/gallery.js"></script>
+</body>
+</html>

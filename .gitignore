@@ -127,6 +127,7 @@ _autosummary/
 .claude
 _issues
 CLAUDE.md
+.mcp.json
 
 # Git worktrees
 .worktrees/
@@ -135,3 +136,7 @@ CLAUDE.md
 weather-agent/
 my-control-assistant/
 my-agent/_audit/
+
+# OSPREY workspace (runtime data, not tracked)
+osprey-workspace/
+!osprey-workspace/.gitkeep

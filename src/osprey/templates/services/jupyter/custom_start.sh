@@ -76,6 +76,29 @@ mkdir -p /home/jovyan/work
 # Ensure work directory is owned by jovyan
 chown -R jovyan:users /home/jovyan/work || echo "Warning: chown on work directory failed"
 
+echo "Configuring JupyterLab for iframe embedding..."
+mkdir -p /home/jovyan/.jupyter
+cat > /home/jovyan/.jupyter/jupyter_server_config.py << 'JSCFG'
+c.ServerApp.tornado_settings = {
+    'headers': {
+        'Content-Security-Policy': "frame-ancestors 'self' http://127.0.0.1:* http://localhost:*",
+    }
+}
+JSCFG
+chown jovyan:users /home/jovyan/.jupyter/jupyter_server_config.py
+
+echo "Configuring JupyterLab editor defaults..."
+OVERRIDES_DIR="/opt/conda/share/jupyter/lab/settings"
+mkdir -p "$OVERRIDES_DIR"
+cat > "$OVERRIDES_DIR/overrides.json" << 'OVCFG'
+{
+  "@jupyterlab/notebook-extension:tracker": {
+    "codeCellConfig": { "lineWrap": "on" },
+    "markdownCellConfig": { "lineWrap": "on" }
+  }
+}
+OVCFG
+
 echo "Starting jupyter Notebook server..."
 # Execute jupyterLab using the start-notebook.sh script with all necessary parameters
 exec /usr/local/bin/start-notebook.sh --notebook-dir=/home/jovyan/work --NotebookApp.token='' --NotebookApp.disable_check_xsrf=True --allow-root --port=8088

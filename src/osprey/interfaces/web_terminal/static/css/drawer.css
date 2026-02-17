@@ -1,0 +1,632 @@
+/* OSPREY Web Terminal — Drawer Panel */
+
+/* ---- Backdrop ---- */
+
+.drawer-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 100;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms ease;
+}
+
+.drawer-backdrop.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ---- Drawer ---- */
+
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 480px;
+  max-width: 90vw;
+  height: 100vh;
+  background: var(--bg-primary);
+  border-left: 1px solid var(--border-accent);
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.4);
+  z-index: 101;
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  transition: transform 250ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.drawer.open {
+  transform: translateX(0);
+}
+
+/* Subtle border glow (CRT aesthetic) */
+.drawer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -1px;
+  width: 1px;
+  height: 100%;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(79, 209, 197, 0.3) 30%,
+    rgba(79, 209, 197, 0.3) 70%,
+    transparent 100%
+  );
+  pointer-events: none;
+}
+
+/* ---- Drawer Resize Handle ---- */
+
+.drawer-resize-handle {
+  position: absolute;
+  top: 0;
+  left: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 10;
+  background: transparent;
+  transition: background var(--transition-fast);
+}
+
+.drawer-resize-handle:hover,
+.drawer-resize-handle.dragging {
+  background: rgba(79, 209, 197, 0.25);
+  box-shadow: 0 0 6px rgba(79, 209, 197, 0.3);
+}
+
+body.drawer-resizing {
+  cursor: col-resize !important;
+  user-select: none;
+}
+
+/* ---- Drawer Header ---- */
+
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-default);
+  flex-shrink: 0;
+  gap: 12px;
+}
+
+.drawer-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.drawer-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.drawer-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+/* ---- Drawer Tabs ---- */
+
+.drawer-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  justify-content: center;
+}
+
+.drawer-tab {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: 3px;
+  padding: 3px 12px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.drawer-tab:hover {
+  color: var(--color-accent-light);
+  border-color: var(--color-accent);
+}
+
+.drawer-tab.active {
+  color: var(--color-accent-light);
+  border-color: var(--color-accent);
+  background: rgba(79, 209, 197, 0.1);
+}
+
+/* ---- Tab Panels ---- */
+
+.drawer-tab-panel {
+  display: none;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+
+.drawer-tab-panel.active {
+  display: flex;
+}
+
+/* ---- Drawer Close ---- */
+
+.drawer-close-btn {
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: 3px;
+  color: var(--text-muted);
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.drawer-close-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+}
+
+/* ---- Drawer Body ---- */
+
+.drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* ---- Header Icon Buttons ---- */
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 12px;
+}
+
+.header-icon-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: var(--text-muted);
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all var(--transition-fast);
+}
+
+.header-icon-btn:hover {
+  color: var(--color-accent-light);
+  border-color: var(--border-accent);
+  background: rgba(79, 209, 197, 0.06);
+}
+
+.header-icon-btn.active {
+  color: var(--color-accent-light);
+  border-color: var(--color-accent);
+  background: rgba(79, 209, 197, 0.1);
+}
+
+/* ---- Claude Setup Viewer ---- */
+
+.claude-setup-layout {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+
+.claude-setup-sidebar {
+  width: 180px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  border-right: 1px solid var(--border-default);
+  background: var(--bg-panel);
+  display: flex;
+  flex-direction: column;
+}
+
+.claude-setup-sidebar-files {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.claude-setup-category {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--color-amber);
+  padding: 8px 12px 4px;
+  background: rgba(212, 165, 116, 0.04);
+}
+
+.claude-setup-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  border-left: 2px solid transparent;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.claude-setup-item:hover {
+  background: rgba(148, 163, 184, 0.06);
+}
+
+.claude-setup-item.selected {
+  background: rgba(79, 209, 197, 0.08);
+  border-left-color: var(--color-accent-light);
+  color: var(--text-primary);
+}
+
+.claude-setup-item-icon {
+  font-size: 11px;
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.claude-setup-item-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.claude-setup-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.claude-setup-file-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-default);
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.claude-setup-file-path {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.claude-setup-file-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.claude-setup-file-lang {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+
+.claude-setup-edit-btn {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: 3px;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.claude-setup-edit-btn:hover {
+  color: var(--color-accent-light);
+  border-color: var(--color-accent);
+}
+
+.claude-setup-edit-btn.active {
+  color: var(--color-accent-light);
+  border-color: var(--color-accent);
+  background: rgba(79, 209, 197, 0.1);
+}
+
+.claude-setup-content {
+  flex: 1;
+  overflow: auto;
+  margin: 0;
+  padding: 12px;
+  background: var(--bg-terminal);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--terminal-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.claude-setup-content code {
+  font-family: inherit;
+}
+
+/* Editor textarea (hidden by default, shown in edit mode) */
+.claude-setup-content-editor {
+  flex: 1;
+  display: none;
+  margin: 0;
+  padding: 12px;
+  background: var(--bg-terminal);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--terminal-text);
+  border: none;
+  outline: none;
+  resize: none;
+  tab-size: 2;
+  white-space: pre;
+  word-break: break-word;
+}
+
+.claude-setup-content-editor.active {
+  display: block;
+}
+
+/* ---- Edit / Danger Mode ---- */
+/* When editing Claude Code files, the entire panel shifts to red accents
+   to signal that these files control agent behavior and should only be
+   touched by experts. */
+
+.claude-editing .claude-setup-file-header {
+  border-bottom-color: rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.claude-editing .claude-setup-content-editor {
+  background: rgba(239, 68, 68, 0.04);
+  border-left: 2px solid rgba(239, 68, 68, 0.4);
+}
+
+.claude-editing .claude-setup-edit-btn {
+  color: var(--color-error);
+  border-color: var(--color-error);
+  background: rgba(239, 68, 68, 0.12);
+  animation: danger-pulse 2s ease-in-out infinite;
+}
+
+.claude-editing .claude-setup-save-bar {
+  border-top-color: rgba(239, 68, 68, 0.3);
+}
+
+.claude-editing .claude-setup-save-btn {
+  background: var(--color-error);
+}
+
+.claude-editing .claude-setup-save-btn:hover {
+  background: #dc2626;
+}
+
+@keyframes danger-pulse {
+  0%, 100% { box-shadow: none; }
+  50% { box-shadow: 0 0 6px rgba(239, 68, 68, 0.3); }
+}
+
+.claude-setup-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.claude-setup-loading,
+.claude-setup-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.claude-setup-error {
+  color: var(--color-error);
+}
+
+/* ---- Claude Setup Save Bar ---- */
+
+.claude-setup-save-bar {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-default);
+  flex-shrink: 0;
+}
+
+.claude-setup-save-bar.visible {
+  display: flex;
+}
+
+.claude-setup-save-bar .claude-setup-status {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.claude-setup-save-btn {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--bg-primary);
+  background: var(--color-accent-light);
+  border: none;
+  border-radius: 3px;
+  padding: 5px 14px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.claude-setup-save-btn:hover {
+  background: var(--color-accent);
+}
+
+.claude-setup-save-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ---- Claude Setup Create Button ---- */
+
+.claude-setup-create-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  padding: 6px 12px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--border-default);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.claude-setup-create-btn:hover {
+  color: var(--color-accent-light);
+  background: rgba(79, 209, 197, 0.06);
+}
+
+/* ---- Create File Form ---- */
+
+.claude-setup-create-form {
+  display: none;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border-default);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+}
+
+.claude-setup-create-form.active {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.claude-setup-create-form select,
+.claude-setup-create-form input {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 3px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 4px 8px;
+  outline: none;
+  width: 100%;
+}
+
+.claude-setup-create-form select:focus,
+.claude-setup-create-form input:focus {
+  border-color: var(--color-accent);
+}
+
+.claude-setup-create-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.claude-setup-create-actions button {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-radius: 3px;
+  padding: 3px 10px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.claude-setup-create-cancel {
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border-default);
+}
+
+.claude-setup-create-cancel:hover {
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+}
+
+.claude-setup-create-submit {
+  color: var(--bg-primary);
+  background: var(--color-accent-light);
+  border: none;
+}
+
+.claude-setup-create-submit:hover {
+  background: var(--color-accent);
+}
