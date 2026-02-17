@@ -474,6 +474,63 @@ class TestChannelResolverAgent:
         assert not (project_dir / ".claude" / "rules" / "channel_finding.md").exists()
 
 
+class TestLogbookSearchAgent:
+    """Test logbook-search agent generation."""
+
+    def test_agent_file_generated(self, tmp_path):
+        """All templates produce .claude/agents/logbook-search.md (unconditional)."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="logbook-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+        agent_path = project_dir / ".claude" / "agents" / "logbook-search.md"
+        assert agent_path.exists()
+        content = agent_path.read_text()
+        assert len(content.strip()) > 0
+
+    def test_agent_has_correct_frontmatter(self, tmp_path):
+        """Agent file has YAML frontmatter with name, description, model, disallowedTools."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="logbook-fm-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+        content = (project_dir / ".claude" / "agents" / "logbook-search.md").read_text()
+        assert "name: logbook-search" in content
+        assert "model: sonnet" in content
+        assert "description:" in content
+        assert "disallowedTools:" in content
+        assert "mcpServers" not in content  # project-level, not inline
+
+    def test_task_allowed_in_settings(self, tmp_path):
+        """Task(logbook-search) is in settings.json allow list."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="logbook-perm-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+        data = json.loads((project_dir / ".claude" / "settings.json").read_text())
+        assert "Task(logbook-search)" in data["permissions"]["allow"]
+        # ARIEL read tools should still be in allow (soft delegation)
+        assert "mcp__ariel__ariel_search" in data["permissions"]["allow"]
+
+    def test_claude_md_has_delegation_instructions(self, tmp_path):
+        """CLAUDE.md has logbook-search delegation instructions."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="logbook-claude-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+        content = (project_dir / "CLAUDE.md").read_text()
+        assert "logbook-search" in content
+        assert "delegate" in content.lower()
+
+
 class TestNeverFabricateDataRule:
     """Test that the Never Fabricate Data rule is present."""
 

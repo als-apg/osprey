@@ -22,7 +22,8 @@
       "mcp__osprey-workspace__data_context_list",
       "mcp__osprey-workspace__artifact_focus",
       "NotebookEdit(osprey-workspace/artifacts/**)",
-      "Task(channel-resolver)"{% if channel_finder_pipeline is defined %},
+      "Task(channel-resolver)",
+      "Task(logbook-search)"{% if channel_finder_pipeline is defined %},
       "mcp__channel-finder"{% endif %}{% if confluence is defined %},
       "mcp__confluence"{% endif %}
 
