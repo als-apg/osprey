@@ -14,6 +14,13 @@
   <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.min.js"></script>
 
+  <!-- highlight.js (syntax highlighting) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/atom-one-dark.min.css">
+  <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+
+  <!-- marked.js (markdown rendering) -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+
   <!-- OSPREY styles -->
   <link rel="stylesheet" href="/static/css/variables.css">
   <link rel="stylesheet" href="/static/css/terminal.css">
@@ -21,6 +28,7 @@
   <link rel="stylesheet" href="/static/css/operator.css">
   <link rel="stylesheet" href="/static/css/cui.css">
   <link rel="stylesheet" href="/static/css/drawer.css">
+  <link rel="stylesheet" href="/static/css/sessions.css">
   <link rel="stylesheet" href="/static/css/settings.css">
 </head>
 <body>
@@ -50,6 +58,7 @@
       <div class="terminal-header">
         <span class="session-led" id="session-led"></span>
         <span class="terminal-label" id="terminal-label">Session</span>
+        <div class="session-selector" id="session-selector"></div>
         <button class="new-session-btn" id="new-session-btn" title="New Session">+ New</button>
         <button class="mode-toggle-btn" id="mode-toggle" title="Switch to CUI">CUI</button>
       </div>

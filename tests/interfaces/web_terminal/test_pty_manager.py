@@ -273,3 +273,44 @@ class TestPtyRegistry:
             assert registry.get_session("default") is None
         finally:
             registry.cleanup_all()
+
+    def test_create_session_with_command_list(self):
+        """PtySession with a list command works correctly."""
+        registry = PtyRegistry()
+        try:
+            session = registry.create_session("test-list", ["echo", "hello"])
+            assert session is not None
+            # echo exits immediately, just verify it was created
+        finally:
+            registry.cleanup_all()
+
+    def test_start_with_extra_env(self):
+        """Extra env vars are passed to the child process."""
+        import select
+
+        registry = PtyRegistry()
+        try:
+            session = registry.create_session(
+                "test-env",
+                "/bin/sh",
+                extra_env={"OSPREY_TEST_VAR": "test_value_12345"},
+            )
+            # Ask the shell to print the env var
+            session.write_input(b"echo $OSPREY_TEST_VAR\n")
+
+            output = b""
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline:
+                r, _, _ = select.select([session._master_fd], [], [], 0.1)
+                if r:
+                    try:
+                        chunk = os.read(session._master_fd, 4096)
+                        output += chunk
+                        if b"test_value_12345" in output:
+                            break
+                    except OSError:
+                        break
+
+            assert b"test_value_12345" in output
+        finally:
+            registry.cleanup_all()

@@ -135,6 +135,13 @@ def resolve_workspace_root() -> Path:
         project_root = Path.cwd()
 
     resolved = (project_root / base_dir).resolve()
+
+    import os
+
+    session_id = os.environ.get("OSPREY_SESSION_ID")
+    if session_id:
+        resolved = resolved / "sessions" / session_id
+
     logger.debug("Workspace root resolved to %s", resolved)
     return resolved
 
