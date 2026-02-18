@@ -100,6 +100,11 @@
         "hooks": [
           {
             "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_error_guidance.py\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
             "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_audit.py\"",
             "timeout": 5
           }
@@ -108,6 +113,11 @@
       {
         "matcher": "mcp__osprey-python-executor__*",
         "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_error_guidance.py\"",
+            "timeout": 5
+          },
           {
             "type": "command",
             "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_audit.py\"",
@@ -120,6 +130,11 @@
         "hooks": [
           {
             "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_error_guidance.py\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
             "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_audit.py\"",
             "timeout": 5
           }
@@ -128,6 +143,11 @@
       {
         "matcher": "mcp__ariel__*",
         "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_error_guidance.py\"",
+            "timeout": 5
+          },
           {
             "type": "command",
             "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_audit.py\"",

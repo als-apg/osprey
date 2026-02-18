@@ -26,14 +26,15 @@ def hook_runner():
     tool_name and tool_input, stdout receives JSON output (or empty for allow).
     """
 
-    def run(hook_name, tool_name, tool_input, config_path=None, cwd=None):
+    def run(hook_name, tool_name, tool_input, config_path=None, cwd=None, tool_response=None):
         hook_script = HOOKS_DIR / hook_name
-        stdin_data = json.dumps(
-            {
-                "tool_name": tool_name,
-                "tool_input": tool_input,
-            }
-        )
+        payload = {
+            "tool_name": tool_name,
+            "tool_input": tool_input,
+        }
+        if tool_response is not None:
+            payload["tool_response"] = tool_response
+        stdin_data = json.dumps(payload)
         env = os.environ.copy()
         if config_path:
             env["OSPREY_CONFIG"] = str(config_path)

@@ -48,15 +48,14 @@ search (keyword, semantic, browsing) and returns synthesized results with citati
 7. **Write verification.**
    Use readback verification for critical channels. Default verification_level is "callback."
 
-8. **If a tool fails, diagnose the root cause — do not work around it.**
-   When `archiver_read` or other tools return errors, report the error
-   to the user and help them fix the underlying configuration. Do not attempt to bypass
-   the tool by guessing inputs or using alternative approaches.
+8. **Follow the error-handling protocol for all tool failures.**
+   When any MCP tool returns an error, follow the response protocol in
+   `.claude/rules/error-handling.md`. Report errors clearly, never debug
+   infrastructure, never write mock data, and never work around failures.
 
 9. **Never fabricate, simulate, or generate synthetic data.**
-   All data presented to the user must come from actual tool results (archiver, channel reads,
-   logbook queries). If a data source is unavailable, report the error — do not create
-   placeholder, simulated, or "demonstration" data.
+   All data must come from actual tool results. See `.claude/rules/error-handling.md`
+   for full data-integrity rules and the anti-pattern list.
 
 <!-- PROMPT-PROVIDER: section=tool_usage_patterns
      Future: source from FrameworkPromptProvider capability guide builders:
