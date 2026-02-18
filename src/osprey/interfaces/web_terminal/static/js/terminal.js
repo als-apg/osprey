@@ -6,6 +6,7 @@ let term = null;
 let fitAddon = null;
 let wsConnection = null;
 let hasConnectedBefore = false;
+let currentSessionId = null;
 
 /**
  * Initialize xterm.js terminal in the given container.
@@ -95,13 +96,19 @@ export function initTerminal(containerId) {
 
 /**
  * Start (or restart) the PTY WebSocket connection.
- * No-op if already connected.
+ *
+ * @param {string|null} sessionId - Session UUID to resume. Null for new session.
+ * @param {'new'|'resume'} mode - Whether to start a new session or resume.
  */
-export function startTerminal() {
+export function startTerminal(sessionId = null, mode = 'new') {
   if (wsConnection) return;
   if (!term) return;
 
-  const wsUrl = `ws://${location.host}/ws/terminal`;
+  let wsUrl = `ws://${location.host}/ws/terminal`;
+  if (mode === 'resume' && sessionId) {
+    wsUrl += `?session_id=${encodeURIComponent(sessionId)}&mode=resume`;
+    currentSessionId = sessionId;
+  }
 
   wsConnection = createWebSocket(wsUrl, {
     onOpen() {
@@ -138,7 +145,12 @@ export function startTerminal() {
             term.write(`\r\n\x1b[33m[Process exited with code ${msg.code}]\x1b[0m\r\n`);
             const led = document.getElementById('session-led');
             if (led) led.classList.remove('active');
+          } else if (msg.type === 'session_info') {
+            currentSessionId = msg.session_id;
+            const label = document.getElementById('terminal-label');
+            if (label) label.textContent = `Session ${msg.session_id.slice(0, 8)}`;
           }
+          return;
         } catch {
           term.write(e.data);
         }
@@ -158,7 +170,7 @@ export function startTerminal() {
 
 /**
  * Restart the terminal session with immediate visual feedback.
- * Clears the screen and shows a "Restarting…" message while the
+ * Clears the screen and shows a "Restarting..." message while the
  * backend restart endpoint is called, then reconnects.
  */
 export async function restartTerminal() {
@@ -166,14 +178,11 @@ export async function restartTerminal() {
   stopTerminal();
   if (term) {
     term.reset();
-    term.write('\x1b[90mRestarting session…\x1b[0m\r\n');
+    term.write('\x1b[90mRestarting session\u2026\x1b[0m\r\n');
   }
 
   // Hit the restart endpoint (kill old PTY on backend)
   await fetch('/api/terminal/restart', { method: 'POST' });
-
-  // Reconnect — new WebSocket triggers a fresh PTY spawn
-  startTerminal();
 }
 
 /**
@@ -185,10 +194,19 @@ export function stopTerminal() {
     wsConnection = null;
   }
 
+  currentSessionId = null;
+
   const led = document.getElementById('session-led');
   if (led) led.classList.remove('active');
   const body = document.querySelector('.terminal-body');
   if (body) body.classList.remove('active');
+}
+
+/**
+ * Get the current Claude Code session ID.
+ */
+export function getCurrentSessionId() {
+  return currentSessionId;
 }
 
 /**

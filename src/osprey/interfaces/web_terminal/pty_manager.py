@@ -24,17 +24,26 @@ logger = get_logger("pty_manager")
 class PtySession:
     """Manages a single PTY-backed subprocess."""
 
-    def __init__(self, shell_command: str) -> None:
-        self._shell_command = shell_command
+    def __init__(self, shell_command: str | list[str]) -> None:
+        if isinstance(shell_command, str):
+            self._command_list = [shell_command]
+        else:
+            self._command_list = list(shell_command)
         self._master_fd: int | None = None
         self._process: subprocess.Popen | None = None
 
-    def start(self, initial_rows: int = 24, initial_cols: int = 80) -> None:
+    def start(
+        self,
+        initial_rows: int = 24,
+        initial_cols: int = 80,
+        extra_env: dict[str, str] | None = None,
+    ) -> None:
         """Spawn the shell process attached to a new PTY.
 
         Args:
             initial_rows: Initial terminal row count (default 24).
             initial_cols: Initial terminal column count (default 80).
+            extra_env: Additional environment variables to set in the child process.
         """
         master_fd, slave_fd = pty.openpty()
 
@@ -62,6 +71,9 @@ class PtySession:
         env["TERM"] = "xterm-256color"
         env["COLORTERM"] = "truecolor"
 
+        if extra_env:
+            env.update(extra_env)
+
         # Capture for closure — preexec runs in the child after fork().
         slave_for_preexec = slave_fd
 
@@ -79,7 +91,7 @@ class PtySession:
             fcntl.ioctl(slave_for_preexec, termios.TIOCSCTTY, 0)
 
         self._process = subprocess.Popen(
-            [self._shell_command],
+            self._command_list,
             stdin=slave_fd,
             stdout=slave_fd,
             stderr=slave_fd,
@@ -197,16 +209,17 @@ class PtyRegistry:
     def create_session(
         self,
         session_id: str,
-        shell_command: str,
+        shell_command: str | list[str],
         initial_rows: int = 24,
         initial_cols: int = 80,
+        extra_env: dict[str, str] | None = None,
     ) -> PtySession:
         """Create and start a new PTY session."""
         if session_id in self._sessions:
             self._sessions[session_id].terminate()
 
         session = PtySession(shell_command)
-        session.start(initial_rows=initial_rows, initial_cols=initial_cols)
+        session.start(initial_rows=initial_rows, initial_cols=initial_cols, extra_env=extra_env)
         self._sessions[session_id] = session
         return session
 

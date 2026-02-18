@@ -6,6 +6,7 @@ import { initPanelManager } from './panel-manager.js';
 import { initDrawers } from './drawer.js';
 import { initSettings } from './settings.js';
 import { initClaudeSetup } from './claude-setup.js';
+import { initSessionSelector, startNewSession } from './sessions.js';
 
 let currentMode = 'terminal';
 let cuiIframeCreated = false;
@@ -13,6 +14,7 @@ let cuiIframeCreated = false;
 document.addEventListener('DOMContentLoaded', () => {
   initTerminal('terminal-container');
   initPanelManager('right-panel');
+  initSessionSelector('session-selector');
   initStatusBar();
   initResizeHandle();
   initKeyboardShortcuts();
@@ -158,9 +160,9 @@ function initNewSessionButton() {
   btn.addEventListener('click', async () => {
     btn.disabled = true;
     try {
-      await restartTerminal();
+      await startNewSession();
     } catch (err) {
-      console.error('Failed to restart session:', err);
+      console.error('Failed to start new session:', err);
     } finally {
       btn.disabled = false;
     }

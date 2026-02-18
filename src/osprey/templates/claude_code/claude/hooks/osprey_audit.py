@@ -57,7 +57,12 @@ def main():
     }
 
     # Write to audit file
-    audit_dir = Path.cwd() / "osprey-workspace" / "audit"
+    workspace_base = Path.cwd() / "osprey-workspace"
+    session_id = os.environ.get("OSPREY_SESSION_ID")
+    if session_id:
+        audit_dir = workspace_base / "sessions" / session_id / "audit"
+    else:
+        audit_dir = workspace_base / "audit"
     audit_dir.mkdir(parents=True, exist_ok=True)
 
     audit_file = audit_dir / f"audit_{now.strftime('%Y%m%d')}.jsonl"

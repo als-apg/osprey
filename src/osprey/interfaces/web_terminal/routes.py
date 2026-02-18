@@ -6,7 +6,10 @@ import asyncio
 import json
 import logging
 import os
+import re
 import shutil
+import uuid
+from dataclasses import asdict
 from pathlib import Path
 
 import yaml
@@ -16,6 +19,7 @@ from pydantic import BaseModel
 
 from osprey.interfaces.web_terminal.claude_code_files import ClaudeCodeFileService
 from osprey.interfaces.web_terminal.operator_session import build_clean_env
+from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery, SessionRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +119,33 @@ async def set_panel_focus(body: PanelFocusRequest, request: Request):
     return {"status": "ok", "active_panel": body.panel}
 
 
+@router.get("/api/sessions")
+async def list_sessions(request: Request):
+    """Return Claude Code sessions registered for this project."""
+    registry = SessionRegistry(request.app.state.workspace_dir)
+    discovery = SessionDiscovery(request.app.state.project_cwd)
+    sessions = discovery.list_sessions(allowed_ids=registry.known_ids())
+    return {"sessions": [asdict(s) for s in sessions]}
+
+
+# ---- Workspace resolution helper ---- #
+
+_UUID_RE = re.compile(r"^[a-f0-9-]{36}$")
+
+
+def _resolve_workspace(request: Request) -> Path:
+    """Resolve workspace dir, optionally scoped to a session.
+
+    Reads ``?session_id=`` query param. Returns the session-scoped
+    subdirectory if valid, otherwise the base workspace dir.
+    """
+    workspace_base: Path = request.app.state.workspace_dir
+    session_id = request.query_params.get("session_id")
+    if session_id and _UUID_RE.match(session_id):
+        return workspace_base / "sessions" / session_id
+    return workspace_base
+
+
 @router.websocket("/ws/terminal")
 async def terminal_ws(websocket: WebSocket):
     """WebSocket bridge for terminal I/O.
@@ -128,8 +159,26 @@ async def terminal_ws(websocket: WebSocket):
     await websocket.accept()
 
     registry = websocket.app.state.pty_registry
-    shell_command = websocket.app.state.shell_command
-    session_id = "default"
+    base_shell_command = websocket.app.state.shell_command
+
+    # Parse session params from query string
+    req_session_id = websocket.query_params.get("session_id")
+    mode = websocket.query_params.get("mode", "new")
+
+    # Build the command and determine the PTY key
+    if mode == "resume" and req_session_id:
+        # Resume existing session — pass --resume flag
+        command: str | list[str] = [base_shell_command, "--resume", req_session_id]
+        claude_session_id = req_session_id
+        # Ensure resumed session is in the local registry
+        SessionRegistry(websocket.app.state.workspace_dir).register(req_session_id)
+    else:
+        # New session — Claude auto-generates a UUID
+        command = base_shell_command
+        claude_session_id = None
+
+    # Each WebSocket connection gets a unique PTY key
+    pty_key = f"terminal-{uuid.uuid4().hex[:8]}"
 
     # Wait for the client's initial resize message before spawning the PTY.
     # The browser measures the actual terminal container dimensions and sends
@@ -150,12 +199,46 @@ async def terminal_ws(websocket: WebSocket):
     except TimeoutError:
         logger.warning("No initial resize from client within 5s, using defaults")
 
+    # For new sessions, snapshot existing session files before spawning
+    discovery = SessionDiscovery(websocket.app.state.project_cwd)
+    snapshot: set[str] | None = None
+    if claude_session_id is None:
+        snapshot = discovery.snapshot_session_ids()
+
+    # Build extra env for session scoping
+    extra_env: dict[str, str] = {}
+    if claude_session_id:
+        extra_env["OSPREY_SESSION_ID"] = claude_session_id
+
     session = registry.create_session(
-        session_id,
-        shell_command,
+        pty_key,
+        command,
         initial_rows=initial_rows,
         initial_cols=initial_cols,
+        extra_env=extra_env if extra_env else None,
     )
+
+    # For new sessions, discover the Claude-generated UUID asynchronously
+    async def _discover_and_notify():
+        if snapshot is None:
+            return
+        loop = asyncio.get_event_loop()
+        new_id = await loop.run_in_executor(
+            None, discovery.discover_new_session, snapshot
+        )
+        if new_id:
+            # Register in the local session registry
+            reg = SessionRegistry(websocket.app.state.workspace_dir)
+            reg.register(new_id)
+            try:
+                await websocket.send_text(
+                    json.dumps({"type": "session_info", "session_id": new_id})
+                )
+            except Exception:
+                pass
+
+    if snapshot is not None:
+        asyncio.create_task(_discover_and_notify())
 
     # Task to read PTY output and send to client
     async def send_output():
@@ -204,7 +287,7 @@ async def terminal_ws(websocket: WebSocket):
         # Only terminate if this WS still owns the session.
         # A page reload creates a new WS that replaces the session;
         # the stale WS's cleanup must not kill the replacement.
-        registry.terminate_session_if_owner(session_id, session)
+        registry.terminate_session_if_owner(pty_key, session)
 
 
 @router.websocket("/ws/operator")
@@ -220,13 +303,13 @@ async def operator_ws(websocket: WebSocket):
 
     registry = websocket.app.state.operator_registry
     cwd = websocket.app.state.project_cwd
-    session_id = "default"
+    operator_key = f"operator-{uuid.uuid4().hex[:8]}"
     session = None
     forward_task = None
 
     try:
         env = build_clean_env(project_cwd=cwd)
-        session = await registry.create_session(session_id, cwd=cwd, env=env)
+        session = await registry.create_session(operator_key, cwd=cwd, env=env)
     except Exception as exc:
         logger.error("Failed to create operator session: %s", exc)
         try:
@@ -286,13 +369,13 @@ async def operator_ws(websocket: WebSocket):
             except asyncio.CancelledError:
                 pass
         if session is not None:
-            await registry.terminate_session_if_owner(session_id, session)
+            await registry.terminate_session_if_owner(operator_key, session)
 
 
 @router.get("/api/files/tree")
 async def file_tree(request: Request):
     """Return the workspace directory tree as JSON."""
-    workspace_dir: Path = request.app.state.workspace_dir
+    workspace_dir: Path = _resolve_workspace(request)
 
     if not workspace_dir.exists():
         return {"name": workspace_dir.name, "type": "directory", "children": []}
@@ -341,7 +424,7 @@ async def file_tree(request: Request):
 @router.get("/api/files/content/{filepath:path}")
 async def file_content(filepath: str, request: Request):
     """Return file content with path traversal protection."""
-    workspace_dir: Path = request.app.state.workspace_dir
+    workspace_dir: Path = _resolve_workspace(request)
     resolved = (workspace_dir / filepath).resolve()
 
     if not resolved.is_relative_to(workspace_dir.resolve()):
@@ -475,15 +558,15 @@ async def restart_terminal(request: Request):
     pty_registry = request.app.state.pty_registry
     operator_registry = request.app.state.operator_registry
 
-    # Terminate PTY session
-    pty_registry.terminate_session("default")
-    logger.info("PTY session terminated for restart")
+    # Terminate all PTY sessions (single-user model)
+    pty_registry.cleanup_all()
+    logger.info("All PTY sessions terminated for restart")
 
-    # Terminate operator session if active
+    # Terminate all operator sessions if active
     try:
-        await operator_registry.terminate_session("default")
+        await operator_registry.cleanup_all()
     except Exception:
-        pass  # May not have an active operator session
+        pass  # May not have active operator sessions
 
     return {"status": "ok", "message": "Terminal session terminated — reconnecting"}
 
