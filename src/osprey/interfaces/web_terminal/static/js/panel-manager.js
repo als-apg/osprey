@@ -23,8 +23,12 @@ const PANELS = [
     configEndpoint: '/api/ariel-server',
     statusBarId: 'ariel-status',
   },
-  // Future:
-  // { id: 'xopt', label: 'OPT', configEndpoint: '/api/xopt-server', statusBarId: null },
+  {
+    id: 'tuning',
+    label: 'TUNING',
+    configEndpoint: '/api/tuning-server',
+    statusBarId: 'tuning-status',
+  },
 ];
 
 // ---- State ----

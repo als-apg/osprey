@@ -1,6 +1,6 @@
 /* OSPREY Web Terminal — Application Entry Point */
 
-import { initTerminal, fitTerminal, focusTerminal, getTerminalDimensions, stopTerminal, startTerminal, restartTerminal } from './terminal.js';
+import { initTerminal, fitTerminal, focusTerminal, getTerminalDimensions, stopTerminal, startTerminal, restartTerminal, pasteToTerminal } from './terminal.js';
 import { onConnectionStateChange, fetchJSON } from './api.js';
 import { initPanelManager } from './panel-manager.js';
 import { initDrawers } from './drawer.js';
@@ -24,6 +24,9 @@ document.addEventListener('DOMContentLoaded', () => {
   initSettings();
   initClaudeSetup();
   initWikiLink();
+
+  // Listen for paste requests from embedded iframes (gallery, ARIEL)
+  initIframePasteBridge();
 
   // Focus terminal on load
   setTimeout(() => focusTerminal(), 300);
@@ -305,6 +308,18 @@ async function initWikiLink() {
   } catch {
     // Wiki not configured — button stays hidden
   }
+}
+
+/* ---- Iframe Paste Bridge ---- */
+
+function initIframePasteBridge() {
+  window.addEventListener('message', (e) => {
+    // Accept paste-to-terminal messages from embedded iframes
+    if (e.data && e.data.type === 'osprey-paste-to-terminal' && e.data.text) {
+      pasteToTerminal(e.data.text);
+      focusTerminal();
+    }
+  });
 }
 
 /* ---- Keyboard Shortcuts ---- */

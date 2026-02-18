@@ -191,3 +191,40 @@ def ensure_artifact_server() -> None:
 def ensure_ariel_server() -> None:
     """Ensure the ARIEL server is running; launch if needed."""
     _ariel_launcher.ensure_running()
+
+
+# ---------------------------------------------------------------------------
+# Tuning panel
+# ---------------------------------------------------------------------------
+
+
+def _tuning_config() -> tuple[str, int]:
+    config = load_osprey_config()
+    tuning_web = config.get("tuning", {}).get("web", {})
+    return tuning_web.get("host", "127.0.0.1"), tuning_web.get("port", 8090)
+
+
+def _tuning_auto_launch() -> bool:
+    config = load_osprey_config()
+    return config.get("tuning", {}).get("web", {}).get("auto_launch", True)
+
+
+def _tuning_app_factory() -> object:
+    from osprey.interfaces.tuning.app import create_app
+
+    config = load_osprey_config()
+    api_url = config.get("tuning", {}).get("api_url")
+    return create_app(tuning_api_url=api_url)
+
+
+_tuning_launcher = ServerLauncher(
+    name="Tuning panel",
+    config_reader=_tuning_config,
+    auto_launch_checker=_tuning_auto_launch,
+    app_factory=_tuning_app_factory,
+)
+
+
+def ensure_tuning_server() -> None:
+    """Ensure the tuning panel server is running; launch if needed."""
+    _tuning_launcher.ensure_running()

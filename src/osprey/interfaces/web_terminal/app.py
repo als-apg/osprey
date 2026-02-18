@@ -70,6 +70,25 @@ def _launch_ariel_server(app: FastAPI) -> None:
         app.state.ariel_server_url = None
 
 
+def _launch_tuning_server(app: FastAPI) -> None:
+    """Auto-launch the tuning panel server if configured."""
+    try:
+        from osprey.mcp_server.common import load_osprey_config
+        from osprey.mcp_server.server_launcher import ensure_tuning_server
+
+        config = load_osprey_config()
+        tuning_web = config.get("tuning", {}).get("web", {})
+        host = tuning_web.get("host", "127.0.0.1")
+        port = tuning_web.get("port", 8090)
+
+        app.state.tuning_server_url = f"http://{host}:{port}"
+        ensure_tuning_server()
+        logger.info("Tuning server available at %s", app.state.tuning_server_url)
+    except Exception:
+        logger.warning("Could not auto-launch tuning server", exc_info=True)
+        app.state.tuning_server_url = None
+
+
 def _launch_cui_server(app: FastAPI) -> None:
     """Auto-launch the CUI server subprocess if configured."""
     try:
@@ -151,6 +170,9 @@ def _create_lifespan(
 
         # Auto-launch the ARIEL logbook server
         _launch_ariel_server(app)
+
+        # Auto-launch the tuning panel server
+        _launch_tuning_server(app)
 
         # Auto-launch the CUI server
         _launch_cui_server(app)
