@@ -517,8 +517,9 @@ class TestLogbookSearchAgent:
         )
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
         assert "Task(logbook-search)" in data["permissions"]["allow"]
-        # ARIEL read tools should still be in allow (soft delegation)
-        assert "mcp__ariel__ariel_search" in data["permissions"]["allow"]
+        # Per-module search tools should be in allow
+        assert "mcp__ariel__ariel_keyword_search" in data["permissions"]["allow"]
+        assert "mcp__ariel__ariel_semantic_search" in data["permissions"]["allow"]
 
     def test_claude_md_has_delegation_instructions(self, tmp_path):
         """CLAUDE.md has logbook-search delegation instructions."""
@@ -531,6 +532,64 @@ class TestLogbookSearchAgent:
         content = (project_dir / "CLAUDE.md").read_text()
         assert "logbook-search" in content
         assert "delegate" in content.lower()
+
+
+class TestLogbookDeepResearchAgent:
+    """Test logbook-deep-research agent generation."""
+
+    def test_agent_file_generated(self, tmp_path):
+        """All templates produce .claude/agents/logbook-deep-research.md."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="deep-research-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+        agent_path = project_dir / ".claude" / "agents" / "logbook-deep-research.md"
+        assert agent_path.exists()
+        content = agent_path.read_text()
+        assert len(content.strip()) > 0
+
+    def test_agent_has_correct_frontmatter(self, tmp_path):
+        """Agent file has correct YAML frontmatter."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="deep-research-fm-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+        content = (project_dir / ".claude" / "agents" / "logbook-deep-research.md").read_text()
+        assert "name: logbook-deep-research" in content
+        assert "model: opus" in content
+        assert "maxTurns: 100" in content
+        assert "description:" in content
+        assert "disallowedTools:" in content
+        assert "mcpServers" not in content  # project-level, not inline
+
+    def test_task_allowed_in_settings(self, tmp_path):
+        """Task(logbook-deep-research) is in settings.json allow list."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="deep-research-perm-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+        data = json.loads((project_dir / ".claude" / "settings.json").read_text())
+        assert "Task(logbook-deep-research)" in data["permissions"]["allow"]
+
+    def test_claude_md_has_delegation_instructions(self, tmp_path):
+        """CLAUDE.md mentions both agents with usage guidance."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="deep-research-claude-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+        content = (project_dir / "CLAUDE.md").read_text()
+        assert "logbook-deep-research" in content
+        assert "logbook-search" in content
+        # Should have guidance on when to use each
+        assert "complex" in content.lower() or "investigation" in content.lower()
 
 
 class TestNeverFabricateDataRule:

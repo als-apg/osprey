@@ -5,10 +5,9 @@ Requires human approval for dangerous operations based on config approval mode.
 
 PROMPT-PROVIDER: This hook contains facility-customizable static text:
   - build_approval_output(): Approval prompt message (section=approval_prompt)
-  - WRITE_PATTERNS: EPICS write detection patterns (section=write_patterns)
   - Approval reason messages for channel_write and python_execute (section=approval_reasons)
   Future: source from FrameworkPromptProvider.get_approval_messages()
-  Facility-customizable: approval prompt wording, write pattern list,
+  Facility-customizable: approval prompt wording,
   reason detail format, severity/tone of approval messages
 """
 
@@ -25,17 +24,23 @@ OSPREY_PREFIXES = (
     "mcp__osprey-workspace__",
 )
 
-# PROMPT-PROVIDER: section=write_patterns
-# Future: source from FrameworkPromptProvider or shared pattern detection config
-# Facility-customizable: additional control system write patterns (e.g., Tango, LabVIEW)
-WRITE_PATTERNS = [
-    "caput(",
-    "pv.put(",
-    "epics.caput(",
-    "write_channel(",
-    "write_channels(",
-    ".put(",
-]
+# Pattern detection: prefer framework module (regex-based, config-driven, 11+ patterns)
+# with graceful fallback to basic substring matching if osprey not installed
+try:
+    from osprey.services.python_executor.analysis.pattern_detection import (
+        detect_control_system_operations,
+    )
+
+    def has_write_patterns(code: str) -> bool:
+        """Check if code contains control system write patterns (framework detection)."""
+        return detect_control_system_operations(code)["has_writes"]
+
+except ImportError:
+    _FALLBACK_WRITE_PATTERNS = ["caput(", "write_channel(", ".put("]
+
+    def has_write_patterns(code: str) -> bool:  # type: ignore[misc]
+        """Check if code contains control system write patterns (fallback)."""
+        return any(p in code for p in _FALLBACK_WRITE_PATTERNS)
 
 
 def load_osprey_config():
@@ -46,11 +51,6 @@ def load_osprey_config():
         with open(config_path) as f:
             return yaml.safe_load(f) or {}
     return {}
-
-
-def has_write_patterns(code: str) -> bool:
-    """Check if code contains EPICS write patterns."""
-    return any(pattern in code for pattern in WRITE_PATTERNS)
 
 
 def build_approval_output(reason_detail: str) -> dict:
@@ -174,7 +174,7 @@ def main():
             if needs_approval:
                 reason_parts = [f"Python execution (mode: {exec_mode or 'unspecified'})"]
                 if has_write_patterns(code):
-                    reason_parts.append("Code contains EPICS write patterns.")
+                    reason_parts.append("Code contains control system write patterns.")
 
                 # Create pre-execution notebook for review
                 gallery_link = _create_pre_execution_notebook(code, exec_mode, config)
