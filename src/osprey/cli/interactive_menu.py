@@ -642,7 +642,7 @@ def show_main_menu() -> str | None:
     """
     if not questionary:
         console.print(Messages.error("questionary package not installed."))
-        console.print(f"Install with: {Messages.command('pip install questionary')}")
+        console.print(f"Install with: {Messages.command('uv pip install questionary')}")
         return None
 
     if not is_project_initialized():
@@ -875,7 +875,7 @@ def select_code_generator(generators: dict[str, dict[str, Any]]) -> str | None:
         console.print(f"\n{Messages.error('No code generators available')}")
         console.print(Messages.warning("Osprey could not load any code generators."))
         console.print(
-            f"[dim]Check that osprey is properly installed: {Messages.command('pip install -e .[all]')}[/dim]\n"
+            f"[dim]Check that osprey is properly installed: {Messages.command('uv sync --all-extras')}[/dim]\n"
         )
         return None
 
@@ -938,7 +938,7 @@ def select_provider(providers: dict[str, dict[str, Any]]) -> str | None:
         console.print(f"\n{Messages.error('No providers available')}")
         console.print(Messages.warning("Osprey could not load any AI providers."))
         console.print(
-            f"[dim]Check that osprey is properly installed: {Messages.command('pip install -e .[all]')}[/dim]\n"
+            f"[dim]Check that osprey is properly installed: {Messages.command('uv sync --all-extras')}[/dim]\n"
         )
         return None
 
@@ -1765,16 +1765,18 @@ def handle_chat_action(project_path: Path | None = None):
             )
             console.print("[bold]Possible solutions:[/bold]")
             console.print("  1. Upgrade typing_extensions:")
-            console.print(f"     {Messages.command('pip install --upgrade typing-extensions')}\n")
+            console.print(
+                f"     {Messages.command('uv pip install --upgrade typing-extensions')}\n"
+            )
             console.print("  2. Upgrade pydantic:")
             console.print(
-                f"     {Messages.command('pip install --upgrade pydantic pydantic-core')}\n"
+                f"     {Messages.command('uv pip install --upgrade pydantic pydantic-core')}\n"
             )
             console.print("  3. Or upgrade to Python 3.12+\n")
         else:
             console.print(Messages.warning("There was an error loading the chat dependencies."))
             console.print(
-                f"[dim]Try reinstalling osprey dependencies: {Messages.command('pip install -e .[all]')}[/dim]\n"
+                f"[dim]Try reinstalling osprey dependencies: {Messages.command('uv sync --all-extras')}[/dim]\n"
             )
 
         if os.environ.get("DEBUG"):
@@ -1876,7 +1878,9 @@ def handle_chat_tui_action(project_path: Path | None = None):
         console.print(f"\n{Messages.error('TUI not available')}")
         console.print(f"[dim]{e}[/dim]\n")
         console.print("The TUI requires the 'textual' package which is not installed.")
-        console.print("Install with: [bold cyan]pip install osprey-framework\\[tui][/bold cyan]\n")
+        console.print(
+            "Install with: [bold cyan]uv pip install osprey-framework\\[tui][/bold cyan]\n"
+        )
         input("\nPress ENTER to continue...")
         return
     except Exception as e:
@@ -1884,7 +1888,7 @@ def handle_chat_tui_action(project_path: Path | None = None):
         console.print(f"\n{Messages.error(f'Dependency Error: {error_msg}')}\n")
         console.print(Messages.warning("There was an error loading the TUI dependencies."))
         console.print(
-            "Try reinstalling: [bold cyan]pip install osprey-framework\\[tui][/bold cyan]\n"
+            "Try reinstalling: [bold cyan]uv pip install osprey-framework\\[tui][/bold cyan]\n"
         )
 
         if os.environ.get("DEBUG"):
@@ -2292,7 +2296,7 @@ def handle_workflows_action():
         console.print(Messages.error("Workflow files not found in installed package"))
         console.print(
             f"[{Styles.DIM}]This might indicate a packaging issue. "
-            f"Try reinstalling: pip install --force-reinstall osprey-framework[/{Styles.DIM}]"
+            f"Try reinstalling: uv pip install --force-reinstall osprey-framework[/{Styles.DIM}]"
         )
         input("\nPress ENTER to continue...")
         return
@@ -2510,7 +2514,7 @@ def handle_help_action():
     console.print("  • Full-screen terminal interface built with Textual")
     console.print("  • Real-time streaming with step-by-step visualization")
     console.print("  • Theme support, command palette (Ctrl+P), slash commands")
-    console.print("  • Requires: pip install osprey-framework\\[tui]")
+    console.print("  • Requires: uv pip install osprey-framework\\[tui]")
     console.print(
         f"  • [{Styles.DIM}]Perfect for: Visual debugging, monitoring agent reasoning[/{Styles.DIM}]"
     )
@@ -2626,7 +2630,7 @@ def show_generate_help():
     console.print("  • FastMCP-based HTTP server")
     console.print("  • Includes example tools (get_weather, get_forecast)")
     console.print(
-        f"  • Ready to run: just [{Styles.VALUE}]pip install fastmcp && python server.py[/{Styles.VALUE}]"
+        f"  • Ready to run: just [{Styles.VALUE}]uv pip install fastmcp && python server.py[/{Styles.VALUE}]"
     )
     console.print(
         f"  • [{Styles.DIM}]Perfect for: Testing capability generation, learning MCP protocol[/{Styles.DIM}]"
@@ -2659,7 +2663,7 @@ def show_generate_help():
     console.print("  • Auto-detects PV types and access modes from naming conventions")
     console.print("  • Supports mock_style (simulated values) or passthrough backends")
     console.print(
-        f"  • Ready to run: just [{Styles.VALUE}]pip install caproto && python <ioc>.py[/{Styles.VALUE}]"
+        f"  • Ready to run: just [{Styles.VALUE}]uv pip install caproto && python <ioc>.py[/{Styles.VALUE}]"
     )
     console.print(
         f"  • [{Styles.DIM}]Perfect for: Testing without real hardware, development mode[/{Styles.DIM}]"
@@ -3296,7 +3300,7 @@ def handle_generate_mcp_server():
         console.print(f"[{Styles.HEADER}]Usage Instructions:[/{Styles.HEADER}]")
         if not fastmcp_installed:
             console.print(
-                f"  1. Install dependencies: [{Styles.ACCENT}]pip install fastmcp[/{Styles.ACCENT}]"
+                f"  1. Install dependencies: [{Styles.ACCENT}]uv pip install fastmcp[/{Styles.ACCENT}]"
             )
             console.print(
                 f"  2. Run the server: [{Styles.ACCENT}]python {output_path}[/{Styles.ACCENT}]"
@@ -3329,7 +3333,7 @@ def handle_generate_mcp_server():
         else:
             choices = [
                 Choice(
-                    "[!] Cannot launch - fastmcp not installed (pip install fastmcp)",
+                    "[!] Cannot launch - fastmcp not installed (uv pip install fastmcp)",
                     value="install",
                     disabled=True,
                 ),
@@ -3627,9 +3631,9 @@ def launch_tui():
     if not questionary:
         console.print(Messages.error("Missing required dependency 'questionary'"))
         console.print("\nInstall with:")
-        console.print(f"  {Messages.command('pip install questionary')}")
+        console.print(f"  {Messages.command('uv pip install questionary')}")
         console.print("\nOr install full osprey dependencies:")
-        console.print(f"  {Messages.command('pip install -e .[all]')}\n")
+        console.print(f"  {Messages.command('uv sync --all-extras')}\n")
         sys.exit(1)
 
     try:

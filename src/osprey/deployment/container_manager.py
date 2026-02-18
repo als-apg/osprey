@@ -400,7 +400,7 @@ def _copy_local_framework_for_override(out_dir):
             logger.warning(
                 "Osprey is installed from PyPI, not in editable mode. "
                 "The --dev flag requires an editable install to build a local wheel. "
-                "To use --dev, reinstall osprey with: pip install -e <path-to-osprey-repo>"
+                "To use --dev, reinstall osprey with: uv pip install -e <path> or pip install -e <path>"
             )
             return False
 
@@ -430,7 +430,7 @@ def _copy_local_framework_for_override(out_dir):
                 if "No module named build" in result.stderr:
                     logger.warning(
                         "The 'build' package is required for --dev mode. Install with: "
-                        r'pip install build or pip install -e ".\[dev]"'
+                        r"uv pip install build or pip install build"
                     )
                 else:
                     logger.warning(f"Failed to build osprey wheel: {result.stderr}")
