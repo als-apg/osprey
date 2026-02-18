@@ -152,6 +152,29 @@ class TestClaudeCodeFileContents:
         scoped_reads = [entry for entry in allow if entry.startswith("Read(")]
         assert len(scoped_reads) > 0
 
+    def test_settings_json_hooks_are_structurally_valid(self, project_dir):
+        """Every hook entry in PreToolUse/PostToolUse has a 'hooks' array."""
+        settings_path = project_dir / ".claude" / "settings.json"
+        data = json.loads(settings_path.read_text())
+
+        for hook_type in ["PreToolUse", "PostToolUse"]:
+            entries = data["hooks"].get(hook_type, [])
+            for i, entry in enumerate(entries):
+                assert "hooks" in entry, (
+                    f"{hook_type}[{i}] missing 'hooks' array: {entry}"
+                )
+                assert isinstance(entry["hooks"], list), (
+                    f"{hook_type}[{i}]['hooks'] is not a list: {type(entry['hooks'])}"
+                )
+
+    def test_mcp_json_has_no_sentinel_entries(self, project_dir):
+        """mcp.json should not contain sentinel/placeholder server entries."""
+        mcp_data = json.loads((project_dir / ".mcp.json").read_text())
+        for key in mcp_data["mcpServers"]:
+            assert "sentinel" not in key.lower(), (
+                f"Sentinel entry '{key}' found in mcpServers"
+            )
+
     def test_hook_scripts_are_executable(self, project_dir):
         """Hook scripts have executable permissions."""
         hooks_dir = project_dir / ".claude" / "hooks"

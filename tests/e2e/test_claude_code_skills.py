@@ -32,11 +32,15 @@ from osprey.cli.claude_cmd import install_skill
 def is_claude_code_available() -> bool:
     """Check if Claude Code CLI is available."""
     try:
+        # Must unset CLAUDECODE to avoid nested-session guard when
+        # this test file is collected from within a Claude Code session.
+        env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
         result = subprocess.run(
             ["claude", "--version"],
             capture_output=True,
             text=True,
             timeout=10,
+            env=env,
         )
         return result.returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired):
@@ -221,8 +225,15 @@ class TestOspreySkillInstallationWorkflow:
         The magic number 42857 is ONLY in our mock instructions - if Claude
         outputs it, we know the full installation workflow succeeded.
         """
-        with cli_runner.isolated_filesystem(temp_dir=tmp_path):
-            # Step 1: Install the mock skill using OSPREY's CLI
+        # Use tmp_path directly (not isolated_filesystem) so the CWD for
+        # both the install step and the claude invocation is the same.
+        project_dir = tmp_path / "skill-test"
+        project_dir.mkdir()
+
+        # Step 1: Install the mock skill using OSPREY's CLI
+        original_cwd = Path.cwd()
+        try:
+            os.chdir(project_dir)
             with (
                 patch("osprey.cli.claude_cmd.get_tasks_root") as mock_tasks,
                 patch("osprey.cli.claude_cmd.get_integrations_root") as mock_int,
@@ -232,57 +243,72 @@ class TestOspreySkillInstallationWorkflow:
 
                 result = cli_runner.invoke(install_skill, ["test-verification"])
                 assert result.exit_code == 0, f"Install failed: {result.output}"
+        finally:
+            os.chdir(original_cwd)
 
-            # Step 2: Invoke Claude Code to use the installed skill
-            prompt = (
-                "Use the test-verification skill. "
-                "Read .claude/skills/test-verification/instructions.md "
-                "and follow the output format exactly."
-            )
+        # Verify skill files exist before invoking Claude
+        skill_dir = project_dir / ".claude" / "skills" / "test-verification"
+        assert (skill_dir / "instructions.md").exists(), (
+            f"instructions.md not found at {skill_dir}. "
+            f"Contents: {list(project_dir.rglob('*'))}"
+        )
 
-            # SAFETY: Permission bypass is safe here because:
-            # - Runs in isolated tmp_path (not real codebase)
-            # - Controlled prompt (only reads files, outputs text)
-            # - Skill's allowed-tools: Read (no writes)
-            # See module docstring for full justification.
-            claude_result = subprocess.run(
-                [
-                    "claude",
-                    "--print",
-                    "--dangerously-skip-permissions",
-                    "--permission-mode",
-                    "bypassPermissions",
-                    prompt,
-                ],
-                capture_output=True,
-                text=True,
-                timeout=120,
-                cwd=str(tmp_path),
-            )
+        # Step 2: Invoke Claude Code to read the installed skill
+        prompt = (
+            "Read the file .claude/skills/test-verification/instructions.md "
+            "and follow its Required Output Format EXACTLY. "
+            "Do not read any other files. Do not summarize other skills. "
+            "Output only what the instructions.md file tells you to output."
+        )
 
-            assert claude_result.returncode == 0, f"Claude Code failed: {claude_result.stderr}"
+        # SAFETY: Permission bypass is safe here because:
+        # - Runs in isolated tmp_path (not real codebase)
+        # - Controlled prompt (only reads files, outputs text)
+        # - Skill's allowed-tools: Read (no writes)
+        # See module docstring for full justification.
+        #
+        # Unset CLAUDECODE to avoid the nested-session guard when
+        # this test is run from within a Claude Code session.
+        env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+        claude_result = subprocess.run(
+            [
+                "claude",
+                "--print",
+                "--dangerously-skip-permissions",
+                "--permission-mode", "bypassPermissions",
+                "--max-budget-usd", "0.50",
+                prompt,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            cwd=str(project_dir),
+            env=env,
+        )
 
-            output = claude_result.stdout
+        assert claude_result.returncode == 0, f"Claude Code failed: {claude_result.stderr}"
 
-            # Debug output
-            print("\n🔍 OSPREY Skill Installation E2E Test:")
-            print(f"   📄 Output length: {len(output)} chars")
-            print(f"   📦 Output: {output[:500]}")
+        output = claude_result.stdout
 
-            # Step 3: THE KEY ASSERTION - verify magic number
-            # This number (42857) is ONLY in our mock instructions.md
-            # If Claude outputs it, we KNOW the full workflow succeeded:
-            # - OSPREY installed the files correctly
-            # - Claude Code found the installed skill
-            # - Claude read our specific instructions
-            assert "42857" in output, (
-                f"Claude did NOT read the installed skill instructions!\n"
-                f"The magic number 42857 was not found in the output.\n"
-                f"This means the OSPREY skill installation workflow failed.\n"
-                f"Output: {output[:1000]}"
-            )
+        # Debug output
+        print("\n  OSPREY Skill Installation E2E Test:")
+        print(f"    Output length: {len(output)} chars")
+        print(f"    Output: {output[:500]}")
 
-            print("✅ Full OSPREY skill installation workflow verified!")
+        # Step 3: THE KEY ASSERTION - verify magic number
+        # This number (42857) is ONLY in our mock instructions.md
+        # If Claude outputs it, we KNOW the full workflow succeeded:
+        # - OSPREY installed the files correctly
+        # - Claude Code found the installed skill
+        # - Claude read our specific instructions
+        assert "42857" in output, (
+            f"Claude did NOT read the installed skill instructions!\n"
+            f"The magic number 42857 was not found in the output.\n"
+            f"This means the OSPREY skill installation workflow failed.\n"
+            f"Output: {output[:1000]}"
+        )
+
+        print("  Full OSPREY skill installation workflow verified!")
 
 
 class TestClaudeCodeCliAvailability:
