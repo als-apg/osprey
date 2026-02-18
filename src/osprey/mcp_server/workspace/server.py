@@ -31,6 +31,7 @@ def create_server() -> FastMCP:
         artifact_export,
         artifact_save,
         data_context_tools,
+        facility_description,
         focus_tools,
         memory,
         screen_capture,
