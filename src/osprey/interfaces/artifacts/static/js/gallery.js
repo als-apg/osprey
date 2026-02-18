@@ -86,6 +86,18 @@
   let activeDomain = "artifacts";   // "artifacts" | "context" | "memory"
   let activeSubview = "focus";      // "focus" | "browse" | "stats"
 
+  // Per-domain default and last-used subview tracking
+  const domainDefaultSubview = {
+    artifacts: "focus",
+    context: "browse",
+    memory: "browse",
+  };
+  let domainLastSubview = {
+    artifacts: "focus",
+    context: "browse",
+    memory: "browse",
+  };
+
   // ---- Resize Handle Factory ----
 
   function initSplitPaneResize(handle, sidebarEl) {
@@ -147,11 +159,11 @@
   // ---- View Routing (domain-aware) ----
 
   function initRouter() {
-    // Domain buttons — click to activate the domain (keeps current subview)
+    // Domain buttons — click to activate the domain (recall last subview)
     document.querySelectorAll(".domain-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
         const domain = btn.dataset.domain;
-        const subview = activeSubview === "stats" ? "focus" : activeSubview;
+        const subview = domainLastSubview[domain] || domainDefaultSubview[domain];
         navigateTo(`${domain}/${subview}`);
       });
     });
@@ -206,6 +218,11 @@
 
     activeDomain = domain;
     activeSubview = subview;
+
+    // Track last-used subview per domain (skip stats — it's shared)
+    if (subview !== "stats") {
+      domainLastSubview[domain] = subview;
+    }
 
     // Update domain segments (expand active, collapse others)
     document.querySelectorAll(".domain-segment").forEach((seg) =>
