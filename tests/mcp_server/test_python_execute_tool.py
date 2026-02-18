@@ -30,7 +30,7 @@ def _mock_execute_code(
     stdout="",
     stderr="",
     figures=None,
-    execution_method_used="in_process_fallback",
+    execution_method_used="local",
 ):
     """Build an AsyncMock for execute_code returning a configured ExecutionResult."""
     result = ExecutionResult(
@@ -49,9 +49,17 @@ async def test_python_execute_readonly(tmp_path, monkeypatch):
     """Readonly execution runs code and returns stdout in summary."""
     monkeypatch.chdir(tmp_path)
 
-    with patch(
-        "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
-        return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
+    mock_exec = _mock_execute_code(success=True, stdout="42\n")
+
+    with (
+        patch(
+            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
+            return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
+        ),
+        patch(
+            "osprey.mcp_server.python_executor.executor.execute_code",
+            mock_exec,
+        ),
     ):
         fn = _get_python_execute()
         result = await fn(
@@ -154,9 +162,17 @@ async def test_python_execute_no_saving(tmp_path, monkeypatch):
     """save_output=False returns inline result without data file."""
     monkeypatch.chdir(tmp_path)
 
-    with patch(
-        "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
-        return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
+    mock_exec = _mock_execute_code(success=True, stdout="hello\n")
+
+    with (
+        patch(
+            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
+            return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
+        ),
+        patch(
+            "osprey.mcp_server.python_executor.executor.execute_code",
+            mock_exec,
+        ),
     ):
         fn = _get_python_execute()
         result = await fn(
@@ -178,13 +194,21 @@ async def test_python_execute_readwrite_mode(tmp_path, monkeypatch):
     """readwrite mode allows code with write patterns."""
     monkeypatch.chdir(tmp_path)
 
-    with patch(
-        "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
-        return_value={
-            "has_writes": True,
-            "has_reads": False,
-            "detected_patterns": {"caput": ["caput('TEST:PV', 1.0)"]},
-        },
+    mock_exec = _mock_execute_code(success=True, stdout="write mode\n")
+
+    with (
+        patch(
+            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
+            return_value={
+                "has_writes": True,
+                "has_reads": False,
+                "detected_patterns": {"caput": ["caput('TEST:PV', 1.0)"]},
+            },
+        ),
+        patch(
+            "osprey.mcp_server.python_executor.executor.execute_code",
+            mock_exec,
+        ),
     ):
         fn = _get_python_execute()
         result = await fn(
@@ -216,9 +240,17 @@ async def test_python_execute_pattern_detection_import_error(tmp_path, monkeypat
     """Pattern detection import failure falls back to allowing execution."""
     monkeypatch.chdir(tmp_path)
 
-    with patch(
-        "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
-        side_effect=ImportError("pattern detection unavailable"),
+    mock_exec = _mock_execute_code(success=True, stdout="fallback\n")
+
+    with (
+        patch(
+            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
+            side_effect=ImportError("pattern detection unavailable"),
+        ),
+        patch(
+            "osprey.mcp_server.python_executor.executor.execute_code",
+            mock_exec,
+        ),
     ):
         fn = _get_python_execute()
         result = await fn(
@@ -266,6 +298,7 @@ async def test_python_execute_uses_adapter(tmp_path, monkeypatch):
     assert call_kwargs["code"] == "print('hello')"
     assert call_kwargs["execution_mode"] == "readonly"
     assert call_kwargs["description"] == "adapter test"
+    assert "save_artifact_fn" not in call_kwargs
 
     data = json.loads(result)
     assert data["summary"]["status"] == "Success"
@@ -480,21 +513,11 @@ async def test_figure_artifacts_created_post_execution(tmp_path, monkeypatch):
 
 
 @pytest.mark.unit
-async def test_fallback_preserves_save_artifact_in_tool(tmp_path, monkeypatch):
-    """When adapter falls back to in-process, save_artifact fn is passed."""
+async def test_executor_error_returns_failure_result(tmp_path, monkeypatch):
+    """When execution setup fails, execute_code returns ExecutionResult(success=False)."""
     monkeypatch.chdir(tmp_path)
 
-    # The adapter's execute_code should receive save_artifact_fn
-    captured_kwargs = {}
-
-    async def capture_execute_code(**kwargs):
-        captured_kwargs.update(kwargs)
-        return ExecutionResult(
-            success=True,
-            stdout="ok\n",
-            stderr="",
-            execution_method_used="in_process_fallback",
-        )
+    from osprey.mcp_server.python_executor.executor import execute_code
 
     with (
         patch(
@@ -502,20 +525,26 @@ async def test_fallback_preserves_save_artifact_in_tool(tmp_path, monkeypatch):
             return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
         ),
         patch(
-            "osprey.mcp_server.python_executor.executor.execute_code",
-            side_effect=capture_execute_code,
+            "osprey.mcp_server.python_executor.executor._create_execution_folder",
+            side_effect=RuntimeError("disk full"),
         ),
     ):
-        fn = _get_python_execute()
-        await fn(
-            code="print('ok')",
-            description="save_artifact test",
+        result = await execute_code(
+            code="print('hello')",
             execution_mode="readonly",
+            description="error test",
         )
 
-    # save_artifact_fn should have been passed to execute_code
-    assert "save_artifact_fn" in captured_kwargs
-    assert callable(captured_kwargs["save_artifact_fn"])
+    assert result.success is False
+    assert "disk full" in result.error_message
+
+
+@pytest.mark.unit
+def test_executor_no_in_process_fallback():
+    """Confirm the in-process fallback function has been removed."""
+    from osprey.mcp_server.python_executor import executor
+
+    assert not hasattr(executor, "_execute_in_process_fallback")
 
 
 @pytest.mark.unit

@@ -16,7 +16,6 @@ from osprey.mcp_server.python_executor.executor import (
     ExecutionResult,
     _collect_figures,
     _create_execution_folder,
-    _execute_in_process_fallback,
     _load_limits_validator,
     _read_config,
     _read_execution_metadata,
@@ -306,8 +305,8 @@ async def test_local_subprocess_called(tmp_path, monkeypatch):
 
         result = await execute_code("print(42)", "readonly", "test")
 
-    # Should have used local execution (or fallen back)
-    assert result.execution_method_used in ("local", "in_process_fallback")
+    # Should have used local execution
+    assert result.execution_method_used == "local"
 
 
 @pytest.mark.unit
@@ -400,13 +399,13 @@ def test_result_dataclass_defaults():
 
 
 # ---------------------------------------------------------------------------
-# Fallback
+# Error handling (no in-process fallback)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.unit
-async def test_fallback_on_container_connectivity_error(tmp_path, monkeypatch):
-    """When ContainerExecutor raises, adapter falls back to in-process exec."""
+async def test_container_error_returns_failure_result(tmp_path, monkeypatch):
+    """When ContainerExecutor raises, adapter returns failure result (no fallback)."""
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path)
 
@@ -422,16 +421,16 @@ async def test_fallback_on_container_connectivity_error(tmp_path, monkeypatch):
             )
         )
 
-        result = await execute_code("print(6 * 7)", "readonly", "fallback test")
+        result = await execute_code("print(6 * 7)", "readonly", "error test")
 
-    assert result.execution_method_used == "in_process_fallback"
-    assert "42" in result.stdout
-    assert result.success is True
+    assert result.success is False
+    assert result.error_message is not None
+    assert "Connection refused" in result.error_message or "setup failed" in result.error_message
 
 
 @pytest.mark.unit
-async def test_fallback_on_subprocess_error(tmp_path, monkeypatch):
-    """When subprocess fails, adapter falls back to in-process exec."""
+async def test_subprocess_error_returns_failure_result(tmp_path, monkeypatch):
+    """When subprocess fails, adapter returns failure result (no fallback)."""
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path, {"execution": {"execution_method": "local"}})
 
@@ -440,35 +439,10 @@ async def test_fallback_on_subprocess_error(tmp_path, monkeypatch):
         new_callable=AsyncMock,
         side_effect=OSError("subprocess failed"),
     ):
-        result = await execute_code("print('hi')", "readonly", "fallback test")
+        result = await execute_code("print('hi')", "readonly", "error test")
 
-    assert result.execution_method_used == "in_process_fallback"
-    assert "hi" in result.stdout
-
-
-@pytest.mark.unit
-def test_fallback_marks_result():
-    """Fallback execution sets execution_method_used to 'in_process_fallback'."""
-    result = _execute_in_process_fallback("print(42)")
-    assert result.execution_method_used == "in_process_fallback"
-    assert "42" in result.stdout
-    assert result.success is True
-
-
-@pytest.mark.unit
-def test_fallback_preserves_save_artifact():
-    """save_artifact is available in fallback namespace."""
-    artifacts = []
-
-    def mock_save(obj, title="", description="", artifact_type=None):
-        artifacts.append(obj)
-
-    result = _execute_in_process_fallback(
-        "save_artifact('test_value', title='Test')",
-        save_artifact_fn=mock_save,
-    )
-    assert result.success is True
-    assert artifacts == ["test_value"]
+    assert result.success is False
+    assert result.error_message is not None
 
 
 # ---------------------------------------------------------------------------

@@ -2,15 +2,12 @@
 
 Delegates code execution to ContainerExecutor (Jupyter containers) or local subprocess
 with ExecutionWrapper, adding limits monkeypatch, process isolation, and timeout.
-Falls back to in-process exec() when primary executors are unavailable.
 
 This module does NOT modify or depend on LangGraph state — it reuses the existing
 execution infrastructure (container_engine, wrapper, limits_validator) as-is.
 """
 
 import asyncio
-import contextlib
-import io
 import logging
 import time
 import traceback
@@ -335,63 +332,23 @@ def _collect_artifacts(execution_folder: Path) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# In-process fallback
-# ---------------------------------------------------------------------------
-def _execute_in_process_fallback(code: str, save_artifact_fn=None) -> ExecutionResult:
-    """Fallback: execute code in-process (same as original bare exec()).
-
-    Used when container/subprocess execution fails.  Preserves save_artifact()
-    availability for backward compatibility.
-    """
-    stdout_buf = io.StringIO()
-    stderr_buf = io.StringIO()
-    namespace: dict = {"__builtins__": __builtins__}
-    if save_artifact_fn:
-        namespace["save_artifact"] = save_artifact_fn
-
-    start_time = time.time()
-    try:
-        with contextlib.redirect_stdout(stdout_buf), contextlib.redirect_stderr(stderr_buf):
-            exec(compile(code, "<osprey_python_execute>", "exec"), namespace)  # noqa: S102
-    except Exception:
-        stderr_buf.write(traceback.format_exc())
-    elapsed = time.time() - start_time
-
-    stdout_text = stdout_buf.getvalue()
-    stderr_text = stderr_buf.getvalue()
-
-    return ExecutionResult(
-        success=not bool(stderr_text),
-        stdout=stdout_text,
-        stderr=stderr_text,
-        execution_method_used="in_process_fallback",
-        execution_time_seconds=elapsed,
-        error_message=stderr_text if stderr_text else None,
-    )
-
-
-# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 async def execute_code(
     code: str,
     execution_mode: str,
     description: str,
-    save_artifact_fn=None,
 ) -> ExecutionResult:
-    """Execute Python code via container, local subprocess, or in-process fallback.
+    """Execute Python code via container or local subprocess.
 
     Reads ``config.yml`` to determine execution method, creates an isolated
     execution folder, loads the limits validator, and delegates to the
-    appropriate executor.  Falls back to in-process ``exec()`` if the primary
-    executor raises an exception.
+    appropriate executor.
 
     Args:
         code: Python source code to execute.
         execution_mode: ``"readonly"`` or ``"readwrite"``.
         description: Human-readable description of what the code does.
-        save_artifact_fn: Optional ``save_artifact`` callable (only used in
-            the in-process fallback path).
 
     Returns:
         :class:`ExecutionResult` with stdout, stderr, success status, figures,
@@ -414,9 +371,15 @@ async def execute_code(
                 code, execution_mode, config, execution_folder, limits_validator
             )
     except Exception as exc:
-        logger.warning(
-            "Primary execution failed (%s: %s), falling back to in-process exec",
+        logger.error(
+            "Execution setup failed (%s: %s)",
             type(exc).__name__,
             exc,
         )
-        return _execute_in_process_fallback(code, save_artifact_fn)
+        return ExecutionResult(
+            success=False,
+            stdout="",
+            stderr=traceback.format_exc(),
+            execution_method_used=execution_method,
+            error_message=f"Execution setup failed: {exc}",
+        )
