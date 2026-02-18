@@ -37,10 +37,8 @@ def test_get_all_channels(tmp_path, monkeypatch):
         fn = get_tool_fn(cf_ic_get_channels)
         result = fn()
     data = json.loads(result)
-    # DataContext wraps the response — verify via summary
-    assert data["status"] == "success"
-    assert data["summary"]["channels_found"] == 2
-    assert len(data["summary"]["channels"]) == 2
+    assert data["total"] == 2
+    assert len(data["channels"]) == 2
 
 
 @pytest.mark.unit

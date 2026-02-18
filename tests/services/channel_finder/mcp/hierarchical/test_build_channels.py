@@ -19,7 +19,7 @@ def _setup(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 def test_build_channels_happy_path(tmp_path, monkeypatch):
-    """Returns list of constructed channel addresses via DataContext."""
+    """Returns list of constructed channel addresses."""
     _setup(tmp_path, monkeypatch)
     mock_db = MagicMock()
     mock_db.build_channels_from_selections.return_value = [
@@ -41,11 +41,9 @@ def test_build_channels_happy_path(tmp_path, monkeypatch):
         selections = {"system": "SR", "family": "BPM", "device": ["01", "02"]}
         result = fn(selections=selections)
     data = json.loads(result)
-    # DataContext wraps the response — verify via summary
-    assert data["status"] == "success"
-    assert data["summary"]["channels_found"] == 3
-    assert "SR:BPM:01:X" in data["summary"]["channels"]
-    assert "SR:BPM:02:X" in data["summary"]["channels"]
+    assert data["total"] == 3
+    assert "SR:BPM:01:X" in data["channels"]
+    assert "SR:BPM:02:X" in data["channels"]
     mock_db.build_channels_from_selections.assert_called_once_with(selections)
 
 

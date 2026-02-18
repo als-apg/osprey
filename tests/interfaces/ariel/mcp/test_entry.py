@@ -529,3 +529,84 @@ async def test_entry_create_draft_with_artifact_ids(tmp_path, monkeypatch):
     contents = json.loads(filepath.read_text())
     assert "attachment_paths" in contents
     assert len(contents["attachment_paths"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# ariel_entries_by_ids tests
+# ---------------------------------------------------------------------------
+
+
+def _get_ariel_entries_by_ids():
+    from osprey.interfaces.ariel.mcp.tools.entry import ariel_entries_by_ids
+
+    return get_tool_fn(ariel_entries_by_ids)
+
+
+@pytest.mark.unit
+async def test_entries_by_ids_batch_retrieval(tmp_path, monkeypatch):
+    """Batch retrieval returns found entries (may be fewer than requested)."""
+    _setup_registry(tmp_path, monkeypatch)
+
+    entries = [
+        make_mock_entry(entry_id="e1", raw_text="First"),
+        make_mock_entry(entry_id="e3", raw_text="Third"),
+    ]
+
+    mock_service = AsyncMock()
+    mock_service.repository.get_entries_by_ids.return_value = entries
+
+    with patch(
+        "osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        fn = _get_ariel_entries_by_ids()
+        result = await fn(entry_ids=["e1", "e2", "e3"])
+
+    data = json.loads(result)
+    assert data["requested"] == 3
+    assert data["found"] == 2
+    assert len(data["entries"]) == 2
+    assert data["entries"][0]["entry_id"] == "e1"
+
+
+@pytest.mark.unit
+async def test_entries_by_ids_empty_list():
+    """Empty list returns validation error."""
+    fn = _get_ariel_entries_by_ids()
+    result = await fn(entry_ids=[])
+
+    data = json.loads(result)
+    assert data["error"] is True
+    assert data["error_type"] == "validation_error"
+
+
+@pytest.mark.unit
+async def test_entries_by_ids_max_limit_exceeded():
+    """More than 50 IDs returns validation error."""
+    fn = _get_ariel_entries_by_ids()
+    result = await fn(entry_ids=[f"e{i}" for i in range(51)])
+
+    data = json.loads(result)
+    assert data["error"] is True
+    assert data["error_type"] == "validation_error"
+    assert "50" in data["error_message"]
+
+
+@pytest.mark.unit
+async def test_entries_by_ids_service_error(tmp_path, monkeypatch):
+    """Service failure returns standard error format."""
+    _setup_registry(tmp_path, monkeypatch)
+
+    mock_service = AsyncMock()
+    mock_service.repository.get_entries_by_ids.side_effect = RuntimeError("DB down")
+
+    with patch(
+        "osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        fn = _get_ariel_entries_by_ids()
+        result = await fn(entry_ids=["e1"])
+
+    data = json.loads(result)
+    assert data["error"] is True
+    assert data["error_type"] == "internal_error"

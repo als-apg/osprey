@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 from osprey.interfaces.ariel.mcp.registry import get_ariel_registry
-from osprey.interfaces.ariel.mcp.server import make_error, mcp
+from osprey.interfaces.ariel.mcp.server import make_error, mcp, serialize_entry
 
 logger = logging.getLogger("osprey.interfaces.ariel.mcp.tools.entry")
 
@@ -127,6 +127,70 @@ async def ariel_entry_get(
             make_error(
                 "internal_error",
                 f"Failed to get entry: {exc}",
+                ["Check ARIEL database connectivity."],
+            )
+        )
+
+
+@mcp.tool()
+async def ariel_entries_by_ids(
+    entry_ids: list[str],
+) -> str:
+    """Get multiple logbook entries by their IDs in a single call.
+
+    Efficient batch retrieval for reading full details of entries found
+    via search. Returns full entry content with a higher text limit than
+    search results.
+
+    Args:
+        entry_ids: List of entry IDs to retrieve (max 50 per call).
+
+    Returns:
+        JSON with list of found entries. May return fewer than requested
+        if some IDs don't exist.
+    """
+    if not entry_ids:
+        return json.dumps(
+            make_error(
+                "validation_error",
+                "entry_ids list is empty.",
+                ["Provide at least one entry ID."],
+            )
+        )
+
+    if len(entry_ids) > 50:
+        return json.dumps(
+            make_error(
+                "validation_error",
+                f"Too many entry IDs ({len(entry_ids)}). Maximum is 50 per call.",
+                ["Split into multiple calls of 50 or fewer IDs."],
+            )
+        )
+
+    try:
+        registry = get_ariel_registry()
+        service = await registry.service()
+
+        entries = await service.repository.get_entries_by_ids(entry_ids)
+
+        # Serialize with longer text limit for full details
+        entries_out = [serialize_entry(e, text_limit=1000) for e in entries]
+
+        return json.dumps(
+            {
+                "requested": len(entry_ids),
+                "found": len(entries_out),
+                "entries": entries_out,
+            },
+            default=str,
+        )
+
+    except Exception as exc:
+        logger.exception("ariel_entries_by_ids failed")
+        return json.dumps(
+            make_error(
+                "internal_error",
+                f"Failed to get entries: {exc}",
                 ["Check ARIEL database connectivity."],
             )
         )

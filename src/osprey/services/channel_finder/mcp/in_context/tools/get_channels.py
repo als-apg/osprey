@@ -57,30 +57,7 @@ def cf_ic_get_channels(chunk_idx: int | None = None, chunk_size: int = 50) -> st
                 "channels": channels,
                 "total": len(channels),
             }
-
-            try:
-                from osprey.mcp_server.data_context import get_data_context
-
-                data_ctx = get_data_context()
-                entry = data_ctx.save(
-                    tool="channel_find",
-                    data={"channels": channels},
-                    description=f"Found {len(channels)} channel(s) via in-context database",
-                    summary={
-                        "channels_found": len(channels),
-                        "channels": channels[:10] if isinstance(channels, list) else [],
-                    },
-                    access_details={
-                        "format": "channel_list",
-                        "fields": ["channels"],
-                        "pipeline": "in_context",
-                    },
-                    data_type="channel_addresses",
-                )
-                return json.dumps(entry.to_tool_response(), default=str)
-            except Exception:
-                logger.debug("DataContext save skipped (workspace not initialised)")
-                return json.dumps(result, default=str)
+            return json.dumps(result, default=str)
 
     except ValueError as exc:
         return json.dumps(make_error("validation_error", str(exc)))

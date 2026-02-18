@@ -48,43 +48,7 @@ def cf_ml_list_channels(
         )
 
         result = {"channels": channels, "total": len(channels)}
-
-        try:
-            from osprey.mcp_server.data_context import get_data_context
-
-            selections = {
-                "system": system,
-                "family": family,
-                "field": field,
-            }
-            if subfield is not None:
-                selections["subfield"] = subfield
-            if sectors is not None:
-                selections["sectors"] = sectors
-            if devices is not None:
-                selections["devices"] = devices
-
-            data_ctx = get_data_context()
-            entry = data_ctx.save(
-                tool="channel_find",
-                data={"selections": selections, "channels": channels},
-                description=f"Found {len(channels)} channel(s) via middle-layer lookup",
-                summary={
-                    "channels_found": len(channels),
-                    "selections": selections,
-                    "channels": channels[:10],
-                },
-                access_details={
-                    "format": "channel_list",
-                    "fields": ["channels"],
-                    "pipeline": "middle_layer",
-                },
-                data_type="channel_addresses",
-            )
-            return json.dumps(entry.to_tool_response(), default=str)
-        except Exception:
-            logger.debug("DataContext save skipped (workspace not initialised)")
-            return json.dumps(result)
+        return json.dumps(result)
 
     except ValueError as exc:
         return json.dumps(

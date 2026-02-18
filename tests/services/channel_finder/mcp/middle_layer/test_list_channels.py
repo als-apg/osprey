@@ -40,10 +40,8 @@ def test_list_channels_returns_channels(tmp_path, monkeypatch):
         result = fn(system="SR", family="BPM", field="Monitor")
 
     data = json.loads(result)
-    # DataContext wraps the response — verify via summary
-    assert data["status"] == "success"
-    assert data["summary"]["channels_found"] == 3
-    assert "SR:C01-MG:BPM1:X" in data["summary"]["channels"]
+    assert data["total"] == 3
+    assert "SR:C01-MG:BPM1:X" in data["channels"]
     mock_db.list_channel_names.assert_called_once_with("SR", "BPM", "Monitor", None, None, None)
 
 
@@ -73,9 +71,8 @@ def test_list_channels_with_subfield_and_filters(tmp_path, monkeypatch):
         )
 
     data = json.loads(result)
-    # DataContext wraps the response — verify via summary
-    assert data["status"] == "success"
-    assert data["summary"]["channels_found"] == 1
+    assert data["total"] == 1
+    assert "SR:C01-MG:BPM1:X" in data["channels"]
     mock_db.list_channel_names.assert_called_once_with("SR", "BPM", "Monitor", "X", [1, 2], [1])
 
 

@@ -176,18 +176,19 @@ You are exploring the {{ facility_name }} control system database.
 - If no channels match, report honestly
 - Use `cf_*_validate()` to verify channel names when uncertain
 
-## Reporting Results
+## Submitting Results
 
-When the final channel listing tool ({% if channel_finder_mode == "middle_layer" %}`cf_ml_list_channels`{% elif channel_finder_mode == "hierarchical" %}`cf_hier_build_channels`{% elif channel_finder_mode == "in_context" %}`cf_ic_get_channels`{% endif %}) returns a `context_entry_id` in its response, ALWAYS include it
-in your final answer. Format:
+As your FINAL action, call `submit_response` to persist your findings:
 
+- `title`: Short descriptive title (e.g. "BPM Position Channels")
+- `content`: Your full synthesized response (markdown), including the channel list
+- `entry_ids`: All channel addresses found (e.g. ["SR:BPM:X:01", "SR:BPM:X:02"])
+- `data_type`: "channel_addresses"
+
+Include the returned `context_entry_id` in your final answer:
 **Channels found** (context_entry_id: 2):
 - CHANNEL:ADDRESS:ONE
 - CHANNEL:ADDRESS:TWO
 
 This allows the orchestrator to reference the data context entry for downstream tools.
-
-Note: Navigation/exploration tools do NOT return `context_entry_id` — only the final
-channel-producing tools do. When browsing chunks (`chunk_idx` parameter), no context
-entry is created until the final complete listing.
 {%- endif %}

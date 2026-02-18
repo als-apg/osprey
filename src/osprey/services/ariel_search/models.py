@@ -112,6 +112,7 @@ class SearchMode(Enum):
     SEMANTIC = "semantic"
     RAG = "rag"
     AGENT = "agent"
+    SQL = "sql_query"
 
 
 class DiagnosticLevel(Enum):
