@@ -1,68 +1,89 @@
-{
-  "mcpServers": {
-{% if "osprey-control-system" not in disable_servers %}    "osprey-control-system": {
-      "command": "{{ current_python_env }}",
+{%- set server_blocks = [] -%}
+{%- if "osprey-control-system" not in disable_servers -%}
+{%- set _ = server_blocks.append('    "osprey-control-system": {
+      "command": "' ~ current_python_env ~ '",
       "args": ["-m", "osprey.mcp_server.control_system"],
       "env": {
-        "OSPREY_CONFIG": "{{ project_root }}/config.yml",
-        "CONFIG_FILE": "{{ project_root }}/config.yml",
+        "OSPREY_CONFIG": "' ~ project_root ~ '/config.yml",
+        "CONFIG_FILE": "' ~ project_root ~ '/config.yml",
         "EPICS_CA_ADDR_LIST": "${EPICS_CA_ADDR_LIST:-}"
       }
-    },
-{% endif %}{% if "osprey-python-executor" not in disable_servers %}    "osprey-python-executor": {
-      "command": "{{ current_python_env }}",
+    }') -%}
+{%- endif -%}
+{%- if "osprey-python-executor" not in disable_servers -%}
+{%- set _ = server_blocks.append('    "osprey-python-executor": {
+      "command": "' ~ current_python_env ~ '",
       "args": ["-m", "osprey.mcp_server.python_executor"],
       "env": {
-        "OSPREY_CONFIG": "{{ project_root }}/config.yml",
-        "CONFIG_FILE": "{{ project_root }}/config.yml",
+        "OSPREY_CONFIG": "' ~ project_root ~ '/config.yml",
+        "CONFIG_FILE": "' ~ project_root ~ '/config.yml",
         "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY:-}"
       }
-    },
-{% endif %}{% if "osprey-workspace" not in disable_servers %}    "osprey-workspace": {
-      "command": "{{ current_python_env }}",
+    }') -%}
+{%- endif -%}
+{%- if "osprey-workspace" not in disable_servers -%}
+{%- set _ = server_blocks.append('    "osprey-workspace": {
+      "command": "' ~ current_python_env ~ '",
       "args": ["-m", "osprey.mcp_server.workspace"],
       "env": {
-        "OSPREY_CONFIG": "{{ project_root }}/config.yml"
+        "OSPREY_CONFIG": "' ~ project_root ~ '/config.yml"
       }
-    },
-{% endif %}{% if "ariel" not in disable_servers %}    "ariel": {
-      "command": "{{ current_python_env }}",
+    }') -%}
+{%- endif -%}
+{%- if "ariel" not in disable_servers -%}
+{%- set _ = server_blocks.append('    "ariel": {
+      "command": "' ~ current_python_env ~ '",
       "args": ["-m", "osprey.interfaces.ariel.mcp"],
       "env": {
-        "OSPREY_CONFIG": "{{ project_root }}/config.yml",
+        "OSPREY_CONFIG": "' ~ project_root ~ '/config.yml",
         "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY:-}"
       }
-    },
-{% endif %}{% if "accelpapers" not in disable_servers %}    "accelpapers": {
-      "command": "{{ current_python_env }}",
+    }') -%}
+{%- endif -%}
+{%- if "accelpapers" not in disable_servers -%}
+{%- set _ = server_blocks.append('    "accelpapers": {
+      "command": "' ~ current_python_env ~ '",
       "args": ["-m", "osprey.mcp_server.accelpapers", "serve"],
       "env": {
         "ACCELPAPERS_DB": "${ACCELPAPERS_DB:-}"
       }
-    },
-{% endif %}{% if matlab is defined and "matlab" not in disable_servers %}    "matlab": {
-      "command": "{{ current_python_env }}",
+    }') -%}
+{%- endif -%}
+{%- if matlab is defined and "matlab" not in disable_servers -%}
+{%- set _ = server_blocks.append('    "matlab": {
+      "command": "' ~ current_python_env ~ '",
       "args": ["-m", "osprey.mcp_server.matlab", "serve"],
       "env": {
         "MATLAB_MML_DB": "${MATLAB_MML_DB:-}"
       }
-    },
-{% endif %}{% if channel_finder_pipeline is defined and "channel-finder" not in disable_servers %}    "channel-finder": {
-      "command": "{{ current_python_env }}",
-      "args": ["-m", "osprey.services.channel_finder.mcp.{{ channel_finder_pipeline }}"],
+    }') -%}
+{%- endif -%}
+{%- if channel_finder_pipeline is defined and "channel-finder" not in disable_servers -%}
+{%- set _ = server_blocks.append('    "channel-finder": {
+      "command": "' ~ current_python_env ~ '",
+      "args": ["-m", "osprey.services.channel_finder.mcp.' ~ channel_finder_pipeline ~ '"],
       "env": {
-        "OSPREY_CONFIG": "{{ project_root }}/config.yml"
+        "OSPREY_CONFIG": "' ~ project_root ~ '/config.yml"
       }
-    },
-{% endif %}{% if confluence is defined and "confluence" not in disable_servers %}    "confluence": {
+    }') -%}
+{%- endif -%}
+{%- if confluence is defined and "confluence" not in disable_servers -%}
+{%- set _ = server_blocks.append('    "confluence": {
       "command": "uvx",
       "args": ["--python=3.12", "mcp-atlassian"],
       "env": {
-        "CONFLUENCE_URL": "{{ confluence.url }}",
+        "CONFLUENCE_URL": "' ~ confluence.url ~ '",
         "CONFLUENCE_PERSONAL_TOKEN": "${CONFLUENCE_ACCESS_TOKEN:-}"
       }
-    },
-{% endif %}{% for name, spec in extra_servers.items() %}{% if name not in disable_servers %}    "{{ name }}": {{ spec | tojson }},
-{% endif %}{% endfor %}    "_sentinel": null
+    }') -%}
+{%- endif -%}
+{%- for name, spec in extra_servers.items() -%}
+{%- if name not in disable_servers -%}
+{%- set _ = server_blocks.append('    ' ~ name | tojson ~ ': ' ~ spec | tojson) -%}
+{%- endif -%}
+{%- endfor -%}
+{
+  "mcpServers": {
+{{ server_blocks | join(",\n") }}
   }
 }
