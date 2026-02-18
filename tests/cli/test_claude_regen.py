@@ -1,0 +1,428 @@
+"""Tests for Claude Code artifact regeneration.
+
+Tests that `osprey claude regen` correctly rebuilds Claude Code artifacts
+from config.yml, preserves user files, creates backups, and maintains
+safety hooks across regeneration cycles.
+"""
+
+import json
+import os
+
+import pytest
+import yaml
+
+from osprey.cli.templates import MANIFEST_FILENAME, TemplateManager
+
+
+class TestBuildClaudeCodeContext:
+    """Test _build_claude_code_context() reconstructs correct template vars."""
+
+    def test_minimal_config(self, tmp_path):
+        """Minimal config produces correct base context vars."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="ctx-minimal",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        ctx = manager._build_claude_code_context(project_dir, config)
+
+        assert ctx["project_name"] == "ctx-minimal"
+        assert ctx["package_name"] == "ctx_minimal"
+        assert ctx["project_root"] == str(project_dir.absolute())
+        assert "current_python_env" in ctx
+        assert ctx["template_name"] == "minimal"
+
+    def test_control_assistant_config(self, tmp_path):
+        """Control assistant config produces channel_finder context vars."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="ctx-control",
+            output_dir=tmp_path,
+            template_name="control_assistant",
+        )
+        # Generate manifest so _build_claude_code_context can discover template_name
+        manager.generate_manifest(
+            project_dir, "ctx-control", "control_assistant", "extend", {}
+        )
+
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        ctx = manager._build_claude_code_context(project_dir, config)
+
+        assert ctx["template_name"] == "control_assistant"
+        assert "channel_finder_pipeline" in ctx
+        assert "channel_finder_mode" in ctx
+
+    def test_config_with_confluence(self, tmp_path):
+        """Config with confluence section passes dict to context."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="ctx-confluence",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+
+        # Add confluence to config
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        config["confluence"] = {"url": "https://wiki.example.com"}
+        (project_dir / "config.yml").write_text(yaml.dump(config))
+
+        ctx = manager._build_claude_code_context(project_dir, config)
+        assert "confluence" in ctx
+        assert ctx["confluence"]["url"] == "https://wiki.example.com"
+
+    def test_config_with_matlab(self, tmp_path):
+        """Config with matlab section passes dict to context."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="ctx-matlab",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        config["matlab"] = {"db_path": "~/.matlab-mml/mml.db"}
+        (project_dir / "config.yml").write_text(yaml.dump(config))
+
+        ctx = manager._build_claude_code_context(project_dir, config)
+        assert "matlab" in ctx
+        assert ctx["matlab"]["db_path"] == "~/.matlab-mml/mml.db"
+
+    def test_uses_manifest_template(self, tmp_path):
+        """When manifest exists, template_name is read from it."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="ctx-manifest",
+            output_dir=tmp_path,
+            template_name="control_assistant",
+        )
+        # Generate manifest
+        manager.generate_manifest(
+            project_dir, "ctx-manifest", "control_assistant", "extend", {}
+        )
+
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        ctx = manager._build_claude_code_context(project_dir, config)
+
+        assert ctx["template_name"] == "control_assistant"
+
+
+class TestRegenerationCorrectness:
+    """Test that regeneration produces correct output."""
+
+    def test_regen_produces_same_output_as_init(self, tmp_path):
+        """Init → regen with no config changes → identical artifacts."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="regen-idempotent",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+
+        # Capture checksums
+        files_to_check = [".mcp.json", "CLAUDE.md", ".claude/settings.json"]
+        original_checksums = {}
+        for f in files_to_check:
+            fp = project_dir / f
+            if fp.exists():
+                original_checksums[f] = fp.read_text()
+
+        # Regen
+        result = manager.regenerate_claude_code(project_dir)
+
+        # Compare
+        for f, original_content in original_checksums.items():
+            assert (project_dir / f).read_text() == original_content, f"{f} changed unexpectedly"
+        assert f in result["unchanged"] or not result["changed"]
+
+    def test_regen_updates_mcp_json_when_confluence_added(self, tmp_path):
+        """Adding confluence to config.yml → .mcp.json gets confluence server."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="regen-confluence",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+
+        # Verify confluence NOT in .mcp.json initially
+        mcp_data = json.loads((project_dir / ".mcp.json").read_text())
+        assert "confluence" not in mcp_data["mcpServers"]
+
+        # Add confluence to config.yml
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        config["confluence"] = {"url": "https://wiki.example.com"}
+        (project_dir / "config.yml").write_text(yaml.dump(config))
+
+        # Regen
+        result = manager.regenerate_claude_code(project_dir)
+
+        # Verify
+        mcp_data = json.loads((project_dir / ".mcp.json").read_text())
+        assert "confluence" in mcp_data["mcpServers"]
+        assert ".mcp.json" in result["changed"]
+
+    def test_regen_updates_settings_json_when_confluence_added(self, tmp_path):
+        """Adding confluence → settings.json gets confluence permissions."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="regen-settings",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+
+        # Add confluence
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        config["confluence"] = {"url": "https://wiki.example.com"}
+        (project_dir / "config.yml").write_text(yaml.dump(config))
+
+        manager.regenerate_claude_code(project_dir)
+
+        settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
+        assert "mcp__confluence" in settings["permissions"]["allow"]
+        assert "Task(wiki-search)" in settings["permissions"]["allow"]
+
+    def test_regen_updates_claude_md_when_confluence_added(self, tmp_path):
+        """Adding confluence → CLAUDE.md mentions wiki-search delegation."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="regen-claude-md",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+
+        # Initially no wiki section
+        content = (project_dir / "CLAUDE.md").read_text()
+        assert "wiki-search" not in content
+
+        # Add confluence
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        config["confluence"] = {"url": "https://wiki.example.com"}
+        (project_dir / "config.yml").write_text(yaml.dump(config))
+
+        manager.regenerate_claude_code(project_dir)
+
+        content = (project_dir / "CLAUDE.md").read_text()
+        assert "wiki-search" in content
+
+    def test_regen_removes_features_when_config_section_removed(self, tmp_path):
+        """Init with confluence → remove section → regen → confluence gone."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="regen-remove",
+            output_dir=tmp_path,
+            template_name="minimal",
+            context={"confluence": {"url": "https://wiki.example.com"}},
+        )
+
+        # Confluence should be present
+        mcp_data = json.loads((project_dir / ".mcp.json").read_text())
+        assert "confluence" in mcp_data["mcpServers"]
+
+        # Remove confluence from config.yml
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        config.pop("confluence", None)
+        (project_dir / "config.yml").write_text(yaml.dump(config))
+
+        manager.regenerate_claude_code(project_dir)
+
+        # Confluence should be gone
+        mcp_data = json.loads((project_dir / ".mcp.json").read_text())
+        assert "confluence" not in mcp_data["mcpServers"]
+
+
+class TestSafetyPreservation:
+    """Test that regeneration always preserves safety layers."""
+
+    @pytest.fixture()
+    def regen_project(self, tmp_path):
+        """Create and regenerate a project."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="safety-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+        manager.regenerate_claude_code(project_dir)
+        return project_dir
+
+    def test_always_includes_safety_hooks(self, regen_project):
+        """After regen, settings.json still has PreToolUse/PostToolUse hook chains."""
+        settings = json.loads(
+            (regen_project / ".claude" / "settings.json").read_text()
+        )
+        assert "PreToolUse" in settings["hooks"]
+        assert "PostToolUse" in settings["hooks"]
+
+    def test_always_denies_dangerous_tools(self, regen_project):
+        """After regen, settings.json still denies Bash, Edit, Write, WebFetch, WebSearch."""
+        settings = json.loads(
+            (regen_project / ".claude" / "settings.json").read_text()
+        )
+        deny = settings["permissions"]["deny"]
+        for tool in ["Bash", "Edit", "Write", "WebFetch", "WebSearch"]:
+            assert tool in deny, f"{tool} should be in deny list after regen"
+
+    def test_preserves_writes_check_hook(self, regen_project):
+        """osprey_writes_check.py is in PreToolUse for channel_write after regen."""
+        settings = json.loads(
+            (regen_project / ".claude" / "settings.json").read_text()
+        )
+        pre_tool_use = settings["hooks"]["PreToolUse"]
+        channel_write_hooks = [
+            h for h in pre_tool_use
+            if h.get("matcher") == "mcp__osprey-control-system__channel_write"
+        ]
+        assert len(channel_write_hooks) > 0
+        hook_commands = [
+            hook["command"]
+            for entry in channel_write_hooks
+            for hook in entry["hooks"]
+        ]
+        assert any("osprey_writes_check.py" in cmd for cmd in hook_commands)
+
+    def test_hooks_remain_executable(self, regen_project):
+        """After regen, all hook .py files retain executable permissions."""
+        hooks_dir = regen_project / ".claude" / "hooks"
+        for hook in hooks_dir.iterdir():
+            if hook.is_file() and hook.suffix == ".py":
+                mode = os.stat(hook).st_mode
+                assert mode & 0o111, f"Hook {hook.name} should be executable after regen"
+
+
+class TestUserFilePreservation:
+    """Test that regeneration preserves user-maintained files."""
+
+    def test_preserves_claude_project_md(self, tmp_path):
+        """Regen never overwrites CLAUDE-project.md."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="preserve-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+
+        # Modify CLAUDE-project.md
+        user_file = project_dir / "CLAUDE-project.md"
+        user_content = "# My Custom Instructions\nAlways greet in Spanish.\n"
+        user_file.write_text(user_content)
+
+        # Regen
+        manager.regenerate_claude_code(project_dir)
+
+        assert user_file.read_text() == user_content
+
+    def test_creates_claude_project_md_on_init(self, tmp_path):
+        """Init creates CLAUDE-project.md starter template."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="project-md-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+
+        user_file = project_dir / "CLAUDE-project.md"
+        assert user_file.exists()
+        content = user_file.read_text()
+        assert "Project Notes" in content
+
+    def test_creates_backup(self, tmp_path):
+        """Regen creates backup directory in osprey-workspace/backup/."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="backup-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+
+        result = manager.regenerate_claude_code(project_dir)
+
+        backup_dir = result["backup_dir"]
+        assert backup_dir is not None
+        assert os.path.exists(backup_dir)
+        # Backup should contain the original files
+        assert os.path.exists(os.path.join(backup_dir, ".mcp.json"))
+        assert os.path.exists(os.path.join(backup_dir, "CLAUDE.md"))
+
+    def test_claude_md_has_generated_header(self, tmp_path):
+        """CLAUDE.md has the generated-file header comment."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="header-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+
+        content = (project_dir / "CLAUDE.md").read_text()
+        assert "GENERATED BY OSPREY" in content
+        assert "CLAUDE-project.md" in content
+
+
+class TestErrorHandling:
+    """Test error handling in regeneration."""
+
+    def test_no_config_error(self, tmp_path):
+        """Run in directory without config.yml → clear error."""
+        manager = TemplateManager()
+
+        with pytest.raises(FileNotFoundError, match="No config.yml found"):
+            manager.regenerate_claude_code(tmp_path)
+
+    def test_dry_run_no_changes(self, tmp_path):
+        """Dry run does not modify any files."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="dry-run-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+
+        # Record file mtimes
+        mcp_mtime = (project_dir / ".mcp.json").stat().st_mtime
+
+        result = manager.regenerate_claude_code(project_dir, dry_run=True)
+
+        assert result["backup_dir"] is None
+        # File should not be modified
+        assert (project_dir / ".mcp.json").stat().st_mtime == mcp_mtime
+
+    def test_dry_run_detects_changes(self, tmp_path):
+        """Dry run correctly detects what would change."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="dry-detect",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+
+        # Add confluence to config (will cause .mcp.json to change)
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        config["confluence"] = {"url": "https://wiki.example.com"}
+        (project_dir / "config.yml").write_text(yaml.dump(config))
+
+        result = manager.regenerate_claude_code(project_dir, dry_run=True)
+
+        assert ".mcp.json" in result["changed"]
+
+
+class TestGitignore:
+    """Test that gitignore includes generated artifacts."""
+
+    def test_gitignore_includes_generated_artifacts(self, tmp_path):
+        """Project .gitignore includes CLAUDE.md, .mcp.json, .claude/."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="gitignore-gen-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+
+        gitignore = (project_dir / ".gitignore").read_text()
+        assert "CLAUDE.md" in gitignore
+        assert ".mcp.json" in gitignore
+        assert ".claude/" in gitignore
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
