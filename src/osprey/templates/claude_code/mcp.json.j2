@@ -32,6 +32,13 @@
         "OSPREY_CONFIG": "{{ project_root }}/config.yml",
         "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY:-}"
       }
+    },
+    "accelpapers": {
+      "command": "{{ current_python_env }}",
+      "args": ["-m", "osprey.mcp_server.accelpapers", "serve"],
+      "env": {
+        "ACCELPAPERS_DB": "${ACCELPAPERS_DB:-}"
+      }
     }{% if channel_finder_pipeline is defined %},
     "channel-finder": {
       "command": "{{ current_python_env }}",

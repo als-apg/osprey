@@ -483,6 +483,18 @@
     return div.innerHTML;
   }
 
+  /** Send text to the parent terminal via postMessage bridge. */
+  function sendToTerminal(text) {
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage({ type: "osprey-paste-to-terminal", text }, "*");
+    } else {
+      // Fallback: copy to clipboard if not embedded
+      navigator.clipboard.writeText(text).then(() => {
+        console.log("Copied to clipboard:", text);
+      });
+    }
+  }
+
   function isNewThisSession(a) {
     if (!sessionStartTime) return false;
     return a.timestamp >= sessionStartTime;
@@ -1018,7 +1030,7 @@
       });
     });
 
-    // Item click (tree, timeline, or gallery card)
+    // Item click (tree, timeline, or gallery card) + drag-and-drop
     const clickables = ".tree-item, .timeline-item, .gallery-card";
     sidebarBody.querySelectorAll(clickables).forEach((el) => {
       el.addEventListener("click", (e) => {
@@ -1034,6 +1046,16 @@
           el.classList.add("selected");
           renderPreview();
         }
+      });
+
+      // Send-to-terminal: double-click pastes file path into terminal
+      el.addEventListener("dblclick", (e) => {
+        e.preventDefault();
+        const id = el.dataset.id;
+        const a = artifacts.find((x) => x.id === id);
+        if (!a) return;
+        const text = `Read this artifact file: osprey-workspace/artifacts/${a.filename}`;
+        sendToTerminal(text);
       });
     });
   }
@@ -1398,7 +1420,7 @@
       });
     });
 
-    // Item click
+    // Item click + drag-and-drop
     const clickables = ".tree-item, .timeline-item, .gallery-card";
     ctxSidebarBody.querySelectorAll(clickables).forEach((el) => {
       el.addEventListener("click", (e) => {
@@ -1414,6 +1436,18 @@
           el.classList.add("selected");
           renderCtxPreview();
         }
+      });
+
+      // Send-to-terminal: double-click pastes file path into terminal
+      el.addEventListener("dblclick", (e) => {
+        e.preventDefault();
+        const id = parseInt(el.dataset.id, 10);
+        const entry = contextEntries.find((x) => x.id === id);
+        if (!entry) return;
+        const text = entry.data_file
+          ? `Read this context data file: ${entry.data_file}`
+          : `[Context #${entry.id}] ${entry.description}`;
+        sendToTerminal(text);
       });
     });
   }
@@ -1946,7 +1980,7 @@
       });
     });
 
-    // Item click
+    // Item click + drag-and-drop
     const clickables = ".tree-item, .timeline-item, .gallery-card";
     memSidebarBody.querySelectorAll(clickables).forEach((el) => {
       el.addEventListener("click", (e) => {
@@ -1962,6 +1996,16 @@
           el.classList.add("selected");
           renderMemPreview();
         }
+      });
+
+      // Send-to-terminal: double-click pastes content into terminal
+      el.addEventListener("dblclick", (e) => {
+        e.preventDefault();
+        const id = parseInt(el.dataset.id, 10);
+        const entry = memoryEntries.find((x) => x.id === id);
+        if (!entry) return;
+        const text = `[Memory #${entry.id}] ${entry.content || entry.description || ""}`;
+        sendToTerminal(text);
       });
     });
   }

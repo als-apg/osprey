@@ -28,7 +28,14 @@
       "NotebookEdit(osprey-workspace/artifacts/**)",
       "Task(channel-resolver)",
       "Task(logbook-search)",
-      "Task(logbook-deep-research)"{% if channel_finder_pipeline is defined %},
+      "Task(logbook-deep-research)",
+      "Task(literature-search)",
+      "mcp__accelpapers__papers_search",
+      "mcp__accelpapers__papers_get",
+      "mcp__accelpapers__papers_browse",
+      "mcp__accelpapers__papers_list_conferences",
+      "mcp__accelpapers__papers_search_author",
+      "mcp__accelpapers__papers_stats"{% if channel_finder_pipeline is defined %},
       "mcp__channel-finder"{% endif %}{% if confluence is defined %},
       "mcp__confluence",
       "Task(wiki-search)"{% endif %}
@@ -148,6 +155,21 @@
       },
       {
         "matcher": "mcp__ariel__*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_error_guidance.py\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_audit.py\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__accelpapers__*",
         "hooks": [
           {
             "type": "command",
