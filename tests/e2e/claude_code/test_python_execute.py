@@ -1,12 +1,10 @@
-"""E2E tests for python_execute safety chain via Claude Code SDK.
+"""E2E tests for python_execute functional workflows via Claude Code SDK.
 
 Tests the full pipeline: user prompt -> Claude -> MCP tool call -> hooks ->
-adapter -> execution -> response.  Uses the same ``run_sdk_query()`` and
-``init_project()`` patterns from ``test_claude_code_sdk_e2e.py``.
+adapter -> execution -> response.
 
-These tests use ``claude_agent_sdk`` to spawn Claude Code as a subprocess
-with ``bypassPermissions`` (safe because mock connectors).  They verify
-that the safety layers work end-to-end with real Claude decision-making.
+These tests verify that python_execute works correctly for non-safety
+scenarios (basic execution, matplotlib, archiver pipelines).
 
 Requires:
 - Claude Code CLI installed
@@ -16,44 +14,16 @@ Requires:
 
 from __future__ import annotations
 
-import json
-import os
-from pathlib import Path
-
 import pytest
 
-# Reuse the SDK runner and helpers from the main SDK E2E test module
-try:
-    from tests.e2e.test_claude_code_sdk_e2e import (
-        HAS_SDK,
-        has_anthropic_api_key,
-        init_project,
-        is_claude_code_available,
-        run_sdk_query,
-        find_png_files,
-    )
-except ImportError:
-    HAS_SDK = False
-
-    def is_claude_code_available():
-        return False
-
-    def has_anthropic_api_key():
-        return False
+from tests.e2e.sdk_helpers import (
+    init_project,
+    run_sdk_query,
+)
 
 
-pytestmark = [
-    pytest.mark.e2e,
-    pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed"),
-    pytest.mark.skipif(
-        not is_claude_code_available(),
-        reason="Claude Code CLI not installed",
-    ),
-]
-
-
-class TestPythonExecuteSafetyE2E:
-    """E2E safety chain tests for python_execute through the Claude Code SDK."""
+class TestPythonExecuteE2E:
+    """E2E functional tests for python_execute through the Claude Code SDK."""
 
     # -------------------------------------------------------------------
     # Test 1 — Readonly smoke test
@@ -61,7 +31,6 @@ class TestPythonExecuteSafetyE2E:
 
     @pytest.mark.requires_api
     @pytest.mark.requires_anthropic
-    @pytest.mark.skipif(not has_anthropic_api_key(), reason="ANTHROPIC_API_KEY not set")
     @pytest.mark.asyncio
     async def test_python_execute_readonly_smoke(self, tmp_path):
         """Simple print() code runs and returns stdout via python_execute tool.
@@ -125,7 +94,6 @@ class TestPythonExecuteSafetyE2E:
 
     @pytest.mark.requires_api
     @pytest.mark.requires_anthropic
-    @pytest.mark.skipif(not has_anthropic_api_key(), reason="ANTHROPIC_API_KEY not set")
     @pytest.mark.asyncio
     async def test_python_execute_with_matplotlib(self, tmp_path):
         """Code that creates a matplotlib plot runs successfully.
@@ -188,7 +156,6 @@ class TestPythonExecuteSafetyE2E:
 
     @pytest.mark.requires_api
     @pytest.mark.requires_anthropic
-    @pytest.mark.skipif(not has_anthropic_api_key(), reason="ANTHROPIC_API_KEY not set")
     @pytest.mark.asyncio
     async def test_archiver_then_python_pipeline(self, tmp_path):
         """archiver_read -> python_execute pipeline works with the adapter.
@@ -202,8 +169,10 @@ class TestPythonExecuteSafetyE2E:
 
         prompt = (
             "I want to analyze recent beam current data. Please:\n"
-            "1. Use archiver_read to get the last 1 hour of data for SR:C01-BI:G02A{BPM:1}SA:X-I\n"
-            "2. Then use python_execute to compute the mean and standard deviation of the values.\n"
+            "1. Use archiver_read to get the last 1 hour of data for "
+            "SR:C01-BI:G02A{BPM:1}SA:X-I\n"
+            "2. Then use python_execute to compute the mean and standard "
+            "deviation of the values.\n"
             "Report the statistics."
         )
 
@@ -230,7 +199,6 @@ class TestPythonExecuteSafetyE2E:
         archiver_tools = result.tools_matching("archiver_read")
         py_tools = result.tools_matching("python_execute")
 
-        # At minimum, archiver_read and python_execute should appear
         assert len(archiver_tools) >= 1, (
             f"Expected archiver_read call but got: {result.tool_names}"
         )
