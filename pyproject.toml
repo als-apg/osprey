@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=65.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "osprey-framework"
@@ -216,34 +216,9 @@ osprey = "osprey.cli.main:cli"
 alpha-berkeley = "osprey.interfaces.cli.direct_conversation:main"
 alpha-berkeley-deploy = "osprey.deployment.container_manager:main"
 
-# Package discovery configuration for src layout
-[tool.setuptools.packages.find]
-where = ["src"]
-include = ["osprey*"]
-
-# Include package data files
-[tool.setuptools.package-data]
-"*" = ["*.yml", "*.yaml", "*.json", "*.j2", "*.md", "*.txt", "*.cfg", "*.ini"]
-"osprey.interfaces.tui" = ["*.tcss"]
-"osprey" = [
-    "config.yml",
-    "templates/**/*",
-    "templates/**/*.j2",
-    "templates/**/*.py",
-    "templates/**/*.yml",
-    "templates/**/*.yaml",
-    "templates/**/*.md",
-    "templates/**/*.txt",
-    "templates/**/*.sh",
-    "templates/**/*.css",
-    "templates/**/*.js",
-    "templates/**/*.json",
-    "interfaces/ariel/static/**/*",
-    "workflows/*.md",  # Legacy workflow files (deprecated, use assist/)
-    "assist/**/*.md",  # Coding assistant task instructions
-    "assist/**/*.yml",  # Migration documents and schemas
-    "assist/**/*.yaml",
-]
+# Hatchling build configuration
+[tool.hatch.build.targets.wheel]
+packages = ["src/osprey"]
 
 # Development tool configurations
 [tool.mypy]

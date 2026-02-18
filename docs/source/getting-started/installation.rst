@@ -113,22 +113,42 @@ This framework requires `Python 3.11+ <https://www.python.org/downloads/>`_. Ver
 
 To avoid conflicts with your system Python packages, create a virtual environment with Python 3.11+:
 
-.. code-block:: bash
+.. tab-set::
 
-   python3.11 -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+    .. tab-item:: uv (Recommended)
+
+        `uv <https://docs.astral.sh/uv/>`_ is a fast Python package manager that handles virtual environments automatically:
+
+        .. code-block:: bash
+
+           # uv creates and manages the .venv automatically
+           uv venv
+
+    .. tab-item:: pip (Traditional)
+
+        .. code-block:: bash
+
+           python3.11 -m venv venv
+           source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 **Installing the Framework**
 
-After creating and activating the virtual environment, install the framework package:
+After setting up your virtual environment, install the framework package:
 
-.. code-block:: bash
+.. tab-set::
 
-   # Upgrade pip to latest version
-   pip install --upgrade pip
+    .. tab-item:: uv (Recommended)
 
-   # Install the framework
-   pip install osprey-framework
+        .. code-block:: bash
+
+           uv pip install osprey-framework
+
+    .. tab-item:: pip (Traditional)
+
+        .. code-block:: bash
+
+           pip install --upgrade pip
+           pip install osprey-framework
 
 .. admonition:: New in v0.7+: Pip-Installable Architecture
    :class: version-07plus-change
@@ -434,11 +454,11 @@ If you want to build and serve the documentation locally:
 
 .. code-block:: bash
 
-   # Install documentation dependencies using optional dependencies
-   pip install -e ".[docs]"
+   # Install documentation dependencies
+   uv sync --extra docs
 
    # Build and serve documentation with auto-reload
-   cd docs && sphinx-autobuild source build
+   cd docs && uv run sphinx-autobuild source build
 
 Once running, you can view the documentation at http://localhost:8000
 

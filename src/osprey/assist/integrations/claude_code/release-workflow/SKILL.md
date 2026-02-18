@@ -74,12 +74,8 @@ Walk the user through each step and verify completion before moving to the next.
    Your development venv may have packages installed that aren't in `pyproject.toml`. A clean venv catches missing dependencies before users encounter them.
 
    ```bash
-   # Create a fresh venv (don't delete your main one)
-   python -m venv .venv-release-test
-   source .venv-release-test/bin/activate
-
-   # Install osprey with dev dependencies from scratch
-   pip install -e ".[dev]"
+   # Install osprey with dev dependencies from scratch in a clean state
+   uv sync --extra dev
    ```
 
    **Why this matters**: We've had CI failures where tests passed locally but failed in CI because developers had manually installed packages (like `langchain-openai`, `fastmcp`) that weren't declared as dependencies.
@@ -117,10 +113,7 @@ Walk the user through each step and verify completion before moving to the next.
 
 5. **Cleanup Test Environment**
    ```bash
-   # Return to your main development venv
-   deactivate
-   rm -rf .venv-release-test
-   source venv/bin/activate  # or your main venv
+   # No cleanup needed - uv sync manages the .venv automatically
    ```
 
 ### Step 1: Pre-Release Version Updates (CRITICAL)
@@ -196,7 +189,7 @@ gh run list --limit 5
 2. **Check GitHub Release** - Release should appear at: `https://github.com/als-apg/osprey/releases/tag/vX.Y.Z`
 3. **Test installation**:
    ```bash
-   pip install --upgrade osprey-framework
+   uv pip install --upgrade osprey-framework
    python -c "import osprey; print(osprey.__version__)"  # Should print: X.Y.Z
    ```
 
@@ -211,13 +204,13 @@ If the automated workflow fails, you can manually publish:
 rm -rf dist/ build/ src/*.egg-info/
 
 # 2. Build the package
-python -m build
+uv build
 
 # 3. Check the built package
-twine check dist/*
+uvx twine check dist/*
 
 # 4. Upload to PyPI (requires PyPI credentials)
-twine upload dist/*
+uvx twine upload dist/*
 ```
 
 ## Workflow Summary
