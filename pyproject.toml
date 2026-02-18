@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "osprey-framework"
-version = "0.11.2"
+dynamic = ["version"]
 description = "An open-source, domain-agnostic, capability-based architecture for building intelligent agents"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -217,6 +217,9 @@ alpha-berkeley = "osprey.interfaces.cli.direct_conversation:main"
 alpha-berkeley-deploy = "osprey.deployment.container_manager:main"
 
 # Hatchling build configuration
+[tool.hatch.version]
+path = "src/osprey/__init__.py"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/osprey"]
 
