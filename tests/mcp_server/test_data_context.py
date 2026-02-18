@@ -175,6 +175,48 @@ class TestListEntries:
         entries = ctx.list_entries(search="beam current")
         assert len(entries) == 1
 
+    def test_filter_by_source_agent(self, tmp_path):
+        ctx = DataContext(workspace_root=tmp_path)
+        ctx.save(
+            tool="submit_response",
+            data={"value": 1},
+            description="logbook result",
+            summary={"count": 1},
+            access_details={"format": "json"},
+            data_type="logbook_research",
+            source_agent="logbook-search",
+        )
+        ctx.save(
+            tool="submit_response",
+            data={"value": 2},
+            description="wiki result",
+            summary={"count": 1},
+            access_details={"format": "json"},
+            data_type="wiki_research",
+            source_agent="wiki-search",
+        )
+        ctx.save(
+            tool="channel_read",
+            data={"value": 3},
+            description="channel data",
+            summary={"count": 1},
+            access_details={"format": "json"},
+            data_type="channel_values",
+        )
+
+        entries = ctx.list_entries(source_agent_filter="logbook-search")
+        assert len(entries) == 1
+        assert entries[0].source_agent == "logbook-search"
+        assert entries[0].description == "logbook result"
+
+        entries = ctx.list_entries(source_agent_filter="wiki-search")
+        assert len(entries) == 1
+        assert entries[0].source_agent == "wiki-search"
+
+        # No match
+        entries = ctx.list_entries(source_agent_filter="nonexistent")
+        assert len(entries) == 0
+
     def test_combined_filters(self, tmp_path):
         ctx = DataContext(workspace_root=tmp_path)
         _save_entry(ctx, tool="channel_read", data_type="channel_values", description="beam")

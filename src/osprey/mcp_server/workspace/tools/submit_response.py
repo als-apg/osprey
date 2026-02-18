@@ -19,6 +19,7 @@ async def submit_response(
     content: str,
     data_type: str = "agent_response",
     entry_ids: list[str] | None = None,
+    source_agent: str | None = None,
 ) -> str:
     """Submit your final synthesized response. Call this as your LAST action
     before responding. This persists your findings to the workspace so
@@ -34,6 +35,9 @@ async def submit_response(
             "channel_addresses", "logbook_research").
         entry_ids: List of ARIEL entry IDs or channel addresses cited,
             stored as structured metadata for cross-referencing.
+        source_agent: Name of the agent submitting the response
+            (e.g. "logbook-search", "wiki-search"). Used for filtering
+            and grouping results by agent.
 
     Returns:
         JSON with context_entry_id and data_file path.
@@ -61,6 +65,8 @@ async def submit_response(
 
         cited = entry_ids or []
 
+        agent = source_agent or ""
+
         ctx = get_data_context()
         entry = ctx.save(
             tool="submit_response",
@@ -69,18 +75,21 @@ async def submit_response(
                 "content": content,
                 "entry_ids": cited,
                 "data_type": data_type,
+                "source_agent": agent,
             },
             description=title,
             summary={
                 "title": title,
                 "content_length": len(content),
                 "cited_entries": len(cited),
+                "source_agent": agent,
             },
             access_details={
                 "format": "markdown",
                 "data_type": data_type,
             },
             data_type=data_type,
+            source_agent=agent,
         )
         return json.dumps(entry.to_tool_response(), default=str)
 

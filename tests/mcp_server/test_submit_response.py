@@ -106,6 +106,41 @@ class TestSubmitResponse:
         assert payload["data"]["data_type"] == "channel_addresses"
 
     @pytest.mark.asyncio
+    async def test_submit_response_with_source_agent(self, workspace):
+        raw = await _fn(
+            title="Beam Loss Analysis",
+            content="Found 3 beam loss events.",
+            source_agent="logbook-search",
+        )
+        data = json.loads(raw)
+
+        assert data["status"] == "success"
+        assert data["summary"]["source_agent"] == "logbook-search"
+
+        # Verify source_agent in the data file and metadata
+        data_file = data["data_file"]
+        with open(data_file) as f:
+            payload = json.load(f)
+        assert payload["data"]["source_agent"] == "logbook-search"
+        assert payload["_osprey_metadata"]["source_agent"] == "logbook-search"
+
+    @pytest.mark.asyncio
+    async def test_submit_response_without_source_agent(self, workspace):
+        raw = await _fn(title="Basic Result", content="No agent specified.")
+        data = json.loads(raw)
+
+        assert data["status"] == "success"
+        assert data["summary"]["source_agent"] == ""
+
+        # Verify source_agent defaults to empty in data file
+        data_file = data["data_file"]
+        with open(data_file) as f:
+            payload = json.load(f)
+        assert payload["data"]["source_agent"] == ""
+        # metadata should NOT have source_agent when empty
+        assert "source_agent" not in payload["_osprey_metadata"]
+
+    @pytest.mark.asyncio
     async def test_submit_response_data_file_content(self, workspace):
         raw = await _fn(
             title="Test Title",
