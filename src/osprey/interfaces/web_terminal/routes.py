@@ -46,6 +46,13 @@ async def ariel_server_config(request: Request):
     return {"url": url, "available": url is not None}
 
 
+@router.get("/api/tuning-server")
+async def tuning_server_config(request: Request):
+    """Return the tuning panel server URL for iframe embedding."""
+    url = getattr(request.app.state, "tuning_server_url", None)
+    return {"url": url, "available": url is not None}
+
+
 @router.get("/api/wiki-url")
 async def wiki_url(request: Request):
     """Return the external wiki URL for the header link button."""
@@ -108,7 +115,7 @@ async def get_panel_focus(request: Request):
 @router.post("/api/panel-focus")
 async def set_panel_focus(body: PanelFocusRequest, request: Request):
     """Set the active panel and broadcast a focus event via SSE."""
-    known = {"artifacts", "ariel"}
+    known = {"artifacts", "ariel", "tuning"}
     if body.panel not in known:
         raise HTTPException(status_code=422, detail=f"Unknown panel: {body.panel}")
     request.app.state.active_panel = body.panel

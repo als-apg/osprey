@@ -133,6 +133,9 @@ dependencies = [
 
     # File system monitoring for web terminal
     "watchdog>=3.0.0",
+
+    # Async HTTP client for tuning panel reverse proxy
+    "httpx>=0.27.0",
 ]
 
 [project.optional-dependencies]

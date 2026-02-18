@@ -226,6 +226,16 @@ export function focusTerminal() {
 }
 
 /**
+ * Paste text into the terminal (sends to PTY via WebSocket).
+ * Used by the postMessage bridge to receive text from embedded iframes.
+ */
+export function pasteToTerminal(text) {
+  if (wsConnection && text) {
+    wsConnection.send(text);
+  }
+}
+
+/**
  * Get current terminal dimensions.
  */
 export function getTerminalDimensions() {
