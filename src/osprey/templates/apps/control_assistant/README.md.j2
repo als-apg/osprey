@@ -50,6 +50,8 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 ### 2. Install Dependencies
 
 ```bash
+uv pip install -r requirements.txt
+# or
 pip install -r requirements.txt
 ```
 
@@ -393,6 +395,8 @@ The template uses the **Osprey Connector Abstraction** (Issue #18) which provide
 **Step 1:** Install production dependencies (if using EPICS):
 
 ```bash
+uv pip install pyepics als-archiver-client
+# or
 pip install pyepics als-archiver-client
 ```
 
