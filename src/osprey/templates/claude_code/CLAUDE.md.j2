@@ -11,9 +11,9 @@ You have access to MCP tools that interface with live control system hardware.
 **Facility context** is in `.claude/rules/facility.md` (auto-loaded as a rule).
 It describes the facility identity, systems, terminology, and operational context.
 Refer to it for facility-specific naming conventions and domain knowledge.
-{% if channel_finder_pipeline is defined and "channel-resolver" not in disable_agents %}
+{% if channel_finder_pipeline is defined and "channel-finder" not in disable_agents %}
 
-**You have a `channel-resolver` sub-agent** that finds channel/PV addresses.
+**You have a `channel-finder` sub-agent** that finds channel/PV addresses.
 You do NOT have channel-finder tools yourself — delegate to the agent when you need
 to find channels by description (e.g., "beam current", "BPM positions").
 The agent has its own dedicated MCP server and returns verified addresses.
@@ -69,7 +69,7 @@ relationships, call graphs, or needs to understand MML codebase structure.
    Channel writes affect real hardware. The user must clearly ask for a write operation.
 
 2. **NEVER fabricate, guess, or invent channel/PV names.**
-   Only use channel addresses that come from: (a) the channel-resolver agent,
+   Only use channel addresses that come from: (a) the channel-finder agent,
    (b) the user providing them explicitly, or (c) previous session context.
    If channel finding tools fail or return no results, tell the user — do NOT make up names.
 
@@ -125,7 +125,7 @@ Tools are split across multiple MCP servers. Use the correct server prefix for e
 | **ariel** | `ariel_keyword_search`, `ariel_semantic_search`, `ariel_sql_query`, `ariel_browse`, `ariel_filter_options`, `ariel_entry_get`, `ariel_entries_by_ids`, `ariel_entry_create`, `ariel_capabilities`, `ariel_status` — search tools used by logbook-search and logbook-deep-research agents; `ariel_entry_create`/`ariel_status` used directly |
 {% endif -%}
 {% if channel_finder_pipeline is defined and "channel-finder" not in disable_servers -%}
-| **channel-finder** | `build_channels`, `get_options`, `hierarchy_info`, `validate`, `statistics` (used by channel-resolver agent, not directly) |
+| **channel-finder** | `build_channels`, `get_options`, `hierarchy_info`, `validate`, `statistics` (used by channel-finder agent, not directly) |
 {% endif -%}
 {% if confluence is defined and "confluence" not in disable_servers -%}
 | **mcp-atlassian** | `confluence_search`, `confluence_get_page`, `confluence_get_page_children`, `confluence_get_spaces`, `confluence_get_page_comments`, `confluence_get_labels` |
@@ -143,24 +143,24 @@ Tools are split across multiple MCP servers. Use the correct server prefix for e
 
 ### Reading channel values
 Use `channel_read` for current values.
-{% if channel_finder_pipeline is defined and "channel-resolver" not in disable_agents -%}
+{% if channel_finder_pipeline is defined and "channel-finder" not in disable_agents -%}
 If the user asks for a channel by description
-(not address), delegate to the channel-resolver agent to locate the channel address.
+(not address), delegate to the channel-finder agent to locate the channel address.
 {% endif %}
 ### Historical data
 Use `archiver_read` for time-series data. Parse natural language time references:
 - "last hour" → start_time: 1 hour ago
 - "yesterday" → start_time: yesterday 00:00, end_time: yesterday 23:59
 - "since Monday" → start_time: last Monday 00:00
-{% if channel_finder_pipeline is defined and "channel-resolver" not in disable_agents %}
+{% if channel_finder_pipeline is defined and "channel-finder" not in disable_agents %}
 ### Channel finding
 When the user needs to find channels by description or function (e.g., "beam current"),
-delegate to the **channel-resolver** agent. It handles all channel database navigation
+delegate to the **channel-finder** agent. It handles all channel database navigation
 and returns verified channel addresses. Present the returned addresses to the user for
 confirmation before using them for reads or writes.
 
 **IMPORTANT:** You do NOT have channel-finder tools in your own tool list. Channel finding
-is handled exclusively by the channel-resolver agent. Do NOT report that channel finding
+is handled exclusively by the channel-finder agent. Do NOT report that channel finding
 is unavailable — use the agent instead.
 {% endif %}
 ### Python execution

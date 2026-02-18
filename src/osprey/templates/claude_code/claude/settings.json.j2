@@ -35,8 +35,8 @@
 {%- set _ = allow_entries.append('"mcp__ariel__ariel_filter_options"') -%}
 {%- endif -%}
 {%- set _ = allow_entries.append('"NotebookEdit(osprey-workspace/artifacts/**)"') -%}
-{%- if "channel-resolver" not in disable_agents and channel_finder_pipeline is defined -%}
-{%- set _ = allow_entries.append('"Task(channel-resolver)"') -%}
+{%- if "channel-finder" not in disable_agents and channel_finder_pipeline is defined -%}
+{%- set _ = allow_entries.append('"Task(channel-finder)"') -%}
 {%- endif -%}
 {%- if "logbook-search" not in disable_agents -%}
 {%- set _ = allow_entries.append('"Task(logbook-search)"') -%}

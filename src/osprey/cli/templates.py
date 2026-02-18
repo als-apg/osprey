@@ -945,7 +945,7 @@ proper framework operation, especially when using containerized services.
         if ctx.get("matlab"):
             all_agents.append("matlab-search")
         if ctx.get("channel_finder_pipeline"):
-            all_agents.append("channel-resolver")
+            all_agents.append("channel-finder")
 
         active_servers = [s for s in all_servers if s not in disable_servers]
         active_agents = [a for a in all_agents if a not in disable_agents]

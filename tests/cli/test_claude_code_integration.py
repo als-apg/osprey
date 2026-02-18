@@ -135,7 +135,7 @@ class TestClaudeCodeFileContents:
         # Generic "Task" removed from ask so it doesn't override specific allow rules
         assert "Task" not in deny
         assert "Task" not in data["permissions"]["ask"]
-        # channel-resolver only present when channel_finder_pipeline is defined
+        # channel-finder only present when channel_finder_pipeline is defined
         # (minimal template doesn't have it)
         assert "Task(logbook-search)" in data["permissions"]["allow"]
 
@@ -354,11 +354,11 @@ class TestClaudeCodeManifest:
         assert "CLAUDE.md" in checksums
 
 
-class TestChannelResolverAgent:
-    """Test channel-resolver agent generation."""
+class TestChannelFinderAgent:
+    """Test channel-finder agent generation."""
 
     def test_control_assistant_generates_agent_file(self, tmp_path):
-        """control_assistant template produces .claude/agents/channel-resolver.md."""
+        """control_assistant template produces .claude/agents/channel-finder.md."""
         manager = TemplateManager()
         project_dir = manager.create_project(
             project_name="agent-test",
@@ -366,7 +366,7 @@ class TestChannelResolverAgent:
             template_name="control_assistant",
         )
 
-        agent_path = project_dir / ".claude" / "agents" / "channel-resolver.md"
+        agent_path = project_dir / ".claude" / "agents" / "channel-finder.md"
         assert agent_path.exists()
         content = agent_path.read_text()
         assert len(content.strip()) > 0, "Agent file should not be empty"
@@ -380,8 +380,8 @@ class TestChannelResolverAgent:
             template_name="control_assistant",
         )
 
-        content = (project_dir / ".claude" / "agents" / "channel-resolver.md").read_text()
-        assert "name: channel-resolver" in content
+        content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
+        assert "name: channel-finder" in content
         assert "description:" in content
         assert "model: haiku" in content
         assert "maxTurns: 30" in content
@@ -400,7 +400,7 @@ class TestChannelResolverAgent:
             context={"channel_finder_mode": "hierarchical"},
         )
 
-        content = (project_dir / ".claude" / "agents" / "channel-resolver.md").read_text()
+        content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
         assert "cf_hier_hierarchy_info" in content
         assert "cf_hier_build_channels" in content
         assert "cf_ml_" not in content
@@ -416,7 +416,7 @@ class TestChannelResolverAgent:
             context={"channel_finder_mode": "middle_layer"},
         )
 
-        content = (project_dir / ".claude" / "agents" / "channel-resolver.md").read_text()
+        content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
         assert "cf_ml_list_systems" in content
         assert "cf_ml_list_families" in content
         assert "cf_hier_" not in content
@@ -432,7 +432,7 @@ class TestChannelResolverAgent:
             context={"channel_finder_mode": "in_context"},
         )
 
-        content = (project_dir / ".claude" / "agents" / "channel-resolver.md").read_text()
+        content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
         assert "cf_ic_get_channels" in content
         assert "cf_ic_validate" in content
         assert "cf_hier_" not in content
@@ -447,20 +447,20 @@ class TestChannelResolverAgent:
             template_name="minimal",
         )
 
-        agent_path = project_dir / ".claude" / "agents" / "channel-resolver.md"
+        agent_path = project_dir / ".claude" / "agents" / "channel-finder.md"
         if agent_path.exists():
             # If file exists, it should be empty (Jinja2 guard renders nothing)
             assert agent_path.read_text().strip() == ""
 
     def test_agent_has_submit_response_instructions(self, tmp_path):
-        """Channel-resolver agent prompt includes submit_response instructions."""
+        """Channel-finder agent prompt includes submit_response instructions."""
         manager = TemplateManager()
         project_dir = manager.create_project(
             project_name="cr-submit-test",
             output_dir=tmp_path,
             template_name="control_assistant",
         )
-        content = (project_dir / ".claude" / "agents" / "channel-resolver.md").read_text()
+        content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
         assert "submit_response" in content
         assert "Submitting Results" in content
 
@@ -758,7 +758,7 @@ class TestNeverFabricateDataRule:
         assert "error-handling.md" in content
 
 
-class TestChannelResolverAwareness:
+class TestChannelFinderAwareness:
     """Test that the main session CLAUDE.md makes the agent prominent."""
 
     def test_claude_md_mentions_agent_upfront(self, tmp_path):
@@ -773,7 +773,7 @@ class TestChannelResolverAwareness:
         content = (project_dir / "CLAUDE.md").read_text()
         # Agent mentioned in the opening identity section (before safety rules)
         safety_idx = content.index("CRITICAL SAFETY RULES")
-        agent_idx = content.index("channel-resolver")
+        agent_idx = content.index("channel-finder")
         assert agent_idx < safety_idx, "Agent should be mentioned before safety rules"
 
     def test_claude_md_warns_no_direct_tools(self, tmp_path):
@@ -799,7 +799,7 @@ class TestChannelResolverAwareness:
 
         content = (project_dir / "CLAUDE.md").read_text()
         # The opening awareness block should not appear in minimal
-        assert "channel-resolver` sub-agent" not in content
+        assert "channel-finder` sub-agent" not in content
         assert "do NOT have channel-finder tools" not in content
 
 

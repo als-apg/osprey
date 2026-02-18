@@ -93,7 +93,7 @@ class TestClaudeCodeSDKIntegration:
             )
 
     # -------------------------------------------------------------------
-    # Test 2 — Archiver + plot (hardcoded channels, no channel-resolver)
+    # Test 2 — Archiver + plot (hardcoded channels, no channel-finder)
     # -------------------------------------------------------------------
 
     @pytest.mark.slow
@@ -103,7 +103,7 @@ class TestClaudeCodeSDKIntegration:
     async def test_archiver_and_plot_via_sdk(self, tmp_path):
         """Verify archiver_read -> python_execute pipeline with tool ordering.
 
-        Uses hardcoded channel names to bypass the channel-resolver and
+        Uses hardcoded channel names to bypass the channel-finder and
         reduce LLM non-determinism and cost.
         """
         project_dir = init_project(tmp_path, "sdk-archiver-plot")
@@ -176,7 +176,7 @@ class TestClaudeCodeSDKIntegration:
         print(f"  PNG files: {[p.name for p in png_files]}")
 
     # -------------------------------------------------------------------
-    # Test 3 — Full BPM correlation pipeline (channel-resolver -> archiver -> plot)
+    # Test 3 — Full BPM correlation pipeline (channel-finder -> archiver -> plot)
     # -------------------------------------------------------------------
 
     @pytest.mark.slow
@@ -187,7 +187,7 @@ class TestClaudeCodeSDKIntegration:
         """Full multi-tool pipeline with sub-agent delegation.
 
         Natural language prompt matching the user's interactive workflow:
-        channel-resolver sub-agent -> archiver_read -> python_execute -> artifact.
+        channel-finder sub-agent -> archiver_read -> python_execute -> artifact.
         """
         project_dir = init_project(tmp_path, "sdk-bpm-pipeline")
 
