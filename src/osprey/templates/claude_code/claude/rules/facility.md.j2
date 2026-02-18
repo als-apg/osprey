@@ -3,57 +3,69 @@
 <!-- This file provides facility context to OSPREY agents.
      It is auto-loaded as a Claude Code rule for the main agent,
      and served via the facility_description MCP tool for sub-agents.
-     Customize the sections below with your facility's details.
      This file is NEVER overwritten by `osprey claude regen`. -->
+
+> **NOTE: This is the Example Research Facility — a generic placeholder.**
+> Replace the content below with your own facility's details. Until you do,
+> agents will identify themselves as working at this fictional facility.
+> If a user or operator asks about the facility and gets "Example Research
+> Facility" back, that is the signal to customize this file.
 
 ## Facility Identity
 
-<!-- Replace with your facility's name, abbreviation, and a one-sentence
-     description of what the facility does. -->
-
-- **Name:** {{ project_name }}
-- **Type:** Scientific facility control system
+- **Name:** Example Research Facility (ERF)
+- **Type:** Multi-purpose scientific user facility
+- **Mission:** The Example Research Facility is a fictional facility included
+  with OSPREY as a starting template. It demonstrates how facility context
+  is provided to agents. Replace this entire file with your real facility
+  description so agents understand where they are and what they control.
 
 ## Systems & Subsystems
 
-<!-- List the major systems and subsystems your agents will interact with.
-     Example:
-     - Storage Ring (SR) — 200m electron storage ring
-     - Booster (BR) — Full-energy booster synchrotron
-     - Beamlines (BL) — 40+ experimental beamlines -->
+The Example Research Facility has three primary systems:
 
-- (Add your facility's systems here)
+- **Primary Source (PS)** — Main particle/photon source system. Includes
+  power supplies, vacuum, RF, and diagnostics subsystems.
+- **Transport & Delivery (TD)** — Beam transport, switching, and delivery
+  to experimental stations. Includes magnets, steering, and interlock systems.
+- **Experimental Stations (ES)** — Six end-stations where users conduct
+  experiments. Each station has independent motion control, detectors,
+  and sample environments.
+
+Supporting infrastructure:
+
+- **Vacuum System (VAC)** — Ultra-high vacuum across all beamline sections
+- **Timing System (TIM)** — Facility-wide synchronization and triggering
+- **Personnel Safety System (PSS)** — Access control and radiation interlocks
 
 ## Terminology & Naming Conventions
 
-<!-- Document facility-specific terminology so agents can understand user
-     requests and translate between common language and technical names.
-     Example:
-     - "beam current" → DCCT family channels
-     - "orbit" → BPM position readbacks
-     - "tune" → fractional betatron tune measurements -->
+Common terms at the Example Research Facility:
 
-- (Add your facility's terminology here)
+| User says | Means | Channel pattern |
+|-----------|-------|-----------------|
+| "source current" | Primary source beam current | `PS:DCCT:Current` |
+| "vacuum" | Section vacuum pressure | `{SYS}:VAC:{Section}:Pressure` |
+| "station status" | Experimental station readiness | `ES{N}:Status` |
+| "interlock" | Personnel safety interlock state | `PSS:{Area}:Interlock` |
+| "move motor" | Experimental station motor position | `ES{N}:MOT:{Axis}:Position` |
+
+Channel naming follows the pattern: `System:Subsystem:Parameter`
 
 ## Operational Context
 
-<!-- Describe the operational context: typical operating modes, shift
-     structure, common procedures, or any information that helps agents
-     understand the environment they're operating in.
-     Example:
-     - Facility operates 24/7 with 8-hour operator shifts
-     - Top-off injection every 5 minutes maintains 500mA stored current
-     - User beam time runs Monday 08:00 through Friday 08:00 -->
+- The facility operates on a **weekday schedule** (Monday–Friday, 08:00–00:00)
+  with maintenance periods on weekends.
+- Operators work in **three shifts**: owl (00:00–08:00), day (08:00–16:00),
+  and night (16:00–00:00).
+- Experimental stations are independently scheduled; some may be active while
+  others are in setup or maintenance.
+- **Machine studies** are scheduled periodically for accelerator development
+  and typically involve non-standard operating conditions.
+- The control system uses **EPICS** (Experimental Physics and Industrial
+  Control System) as its primary channel access protocol.
 
-- (Add your operational context here)
+---
 
-## Contacts & Resources
-
-<!-- List key contacts, documentation links, or other resources that
-     agents might need to reference.
-     Example:
-     - Operations: ops@facility.example.com
-     - Wiki: https://wiki.facility.example.com
-     - Logbook: https://logbook.facility.example.com -->
-
-- (Add your contacts and resources here)
+*To customize: edit this file (`.claude/rules/facility.md`) with your
+facility's real details. OSPREY will never overwrite your changes.*
