@@ -313,6 +313,8 @@ class TemplateManager:
                     rendered_config = yaml.safe_load(f) or {}
                 if "confluence" in rendered_config:
                     ctx["confluence"] = rendered_config["confluence"]
+                if "matlab" in rendered_config:
+                    ctx["matlab"] = rendered_config["matlab"]
             self._create_claude_code_integration(project_dir, ctx)
 
         return project_dir
@@ -804,6 +806,185 @@ proper framework operation, especially when using containerized services.
         with open(readme_path, "w", encoding="utf-8") as f:
             f.write(readme_content)
 
+    def _build_claude_code_context(self, project_dir: Path, config: dict) -> dict:
+        """Build template context for Claude Code artifact rendering.
+
+        Reconstructs the template context needed by Claude Code templates
+        (.mcp.json, CLAUDE.md, settings.json, agents) from the project's
+        config.yml and manifest.
+
+        Args:
+            project_dir: Root directory of the project
+            config: Parsed config.yml dictionary
+
+        Returns:
+            Template context dict suitable for Claude Code templates
+        """
+        import sys
+
+        project_name = config.get("project_name", project_dir.name)
+        package_name = project_name.replace("-", "_").lower()
+
+        # Read template_name from manifest if available
+        manifest_path = project_dir / MANIFEST_FILENAME
+        template_name = "minimal"
+        if manifest_path.exists():
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                template_name = manifest.get("creation", {}).get("template", "minimal")
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        ctx = {
+            "project_name": project_name,
+            "package_name": package_name,
+            "project_root": str(project_dir.absolute()),
+            "current_python_env": sys.executable,
+            "template_name": template_name,
+            "facility_name": config.get("facility_name", project_name),
+        }
+
+        # Derive channel finder configuration
+        channel_finder = config.get("channel_finder")
+        if channel_finder and template_name == "control_assistant":
+            pipeline_mode = channel_finder.get("pipeline_mode", "hierarchical")
+            ctx["channel_finder_pipeline"] = pipeline_mode
+            ctx["channel_finder_mode"] = pipeline_mode
+            ctx["default_pipeline"] = pipeline_mode
+
+        # Pass through optional config sections
+        if "confluence" in config:
+            ctx["confluence"] = config["confluence"]
+        if "matlab" in config:
+            ctx["matlab"] = config["matlab"]
+
+        return ctx
+
+    def regenerate_claude_code(self, project_dir: Path, dry_run: bool = False) -> dict:
+        """Regenerate Claude Code artifacts from current config.yml.
+
+        Reads config.yml, reconstructs the template context, and re-renders
+        all Claude Code .j2 templates. Backs up existing files before overwriting.
+
+        Args:
+            project_dir: Root directory of the project
+            dry_run: If True, report what would change without writing files
+
+        Returns:
+            Dict with 'changed', 'unchanged', and 'backup_dir' keys
+
+        Raises:
+            FileNotFoundError: If config.yml doesn't exist in project_dir
+        """
+        config_file = project_dir / "config.yml"
+        if not config_file.exists():
+            raise FileNotFoundError(
+                f"No config.yml found in {project_dir}. "
+                "Are you in an OSPREY project directory?"
+            )
+
+        with open(config_file, encoding="utf-8") as f:
+            config = yaml.safe_load(f) or {}
+
+        ctx = self._build_claude_code_context(project_dir, config)
+
+        # Collect checksums of existing Claude Code files before regeneration
+        claude_code_files = [
+            ".mcp.json",
+            "CLAUDE.md",
+            ".claude/settings.json",
+        ]
+        # Also include agent files
+        agents_dir = project_dir / ".claude" / "agents"
+        if agents_dir.exists():
+            for agent_file in agents_dir.iterdir():
+                if agent_file.is_file() and agent_file.suffix == ".md":
+                    claude_code_files.append(f".claude/agents/{agent_file.name}")
+
+        old_checksums = {}
+        for rel_path in claude_code_files:
+            file_path = project_dir / rel_path
+            if file_path.exists():
+                old_checksums[rel_path] = self._sha256_file(file_path)
+
+        if dry_run:
+            # Render to temp dir and compare
+            import tempfile
+
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp_dir = Path(tmp)
+                # Create necessary subdirectories
+                (tmp_dir / ".claude").mkdir(parents=True, exist_ok=True)
+                self._create_claude_code_integration(tmp_dir, ctx)
+
+                changed = []
+                unchanged = []
+                for rel_path in claude_code_files:
+                    tmp_file = tmp_dir / rel_path
+                    orig_file = project_dir / rel_path
+                    if tmp_file.exists():
+                        new_checksum = self._sha256_file(tmp_file)
+                        old_checksum = old_checksums.get(rel_path)
+                        if old_checksum != new_checksum:
+                            changed.append(rel_path)
+                        else:
+                            unchanged.append(rel_path)
+                    elif orig_file.exists():
+                        changed.append(rel_path)  # File would be removed
+
+                # Check for new files in tmp that aren't in old list
+                for tmp_file in Path(tmp).rglob("*"):
+                    if not tmp_file.is_file():
+                        continue
+                    rel = str(tmp_file.relative_to(tmp))
+                    if rel not in claude_code_files and rel not in changed:
+                        changed.append(rel)
+
+                return {"changed": changed, "unchanged": unchanged, "backup_dir": None}
+
+        # Create backup
+        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+        backup_dir = project_dir / "osprey-workspace" / "backup" / f"claude-code-{timestamp}"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+
+        for rel_path in claude_code_files:
+            src = project_dir / rel_path
+            if src.exists():
+                dst = backup_dir / rel_path
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dst)
+
+        # Regenerate
+        self._create_claude_code_integration(project_dir, ctx)
+
+        # Compare checksums
+        changed = []
+        unchanged = []
+        for rel_path in claude_code_files:
+            file_path = project_dir / rel_path
+            if file_path.exists():
+                new_checksum = self._sha256_file(file_path)
+                old_checksum = old_checksums.get(rel_path)
+                if old_checksum != new_checksum:
+                    changed.append(rel_path)
+                else:
+                    unchanged.append(rel_path)
+
+        # Check for newly created files (e.g., new agents)
+        new_agents_dir = project_dir / ".claude" / "agents"
+        if new_agents_dir.exists():
+            for agent_file in new_agents_dir.iterdir():
+                if agent_file.is_file() and agent_file.suffix == ".md":
+                    rel = f".claude/agents/{agent_file.name}"
+                    if rel not in claude_code_files and rel not in changed:
+                        changed.append(rel)
+
+        return {
+            "changed": changed,
+            "unchanged": unchanged,
+            "backup_dir": str(backup_dir),
+        }
+
     def _create_claude_code_integration(self, project_dir: Path, ctx: dict):
         """Create Claude Code integration files for the project.
 
@@ -832,7 +1013,7 @@ proper framework operation, especially when using containerized services.
             self.render_template("claude_code/mcp.json.j2", ctx, project_dir / ".mcp.json")
             files_created += 1
 
-        # 2. Render CLAUDE.md.j2 -> CLAUDE.md (or copy static CLAUDE.md)
+        # 2. Render CLAUDE.md.j2 -> CLAUDE.md (always overwritten on regen)
         claude_md_j2 = claude_code_dir / "CLAUDE.md.j2"
         claude_md_static = claude_code_dir / "CLAUDE.md"
         if claude_md_j2.exists():
@@ -840,6 +1021,15 @@ proper framework operation, especially when using containerized services.
         elif claude_md_static.exists():
             shutil.copy2(claude_md_static, project_dir / "CLAUDE.md")
         files_created += 1
+
+        # 2b. Render CLAUDE-project.md.j2 -> CLAUDE-project.md (only on first creation)
+        claude_project_md = project_dir / "CLAUDE-project.md"
+        claude_project_j2 = claude_code_dir / "CLAUDE-project.md.j2"
+        if not claude_project_md.exists() and claude_project_j2.exists():
+            self.render_template(
+                "claude_code/CLAUDE-project.md.j2", ctx, claude_project_md
+            )
+            files_created += 1
 
         # 3. Recursively copy/render claude/ -> .claude/ (dotless to dotted)
         #    Files with .j2 extension are rendered as Jinja2 templates.

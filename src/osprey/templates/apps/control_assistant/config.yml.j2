@@ -754,3 +754,17 @@ confluence:
   url: "https://commons.lbl.gov"
   default_page: "spaces/AAP/pages/351993894/ALS+Injector+wiki+toy+example"
   # default_space: ""  # Optional: default space key to filter searches
+
+# ============================================================
+# MATLAB MIDDLE LAYER (MML) CODEBASE
+# ============================================================
+# MML function database for the matlab-search agent.
+# Provides function lookup, dependency graphs, and source code search
+# across the MATLAB Middle Layer codebase.
+#
+# Index with: python -m osprey.mcp_server.matlab index \
+#   --data-file /path/to/matlab_dependencies.json
+# Override DB path via MATLAB_MML_DB env var.
+
+matlab:
+  db_path: ~/.matlab-mml/mml.db

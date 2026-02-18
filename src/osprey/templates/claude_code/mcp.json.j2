@@ -39,7 +39,14 @@
       "env": {
         "ACCELPAPERS_DB": "${ACCELPAPERS_DB:-}"
       }
-    }{% if channel_finder_pipeline is defined %},
+    }{% if matlab is defined %},
+    "matlab": {
+      "command": "{{ current_python_env }}",
+      "args": ["-m", "osprey.mcp_server.matlab", "serve"],
+      "env": {
+        "MATLAB_MML_DB": "${MATLAB_MML_DB:-}"
+      }
+    }{% endif %}{% if channel_finder_pipeline is defined %},
     "channel-finder": {
       "command": "{{ current_python_env }}",
       "args": ["-m", "osprey.services.channel_finder.mcp.{{ channel_finder_pipeline }}"],

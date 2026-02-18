@@ -35,7 +35,15 @@
       "mcp__accelpapers__papers_browse",
       "mcp__accelpapers__papers_list_conferences",
       "mcp__accelpapers__papers_search_author",
-      "mcp__accelpapers__papers_stats"{% if channel_finder_pipeline is defined %},
+      "mcp__accelpapers__papers_stats"{% if matlab is defined %},
+      "mcp__matlab__mml_search",
+      "mcp__matlab__mml_get",
+      "mcp__matlab__mml_browse",
+      "mcp__matlab__mml_dependencies",
+      "mcp__matlab__mml_path",
+      "mcp__matlab__mml_list_groups",
+      "mcp__matlab__mml_stats",
+      "Task(matlab-search)"{% endif %}{% if channel_finder_pipeline is defined %},
       "mcp__channel-finder"{% endif %}{% if confluence is defined %},
       "mcp__confluence",
       "Task(wiki-search)"{% endif %}
@@ -170,6 +178,21 @@
       },
       {
         "matcher": "mcp__accelpapers__*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_error_guidance.py\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_audit.py\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__matlab__*",
         "hooks": [
           {
             "type": "command",
