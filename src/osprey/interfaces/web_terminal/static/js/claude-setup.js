@@ -1,4 +1,11 @@
-/* OSPREY Web Terminal — Claude Setup Viewer + Editor */
+/* OSPREY Web Terminal — Claude Setup Viewer + Editor
+ *
+ * Rich rendering for Claude Code integration files:
+ *   - Markdown: rendered HTML via marked.js (with Raw toggle)
+ *   - JSON: syntax-highlighted via highlight.js (+ MCP tree view for .mcp.json)
+ *   - Python/Shell/YAML: syntax-highlighted via highlight.js
+ *   - Raw mode always available via View/Raw toggle
+ */
 
 import { fetchJSON } from './api.js';
 import { registerUnsavedGuard } from './drawer.js';
@@ -8,6 +15,7 @@ let selectedFile = null;
 let isEditing = false;
 let claudeDirty = false;
 let loaded = false;
+let viewMode = 'rich'; // 'rich' | 'raw'
 
 // Category display order
 const CATEGORY_ORDER = [
@@ -24,6 +32,15 @@ const CATEGORY_ORDER = [
 // Allowed directories for new file creation
 const ALLOWED_DIRS = ['rules', 'agents', 'commands', 'hooks'];
 
+// highlight.js language map
+const HLJS_LANG = {
+  json: 'json',
+  python: 'python',
+  shell: 'bash',
+  yaml: 'yaml',
+  markdown: 'markdown',
+};
+
 /**
  * Initialize the Claude Setup viewer. Call once on DOMContentLoaded.
  */
@@ -31,6 +48,9 @@ export function initClaudeSetup() {
   const drawer = document.getElementById('settings-drawer');
   const claudePanel = document.getElementById('tab-claude');
   if (!drawer || !claudePanel) return;
+
+  // Configure marked.js for rendering markdown
+  configureMarked();
 
   // Load files when Claude tab becomes active
   claudePanel.addEventListener('drawer:tab-activate', () => {
@@ -60,6 +80,45 @@ export function initClaudeSetup() {
 export function hasUnsavedChanges() {
   return claudeDirty;
 }
+
+// ---- Marked.js Configuration ---- //
+
+function configureMarked() {
+  if (typeof marked === 'undefined') return;
+
+  // marked v12+ uses renderer for code highlighting (not setOptions.highlight)
+  const renderer = {
+    code({ text, lang }) {
+      // Guard: marked may pass undefined/null text for edge-case blocks
+      const src = text ?? '';
+      let highlighted = escapeHtml(src);
+      if (typeof hljs !== 'undefined' && src) {
+        try {
+          if (lang && hljs.getLanguage(lang)) {
+            highlighted = hljs.highlight(src, { language: lang }).value;
+          } else {
+            highlighted = hljs.highlightAuto(src).value;
+          }
+        } catch {
+          // Fall back to escaped text on any hljs error
+        }
+      }
+      const langClass = lang ? ` class="language-${lang}"` : '';
+      return `<pre><code${langClass}>${highlighted}</code></pre>`;
+    },
+  };
+
+  // Sanitize tokens before rendering to prevent 'e.replace is not an object' errors
+  function walkTokens(token) {
+    if (token.type === 'code' && typeof token.text !== 'string') {
+      token.text = token.text != null ? String(token.text) : '';
+    }
+  }
+
+  marked.use({ gfm: true, breaks: false, renderer, walkTokens });
+}
+
+// ---- File Loading ---- //
 
 async function loadSetupFiles() {
   const fileList = document.getElementById('claude-setup-list');
@@ -161,17 +220,23 @@ function renderFileList() {
   container.appendChild(form);
 }
 
+// ---- File Selection & Rendering ---- //
+
 function selectFile(file) {
   selectedFile = file;
+  viewMode = 'rich';
 
   // Update selected state in list
   document.querySelectorAll('.claude-setup-item').forEach((el) => {
     el.classList.toggle('selected', el.dataset.path === file.path);
   });
 
-  // Render content
+  renderFileView();
+}
+
+function renderFileView() {
   const viewer = document.getElementById('claude-setup-viewer');
-  if (!viewer) return;
+  if (!viewer || !selectedFile) return;
 
   viewer.innerHTML = '';
 
@@ -181,14 +246,32 @@ function selectFile(file) {
 
   const pathEl = document.createElement('span');
   pathEl.className = 'claude-setup-file-path';
-  pathEl.textContent = file.path;
+  pathEl.textContent = selectedFile.path;
 
   const actions = document.createElement('div');
   actions.className = 'claude-setup-file-actions';
 
+  // View/Raw toggle (only show if file has rich rendering)
+  if (hasRichView(selectedFile)) {
+    const viewBtn = document.createElement('button');
+    viewBtn.className = 'claude-setup-mode-btn' + (viewMode === 'rich' ? ' active' : '');
+    viewBtn.textContent = 'Rendered';
+    viewBtn.dataset.mode = 'rich';
+    viewBtn.addEventListener('click', () => switchViewMode('rich'));
+
+    const rawBtn = document.createElement('button');
+    rawBtn.className = 'claude-setup-mode-btn' + (viewMode === 'raw' ? ' active' : '');
+    rawBtn.textContent = 'Source';
+    rawBtn.dataset.mode = 'raw';
+    rawBtn.addEventListener('click', () => switchViewMode('raw'));
+
+    actions.appendChild(viewBtn);
+    actions.appendChild(rawBtn);
+  }
+
   const langEl = document.createElement('span');
   langEl.className = 'claude-setup-file-lang';
-  langEl.textContent = file.language;
+  langEl.textContent = selectedFile.language;
 
   const editBtn = document.createElement('button');
   editBtn.className = 'claude-setup-edit-btn';
@@ -200,27 +283,247 @@ function selectFile(file) {
   header.appendChild(pathEl);
   header.appendChild(actions);
 
-  // View content (pre/code)
-  const content = document.createElement('pre');
-  content.className = 'claude-setup-content';
-  content.id = 'claude-content-view';
+  // Rich content view
+  const richContent = document.createElement('div');
+  richContent.className = 'claude-setup-content';
+  richContent.id = 'claude-content-view';
 
-  const code = document.createElement('code');
-  code.textContent = file.content;
-  content.appendChild(code);
+  if (viewMode === 'rich' && hasRichView(selectedFile)) {
+    richContent.innerHTML = renderRichContent(selectedFile);
+  } else {
+    // Raw view: pre/code with optional syntax highlighting
+    const pre = document.createElement('pre');
+    pre.className = 'claude-setup-raw-pre';
+    const code = document.createElement('code');
+    const lang = HLJS_LANG[selectedFile.language];
+    if (lang) code.className = `language-${lang}`;
+    code.textContent = selectedFile.content;
+    pre.appendChild(code);
+    richContent.appendChild(pre);
+
+    // Apply syntax highlighting to raw view
+    if (typeof hljs !== 'undefined' && lang) {
+      hljs.highlightElement(code);
+    }
+  }
 
   // Editor textarea (hidden)
   const editor = document.createElement('textarea');
   editor.className = 'claude-setup-content-editor';
   editor.id = 'claude-content-editor';
   editor.spellcheck = false;
-  editor.value = file.content;
+  editor.value = selectedFile.content;
   editor.addEventListener('input', () => markClaudeDirty());
 
   viewer.appendChild(header);
-  viewer.appendChild(content);
+  viewer.appendChild(richContent);
   viewer.appendChild(editor);
 }
+
+function hasRichView(file) {
+  if (file.language === 'markdown') return true;
+  if (file.language === 'json' && file.name === '.mcp.json') return true;
+  if (file.language === 'json' && file.name === 'settings.json') return true;
+  return false;
+}
+
+function switchViewMode(mode) {
+  viewMode = mode;
+  // Re-render the file view (preserving selection)
+  renderFileView();
+}
+
+// ---- Rich Content Renderers ---- //
+
+function renderRichContent(file) {
+  if (file.language === 'markdown') return renderMarkdown(file.content);
+  if (file.language === 'json' && file.name === '.mcp.json') return renderMcpJson(file.content);
+  if (file.language === 'json' && file.name === 'settings.json') return renderSettingsJson(file.content);
+  return escapeHtml(file.content);
+}
+
+function renderMarkdown(content) {
+  if (typeof marked === 'undefined') return `<pre>${escapeHtml(content)}</pre>`;
+  try {
+    return `<div class="claude-md-rendered">${marked.parse(content)}</div>`;
+  } catch (e) {
+    console.warn('marked.parse() error:', e);
+    return `<pre>${escapeHtml(content)}</pre>`;
+  }
+}
+
+function renderMcpJson(content) {
+  let data;
+  try {
+    data = JSON.parse(content);
+  } catch {
+    return `<div class="claude-parse-error">Invalid JSON</div><pre>${escapeHtml(content)}</pre>`;
+  }
+
+  const servers = data.mcpServers || {};
+  const serverNames = Object.keys(servers);
+
+  if (serverNames.length === 0) {
+    return '<div class="mcp-empty">No MCP servers configured</div>';
+  }
+
+  const cards = serverNames.map((name) => {
+    const server = servers[name];
+    return renderMcpServerCard(name, server);
+  });
+
+  return `<div class="mcp-tree">${cards.join('')}</div>`;
+}
+
+function renderMcpServerCard(name, server) {
+  const rows = [];
+
+  // Command
+  if (server.command) {
+    rows.push(mcpRow('Command', `<code>${escapeHtml(server.command)}</code>`));
+  }
+
+  // Args
+  if (server.args && server.args.length > 0) {
+    const argItems = server.args.map((a) => `<span class="mcp-arg">${escapeHtml(String(a))}</span>`);
+    rows.push(mcpRow('Args', `<div class="mcp-args-list">${argItems.join('')}</div>`));
+  }
+
+  // Env
+  if (server.env && Object.keys(server.env).length > 0) {
+    const envRows = Object.entries(server.env).map(([k, v]) => {
+      const displayVal = isSensitiveEnvKey(k) ? maskValue(String(v)) : escapeHtml(String(v));
+      return `<div class="mcp-env-row"><span class="mcp-env-key">${escapeHtml(k)}</span><span class="mcp-env-val">${displayVal}</span></div>`;
+    });
+    rows.push(mcpRow('Env', `<div class="mcp-env-table">${envRows.join('')}</div>`));
+  }
+
+  // URL (for SSE/streamable-http transports)
+  if (server.url) {
+    rows.push(mcpRow('URL', `<code>${escapeHtml(server.url)}</code>`));
+  }
+
+  // Type/transport
+  if (server.type) {
+    rows.push(mcpRow('Type', `<span class="mcp-type-badge">${escapeHtml(server.type)}</span>`));
+  }
+
+  const statusDot = server.command || server.url ? 'mcp-status-active' : 'mcp-status-unknown';
+
+  return `
+    <details class="mcp-server-card" open>
+      <summary class="mcp-server-header">
+        <span class="mcp-status-dot ${statusDot}"></span>
+        <span class="mcp-server-name">${escapeHtml(name)}</span>
+      </summary>
+      <div class="mcp-server-body">${rows.join('')}</div>
+    </details>
+  `;
+}
+
+function mcpRow(label, valueHtml) {
+  return `<div class="mcp-row"><span class="mcp-row-label">${label}</span><div class="mcp-row-value">${valueHtml}</div></div>`;
+}
+
+function isSensitiveEnvKey(key) {
+  const lower = key.toLowerCase();
+  return lower.includes('token') || lower.includes('secret') || lower.includes('password')
+    || lower.includes('key') || lower.includes('credential');
+}
+
+function maskValue(value) {
+  if (value.length <= 8) return '\u2022'.repeat(value.length);
+  return value.slice(0, 4) + '\u2022'.repeat(Math.min(value.length - 4, 12)) + value.slice(-4);
+}
+
+function renderSettingsJson(content) {
+  let data;
+  try {
+    data = JSON.parse(content);
+  } catch {
+    return `<div class="claude-parse-error">Invalid JSON</div><pre>${escapeHtml(content)}</pre>`;
+  }
+
+  const sections = [];
+
+  // Permissions
+  if (data.permissions) {
+    sections.push(renderJsonSection('Permissions', data.permissions));
+  }
+
+  // Allowed tools
+  if (data.allowedTools) {
+    sections.push(renderJsonArraySection('Allowed Tools', data.allowedTools));
+  }
+
+  // Denied tools
+  if (data.deniedTools) {
+    sections.push(renderJsonArraySection('Denied Tools', data.deniedTools));
+  }
+
+  // Any other top-level keys
+  const known = new Set(['permissions', 'allowedTools', 'deniedTools']);
+  for (const [key, val] of Object.entries(data)) {
+    if (!known.has(key)) {
+      if (Array.isArray(val)) {
+        sections.push(renderJsonArraySection(formatKey(key), val));
+      } else if (typeof val === 'object' && val !== null) {
+        sections.push(renderJsonSection(formatKey(key), val));
+      } else {
+        sections.push(`<div class="json-section"><div class="json-section-header">${formatKey(key)}</div><div class="json-section-body"><code>${escapeHtml(String(val))}</code></div></div>`);
+      }
+    }
+  }
+
+  if (sections.length === 0) {
+    return '<div class="mcp-empty">Empty settings file</div>';
+  }
+
+  return `<div class="json-tree">${sections.join('')}</div>`;
+}
+
+function renderJsonSection(title, obj) {
+  const rows = Object.entries(obj).map(([k, v]) => {
+    let valHtml;
+    if (typeof v === 'boolean') {
+      valHtml = `<span class="json-bool">${v}</span>`;
+    } else if (typeof v === 'object' && v !== null) {
+      valHtml = `<code class="json-nested">${escapeHtml(JSON.stringify(v, null, 2))}</code>`;
+    } else {
+      valHtml = `<code>${escapeHtml(String(v))}</code>`;
+    }
+    return `<div class="mcp-row"><span class="mcp-row-label">${formatKey(k)}</span><div class="mcp-row-value">${valHtml}</div></div>`;
+  });
+
+  return `
+    <details class="json-section" open>
+      <summary class="json-section-header">${escapeHtml(title)}</summary>
+      <div class="json-section-body">${rows.join('')}</div>
+    </details>
+  `;
+}
+
+function renderJsonArraySection(title, arr) {
+  const items = arr.map((item) => {
+    if (typeof item === 'string') {
+      return `<span class="mcp-arg">${escapeHtml(item)}</span>`;
+    }
+    return `<code>${escapeHtml(JSON.stringify(item))}</code>`;
+  });
+
+  return `
+    <details class="json-section" open>
+      <summary class="json-section-header">${escapeHtml(title)} <span class="json-count">${arr.length}</span></summary>
+      <div class="json-section-body"><div class="mcp-args-list">${items.join('')}</div></div>
+    </details>
+  `;
+}
+
+function formatKey(key) {
+  return key.replace(/([A-Z])/g, ' $1').replace(/[_-]/g, ' ').replace(/^\s/, '').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// ---- Edit Mode ---- //
 
 function toggleEdit(btn) {
   const contentView = document.getElementById('claude-content-view');
@@ -232,13 +535,10 @@ function toggleEdit(btn) {
     // Switch to view mode
     if (claudeDirty && !confirm('You have unsaved changes. Discard them?')) return;
     exitEditMode();
-    // Refresh content display from file
-    if (selectedFile) {
-      const code = contentView.querySelector('code');
-      if (code) code.textContent = selectedFile.content;
-    }
+    // Re-render the view
+    renderFileView();
   } else {
-    // Switch to edit mode — danger zone
+    // Switch to edit mode
     isEditing = true;
     btn.textContent = '\u25CF EDITING';
     btn.classList.add('active');
@@ -310,12 +610,9 @@ async function saveClaudeFile() {
     claudeDirty = false;
     updateClaudeSaveBar();
 
-    // Update the view content too
-    const contentView = document.getElementById('claude-content-view');
-    if (contentView) {
-      const code = contentView.querySelector('code');
-      if (code) code.textContent = content;
-    }
+    // Re-render the view with updated content
+    exitEditMode();
+    renderFileView();
 
     if (status) {
       status.textContent = 'Saved';
@@ -410,8 +707,6 @@ async function createFile() {
       throw new Error(detail.detail || `Create failed (HTTP ${resp.status})`);
     }
 
-    const result = await resp.json();
-
     hideCreateForm();
 
     // Reload files and select the new one
@@ -426,6 +721,8 @@ async function createFile() {
   }
 }
 
+// ---- Helpers ---- //
+
 function iconForLanguage(lang) {
   switch (lang) {
     case 'markdown': return '\uD83D\uDCC4';
@@ -435,4 +732,10 @@ function iconForLanguage(lang) {
     case 'python': return '\uD83D\uDC0D';
     default: return '\uD83D\uDCC3';
   }
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
 }

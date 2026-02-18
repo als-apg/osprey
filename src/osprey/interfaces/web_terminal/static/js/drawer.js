@@ -1,12 +1,25 @@
 /* OSPREY Web Terminal — Drawer Infrastructure */
 
 let activeDrawer = null;
+const SETTINGS_WARNING_KEY = 'osprey-settings-warning-ack';
 
 /**
  * Open a drawer panel by ID.
  * Only one drawer can be open at a time — opening a new one closes the current.
  */
 export function openDrawer(drawerId) {
+  if (activeDrawer === drawerId) return;
+
+  // First-time warning for the settings drawer
+  if (drawerId === 'settings-drawer' && !localStorage.getItem(SETTINGS_WARNING_KEY)) {
+    showSettingsWarning(drawerId);
+    return;
+  }
+
+  _doOpenDrawer(drawerId);
+}
+
+function _doOpenDrawer(drawerId) {
   if (activeDrawer === drawerId) return;
   if (activeDrawer) closeDrawer();
 
@@ -225,4 +238,65 @@ function initDrawerResize() {
  */
 export function getActiveDrawer() {
   return activeDrawer;
+}
+
+/**
+ * Show a first-time warning dialog before opening the settings drawer.
+ * Persists acknowledgment in localStorage so it only appears once.
+ */
+function showSettingsWarning(drawerId) {
+  // Build overlay
+  const overlay = document.createElement('div');
+  overlay.className = 'settings-warning-overlay';
+
+  const dialog = document.createElement('div');
+  dialog.className = 'settings-warning-dialog';
+
+  dialog.innerHTML = `
+    <div class="settings-warning-icon">\u26A0</div>
+    <div class="settings-warning-title">Expert Configuration Area</div>
+    <div class="settings-warning-body">
+      <p>These settings directly control <strong>agent behavior</strong>,
+      <strong>safety hooks</strong>, and <strong>security policies</strong>.</p>
+      <p>Incorrect changes can <strong>disable safety checks</strong>,
+      bypass human approval requirements, or allow unvalidated writes
+      to control system hardware.</p>
+      <p>Only modify these settings if you understand the safety
+      implications of each option.</p>
+    </div>
+    <div class="settings-warning-actions">
+      <button class="settings-warning-cancel">Cancel</button>
+      <button class="settings-warning-proceed">I Understand, Proceed</button>
+    </div>
+  `;
+
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
+
+  // Animate in
+  requestAnimationFrame(() => overlay.classList.add('visible'));
+
+  const cleanup = () => {
+    overlay.classList.remove('visible');
+    overlay.addEventListener('transitionend', () => overlay.remove(), { once: true });
+    // Fallback removal if transition doesn't fire
+    setTimeout(() => { if (overlay.parentNode) overlay.remove(); }, 300);
+  };
+
+  dialog.querySelector('.settings-warning-cancel').addEventListener('click', cleanup);
+
+  dialog.querySelector('.settings-warning-proceed').addEventListener('click', () => {
+    localStorage.setItem(SETTINGS_WARNING_KEY, '1');
+    cleanup();
+    _doOpenDrawer(drawerId);
+  });
+
+  // Escape key cancels
+  const onKey = (e) => {
+    if (e.key === 'Escape') {
+      cleanup();
+      document.removeEventListener('keydown', onKey);
+    }
+  };
+  document.addEventListener('keydown', onKey);
 }
