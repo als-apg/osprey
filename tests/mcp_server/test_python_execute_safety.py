@@ -5,7 +5,7 @@ prohibited imports blocked, valid code passes through.
 """
 
 import json
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -95,10 +95,24 @@ async def test_valid_code_passes_safety_checks(tmp_path, monkeypatch):
     """Valid code passes safety checks and executes normally."""
     monkeypatch.chdir(tmp_path)
 
-    with patch(
-        "osprey.services.python_executor.analysis.pattern_detection"
-        ".detect_control_system_operations",
-        return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
+    from osprey.mcp_server.python_executor.executor import ExecutionResult
+
+    mock_exec = AsyncMock(
+        return_value=ExecutionResult(
+            success=True, stdout="4\n", stderr="", execution_method_used="local"
+        )
+    )
+
+    with (
+        patch(
+            "osprey.services.python_executor.analysis.pattern_detection"
+            ".detect_control_system_operations",
+            return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
+        ),
+        patch(
+            "osprey.mcp_server.python_executor.executor.execute_code",
+            mock_exec,
+        ),
     ):
         fn = _get_python_execute()
         result = await fn(

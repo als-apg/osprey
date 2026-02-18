@@ -254,4 +254,156 @@ def test_approval_notebook_failure_nonfatal(tmp_path, hook_runner, make_config):
     assert result is not None
     output = result["hookSpecificOutput"]
     assert output["permissionDecision"] == "ask"
-    assert "EPICS write patterns" in output["permissionDecisionReason"]
+    assert "write patterns" in output["permissionDecisionReason"]
+
+
+# ============================================================================
+# Framework pattern detection — extended coverage (Tango, LabVIEW, etc.)
+# ============================================================================
+
+
+@pytest.mark.unit
+def test_framework_pattern_detection_tango_write(tmp_path, hook_runner, make_config):
+    """Tango write_attribute pattern triggers approval via framework detection."""
+    config = make_config(
+        {
+            "approval": {"global_mode": "selective"},
+            "control_system": {"writes_enabled": True},
+        }
+    )
+
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__osprey-python-executor__python_execute",
+        {"code": "device.write_attribute('MOTOR:POS', 100)", "execution_mode": "readonly"},
+        config_path=config,
+        cwd=tmp_path,
+    )
+
+    assert result is not None
+    output = result["hookSpecificOutput"]
+    assert output["permissionDecision"] == "ask"
+
+
+@pytest.mark.unit
+def test_framework_pattern_detection_labview_write(tmp_path, hook_runner, make_config):
+    """LabVIEW set_control pattern triggers approval via framework detection."""
+    config = make_config(
+        {
+            "approval": {"global_mode": "selective"},
+            "control_system": {"writes_enabled": True},
+        }
+    )
+
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__osprey-python-executor__python_execute",
+        {"code": "labview.set_control('temperature', 350)", "execution_mode": "readonly"},
+        config_path=config,
+        cwd=tmp_path,
+    )
+
+    assert result is not None
+    output = result["hookSpecificOutput"]
+    assert output["permissionDecision"] == "ask"
+
+
+@pytest.mark.unit
+def test_framework_pattern_detection_set_value(tmp_path, hook_runner, make_config):
+    """EPICS .set_value() pattern triggers approval via framework detection."""
+    config = make_config(
+        {
+            "approval": {"global_mode": "selective"},
+            "control_system": {"writes_enabled": True},
+        }
+    )
+
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__osprey-python-executor__python_execute",
+        {"code": "pv.set_value(42.0)", "execution_mode": "readonly"},
+        config_path=config,
+        cwd=tmp_path,
+    )
+
+    assert result is not None
+    output = result["hookSpecificOutput"]
+    assert output["permissionDecision"] == "ask"
+
+
+@pytest.mark.unit
+def test_framework_pattern_no_false_positive_dict(tmp_path, hook_runner, make_config):
+    """Dict operations should not trigger write pattern detection."""
+    config = make_config(
+        {
+            "approval": {"global_mode": "selective"},
+            "control_system": {"writes_enabled": True},
+        }
+    )
+
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__osprey-python-executor__python_execute",
+        {"code": "cache = {}\ncache['key'] = 'value'", "execution_mode": "readonly"},
+        config_path=config,
+        cwd=tmp_path,
+    )
+
+    assert result is None  # No approval needed
+
+
+@pytest.mark.unit
+def test_framework_pattern_detection_import_fallback(
+    tmp_path, hook_runner, make_config, monkeypatch
+):
+    """When osprey is not importable, fallback patterns still catch basic writes."""
+    config = make_config(
+        {
+            "approval": {"global_mode": "selective"},
+            "control_system": {"writes_enabled": True},
+        }
+    )
+
+    # The hook runs as a subprocess, so we can't easily mock the import.
+    # Instead, test that a pattern covered by the fallback list still works.
+    # caput( is in the fallback list, so it should always be caught.
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__osprey-python-executor__python_execute",
+        {"code": "caput('TEST:PV', 1.0)", "execution_mode": "readonly"},
+        config_path=config,
+        cwd=tmp_path,
+    )
+
+    assert result is not None
+    output = result["hookSpecificOutput"]
+    assert output["permissionDecision"] == "ask"
+
+
+@pytest.mark.unit
+def test_framework_pattern_config_driven(tmp_path, hook_runner, make_config):
+    """Config-driven custom patterns trigger approval via framework detection."""
+    config = make_config(
+        {
+            "approval": {"global_mode": "selective"},
+            "control_system": {
+                "writes_enabled": True,
+                "patterns": {
+                    "write": [r"\bmy_custom_write\s*\("],
+                    "read": [],
+                },
+            },
+        }
+    )
+
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__osprey-python-executor__python_execute",
+        {"code": "my_custom_write('DEVICE', 42)", "execution_mode": "readonly"},
+        config_path=config,
+        cwd=tmp_path,
+    )
+
+    assert result is not None
+    output = result["hookSpecificOutput"]
+    assert output["permissionDecision"] == "ask"

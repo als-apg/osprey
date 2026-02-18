@@ -226,3 +226,26 @@ def test_non_osprey_tool_passes_entire_chain(tmp_path, hook_runner):
 
     assert result is None
     assert blocked_by is None
+
+
+@pytest.mark.integration
+def test_python_execute_chain_with_framework_patterns(tmp_path, hook_runner):
+    """Full hook chain triggers approval for Tango write patterns through python_execute."""
+    config = _make_chain_config(
+        tmp_path,
+        writes_enabled=True,
+        approval_mode="selective",
+    )
+
+    result, blocked_by = run_hook_chain(
+        hook_runner,
+        WRITE_HOOK_CHAIN,
+        "mcp__osprey-python-executor__python_execute",
+        {"code": "device.write_attribute('MOTOR:POS', 100)", "execution_mode": "readonly"},
+        config_path=config,
+        cwd=tmp_path,
+    )
+
+    assert result is not None
+    assert blocked_by == "osprey_approval.py"
+    assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
