@@ -18,6 +18,7 @@ async def data_context_list(
     tool_filter: str | None = None,
     data_type_filter: str | None = None,
     last_n: int | None = None,
+    source_agent_filter: str | None = None,
 ) -> str:
     """List all data currently available in the OSPREY workspace.
 
@@ -29,6 +30,8 @@ async def data_context_list(
         tool_filter: Only show entries from this tool (e.g. "archiver_read").
         data_type_filter: Only show entries of this type (e.g. "timeseries").
         last_n: Show only the most recent N entries.
+        source_agent_filter: Only show entries from this agent
+            (e.g. "logbook-search").
 
     Returns:
         JSON with the list of data context entries.
@@ -41,6 +44,7 @@ async def data_context_list(
             tool_filter=tool_filter,
             data_type_filter=data_type_filter,
             last_n=last_n,
+            source_agent_filter=source_agent_filter,
         )
 
         return json.dumps(
@@ -50,6 +54,7 @@ async def data_context_list(
                     "tool": tool_filter,
                     "data_type": data_type_filter,
                     "last_n": last_n,
+                    "source_agent": source_agent_filter,
                 },
                 "entries": [e.to_dict() for e in entries],
             },

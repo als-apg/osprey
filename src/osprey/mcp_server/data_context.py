@@ -63,6 +63,7 @@ class DataContextEntry:
     data_file: str
     data_type: str
     size_bytes: int
+    source_agent: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         """Serialise for inclusion in the index file."""
@@ -142,6 +143,7 @@ class DataContext(BaseStore[DataContextEntry]):
         summary: dict[str, Any],
         access_details: dict[str, Any],
         data_type: str,
+        source_agent: str = "",
     ) -> DataContextEntry:
         """Save tool output to a data file and register it in the index.
 
@@ -167,13 +169,16 @@ class DataContext(BaseStore[DataContextEntry]):
             filename = f"{entry_id:03d}_{tool}.json"
             filepath = self._data_dir / filename
 
+            metadata = {
+                "context_entry_id": entry_id,
+                "tool": tool,
+                "timestamp": now,
+                "description": description,
+            }
+            if source_agent:
+                metadata["source_agent"] = source_agent
             file_payload = {
-                "_osprey_metadata": {
-                    "context_entry_id": entry_id,
-                    "tool": tool,
-                    "timestamp": now,
-                    "description": description,
-                },
+                "_osprey_metadata": metadata,
                 "data": data,
             }
             with open(filepath, "w") as f:
@@ -192,6 +197,7 @@ class DataContext(BaseStore[DataContextEntry]):
                 data_file=str(filepath),
                 data_type=data_type,
                 size_bytes=size_bytes,
+                source_agent=source_agent,
             )
             self._entries.append(entry)
             self._save_index()
@@ -205,6 +211,7 @@ class DataContext(BaseStore[DataContextEntry]):
         data_type_filter: str | None = None,
         last_n: int | None = None,
         search: str | None = None,
+        source_agent_filter: str | None = None,
     ) -> list[DataContextEntry]:
         """List context entries, optionally filtered.
 
@@ -213,6 +220,7 @@ class DataContext(BaseStore[DataContextEntry]):
             data_type_filter: Only return entries with this data type.
             last_n: Return only the most recent *n* entries.
             search: Free-text search across description and tool name.
+            source_agent_filter: Only return entries from this agent.
         """
         self._refresh_if_stale()
         entries = list(self._entries)
@@ -221,6 +229,8 @@ class DataContext(BaseStore[DataContextEntry]):
             entries = [e for e in entries if e.tool == tool_filter]
         if data_type_filter:
             entries = [e for e in entries if e.data_type == data_type_filter]
+        if source_agent_filter:
+            entries = [e for e in entries if e.source_agent == source_agent_filter]
         if search:
             q = search.lower()
             entries = [e for e in entries if q in e.description.lower() or q in e.tool.lower()]
