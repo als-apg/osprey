@@ -489,7 +489,6 @@ def regen(project, dry_run):
                 console.print(f"  [dim]  {f}[/dim]")
         if not result["changed"]:
             console.print("[success]All artifacts are up to date.[/success]")
-        console.print()
     else:
         console.print("\n[bold]Claude Code artifacts regenerated[/bold]\n")
         if result["changed"]:
@@ -504,7 +503,41 @@ def regen(project, dry_run):
             console.print("[success]All artifacts were already up to date.[/success]")
         else:
             console.print(f"\n[dim]Backup saved to: {result['backup_dir']}[/dim]")
-        console.print()
+
+    # Display active/disabled summary
+    _print_regen_summary(result)
+    console.print()
+
+
+def _print_regen_summary(result: dict):
+    """Print active/disabled server and agent summary."""
+    active_servers = result.get("active_servers", [])
+    disabled_servers = result.get("disabled_servers", [])
+    extra_servers = result.get("extra_servers", [])
+    active_agents = result.get("active_agents", [])
+    disabled_agents = result.get("disabled_agents", [])
+
+    if not active_servers and not active_agents:
+        return
+
+    console.print("\n[bold]Active MCP Servers:[/bold]")
+    for s in active_servers:
+        label = s
+        if s in extra_servers:
+            label += " [dim](custom)[/dim]"
+        console.print(f"  [success]*[/success] {label}")
+    if disabled_servers:
+        console.print("[dim]Disabled servers:[/dim]")
+        for s in disabled_servers:
+            console.print(f"  [dim]- {s}[/dim]")
+
+    console.print("\n[bold]Active Agents:[/bold]")
+    for a in active_agents:
+        console.print(f"  [success]*[/success] {a}")
+    if disabled_agents:
+        console.print("[dim]Disabled agents:[/dim]")
+        for a in disabled_agents:
+            console.print(f"  [dim]- {a}[/dim]")
 
 
 @claude.command(name="chat")

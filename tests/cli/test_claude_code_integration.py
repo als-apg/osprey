@@ -131,11 +131,13 @@ class TestClaudeCodeFileContents:
         # Channel-finder tools not in deny (server is agent-exclusive via inline mcpServers)
         assert "mcp__channel-finder__*" not in deny
 
-        # Task not denied; channel-resolver agent is auto-allowed
-        # Generic "Task" removed from ask so it doesn't override the specific allow rule
+        # Task not denied; agent Tasks are conditionally allowed
+        # Generic "Task" removed from ask so it doesn't override specific allow rules
         assert "Task" not in deny
         assert "Task" not in data["permissions"]["ask"]
-        assert "Task(channel-resolver)" in data["permissions"]["allow"]
+        # channel-resolver only present when channel_finder_pipeline is defined
+        # (minimal template doesn't have it)
+        assert "Task(logbook-search)" in data["permissions"]["allow"]
 
         # Stale channel_find entry removed from allow
         assert "mcp__osprey-control-system__channel_find" not in data["permissions"]["allow"]

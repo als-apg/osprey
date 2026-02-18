@@ -424,5 +424,354 @@ class TestGitignore:
         assert ".claude/" in gitignore
 
 
+class TestDisableServers:
+    """Test disable_servers functionality."""
+
+    def _create_and_regen(self, tmp_path, disable_servers=None, disable_agents=None,
+                          extra_servers=None, template="minimal"):
+        """Helper: create project, set claude_code overrides, regen."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="disable-test",
+            output_dir=tmp_path,
+            template_name=template,
+        )
+
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        cc = {}
+        if disable_servers:
+            cc["disable_servers"] = disable_servers
+        if disable_agents:
+            cc["disable_agents"] = disable_agents
+        if extra_servers:
+            cc["extra_servers"] = extra_servers
+        if cc:
+            config["claude_code"] = cc
+            (project_dir / "config.yml").write_text(yaml.dump(config))
+
+        result = manager.regenerate_claude_code(project_dir)
+        return project_dir, result
+
+    def test_disable_server_removes_from_mcp_json(self, tmp_path):
+        """Disabling accelpapers removes it from .mcp.json."""
+        project_dir, _ = self._create_and_regen(
+            tmp_path, disable_servers=["accelpapers"]
+        )
+
+        mcp_data = json.loads((project_dir / ".mcp.json").read_text())
+        assert "accelpapers" not in mcp_data["mcpServers"]
+        # Core servers should still be present
+        assert "osprey-control-system" in mcp_data["mcpServers"]
+
+    def test_disable_server_removes_from_settings_allow(self, tmp_path):
+        """Disabling accelpapers removes its tools from settings allow list."""
+        project_dir, _ = self._create_and_regen(
+            tmp_path, disable_servers=["accelpapers"]
+        )
+
+        settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
+        allow = settings["permissions"]["allow"]
+        for entry in allow:
+            assert "accelpapers" not in entry, f"accelpapers found in allow: {entry}"
+
+    def test_disable_server_removes_from_claude_md(self, tmp_path):
+        """Disabling accelpapers removes accelpapers row from CLAUDE.md tool table."""
+        project_dir, _ = self._create_and_regen(
+            tmp_path, disable_servers=["accelpapers"]
+        )
+
+        content = (project_dir / "CLAUDE.md").read_text()
+        assert "accelpapers" not in content.lower() or "accelpapers" not in content
+
+    def test_disable_agent_removes_agent_file(self, tmp_path):
+        """Disabling literature-search produces an empty agent file."""
+        project_dir, _ = self._create_and_regen(
+            tmp_path, disable_agents=["literature-search"]
+        )
+
+        agent_file = project_dir / ".claude" / "agents" / "literature-search.md"
+        if agent_file.exists():
+            content = agent_file.read_text().strip()
+            # Disabled agents render to empty (or whitespace-only) files
+            assert content == "", f"Expected empty file, got: {content[:100]}"
+
+    def test_disable_agent_removes_task_from_settings(self, tmp_path):
+        """Disabling literature-search removes Task(literature-search) from allow."""
+        project_dir, _ = self._create_and_regen(
+            tmp_path, disable_agents=["literature-search"]
+        )
+
+        settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
+        allow = settings["permissions"]["allow"]
+        assert "Task(literature-search)" not in allow
+
+    def test_disable_agent_removes_from_claude_md(self, tmp_path):
+        """Disabling literature-search removes its delegation section from CLAUDE.md."""
+        project_dir, _ = self._create_and_regen(
+            tmp_path, disable_agents=["literature-search"]
+        )
+
+        content = (project_dir / "CLAUDE.md").read_text()
+        # The delegation section should be gone
+        assert "literature-search` sub-agent" not in content
+        # The usage pattern section should be gone
+        assert "### Literature search" not in content
+
+    def test_extra_server_added_to_mcp_json(self, tmp_path):
+        """Extra server appears in .mcp.json."""
+        project_dir, _ = self._create_and_regen(
+            tmp_path,
+            extra_servers={
+                "my-server": {"command": "node", "args": ["server.js"]}
+            },
+        )
+
+        mcp_data = json.loads((project_dir / ".mcp.json").read_text())
+        assert "my-server" in mcp_data["mcpServers"]
+        assert mcp_data["mcpServers"]["my-server"]["command"] == "node"
+
+    def test_extra_server_ask_permission_in_settings(self, tmp_path):
+        """Extra server gets ask permission in settings.json."""
+        project_dir, _ = self._create_and_regen(
+            tmp_path,
+            extra_servers={
+                "my-server": {"command": "node", "args": ["server.js"]}
+            },
+        )
+
+        settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
+        ask = settings["permissions"]["ask"]
+        assert any("mcp__my-server" in entry for entry in ask)
+
+    def test_disable_does_not_remove_safety_hooks(self, tmp_path):
+        """Disabling a server doesn't remove hook script files."""
+        project_dir, _ = self._create_and_regen(
+            tmp_path, disable_servers=["accelpapers"]
+        )
+
+        hooks_dir = project_dir / ".claude" / "hooks"
+        assert hooks_dir.exists()
+        hook_files = list(hooks_dir.glob("*.py"))
+        assert len(hook_files) > 0
+        # Safety hooks should still exist
+        hook_names = [f.name for f in hook_files]
+        assert "osprey_writes_check.py" in hook_names
+        assert "osprey_audit.py" in hook_names
+
+    def test_regen_summary_includes_active_lists(self, tmp_path):
+        """Result dict contains active/disabled lists."""
+        _, result = self._create_and_regen(
+            tmp_path, disable_servers=["accelpapers"]
+        )
+
+        assert "active_servers" in result
+        assert "disabled_servers" in result
+        assert "active_agents" in result
+        assert "disabled_agents" in result
+        assert "accelpapers" not in result["active_servers"]
+        assert "accelpapers" in result["disabled_servers"]
+        assert "osprey-control-system" in result["active_servers"]
+
+    def test_disable_core_server_allowed(self, tmp_path):
+        """Users can disable any server including core ones."""
+        project_dir, result = self._create_and_regen(
+            tmp_path, disable_servers=["ariel"]
+        )
+
+        mcp_data = json.loads((project_dir / ".mcp.json").read_text())
+        assert "ariel" not in mcp_data["mcpServers"]
+        assert "ariel" in result["disabled_servers"]
+
+    def test_context_includes_overrides(self, tmp_path):
+        """_build_claude_code_context includes disable_servers, disable_agents, extra_servers."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="ctx-overrides",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        config["claude_code"] = {
+            "disable_servers": ["accelpapers"],
+            "disable_agents": ["literature-search"],
+            "extra_servers": {"my-srv": {"command": "echo"}},
+        }
+        (project_dir / "config.yml").write_text(yaml.dump(config))
+
+        ctx = manager._build_claude_code_context(project_dir, config)
+        assert ctx["disable_servers"] == ["accelpapers"]
+        assert ctx["disable_agents"] == ["literature-search"]
+        assert "my-srv" in ctx["extra_servers"]
+
+    def test_defaults_empty_when_no_claude_code_section(self, tmp_path):
+        """Without claude_code section, overrides default to empty."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="ctx-defaults",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        ctx = manager._build_claude_code_context(project_dir, config)
+        assert ctx["disable_servers"] == []
+        assert ctx["disable_agents"] == []
+        assert ctx["extra_servers"] == {}
+
+
+class TestFacilityMd:
+    """Test facility.md creation and preservation."""
+
+    def test_facility_md_created_on_init(self, tmp_path):
+        """osprey init creates .claude/rules/facility.md."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="facility-init",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+
+        facility_file = project_dir / ".claude" / "rules" / "facility.md"
+        assert facility_file.exists()
+        content = facility_file.read_text()
+        assert "Facility Identity" in content
+        assert "facility-init" in content
+
+    def test_facility_md_never_overwritten(self, tmp_path):
+        """Regen preserves customized facility.md."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="facility-preserve",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+
+        # Customize facility.md
+        facility_file = project_dir / ".claude" / "rules" / "facility.md"
+        custom_content = "# My Custom Facility\n\nAdvanced Light Source at LBNL\n"
+        facility_file.write_text(custom_content)
+
+        # Regen
+        manager.regenerate_claude_code(project_dir)
+
+        # Verify custom content preserved
+        assert facility_file.read_text() == custom_content
+
+    def test_facility_md_created_on_regen_if_missing(self, tmp_path):
+        """If facility.md doesn't exist, regen creates it."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="facility-regen-create",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+
+        # Delete facility.md
+        facility_file = project_dir / ".claude" / "rules" / "facility.md"
+        facility_file.unlink()
+        assert not facility_file.exists()
+
+        # Regen should recreate it
+        manager.regenerate_claude_code(project_dir)
+
+        assert facility_file.exists()
+        content = facility_file.read_text()
+        assert "Facility Identity" in content
+
+
+class TestManagedFiles:
+    """Test managed_files configuration."""
+
+    def test_managed_files_default_fallback(self, tmp_path):
+        """Without managed_files in config, uses default list."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="managed-defaults",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        ctx = manager._build_claude_code_context(project_dir, config)
+
+        # Should have the default managed_files list
+        assert "managed_files" in ctx
+        assert "CLAUDE.md" in ctx["managed_files"]
+        assert ".mcp.json" in ctx["managed_files"]
+        assert ".claude/settings.json" in ctx["managed_files"]
+
+    def test_managed_files_from_config(self, tmp_path):
+        """managed_files from config.yml is respected."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="managed-config",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+
+        # Set custom managed_files in config
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        config["claude_code"] = {
+            "managed_files": ["CLAUDE.md", ".mcp.json"],
+        }
+        (project_dir / "config.yml").write_text(yaml.dump(config))
+
+        ctx = manager._build_claude_code_context(project_dir, config)
+        assert ctx["managed_files"] == ["CLAUDE.md", ".mcp.json"]
+
+    def test_managed_files_controls_regen(self, tmp_path):
+        """Removing a file from managed_files prevents overwrite on regen."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="managed-regen",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+
+        # Customize safety.md
+        safety_file = project_dir / ".claude" / "rules" / "safety.md"
+        custom_safety = "# My Custom Safety Rules\n\nCustom content here.\n"
+        safety_file.write_text(custom_safety)
+
+        # Remove safety.md from managed_files
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        default_files = manager._get_default_managed_files()
+        custom_files = [f for f in default_files if f != ".claude/rules/safety.md"]
+        config["claude_code"] = {"managed_files": custom_files}
+        (project_dir / "config.yml").write_text(yaml.dump(config))
+
+        # Regen
+        manager.regenerate_claude_code(project_dir)
+
+        # safety.md should be preserved
+        assert safety_file.read_text() == custom_safety
+
+    def test_agents_always_managed(self, tmp_path):
+        """Agent files are always managed regardless of managed_files list."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="managed-agents",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+
+        # Set minimal managed_files (no agent paths)
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        config["claude_code"] = {
+            "managed_files": ["CLAUDE.md", ".mcp.json", ".claude/settings.json"],
+        }
+        (project_dir / "config.yml").write_text(yaml.dump(config))
+
+        # Regen
+        manager.regenerate_claude_code(project_dir)
+
+        # Agent files should still exist (they're auto-managed)
+        agents_dir = project_dir / ".claude" / "agents"
+        if agents_dir.exists():
+            agent_files = list(agents_dir.glob("*.md"))
+            assert len(agent_files) > 0
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

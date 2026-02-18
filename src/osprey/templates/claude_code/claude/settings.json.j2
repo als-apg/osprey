@@ -7,10 +7,16 @@
       "Read(osprey-workspace/memory/**)",
       "Read(osprey-workspace/plots/**)",
       "Read(osprey-workspace/results/**)",
-      "mcp__osprey-control-system__channel_read",
+{% if "osprey-control-system" not in disable_servers %}      "mcp__osprey-control-system__channel_read",
       "mcp__osprey-control-system__archiver_read",
-      "mcp__osprey-workspace__memory_recall",
-      "mcp__ariel__ariel_keyword_search",
+{% endif %}{% if "osprey-workspace" not in disable_servers %}      "mcp__osprey-workspace__memory_recall",
+      "mcp__osprey-workspace__screenshot_capture",
+      "mcp__osprey-workspace__list_windows",
+      "mcp__osprey-workspace__manage_window",
+      "mcp__osprey-workspace__submit_response",
+      "mcp__osprey-workspace__data_context_list",
+      "mcp__osprey-workspace__artifact_focus",
+{% endif %}{% if "ariel" not in disable_servers %}      "mcp__ariel__ariel_keyword_search",
       "mcp__ariel__ariel_semantic_search",
       "mcp__ariel__ariel_sql_query",
       "mcp__ariel__ariel_entries_by_ids",
@@ -19,35 +25,29 @@
       "mcp__ariel__ariel_capabilities",
       "mcp__ariel__ariel_status",
       "mcp__ariel__ariel_filter_options",
-      "mcp__osprey-workspace__screenshot_capture",
-      "mcp__osprey-workspace__list_windows",
-      "mcp__osprey-workspace__manage_window",
-      "mcp__osprey-workspace__submit_response",
-      "mcp__osprey-workspace__data_context_list",
-      "mcp__osprey-workspace__artifact_focus",
-      "NotebookEdit(osprey-workspace/artifacts/**)",
-      "Task(channel-resolver)",
-      "Task(logbook-search)",
-      "Task(logbook-deep-research)",
-      "Task(literature-search)",
-      "mcp__accelpapers__papers_search",
+{% endif %}      "NotebookEdit(osprey-workspace/artifacts/**)",
+{% if "channel-resolver" not in disable_agents and channel_finder_pipeline is defined %}      "Task(channel-resolver)",
+{% endif %}{% if "logbook-search" not in disable_agents %}      "Task(logbook-search)",
+{% endif %}{% if "logbook-deep-research" not in disable_agents %}      "Task(logbook-deep-research)",
+{% endif %}{% if "literature-search" not in disable_agents %}      "Task(literature-search)",
+{% endif %}{% if "accelpapers" not in disable_servers %}      "mcp__accelpapers__papers_search",
       "mcp__accelpapers__papers_get",
       "mcp__accelpapers__papers_browse",
       "mcp__accelpapers__papers_list_conferences",
       "mcp__accelpapers__papers_search_author",
-      "mcp__accelpapers__papers_stats"{% if matlab is defined %},
-      "mcp__matlab__mml_search",
+      "mcp__accelpapers__papers_stats",
+{% endif %}{% if matlab is defined and "matlab" not in disable_servers %}      "mcp__matlab__mml_search",
       "mcp__matlab__mml_get",
       "mcp__matlab__mml_browse",
       "mcp__matlab__mml_dependencies",
       "mcp__matlab__mml_path",
       "mcp__matlab__mml_list_groups",
       "mcp__matlab__mml_stats",
-      "Task(matlab-search)"{% endif %}{% if channel_finder_pipeline is defined %},
-      "mcp__channel-finder"{% endif %}{% if confluence is defined %},
-      "mcp__confluence",
-      "Task(wiki-search)"{% endif %}
-
+{% endif %}{% if matlab is defined and "matlab-search" not in disable_agents %}      "Task(matlab-search)",
+{% endif %}{% if channel_finder_pipeline is defined and "channel-finder" not in disable_servers %}      "mcp__channel-finder",
+{% endif %}{% if confluence is defined and "confluence" not in disable_servers %}      "mcp__confluence",
+{% endif %}{% if confluence is defined and "wiki-search" not in disable_agents %}      "Task(wiki-search)",
+{% endif %}      "_sentinel_allow"
     ],
     "deny": [
       "Bash",
@@ -59,11 +59,13 @@
       "mcp__plugin_context7_context7__*"
     ],
     "ask": [
-      "mcp__osprey-control-system__channel_write",
-      "mcp__osprey-python-executor__python_execute",
-      "mcp__osprey-workspace__memory_save",
+{% if "osprey-control-system" not in disable_servers %}      "mcp__osprey-control-system__channel_write",
+{% endif %}{% if "osprey-python-executor" not in disable_servers %}      "mcp__osprey-python-executor__python_execute",
+{% endif %}{% if "osprey-workspace" not in disable_servers %}      "mcp__osprey-workspace__memory_save",
       "mcp__osprey-workspace__artifact_save",
-      "mcp__ariel__ariel_entry_create"
+{% endif %}{% if "ariel" not in disable_servers %}      "mcp__ariel__ariel_entry_create",
+{% endif %}{% for name in extra_servers %}{% if name not in disable_servers %}      "mcp__{{ name }}",
+{% endif %}{% endfor %}      "_sentinel_ask"
     ]
   },
   "hooks": {
@@ -79,7 +81,7 @@
       }
     ],
     "PreToolUse": [
-      {
+{% if "osprey-control-system" not in disable_servers %}      {
         "matcher": "mcp__osprey-control-system__channel_write",
         "hooks": [
           {
@@ -99,7 +101,7 @@
           }
         ]
       },
-      {
+{% endif %}{% if "osprey-python-executor" not in disable_servers %}      {
         "matcher": "mcp__osprey-python-executor__python_execute",
         "hooks": [
           {
@@ -113,10 +115,11 @@
             "timeout": 5
           }
         ]
-      }
+      },
+{% endif %}      {"_sentinel_pre": true}
     ],
     "PostToolUse": [
-      {
+{% if "osprey-control-system" not in disable_servers %}      {
         "matcher": "mcp__osprey-control-system__*",
         "hooks": [
           {
@@ -131,7 +134,7 @@
           }
         ]
       },
-      {
+{% endif %}{% if "osprey-python-executor" not in disable_servers %}      {
         "matcher": "mcp__osprey-python-executor__*",
         "hooks": [
           {
@@ -146,7 +149,7 @@
           }
         ]
       },
-      {
+{% endif %}{% if "osprey-workspace" not in disable_servers %}      {
         "matcher": "mcp__osprey-workspace__*",
         "hooks": [
           {
@@ -161,7 +164,7 @@
           }
         ]
       },
-      {
+{% endif %}{% if "ariel" not in disable_servers %}      {
         "matcher": "mcp__ariel__*",
         "hooks": [
           {
@@ -176,7 +179,7 @@
           }
         ]
       },
-      {
+{% endif %}{% if "accelpapers" not in disable_servers %}      {
         "matcher": "mcp__accelpapers__*",
         "hooks": [
           {
@@ -191,7 +194,7 @@
           }
         ]
       },
-      {
+{% endif %}{% if matlab is defined and "matlab" not in disable_servers %}      {
         "matcher": "mcp__matlab__*",
         "hooks": [
           {
@@ -206,7 +209,7 @@
           }
         ]
       },
-      {
+{% endif %}      {
         "matcher": "NotebookEdit",
         "hooks": [
           {

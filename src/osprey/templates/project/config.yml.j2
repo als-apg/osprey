@@ -314,6 +314,33 @@ pipeline:
   startup_hooks: []
 
 # ============================================================
+# CLAUDE CODE CONFIGURATION
+# ============================================================
+# Controls which files `osprey claude regen` manages.
+# Remove a file from managed_files to "claim" it — regen will
+# skip it, preserving your customizations.
+# Agents are auto-managed based on config and are not listed here.
+
+claude_code:
+  managed_files:
+    - CLAUDE.md
+    - .mcp.json
+    - .claude/settings.json
+    - .claude/rules/safety.md
+    - .claude/rules/error-handling.md
+    - .claude/rules/artifacts.md
+    - .claude/hooks/osprey_writes_check.py
+    - .claude/hooks/osprey_limits.py
+    - .claude/hooks/osprey_approval.py
+    - .claude/hooks/osprey_audit.py
+    - .claude/hooks/osprey_error_guidance.py
+    - .claude/hooks/osprey_notebook_update.py
+    - .claude/commands/screenshot.md
+  # disable_servers: []     # e.g. ["accelpapers"] to remove a server
+  # disable_agents: []      # e.g. ["literature-search"] to remove an agent
+  # extra_servers: {}        # Add custom MCP servers
+
+# ============================================================
 # CLI CONFIGURATION
 # ============================================================
 # Customize the command-line interface appearance

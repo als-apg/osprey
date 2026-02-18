@@ -315,6 +315,15 @@ class TemplateManager:
                     ctx["confluence"] = rendered_config["confluence"]
                 if "matlab" in rendered_config:
                     ctx["matlab"] = rendered_config["matlab"]
+                # Claude Code explicit overrides
+                cc_config = rendered_config.get("claude_code", {})
+                ctx.setdefault("disable_servers", cc_config.get("disable_servers", []))
+                ctx.setdefault("disable_agents", cc_config.get("disable_agents", []))
+                ctx.setdefault("extra_servers", cc_config.get("extra_servers", {}))
+            # Ensure defaults exist even without rendered config
+            ctx.setdefault("disable_servers", [])
+            ctx.setdefault("disable_agents", [])
+            ctx.setdefault("extra_servers", {})
             self._create_claude_code_integration(project_dir, ctx)
 
         return project_dir
@@ -858,7 +867,98 @@ proper framework operation, especially when using containerized services.
         if "matlab" in config:
             ctx["matlab"] = config["matlab"]
 
+        # Claude Code explicit overrides
+        claude_code_config = config.get("claude_code", {})
+        ctx["disable_servers"] = claude_code_config.get("disable_servers", [])
+        ctx["disable_agents"] = claude_code_config.get("disable_agents", [])
+        ctx["extra_servers"] = claude_code_config.get("extra_servers", {})
+        ctx["managed_files"] = claude_code_config.get(
+            "managed_files", self._get_default_managed_files()
+        )
+
         return ctx
+
+    @staticmethod
+    def _get_default_managed_files() -> list[str]:
+        """Return the default list of files managed by ``osprey claude regen``.
+
+        This list matches the hardcoded set that regen has always managed.
+        Users can override it in ``config.yml`` under ``claude_code.managed_files``
+        to "claim" files from framework management.
+        """
+        return [
+            "CLAUDE.md",
+            ".mcp.json",
+            ".claude/settings.json",
+            ".claude/rules/safety.md",
+            ".claude/rules/error-handling.md",
+            ".claude/rules/artifacts.md",
+            ".claude/hooks/osprey_writes_check.py",
+            ".claude/hooks/osprey_limits.py",
+            ".claude/hooks/osprey_approval.py",
+            ".claude/hooks/osprey_audit.py",
+            ".claude/hooks/osprey_error_guidance.py",
+            ".claude/hooks/osprey_notebook_update.py",
+            ".claude/commands/screenshot.md",
+        ]
+
+    def _compute_regen_summary(self, ctx: dict) -> dict:
+        """Compute active/disabled server and agent lists from template context.
+
+        Args:
+            ctx: Template context dict with disable_servers, disable_agents, extra_servers,
+                 and optional confluence/matlab/channel_finder_pipeline keys.
+
+        Returns:
+            Dict with active_servers, disabled_servers, active_agents, disabled_agents keys.
+        """
+        disable_servers = ctx.get("disable_servers", [])
+        disable_agents = ctx.get("disable_agents", [])
+        extra_servers = ctx.get("extra_servers", {})
+
+        # Core servers (always available)
+        core_servers = [
+            "osprey-control-system",
+            "osprey-python-executor",
+            "osprey-workspace",
+            "ariel",
+            "accelpapers",
+        ]
+
+        # Conditional servers (from config sections)
+        all_servers = list(core_servers)
+        if ctx.get("confluence"):
+            all_servers.append("confluence")
+        if ctx.get("matlab"):
+            all_servers.append("matlab")
+        if ctx.get("channel_finder_pipeline"):
+            all_servers.append("channel-finder")
+        all_servers.extend(extra_servers.keys())
+
+        # Core agents (always available)
+        core_agents = ["logbook-search", "logbook-deep-research", "literature-search"]
+
+        # Conditional agents (from config sections)
+        all_agents = list(core_agents)
+        if ctx.get("confluence"):
+            all_agents.append("wiki-search")
+        if ctx.get("matlab"):
+            all_agents.append("matlab-search")
+        if ctx.get("channel_finder_pipeline"):
+            all_agents.append("channel-resolver")
+
+        active_servers = [s for s in all_servers if s not in disable_servers]
+        active_agents = [a for a in all_agents if a not in disable_agents]
+        actual_disabled_servers = [s for s in disable_servers if s in all_servers]
+        actual_disabled_agents = [a for a in disable_agents if a in all_agents]
+
+        return {
+            "active_servers": active_servers,
+            "disabled_servers": actual_disabled_servers,
+            "extra_servers": list(extra_servers.keys()),
+            "active_agents": active_agents,
+            "disabled_agents": actual_disabled_agents,
+        }
 
     def regenerate_claude_code(self, project_dir: Path, dry_run: bool = False) -> dict:
         """Regenerate Claude Code artifacts from current config.yml.
@@ -888,18 +988,19 @@ proper framework operation, especially when using containerized services.
 
         ctx = self._build_claude_code_context(project_dir, config)
 
-        # Collect checksums of existing Claude Code files before regeneration
-        claude_code_files = [
-            ".mcp.json",
-            "CLAUDE.md",
-            ".claude/settings.json",
-        ]
-        # Also include agent files
+        # Determine which files regen manages (from config or defaults)
+        managed_files = ctx.get("managed_files", self._get_default_managed_files())
+
+        # Collect checksums of existing Claude Code files before regeneration.
+        # Start with managed_files, then add agent files (always auto-managed).
+        claude_code_files = list(managed_files)
         agents_dir = project_dir / ".claude" / "agents"
         if agents_dir.exists():
             for agent_file in agents_dir.iterdir():
                 if agent_file.is_file() and agent_file.suffix == ".md":
-                    claude_code_files.append(f".claude/agents/{agent_file.name}")
+                    rel = f".claude/agents/{agent_file.name}"
+                    if rel not in claude_code_files:
+                        claude_code_files.append(rel)
 
         old_checksums = {}
         for rel_path in claude_code_files:
@@ -940,7 +1041,8 @@ proper framework operation, especially when using containerized services.
                     if rel not in claude_code_files and rel not in changed:
                         changed.append(rel)
 
-                return {"changed": changed, "unchanged": unchanged, "backup_dir": None}
+                summary = self._compute_regen_summary(ctx)
+                return {"changed": changed, "unchanged": unchanged, "backup_dir": None, **summary}
 
         # Create backup
         timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
@@ -979,11 +1081,36 @@ proper framework operation, especially when using containerized services.
                     if rel not in claude_code_files and rel not in changed:
                         changed.append(rel)
 
+        # Compute active/disabled summary
+        summary = self._compute_regen_summary(ctx)
+
         return {
             "changed": changed,
             "unchanged": unchanged,
             "backup_dir": str(backup_dir),
+            **summary,
         }
+
+    def _is_managed(self, rel_path: str, ctx: dict) -> bool:
+        """Check if a file path is in the managed_files list.
+
+        During ``osprey init`` (no managed_files in ctx), all files are managed.
+        During ``osprey claude regen``, only files listed in managed_files are
+        written; user-claimed files are skipped.
+
+        Agent files (.claude/agents/*.md) are always managed regardless of
+        the managed_files list.
+
+        Args:
+            rel_path: Relative path from project root (e.g. ".claude/hooks/osprey_audit.py")
+            ctx: Template context (may contain "managed_files" key)
+        """
+        managed = ctx.get("managed_files")
+        if managed is None:
+            return True  # init path — all files managed
+        if rel_path.startswith(".claude/agents/"):
+            return True  # agents always auto-managed
+        return rel_path in managed
 
     def _create_claude_code_integration(self, project_dir: Path, ctx: dict):
         """Create Claude Code integration files for the project.
@@ -991,6 +1118,10 @@ proper framework operation, especially when using containerized services.
         Copies template files from templates/claude_code/ into the project,
         applying dotless-to-dotted naming convention (claude/ -> .claude/,
         mcp.json.j2 -> .mcp.json).
+
+        Files listed in ``ctx["managed_files"]`` (if present) control which
+        files are written during regeneration. Files not in the list are
+        skipped, preserving user customizations.
 
         Args:
             project_dir: Root directory of the project
@@ -1009,18 +1140,19 @@ proper framework operation, especially when using containerized services.
 
         # 1. Render mcp.json.j2 -> .mcp.json
         mcp_template = claude_code_dir / "mcp.json.j2"
-        if mcp_template.exists():
+        if mcp_template.exists() and self._is_managed(".mcp.json", ctx):
             self.render_template("claude_code/mcp.json.j2", ctx, project_dir / ".mcp.json")
             files_created += 1
 
         # 2. Render CLAUDE.md.j2 -> CLAUDE.md (always overwritten on regen)
         claude_md_j2 = claude_code_dir / "CLAUDE.md.j2"
         claude_md_static = claude_code_dir / "CLAUDE.md"
-        if claude_md_j2.exists():
-            self.render_template("claude_code/CLAUDE.md.j2", ctx, project_dir / "CLAUDE.md")
-        elif claude_md_static.exists():
-            shutil.copy2(claude_md_static, project_dir / "CLAUDE.md")
-        files_created += 1
+        if self._is_managed("CLAUDE.md", ctx):
+            if claude_md_j2.exists():
+                self.render_template("claude_code/CLAUDE.md.j2", ctx, project_dir / "CLAUDE.md")
+            elif claude_md_static.exists():
+                shutil.copy2(claude_md_static, project_dir / "CLAUDE.md")
+            files_created += 1
 
         # 2b. Render CLAUDE-project.md.j2 -> CLAUDE-project.md (only on first creation)
         claude_project_md = project_dir / "CLAUDE-project.md"
@@ -1031,8 +1163,19 @@ proper framework operation, especially when using containerized services.
             )
             files_created += 1
 
+        # 2c. Create facility.md (only on first creation — never overwritten)
+        facility_md = project_dir / ".claude" / "rules" / "facility.md"
+        facility_j2 = claude_code_dir / "claude" / "rules" / "facility.md.j2"
+        if not facility_md.exists() and facility_j2.exists():
+            facility_md.parent.mkdir(parents=True, exist_ok=True)
+            self.render_template(
+                "claude_code/claude/rules/facility.md.j2", ctx, facility_md
+            )
+            files_created += 1
+
         # 3. Recursively copy/render claude/ -> .claude/ (dotless to dotted)
         #    Files with .j2 extension are rendered as Jinja2 templates.
+        #    facility.md.j2 is handled above (create-only), so skip it here.
         claude_src = claude_code_dir / "claude"
         if claude_src.exists():
             for src_file in claude_src.rglob("*"):
@@ -1041,13 +1184,28 @@ proper framework operation, especially when using containerized services.
                 rel_path = src_file.relative_to(claude_src)
 
                 if src_file.suffix == ".j2":
+                    # Determine output rel_path (strip .j2)
+                    output_rel = rel_path.with_suffix("")
+                    dst_rel = f".claude/{output_rel}"
+
+                    # Skip facility.md — handled above (create-only semantics)
+                    if str(output_rel) == "rules/facility.md":
+                        continue
+
+                    # Check managed_files
+                    if not self._is_managed(dst_rel, ctx):
+                        continue
+
                     # Render Jinja2 template, strip .j2 extension
-                    dst_file = project_dir / ".claude" / rel_path.with_suffix("")
+                    dst_file = project_dir / ".claude" / output_rel
                     dst_file.parent.mkdir(parents=True, exist_ok=True)
                     template_path = f"claude_code/claude/{rel_path}"
                     self.render_template(template_path, ctx, dst_file)
                 else:
                     # Static copy (existing behavior)
+                    dst_rel = f".claude/{rel_path}"
+                    if not self._is_managed(dst_rel, ctx):
+                        continue
                     dst_file = project_dir / ".claude" / rel_path
                     dst_file.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(src_file, dst_file)
