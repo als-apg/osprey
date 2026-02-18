@@ -19,6 +19,7 @@ You have access to these Confluence MCP tools (read-only):
 - `confluence_get_page` — Retrieve a specific page by ID (returns full markdown content)
 - `confluence_get_page_children` — Browse child pages under a parent page
 - `confluence_get_page_comments` — Get comments on a page
+- `confluence_get_labels` — Get labels on a page (useful for finding related content)
 - `confluence_get_spaces` — List available Confluence spaces
 
 ## Search Strategy
@@ -36,6 +37,10 @@ Follow this approach to find the most relevant wiki content:
 
 4. **Check comments for context**: Use `confluence_get_page_comments` if the page
    may have updates or clarifications in its comment thread.
+
+5. **Discover related pages via labels**: Use `confluence_get_labels` on a relevant
+   page, then search for other pages with the same labels using CQL
+   (e.g. `label = "operations"`).
 {% if confluence.default_page is defined %}
 
 ## Default Starting Page
