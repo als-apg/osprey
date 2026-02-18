@@ -616,7 +616,8 @@ code {
 .browse-layout {
   display: flex;
   flex: 1;
-  min-height: calc(100vh - var(--header-height));
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* ---- Sidebar ---- */
@@ -1298,6 +1299,7 @@ body.resizing iframe {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
   background: var(--bg-primary);
   position: relative;
 }
@@ -1334,6 +1336,8 @@ body.resizing iframe {
   flex: 1;
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* Preview header bar */
@@ -2050,6 +2054,7 @@ body.resizing iframe {
   white-space: pre-wrap;
   word-break: break-word;
   flex: 1;
+  min-height: 0;
 }
 
 .json-key {
@@ -2092,6 +2097,7 @@ body.resizing iframe {
   padding: var(--space-3) var(--space-4);
   background: var(--bg-sidebar);
   border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
 }
 
 .context-info-card {

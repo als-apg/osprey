@@ -34,6 +34,11 @@ page browsing, and content retrieval, and returns summarized results with
 page citations.
 {% endif %}
 
+**You have a `literature-search` sub-agent** that searches the accelerator physics
+literature database (~63K INSPIRE papers). Delegate to this agent when the user asks
+about published research, prior art, technical references, or needs citations for
+accelerator physics topics.
+
 <!-- PROMPT-PROVIDER: section=safety_rules
      Future: source from FrameworkPromptProvider.get_safety_rules()
      Facility-customizable: additional safety rules, modified severity, facility-specific procedures -->
@@ -94,8 +99,9 @@ Tools are split across multiple MCP servers. Use the correct server prefix for e
 | **channel-finder** | `build_channels`, `get_options`, `hierarchy_info`, `validate`, `statistics` (used by channel-resolver agent, not directly) |
 {% endif -%}
 {% if confluence is defined -%}
-| **mcp-atlassian** | `confluence_search`, `confluence_get_page`, `confluence_get_page_children`, `confluence_get_spaces`, `confluence_get_page_comments` |
-{% endif %}
+| **mcp-atlassian** | `confluence_search`, `confluence_get_page`, `confluence_get_page_children`, `confluence_get_spaces`, `confluence_get_page_comments`, `confluence_get_labels` |
+{% endif -%}
+| **accelpapers** | `papers_search`, `papers_get`, `papers_browse`, `papers_list_conferences`, `papers_search_author`, `papers_stats` — used by literature-search agent |
 
 **IMPORTANT:** `python_execute` is on `osprey-python-executor`, NOT on `osprey-control-system`.
 
@@ -163,6 +169,14 @@ or how-to guides, delegate to the **wiki-search** agent.
 **IMPORTANT:** For wiki *searches and lookups*, always delegate to the
 wiki-search agent rather than calling Confluence tools directly.
 {% endif %}
+
+### Literature search
+When the user asks about published research, prior art, accelerator physics papers,
+or needs citations, delegate to the **literature-search** agent.
+
+**IMPORTANT:** For literature *searches and lookups*, always delegate to the
+literature-search agent rather than calling accelpapers tools directly.
+
 ## Artifact Gallery
 
 You can create interactive artifacts (plots, tables, reports) that appear in the
