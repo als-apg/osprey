@@ -267,9 +267,7 @@ class TestResolveTimeRange:
             datetime(2024, 1, 31, tzinfo=UTC),
         )
 
-    def test_tool_params_override_fallback(
-        self, fallback_range: tuple[datetime, datetime]
-    ) -> None:
+    def test_tool_params_override_fallback(self, fallback_range: tuple[datetime, datetime]) -> None:
         """Test that tool params override fallback range."""
         tool_start = datetime(2023, 1, 1, tzinfo=UTC)
         tool_end = datetime(2023, 12, 31, tzinfo=UTC)
@@ -278,9 +276,7 @@ class TestResolveTimeRange:
         assert start == tool_start
         assert end == tool_end
 
-    def test_partial_tool_params_override(
-        self, fallback_range: tuple[datetime, datetime]
-    ) -> None:
+    def test_partial_tool_params_override(self, fallback_range: tuple[datetime, datetime]) -> None:
         """Test that partial tool params override fallback range."""
         tool_start = datetime(2023, 1, 1, tzinfo=UTC)
 

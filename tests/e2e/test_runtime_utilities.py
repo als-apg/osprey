@@ -298,7 +298,8 @@ async def test_runtime_utilities_respects_channel_limits(e2e_project_factory, tm
         or "limits" in trace_lower
         or "limits violation" in response_lower
         or "exceeds" in response_lower
-        or "maximum" in response_lower and "100" in response_lower
+        or "maximum" in response_lower
+        and "100" in response_lower
     )
     assert limits_detected, (
         "Channel limits violation not detected!\n"
