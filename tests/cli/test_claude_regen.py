@@ -636,7 +636,7 @@ class TestFacilityMd:
         assert facility_file.exists()
         content = facility_file.read_text()
         assert "Facility Identity" in content
-        assert "facility-init" in content
+        assert "Example Research Facility" in content
 
     def test_facility_md_never_overwritten(self, tmp_path):
         """Regen preserves customized facility.md."""
