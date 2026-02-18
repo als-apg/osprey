@@ -105,6 +105,7 @@ class TestClaudeCodeFileContents:
         assert "ask" in data["permissions"]
         assert "mcp__osprey-control-system__channel_read" in data["permissions"]["allow"]
         assert "mcp__osprey-control-system__channel_write" in data["permissions"]["ask"]
+        assert "mcp__osprey-workspace__submit_response" in data["permissions"]["allow"]
 
         assert "hooks" in data
         assert "PreToolUse" in data["hooks"]
@@ -426,6 +427,18 @@ class TestChannelResolverAgent:
             # If file exists, it should be empty (Jinja2 guard renders nothing)
             assert agent_path.read_text().strip() == ""
 
+    def test_agent_has_submit_response_instructions(self, tmp_path):
+        """Channel-resolver agent prompt includes submit_response instructions."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="cr-submit-test",
+            output_dir=tmp_path,
+            template_name="control_assistant",
+        )
+        content = (project_dir / ".claude" / "agents" / "channel-resolver.md").read_text()
+        assert "submit_response" in content
+        assert "Submitting Results" in content
+
     def test_channel_finder_tools_allowed_by_default(self, tmp_path):
         """control_assistant allows all channel-finder MCP tools in settings.json."""
         manager = TemplateManager()
@@ -507,6 +520,18 @@ class TestLogbookSearchAgent:
         assert "disallowedTools:" in content
         assert "mcpServers" not in content  # project-level, not inline
 
+    def test_agent_has_submit_response_instructions(self, tmp_path):
+        """Agent prompt includes submit_response instructions."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="logbook-submit-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+        content = (project_dir / ".claude" / "agents" / "logbook-search.md").read_text()
+        assert "submit_response" in content
+        assert "Submitting Results" in content
+
     def test_task_allowed_in_settings(self, tmp_path):
         """Task(logbook-search) is in settings.json allow list."""
         manager = TemplateManager()
@@ -566,6 +591,18 @@ class TestLogbookDeepResearchAgent:
         assert "disallowedTools:" in content
         assert "mcpServers" not in content  # project-level, not inline
 
+    def test_agent_has_submit_response_instructions(self, tmp_path):
+        """Agent prompt includes submit_response instructions."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="deep-research-submit-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+        content = (project_dir / ".claude" / "agents" / "logbook-deep-research.md").read_text()
+        assert "submit_response" in content
+        assert "Submitting Results" in content
+
     def test_task_allowed_in_settings(self, tmp_path):
         """Task(logbook-deep-research) is in settings.json allow list."""
         manager = TemplateManager()
@@ -590,6 +627,79 @@ class TestLogbookDeepResearchAgent:
         assert "logbook-search" in content
         # Should have guidance on when to use each
         assert "complex" in content.lower() or "investigation" in content.lower()
+
+
+class TestWikiSearchAgent:
+    """Test wiki-search agent generation."""
+
+    def test_agent_file_generated(self, tmp_path):
+        """Agent file exists when confluence is defined."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="wiki-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+            context={"confluence": {"url": "https://wiki.example.com"}},
+        )
+        agent_path = project_dir / ".claude" / "agents" / "wiki-search.md"
+        assert agent_path.exists()
+        content = agent_path.read_text()
+        assert len(content.strip()) > 0
+
+    def test_agent_has_correct_frontmatter(self, tmp_path):
+        """Agent file has YAML frontmatter with name, model, disallowedTools."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="wiki-fm-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+            context={"confluence": {"url": "https://wiki.example.com"}},
+        )
+        content = (project_dir / ".claude" / "agents" / "wiki-search.md").read_text()
+        assert "name: wiki-search" in content
+        assert "model: sonnet" in content
+        assert "description:" in content
+        assert "disallowedTools:" in content
+        assert "mcpServers" not in content  # project-level, not inline
+
+    def test_agent_has_submit_response_instructions(self, tmp_path):
+        """Agent prompt includes submit_response and Submitting Results section."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="wiki-submit-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+            context={"confluence": {"url": "https://wiki.example.com"}},
+        )
+        content = (project_dir / ".claude" / "agents" / "wiki-search.md").read_text()
+        assert "submit_response" in content
+        assert "Submitting Results" in content
+
+    def test_task_allowed_in_settings(self, tmp_path):
+        """Task(wiki-search) and mcp__confluence are in settings.json allow list."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="wiki-perm-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+            context={"confluence": {"url": "https://wiki.example.com"}},
+        )
+        data = json.loads((project_dir / ".claude" / "settings.json").read_text())
+        assert "Task(wiki-search)" in data["permissions"]["allow"]
+        assert "mcp__confluence" in data["permissions"]["allow"]
+
+    def test_no_agent_without_confluence(self, tmp_path):
+        """Minimal template without confluence does NOT produce wiki-search agent."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="no-wiki-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+        agent_path = project_dir / ".claude" / "agents" / "wiki-search.md"
+        if agent_path.exists():
+            # If file exists, it should be empty (Jinja2 guard renders nothing)
+            assert agent_path.read_text().strip() == ""
 
 
 class TestNeverFabricateDataRule:
