@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OSPREY Tuning</title>
+
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <!-- Plotly.js -->
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+
+  <!-- Tuning styles -->
+  <link rel="stylesheet" href="/static/css/tuning.css">
+</head>
+<body>
+
+  <!-- Header (hidden when embedded) -->
+  <header class="tuning-header" id="tuning-header">
+    <span class="tuning-logo">OSPREY</span>
+    <span class="tuning-title">Tuning</span>
+  </header>
+
+  <!-- Top Navbar: environment selector + status -->
+  <nav class="tuning-navbar" id="tuning-navbar">
+    <div class="navbar-left">
+      <label class="navbar-label" for="env-select">Environment</label>
+      <select class="select" id="env-select" disabled>
+        <option value="">Loading...</option>
+      </select>
+      <span class="status-badge" id="env-status-badge">
+        <span class="status-dot"></span>
+        <span class="status-text">Offline</span>
+      </span>
+    </div>
+    <div class="navbar-right">
+      <label class="navbar-label" for="run-select">History</label>
+      <select class="select" id="run-select" disabled>
+        <option value="">No runs</option>
+      </select>
+      <button class="btn btn-secondary btn-sm" id="new-run-btn" disabled>New Run</button>
+    </div>
+  </nav>
+
+  <!-- Tab Bar -->
+  <div class="tuning-tabs" id="tuning-tabs">
+    <button class="tuning-tab active" data-tab="optimization-tab">Optimization</button>
+    <button class="tuning-tab" data-tab="analysis-tab">Analysis</button>
+  </div>
+
+  <!-- Tab Content -->
+  <div class="tuning-content">
+
+    <!-- Optimization Tab -->
+    <div class="tab-panel active" id="optimization-tab">
+      <!-- Validation alert -->
+      <div class="alert alert-danger" id="validation-alert" style="display: none;">
+        <span class="alert-text" id="validation-text"></span>
+        <button class="alert-dismiss" id="validation-dismiss">&times;</button>
+      </div>
+
+      <div class="optimization-layout">
+        <!-- Left Column: Form -->
+        <div class="optimization-form" id="optimization-form">
+          <!-- Accordion: Phase 1 (LHS) -->
+          <div class="accordion" id="lhs-accordion">
+            <div class="accordion-item">
+              <button class="accordion-toggle" id="lhs-toggle">
+                <span class="accordion-chevron">&#9660;</span>
+                <span class="accordion-title">Phase 1 &mdash; Latin Hypercube Sampling</span>
+              </button>
+              <div class="accordion-body" id="lhs-body">
+                <div class="form-row">
+                  <div class="input-group">
+                    <label class="input-label" for="lhs-objective">Objective</label>
+                    <select class="select" id="lhs-objective"><option value="">Select variable...</option></select>
+                  </div>
+                  <div class="input-group">
+                    <label class="input-label" for="lhs-samples">LHS Samples</label>
+                    <input class="input" type="number" id="lhs-samples" value="20" min="1">
+                  </div>
+                </div>
+
+                <div class="variable-table-container">
+                  <div class="table-toolbar">
+                    <span class="table-title">Variables</span>
+                    <button class="btn btn-ghost btn-sm" id="lhs-select-all">Select All</button>
+                    <button class="btn btn-ghost btn-sm" id="lhs-deselect-all">Deselect All</button>
+                  </div>
+                  <table class="data-table" id="lhs-variable-table">
+                    <thead>
+                      <tr>
+                        <th class="col-check"><input type="checkbox" id="lhs-check-all"></th>
+                        <th>PV Name</th>
+                        <th>Current</th>
+                        <th>Min</th>
+                        <th>Max</th>
+                        <th>Step</th>
+                      </tr>
+                    </thead>
+                    <tbody id="lhs-table-body">
+                      <tr class="empty-row"><td colspan="6">No variables added</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <!-- Add Variable -->
+                <div class="add-variable-form" id="lhs-add-form">
+                  <div class="form-row">
+                    <div class="input-group flex-grow">
+                      <label class="input-label" for="lhs-add-pv">PV Name</label>
+                      <input class="input" type="text" id="lhs-add-pv" placeholder="e.g. SR:C01-MG:G01">
+                    </div>
+                    <button class="btn btn-secondary btn-sm" id="lhs-check-value">Check Value</button>
+                    <button class="btn btn-primary btn-sm" id="lhs-add-btn" disabled>Add</button>
+                  </div>
+                  <div class="add-variable-result" id="lhs-add-result" style="display: none;"></div>
+                </div>
+
+                <div class="form-actions">
+                  <button class="btn btn-ghost btn-sm" id="lhs-reset-btn">Reset</button>
+                  <button class="btn btn-secondary btn-sm" id="lhs-update-btn">Update Bounds</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Accordion: Phase 2 (BO) -->
+          <div class="accordion" id="bo-accordion">
+            <div class="accordion-item">
+              <button class="accordion-toggle" id="bo-toggle">
+                <span class="accordion-chevron">&#9660;</span>
+                <span class="accordion-title">Phase 2 &mdash; Bayesian Optimization</span>
+              </button>
+              <div class="accordion-body" id="bo-body">
+                <div class="form-row">
+                  <div class="input-group">
+                    <label class="input-label" for="bo-objective">Objective</label>
+                    <select class="select" id="bo-objective"><option value="">Select variable...</option></select>
+                  </div>
+                  <div class="input-group">
+                    <label class="input-label" for="bo-algorithm">Algorithm</label>
+                    <select class="select" id="bo-algorithm">
+                      <option value="expected_improvement">Expected Improvement</option>
+                      <option value="upper_confidence_bound">UCB</option>
+                      <option value="probability_of_improvement">Prob. of Improvement</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="input-group">
+                    <label class="input-label" for="bo-top-points">Top Points</label>
+                    <input class="input" type="number" id="bo-top-points" value="5" min="1">
+                  </div>
+                  <div class="input-group">
+                    <label class="input-label" for="bo-iterations">BO Iterations</label>
+                    <input class="input" type="number" id="bo-iterations" value="30" min="1">
+                  </div>
+                </div>
+
+                <div class="variable-table-container">
+                  <div class="table-toolbar">
+                    <span class="table-title">Variables</span>
+                    <button class="btn btn-ghost btn-sm" id="bo-select-all">Select All</button>
+                    <button class="btn btn-ghost btn-sm" id="bo-deselect-all">Deselect All</button>
+                  </div>
+                  <table class="data-table" id="bo-variable-table">
+                    <thead>
+                      <tr>
+                        <th class="col-check"><input type="checkbox" id="bo-check-all"></th>
+                        <th>PV Name</th>
+                        <th>Current</th>
+                        <th>Min</th>
+                        <th>Max</th>
+                        <th>Step</th>
+                        <th>BO Range</th>
+                      </tr>
+                    </thead>
+                    <tbody id="bo-table-body">
+                      <tr class="empty-row"><td colspan="7">No variables added</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <!-- Add Variable (BO) -->
+                <div class="add-variable-form" id="bo-add-form">
+                  <div class="form-row">
+                    <div class="input-group flex-grow">
+                      <label class="input-label" for="bo-add-pv">PV Name</label>
+                      <input class="input" type="text" id="bo-add-pv" placeholder="e.g. SR:C01-MG:G01">
+                    </div>
+                    <button class="btn btn-secondary btn-sm" id="bo-check-value">Check Value</button>
+                    <button class="btn btn-primary btn-sm" id="bo-add-btn" disabled>Add</button>
+                  </div>
+                  <div class="add-variable-result" id="bo-add-result" style="display: none;"></div>
+                </div>
+
+                <div class="form-actions">
+                  <button class="btn btn-ghost btn-sm" id="bo-reset-btn">Reset</button>
+                  <button class="btn btn-secondary btn-sm" id="bo-update-btn">Update Bounds</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Testing mode indicator -->
+          <div class="testing-indicator" id="testing-indicator" style="display: none;">
+            <span class="status-dot warning"></span>
+            <span>Testing Mode</span>
+          </div>
+
+          <!-- Control Buttons -->
+          <div class="control-buttons" id="control-buttons">
+            <button class="btn btn-primary" id="start-btn" disabled>Start Optimization</button>
+            <button class="btn btn-warning" id="pause-btn" disabled style="display: none;">Pause</button>
+            <button class="btn btn-warning" id="resume-btn" disabled style="display: none;">Resume</button>
+            <button class="btn btn-danger" id="cancel-btn" disabled style="display: none;">Cancel</button>
+          </div>
+        </div>
+
+        <!-- Right Column: Progress -->
+        <div class="optimization-progress" id="optimization-progress">
+          <div class="progress-header">
+            <span class="status-badge" id="run-status-badge">
+              <span class="status-dot"></span>
+              <span class="status-text">Idle</span>
+            </span>
+            <div class="display-mode-selector">
+              <label class="navbar-label">Display</label>
+              <select class="select select-sm" id="display-mode">
+                <option value="normalized">Normalized</option>
+                <option value="raw">Raw</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Plotly Chart -->
+          <div class="plot-container" id="optimization-plot">
+            <div class="plot-empty">Start an optimization to see results</div>
+          </div>
+
+          <!-- Selected Point -->
+          <div class="selected-point" id="selected-point" style="display: none;">
+            <span class="selected-point-text" id="selected-point-text"></span>
+            <button class="btn btn-primary btn-sm" id="apply-point-btn">Apply Selected Point</button>
+          </div>
+
+          <!-- Results Table (collapsible) -->
+          <div class="collapsible" id="results-section">
+            <button class="collapsible-toggle" id="results-toggle">
+              <span class="accordion-chevron">&#9654;</span>
+              Results Table
+            </button>
+            <div class="collapsible-body" id="results-body" style="display: none;">
+              <table class="data-table data-table-compact" id="results-table">
+                <thead><tr><th>Iter</th><th>Objective</th><th>Phase</th></tr></thead>
+                <tbody id="results-table-body">
+                  <tr class="empty-row"><td colspan="3">No results yet</td></tr>
+                </tbody>
+              </table>
+              <div class="pagination" id="results-pagination"></div>
+            </div>
+          </div>
+
+          <!-- Log Output (collapsible) -->
+          <div class="collapsible" id="logs-section">
+            <button class="collapsible-toggle" id="logs-toggle">
+              <span class="accordion-chevron">&#9654;</span>
+              Logs
+            </button>
+            <div class="collapsible-body" id="logs-body" style="display: none;">
+              <textarea class="log-output" id="log-output" readonly></textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Analysis Tab -->
+    <div class="tab-panel" id="analysis-tab">
+      <div class="analysis-content" id="analysis-content">
+        <div class="analysis-empty">
+          <div class="analysis-empty-icon">&#128202;</div>
+          <div class="analysis-empty-title">No Run Selected</div>
+          <div class="analysis-empty-text">Select a historical run from the dropdown above to view analysis.</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- App entry point -->
+  <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>
