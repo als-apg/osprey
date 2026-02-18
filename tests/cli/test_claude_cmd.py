@@ -11,11 +11,13 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.claude_cmd import (
+    chat_claude,
     claude,
     get_claude_skills_dir,
     get_installed_skills,
     install_skill,
     list_skills,
+    regen,
 )
 
 
@@ -361,3 +363,135 @@ class TestClaudeGroupCommand:
 
         assert result.exit_code == 0
         assert "tasks" in result.output.lower()
+
+    def test_claude_help_shows_regen(self, cli_runner):
+        """Test that help text shows regen subcommand."""
+        result = cli_runner.invoke(claude, ["--help"])
+
+        assert result.exit_code == 0
+        assert "regen" in result.output.lower()
+
+    def test_claude_help_shows_chat(self, cli_runner):
+        """Test that help text shows chat subcommand."""
+        result = cli_runner.invoke(claude, ["--help"])
+
+        assert result.exit_code == 0
+        assert "chat" in result.output.lower()
+
+
+class TestClaudeRegenCommand:
+    """Test the 'osprey claude regen' command."""
+
+    def test_regen_command_exists(self, cli_runner):
+        """'osprey claude regen --help' returns exit code 0."""
+        result = cli_runner.invoke(regen, ["--help"])
+        assert result.exit_code == 0
+        assert "config.yml" in result.output
+
+    def test_regen_in_project(self, cli_runner, tmp_path):
+        """Regen succeeds in a valid project directory."""
+        from osprey.cli.templates import TemplateManager
+
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="regen-cli-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+
+        result = cli_runner.invoke(regen, ["--project", str(project_dir)])
+        assert result.exit_code == 0
+        assert "regenerated" in result.output.lower() or "up to date" in result.output.lower()
+
+    def test_regen_dry_run_flag(self, cli_runner, tmp_path):
+        """--dry-run shows what would change without modifying files."""
+        from osprey.cli.templates import TemplateManager
+
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="dry-run-cli",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+
+        result = cli_runner.invoke(regen, ["--project", str(project_dir), "--dry-run"])
+        assert result.exit_code == 0
+        assert "dry run" in result.output.lower()
+
+    def test_regen_outside_project_error(self, cli_runner, tmp_path):
+        """Running in non-project directory shows clear error."""
+        result = cli_runner.invoke(regen, ["--project", str(tmp_path)])
+        assert result.exit_code == 1
+
+
+class TestClaudeChatCommand:
+    """Test the 'osprey claude chat' command."""
+
+    def test_chat_command_exists(self, cli_runner):
+        """'osprey claude chat --help' returns exit code 0."""
+        result = cli_runner.invoke(chat_claude, ["--help"])
+        assert result.exit_code == 0
+        assert "claude code" in result.output.lower()
+
+    @patch("osprey.cli.claude_cmd.os.execvp")
+    def test_chat_calls_regen_then_exec(self, mock_execvp, cli_runner, tmp_path):
+        """Chat command regenerates then launches claude CLI."""
+        from osprey.cli.templates import TemplateManager
+
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="chat-cli-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+
+        result = cli_runner.invoke(
+            chat_claude, ["--project", str(project_dir)]
+        )
+
+        assert result.exit_code == 0
+        mock_execvp.assert_called_once()
+        call_args = mock_execvp.call_args
+        assert call_args[0][0] == "claude"
+        assert "--project-dir" in call_args[0][1]
+
+    @patch("osprey.cli.claude_cmd.os.execvp")
+    def test_chat_passes_resume_flag(self, mock_execvp, cli_runner, tmp_path):
+        """Chat command passes --resume flag to claude CLI."""
+        from osprey.cli.templates import TemplateManager
+
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="chat-resume-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+
+        cli_runner.invoke(
+            chat_claude,
+            ["--project", str(project_dir), "--resume", "abc123"],
+        )
+
+        call_args = mock_execvp.call_args[0][1]
+        assert "--resume" in call_args
+        assert "abc123" in call_args
+
+    @patch("osprey.cli.claude_cmd.os.execvp")
+    def test_chat_passes_print_flag(self, mock_execvp, cli_runner, tmp_path):
+        """Chat command passes --print flag to claude CLI."""
+        from osprey.cli.templates import TemplateManager
+
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="chat-print-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+
+        cli_runner.invoke(
+            chat_claude,
+            ["--project", str(project_dir), "--print"],
+        )
+
+        call_args = mock_execvp.call_args[0][1]
+        assert "--print" in call_args

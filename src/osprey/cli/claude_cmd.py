@@ -18,6 +18,7 @@ Skill Generation:
     - allowed_tools: Optional list of allowed tools (defaults to standard set)
 """
 
+import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -194,13 +195,19 @@ def get_installed_skills() -> list[str]:
 @click.group(name="claude", invoke_without_command=True)
 @click.pass_context
 def claude(ctx):
-    """Manage Claude Code skills.
+    """Manage Claude Code integration.
 
-    Install and manage OSPREY task skills for Claude Code.
+    Install skills, regenerate artifacts, and launch Claude Code.
 
     Examples:
 
     \b
+      # Regenerate Claude Code artifacts from config.yml
+      osprey claude regen
+
+      # Launch Claude Code with fresh artifacts
+      osprey claude chat
+
       # Install a skill
       osprey claude install pre-commit
 
@@ -423,3 +430,135 @@ def list_skills():
         console.print("No skills installed yet.\n")
         console.print("Browse available tasks: [command]osprey tasks list[/command]")
         console.print("Install a skill: [command]osprey claude install <task>[/command]\n")
+
+
+@claude.command(name="regen")
+@click.option(
+    "--project",
+    "-p",
+    type=click.Path(exists=True, file_okay=False, resolve_path=True),
+    default=None,
+    help="Project directory (default: current directory)",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Show what would change without writing files",
+)
+def regen(project, dry_run):
+    """Regenerate Claude Code artifacts from config.yml.
+
+    Re-reads config.yml and re-renders all Claude Code integration files
+    (.mcp.json, .claude/settings.json, CLAUDE.md, agents). Existing files
+    are backed up to osprey-workspace/backup/ before overwriting.
+
+    User-maintained files (CLAUDE-project.md) are never overwritten.
+
+    Examples:
+
+    \b
+      # Regenerate in current directory
+      osprey claude regen
+
+      # Preview changes without writing
+      osprey claude regen --dry-run
+
+      # Regenerate for a specific project
+      osprey claude regen --project /path/to/project
+    """
+    from osprey.cli.templates import TemplateManager
+
+    project_dir = Path(project) if project else Path.cwd()
+
+    try:
+        manager = TemplateManager()
+        result = manager.regenerate_claude_code(project_dir, dry_run=dry_run)
+    except FileNotFoundError as e:
+        console.print(f"[error]Error:[/error] {e}", style="red")
+        raise SystemExit(1)
+
+    if dry_run:
+        console.print("\n[bold]Dry run — no files modified[/bold]\n")
+        if result["changed"]:
+            console.print("[dim]Would change:[/dim]")
+            for f in result["changed"]:
+                console.print(f"  [warning]~[/warning] {f}")
+        if result["unchanged"]:
+            console.print("[dim]Unchanged:[/dim]")
+            for f in result["unchanged"]:
+                console.print(f"  [dim]  {f}[/dim]")
+        if not result["changed"]:
+            console.print("[success]All artifacts are up to date.[/success]")
+        console.print()
+    else:
+        console.print("\n[bold]Claude Code artifacts regenerated[/bold]\n")
+        if result["changed"]:
+            console.print("[dim]Changed:[/dim]")
+            for f in result["changed"]:
+                console.print(f"  [success]✓[/success] {f}")
+        if result["unchanged"]:
+            console.print("[dim]Unchanged:[/dim]")
+            for f in result["unchanged"]:
+                console.print(f"  [dim]  {f}[/dim]")
+        if not result["changed"]:
+            console.print("[success]All artifacts were already up to date.[/success]")
+        else:
+            console.print(f"\n[dim]Backup saved to: {result['backup_dir']}[/dim]")
+        console.print()
+
+
+@claude.command(name="chat")
+@click.option(
+    "--project",
+    "-p",
+    type=click.Path(exists=True, file_okay=False, resolve_path=True),
+    default=None,
+    help="Project directory (default: current directory)",
+)
+@click.option("--resume", default=None, help="Resume a previous Claude Code session")
+@click.option("--print", "print_mode", is_flag=True, help="Use print mode (non-interactive)")
+def chat_claude(project, resume, print_mode):
+    """Launch Claude Code with regenerated artifacts.
+
+    Regenerates Claude Code integration files from config.yml,
+    then launches the Claude Code CLI in the project directory.
+
+    Examples:
+
+    \b
+      # Launch Claude Code
+      osprey claude chat
+
+      # Resume a previous session
+      osprey claude chat --resume SESSION_ID
+
+      # Non-interactive mode
+      osprey claude chat --print
+    """
+    from osprey.cli.templates import TemplateManager
+
+    project_dir = Path(project) if project else Path.cwd()
+
+    # Regenerate artifacts first
+    try:
+        manager = TemplateManager()
+        result = manager.regenerate_claude_code(project_dir)
+        if result["changed"]:
+            console.print("[dim]Regenerated Claude Code artifacts[/dim]")
+            for f in result["changed"]:
+                console.print(f"  [success]✓[/success] {f}")
+            console.print()
+    except FileNotFoundError as e:
+        console.print(f"[error]Error:[/error] {e}", style="red")
+        raise SystemExit(1)
+
+    # Build claude CLI args
+    args = ["claude", "--project-dir", str(project_dir)]
+    if resume:
+        args.extend(["--resume", resume])
+    if print_mode:
+        args.append("--print")
+
+    # Replace current process with claude CLI
+    console.print(f"[dim]Launching Claude Code in {project_dir}...[/dim]\n")
+    os.execvp("claude", args)
