@@ -9,7 +9,8 @@ Covers:
 """
 
 import json
-from unittest.mock import patch
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -349,13 +350,45 @@ class TestSaveArtifactInjection:
 
     @pytest.mark.asyncio
     async def test_save_artifact_available_in_namespace(self, tmp_path, monkeypatch):
-        """save_artifact() function is available inside python_execute code."""
+        """save_artifact() in subprocess produces artifacts collected by executor."""
         monkeypatch.chdir(tmp_path)
 
-        with patch(
-            "osprey.services.python_executor.analysis.pattern_detection"
-            ".detect_control_system_operations",
-            return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
+        from osprey.mcp_server.python_executor.executor import ExecutionResult
+
+        # Create a fake artifact file that the subprocess would have produced
+        art_dir = tmp_path / "artifacts"
+        art_dir.mkdir()
+        art_file = art_dir / "abc123_test.md"
+        art_file.write_text("# Test")
+
+        mock_exec = AsyncMock(
+            return_value=ExecutionResult(
+                success=True,
+                stdout="",
+                stderr="",
+                execution_method_used="local",
+                artifacts=[
+                    {
+                        "path": art_file,
+                        "title": "From Python",
+                        "description": "",
+                        "artifact_type": "markdown",
+                        "mime_type": "text/markdown",
+                    }
+                ],
+            )
+        )
+
+        with (
+            patch(
+                "osprey.services.python_executor.analysis.pattern_detection"
+                ".detect_control_system_operations",
+                return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
+            ),
+            patch(
+                "osprey.mcp_server.python_executor.executor.execute_code",
+                mock_exec,
+            ),
         ):
             fn = _get_python_execute()
             result = await fn(
@@ -367,23 +400,62 @@ class TestSaveArtifactInjection:
         data = json.loads(result)
         assert data["status"] == "success"
         assert "artifact_ids" in data
-        # 1 user artifact + 1 auto-created notebook artifact
+        # 1 subprocess artifact + 1 auto-created notebook artifact
         assert len(data["artifact_ids"]) == 2
 
     @pytest.mark.asyncio
     async def test_multiple_artifacts_in_one_execution(self, tmp_path, monkeypatch):
-        """Multiple save_artifact() calls collect all IDs."""
+        """Multiple subprocess artifacts are collected into artifact_ids."""
         monkeypatch.chdir(tmp_path)
+
+        from osprey.mcp_server.python_executor.executor import ExecutionResult
+
+        # Create fake artifact files
+        art_dir = tmp_path / "artifacts"
+        art_dir.mkdir()
+        art_files = []
+        for i, (title, content, atype, mime) in enumerate([
+            ("First Artifact", "# First", "markdown", "text/markdown"),
+            ("Second Artifact", '{"key": "value"}', "json", "application/json"),
+            ("Third Artifact", "# Third", "markdown", "text/markdown"),
+        ]):
+            art_file = art_dir / f"art_{i}.txt"
+            art_file.write_text(content)
+            art_files.append(
+                {
+                    "path": art_file,
+                    "title": title,
+                    "description": "",
+                    "artifact_type": atype,
+                    "mime_type": mime,
+                }
+            )
+
+        mock_exec = AsyncMock(
+            return_value=ExecutionResult(
+                success=True,
+                stdout="",
+                stderr="",
+                execution_method_used="local",
+                artifacts=art_files,
+            )
+        )
 
         code = """
 save_artifact("# First", title="First Artifact")
 save_artifact({"key": "value"}, title="Second Artifact")
 save_artifact("# Third", title="Third Artifact")
 """
-        with patch(
-            "osprey.services.python_executor.analysis.pattern_detection"
-            ".detect_control_system_operations",
-            return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
+        with (
+            patch(
+                "osprey.services.python_executor.analysis.pattern_detection"
+                ".detect_control_system_operations",
+                return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
+            ),
+            patch(
+                "osprey.mcp_server.python_executor.executor.execute_code",
+                mock_exec,
+            ),
         ):
             fn = _get_python_execute()
             result = await fn(
@@ -394,7 +466,7 @@ save_artifact("# Third", title="Third Artifact")
 
         data = json.loads(result)
         assert data["status"] == "success"
-        # 3 user artifacts + 1 auto-created notebook artifact
+        # 3 subprocess artifacts + 1 auto-created notebook artifact
         assert len(data["artifact_ids"]) == 4
 
     @pytest.mark.asyncio
@@ -402,10 +474,24 @@ save_artifact("# Third", title="Third Artifact")
         """Even without explicit save_artifact() calls, a notebook artifact is created."""
         monkeypatch.chdir(tmp_path)
 
-        with patch(
-            "osprey.services.python_executor.analysis.pattern_detection"
-            ".detect_control_system_operations",
-            return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
+        from osprey.mcp_server.python_executor.executor import ExecutionResult
+
+        mock_exec = AsyncMock(
+            return_value=ExecutionResult(
+                success=True, stdout="", stderr="", execution_method_used="local"
+            )
+        )
+
+        with (
+            patch(
+                "osprey.services.python_executor.analysis.pattern_detection"
+                ".detect_control_system_operations",
+                return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
+            ),
+            patch(
+                "osprey.mcp_server.python_executor.executor.execute_code",
+                mock_exec,
+            ),
         ):
             fn = _get_python_execute()
             result = await fn(

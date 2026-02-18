@@ -8,7 +8,6 @@ PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code
 
 import json
 import logging
-from collections.abc import Callable
 
 import nbformat
 
@@ -22,52 +21,6 @@ _STDOUT_PREVIEW_LIMIT = 500
 _STDERR_PREVIEW_LIMIT = 500
 
 
-def _build_save_artifact_fn() -> tuple[Callable, list[str]]:
-    """Build a ``save_artifact()`` closure for injection into exec namespaces.
-
-    Returns:
-        (save_artifact_fn, artifact_ids_list)
-        The list is mutated in-place by save_artifact_fn so the caller can
-        inspect which artifacts were created during execution.
-    """
-    artifact_ids: list[str] = []
-
-    def save_artifact(
-        obj,
-        title: str = "Untitled",
-        description: str = "",
-        artifact_type: str | None = None,
-    ):
-        """Save an object as a gallery artifact.
-
-        Supported types:
-          - plotly.graph_objects.Figure -> interactive HTML plot
-          - matplotlib.figure.Figure -> PNG image
-          - pandas.DataFrame -> HTML table
-          - str -> markdown or HTML (auto-detected)
-          - dict / list -> JSON
-
-        Args:
-            obj: The object to save.
-            title: Human-readable title shown in the gallery.
-            description: Optional longer description.
-            artifact_type: Override the auto-detected type.
-        """
-        from osprey.mcp_server.artifact_store import get_artifact_store
-
-        store = get_artifact_store()
-        entry = store.save_object(
-            obj=obj,
-            title=title,
-            description=description,
-            artifact_type=artifact_type,
-            tool_source="python_execute",
-        )
-        artifact_ids.append(entry.id)
-
-    return save_artifact, artifact_ids
-
-
 @mcp.tool()
 async def python_execute(
     code: str,
@@ -78,18 +31,17 @@ async def python_execute(
     """Execute Python code with process isolation, limits enforcement, and timeout.
 
     Code runs in a container or local subprocess (configured via config.yml).
-    If neither is available, falls back to in-process execution.
 
     Safety layers applied before execution:
       1. ``quick_safety_check()`` — blocks exec/eval/__import__/subprocess
       2. ``detect_control_system_operations()`` — blocks writes in readonly mode
-    Safety layers applied during execution (container/subprocess only):
+    Safety layers applied during execution:
       3. ``ExecutionWrapper`` monkeypatch — validates epics.caput() against limits DB
       4. Process isolation — code runs outside the MCP server process
       5. Execution timeout — kills execution after configured timeout
 
-    A ``save_artifact(obj, title, description)`` helper is available in all
-    execution modes for saving objects to the artifact gallery.
+    A ``save_artifact(obj, title, description)`` helper is available in the
+    subprocess for saving objects to the artifact gallery.
 
     Args:
         code: Python source code to execute.
@@ -148,8 +100,8 @@ async def python_execute(
             )
         )
 
-    # --- Execute code via adapter (container / subprocess / in-process fallback) ---
-    save_artifact_fn, artifact_ids = _build_save_artifact_fn()
+    # --- Execute code via adapter (container / subprocess) ---
+    artifact_ids: list[str] = []
 
     from osprey.mcp_server.python_executor.executor import execute_code
 
@@ -157,7 +109,6 @@ async def python_execute(
         code=code,
         execution_mode=execution_mode,
         description=description,
-        save_artifact_fn=save_artifact_fn,
     )
 
     stdout_text = exec_result.stdout
