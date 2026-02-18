@@ -34,6 +34,7 @@ def create_server() -> FastMCP:
         focus_tools,
         memory,
         screen_capture,
+        submit_response,
     )
 
     logger.info("Workspace MCP server initialised with all tools registered")

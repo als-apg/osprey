@@ -1,9 +1,9 @@
 """Tests for ARIEL MCP registry."""
 
 import json
+from unittest.mock import AsyncMock, patch
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from osprey.interfaces.ariel.mcp.registry import (
     ARIELMCPRegistry,

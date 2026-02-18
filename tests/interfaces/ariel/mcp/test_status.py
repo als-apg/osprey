@@ -2,17 +2,18 @@
 
 import json
 from datetime import datetime
+from unittest.mock import AsyncMock, patch
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
-from tests.interfaces.ariel.mcp.conftest import get_tool_fn
 from osprey.interfaces.ariel.mcp.registry import initialize_ariel_registry
 from osprey.services.ariel_search.models import ARIELStatusResult, EmbeddingTableInfo
+from tests.interfaces.ariel.mcp.conftest import get_tool_fn
 
 
 def _get_ariel_status():
     from osprey.interfaces.ariel.mcp.tools.status import ariel_status
+
     return get_tool_fn(ariel_status)
 
 
@@ -53,8 +54,10 @@ async def test_status_healthy(tmp_path, monkeypatch):
     mock_service = AsyncMock()
     mock_service.get_status.return_value = status_result
 
-    with patch("osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
-               new=AsyncMock(return_value=mock_service)):
+    with patch(
+        "osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
         fn = _get_ariel_status()
         result = await fn()
 
@@ -90,8 +93,10 @@ async def test_status_db_error(tmp_path, monkeypatch):
     mock_service = AsyncMock()
     mock_service.get_status.return_value = status_result
 
-    with patch("osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
-               new=AsyncMock(return_value=mock_service)):
+    with patch(
+        "osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
         fn = _get_ariel_status()
         result = await fn()
 
@@ -109,8 +114,10 @@ async def test_status_service_exception(tmp_path, monkeypatch):
     mock_service = AsyncMock()
     mock_service.get_status.side_effect = RuntimeError("Service crashed")
 
-    with patch("osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
-               new=AsyncMock(return_value=mock_service)):
+    with patch(
+        "osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
         fn = _get_ariel_status()
         result = await fn()
 
