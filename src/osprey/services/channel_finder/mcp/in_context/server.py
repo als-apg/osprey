@@ -62,6 +62,7 @@ def create_server() -> FastMCP:
     # Import tool modules (each registers itself via @mcp.tool())
     from osprey.services.channel_finder.mcp.in_context.tools import (  # noqa: F401
         get_channels,
+        resolve_addresses,
         statistics,
         validate,
     )
