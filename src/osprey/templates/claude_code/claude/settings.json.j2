@@ -16,12 +16,16 @@
 {%- endif -%}
 {%- if "osprey-workspace" not in disable_servers -%}
 {%- set _ = allow_entries.append('"mcp__osprey-workspace__memory_recall"') -%}
+{%- set _ = allow_entries.append('"mcp__osprey-workspace__facility_description"') -%}
 {%- set _ = allow_entries.append('"mcp__osprey-workspace__screenshot_capture"') -%}
 {%- set _ = allow_entries.append('"mcp__osprey-workspace__list_windows"') -%}
 {%- set _ = allow_entries.append('"mcp__osprey-workspace__manage_window"') -%}
 {%- set _ = allow_entries.append('"mcp__osprey-workspace__submit_response"') -%}
 {%- set _ = allow_entries.append('"mcp__osprey-workspace__data_context_list"') -%}
 {%- set _ = allow_entries.append('"mcp__osprey-workspace__artifact_focus"') -%}
+{%- set _ = allow_entries.append('"mcp__osprey-workspace__graph_extract"') -%}
+{%- set _ = allow_entries.append('"mcp__osprey-workspace__graph_compare"') -%}
+{%- set _ = allow_entries.append('"mcp__osprey-workspace__graph_save_reference"') -%}
 {%- endif -%}
 {%- if "ariel" not in disable_servers -%}
 {%- set _ = allow_entries.append('"mcp__ariel__ariel_keyword_search"') -%}
@@ -75,6 +79,9 @@
 {%- endif -%}
 {%- if confluence is defined and "wiki-search" not in disable_agents -%}
 {%- set _ = allow_entries.append('"Task(wiki-search)"') -%}
+{%- endif -%}
+{%- if deplot is defined and "graph-analyst" not in disable_agents -%}
+{%- set _ = allow_entries.append('"Task(graph-analyst)"') -%}
 {%- endif -%}
 {% for entry in allow_entries %}      {{ entry }}{% if not loop.last %},{% endif %}
 {% endfor %}    ],
