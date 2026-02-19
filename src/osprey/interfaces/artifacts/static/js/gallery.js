@@ -379,6 +379,25 @@
       memory_recall: "Memory Recall",
       ariel_search: "ARIEL Search",
       screen_capture: "Screen Capture",
+      screenshot_capture: "Screenshot Capture",
+      graph_extract: "Graph Extract",
+      graph_compare: "Graph Compare",
+      graph_save_reference: "Graph Save Reference",
+      facility_description: "Facility Description",
+      artifact_save: "Artifact Save",
+      artifact_delete: "Artifact Delete",
+      artifact_export: "Artifact Export",
+      artifact_focus: "Artifact Focus",
+      context_focus: "Context Focus",
+      memory_focus: "Memory Focus",
+      submit_response: "Submit Response",
+      "channel-finder": "Channel Finder",
+      "graph-analyst": "Graph Analyst",
+      "literature-search": "Literature Search",
+      "logbook-deep-research": "Logbook Deep Research",
+      "logbook-search": "Logbook Search",
+      "matlab-search": "MATLAB Search",
+      "wiki-search": "Wiki Search",
     };
     return labels[tool] || tool;
   }
@@ -394,6 +413,25 @@
       memory_recall: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
       ariel_search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>',
       screen_capture: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
+      screenshot_capture: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
+      graph_extract: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3v18h18"/><path d="M7 16l4-8 4 4 4-6"/><circle cx="7" cy="16" r="1.5"/><circle cx="11" cy="8" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="19" cy="6" r="1.5"/></svg>',
+      graph_compare: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 2 4-6" stroke-dasharray="4 2"/><path d="M7 16l4-6 4 4 4-8"/></svg>',
+      graph_save_reference: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/><path d="M9 10l2 2 4-4"/></svg>',
+      facility_description: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 21h18M5 21V7l8-4v18M19 21V11l-6-4"/><path d="M9 9v.01M9 12v.01M9 15v.01M9 18v.01"/></svg>',
+      artifact_save: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>',
+      artifact_delete: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>',
+      artifact_export: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
+      artifact_focus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>',
+      context_focus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>',
+      memory_focus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>',
+      submit_response: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>',
+      "channel-finder": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/><path d="M8 11h6M11 8v6"/></svg>',
+      "graph-analyst": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3v18h18"/><path d="M7 16l4-8 4 4 4-6"/></svg>',
+      "literature-search": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>',
+      "logbook-deep-research": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/><circle cx="12" cy="10" r="3"/><path d="M14.5 12.5L17 15"/></svg>',
+      "logbook-search": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>',
+      "matlab-search": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 17l4-8 4 6 4-10 4 12"/><circle cx="19" cy="7" r="2"/></svg>',
+      "wiki-search": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>',
     };
     return icons[tool] || '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>';
   }
@@ -407,6 +445,9 @@
       memory: "Memory",
       search_results: "Search Results",
       screenshot: "Screenshot",
+      graph_extraction: "Graph Extraction",
+      graph_comparison: "Graph Comparison",
+      graph_reference: "Graph Reference",
     };
     return labels[dt] || dt;
   }
@@ -505,7 +546,7 @@
     switch (a.artifact_type) {
       case "plot_png":
       case "image":
-        return `<img src="${url}" alt="" loading="lazy" />`;
+        return `<img src="${url}" alt="" loading="lazy" onerror="this.parentElement.classList.add('img-error')" />`;
       case "plot_html":
       case "table_html":
       case "html":
@@ -734,6 +775,7 @@
         <span class="badge badge-${e.tool}">${toolLabel(e.tool)}</span>
       </div>
       <div class="focus-json-viewport">
+        ${e.data_type === "screenshot" ? `<div class="ctx-image-preview"><img src="/api/context/${e.id}/image" alt="${escapeHtml(e.description)}" class="ctx-preview-image" /></div>` : ""}
         <div class="context-info-cards">
           <div class="context-info-card">
             <div class="context-info-card-title">Summary</div>
@@ -1276,13 +1318,16 @@
     const summaryText = entry.summary
       ? Object.entries(entry.summary).map(([k, v]) => `${k}: ${v}`).join("\n")
       : entry.description;
+    const thumbContent = entry.data_type === "screenshot"
+      ? `<img src="/api/context/${entry.id}/image" alt="" loading="lazy" />`
+      : `<div class="ctx-thumb-summary">${escapeHtml(summaryText)}</div>`;
     return `
       <div class="gallery-card${sel}"
            data-id="${entry.id}"
            data-tool="${entry.tool}"
            style="animation-delay: ${i * 30}ms">
         <div class="gallery-card-thumb">
-          <div class="ctx-thumb-summary">${escapeHtml(summaryText)}</div>
+          ${thumbContent}
         </div>
         <div class="gallery-card-info">
           <div class="gallery-card-title" title="${escapeHtml(entry.description)}">${escapeHtml(entry.description)}</div>
@@ -1519,6 +1564,7 @@
           <span class="preview-meta-value">${formatFullTime(e.timestamp)}</span>
         </span>
       </div>
+      ${e.data_type === "screenshot" ? `<div class="ctx-image-preview"><img src="/api/context/${e.id}/image" alt="${escapeHtml(e.description)}" class="ctx-preview-image" /></div>` : ""}
       <div class="context-info-cards">
         <div class="context-info-card">
           <div class="context-info-card-title">Summary</div>
