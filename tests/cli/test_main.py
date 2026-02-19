@@ -10,6 +10,8 @@ from click.testing import CliRunner
 
 from osprey.cli.main import LazyGroup, cli, main
 
+pytestmark = pytest.mark.langgraph
+
 
 @pytest.fixture
 def runner():

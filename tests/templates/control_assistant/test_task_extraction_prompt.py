@@ -16,6 +16,8 @@ from osprey.prompts.defaults import ExtractedTask
 from osprey.prompts.defaults.task_extraction import DefaultTaskExtractionPromptBuilder
 from osprey.state import MessageUtils
 
+pytestmark = pytest.mark.langgraph
+
 
 class MockControlSystemTaskExtractionPromptBuilder(DefaultTaskExtractionPromptBuilder):
     """Mock of the control system task extraction prompt builder for testing."""

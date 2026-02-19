@@ -24,6 +24,8 @@ from osprey.cli.tasks_cmd import (
     tasks,
 )
 
+pytestmark = pytest.mark.langgraph
+
 
 @pytest.fixture
 def cli_runner():

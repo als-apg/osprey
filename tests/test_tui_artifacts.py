@@ -7,7 +7,11 @@ This module tests the TUI artifact display system including:
 - Integration with ChatDisplay
 """
 
+import pytest
+
 from osprey.state.artifacts import ArtifactType, create_artifact
+
+pytestmark = pytest.mark.langgraph
 
 
 class TestArtifactItemWidget:

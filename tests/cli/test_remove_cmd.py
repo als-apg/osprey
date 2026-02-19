@@ -16,6 +16,8 @@ from osprey.cli.remove_cmd import (
     remove,
 )
 
+pytestmark = pytest.mark.langgraph
+
 
 @pytest.fixture
 def cli_runner():

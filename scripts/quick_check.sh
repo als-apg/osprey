@@ -14,7 +14,7 @@ uv run ruff format src/ tests/ --quiet
 
 # Run fast tests only (stop on first failure for speed)
 echo "→ Running fast unit tests..."
-uv run pytest tests/ --ignore=tests/e2e -x --tb=line -q
+uv run pytest tests/ --ignore=tests/e2e -m "not langgraph" -x --tb=line -q
 
 echo ""
 echo "✅ Quick checks passed! Safe to commit."

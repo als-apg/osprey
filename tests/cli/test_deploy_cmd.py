@@ -11,6 +11,8 @@ from click.testing import CliRunner
 
 from osprey.cli.deploy_cmd import deploy
 
+pytestmark = pytest.mark.langgraph
+
 
 @pytest.fixture
 def cli_runner():

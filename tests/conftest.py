@@ -4,6 +4,7 @@ Pytest configuration and shared test utilities.
 This module provides shared fixtures and utilities for all Osprey tests.
 """
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -12,6 +13,57 @@ from langchain_core.messages import AIMessage, HumanMessage
 from osprey.base.planning import ExecutionPlan, PlannedStep
 from osprey.events import clear_fallback_handlers, register_fallback_handler
 from osprey.state import AgentState
+
+# ===================================================================
+# LangGraph Test Marker — applied via pytest_collection_modifyitems
+# ===================================================================
+
+# Directories whose tests are *exclusively* LangGraph orchestration.
+# Tests here get the 'langgraph' marker automatically.
+# Use -m "not langgraph" to skip them during Claude Code development.
+#
+# NOTE: Shared framework code (connectors, models, registry, services, etc.)
+# is intentionally NOT listed here — those tests validate code used by both
+# LangGraph and Claude Code and should always run.
+_LANGGRAPH_DIRS: set[str] = {
+    "tests/infrastructure",       # Graph nodes: router, classification, orchestration, gateway
+    "tests/capabilities",         # LangGraph capability wrappers
+    "tests/prompts",              # LangGraph-specific prompt builders
+    "tests/events",               # LangGraph streaming event system
+    "tests/integration",          # LangGraph integration tests
+    "tests/deployment",           # LangGraph deployment configs
+    "tests/interfaces/cui",       # CUI launcher (LangGraph chat UI)
+    "tests/interfaces/web_terminal",  # Web terminal (LangGraph chat UI)
+}
+
+# Channel finder is split: top-level files are LangGraph, mcp/ subdir is Claude Code
+_LANGGRAPH_CHANNEL_FINDER = "tests/services/channel_finder"
+_CLAUDE_CODE_CHANNEL_FINDER_MCP = "tests/services/channel_finder/mcp"
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item], config: pytest.Config) -> None:
+    """Apply 'langgraph' marker to tests in LangGraph-only directories."""
+    rootdir = Path(config.rootdir)
+    langgraph_mark = pytest.mark.langgraph
+
+    for item in items:
+        try:
+            rel = Path(item.fspath).relative_to(rootdir).as_posix()
+        except (ValueError, TypeError):
+            continue
+
+        # Channel finder special case: mcp/ subdir is Claude Code
+        if rel.startswith(_CLAUDE_CODE_CHANNEL_FINDER_MCP + "/"):
+            continue
+        if rel.startswith(_LANGGRAPH_CHANNEL_FINDER + "/"):
+            item.add_marker(langgraph_mark)
+            continue
+
+        # Check against full LangGraph directories
+        for lg_dir in _LANGGRAPH_DIRS:
+            if rel.startswith(lg_dir + "/"):
+                item.add_marker(langgraph_mark)
+                break
 
 # ===================================================================
 # Auto-reset Registry and Config Between Tests

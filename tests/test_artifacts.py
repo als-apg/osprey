@@ -9,6 +9,8 @@ This module tests the artifact abstraction layer including:
 
 import uuid
 
+import pytest
+
 from osprey.state import AgentState, StateManager
 from osprey.state.artifacts import (
     ArtifactType,
@@ -16,6 +18,8 @@ from osprey.state.artifacts import (
     get_artifact_type_icon,
     validate_artifact_data,
 )
+
+pytestmark = pytest.mark.langgraph
 
 
 class TestArtifactType:

@@ -23,6 +23,8 @@ from osprey.cli.generate_cmd import (
     generate,
 )
 
+pytestmark = pytest.mark.langgraph
+
 
 @pytest.fixture
 def cli_runner():

@@ -6,6 +6,8 @@ including router conditional edge logic and gateway message handling.
 
 import pytest
 
+pytestmark = pytest.mark.langgraph
+
 
 class TestRouterDirectChatMode:
     """Tests for router handling direct chat mode."""

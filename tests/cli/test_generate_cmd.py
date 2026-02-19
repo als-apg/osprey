@@ -12,6 +12,8 @@ from osprey.cli.generate_cmd import (
     is_project_initialized,
 )
 
+pytestmark = pytest.mark.langgraph
+
 
 @pytest.fixture
 def cli_runner():

@@ -40,7 +40,7 @@ else
   echo "✓ No obvious secrets"
 fi
 
-if ! uv run pytest tests/ --ignore=tests/e2e -x --tb=no -q >/dev/null 2>&1; then
+if ! uv run pytest tests/ --ignore=tests/e2e -m "not langgraph" -x --tb=no -q >/dev/null 2>&1; then
   echo "✗ Tests failing"
   ERRORS=$((ERRORS + 1))
 else

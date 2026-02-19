@@ -307,6 +307,7 @@ markers = [
     "requires_ollama: Tests that require local Ollama service",
     "asyncio: Async test marker",
     "vcr: VCR cassette recording/replay marker",
+    "langgraph: Tests for LangGraph orchestration infrastructure (skip with -m 'not langgraph')",
 ]
 
 # Ruff configuration for modern Python linting
