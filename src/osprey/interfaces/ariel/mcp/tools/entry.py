@@ -27,7 +27,11 @@ def _get_drafts_dir() -> Path:
 
 
 async def _resolve_artifacts(artifact_ids: list[str]) -> list[str]:
-    """Resolve artifact IDs to file paths, auto-converting HTML artifacts to PNG.
+    """Resolve artifact IDs to file paths, auto-converting artifacts to logbook-friendly formats.
+
+    Uses the converter registry to transform artifacts: rendered content (HTML,
+    markdown, notebooks, JSON, text) is converted to PNG; images and PDFs pass
+    through unchanged.
 
     Returns:
         List of absolute file paths ready for attachment.
@@ -35,32 +39,27 @@ async def _resolve_artifacts(artifact_ids: list[str]) -> list[str]:
     Raises:
         ValueError: If an artifact ID is not found.
     """
+    import tempfile
+
+    from osprey.interfaces.ariel.mcp.converters import get_converter
     from osprey.mcp_server.artifact_store import get_artifact_store
 
     store = get_artifact_store()
     resolved: list[str] = []
+    output_dir = Path(tempfile.mkdtemp(prefix="ariel_convert_"))
 
     for aid in artifact_ids:
         entry = store.get_entry(aid)
         if entry is None:
             raise ValueError(f"Artifact '{aid}' not found.")
 
-        # HTML artifacts need conversion to PNG
-        if entry.mime_type == "text/html":
-            from osprey.mcp_server.export.converter import convert_html_to_image
+        file_path = store.get_file_path(aid)
+        if file_path is None or not file_path.exists():
+            raise ValueError(f"Artifact file not found on disk for '{aid}'.")
 
-            html_path = store.get_file_path(aid)
-            if html_path is None or not html_path.exists():
-                raise ValueError(f"Artifact file not found on disk for '{aid}'.")
-
-            png_path = html_path.with_suffix(".png")
-            await convert_html_to_image(html_path, png_path)
-            resolved.append(str(png_path))
-        else:
-            file_path = store.get_file_path(aid)
-            if file_path is None or not file_path.exists():
-                raise ValueError(f"Artifact file not found on disk for '{aid}'.")
-            resolved.append(str(file_path))
+        converter = get_converter(entry.mime_type)
+        result_path = await converter(file_path, output_dir)
+        resolved.append(str(result_path))
 
     return resolved
 
@@ -272,6 +271,32 @@ async def ariel_entry_create(
                     )
                 )
 
+    # Merge artifact-resolved paths with explicit file_paths (used by both modes)
+    all_file_paths = list(file_paths or []) + artifact_paths
+
+    # Resolve relative paths to absolute so downstream consumers always get
+    # a usable path regardless of their working directory.
+    all_file_paths = [str(Path(p).resolve()) for p in all_file_paths]
+
+    # Pre-validate attachments before creating the entry/draft
+    if all_file_paths:
+        from osprey.services.ariel_search.attachments import (
+            AttachmentValidationError,
+            read_local_file,
+        )
+
+        try:
+            for path in all_file_paths:
+                read_local_file(path)  # validates existence + size
+        except AttachmentValidationError as exc:
+            return json.dumps(
+                make_error(
+                    "validation_error",
+                    str(exc),
+                    ["Check file path and ensure file is under 10 MB."],
+                )
+            )
+
     # --- Draft mode: write a JSON file for the web UI to pick up ---
     if draft:
         try:
@@ -288,8 +313,8 @@ async def ariel_entry_create(
                 "shift": shift,
                 "tags": tags or [],
             }
-            if artifact_paths:
-                draft_data["attachment_paths"] = artifact_paths
+            if all_file_paths:
+                draft_data["attachment_paths"] = all_file_paths
             filepath = drafts_dir / f"{draft_id}.json"
             filepath.write_text(json.dumps(draft_data, indent=2))
 
@@ -325,28 +350,6 @@ async def ariel_entry_create(
             )
 
     # --- Direct mode: write straight to the database ---
-
-    # Merge artifact-resolved paths with explicit file_paths
-    all_file_paths = list(file_paths or []) + artifact_paths
-
-    # Pre-validate attachments before creating the entry
-    if all_file_paths:
-        from osprey.services.ariel_search.attachments import (
-            AttachmentValidationError,
-            read_local_file,
-        )
-
-        try:
-            for path in all_file_paths:
-                read_local_file(path)  # validates existence + size
-        except AttachmentValidationError as exc:
-            return json.dumps(
-                make_error(
-                    "validation_error",
-                    str(exc),
-                    ["Check file path and ensure file is under 10 MB."],
-                )
-            )
 
     try:
         registry = get_ariel_registry()
