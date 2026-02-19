@@ -10,13 +10,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -139,6 +140,72 @@ class _SSEBroadcaster:
                     q.put_nowait(data)
                 except asyncio.QueueFull:
                     pass  # Drop if client is too slow
+
+
+MAX_TIMESERIES_FILE_BYTES = 200 * 1024 * 1024  # 200 MB
+
+
+def lttb_downsample(
+    index: list, data: list[list], max_points: int
+) -> tuple[list, list[list]]:
+    """Largest-Triangle-Three-Buckets downsampling.
+
+    Operates on split-orient DataFrame arrays.  Uses the first data column as
+    the representative for triangle-area index selection, then slices all
+    columns at the same indices so every channel shares the same x-axis.
+
+    Returns (downsampled_index, downsampled_data) where data keeps all columns.
+    """
+    n = len(index)
+    if n <= max_points or max_points < 3:
+        return index, data
+
+    # Convert index to numeric for area calculation
+    x = list(range(n))
+    y = [row[0] if row else 0 for row in data]  # first channel
+
+    selected = [0]  # Always keep first point
+    bucket_size = (n - 2) / (max_points - 2)
+
+    a_idx = 0
+    for i in range(1, max_points - 1):
+        # Next bucket boundaries
+        b_start = int(math.floor((i - 1) * bucket_size)) + 1
+        b_end = int(math.floor(i * bucket_size)) + 1
+        b_end = min(b_end, n)
+
+        # Average of the bucket after this one (lookahead)
+        c_start = int(math.floor(i * bucket_size)) + 1
+        c_end = int(math.floor((i + 1) * bucket_size)) + 1
+        c_end = min(c_end, n)
+        if c_start >= n:
+            c_start = n - 1
+        if c_end > n:
+            c_end = n
+        c_len = max(c_end - c_start, 1)
+        avg_x = sum(x[c_start:c_end]) / c_len
+        avg_y = sum(y[c_start:c_end]) / c_len
+
+        # Pick point in current bucket with max triangle area
+        max_area = -1.0
+        best = b_start
+        for j in range(b_start, b_end):
+            area = abs(
+                (x[a_idx] - avg_x) * (y[j] - y[a_idx])
+                - (x[a_idx] - x[j]) * (avg_y - y[a_idx])
+            )
+            if area > max_area:
+                max_area = area
+                best = j
+
+        selected.append(best)
+        a_idx = best
+
+    selected.append(n - 1)  # Always keep last point
+
+    new_index = [index[i] for i in selected]
+    new_data = [data[i] for i in selected]
+    return new_index, new_data
 
 
 def create_app(workspace_root: Path | None = None) -> FastAPI:
@@ -471,17 +538,77 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         return entry.to_dict()
 
     @app.get("/api/context/{entry_id}/data")
-    async def get_context_data(entry_id: int):
+    async def get_context_data(
+        entry_id: int,
+        format: str | None = Query(None, pattern="^(chart|table)$"),
+        max_points: int = Query(2000, ge=10, le=50000),
+        offset: int = Query(0, ge=0),
+        limit: int = Query(100, ge=1, le=10000),
+    ):
         filepath = context_store.get_file_path(entry_id)
         if not filepath:
             raise HTTPException(
                 status_code=404,
                 detail=f"Context entry {entry_id} not found or data file missing",
             )
-        return Response(
-            content=filepath.read_bytes(),
-            media_type="application/json",
-        )
+
+        # No format param → return full file as-is (backward-compatible)
+        if format is None:
+            return Response(
+                content=filepath.read_bytes(),
+                media_type="application/json",
+            )
+
+        # format=chart or format=table requires timeseries data
+        entry = context_store.get_entry(entry_id)
+        if not entry or entry.data_type != "timeseries":
+            raise HTTPException(
+                status_code=400,
+                detail="format parameter is only supported for timeseries data",
+            )
+
+        file_size = filepath.stat().st_size
+        if file_size > MAX_TIMESERIES_FILE_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"File too large ({file_size // (1024*1024)}MB). "
+                    "Access the data file directly."
+                ),
+            )
+
+        raw = json.loads(filepath.read_bytes())
+        # Data files wrap content in {"_osprey_metadata": ..., "data": ...}
+        ts = raw.get("data", raw)
+        columns = ts.get("columns", [])
+        index = ts.get("index", [])
+        rows = ts.get("data", [])
+        total_rows = len(index)
+
+        if format == "chart":
+            ds_index, ds_rows = lttb_downsample(index, rows, max_points)
+            return {
+                "columns": columns,
+                "index": ds_index,
+                "data": ds_rows,
+                "total_rows": total_rows,
+                "downsampled": len(ds_index) < total_rows,
+                "returned_points": len(ds_index),
+            }
+
+        # format == "table"
+        end = min(offset + limit, total_rows)
+        sliced_index = index[offset:end]
+        sliced_data = rows[offset:end]
+        return {
+            "columns": columns,
+            "index": sliced_index,
+            "data": sliced_data,
+            "total_rows": total_rows,
+            "offset": offset,
+            "limit": limit,
+            "returned_rows": len(sliced_index),
+        }
 
     @app.get("/api/context/{entry_id}/image")
     async def get_context_image(entry_id: int):

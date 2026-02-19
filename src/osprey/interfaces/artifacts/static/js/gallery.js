@@ -861,13 +861,17 @@
         .catch(err => console.error("Delete failed:", err));
     });
 
-    // Lazy-fetch the JSON data
-    const data = await fetchContextData(e.id);
+    // Render data viewer — timeseries gets chart+table, everything else gets JSON
     const viewer = document.getElementById("ctx-focus-json-viewer");
-    if (viewer && data !== null) {
-      viewer.innerHTML = renderJsonHtml(data, 0);
-    } else if (viewer) {
-      viewer.innerHTML = '<span class="text-muted">Failed to load data</span>';
+    if (viewer && e.data_type === "timeseries") {
+      await renderTimeseriesView(viewer, e);
+    } else {
+      const data = await fetchContextData(e.id);
+      if (viewer && data !== null) {
+        viewer.innerHTML = renderJsonHtml(data, 0);
+      } else if (viewer) {
+        viewer.innerHTML = '<span class="text-muted">Failed to load data</span>';
+      }
     }
   }
 
@@ -1255,6 +1259,191 @@
     }
   }
 
+  // ---- Timeseries Rendering ----
+
+  let _plotlyLoaded = false;
+  let _plotlyLoading = null;
+
+  function ensurePlotlyLoaded() {
+    if (_plotlyLoaded) return Promise.resolve();
+    if (_plotlyLoading) return _plotlyLoading;
+    _plotlyLoading = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "https://cdn.plot.ly/plotly-2.35.2.min.js";
+      script.onload = () => { _plotlyLoaded = true; resolve(); };
+      script.onerror = () => reject(new Error("Failed to load Plotly"));
+      document.head.appendChild(script);
+    });
+    return _plotlyLoading;
+  }
+
+  async function renderTimeseriesView(container, entry) {
+    container.innerHTML = '<div class="ts-loading">Loading timeseries data...</div>';
+    try {
+      const chartResp = await fetch(
+        `/api/context/${entry.id}/data?format=chart&max_points=2000`
+      );
+      if (!chartResp.ok) throw new Error(`Chart fetch failed: ${chartResp.status}`);
+      const chartData = await chartResp.json();
+
+      // Build DOM structure
+      let html = '<div class="ts-viewer">';
+
+      // Query info badges
+      const summary = entry.summary || {};
+      html += '<div class="ts-query-info">';
+      if (summary.channels) {
+        const ch = Array.isArray(summary.channels) ? summary.channels : [summary.channels];
+        ch.forEach(c => {
+          html += `<span class="ts-query-badge"><span class="badge-label">CH</span> ${_esc(String(c))}</span>`;
+        });
+      }
+      if (summary.time_range) {
+        html += `<span class="ts-query-badge"><span class="badge-label">Range</span> ${_esc(String(summary.time_range))}</span>`;
+      }
+      html += `<span class="ts-query-badge"><span class="badge-label">Rows</span> ${chartData.total_rows.toLocaleString()}</span>`;
+      if (chartData.downsampled) {
+        html += `<span class="ts-query-badge downsampled"><span class="badge-label">Downsampled</span> ${chartData.returned_points.toLocaleString()} pts</span>`;
+      }
+      html += '</div>';
+
+      // Chart container
+      html += '<div class="ts-chart-container" id="ts-chart-area"></div>';
+
+      // Table container
+      html += '<div id="ts-table-area"></div>';
+
+      html += '</div>';
+      container.innerHTML = html;
+
+      // Render chart
+      await renderTimeseriesChart("ts-chart-area", chartData);
+
+      // Render first page of table
+      await renderTimeseriesTable("ts-table-area", entry.id, chartData.columns, 0);
+    } catch (err) {
+      console.error("Timeseries render failed, falling back to JSON:", err);
+      const data = await fetchContextData(entry.id);
+      if (data !== null) {
+        container.innerHTML = renderJsonHtml(data, 0);
+      } else {
+        container.innerHTML = '<span class="text-muted">Failed to load data</span>';
+      }
+    }
+  }
+
+  async function renderTimeseriesChart(elementId, chartData) {
+    await ensurePlotlyLoaded();
+    const el = document.getElementById(elementId);
+    if (!el) return;
+
+    const traces = chartData.columns.map((col, ci) => ({
+      x: chartData.index,
+      y: chartData.data.map(row => row[ci]),
+      name: col,
+      type: "scattergl",
+      mode: "lines",
+    }));
+
+    const layout = {
+      paper_bgcolor: "#131c2e",
+      plot_bgcolor: "#0b1120",
+      font: { family: "'DM Mono', monospace", size: 11, color: "#8b9ab5" },
+      margin: { t: 30, r: 20, b: 50, l: 60 },
+      xaxis: {
+        gridcolor: "rgba(100,116,139,0.1)",
+        linecolor: "rgba(100,116,139,0.18)",
+        tickfont: { size: 10 },
+      },
+      yaxis: {
+        gridcolor: "rgba(100,116,139,0.1)",
+        linecolor: "rgba(100,116,139,0.18)",
+        tickfont: { size: 10 },
+      },
+      legend: {
+        bgcolor: "rgba(19,28,46,0.85)",
+        bordercolor: "rgba(100,116,139,0.18)",
+        borderwidth: 1,
+        font: { size: 10 },
+      },
+      colorway: [
+        "#4fd1c5", "#d4a574", "#9f7aea", "#3b82f6",
+        "#22c55e", "#f59e0b", "#ef4444", "#e879f9",
+      ],
+    };
+
+    const config = {
+      responsive: true,
+      displaylogo: false,
+      modeBarButtonsToRemove: ["lasso2d", "select2d"],
+    };
+
+    Plotly.newPlot(el, traces, layout, config);
+  }
+
+  const TS_TABLE_PAGE_SIZE = 50;
+
+  async function renderTimeseriesTable(elementId, entryId, columns, offset) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+
+    el.innerHTML = '<div class="ts-loading">Loading table...</div>';
+
+    try {
+      const resp = await fetch(
+        `/api/context/${entryId}/data?format=table&offset=${offset}&limit=${TS_TABLE_PAGE_SIZE}`
+      );
+      if (!resp.ok) throw new Error(`Table fetch failed: ${resp.status}`);
+      const tableData = await resp.json();
+
+      const totalPages = Math.ceil(tableData.total_rows / TS_TABLE_PAGE_SIZE);
+      const currentPage = Math.floor(offset / TS_TABLE_PAGE_SIZE) + 1;
+
+      let html = '<div class="ts-data-table-wrapper"><table class="ts-data-table">';
+      html += '<thead><tr><th>Index</th>';
+      columns.forEach(c => { html += `<th>${_esc(c)}</th>`; });
+      html += '</tr></thead><tbody>';
+
+      tableData.index.forEach((idx, i) => {
+        html += '<tr>';
+        html += `<td class="ts-index-cell">${_esc(String(idx))}</td>`;
+        const row = tableData.data[i] || [];
+        row.forEach(val => {
+          html += `<td>${_esc(val == null ? "" : String(val))}</td>`;
+        });
+        html += '</tr>';
+      });
+
+      html += '</tbody></table></div>';
+
+      // Pagination
+      html += '<div class="ts-pagination">';
+      html += `<button class="btn btn-secondary btn-sm" id="ts-prev-btn" ${offset === 0 ? 'disabled' : ''}>Prev</button>`;
+      html += `<span class="ts-page-info">Page ${currentPage} of ${totalPages}</span>`;
+      html += `<button class="btn btn-secondary btn-sm" id="ts-next-btn" ${offset + TS_TABLE_PAGE_SIZE >= tableData.total_rows ? 'disabled' : ''}>Next</button>`;
+      html += '</div>';
+
+      el.innerHTML = html;
+
+      // Wire pagination buttons
+      document.getElementById("ts-prev-btn")?.addEventListener("click", () => {
+        renderTimeseriesTable(elementId, entryId, columns, Math.max(0, offset - TS_TABLE_PAGE_SIZE));
+      });
+      document.getElementById("ts-next-btn")?.addEventListener("click", () => {
+        renderTimeseriesTable(elementId, entryId, columns, offset + TS_TABLE_PAGE_SIZE);
+      });
+    } catch (err) {
+      console.error("Table render failed:", err);
+      el.innerHTML = '<span class="text-muted">Failed to load table data</span>';
+    }
+  }
+
+  function _esc(s) {
+    const d = document.createElement("div");
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
   function updateHeaderContextCount() {
     headerContextCount.textContent = contextEntries.length;
   }
@@ -1596,13 +1785,17 @@
         .catch(err => console.error("Delete failed:", err));
     });
 
-    // Lazy-fetch the JSON data
-    const data = await fetchContextData(e.id);
+    // Render data viewer — timeseries gets chart+table, everything else gets JSON
     const viewer = document.getElementById("ctx-json-viewer");
-    if (viewer && data !== null) {
-      viewer.innerHTML = renderJsonHtml(data, 0);
-    } else if (viewer) {
-      viewer.innerHTML = '<span class="text-muted">Failed to load data</span>';
+    if (viewer && e.data_type === "timeseries") {
+      await renderTimeseriesView(viewer, e);
+    } else {
+      const data = await fetchContextData(e.id);
+      if (viewer && data !== null) {
+        viewer.innerHTML = renderJsonHtml(data, 0);
+      } else if (viewer) {
+        viewer.innerHTML = '<span class="text-muted">Failed to load data</span>';
+      }
     }
   }
 

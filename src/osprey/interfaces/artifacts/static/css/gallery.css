@@ -2384,3 +2384,129 @@ body.resizing iframe {
     display: none;
   }
 }
+
+/* ================================================================
+   Timeseries Viewer (chart + paginated table)
+   ================================================================ */
+
+.ts-viewer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  height: 100%;
+  overflow: auto;
+}
+
+.ts-query-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+}
+
+.ts-query-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: var(--tracking-wide);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+}
+
+.ts-query-badge .badge-label {
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.ts-query-badge.downsampled {
+  color: var(--color-amber-light);
+  border-color: rgba(212, 165, 116, 0.25);
+  background: var(--color-amber-glow);
+}
+
+.ts-chart-container {
+  min-height: 350px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.ts-data-table-wrapper {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.ts-data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.ts-data-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.ts-data-table th {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  font-size: 10px;
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  border-bottom: 1px solid var(--border-default);
+  white-space: nowrap;
+}
+
+.ts-data-table td {
+  padding: var(--space-1) var(--space-3);
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+  white-space: nowrap;
+}
+
+.ts-data-table tbody tr:hover {
+  background: var(--surface-hover);
+}
+
+.ts-data-table td.ts-index-cell {
+  color: var(--text-muted);
+}
+
+.ts-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+}
+
+.ts-pagination .ts-page-info {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  letter-spacing: var(--tracking-wide);
+}
+
+.ts-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-8);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-wide);
+}
