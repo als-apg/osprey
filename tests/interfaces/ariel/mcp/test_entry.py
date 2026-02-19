@@ -407,7 +407,7 @@ async def test_entry_create_with_artifact_ids_direct(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 async def test_entry_create_with_html_artifact_auto_converts(tmp_path, monkeypatch):
-    """HTML artifact is auto-converted to PNG when used as attachment."""
+    """HTML artifact is auto-converted to PNG via converter registry."""
     _setup_registry(tmp_path, monkeypatch)
 
     from osprey.mcp_server.artifact_store import ArtifactStore
@@ -451,6 +451,114 @@ async def test_entry_create_with_html_artifact_auto_converts(tmp_path, monkeypat
         result = await fn(
             subject="Test HTML conversion",
             details="Should auto-convert",
+            artifact_ids=[art.id],
+            draft=False,
+        )
+
+    data = json.loads(result)
+    assert data["entry_id"].startswith("ariel-")
+    assert data["attachment_count"] == 1
+
+
+@pytest.mark.unit
+async def test_entry_create_with_markdown_artifact(tmp_path, monkeypatch):
+    """Markdown artifact is converted to PNG via converter registry."""
+    _setup_registry(tmp_path, monkeypatch)
+
+    from osprey.mcp_server.artifact_store import ArtifactStore
+
+    store = ArtifactStore(workspace_root=tmp_path)
+    art = store.save_file(
+        file_content=b"# Report\n\nSome **bold** text.",
+        filename="report.md",
+        artifact_type="markdown",
+        title="Report",
+        mime_type="text/markdown",
+        tool_source="python_execute",
+    )
+
+    async def fake_convert(html_path, output_path, **kwargs):
+        from pathlib import Path
+
+        Path(output_path).write_bytes(b"\x89PNG md")
+        return Path(output_path).resolve()
+
+    mock_service = AsyncMock()
+    mock_service.repository.upsert_entry.return_value = None
+    mock_service.repository.store_attachment.return_value = None
+
+    with (
+        patch(
+            "osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
+            new=AsyncMock(return_value=mock_service),
+        ),
+        patch(
+            "osprey.mcp_server.artifact_store.get_artifact_store",
+            return_value=store,
+        ),
+        patch(
+            "osprey.mcp_server.export.converter.convert_html_to_image",
+            side_effect=fake_convert,
+        ),
+    ):
+        fn = _get_ariel_entry_create()
+        result = await fn(
+            subject="Test markdown conversion",
+            details="Should convert md to png",
+            artifact_ids=[art.id],
+            draft=False,
+        )
+
+    data = json.loads(result)
+    assert data["entry_id"].startswith("ariel-")
+    assert data["attachment_count"] == 1
+
+
+@pytest.mark.unit
+async def test_entry_create_with_unknown_mime_type_artifact(tmp_path, monkeypatch):
+    """Unknown MIME type artifact falls back to text_to_png converter."""
+    _setup_registry(tmp_path, monkeypatch)
+
+    from osprey.mcp_server.artifact_store import ArtifactStore
+
+    store = ArtifactStore(workspace_root=tmp_path)
+    art = store.save_file(
+        file_content=b"custom data here",
+        filename="data.custom",
+        artifact_type="file",
+        title="Custom Data",
+        mime_type="application/x-custom",
+        tool_source="test",
+    )
+
+    async def fake_convert(html_path, output_path, **kwargs):
+        from pathlib import Path
+
+        Path(output_path).write_bytes(b"\x89PNG fallback")
+        return Path(output_path).resolve()
+
+    mock_service = AsyncMock()
+    mock_service.repository.upsert_entry.return_value = None
+    mock_service.repository.store_attachment.return_value = None
+
+    with (
+        patch(
+            "osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
+            new=AsyncMock(return_value=mock_service),
+        ),
+        patch(
+            "osprey.mcp_server.artifact_store.get_artifact_store",
+            return_value=store,
+        ),
+        patch(
+            "osprey.mcp_server.export.converter.convert_html_to_image",
+            side_effect=fake_convert,
+        ),
+    ):
+        fn = _get_ariel_entry_create()
+        result = await fn(
+            subject="Test fallback conversion",
+            details="Unknown MIME type should use text_to_png",
             artifact_ids=[art.id],
             draft=False,
         )
@@ -529,6 +637,98 @@ async def test_entry_create_draft_with_artifact_ids(tmp_path, monkeypatch):
     contents = json.loads(filepath.read_text())
     assert "attachment_paths" in contents
     assert len(contents["attachment_paths"]) == 1
+
+
+@pytest.mark.unit
+async def test_entry_create_draft_with_file_paths(tmp_path, monkeypatch):
+    """Draft mode with file_paths stores attachment_paths in draft JSON."""
+    import osprey.interfaces.ariel.mcp.tools.entry as entry_mod
+
+    drafts_dir = tmp_path / "drafts"
+    monkeypatch.setattr(entry_mod, "_get_drafts_dir", lambda: drafts_dir)
+
+    # Create a test file
+    img = tmp_path / "screenshot.png"
+    img.write_bytes(b"\x89PNG" + b"\x00" * 100)
+
+    fn = _get_ariel_entry_create()
+    result = await fn(
+        subject="Draft with file",
+        details="Should attach the screenshot",
+        file_paths=[str(img)],
+        draft=True,
+    )
+
+    data = json.loads(result)
+    assert "draft_id" in data
+
+    # Check draft JSON file includes attachment_paths
+    filepath = drafts_dir / f"{data['draft_id']}.json"
+    contents = json.loads(filepath.read_text())
+    assert "attachment_paths" in contents
+    assert len(contents["attachment_paths"]) == 1
+    assert contents["attachment_paths"][0].endswith("screenshot.png")
+
+
+@pytest.mark.unit
+async def test_entry_create_draft_with_relative_file_path(tmp_path, monkeypatch):
+    """Draft mode resolves relative file_paths to absolute paths."""
+    import osprey.interfaces.ariel.mcp.tools.entry as entry_mod
+
+    drafts_dir = tmp_path / "drafts"
+    monkeypatch.setattr(entry_mod, "_get_drafts_dir", lambda: drafts_dir)
+
+    # Create a file in a subdirectory
+    sub = tmp_path / "osprey-workspace" / "screenshots"
+    sub.mkdir(parents=True)
+    img = sub / "capture.png"
+    img.write_bytes(b"\x89PNG" + b"\x00" * 100)
+
+    # chdir so relative path resolves
+    monkeypatch.chdir(tmp_path)
+
+    fn = _get_ariel_entry_create()
+    result = await fn(
+        subject="Relative path test",
+        details="Uses relative path",
+        file_paths=["osprey-workspace/screenshots/capture.png"],
+        draft=True,
+    )
+
+    data = json.loads(result)
+    assert "draft_id" in data
+
+    filepath = drafts_dir / f"{data['draft_id']}.json"
+    contents = json.loads(filepath.read_text())
+    assert "attachment_paths" in contents
+    # Path should be absolute
+    from pathlib import Path
+
+    stored_path = contents["attachment_paths"][0]
+    assert Path(stored_path).is_absolute()
+    assert stored_path.endswith("capture.png")
+
+
+@pytest.mark.unit
+async def test_entry_create_draft_with_invalid_file_path(tmp_path, monkeypatch):
+    """Draft mode with nonexistent file_path returns validation error."""
+    import osprey.interfaces.ariel.mcp.tools.entry as entry_mod
+
+    drafts_dir = tmp_path / "drafts"
+    monkeypatch.setattr(entry_mod, "_get_drafts_dir", lambda: drafts_dir)
+
+    fn = _get_ariel_entry_create()
+    result = await fn(
+        subject="Bad file",
+        details="File does not exist",
+        file_paths=["/nonexistent/screenshot.png"],
+        draft=True,
+    )
+
+    data = json.loads(result)
+    assert data["error"] is True
+    assert data["error_type"] == "validation_error"
+    assert "not found" in data["error_message"]
 
 
 # ---------------------------------------------------------------------------
