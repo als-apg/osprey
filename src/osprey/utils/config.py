@@ -26,7 +26,7 @@ except (RuntimeError, ImportError):
     get_config = None
 
 # Use standard logging (not get_logger) to avoid circular imports with logger.py
-# The short name 'CONFIG' enables easy filtering: quiet_logger(['REGISTRY', 'CONFIG'])
+# The short name 'CONFIG' enables easy filtering: quiet_logger(['registry', 'CONFIG'])
 logger = logging.getLogger("CONFIG")
 
 

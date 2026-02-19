@@ -261,8 +261,9 @@ class TestArgoExecuteCompletionStructured:
     @patch("osprey.models.providers.litellm_adapter.litellm.completion")
     def test_plain_text_uses_litellm(self, mock_completion):
         """Without output_format, completion goes through LiteLLM."""
+        mock_message = MagicMock(content="plain text", tool_calls=None)
         mock_response = MagicMock()
-        mock_response.choices = [MagicMock(message=MagicMock(content="plain text"))]
+        mock_response.choices = [MagicMock(message=mock_message)]
         mock_completion.return_value = mock_response
 
         provider = ArgoProviderAdapter()

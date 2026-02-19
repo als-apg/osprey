@@ -22,7 +22,7 @@ from osprey.registry import get_registry
 
 # Fixed import to use new TypedDict state
 from osprey.state import AgentState, StateManager
-from osprey.utils.config import get_execution_limits
+from osprey.utils.config import get_config_value, get_execution_limits
 from osprey.utils.logger import get_logger
 
 
@@ -81,6 +81,13 @@ def router_conditional_edge(state: AgentState) -> str:
     # Get logger internally - LangGraph native pattern
     logger = get_logger("router")
 
+    # ==== REACTIVE MODE EARLY EXIT ====
+    orchestration_mode = get_config_value(
+        "execution_control.agent_control.orchestration_mode", "plan_first"
+    )
+    if orchestration_mode == "react":
+        return _reactive_routing(state, logger)
+
     # Get registry for node lookup
     registry = get_registry()
 
@@ -98,7 +105,7 @@ def router_conditional_edge(state: AgentState) -> str:
         last_result = state.get("execution_last_result") or {}
         if last_result.get("capability") == direct_chat_capability:
             # Direct chat turn complete - end execution
-            logger.key_info(f"🎯 Direct chat turn complete for {direct_chat_capability}")
+            logger.status(f"🎯 Direct chat turn complete for {direct_chat_capability}")
             return "END"
 
         # Validate capability exists and supports direct chat
@@ -124,7 +131,7 @@ def router_conditional_edge(state: AgentState) -> str:
                 }
             else:
                 # Valid direct chat mode - route directly to capability
-                logger.key_info(f"🎯 Direct chat mode: routing to {direct_chat_capability}")
+                logger.status(f"🎯 Direct chat mode: routing to {direct_chat_capability}")
                 return direct_chat_capability
 
     # ==== MANUAL RETRY HANDLING - Check first before normal routing ====
@@ -238,28 +245,28 @@ def router_conditional_edge(state: AgentState) -> str:
     # Check if killed
     if state.get("control_is_killed", False):
         kill_reason = state.get("control_kill_reason", "Unknown reason")
-        logger.key_info(f"Execution terminated: {kill_reason}")
+        logger.status(f"Execution terminated: {kill_reason}")
         return "error"
 
     # Check if task extraction is needed first
     current_task = StateManager.get_current_task(state)
     if not current_task:
         if is_active_execution:
-            logger.key_info("No current task extracted, routing to task extraction")
+            logger.status("No current task extracted, routing to task extraction")
         return "task_extraction"
 
     # Check if has active capabilities from prefixed state structure
     active_capabilities = state.get("planning_active_capabilities")
     if not active_capabilities:
         if is_active_execution:
-            logger.key_info("No active capabilities, routing to classifier")
+            logger.status("No active capabilities, routing to classifier")
         return "classifier"
 
     # Check if has execution plan using StateManager utility
     execution_plan = StateManager.get_execution_plan(state)
     if not execution_plan:
         if is_active_execution:
-            logger.key_info("No execution plan, routing to orchestrator")
+            logger.status("No execution plan, routing to orchestrator")
         return "orchestrator"
 
     # Check if more steps to execute using StateManager utility
@@ -283,7 +290,7 @@ def router_conditional_edge(state: AgentState) -> str:
     step_capability = current_step.get("capability", "respond")
 
     if is_active_execution:
-        logger.key_info(
+        logger.status(
             f"Executing step {current_index + 1}/{len(plan_steps)} - capability: {step_capability}"
         )
 
@@ -296,3 +303,144 @@ def router_conditional_edge(state: AgentState) -> str:
 
     # Return the capability name - this must match the node name in LangGraph
     return step_capability
+
+
+# =============================================================================
+# REACTIVE ROUTING
+# =============================================================================
+
+
+def _reactive_routing(state: AgentState, logger) -> str:
+    """Routing logic for reactive (ReAct) orchestration mode.
+
+    This function replaces the normal plan-first routing when
+    ``orchestration.mode`` is set to ``"react"`` in configuration.
+
+    Routing priority:
+    1. Direct chat mode (same as plan-first)
+    2. Error handling: RETRIABLE -> retry capability; others -> reactive_orchestrator
+    3. Max iterations guard
+    4. Normal pipeline: task_extraction -> classifier -> reactive_orchestrator
+    5. Execution plan dispatch: route to capability or back to reactive_orchestrator
+
+    :param state: Current agent state
+    :param logger: Logger instance
+    :return: Name of next node to execute or "END"
+    """
+    registry = get_registry()
+
+    # ==== DIRECT CHAT MODE (same logic as plan-first) ====
+    session_state = state.get("session_state", {})
+    direct_chat_capability = session_state.get("direct_chat_capability")
+
+    if direct_chat_capability:
+        last_result = state.get("execution_last_result") or {}
+        if last_result.get("capability") == direct_chat_capability:
+            logger.key_info(f"Direct chat turn complete for {direct_chat_capability}")
+            return "END"
+
+        cap_instance = registry.get_capability(direct_chat_capability)
+        if cap_instance and getattr(cap_instance, "direct_chat_enabled", False):
+            logger.key_info(f"Direct chat mode: routing to {direct_chat_capability}")
+            return direct_chat_capability
+
+    # ==== ERROR HANDLING ====
+    if state.get("control_has_error", False):
+        error_info = state.get("control_error_info", {})
+        error_classification = error_info.get("classification")
+        capability_name = error_info.get("capability_name") or error_info.get("node_name")
+        retry_policy = error_info.get("retry_policy", {})
+
+        if error_classification and capability_name:
+            retry_count = state.get("control_retry_count", 0)
+            max_retries = retry_policy.get("max_attempts", 3)
+
+            if error_classification.severity == ErrorSeverity.RETRIABLE:
+                if retry_count < max_retries:
+                    state["control_retry_count"] = retry_count + 1
+                    logger.error(
+                        f"Reactive routing: retrying {capability_name} "
+                        f"(attempt {retry_count + 1}/{max_retries})"
+                    )
+                    return capability_name
+                else:
+                    # Retries exhausted - let reactive orchestrator decide what to do next
+                    logger.error(
+                        f"Reactive routing: retries exhausted for {capability_name}, "
+                        "routing to reactive_orchestrator for re-evaluation"
+                    )
+                    return "reactive_orchestrator"
+
+            # Other error severities (REPLANNING, RECLASSIFICATION, CRITICAL)
+            # route back to reactive orchestrator to decide the next action
+            logger.error(
+                f"Reactive routing: {error_classification.severity.value} error in "
+                f"{capability_name}, routing to reactive_orchestrator"
+            )
+            return "reactive_orchestrator"
+
+        # Fallback for unknown errors
+        logger.warning("Reactive routing: unknown error, routing to error")
+        return "error"
+
+    # ==== DIRECT RESPONSE GENERATED — skip to END ====
+    if state.get("react_response_generated", False):
+        logger.key_info("Reactive routing: response generated directly, routing to END")
+        return "END"
+
+    # ==== MAX ITERATIONS GUARD ====
+    react_step_count = state.get("react_step_count", 0)
+    max_iterations = get_config_value("execution_control.limits.graph_recursion_limit", 100)
+    if react_step_count >= max_iterations:
+        logger.error(
+            f"Reactive routing: max iterations reached ({react_step_count}/{max_iterations}), "
+            "routing to error"
+        )
+        return "error"
+
+    # ==== NORMAL REACTIVE PIPELINE ====
+
+    # Check if killed
+    if state.get("control_is_killed", False):
+        kill_reason = state.get("control_kill_reason", "Unknown reason")
+        logger.key_info(f"Execution terminated: {kill_reason}")
+        return "error"
+
+    # Need task extraction?
+    current_task = StateManager.get_current_task(state)
+    if not current_task:
+        logger.key_info("Reactive routing: no task, routing to task_extraction")
+        return "task_extraction"
+
+    # Need classification? (reactive mode still uses classifier for capability discovery)
+    active_capabilities = state.get("planning_active_capabilities")
+    if not active_capabilities:
+        logger.key_info("Reactive routing: no active capabilities, routing to classifier")
+        return "classifier"
+
+    # Check if a step has been executed (capability produced a result)
+    # After a capability executes, the router runs again - route back to reactive orchestrator
+    execution_plan = StateManager.get_execution_plan(state)
+    if execution_plan:
+        current_index = StateManager.get_current_step_index(state)
+        plan_steps = execution_plan.get("steps", [])
+
+        if current_index >= len(plan_steps):
+            # Step completed - route back to reactive orchestrator for next decision
+            logger.key_info("Reactive routing: step completed, routing to reactive_orchestrator")
+            return "reactive_orchestrator"
+
+        # Step still needs executing
+        step = plan_steps[current_index]
+        step_capability = step.get("capability", "respond")
+
+        if registry.get_node(step_capability):
+            logger.key_info(f"Reactive routing: executing {step_capability}")
+            return step_capability
+        else:
+            logger.error(f"Capability '{step_capability}' not registered")
+            return "reactive_orchestrator"
+
+    # No plan yet - go to reactive orchestrator
+    logger.key_info("Reactive routing: no plan, routing to reactive_orchestrator")
+    return "reactive_orchestrator"

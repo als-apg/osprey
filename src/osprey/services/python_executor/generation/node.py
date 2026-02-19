@@ -11,12 +11,60 @@ the same interface for the executor service.
 
 from typing import Any
 
+from osprey.events.types import CodeGeneratedEvent, CodeGenerationStartEvent
 from osprey.utils.logger import get_logger
 
 from ..models import ExecutionError, PythonExecutionState
 from .factory import create_code_generator
 
+# Try to import LangGraph's stream writer for event emission
+try:
+    from langgraph.config import get_stream_writer
+
+    LANGGRAPH_STREAMING_AVAILABLE = True
+except ImportError:
+    LANGGRAPH_STREAMING_AVAILABLE = False
+    get_stream_writer = None
+
 logger = get_logger("python_generator")
+
+
+def _emit_code_event(event_name: str, **kwargs) -> None:
+    """Emit code generation events if streaming is available.
+
+    This helper emits both CodeGenerationStartEvent and CodeGeneratedEvent
+    with proper serialization for LangGraph streaming.
+
+    Args:
+        event_name: The event class name ("CodeGenerationStartEvent" or "CodeGeneratedEvent")
+        **kwargs: Event-specific parameters (attempt, is_retry, code, success, etc.)
+    """
+    if not LANGGRAPH_STREAMING_AVAILABLE:
+        return
+
+    try:
+        stream_writer = get_stream_writer()
+        if stream_writer:
+            # Create appropriate event based on name
+            if event_name == "CodeGenerationStartEvent":
+                event = CodeGenerationStartEvent(component="python_code_generator", **kwargs)
+            elif event_name == "CodeGeneratedEvent":
+                event = CodeGeneratedEvent(component="python_code_generator", **kwargs)
+            else:
+                logger.warning(f"Unknown event type: {event_name}")
+                return
+
+            # Emit as dict for LangGraph streaming with proper event_class field
+            event_dict = event.__dict__.copy()
+            event_dict["event_class"] = event_name
+            # Convert timestamp to ISO format if present
+            if hasattr(event_dict.get("timestamp"), "isoformat"):
+                event_dict["timestamp"] = event_dict["timestamp"].isoformat()
+            stream_writer(event_dict)
+    except Exception:
+        # Not in a streaming context or streaming failed - silent fallback
+        # This is expected when running outside of TUI (e.g., CLI, tests)
+        pass
 
 
 def create_generator_node():
@@ -91,11 +139,24 @@ def create_generator_node():
 
                 request = PythonExecutionRequest(**request_dict)
 
+            # EMIT EVENT: Signal new generation attempt starting
+            # This arrives BEFORE any tokens, preventing race conditions
+            current_attempt = state.get("generation_attempt", 0) + 1
+            is_retry = len(state.get("error_chain", [])) > 0
+            _emit_code_event("CodeGenerationStartEvent", attempt=current_attempt, is_retry=is_retry)
+
             # Generate code with error feedback from previous attempts
             # Same interface for all generators - clean Protocol-based design
+            # Native LangGraph streaming captures tokens automatically via subgraphs=True
             generated_code = await generator.generate_code(
                 request,  # Pass request with execution_folder_path
                 state.get("error_chain", []),  # Use service state for error tracking
+            )
+
+            # EMIT EVENT: Signal code generation completed successfully
+            # This triggers TUI to finalize the widget (close stream, update title, auto-collapse)
+            _emit_code_event(
+                "CodeGeneratedEvent", code=generated_code, attempt=current_attempt, success=True
             )
 
             streamer.status(f"Generated {len(generated_code)} characters of code")
@@ -150,9 +211,13 @@ def create_generator_node():
                     "failure_reason": f"Code generation failed after {max_retries} attempts",
                 }
             else:
+                # EMIT EVENT: Signal retry attempt starting
+                retry_attempt = state.get("generation_attempt", 0) + 1
+                _emit_code_event("CodeGenerationStartEvent", attempt=retry_attempt, is_retry=True)
+
                 return {
                     "error_chain": error_chain,
-                    "generation_attempt": state.get("generation_attempt", 0) + 1,
+                    "generation_attempt": retry_attempt,
                 }
 
     return generator_node

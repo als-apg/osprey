@@ -57,7 +57,7 @@ def initialize_registry():
     from osprey.utils.log_filter import quiet_logger
 
     # Initialize registry (quiet mode to suppress logs)
-    with quiet_logger(["REGISTRY", "CONFIG"]):
+    with quiet_logger(["registry", "CONFIG"]):
         initialize_registry()
 
     return True
@@ -1097,7 +1097,7 @@ def claude_config(output_file: str, force: bool):
                             f"  [{Styles.LABEL}]Detected provider:[/{Styles.LABEL}] [{Styles.VALUE}]{default_provider}[/{Styles.VALUE}]"
                         )
             except Exception:
-                pass
+                pass  # Best-effort provider detection; not critical for generation
         else:
             console.print(f"  [{Styles.DIM}]No config.yml found - using defaults[/{Styles.DIM}]")
 

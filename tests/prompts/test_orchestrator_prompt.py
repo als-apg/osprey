@@ -95,7 +95,7 @@ class TestOrchestratorChatHistoryInclusion:
         """
         builder = DefaultOrchestratorPromptBuilder()
 
-        prompt = builder.get_system_instructions(
+        prompt = builder.get_planning_instructions(
             active_capabilities=[],
             context_manager=None,
             task_depends_on_chat_history=True,
@@ -113,7 +113,7 @@ class TestOrchestratorChatHistoryInclusion:
         """Test that chat history is excluded when task_depends_on_chat_history=False."""
         builder = DefaultOrchestratorPromptBuilder()
 
-        prompt = builder.get_system_instructions(
+        prompt = builder.get_planning_instructions(
             active_capabilities=[],
             context_manager=None,
             task_depends_on_chat_history=False,
@@ -130,7 +130,7 @@ class TestOrchestratorChatHistoryInclusion:
         """Test that chat history section is not added when messages is None."""
         builder = DefaultOrchestratorPromptBuilder()
 
-        prompt = builder.get_system_instructions(
+        prompt = builder.get_planning_instructions(
             active_capabilities=[],
             context_manager=None,
             task_depends_on_chat_history=True,
@@ -145,7 +145,7 @@ class TestOrchestratorChatHistoryInclusion:
         """Test that chat history section is not added when messages list is empty."""
         builder = DefaultOrchestratorPromptBuilder()
 
-        prompt = builder.get_system_instructions(
+        prompt = builder.get_planning_instructions(
             active_capabilities=[],
             context_manager=None,
             task_depends_on_chat_history=True,
@@ -164,7 +164,7 @@ class TestOrchestratorChatHistoryInclusion:
         """
         builder = DefaultOrchestratorPromptBuilder()
 
-        prompt = builder.get_system_instructions(
+        prompt = builder.get_planning_instructions(
             active_capabilities=[],
             context_manager=None,
             task_depends_on_chat_history=True,
@@ -181,7 +181,7 @@ class TestOrchestratorChatHistoryInclusion:
         """Test that chat history section includes helpful guidance."""
         builder = DefaultOrchestratorPromptBuilder()
 
-        prompt = builder.get_system_instructions(
+        prompt = builder.get_planning_instructions(
             active_capabilities=[],
             context_manager=None,
             task_depends_on_chat_history=True,
@@ -205,7 +205,7 @@ class TestOrchestratorContextGuidance:
         """Test that context reuse guidance is included when task depends on history."""
         builder = DefaultOrchestratorPromptBuilder()
 
-        prompt = builder.get_system_instructions(
+        prompt = builder.get_planning_instructions(
             active_capabilities=[],
             context_manager=None,
             task_depends_on_chat_history=True,
@@ -220,7 +220,7 @@ class TestOrchestratorContextGuidance:
         """Test that context reuse guidance is excluded when no dependencies."""
         builder = DefaultOrchestratorPromptBuilder()
 
-        prompt = builder.get_system_instructions(
+        prompt = builder.get_planning_instructions(
             active_capabilities=[],
             context_manager=None,
             task_depends_on_chat_history=False,
@@ -243,7 +243,7 @@ class TestOrchestratorPromptStructure:
         """Test that base prompt sections are always present."""
         builder = DefaultOrchestratorPromptBuilder()
 
-        prompt = builder.get_system_instructions(
+        prompt = builder.get_planning_instructions(
             active_capabilities=[],
             context_manager=None,
             task_depends_on_chat_history=False,
@@ -263,7 +263,7 @@ class TestOrchestratorPromptStructure:
         """
         builder = DefaultOrchestratorPromptBuilder()
 
-        prompt = builder.get_system_instructions(
+        prompt = builder.get_planning_instructions(
             active_capabilities=[],
             context_manager=None,
             task_depends_on_chat_history=True,
@@ -336,7 +336,7 @@ class TestOrchestratorContextSection:
         """Test that context section includes task_objective when available."""
         builder = DefaultOrchestratorPromptBuilder()
 
-        prompt = builder.get_system_instructions(
+        prompt = builder.get_planning_instructions(
             active_capabilities=[],
             context_manager=context_manager_with_metadata,
             task_depends_on_chat_history=False,
@@ -358,7 +358,7 @@ class TestOrchestratorContextSection:
         """Test that context keys are shown even without metadata."""
         builder = DefaultOrchestratorPromptBuilder()
 
-        prompt = builder.get_system_instructions(
+        prompt = builder.get_planning_instructions(
             active_capabilities=[],
             context_manager=context_manager_without_metadata,
             task_depends_on_chat_history=False,
@@ -373,7 +373,7 @@ class TestOrchestratorContextSection:
         """Test that context section includes the reuse principle guidance."""
         builder = DefaultOrchestratorPromptBuilder()
 
-        prompt = builder.get_system_instructions(
+        prompt = builder.get_planning_instructions(
             active_capabilities=[],
             context_manager=context_manager_with_metadata,
             task_depends_on_chat_history=False,
@@ -391,7 +391,7 @@ class TestOrchestratorContextSection:
 
         builder = DefaultOrchestratorPromptBuilder()
 
-        prompt = builder.get_system_instructions(
+        prompt = builder.get_planning_instructions(
             active_capabilities=[],
             context_manager=empty_cm,
             task_depends_on_chat_history=False,
@@ -420,7 +420,7 @@ class TestOrchestratorContextSection:
 
         builder = DefaultOrchestratorPromptBuilder()
 
-        prompt = builder.get_system_instructions(
+        prompt = builder.get_planning_instructions(
             active_capabilities=[],
             context_manager=cm,
             task_depends_on_chat_history=False,
@@ -454,7 +454,7 @@ class TestOrchestratorContextSection:
 
         builder = DefaultOrchestratorPromptBuilder()
 
-        prompt = builder.get_system_instructions(
+        prompt = builder.get_planning_instructions(
             active_capabilities=[],
             context_manager=cm,
             task_depends_on_chat_history=False,
@@ -466,3 +466,200 @@ class TestOrchestratorContextSection:
         assert "Retrieve beam current data" in prompt
         assert '{"ARCHIVER_DATA": "rf_data"}' in prompt
         assert "Retrieve RF power data" in prompt
+
+
+# ===================================================================
+# Tests for Split Methods (get_step_format, get_planning_strategy, etc.)
+# ===================================================================
+
+
+class TestSplitMethods:
+    """Test the decomposed prompt builder methods."""
+
+    def test_get_step_format_contains_planned_step_fields(self):
+        """get_step_format() contains all PlannedStep field definitions."""
+        builder = DefaultOrchestratorPromptBuilder()
+        step_format = builder.get_step_format()
+
+        assert "context_key" in step_format
+        assert "capability" in step_format
+        assert "task_objective" in step_format
+        assert "expected_output" in step_format
+        assert "success_criteria" in step_format
+        assert "inputs" in step_format
+        assert "parameters" in step_format
+        assert "PlannedStep" in step_format
+
+    def test_get_planning_strategy_contains_guidelines(self):
+        """get_planning_strategy() contains multi-step planning guidelines."""
+        builder = DefaultOrchestratorPromptBuilder()
+        strategy = builder.get_planning_strategy()
+
+        assert "sequencing" in strategy.lower() or "Dependencies" in strategy
+        assert "Cost optimization" in strategy or "cost" in strategy.lower()
+        assert "respond" in strategy
+        assert "clarify" in strategy
+
+    def test_get_planning_strategy_does_not_contain_reactive(self):
+        """get_planning_strategy() does NOT contain reactive mode constraints."""
+        builder = DefaultOrchestratorPromptBuilder()
+        strategy = builder.get_planning_strategy()
+
+        assert "REACTIVE MODE" not in strategy
+        assert "EXACTLY ONE step" not in strategy
+
+    def test_get_reactive_strategy_contains_constraints(self):
+        """get_reactive_strategy() contains single-step ReAct constraints."""
+        builder = DefaultOrchestratorPromptBuilder()
+        strategy = builder.get_reactive_strategy()
+
+        assert "REACTIVE MODE" in strategy
+        assert "ONE capability tool" in strategy
+        assert "respond" in strategy
+        assert "clarify" in strategy
+
+    def test_get_reactive_strategy_does_not_contain_planning(self):
+        """get_reactive_strategy() does NOT contain multi-step planning guidelines."""
+        builder = DefaultOrchestratorPromptBuilder()
+        strategy = builder.get_reactive_strategy()
+
+        assert "ensure proper sequencing" not in strategy
+        assert "Cost optimization" not in strategy
+
+    def test_get_instructions_combines_step_format_and_planning_strategy(self):
+        """get_instructions() returns get_step_format() + get_planning_strategy()."""
+        builder = DefaultOrchestratorPromptBuilder()
+        instructions = builder.get_instructions()
+        step_format = builder.get_step_format()
+        planning_strategy = builder.get_planning_strategy()
+
+        assert step_format in instructions
+        assert planning_strategy in instructions
+
+
+# ===================================================================
+# Tests for Reactive Instructions
+# ===================================================================
+
+
+class TestReactiveInstructions:
+    """Test suite for get_reactive_instructions() composition."""
+
+    def test_includes_role_definition(self):
+        """Reactive instructions include the role definition."""
+        builder = DefaultOrchestratorPromptBuilder()
+        prompt = builder.get_reactive_instructions(active_capabilities=[])
+
+        assert "expert execution planner" in prompt
+
+    def test_includes_step_format(self):
+        """Reactive instructions include step format."""
+        builder = DefaultOrchestratorPromptBuilder()
+        prompt = builder.get_reactive_instructions(active_capabilities=[])
+
+        assert "PlannedStep" in prompt
+        assert "context_key" in prompt
+
+    def test_includes_reactive_strategy(self):
+        """Reactive instructions include reactive strategy."""
+        builder = DefaultOrchestratorPromptBuilder()
+        prompt = builder.get_reactive_instructions(active_capabilities=[])
+
+        assert "REACTIVE MODE" in prompt
+        assert "ONE capability tool" in prompt
+
+    def test_does_not_include_planning_strategy(self):
+        """Reactive instructions do NOT include multi-step planning guidelines."""
+        builder = DefaultOrchestratorPromptBuilder()
+        prompt = builder.get_reactive_instructions(active_capabilities=[])
+
+        assert "ensure proper sequencing" not in prompt
+        assert "Cost optimization" not in prompt
+
+    def test_does_not_include_task_definition(self):
+        """Reactive instructions do NOT include the plan-first task definition."""
+        builder = DefaultOrchestratorPromptBuilder()
+        prompt = builder.get_reactive_instructions(active_capabilities=[])
+
+        assert "TASK: Create a detailed execution plan" not in prompt
+
+    def test_does_not_include_chat_history(self):
+        """Reactive instructions do NOT include chat history sections."""
+        builder = DefaultOrchestratorPromptBuilder()
+        prompt = builder.get_reactive_instructions(active_capabilities=[])
+
+        assert "**CONVERSATION HISTORY**" not in prompt
+
+    def test_does_not_include_error_context(self):
+        """Reactive instructions do NOT include replanning context."""
+        builder = DefaultOrchestratorPromptBuilder()
+        prompt = builder.get_reactive_instructions(active_capabilities=[])
+
+        assert "**REPLANNING CONTEXT:**" not in prompt
+
+    def test_does_not_include_context_reuse_guidance(self):
+        """Reactive instructions do NOT include context reuse guidance."""
+        builder = DefaultOrchestratorPromptBuilder()
+        prompt = builder.get_reactive_instructions(active_capabilities=[])
+
+        assert "**CONTEXT REUSE GUIDANCE:**" not in prompt
+
+    def test_includes_execution_history(self):
+        """Reactive instructions include the execution_history parameter."""
+        builder = DefaultOrchestratorPromptBuilder()
+        history = "- Step 'beam_channels' (channel_finding): SUCCESS - Find channels"
+        prompt = builder.get_reactive_instructions(
+            active_capabilities=[],
+            execution_history=history,
+        )
+
+        assert "# EXECUTION HISTORY" in prompt
+        assert history in prompt
+
+    def test_default_execution_history(self):
+        """Reactive instructions use default execution history when not provided."""
+        builder = DefaultOrchestratorPromptBuilder()
+        prompt = builder.get_reactive_instructions(active_capabilities=[])
+
+        assert "No steps executed yet" in prompt
+
+    def test_includes_context_section(self):
+        """Reactive instructions include context data when available."""
+        state = {"capability_context_data": {}}
+        cm = ContextManager(state)
+        cm.set_context(
+            "PV_ADDRESSES",
+            "beam_pvs",
+            TestPVAddressesContext(pvs=["SR:CURRENT:RB"]),
+            skip_validation=True,
+            task_objective="Find beam current PVs",
+        )
+
+        builder = DefaultOrchestratorPromptBuilder()
+        prompt = builder.get_reactive_instructions(
+            active_capabilities=[],
+            context_manager=cm,
+        )
+
+        assert "**AVAILABLE CONTEXT (from previous queries):**" in prompt
+        assert '{"PV_ADDRESSES": "beam_pvs"}' in prompt
+
+    def test_includes_capabilities(self):
+        """Reactive instructions include capability sections when present."""
+        from unittest.mock import MagicMock
+
+        from osprey.base import OrchestratorGuide
+
+        cap = MagicMock()
+        cap.__class__.__name__ = "TestCapability"
+        cap.orchestrator_guide = OrchestratorGuide(
+            instructions="Use this for testing.",
+            examples=[],
+            priority=10,
+        )
+
+        builder = DefaultOrchestratorPromptBuilder()
+        prompt = builder.get_reactive_instructions(active_capabilities=[cap])
+
+        assert "# CAPABILITY PLANNING GUIDELINES" in prompt
+        assert "Use this for testing." in prompt

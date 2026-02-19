@@ -19,15 +19,30 @@ from osprey.registry import get_registry
 
 
 class DefaultPythonPromptBuilder(FrameworkPromptBuilder):
-    """Default Python capability prompt builder."""
+    """Default Python capability prompt builder.
+
+    **Customization Points:**
+
+    +---------------------------------+----------------------------------------------+
+    | I want to...                    | Override...                                  |
+    +=================================+==============================================+
+    | Change the agent identity       | ``get_role()``                    |
+    +---------------------------------+----------------------------------------------+
+    | Change code gen instructions    | ``get_instructions()``                       |
+    +---------------------------------+----------------------------------------------+
+    | Change orchestrator guidance    | ``get_orchestrator_guide()``                 |
+    +---------------------------------+----------------------------------------------+
+    | Change classifier guidance      | ``get_classifier_guide()``                   |
+    +---------------------------------+----------------------------------------------+
+    """
 
     PROMPT_TYPE = "python"
 
-    def get_role_definition(self) -> str:
+    def get_role(self) -> str:
         """Get the role definition for Python code generation."""
         return "You are an expert Python developer generating high-quality, executable code."
 
-    def get_task_definition(self) -> str:
+    def get_task(self) -> str:
         """Get the task definition for Python code generation."""
         return None  # Task is provided via capability_prompts
 

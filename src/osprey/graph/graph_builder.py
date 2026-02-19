@@ -67,7 +67,31 @@ def create_graph(
         This framework is async-first. Use:
         - await graph.ainvoke(input, config)
         - async for chunk in graph.astream(input, config, stream_mode="custom"):
-    # OR for multiple modes: stream_mode=["custom", "values"]
+
+    Multi-mode Streaming:
+        For LLM token streaming alongside custom events, use multi-mode:
+
+        async for mode, chunk in graph.astream(
+            input, config, stream_mode=["custom", "messages"]
+        ):
+            if mode == "custom":
+                from osprey.events import parse_event
+                event = parse_event(chunk)
+                # Handle typed events (StatusEvent, CapabilityStartEvent, etc.)
+            elif mode == "messages":
+                message_chunk, metadata = chunk
+                if message_chunk.content:
+                    # Handle LLM token streaming
+                    print(message_chunk.content, end="", flush=True)
+
+        Available stream modes:
+        - "custom": Typed OspreyEvents from infrastructure nodes and capabilities
+        - "messages": LLM token streaming (AIMessageChunk with incremental content)
+        - "updates": State updates after each node (useful for debugging)
+        - "values": Final state values
+
+    See Also:
+        osprey.events.consume_stream() - Helper for consuming multi-mode streams
     """
 
     logger.info("Creating framework graph using registry components")

@@ -11,6 +11,7 @@ contextually appropriate prompts.
 
 import os
 import textwrap
+import warnings
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
@@ -39,6 +40,28 @@ class FrameworkPromptBuilder(ABC):
     everything from simple single-purpose prompts to complex multi-stage prompts with
     dynamic context injection.
 
+    **Customization Points:**
+
+    +---------------------------------+------------------------------------------+
+    | I want to...                    | Override...                              |
+    +=================================+==========================================+
+    | Change the agent identity       | ``get_role()``                           |
+    +---------------------------------+------------------------------------------+
+    | Add a task statement            | ``get_task()``                           |
+    +---------------------------------+------------------------------------------+
+    | Change core instructions        | ``get_instructions()``                   |
+    +---------------------------------+------------------------------------------+
+    | Supply few-shot examples        | ``get_examples(**kwargs)``               |
+    +---------------------------------+------------------------------------------+
+    | Change example formatting       | ``format_examples(examples)``            |
+    +---------------------------------+------------------------------------------+
+    | Inject runtime context          | ``build_dynamic_context(**kwargs)``       |
+    +---------------------------------+------------------------------------------+
+    | Provide orchestrator guidance   | ``get_orchestrator_guide()``             |
+    +---------------------------------+------------------------------------------+
+    | Provide classifier guidance     | ``get_classifier_guide()``               |
+    +---------------------------------+------------------------------------------+
+
     :raises NotImplementedError: If required abstract methods are not implemented
 
     .. note::
@@ -47,14 +70,14 @@ class FrameworkPromptBuilder(ABC):
        to see generated prompts in logs.
 
     .. warning::
-       Subclasses must implement get_role_definition() and get_instructions().
+       Subclasses must implement get_role() and get_instructions().
        These are the minimum requirements for a functional prompt.
 
     Examples:
         Basic prompt builder implementation::
 
             class CustomPromptBuilder(FrameworkPromptBuilder):
-                def get_role_definition(self) -> str:
+                def get_role(self) -> str:
                     return "You are a data analysis specialist."
 
                 def get_instructions(self) -> str:
@@ -63,13 +86,13 @@ class FrameworkPromptBuilder(ABC):
         Advanced prompt with dynamic context::
 
             class ContextualPromptBuilder(FrameworkPromptBuilder):
-                def get_role_definition(self) -> str:
+                def get_role(self) -> str:
                     return "You are an ALS accelerator operations expert."
 
                 def get_instructions(self) -> str:
                     return "Provide technical analysis using ALS-specific terminology."
 
-                def _get_dynamic_context(self, **kwargs) -> Optional[str]:
+                def build_dynamic_context(self, **kwargs) -> Optional[str]:
                     if 'device_status' in kwargs:
                         return f"Current device status: {kwargs['device_status']}"
                     return None
@@ -82,7 +105,7 @@ class FrameworkPromptBuilder(ABC):
     """
 
     @abstractmethod
-    def get_role_definition(self) -> str:
+    def get_role(self) -> str:
         """Define the AI agent's role and primary identity for the prompt.
 
         This method provides the foundational "You are..." statement that establishes
@@ -103,7 +126,7 @@ class FrameworkPromptBuilder(ABC):
         """
         pass
 
-    def get_task_definition(self) -> str | None:
+    def get_task(self) -> str | None:
         """Define the specific task or objective for the prompt.
 
         This method provides an explicit task statement when the role definition
@@ -123,6 +146,41 @@ class FrameworkPromptBuilder(ABC):
                 return None
         """
         return None
+
+    def get_role_definition(self) -> str:
+        """Deprecated: use ``get_role()`` instead.
+
+        Deprecation bridge — if a subclass still overrides ``get_role_definition()``,
+        this emits a warning and delegates to the subclass override.  Otherwise it
+        forwards to :meth:`get_role`.
+        """
+        if type(self).get_role_definition is not FrameworkPromptBuilder.get_role_definition:
+            warnings.warn(
+                f"{type(self).__name__}.get_role_definition() is deprecated. "
+                "Override get_role() instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            # Subclass overrides get_role_definition — call it via super bypass
+            return type(self).get_role_definition(self)
+        return self.get_role()
+
+    def get_task_definition(self) -> str | None:
+        """Deprecated: use ``get_task()`` instead.
+
+        Deprecation bridge — if a subclass still overrides ``get_task_definition()``,
+        this emits a warning and delegates to the subclass override.  Otherwise it
+        forwards to :meth:`get_task`.
+        """
+        if type(self).get_task_definition is not FrameworkPromptBuilder.get_task_definition:
+            warnings.warn(
+                f"{type(self).__name__}.get_task_definition() is deprecated. "
+                "Override get_task() instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            return type(self).get_task_definition(self)
+        return self.get_task()
 
     @abstractmethod
     def get_instructions(self) -> str:
@@ -152,15 +210,12 @@ class FrameworkPromptBuilder(ABC):
         """
         pass
 
-    def _get_examples(self, **kwargs) -> list["BaseExample"] | None:
+    def get_examples(self, **kwargs) -> list["BaseExample"] | None:
         """Provide few-shot examples to guide agent behavior and output format.
 
-        This method can return static examples or generate dynamic examples based
-        on the provided context. Examples are particularly valuable for structured
-        output tasks, complex reasoning patterns, or domain-specific formatting.
-
-        This is an internal method called only by get_system_instructions().
-        Subclasses can override this to provide custom examples.
+        Override this method in subclasses to supply static or dynamic examples.
+        Examples are particularly valuable for structured output tasks, complex
+        reasoning patterns, or domain-specific formatting.
 
         :param kwargs: Context parameters for dynamic example generation
         :type kwargs: dict
@@ -170,7 +225,7 @@ class FrameworkPromptBuilder(ABC):
         Examples:
             Static examples::
 
-                def _get_examples(self, **kwargs):
+                def get_examples(self, **kwargs):
                     return [
                         TaskExtractionExample(
                             input="Show me yesterday's beam current data",
@@ -180,22 +235,32 @@ class FrameworkPromptBuilder(ABC):
 
             Dynamic examples based on context::
 
-                def _get_examples(self, **kwargs):
+                def get_examples(self, **kwargs):
                     if kwargs.get('task_type') == 'data_analysis':
                         return self._get_analysis_examples()
                     return self._get_general_examples()
         """
+        # Deprecation bridge: detect subclasses still overriding old private name
+        if type(self)._get_examples is not FrameworkPromptBuilder._get_examples:
+            warnings.warn(
+                f"{type(self).__name__}._get_examples() is deprecated. "
+                "Override get_examples() instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            return self._get_examples(**kwargs)
         return None
 
-    def _get_dynamic_context(self, **kwargs) -> str | None:
+    def _get_examples(self, **kwargs) -> list["BaseExample"] | None:
+        """Deprecated: override get_examples() instead."""
+        return None
+
+    def build_dynamic_context(self, **kwargs) -> str | None:
         """Inject runtime context information into the prompt.
 
-        This method allows prompts to incorporate dynamic information such as
-        current system state, user preferences, or execution context. The context
-        is appended to the prompt after all other components.
-
-        This is an internal method called only by get_system_instructions().
-        Subclasses can override this to provide custom dynamic context.
+        Override this method in subclasses to incorporate dynamic information
+        such as current system state, user preferences, or execution context.
+        The context is appended to the prompt after all other components.
 
         :param kwargs: Runtime context data for prompt customization
         :type kwargs: dict
@@ -205,23 +270,36 @@ class FrameworkPromptBuilder(ABC):
         Examples:
             System status context::
 
-                def _get_dynamic_context(self, **kwargs):
+                def build_dynamic_context(self, **kwargs):
                     if 'system_status' in kwargs:
                         return f"Current system status: {kwargs['system_status']}"
                     return None
 
             User preferences context::
 
-                def _get_dynamic_context(self, **kwargs):
+                def build_dynamic_context(self, **kwargs):
                     prefs = kwargs.get('user_preferences', {})
                     if prefs:
                         return f"User preferences: {prefs}"
                     return None
         """
+        # Deprecation bridge: detect subclasses still overriding old private name
+        if type(self)._get_dynamic_context is not FrameworkPromptBuilder._get_dynamic_context:
+            warnings.warn(
+                f"{type(self).__name__}._get_dynamic_context() is deprecated. "
+                "Override build_dynamic_context() instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            return self._get_dynamic_context(**kwargs)
         return None
 
-    def get_system_instructions(self, **context) -> str:
-        """Compose and return complete system instructions for agent/LLM configuration.
+    def _get_dynamic_context(self, **kwargs) -> str | None:
+        """Deprecated: override build_dynamic_context() instead."""
+        return None
+
+    def build_prompt(self, **context) -> str:
+        """Compose and return the complete prompt for agent/LLM configuration.
 
         This method orchestrates the prompt building process by combining all prompt
         components in the correct order: role, task, instructions, examples, and
@@ -229,15 +307,15 @@ class FrameworkPromptBuilder(ABC):
         integrates with the framework's debug system for development visibility.
 
         The composition follows this structure:
-        1. Role definition (always present)
-        2. Task definition (optional)
+        1. Role (always present)
+        2. Task (optional)
         3. Instructions (always present)
         4. Examples (optional, can be static or dynamic)
         5. Dynamic context (optional)
 
         :param context: Runtime context data passed to dynamic methods
         :type context: dict
-        :return: Complete system prompt ready for LLM consumption
+        :return: Complete prompt ready for LLM consumption
         :rtype: str
 
         .. note::
@@ -248,14 +326,14 @@ class FrameworkPromptBuilder(ABC):
             Basic usage in framework infrastructure::
 
                 prompt_builder = get_framework_prompts().get_orchestrator_prompt_builder()
-                system_prompt = prompt_builder.get_system_instructions(
+                prompt = prompt_builder.build_prompt(
                     capabilities=active_capabilities,
                     context_manager=context_manager
                 )
 
             With dynamic context injection::
 
-                system_prompt = builder.get_system_instructions(
+                prompt = builder.build_prompt(
                     user_preferences={'format': 'detailed'},
                     system_status='operational',
                     available_data_sources=['archiver', 'logbook']
@@ -263,15 +341,15 @@ class FrameworkPromptBuilder(ABC):
 
         .. seealso::
            :meth:`debug_print_prompt` : Debug output for prompt development
-           :meth:`_format_examples` : Custom example formatting override
+           :meth:`format_examples` : Custom example formatting override
         """
         sections = []
 
         # Role (always present)
-        sections.append(self.get_role_definition())
+        sections.append(self.get_role())
 
         # Task (optional)
-        task = self.get_task_definition()
+        task = self.get_task()
         if task:
             sections.append(task)
 
@@ -280,29 +358,46 @@ class FrameworkPromptBuilder(ABC):
         sections.append(instructions)
 
         # Examples (optional, can be static or dynamic)
-        examples = self._get_examples(**context)
+        examples = self.get_examples(**context)
         if examples:
-            formatted_examples = self._format_examples(examples)
+            formatted_examples = self.format_examples(examples)
             sections.append(f"EXAMPLES:\n{formatted_examples}")
 
         # Dynamic context (optional)
-        dynamic_context = self._get_dynamic_context(**context)
+        dynamic_context = self.build_dynamic_context(**context)
         if dynamic_context:
             sections.append(dynamic_context)
 
         final_prompt = "\n\n".join(sections)
 
-        # Debug: Print system instructions if enabled (automatic for all framework prompts)
+        # Debug: Print prompt if enabled (automatic for all framework prompts)
         self.debug_print_prompt(final_prompt)
 
         return final_prompt
+
+    def get_system_instructions(self, *args, **kwargs) -> str:
+        """Deprecated: use ``build_prompt()`` instead.
+
+        Deprecation bridge — if a subclass still overrides ``get_system_instructions()``,
+        this emits a warning and delegates to the subclass override.  Otherwise it
+        forwards to :meth:`build_prompt`.
+        """
+        if type(self).get_system_instructions is not FrameworkPromptBuilder.get_system_instructions:
+            warnings.warn(
+                f"{type(self).__name__}.get_system_instructions() is deprecated. "
+                "Override build_prompt() instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            return type(self).get_system_instructions(self, *args, **kwargs)
+        return self.build_prompt(**kwargs)
 
     def debug_print_prompt(self, prompt: str, name: str | None = None) -> None:
         """Output prompt content for debugging and development visibility.
 
         This method integrates with the framework's development configuration to
         provide optional prompt debugging through console output and file saving.
-        It's automatically called by get_system_instructions() but can also be
+        It's automatically called by build_prompt() but can also be
         used manually for specialized prompts or intermediate prompt stages.
 
         The debug output includes metadata such as timestamp, builder class,
@@ -322,10 +417,10 @@ class FrameworkPromptBuilder(ABC):
            - latest_only: Control file naming (latest.md vs timestamped)
 
         Examples:
-            Automatic usage (called by get_system_instructions)::
+            Automatic usage (called by build_prompt)::
 
                 # Debug output happens automatically
-                system_prompt = builder.get_system_instructions()
+                prompt = builder.build_prompt()
 
             Manual usage for specialized prompts::
 
@@ -366,15 +461,12 @@ class FrameworkPromptBuilder(ABC):
             self, "PROMPT_TYPE", self.__class__.__name__.replace("PromptBuilder", "").lower()
         )
 
-    def _format_examples(self, examples: list["BaseExample"]) -> str:
+    def format_examples(self, examples: list["BaseExample"]) -> str:
         """Format example objects into prompt-ready text representation.
 
-        This method converts a list of BaseExample objects into a formatted string
-        suitable for inclusion in the final prompt. The default implementation
-        calls format_for_prompt() on each example and joins them with newlines.
-
-        This is an internal method called only by get_system_instructions().
-        Subclasses can override this method to provide custom formatting.
+        Override this method in subclasses to provide custom example formatting.
+        The default implementation calls format_for_prompt() on each example and
+        joins them with newlines.
 
         :param examples: List of example objects to format
         :type examples: List[BaseExample]
@@ -385,12 +477,12 @@ class FrameworkPromptBuilder(ABC):
             Default formatting::
 
                 examples = [TaskExample(input="...", output="...")]
-                formatted = self._format_examples(examples)
+                formatted = self.format_examples(examples)
                 # Returns: "Input: ...\nOutput: ...\n"
 
             Custom formatting override::
 
-                def _format_examples(self, examples):
+                def format_examples(self, examples):
                     formatted = []
                     for i, ex in enumerate(examples, 1):
                         formatted.append(f"Example {i}:\n{ex.format_for_prompt()}")
@@ -400,6 +492,19 @@ class FrameworkPromptBuilder(ABC):
            :class:`BaseExample` : Base class for prompt examples
            :meth:`BaseExample.format_for_prompt` : Individual example formatting
         """
+        # Deprecation bridge: detect subclasses still overriding old private name
+        if type(self)._format_examples is not FrameworkPromptBuilder._format_examples:
+            warnings.warn(
+                f"{type(self).__name__}._format_examples() is deprecated. "
+                "Override format_examples() instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            return self._format_examples(examples)
+        return "\n".join(ex.format_for_prompt() for ex in examples)
+
+    def _format_examples(self, examples: list["BaseExample"]) -> str:
+        """Deprecated: override format_examples() instead."""
         return "\n".join(ex.format_for_prompt() for ex in examples)
 
     def get_orchestrator_guide(self) -> Optional["OrchestratorGuide"]:

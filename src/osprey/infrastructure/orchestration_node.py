@@ -32,7 +32,7 @@ from osprey.base.errors import (
 from osprey.base.nodes import BaseInfrastructureNode
 from osprey.base.planning import ExecutionPlan, PlannedStep
 from osprey.context.context_manager import ContextManager
-from osprey.models import get_chat_completion
+from osprey.models import get_chat_completion, set_api_call_context
 from osprey.prompts.loader import get_framework_prompts
 from osprey.registry import get_registry
 from osprey.state import AgentState
@@ -48,6 +48,103 @@ if TYPE_CHECKING:
 # =============================================================================
 # EXECUTION PLAN VALIDATION
 # =============================================================================
+
+
+def validate_single_step(
+    step: PlannedStep,
+    state: AgentState,
+    logger,
+    *,
+    available_keys: dict[str, tuple[int, str]] | None = None,
+    step_index: int = 0,
+) -> None:
+    """Validate a single execution step for correctness.
+
+    Checks that:
+    1. The step's capability exists in the registry
+    2. Input context key references are valid (if available_keys provided)
+
+    This function is used by both the plan-first orchestrator (via
+    ``_validate_and_fix_execution_plan``) and the reactive orchestrator
+    to validate individual steps.
+
+    :param step: The planned step to validate
+    :param state: Current agent state (for checking existing context keys)
+    :param logger: Logger instance
+    :param available_keys: Pre-built map of context_key -> (step_number, capability_name).
+        If None, builds from state's existing context data only.
+    :param step_index: The index of this step in the plan (for error messages)
+    :raises ValueError: If capability is not found in registry
+    :raises InvalidContextKeyError: If invalid context key references found
+    """
+    registry = get_registry()
+
+    capability_name = step.get("capability", "")
+    if not capability_name:
+        logger.warning(f"Step {step_index + 1} has no capability specified")
+        return
+
+    # Check if capability exists in registry
+    if not registry.get_node(capability_name):
+        error_msg = f"Capability '{capability_name}' not found in registry. Available capabilities: {registry.get_stats()['capability_names']}"
+        logger.error(f"Step {step_index + 1}: {error_msg}")
+        raise ValueError(error_msg)
+
+    # Build available_keys from state if not provided
+    if available_keys is None:
+        available_keys = {}
+        existing_context = state.get("capability_context_data", {})
+        for _context_type, contexts in existing_context.items():
+            if isinstance(contexts, dict):
+                for key in contexts.keys():
+                    available_keys[key] = (0, "existing_context")
+
+    # Validate input context key references
+    step_inputs = step.get("inputs") or []
+    for input_ref in step_inputs:
+        if not isinstance(input_ref, dict):
+            continue
+
+        for context_type, ref_key in input_ref.items():
+            if ref_key not in available_keys:
+                error_lines = [
+                    f"Step {step_index + 1} ({capability_name}) references invalid context key.",
+                    "",
+                    "**Invalid Input Reference:**",
+                    f'  {{"{context_type}": "{ref_key}"}}',
+                    "",
+                    "**Available Context Keys:**",
+                ]
+
+                sorted_keys = sorted(available_keys.items(), key=lambda x: x[1][0])
+                for key, (step_num, cap_name) in sorted_keys:
+                    if step_num == 0:
+                        error_lines.append(f'  - "{key}" (from existing context)')
+                    else:
+                        error_lines.append(f'  - "{key}" (created by step {step_num}: {cap_name})')
+
+                error_lines.extend(
+                    [
+                        "",
+                        "**Guidance:** Each step's input references must exactly match a context_key",
+                        "from an earlier step or existing context. Check for typos or inconsistent naming.",
+                    ]
+                )
+
+                error_msg = "\n".join(error_lines)
+                logger.error(f"Context key validation failed:\n{error_msg}")
+                raise InvalidContextKeyError(error_msg)
+
+            # Also check that referenced key comes from an EARLIER step (not same or later)
+            ref_step_num = available_keys[ref_key][0]
+            if ref_step_num > step_index:
+                error_msg = (
+                    f"Step {step_index + 1} ({capability_name}) references key '{ref_key}' "
+                    f"which is created by step {ref_step_num} (later in the plan). "
+                    f"Steps can only reference keys from earlier steps or existing context."
+                )
+                logger.error(f"Context key ordering error: {error_msg}")
+                raise InvalidContextKeyError(error_msg)
 
 
 def _validate_and_fix_execution_plan(
@@ -110,7 +207,7 @@ def _validate_and_fix_execution_plan(
         logger.error(error_msg)
         raise ValueError(error_msg)
 
-    logger.debug("✅ All capabilities in execution plan exist in registry")
+    logger.info("✅ All capabilities in execution plan exist in registry")
 
     # =====================================================================
     # STEP 2: VALIDATE INPUT CONTEXT KEY REFERENCES
@@ -133,59 +230,9 @@ def _validate_and_fix_execution_plan(
         if context_key:
             available_keys[context_key] = (i + 1, step.get("capability", "unknown"))
 
-    # Validate each step's input references
+    # Validate each step's input references using validate_single_step
     for i, step in enumerate(steps):
-        step_inputs = step.get("inputs") or []
-        capability_name = step.get("capability", "unknown")
-
-        for input_ref in step_inputs:
-            if not isinstance(input_ref, dict):
-                continue
-
-            for context_type, ref_key in input_ref.items():
-                if ref_key not in available_keys:
-                    # Build helpful error message
-                    error_lines = [
-                        f"Step {i + 1} ({capability_name}) references invalid context key.",
-                        "",
-                        "**Invalid Input Reference:**",
-                        f'  {{"{context_type}": "{ref_key}"}}',
-                        "",
-                        "**Available Context Keys:**",
-                    ]
-
-                    # Sort keys by step number for clarity
-                    sorted_keys = sorted(available_keys.items(), key=lambda x: x[1][0])
-                    for key, (step_num, cap_name) in sorted_keys:
-                        if step_num == 0:
-                            error_lines.append(f'  - "{key}" (from existing context)')
-                        else:
-                            error_lines.append(
-                                f'  - "{key}" (created by step {step_num}: {cap_name})'
-                            )
-
-                    error_lines.extend(
-                        [
-                            "",
-                            "**Guidance:** Each step's input references must exactly match a context_key",
-                            "from an earlier step or existing context. Check for typos or inconsistent naming.",
-                        ]
-                    )
-
-                    error_msg = "\n".join(error_lines)
-                    logger.error(f"Context key validation failed:\n{error_msg}")
-                    raise InvalidContextKeyError(error_msg)
-
-                # Also check that referenced key comes from an EARLIER step (not same or later)
-                ref_step_num = available_keys[ref_key][0]
-                if ref_step_num > i:  # Key is created by a later step
-                    error_msg = (
-                        f"Step {i + 1} ({capability_name}) references key '{ref_key}' "
-                        f"which is created by step {ref_step_num} (later in the plan). "
-                        f"Steps can only reference keys from earlier steps or existing context."
-                    )
-                    logger.error(f"Context key ordering error: {error_msg}")
-                    raise InvalidContextKeyError(error_msg)
+        validate_single_step(step, state, logger, available_keys=available_keys, step_index=i)
 
     logger.debug("✅ All input context key references are valid")
 
@@ -198,7 +245,7 @@ def _validate_and_fix_execution_plan(
     last_capability = last_step.get("capability", "").lower()
 
     if last_capability in ["respond", "clarify"]:
-        logger.debug(f"Execution plan correctly ends with {last_capability} step")
+        logger.info(f"Execution plan correctly ends with {last_capability} step")
         return execution_plan
 
     # Plan doesn't end with respond/clarify - add respond step
@@ -340,10 +387,21 @@ class OrchestrationNode(BaseInfrastructureNode):
         :return: Dictionary of state updates for LangGraph
         :rtype: Dict[str, Any]
         """
+        from osprey.events import PhaseCompleteEvent, PhaseStartEvent, PlanCreatedEvent
+
         state = self._state
+        start_time = time.time()
 
         # Get unified logger with automatic streaming support
         logger = self.get_logger()
+
+        # Emit phase start event
+        logger.emit_event(
+            PhaseStartEvent(
+                phase="planning",
+                description="Creating execution plan from task and capabilities",
+            )
+        )
 
         # =====================================================================
         # STEP 1: CHECK FOR APPROVED PLAN IN AGENT STATE (HIGHEST PRIORITY)
@@ -366,6 +424,15 @@ class OrchestrationNode(BaseInfrastructureNode):
                 # Clean up processed plan files
                 _cleanup_processed_plan_files(logger=logger)
 
+                # Emit data event with execution plan
+                logger.emit_event(PlanCreatedEvent(steps=approved_plan.get("steps", [])))
+
+                # Emit phase complete event
+                duration_ms = int((time.time() - start_time) * 1000)
+                logger.emit_event(
+                    PhaseCompleteEvent(phase="planning", duration_ms=duration_ms, success=True)
+                )
+
                 # Create state updates with explicit cleanup of approval and error state
                 return {
                     **_create_state_updates(
@@ -379,6 +446,15 @@ class OrchestrationNode(BaseInfrastructureNode):
                 if approved_plan:
                     logger.warning(
                         f"File loading failed ({file_load_result.get('error')}), using in-memory plan"
+                    )
+
+                    # Emit data event with execution plan
+                    logger.emit_event(PlanCreatedEvent(steps=approved_plan.get("steps", [])))
+
+                    # Emit phase complete event
+                    duration_ms = int((time.time() - start_time) * 1000)
+                    logger.emit_event(
+                        PhaseCompleteEvent(phase="planning", duration_ms=duration_ms, success=True)
                     )
 
                     # Create state updates with explicit cleanup of approval and error state
@@ -401,12 +477,22 @@ class OrchestrationNode(BaseInfrastructureNode):
 
         current_task = self.get_current_task()
         if not current_task:
+            # Emit phase complete with failure
+            duration_ms = int((time.time() - start_time) * 1000)
+            logger.emit_event(
+                PhaseCompleteEvent(phase="planning", duration_ms=duration_ms, success=False)
+            )
             raise ValueError("No current task available for orchestration")
 
         # Get active capabilities from state
         active_capability_names = state.get("planning_active_capabilities")
 
         if not active_capability_names:
+            # Emit phase complete with failure
+            duration_ms = int((time.time() - start_time) * 1000)
+            logger.emit_event(
+                PhaseCompleteEvent(phase="planning", duration_ms=duration_ms, success=False)
+            )
             logger.error("No active capabilities found in state")
             raise ReclassificationRequiredError("No active capabilities found for task")
 
@@ -423,6 +509,11 @@ class OrchestrationNode(BaseInfrastructureNode):
                 logger.warning(f"Capability '{cap_name}' not found in registry")
 
         if not active_capabilities:
+            # Emit phase complete with failure
+            duration_ms = int((time.time() - start_time) * 1000)
+            logger.emit_event(
+                PhaseCompleteEvent(phase="planning", duration_ms=duration_ms, success=False)
+            )
             raise ValueError("No valid capability instances found for orchestration")
 
         logger.info(f"Planning for task: {current_task}")
@@ -468,7 +559,7 @@ class OrchestrationNode(BaseInfrastructureNode):
             # Get messages for chat history context (only used when task_depends_on_chat_history=True)
             messages = state.get("messages", [])
 
-            system_instructions = orchestrator_builder.get_system_instructions(
+            prompt = orchestrator_builder.get_planning_instructions(
                 active_capabilities=active_capabilities,
                 context_manager=context_manager,
                 task_depends_on_chat_history=state.get("task_depends_on_chat_history", False),
@@ -477,7 +568,7 @@ class OrchestrationNode(BaseInfrastructureNode):
                 messages=messages,
             )
 
-            if not system_instructions:
+            if not prompt:
                 logger.error("No prompt text generated. The instructions will be empty.")
                 raise ValueError("No prompt text generated. The instructions will be empty.")
 
@@ -508,17 +599,17 @@ class OrchestrationNode(BaseInfrastructureNode):
                 logger.info(" - Error context for replanning (previous failure analysis)")
 
             logger.debug(
-                f"\n\n\n------------Orchestrator System Prompt:\n{system_instructions}\n------------\n\n\n"
+                f"\n\n\n------------Orchestrator System Prompt:\n{prompt}\n------------\n\n\n"
             )
 
-            return system_instructions
+            return prompt
 
         # =====================================================================
         # GENERATE EXECUTION PLAN
         # =====================================================================
 
         # Create system prompt
-        system_prompt = await create_system_prompt()
+        prompt = await create_system_prompt()
 
         logger.status("Generating execution plan...")
 
@@ -528,14 +619,12 @@ class OrchestrationNode(BaseInfrastructureNode):
 
         # Get model configuration and call LLM
         model_config = get_model_config("orchestrator")
-        message = f"{system_prompt}\n\nTASK TO PLAN: {current_task}"
+        message = f"{prompt}\n\nTASK TO PLAN: {current_task}"
 
-        # Log the prompt for TUI visibility
-        logger.info("LLM prompt built", llm_prompt=message, stream=False)
+        # Emit LLM prompt event for TUI display
+        logger.emit_llm_request(message)
 
         # Set caller context for API call logging (propagates through asyncio.to_thread)
-        from osprey.models import set_api_call_context
-
         set_api_call_context(
             function="_create_execution_plan",
             module="orchestration_node",
@@ -554,9 +643,9 @@ class OrchestrationNode(BaseInfrastructureNode):
         execution_time = time.time() - plan_start_time
         logger.info(f"Orchestrator LLM execution time: {execution_time:.2f} seconds")
 
-        # Log the response for TUI visibility
+        # Emit LLM response event for TUI display
         response_json = json.dumps(execution_plan, indent=2)
-        logger.info("LLM response received", llm_response=response_json, stream=False)
+        logger.emit_llm_response(response_json)
 
         # =====================================================================
         # STEP 3.5: VALIDATE AND FIX EXECUTION PLAN
@@ -588,7 +677,13 @@ class OrchestrationNode(BaseInfrastructureNode):
             raise
 
         except ValueError as e:
-            # Orchestrator hallucinated non-existent capabilities - trigger reclassification
+            # Emit phase complete with failure
+            duration_ms = int((time.time() - start_time) * 1000)
+            logger.emit_event(
+                PhaseCompleteEvent(phase="planning", duration_ms=duration_ms, success=False)
+            )
+
+            # Orchestrator hallucinated non-existent capabilities - trigger re-classification
             logger.error(f"Execution plan validation failed: {e}")
             logger.warning("Triggering reclassification due to hallucinated capabilities")
             logger.status("Reclassifying due to invalid capabilities...")
@@ -610,6 +705,15 @@ class OrchestrationNode(BaseInfrastructureNode):
         logger.status("Execution plan created")
 
         logger.key_info("Orchestration processing completed")
+
+        # Emit data event with execution plan
+        logger.emit_event(PlanCreatedEvent(steps=execution_plan.get("steps", [])))
+
+        # Emit phase complete event
+        duration_ms = int((time.time() - start_time) * 1000)
+        logger.emit_event(
+            PhaseCompleteEvent(phase="planning", duration_ms=duration_ms, success=True)
+        )
 
         return _create_state_updates(state, execution_plan, "llm_based")
 

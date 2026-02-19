@@ -22,7 +22,7 @@ Infrastructure Components
    - Gateway-driven message processing with universal entry point patterns
    - Task extraction system converting conversations into actionable requirements
    - LLM-powered classification and intelligent routing for capability selection
-   - Orchestrator-first planning with upfront execution plan generation
+   - Plan-first and reactive (ReAct) orchestration modes
    - Adaptive response generation and sophisticated error handling with recovery
 
    **Prerequisites:** Understanding of Core Framework Systems and LangGraph StateGraph concepts
@@ -34,7 +34,7 @@ The Infrastructure Components provide the intelligent processing core that makes
 Architecture Overview
 =====================
 
-The Osprey Framework implements a **Gateway-First, Three-Pillar Architecture** that eliminates the fragility and inefficiency of traditional reactive agentic systems:
+The Osprey Framework implements a **Gateway-First, Three-Pillar Architecture** with structured orchestration that replaces ad-hoc tool calling with coordinated, auditable execution:
 
 **Traditional Approach:**
 
@@ -42,13 +42,19 @@ The Osprey Framework implements a **Gateway-First, Three-Pillar Architecture** t
 
    User Query → Tool Call 1 → Analyze → Tool Call 2 → Analyze → Tool Call 3 → Response
 
-**Orchestrator-First Approach:**
+**Plan-First Approach (default):**
 
 .. code-block:: text
 
    User Query → Complete Plan Creation → Execute All Steps → Response
 
-**Benefits:** Single planning phase, full context utilization, natural human oversight, more efficient LLM usage.
+**Reactive Approach (ReAct):**
+
+.. code-block:: text
+
+   User Query → Decide Step → Execute → Observe → Decide Next Step → ... → Response
+
+Both modes provide full context utilization, natural human oversight, and capability validation. Plan-first minimizes LLM calls; reactive adapts dynamically to intermediate results.
 
 The Three Pillars
 ==================
@@ -87,7 +93,7 @@ The Three Pillars
 
       **Complete Execution Coordination**
 
-      Creates validated execution plans with approval integration before any capability runs.
+      Plan-first and reactive orchestration with capability validation and approval integration.
 
 Supporting Infrastructure
 =========================

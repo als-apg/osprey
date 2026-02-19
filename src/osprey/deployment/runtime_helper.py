@@ -140,7 +140,7 @@ def verify_runtime_is_running(config: dict | None = None) -> tuple[bool, str]:
             cmd = get_runtime_command(config)
             runtime = cmd[0]
         except Exception:
-            pass
+            pass  # Best-effort runtime name detection for error message
         return False, f"{runtime.capitalize()} command timed out. The service may not be running."
     except RuntimeError as e:
         # No runtime found at all

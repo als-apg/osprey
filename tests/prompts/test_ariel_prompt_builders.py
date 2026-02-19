@@ -44,8 +44,8 @@ class TestDefaultARIELAgentPromptBuilder:
         assert "ARIEL" in prompt
 
     def test_role_definition_delegates_to_facility_context(self, builder):
-        """Test that get_role_definition delegates to get_facility_context."""
-        assert builder.get_role_definition() == builder.get_facility_context()
+        """Test that get_role delegates to get_facility_context."""
+        assert builder.get_role() == builder.get_facility_context()
 
     def test_instructions_delegates_to_response_guidelines(self, builder):
         """Test that get_instructions delegates to get_response_guidelines."""
@@ -99,8 +99,8 @@ class TestDefaultARIELRAGPromptBuilder:
         assert "[#" in template
 
     def test_role_definition_delegates_to_facility_context(self, builder):
-        """Test that get_role_definition delegates to get_facility_context."""
-        assert builder.get_role_definition() == builder.get_facility_context()
+        """Test that get_role delegates to get_facility_context."""
+        assert builder.get_role() == builder.get_facility_context()
 
     def test_instructions_delegates_to_response_guidelines(self, builder):
         """Test that get_instructions delegates to get_response_guidelines."""
@@ -123,7 +123,7 @@ class TestARIELPromptBuilderInterface:
         """All builders must have the core interface methods."""
         assert hasattr(builder, "get_facility_context")
         assert hasattr(builder, "get_response_guidelines")
-        assert hasattr(builder, "get_role_definition")
+        assert hasattr(builder, "get_role")
         assert hasattr(builder, "get_instructions")
 
     def test_facility_context_not_empty(self, builder):

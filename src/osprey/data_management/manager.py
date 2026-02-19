@@ -6,16 +6,17 @@ with a cleaner approach supporting core and application-specific data sources.
 """
 
 import asyncio
-import logging
 import time
 import warnings
 from dataclasses import dataclass, field
 from typing import Any
 
+from osprey.utils.logger import get_logger
+
 from .providers import DataSourceContext, DataSourceProvider
 from .request import DataSourceRequest
 
-logger = logging.getLogger(__name__)
+logger = get_logger("data_manager")
 
 
 @dataclass

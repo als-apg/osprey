@@ -7,11 +7,12 @@ Provides colored logging for Osprey and application components with:
 - Graceful fallbacks when configuration is unavailable
 - Simple, clear interface
 - Optional LangGraph streaming support via lazy initialization
+- Typed event emission for structured streaming (OspreyEvent types)
 
 Usage:
     # Components with streaming (via BaseCapability.get_logger())
     logger = self.get_logger()
-    logger.status("Creating execution plan...")  # Logs + streams
+    logger.status("Creating execution plan...")  # Logs + streams typed event
     logger.info("Active capabilities: [...]")   # Logs only
 
     # Module-level (no streaming)
@@ -29,16 +30,33 @@ Usage:
 
     # Custom loggers with explicit parameters
     logger = get_logger(name="custom_component", color="blue")
+
+    # Emit typed events directly (for infrastructure nodes)
+    from osprey.events import PhaseStartEvent
+    logger.emit_event(PhaseStartEvent(phase="task_extraction"))
 """
 
 import logging
 from contextlib import contextmanager
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from rich.console import Console
 from rich.logging import RichHandler
 
+from osprey.events import ErrorEvent, EventEmitter, OspreyEvent, StatusEvent
 from osprey.utils.config import get_config_value
+
+if TYPE_CHECKING:
+    pass  # For future type-only imports
+
+
+# Hard-coded step mapping for task preparation phases
+# (Moved from deprecated streaming.py module)
+TASK_PREPARATION_STEPS = {
+    "task_extraction": {"step": 1, "total_steps": 3, "phase": "Task Preparation"},
+    "classifier": {"step": 2, "total_steps": 3, "phase": "Task Preparation"},
+    "orchestrator": {"step": 3, "total_steps": 3, "phase": "Task Preparation"},
+}
 
 
 @contextmanager
@@ -109,6 +127,9 @@ class ComponentLogger:
         self._stream_writer_attempted = False
         self._step_info = None
 
+        # Typed event emitter for the new event streaming system
+        self._event_emitter = EventEmitter(component_name)
+
     def _get_stream_writer(self):
         """Lazy initialization of stream writer (only when first needed)."""
         if not self._stream_writer_attempted:
@@ -133,12 +154,6 @@ class ComponentLogger:
         - Execution phases extract from execution plan in state
         - Falls back to basic component info
         """
-        # Import the step mapping from streaming module
-        try:
-            from osprey.utils.streaming import TASK_PREPARATION_STEPS
-        except ImportError:
-            TASK_PREPARATION_STEPS = {}
-
         # Check if this is a task preparation component
         if self.component_name in TASK_PREPARATION_STEPS:
             return TASK_PREPARATION_STEPS[self.component_name]
@@ -160,7 +175,10 @@ class ComponentLogger:
                             "phase": "Execution",
                         }
             except Exception:
-                pass  # Graceful degradation
+                # Silently fall through to default step info below.
+                # Cannot log here: runs inside logging infrastructure,
+                # logging.debug() risks recursion or handler re-entry.
+                pass
 
         # Default: no step info
         return {
@@ -169,31 +187,145 @@ class ComponentLogger:
             "phase": self.component_name.replace("_", " ").title(),
         }
 
-    def _emit_stream_event(self, message: str, event_type: str = "status", **kwargs):
-        """Emit streaming event if writer available."""
-        writer = self._get_stream_writer()  # Lazy init
-        if not writer:
-            return  # Silently skip if no stream available
+    def _emit_stream_event(self, message: str, *args, event_type: str = "status", **kwargs):
+        """Emit streaming event as typed OspreyEvent.
+
+        Uses the EventEmitter to emit typed StatusEvent or ErrorEvent instances.
+        The emitter handles LangGraph streaming and fallback handlers automatically.
+
+        Supports stdlib-style format args: ``logger.info("msg %s", val)``
+        """
+        # Apply %-style formatting if positional args are provided (stdlib compat)
+        if args:
+            try:
+                message = message % args
+            except (TypeError, ValueError):
+                pass
+
+        # Extract step info for the event (lazy init if needed)
+        if self._step_info is None:
+            self._step_info = self._extract_step_info(self._state)
+
+        step_info = self._step_info or {}
 
         try:
-            import time
+            # Create typed event based on event_type
+            if event_type == "error" or kwargs.get("error"):
+                event = ErrorEvent(
+                    component=self.component_name,
+                    error_type=kwargs.get("error_type", "ExecutionError"),
+                    error_message=message,
+                    recoverable=kwargs.get("recoverable", False),
+                    stack_trace=kwargs.get("stack_trace"),
+                )
+            else:
+                # Map event_type to StatusEvent level
+                level_map = {
+                    "status": "status",
+                    "info": "info",
+                    "debug": "debug",
+                    "warning": "warning",
+                    "success": "success",
+                    "key_info": "key_info",
+                    "timing": "timing",
+                    "approval": "approval",
+                    "resume": "resume",
+                }
+                level = level_map.get(event_type, "info")
 
-            event = {
-                "event_type": event_type,
-                "message": message,
-                "component": self.component_name,
-                "timestamp": time.time(),
-                **(self._step_info or {}),
-                **kwargs,
-            }
+                event = StatusEvent(
+                    component=self.component_name,
+                    message=message,
+                    level=level,
+                    phase=step_info.get("phase"),
+                    step=step_info.get("step"),
+                    total_steps=step_info.get("total_steps"),
+                )
 
-            # Clean up None values
-            event = {k: v for k, v in event.items() if v is not None}
+            # Emit via the typed event system
+            self._event_emitter.emit(event)
 
-            writer(event)
-        except Exception as e:
+        except Exception:
             # Don't crash logging just because streaming failed
-            self.debug(f"Failed to emit stream event: {e}")
+            # Avoid recursive debug() call that could cause infinite loop
+            pass
+
+    def emit_event(self, event: OspreyEvent) -> None:
+        """Emit a typed OspreyEvent directly.
+
+        Use this for structured events like PhaseStartEvent, CapabilityStartEvent, etc.
+        that don't fit the standard logging pattern.
+
+        Args:
+            event: The typed event to emit
+
+        Example:
+            from osprey.events import PhaseStartEvent
+            logger.emit_event(PhaseStartEvent(
+                phase="task_extraction",
+                description="Extracting task from query"
+            ))
+        """
+        # Ensure component is set if not already
+        if not event.component:
+            event.component = self.component_name
+
+        self._event_emitter.emit(event)
+
+    def emit_llm_request(
+        self, prompt: str, key: str = "", model: str = "", provider: str = ""
+    ) -> None:
+        """Emit LLMRequestEvent with full prompt for TUI display.
+
+        Args:
+            prompt: The complete LLM prompt text
+            key: Optional key for accumulating multiple prompts (e.g., capability name)
+            model: Model identifier (e.g., "gpt-4", "claude-3-opus")
+            provider: Provider name (e.g., "openai", "anthropic")
+        """
+        from osprey.events import LLMRequestEvent
+
+        event = LLMRequestEvent(
+            component=self.component_name,
+            prompt_preview=prompt[:200] + "..." if len(prompt) > 200 else prompt,
+            prompt_length=len(prompt),
+            model=model,
+            provider=provider,
+            full_prompt=prompt,
+            key=key,
+        )
+        self._event_emitter.emit(event)
+
+    def emit_llm_response(
+        self,
+        response: str,
+        key: str = "",
+        duration_ms: int = 0,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+    ) -> None:
+        """Emit LLMResponseEvent with full response for TUI display.
+
+        Args:
+            response: The complete LLM response text
+            key: Optional key for accumulating multiple responses (e.g., capability name)
+            duration_ms: How long the request took in milliseconds
+            input_tokens: Number of input tokens
+            output_tokens: Number of output tokens
+        """
+        from osprey.events import LLMResponseEvent
+
+        event = LLMResponseEvent(
+            component=self.component_name,
+            response_preview=response[:200] + "..." if len(response) > 200 else response,
+            response_length=len(response),
+            duration_ms=duration_ms,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            full_response=response,
+            key=key,
+        )
+        self._event_emitter.emit(event)
 
     def _format_message(self, message: str, style: str, emoji: str = "") -> str:
         """Format message with Rich markup and emoji prefix."""
@@ -245,191 +377,173 @@ class ComponentLogger:
                 extra["phase"] = self._step_info.get("phase", "")
         return extra
 
-    def status(self, message: str, **kwargs) -> None:
-        """Status update - logs and streams automatically.
+    def status(self, message: str, *args, **kwargs) -> None:
+        """Status update - emits StatusEvent.
 
-        Use for high-level progress updates that users should see in both
-        CLI and web interfaces.
+        User-facing output. Transport is automatic:
+        - During graph.astream(): LangGraph streaming
+        - Outside graph execution: fallback transport → TypedEventHandler
 
         Args:
             message: Status message
+            *args: Optional %-style format args (stdlib compat)
             **kwargs: Additional metadata for streaming event
 
         Example:
             logger.status("Creating execution plan...")
             logger.status("Processing batch 2/5", batch=2, total=5)
         """
-        style = f"bold {self.color}" if self.color != "white" else "bold white"
-        formatted = self._format_message(message, style, "")
-        extra = self._build_extra(message, "status", **kwargs)
-        self.base_logger.info(formatted, extra=extra)
-        self._emit_stream_event(message, "status", **kwargs)
+        self._emit_stream_event(message, *args, event_type="status", **kwargs)
 
-    def key_info(self, message: str, stream: bool = False, **kwargs) -> None:
-        """Important operational information - logs and optionally streams.
+    def key_info(self, message: str, *args, **kwargs) -> None:
+        """Important operational information - emits StatusEvent with info level.
+
+        User-facing output. Transport is automatic.
 
         Args:
             message: Info message
-            stream: Whether to also stream this message
+            *args: Optional %-style format args (stdlib compat)
             **kwargs: Additional metadata for streaming event
         """
-        style = f"bold {self.color}" if self.color != "white" else "bold white"
-        formatted = self._format_message(message, style, "")
-        extra = self._build_extra(message, "key_info", **kwargs)
-        self.base_logger.info(formatted, extra=extra)
+        self._emit_stream_event(message, *args, event_type="key_info", **kwargs)
 
-        if stream:
-            self._emit_stream_event(message, "key_info", **kwargs)
+    def info(self, message: str, *args, **kwargs) -> None:
+        """Info message - emits StatusEvent with info level.
 
-    def info(self, message: str, stream: bool = False, **kwargs) -> None:
-        """Info message - logs always, streams optionally.
-
-        By default, info messages only go to CLI logs. Use stream=True
-        to also send to web interface.
+        User-facing output. Transport is automatic.
 
         Args:
             message: Info message
-            stream: Whether to also stream this message
+            *args: Optional %-style format args (stdlib compat)
             **kwargs: Additional metadata for streaming event
 
         Example:
-            logger.info("Active capabilities: [...]")  # CLI only
-            logger.info("Step completed", stream=True)  # CLI + stream
+            logger.info("Active capabilities: [...]")
+            logger.info("Step completed")
         """
-        formatted = self._format_message(message, self.color, "")
-        extra = self._build_extra(message, "info", **kwargs)
-        self.base_logger.info(formatted, extra=extra)
+        self._emit_stream_event(message, *args, event_type="info", **kwargs)
 
-        if stream:
-            self._emit_stream_event(message, "info", **kwargs)
+    def debug(self, message: str, *args, **kwargs) -> None:
+        """Debug message - emits StatusEvent with debug level.
 
-    def debug(self, message: str, stream: bool = False, **kwargs) -> None:
-        """Debug message - logs only (never streams by default).
-
-        Debug messages are detailed technical info not meant for web UI.
+        User-facing output (filtered by client if not needed).
+        Transport is automatic.
 
         Args:
             message: Debug message
-            stream: Whether to stream (default: False)
+            *args: Optional %-style format args (stdlib compat)
             **kwargs: Additional metadata for streaming event
         """
-        style = f"dim {self.color}" if self.color != "white" else "dim white"
-        formatted = self._format_message(message, style, "🔍 ")
-        extra = self._build_extra(message, "debug", **kwargs)
-        self.base_logger.debug(formatted, extra=extra)
+        self._emit_stream_event(message, *args, event_type="debug", **kwargs)
 
-        if stream:
-            self._emit_stream_event(message, "debug", **kwargs)
+    def warning(self, message: str, *args, **kwargs) -> None:
+        """Warning message - emits StatusEvent with warning level.
 
-    def warning(self, message: str, stream: bool = True, **kwargs) -> None:
-        """Warning message - logs and optionally streams.
-
-        Warnings stream by default since they're important for users to see.
+        User-facing output. Transport is automatic.
 
         Args:
             message: Warning message
-            stream: Whether to stream (default: True)
+            *args: Optional %-style format args (stdlib compat)
             **kwargs: Additional metadata for streaming event
         """
-        formatted = self._format_message(message, "bold yellow", "⚠️  ")
-        extra = self._build_extra(message, "warning", **kwargs)
-        self.base_logger.warning(formatted, extra=extra)
+        self._emit_stream_event(message, *args, event_type="warning", warning=True, **kwargs)
 
-        if stream:
-            self._emit_stream_event(message, "warning", warning=True, **kwargs)
+    def error(self, message: str, *args, exc_info: bool = False, **kwargs) -> None:
+        """Error message - emits ErrorEvent.
 
-    def error(self, message: str, exc_info: bool = False, **kwargs) -> None:
-        """Error message - always logs and streams.
-
-        Errors are important and should always be visible in both interfaces.
+        User-facing output. Transport is automatic.
 
         Args:
             message: Error message
-            exc_info: Whether to include exception traceback
+            *args: Optional %-style format args (stdlib compat)
+            exc_info: Whether to include exception traceback in ErrorEvent
             **kwargs: Additional error metadata for streaming event
         """
-        formatted = self._format_message(message, "bold red", "❌ ")
-        extra = self._build_extra(message, "error", **kwargs)
-        self.base_logger.error(formatted, exc_info=exc_info, extra=extra)
-        self._emit_stream_event(message, "error", error=True, **kwargs)
+        # Include stack trace in ErrorEvent if exc_info=True
+        if exc_info and "stack_trace" not in kwargs:
+            import traceback
 
-    def success(self, message: str, stream: bool = True, **kwargs) -> None:
-        """Success message - logs and optionally streams.
+            kwargs["stack_trace"] = traceback.format_exc()
 
-        Success messages stream by default to give users feedback.
+        self._emit_stream_event(message, *args, event_type="error", error=True, **kwargs)
+
+    def success(self, message: str, *args, **kwargs) -> None:
+        """Success message - emits StatusEvent with success level.
+
+        User-facing output. Transport is automatic.
 
         Args:
             message: Success message
-            stream: Whether to stream (default: True)
+            *args: Optional %-style format args (stdlib compat)
             **kwargs: Additional metadata for streaming event
         """
-        formatted = self._format_message(message, "bold green", "✅ ")
-        extra = self._build_extra(message, "success", **kwargs)
-        self.base_logger.info(formatted, extra=extra)
+        self._emit_stream_event(message, *args, event_type="success", **kwargs)
 
-        if stream:
-            self._emit_stream_event(message, "success", **kwargs)
+    def timing(self, message: str, *args, **kwargs) -> None:
+        """Timing information - emits StatusEvent with timing level.
 
-    def timing(self, message: str, stream: bool = False, **kwargs) -> None:
-        """Timing information - logs and optionally streams.
+        User-facing output. Transport is automatic.
 
         Args:
             message: Timing message
-            stream: Whether to stream (default: False)
+            *args: Optional %-style format args (stdlib compat)
             **kwargs: Additional metadata for streaming event
         """
-        formatted = self._format_message(message, "bold white", "🕒 ")
-        extra = self._build_extra(message, "timing", **kwargs)
-        self.base_logger.info(formatted, extra=extra)
+        self._emit_stream_event(message, *args, event_type="timing", **kwargs)
 
-        if stream:
-            self._emit_stream_event(message, "timing", **kwargs)
+    def approval(self, message: str, *args, **kwargs) -> None:
+        """Approval message - emits StatusEvent with approval level.
 
-    def approval(self, message: str, stream: bool = True, **kwargs) -> None:
-        """Approval messages - logs and optionally streams.
-
-        Approval requests stream by default so users see them in web UI.
+        User-facing output. Transport is automatic.
 
         Args:
             message: Approval message
-            stream: Whether to stream (default: True)
+            *args: Optional %-style format args (stdlib compat)
             **kwargs: Additional metadata for streaming event
         """
-        formatted = self._format_message(message, "bold yellow", "🔍⚠️ ")
-        extra = self._build_extra(message, "approval", **kwargs)
-        self.base_logger.info(formatted, extra=extra)
+        self._emit_stream_event(message, *args, event_type="approval", **kwargs)
 
-        if stream:
-            self._emit_stream_event(message, "approval", **kwargs)
+    def resume(self, message: str, *args, **kwargs) -> None:
+        """Resume message - emits StatusEvent with resume level.
 
-    def resume(self, message: str, stream: bool = True, **kwargs) -> None:
-        """Resume messages - logs and optionally streams.
-
-        Resume messages stream by default to provide feedback.
+        User-facing output. Transport is automatic.
 
         Args:
             message: Resume message
-            stream: Whether to stream (default: True)
+            *args: Optional %-style format args (stdlib compat)
             **kwargs: Additional metadata for streaming event
         """
-        formatted = self._format_message(message, "bold green", "🔄 ")
-        extra = self._build_extra(message, "resume", **kwargs)
-        self.base_logger.info(formatted, extra=extra)
+        self._emit_stream_event(message, *args, event_type="resume", **kwargs)
 
-        if stream:
-            self._emit_stream_event(message, "resume", **kwargs)
-
-    # Compatibility methods - delegate to base logger
     def critical(self, message: str, *args, **kwargs) -> None:
-        formatted = self._format_message(message, "bold red", "❌ ")
-        self.base_logger.critical(formatted, *args, **kwargs)
+        """Critical error - emits ErrorEvent.
+
+        User-facing output. Transport is automatic.
+
+        Args:
+            message: Critical error message
+            *args: Optional %-style format args (stdlib compat)
+            **kwargs: Additional error metadata for streaming event
+        """
+        self._emit_stream_event(
+            message, *args, event_type="error", error=True, error_type="CriticalError", **kwargs
+        )
 
     def exception(self, message: str, *args, **kwargs) -> None:
-        formatted = self._format_message(message, "bold red", "❌ ")
-        self.base_logger.exception(formatted, *args, **kwargs)
+        """Exception with traceback - emits ErrorEvent with stack trace.
 
-    def log(self, level: int, message: str, *args, **kwargs) -> None:
-        self.base_logger.log(level, message, *args, **kwargs)
+        User-facing output. Transport is automatic.
+
+        Args:
+            message: Exception message
+            *args: Optional %-style format args (stdlib compat)
+            **kwargs: Additional error metadata for streaming event
+        """
+        import traceback
+
+        if "stack_trace" not in kwargs:
+            kwargs["stack_trace"] = traceback.format_exc()
+        self._emit_stream_event(message, *args, event_type="error", error=True, **kwargs)
 
     # Properties for compatibility
     @property
@@ -470,7 +584,9 @@ def _setup_rich_logging(level: int = logging.INFO) -> None:
         show_full_paths = get_config_value("logging.show_full_paths", False)
 
     except Exception:
-        # Secure defaults when configuration system is unavailable
+        # Config system unavailable; use secure defaults.
+        # Cannot log here: logging infrastructure is mid-configuration
+        # (handlers cleared but RichHandler not yet installed).
         rich_tracebacks = True
         show_traceback_locals = False
         show_full_paths = False

@@ -1,60 +1,32 @@
-# Osprey Framework - Latest Release (v0.11.1)
+# Osprey Framework - Latest Release (v0.11.2)
 
-**Built-in Capabilities & ARIEL Logbook Search**
+**Reactive Orchestrator, Unified Events & Prompt Builder System**
 
-## What's New in v0.11.0
+## What's New in v0.11.2
 
 ### Highlights
 
-- **ARIEL logbook search** - New electronic logbook search capability with full-text and semantic search, web interface, CLI commands, and deployment support. The fastest way to try it is the [ARIEL Quick Start](https://als-apg.github.io/osprey/developer-guides/05_production-systems/07_logbook-search-service/index.html) -- three commands to a working search interface.
-- **Native control capabilities** - 4 control capabilities (`channel_finding`, `channel_read`, `channel_write`, `archiver_retrieval`) migrated from Jinja2 templates to native Python modules in `src/osprey/capabilities/`
-- **Channel Finder service as native package** - 48 service files moved from templates to `src/osprey/services/channel_finder/` with default prompt builders
-- **`osprey eject` command** - Customization escape hatch to copy framework capabilities or services into a project for modification
-- **Template simplification** - `control_assistant` template reduced from ~130 to ~40 files
-
-### Getting Started with ARIEL
-
-The easiest way to try ARIEL is to start fresh with the [Quick Start guide](https://als-apg.github.io/osprey/developer-guides/05_production-systems/07_logbook-search-service/index.html) -- you'll have a working logbook search in minutes.
-
-### Migrating Existing Agents
-
-This release includes a significant refactoring: capabilities and services that were previously generated from Jinja2 templates now ship as native Python modules. This is a one-time structural change -- with capabilities living in the framework itself, future upgrades should be straightforward version bumps rather than template re-generations. We expect this to be the last migration that requires manual effort.
-
-If you have an existing Osprey agent, the built-in migration assistant will walk you through the upgrade:
-
-```bash
-osprey claude install migrate   # Install the migration skill
-# Then ask Claude Code to migrate your project
-```
-
-See [AI-Assisted Development](https://als-apg.github.io/osprey/contributing/03_ai-assisted-development.html) for the full guide on using `osprey assist` tasks.
+- **Reactive orchestrator** - New ReAct-style tool loop (`ReactiveOrchestratorNode`) for autonomous, LLM-driven decision-making as an alternative to rigid plan-then-execute. Includes tool registry, argument parsing, approval hooks, and automatic capability dependency expansion.
+- **Unified typed event system** - 18 typed dataclass events across 7 categories replace dict-based logging. `EventEmitter` with LangGraph-first streaming, `consume_stream()` multi-mode helper, and complete elimination of raw Python logger usage across the framework.
+- **Prompt builder refactoring** - All LLM prompts moved into composable `FrameworkPromptBuilder` subclasses. Applications can now customize any prompt via subclass overrides without forking capability code.
+- **LLM token streaming** - Real-time token streaming across CLI, TUI, and Open WebUI with multi-mode architecture combining typed events and LLM tokens.
+- **Web debug interface** - Browser-based real-time event visualization with WebSocket streaming, dark theme, component filtering, and search.
 
 ### Added
-- **Capabilities**: Migrate control capabilities to native Python modules
-  - Context classes inlined into capability files
-  - `FrameworkRegistryProvider` registers native capabilities and context classes automatically
-- **Services**: Migrate Channel Finder service to native package
-  - Default prompt builders at `src/osprey/prompts/defaults/channel_finder/`
-  - Facility-specific prompt overrides via framework prompts
-- **CLI**: Add `osprey eject` command for customization escape hatch
-  - Subcommands: `eject list`, `eject capability`, `eject service` with `--output` and `--include-tests` options
-- **CLI**: Add `osprey channel-finder` command with interactive REPL, query, and benchmark modes
-- **CLI**: Add `build-database`, `validate`, and `preview` subcommands to `osprey channel-finder`
-  - Database tools migrated from Jinja2 templates to native `osprey.services.channel_finder.tools`
-  - LLM channel namer available as library via `osprey.services.channel_finder.tools.llm_channel_namer`
-- **Registry**: Add shadow warning system for backward compatibility
-  - Detects when generated apps override native capabilities without explicit `override_capabilities` config
-- **ARIEL**: Add electronic logbook search capability
-  - Full-text and semantic search over facility logbooks (OLOG, custom sources)
-  - Web interface with dashboard, search, and entry browsing (`osprey ariel web`)
-  - CLI commands: `osprey ariel ingest`, `osprey ariel search`, `osprey ariel purge`
-  - Deployment support: PostgreSQL and web service templates for `osprey deploy up`
-  - Pluggable search modules and enhancement pipeline with registry-based discovery
+- **Infrastructure**: Reactive orchestrator with ReAct-style tool loop, dependency expansion, and pre-dispatch validation (#162)
+- **Events**: Unified typed event system with 18 events, `EventEmitter`, `consume_stream()`, and LLM metadata tracking
+- **Interfaces**: Web debug interface with FastAPI/WebSocket, dark theme, tooltips, and LLM streaming groups
+- **Interfaces**: LLM token streaming across CLI (Rich table output), TUI (`StreamingChatMessage`, `CollapsibleCodeMessage`), and Open WebUI
+- **TUI**: Info bar, consistent shortcuts, notebook preview, debug block widget, log viewer refinements
+- **Models**: `chat_request()` method for native message-based completions
+- **Channel Finder**: `--delimiter` option for CSV files (#161, @RemiLehe)
 
 ### Changed
-- **Templates**: Simplify `control_assistant` template (~130 to ~40 files)
-  - `registry.py.j2` now uses `extend_framework_registry()` with prompt providers only
-  - Capabilities, services, and database tools no longer generated from templates
+- **Prompts**: Composable `FrameworkPromptBuilder` system with deprecation bridges and runtime context injection (#163)
+- **Logging**: All Python logger calls replaced with unified `get_logger` system
+
+### Fixed
+- Capability approval state, rate-limit classification, E2E trace rebuilding, dependency management, and streaming fixes across all interfaces
 
 ---
 

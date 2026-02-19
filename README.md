@@ -7,7 +7,7 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
-**🎉 Latest Release: v0.11.1** - Built-in Capabilities & ARIEL Logbook Search
+**🎉 Latest Release: v0.11.2** - Reactive Orchestrator, Unified Events & Prompt Builder System
 
 > **🚧 Early Access Release**
 > This is an early access version of the Osprey Framework. While the core functionality is stable and ready for experimentation, documentation and APIs may still evolve. We welcome feedback and contributions!
@@ -64,7 +64,7 @@ See [TESTING_GUIDE.md](TESTING_GUIDE.md) and [tests/e2e/README.md](tests/e2e/REA
 
 ## Key Features
 
-- **Plan-First Orchestration** - Complete execution plans with explicit dependencies before any hardware interaction
+- **Dual-Mode Orchestration** - Plan-first (complete upfront plans) and reactive (ReAct, step-by-step) execution with explicit dependencies and operator oversight
 - **Control-System Safety** - Pattern detection, PV boundary checking, and mandatory approval for hardware writes
 - **Protocol-Agnostic Integration** - Seamless connection to EPICS, LabVIEW, Tango, and mock environments
 - **Scalable Capability Management** - Dynamic classification prevents prompt explosion as toolsets grow

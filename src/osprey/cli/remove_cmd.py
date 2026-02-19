@@ -40,7 +40,7 @@ def find_capability_file(capability_name: str) -> Path | None:
             if capability_file.exists():
                 return capability_file
     except Exception:
-        pass
+        pass  # Fall through to fallback path lookup below
 
     # Fallback: check simple relative path
     fallback_path = Path(f"capabilities/{capability_name}.py")

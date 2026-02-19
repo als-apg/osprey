@@ -79,7 +79,7 @@ class HealthChecker:
             )
             with Live(spinner, console=console, transient=True):
                 if not self.verbose:
-                    with quiet_logger(["REGISTRY", "CONFIG"]):
+                    with quiet_logger(["registry", "CONFIG"]):
                         initialize_registry()
                 else:
                     initialize_registry()
@@ -638,9 +638,9 @@ class HealthChecker:
         from osprey.registry import get_registry
 
         try:
-            # Suppress REGISTRY and CONFIG loggers unless in verbose mode
+            # Suppress registry and CONFIG loggers unless in verbose mode
             if not self.verbose:
-                with quiet_logger(["REGISTRY", "CONFIG"]):
+                with quiet_logger(["registry", "CONFIG"]):
                     registry = get_registry()
                     provider_class = registry.get_provider(provider_name)
             else:
@@ -749,10 +749,10 @@ class HealthChecker:
             test_message = "Reply with exactly: OK"
 
             # Call get_chat_completion with a timeout
-            # Suppress REGISTRY and CONFIG loggers unless in verbose mode
+            # Suppress registry and CONFIG loggers unless in verbose mode
             try:
                 if not self.verbose:
-                    with quiet_logger(["REGISTRY", "CONFIG"]):
+                    with quiet_logger(["registry", "CONFIG"]):
                         response = get_chat_completion(
                             message=test_message,
                             provider=provider,

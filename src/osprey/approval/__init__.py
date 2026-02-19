@@ -56,6 +56,7 @@ from .approval_system import (
     create_code_approval_interrupt,
     create_memory_approval_interrupt,
     create_plan_approval_interrupt,
+    create_step_approval_interrupt,
     get_approval_resume_data,
     get_approved_payload_from_state,
     handle_service_with_interrupts,
@@ -72,6 +73,7 @@ __all__ = [
     # Core approval functions
     "create_approval_type",
     "create_plan_approval_interrupt",
+    "create_step_approval_interrupt",
     "create_code_approval_interrupt",
     "create_memory_approval_interrupt",
     "create_channel_write_approval_interrupt",

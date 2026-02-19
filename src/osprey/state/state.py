@@ -371,6 +371,12 @@ class AgentState(MessagesState):
     runtime_checkpoint_metadata: dict[str, Any] | None
     runtime_info: dict[str, Any] | None
 
+    # Reactive orchestration fields (execution-scoped)
+    react_messages: list[dict]  # Accumulated LLM reasoning messages for ReAct loop
+    react_step_count: int  # Safety counter for max iterations
+    react_rejection_count: int  # Consecutive rejection counter for approval loop limit
+    react_response_generated: bool  # Whether reactive orchestrator generated response directly
+
     # Capability slash commands (execution-scoped)
     # Stores unregistered slash commands for capability-specific handling
     # command_name -> value (str) or True (flag)

@@ -187,7 +187,7 @@ To provide facility-specific guidance, create a custom prompt builder that exten
 
       * - ``PROMPT_TYPE``
         - ``"logbook_search"``
-      * - ``get_role_definition()``
+      * - ``get_role()``
         - "You are a facility logbook search expert that finds relevant historical entries."
       * - ``get_instructions()``
         - Instructions for search intent analysis, strategy selection, and citation requirements.

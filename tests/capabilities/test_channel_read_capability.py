@@ -116,6 +116,13 @@ class TestChannelValuesContext:
 class TestChannelReadGuides:
     """Test orchestrator and classifier guides."""
 
+    def setup_method(self):
+        """Register default prompt provider for guide delegation."""
+        from osprey.prompts.defaults import DefaultPromptProvider
+        from osprey.prompts.loader import register_framework_prompt_provider
+
+        register_framework_prompt_provider("test", DefaultPromptProvider())
+
     def test_orchestrator_guide_exists(self):
         cap = ChannelReadCapability()
         guide = cap._create_orchestrator_guide()

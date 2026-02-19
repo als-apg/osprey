@@ -335,6 +335,11 @@ class StateManager:
             # Runtime metadata fields - reset to defaults
             runtime_checkpoint_metadata=None,
             runtime_info=None,
+            # Reactive orchestration fields - reset to defaults each turn
+            react_messages=[],
+            react_step_count=0,
+            react_rejection_count=0,
+            react_response_generated=False,
             # Capability slash commands - reset to empty each turn
             _capability_slash_commands={},
         )

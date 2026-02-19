@@ -38,8 +38,8 @@ class TestDefaultInContextPromptBuilder:
         assert len(combined) >= len(builder.get_facility_description())
 
     def test_role_definition_delegates_to_facility_description(self, builder):
-        """Test that get_role_definition delegates to get_facility_description."""
-        assert builder.get_role_definition() == builder.get_facility_description()
+        """Test that get_role delegates to get_facility_description."""
+        assert builder.get_role() == builder.get_facility_description()
 
     def test_instructions_delegates_to_matching_rules(self, builder):
         """Test that get_instructions delegates to get_matching_rules."""
@@ -110,7 +110,7 @@ class TestPromptBuilderInterface:
         assert hasattr(builder, "get_facility_description")
         assert hasattr(builder, "get_matching_rules")
         assert hasattr(builder, "get_combined_description")
-        assert hasattr(builder, "get_role_definition")
+        assert hasattr(builder, "get_role")
         assert hasattr(builder, "get_instructions")
 
     def test_combined_description_not_empty(self, builder):

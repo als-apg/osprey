@@ -1,6 +1,8 @@
 """Logbook Search Prompt Builder.
 
 Provides orchestrator and classifier guidance for the LogbookSearchCapability.
+This is a guide-only builder — the capability relays queries directly to the
+ARIEL search service, so ``build_prompt()`` is never called.
 
 See 04_OSPREY_INTEGRATION.md Section 7.4 for specification.
 """
@@ -21,24 +23,33 @@ from osprey.prompts.base import FrameworkPromptBuilder
 
 
 class DefaultLogbookSearchPromptBuilder(FrameworkPromptBuilder):
-    """Default logbook search prompt builder."""
+    """Guide-only prompt builder for logbook search.
+
+    The logbook search capability relays queries to the ARIEL search service,
+    which uses its own internal ReAct agent and RAG prompts. This builder only
+    provides orchestrator and classifier guidance — ``build_prompt()``
+    is never called at runtime.
+
+    **Customization Points:**
+
+    +---------------------------------+----------------------------------------------+
+    | I want to...                    | Override...                                  |
+    +=================================+==============================================+
+    | Change orchestrator guidance    | ``get_orchestrator_guide()``                 |
+    +---------------------------------+----------------------------------------------+
+    | Change classifier guidance      | ``get_classifier_guide()``                   |
+    +---------------------------------+----------------------------------------------+
+    """
 
     PROMPT_TYPE = "logbook_search"
 
-    def get_role_definition(self) -> str:
-        """Return role definition for logbook search."""
-        return "You are a facility logbook search expert that finds relevant historical entries."
+    def get_role(self) -> str:
+        """Not used at runtime — logbook search delegates to ARIEL."""
+        return "Logbook search (delegates to ARIEL service)."
 
     def get_instructions(self) -> str:
-        """Return instructions for logbook search."""
-        return textwrap.dedent("""
-            INSTRUCTIONS:
-            1. Analyze user queries to determine search intent
-            2. Use semantic search for conceptual queries
-            3. Use keyword search for specific terms or equipment names
-            4. Use RAG for questions requiring synthesized answers
-            5. Always cite source entry IDs in responses
-        """).strip()
+        """Not used at runtime — logbook search delegates to ARIEL."""
+        return "Relay query to the ARIEL logbook search service."
 
     def get_orchestrator_guide(self) -> OrchestratorGuide | None:
         """Create orchestrator guide for logbook search."""

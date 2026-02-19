@@ -24,9 +24,15 @@ services:
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
       - OLLAMA_BASE_URLS=http://host.docker.internal:11434
 
-      # OpenAI API (Pipelines - for Osprey agent integration)
-      - OPENAI_API_BASE_URLS=http://pipelines:9099
-      - OPENAI_API_KEYS=0p3n-w3bu!
+      # OpenAI API (Pipelines + response model provider for background tasks)
+      - OPENAI_API_BASE_URLS=http://pipelines:9099;{{api.providers[models.response.provider].base_url}}
+      - OPENAI_API_KEYS=0p3n-w3bu!;${{ '{' }}{{ models.response.provider | upper }}_API_KEY{{ '}' }}
+
+      # ==== BACKGROUND TASK MODEL ====
+      # Route Open WebUI background tasks (title, tags, follow-up generation)
+      # to a direct LLM call instead of the Osprey pipeline.
+      # Uses the 'response' model from config.yml (fast & cheap)
+      - TASK_MODEL_EXTERNAL={{ models.response.model_id }}
 
       # ==== AUTHENTICATION ====
       # Disable auth for local development (no login required)

@@ -47,6 +47,13 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from osprey.base.errors import ErrorSeverity
+from osprey.events import (
+    CapabilityCompleteEvent,
+    CapabilityStartEvent,
+    ErrorEvent,
+    EventEmitter,
+    StatusEvent,
+)
 from osprey.utils.logger import get_logger
 
 try:
@@ -215,8 +222,8 @@ def capability_node(cls):
     async def langgraph_node(state: "AgentState", **kwargs) -> dict[str, Any]:
         """LangGraph-native node function with manual retry handling via router."""
 
-        # Get streaming capability for status updates
-        streaming = get_stream_writer() if get_stream_writer else None
+        # Create event emitter for typed events
+        emitter = EventEmitter(capability_name)
 
         # Check if in direct chat mode (bypasses orchestration, no execution plan)
         session_state = state.get("session_state", {})
@@ -232,22 +239,27 @@ def capability_node(cls):
                 "inputs": {},
                 "description": f"Direct chat with {capability_name}",
             }
+            step_number = 1
+            total_steps = 1
         else:
             step = StateManager.get_current_step(state)
+            step_number = StateManager.get_current_step_index(state) + 1
+            execution_plan = state.get("planning_execution_plan", {})
+            total_steps = len(execution_plan.get("steps", [])) if execution_plan else 1
+
         start_time = time.time()
 
+        # Emit CapabilityStartEvent
+        emitter.emit(
+            CapabilityStartEvent(
+                capability_name=capability_name,
+                step_number=step_number,
+                total_steps=total_steps,
+                description=step.get("task_objective", f"Executing {capability_name}"),
+            )
+        )
+
         try:
-            if streaming:
-                streaming(
-                    {
-                        "event_type": "status",
-                        "message": f"Executing {capability_name}...",
-                        "progress": 0.1,
-                    }
-                )
-
-            logger.info(f"Executing capability: {capability_name}")
-
             # Execute based on method type
             if is_static:
                 # OLD: Static method (backward compatibility)
@@ -267,6 +279,16 @@ def capability_node(cls):
                 result = await instance.execute()
 
             execution_time = time.time() - start_time
+            duration_ms = int(execution_time * 1000)
+
+            # Emit CapabilityCompleteEvent on success
+            emitter.emit(
+                CapabilityCompleteEvent(
+                    capability_name=capability_name,
+                    success=True,
+                    duration_ms=duration_ms,
+                )
+            )
 
             # Handle state updates for step progression
             state_updates = _handle_capability_state_updates(
@@ -284,6 +306,7 @@ def capability_node(cls):
 
         except Exception as exc:
             execution_time = time.time() - start_time
+            duration_ms = int(execution_time * 1000)
 
             # Check for development mode - re-raise original exception for debugging
             try:
@@ -291,8 +314,21 @@ def capability_node(cls):
                     config = get_config()
                     configurable = config.get("configurable", {})
                     if configurable.get("development", {}).get("raise_raw_errors", False):
-                        logger.error(
-                            "Development mode: Re-raising original exception directly for debugging"
+                        emitter.emit(
+                            StatusEvent(
+                                component=capability_name,
+                                message="Development mode: Re-raising original exception directly for debugging",
+                                level="debug",
+                            )
+                        )
+                        # Emit failure event before re-raising
+                        emitter.emit(
+                            CapabilityCompleteEvent(
+                                capability_name=capability_name,
+                                success=False,
+                                duration_ms=duration_ms,
+                                error_message=str(exc),
+                            )
                         )
                         raise exc
             except (RuntimeError, ImportError, AttributeError, KeyError):
@@ -301,10 +337,24 @@ def capability_node(cls):
 
             # Re-raise GraphInterrupt immediately - it's not an error!
             if _is_graph_interrupt(exc):
-                logger.info(
-                    f"GraphInterrupt detected in {capability_name} - re-raising for LangGraph to handle"
+                emitter.emit(
+                    StatusEvent(
+                        component=capability_name,
+                        message="GraphInterrupt detected - re-raising for LangGraph to handle",
+                        level="debug",
+                    )
                 )
                 raise exc
+
+            # Emit CapabilityCompleteEvent on failure
+            emitter.emit(
+                CapabilityCompleteEvent(
+                    capability_name=capability_name,
+                    success=False,
+                    duration_ms=duration_ms,
+                    error_message=str(exc),
+                )
+            )
 
             # Get step info (use synthetic step in direct chat mode)
             if direct_chat_mode:
@@ -324,9 +374,7 @@ def capability_node(cls):
             # Get retry policy for this capability
             retry_policy = retry_policy_func()
 
-            logger.error(f"Error in {capability_name} after {execution_time:.2f}s: {str(exc)}")
-            logger.error(f"Classification: {error_classification.user_message or str(exc)}")
-
+            # Error already emitted via CapabilityCompleteEvent (success=False, error_message)
             # Always use manual retry system via router - NO LangGraph retries
 
             # Track failure in execution_step_results for consistent tracking
@@ -440,7 +488,17 @@ def _handle_capability_state_updates(
         "timestamp": datetime.now().isoformat(),
     }
 
-    logger.debug(f"State updates: step {current_step_index + 1}")
+    # Emit debug event for state update tracking
+    from osprey.events import EventEmitter
+
+    emitter = EventEmitter(capability_name)
+    emitter.emit(
+        StatusEvent(
+            component=capability_name,
+            message=f"State updates: step {current_step_index + 1}",
+            level="debug",
+        )
+    )
 
     return state_updates
 
@@ -552,15 +610,16 @@ def infrastructure_node(cls=None, *, quiet=False):
 
             @staticmethod
             async def execute(state: AgentState, **kwargs):
-                # Explicit logger retrieval - professional practice
-                from osprey.utils.logger import get_logger
-                logger = get_logger("task_extraction")
-
-                # Get unified logger with automatic streaming
+                # Get unified logger that emits TypedEvents
                 logger = self.get_logger()
-                logger.status("Processing...")
 
-                logger.info("Starting task extraction")
+                # Emit status events (auto-streamed to CLI/TUI)
+                logger.status("Processing...")
+                logger.emit_event(StatusEvent(
+                    component="task_extraction",
+                    message="Starting task extraction",
+                    level="info"
+                ))
 
                 # Main infrastructure logic
                 result = await extract_task_from_conversation(state)
@@ -675,10 +734,19 @@ def _create_infrastructure_node(cls, quiet=False):
         # Execution timing
         start_time = time.time()
 
+        # Create event emitter for typed events
+        emitter = EventEmitter(node_name)
+
         try:
-            # Only log start message if not quiet
+            # Emit infrastructure node start event (if not quiet)
             if not quiet:
-                logger.info(f"Starting {description}")
+                emitter.emit(
+                    StatusEvent(
+                        component=node_name,
+                        message=f"Starting {description}",
+                        level="info",
+                    )
+                )
 
             # Execute based on method type
             if is_static:
@@ -700,9 +768,12 @@ def _create_infrastructure_node(cls, quiet=False):
 
                     current_step = StateManager.get_current_step(state)
                     if current_step is None:
-                        logger.warning(
-                            f"Node {node_name} expects _step but get_current_step() returned None. "
-                            f"This may indicate execution outside plan context."
+                        emitter.emit(
+                            StatusEvent(
+                                component=node_name,
+                                message=f"Node {node_name} expects _step but get_current_step() returned None. This may indicate execution outside plan context.",
+                                level="warning",
+                            )
                         )
                     instance._step = current_step
 
@@ -713,9 +784,15 @@ def _create_infrastructure_node(cls, quiet=False):
 
             execution_time = time.time() - start_time
 
-            # Only log completion message if not quiet
+            # Emit infrastructure node completion event (if not quiet)
             if not quiet:
-                logger.success(f"Completed {description} in {execution_time:.2f}s")
+                emitter.emit(
+                    StatusEvent(
+                        component=node_name,
+                        message=f"Completed {description} in {execution_time:.2f}s",
+                        level="success",
+                    )
+                )
 
             # Add execution tracking to result
             if isinstance(result, dict):
@@ -735,8 +812,12 @@ def _create_infrastructure_node(cls, quiet=False):
                     config = get_config()
                     configurable = config.get("configurable", {})
                     if configurable.get("development", {}).get("raise_raw_errors", False):
-                        logger.error(
-                            "Development mode: Re-raising original exception for debugging"
+                        emitter.emit(
+                            StatusEvent(
+                                component=node_name,
+                                message="Development mode: Re-raising original exception for debugging",
+                                level="debug",
+                            )
                         )
                         raise exc
             except (RuntimeError, ImportError, AttributeError, KeyError):
@@ -745,8 +826,12 @@ def _create_infrastructure_node(cls, quiet=False):
 
             # Re-raise GraphInterrupt immediately - it's not an error!
             if _is_graph_interrupt(exc):
-                logger.info(
-                    f"GraphInterrupt detected in {node_name} - re-raising for LangGraph to handle"
+                emitter.emit(
+                    StatusEvent(
+                        component=node_name,
+                        message="GraphInterrupt detected - re-raising for LangGraph to handle",
+                        level="debug",
+                    )
                 )
                 raise exc
 
@@ -761,8 +846,13 @@ def _create_infrastructure_node(cls, quiet=False):
 
             # Check for FATAL severity - raise exception to stop execution entirely
             if classification.severity == ErrorSeverity.FATAL:
-                logger.error(
-                    f"FATAL error in {node_name} - Terminating execution to prevent system issues"
+                emitter.emit(
+                    ErrorEvent(
+                        component=node_name,
+                        error_type="FatalError",
+                        error_message=f"FATAL error in {node_name} - Terminating execution to prevent system issues",
+                        recoverable=False,
+                    )
                 )
                 technical_details = ""
                 if classification.metadata and "technical_details" in classification.metadata:
@@ -779,8 +869,17 @@ def _create_infrastructure_node(cls, quiet=False):
             # Get retry policy for this infrastructure node
             retry_policy = retry_policy_func()
 
-            logger.error(f"Error in {node_name} after {execution_time:.2f}s: {str(exc)}")
-            logger.error(f"Classification: {classification.user_message or str(exc)}")
+            # Emit ErrorEvent for user-facing error display
+            emitter = EventEmitter(node_name)
+            emitter.emit(
+                ErrorEvent(
+                    component=node_name,
+                    error_type="InfrastructureError",
+                    error_message=f"Error in {node_name} after {execution_time:.2f}s: {classification.user_message or str(exc)}",
+                    recoverable=(classification.severity == ErrorSeverity.RETRIABLE),
+                    stack_trace=str(exc) if classification.metadata else None,
+                )
+            )
 
             # Use manual error handling for infrastructure nodes too
 

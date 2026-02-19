@@ -1,7 +1,11 @@
 """TUI Widget components."""
 
 from osprey.interfaces.tui.widgets.artifact_viewer import ArtifactViewer
-from osprey.interfaces.tui.widgets.artifacts import ArtifactGallery, ArtifactItem
+from osprey.interfaces.tui.widgets.artifacts import (
+    ArtifactGallery,
+    ArtifactItem,
+    ArtifactSection,
+)
 from osprey.interfaces.tui.widgets.blocks import (
     ClassificationBlock,
     ClassificationStep,
@@ -17,7 +21,6 @@ from osprey.interfaces.tui.widgets.blocks import (
     TaskExtractionStep,
     TodoItem,
     TodoList,
-    TodoUpdateStep,
     WrappedLabel,
     WrappedStatic,
 )
@@ -28,10 +31,12 @@ from osprey.interfaces.tui.widgets.debug import DebugBlock
 from osprey.interfaces.tui.widgets.input import (
     ChatInput,
     CommandDropdown,
+    InfoBar,
     StatusPanel,
 )
 from osprey.interfaces.tui.widgets.log_viewer import LogViewer
 from osprey.interfaces.tui.widgets.messages import ChatMessage
+from osprey.interfaces.tui.widgets.plan_progress import PlanProgressBar
 from osprey.interfaces.tui.widgets.theme_picker import ThemePicker
 from osprey.interfaces.tui.widgets.welcome import WelcomeBanner, WelcomeScreen
 
@@ -39,6 +44,7 @@ __all__ = [
     # Artifact widgets
     "ArtifactGallery",
     "ArtifactItem",
+    "ArtifactSection",
     "ArtifactViewer",
     # Chat and display
     "ChatMessage",
@@ -52,6 +58,8 @@ __all__ = [
     # Processing blocks and steps
     "DebugBlock",
     "LogsLink",
+    "LogViewer",
+    "PlanProgressBar",
     "ProcessingBlock",
     "ProcessingStep",
     "PromptLink",
@@ -64,9 +72,9 @@ __all__ = [
     "OrchestrationStep",
     "TodoItem",
     "TodoList",
-    "TodoUpdateStep",
     "ExecutionStep",
     # Input widgets
+    "InfoBar",
     "StatusPanel",
     "CommandDropdown",
     # Welcome screen

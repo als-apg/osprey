@@ -185,13 +185,11 @@ Your query goes through three intelligent phases that transform natural language
 
       **Further Reading:** :doc:`../developer-guides/04_infrastructure-components/03_classification-and-routing`, :ref:`Classifier Guide example <hello-world-classifier-guide>`
 
-   .. tab-item:: Phase 3: Planning (Orchestrator)
+   .. tab-item:: Phase 3: Orchestration
 
-      With the active capabilities identified, the :doc:`orchestrator <../developer-guides/04_infrastructure-components/04_orchestrator-planning>` creates a complete execution plan upfront. This is the framework's :doc:`orchestrator-first philosophy <../developer-guides/01_understanding-the-framework/04_orchestrator-first-philosophy>` in action.
+      With the active capabilities identified, the :doc:`orchestrator <../developer-guides/04_infrastructure-components/04_orchestrator-planning>` decides how to chain them together. Osprey supports two :doc:`orchestration modes <../developer-guides/01_understanding-the-framework/04_orchestration-architecture>`: **plan-first** (default) creates a complete execution plan upfront, while **reactive (ReAct)** decides one step at a time based on intermediate results.
 
-      **What's Happening:**
-
-      Rather than making decisions step-by-step during execution, the orchestrator analyzes all available capabilities and creates a complete execution plan showing exactly how each capability will be used, what inputs each step requires, and how results flow between steps.
+      This walkthrough uses plan-first mode. The orchestrator analyzes all available capabilities and creates a complete execution plan showing exactly how each capability will be used, what inputs each step requires, and how results flow between steps.
 
       For this query, the orchestrator creates a 5-step plan with clear dependency relationships:
 
@@ -209,7 +207,7 @@ Your query goes through three intelligent phases that transform natural language
 
       1. **Transparency for High-Stakes Environments**: Complete visibility into planned operations before execution begins - which channels will be accessed, what data will be retrieved, and what operations will be performed. This is essential in scientific facilities and production environments where control system interactions require careful oversight.
 
-      2. **Human-in-the-Loop Safety**: The explicit execution plan enables :doc:`human approval workflows <../developer-guides/05_production-systems/01_human-approval-workflows>` where operators can review and edit plans before hardware interaction. Unlike reactive approaches that only show what already happened, the orchestrator enables prevention-focused safety.
+      2. **Human-in-the-Loop Safety**: The explicit execution plan enables :doc:`human approval workflows <../developer-guides/05_production-systems/01_human-approval-workflows>` where operators can review and approve plans before hardware interaction. In reactive mode, each step is individually approved before execution instead.
 
       3. **Dependency Analysis**: The orchestrator explicitly identifies which steps depend on others and which are independent. While the framework currently executes steps sequentially, the dependency structure positions Osprey for future optimizations like parallel execution of independent steps (see `GitHub issue #19 <https://github.com/als-apg/osprey/issues/19>`_ for planned improvements)
 

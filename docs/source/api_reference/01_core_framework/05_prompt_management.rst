@@ -20,7 +20,7 @@ Core Prompt Builder Interface
    .. autosummary::
       :nosignatures:
 
-      ~FrameworkPromptBuilder.get_role_definition
+      ~FrameworkPromptBuilder.get_role
       ~FrameworkPromptBuilder.get_instructions
 
    .. rubric:: Optional Composition Methods
@@ -28,18 +28,18 @@ Core Prompt Builder Interface
    .. autosummary::
       :nosignatures:
 
-      ~FrameworkPromptBuilder.get_task_definition
-      ~FrameworkPromptBuilder._get_dynamic_context
-      ~FrameworkPromptBuilder._get_examples
+      ~FrameworkPromptBuilder.get_task
+      ~FrameworkPromptBuilder.build_dynamic_context
+      ~FrameworkPromptBuilder.get_examples
 
    .. rubric:: Prompt Assembly Methods
 
    .. autosummary::
       :nosignatures:
 
-      ~FrameworkPromptBuilder.get_system_instructions
+      ~FrameworkPromptBuilder.build_prompt
       ~FrameworkPromptBuilder.debug_print_prompt
-      ~FrameworkPromptBuilder._format_examples
+      ~FrameworkPromptBuilder.format_examples
 
 Framework Access
 ================

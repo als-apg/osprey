@@ -147,6 +147,7 @@ approval:
 execution_control:
   # Agent control - Runtime behavior configuration
   agent_control:
+    orchestration_mode: plan_first          # Options: plan_first | react
     task_extraction_bypass_enabled: false    # Skip LLM task extraction
     capability_selection_bypass_enabled: false  # Skip LLM capability selection
 
@@ -375,6 +376,7 @@ logging:
   logging_colors:
     # Core framework components
     base: 'white'
+    registry: "sky_blue2"
     context: "light_steel_blue1"
     router: "bright_magenta"
     orchestrator: "cyan"

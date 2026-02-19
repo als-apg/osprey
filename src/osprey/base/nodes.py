@@ -101,24 +101,22 @@ class BaseInfrastructureNode(ABC):
 
             @staticmethod
             async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
-                # Explicit logger retrieval - professional practice
+                # Get unified logger for TypedEvent emission
                 from osprey.utils.logger import get_logger
                 logger = get_logger("task_extraction")
 
-                # Use get_stream_writer() for pure LangGraph streaming
-                from langgraph.config import get_stream_writer
-                streaming = get_stream_writer()
-
-                if streaming:
-                    streaming({"event_type": "status", "message": "Extracting task", "progress": 0.3})
-
-                logger.info("Starting task extraction")
+                # All methods emit TypedEvents for unified streaming
+                logger.status("Extracting task...")  # StatusEvent(level="status")
+                logger.emit_event(StatusEvent(
+                    component="task_extraction",
+                    message="Starting task extraction",
+                    level="info"
+                ))
 
                 # Extract and process task from flat state structure
                 task = state.get("task_current_task", "")
 
-                if streaming:
-                    streaming({"event_type": "status", "message": "Task extraction complete", "progress": 1.0, "complete": True})
+                logger.status("Task extraction complete")  # StatusEvent(level="status")
 
                 # Return state updates for flat structure
                 return {

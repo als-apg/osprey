@@ -482,7 +482,7 @@ class TestGenerateLLMExplanation:
             )
 
             mock_builder = Mock()
-            mock_builder.get_system_instructions.return_value = "Analysis prompt"
+            mock_builder.build_prompt.return_value = "Analysis prompt"
             mock_prompts.return_value.get_error_analysis_prompt_builder.return_value = mock_builder
 
             mock_llm.return_value = "The error occurred because of rate limiting. Try again later."

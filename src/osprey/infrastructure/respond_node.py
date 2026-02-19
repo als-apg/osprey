@@ -6,18 +6,17 @@ queries requiring execution context and conversational queries that don't. It ad
 chooses the appropriate response strategy based on query type and available context.
 """
 
-import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 
 from osprey.base import BaseCapability
 from osprey.base.decorators import capability_node
 from osprey.base.errors import ErrorClassification, ErrorSeverity
 from osprey.context.context_manager import ContextManager
-from osprey.models import get_chat_completion
+from osprey.models import get_langchain_model
 from osprey.prompts.loader import get_framework_prompts
 from osprey.registry import get_registry
 from osprey.state import (
@@ -127,38 +126,29 @@ class RespondCapability(BaseCapability):
             # Build prompt dynamically based on available information
             prompt = _get_base_system_prompt(response_context.current_task, response_context)
 
-            # Log prompt for TUI display
-            logger.info("LLM prompt built", llm_prompt=prompt, stream=False)
+            # Emit LLM prompt event for TUI display
+            logger.emit_llm_request(prompt)
 
-            # Set caller context for API call logging (propagates through asyncio.to_thread)
-            from osprey.models import set_api_call_context
+            # Get streaming LangChain model for response generation
+            model = get_langchain_model(model_config=get_model_config("response"))
 
-            set_api_call_context(
-                function="execute",
-                module="respond_node",
-                class_name="RespondCapability",
-                extra={"capability": "respond"},
-            )
+            # Build messages for LangChain format
+            messages = [HumanMessage(content=prompt)]
 
-            # Single LLM call - run in thread pool to avoid blocking event loop for streaming
-            response = await asyncio.to_thread(
-                get_chat_completion,
-                model_config=get_model_config("response"),
-                message=prompt,
-            )
+            # Stream response - LangGraph captures AIMessageChunks in messages mode
+            # This enables real-time token streaming to frontends (CLI/TUI)
+            response_chunks: list[str] = []
+            async for chunk in model.astream(messages):
+                if chunk.content:
+                    response_chunks.append(chunk.content)
 
-            # Handle different response types from get_chat_completion
-            if isinstance(response, str):
-                response_text = response
-            elif isinstance(response, list):
-                # Handle Anthropic thinking mode (List[ContentBlock])
-                text_parts = [str(block) for block in response if hasattr(block, "text")]
-                response_text = "\n".join(text_parts) if text_parts else str(response)
-            else:
+            response_text = "".join(response_chunks)
+
+            if not response_text:
                 raise Exception("No response from LLM, please try again.")
 
-            # Log response for TUI display
-            logger.info("LLM response received", llm_response=response_text, stream=False)
+            # Note: LLM response is streamed via LangGraph's messages mode,
+            # so we don't emit LLMResponseEvent here (would cause duplicate display)
 
             logger.status("Response generated")
 
@@ -382,4 +372,4 @@ def _get_base_system_prompt(current_task: str, info=None) -> str:
     prompt_provider = get_framework_prompts()
     response_builder = prompt_provider.get_response_generation_prompt_builder()
 
-    return response_builder.get_system_instructions(current_task=current_task, info=info)
+    return response_builder.build_prompt(current_task=current_task, info=info)

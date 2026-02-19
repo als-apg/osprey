@@ -9,7 +9,7 @@ like health checks, tests, or other scenarios where specific log output would be
 noise rather than signal, while still preserving error and warning messages.
 
 Key Features:
-    - Filter by logger name (e.g., suppress only 'REGISTRY' logger)
+    - Filter by logger name (e.g., suppress only 'registry' logger)
     - Filter by log level (e.g., suppress only INFO, keep WARNING+)
     - Filter by message content patterns (regex-based)
     - Invert logic (show only matches instead of suppressing)
@@ -18,39 +18,39 @@ Key Features:
     - Thread-safe filter management
 
 Examples:
-    Suppress all REGISTRY logger output::
+    Suppress all registry logger output::
 
-        >>> filter = LoggerFilter(logger_names=['REGISTRY'])
-        >>> logging.getLogger('REGISTRY').addFilter(filter)
+        >>> filter = LoggerFilter(logger_names=['registry'])
+        >>> logging.getLogger('registry').addFilter(filter)
 
     Suppress specific message patterns::
 
         >>> filter = LoggerFilter(
-        ...     logger_names=['REGISTRY'],
+        ...     logger_names=['registry'],
         ...     message_patterns=[r'Configured.*registry', r'Added.*sys\.path']
         ... )
-        >>> logging.getLogger('REGISTRY').addFilter(filter)
+        >>> logging.getLogger('registry').addFilter(filter)
 
     Temporarily suppress with context manager::
 
-        >>> with suppress_logger('REGISTRY'):
-        ...     # REGISTRY logs suppressed here
+        >>> with suppress_logger('registry'):
+        ...     # registry logs suppressed here
         ...     initialize_registry()
 
     Suppress only INFO-level messages::
 
-        >>> with suppress_logger_level('REGISTRY', logging.INFO):
+        >>> with suppress_logger_level('registry', logging.INFO):
         ...     # Only INFO suppressed, WARNING/ERROR still shown
         ...     do_something()
 
     Show only errors from specific logger::
 
         >>> filter = LoggerFilter(
-        ...     logger_names=['REGISTRY'],
+        ...     logger_names=['registry'],
         ...     levels=[logging.ERROR],
         ...     invert=True
         ... )
-        >>> logging.getLogger('REGISTRY').addFilter(filter)
+        >>> logging.getLogger('registry').addFilter(filter)
 
 .. seealso::
    :class:`LoggerFilter` : Main filtering class
@@ -103,7 +103,7 @@ class LoggerFilter(logging.Filter):
 
         Args:
             logger_names: List of logger names to filter. If None or empty,
-                applies to all loggers. Example: ['REGISTRY', 'DATABASE']
+                applies to all loggers. Example: ['registry', 'DATABASE']
             message_patterns: List of regex patterns to match in log messages.
                 Patterns are matched against the formatted message string.
                 Example: [r'Configured.*registry', r'Added.*sys\.path']
@@ -117,26 +117,26 @@ class LoggerFilter(logging.Filter):
         Examples:
             Suppress all messages from specific loggers::
 
-                >>> filter = LoggerFilter(logger_names=['REGISTRY', 'DATABASE'])
+                >>> filter = LoggerFilter(logger_names=['registry', 'DATABASE'])
 
             Suppress specific message patterns::
 
                 >>> filter = LoggerFilter(
-                ...     logger_names=['REGISTRY'],
+                ...     logger_names=['registry'],
                 ...     message_patterns=[r'Configured.*', r'Loaded.*']
                 ... )
 
             Suppress only INFO-level messages::
 
                 >>> filter = LoggerFilter(
-                ...     logger_names=['REGISTRY'],
+                ...     logger_names=['registry'],
                 ...     levels=[logging.INFO]
                 ... )
 
             Show ONLY errors (suppress everything else)::
 
                 >>> filter = LoggerFilter(
-                ...     logger_names=['REGISTRY'],
+                ...     logger_names=['registry'],
                 ...     levels=[logging.ERROR, logging.CRITICAL],
                 ...     invert=True
                 ... )
@@ -251,27 +251,27 @@ def suppress_logger(
         The LoggerFilter instance, allowing inspection if needed
 
     Examples:
-        Suppress all REGISTRY output::
+        Suppress all registry output::
 
-            >>> with suppress_logger('REGISTRY'):
-            ...     initialize_registry()  # No REGISTRY logs shown
+            >>> with suppress_logger('registry'):
+            ...     initialize_registry()  # No registry logs shown
 
         Suppress only INFO-level messages::
 
-            >>> with suppress_logger('REGISTRY', levels=[logging.INFO]):
+            >>> with suppress_logger('registry', levels=[logging.INFO]):
             ...     initialize_registry()  # WARNING/ERROR still shown
 
         Suppress specific message patterns::
 
             >>> with suppress_logger(
-            ...     'REGISTRY',
+            ...     'registry',
             ...     message_patterns=[r'Configured.*', r'Loaded.*']
             ... ):
             ...     initialize_registry()
 
         Suppress multiple loggers::
 
-            >>> with suppress_logger(['REGISTRY', 'DATABASE']):
+            >>> with suppress_logger(['registry', 'DATABASE']):
             ...     do_something()
 
     .. warning::
@@ -326,17 +326,17 @@ def suppress_logger_level(logger_name: str | list[str], level: int):
     Examples:
         Suppress INFO and below, show WARNING+::
 
-            >>> with suppress_logger_level('REGISTRY', logging.WARNING):
+            >>> with suppress_logger_level('registry', logging.WARNING):
             ...     initialize_registry()  # Only WARNING+ shown
 
         Suppress everything except CRITICAL::
 
-            >>> with suppress_logger_level('REGISTRY', logging.CRITICAL):
+            >>> with suppress_logger_level('registry', logging.CRITICAL):
             ...     do_something()
 
         Suppress multiple loggers::
 
-            >>> with suppress_logger_level(['REGISTRY', 'DATABASE'], logging.WARNING):
+            >>> with suppress_logger_level(['registry', 'DATABASE'], logging.WARNING):
             ...     do_something()
 
     .. note::
@@ -383,12 +383,12 @@ def quiet_logger(logger_name: str | list[str]):
     Examples:
         Quiet a single logger::
 
-            >>> with quiet_logger('REGISTRY'):
+            >>> with quiet_logger('registry'):
             ...     initialize_registry()  # No INFO messages shown
 
         Quiet multiple loggers::
 
-            >>> with quiet_logger(['REGISTRY', 'DATABASE']):
+            >>> with quiet_logger(['registry', 'DATABASE']):
             ...     do_something()
 
     .. note::

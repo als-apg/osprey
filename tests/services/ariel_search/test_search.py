@@ -887,9 +887,10 @@ class TestSemanticSearchValidation:
         )
 
     @pytest.mark.asyncio
-    async def test_embedding_dimension_mismatch_warning(self, mock_config, caplog):
+    async def test_embedding_dimension_mismatch_warning(
+        self, mock_config, captured_events, fallback_handler_with_capture
+    ):
         """Warning logged when embedding dimension mismatches config (TEST-H008)."""
-        import logging
         from unittest.mock import AsyncMock, MagicMock
 
         from osprey.services.ariel_search.search.semantic import semantic_search
@@ -904,16 +905,15 @@ class TestSemanticSearchValidation:
             return_value=[[0.1, 0.2, 0.3]]  # 3 dimensions, config expects 384
         )
 
-        with caplog.at_level(logging.WARNING):
-            await semantic_search(
-                "test query",
-                mock_repo,
-                mock_config,
-                mock_embedder,
-            )
+        await semantic_search(
+            "test query",
+            mock_repo,
+            mock_config,
+            mock_embedder,
+        )
 
-        # Check that warning was logged
-        assert any("dimension mismatch" in record.message.lower() for record in caplog.records)
+        # Check that warning was emitted via unified event system
+        assert any("dimension mismatch" in e.get("message", "").lower() for e in captured_events)
 
 
 # === Edge Case Tests (EDGE-004 to EDGE-016) ===

@@ -7,15 +7,30 @@ from osprey.prompts.base import FrameworkPromptBuilder
 
 
 class DefaultClassificationPromptBuilder(FrameworkPromptBuilder):
-    """Default classification prompt builder."""
+    """Default classification prompt builder.
+
+    **Customization Points:**
+
+    +---------------------------------+----------------------------------------------+
+    | I want to...                    | Override...                                  |
+    +=================================+==============================================+
+    | Change the agent identity       | ``get_role()``                    |
+    +---------------------------------+----------------------------------------------+
+    | Change the task statement       | ``get_task()``                    |
+    +---------------------------------+----------------------------------------------+
+    | Change output instructions      | ``get_instructions()``                       |
+    +---------------------------------+----------------------------------------------+
+    | Change dynamic context assembly | ``build_dynamic_context(...)``               |
+    +---------------------------------+----------------------------------------------+
+    """
 
     PROMPT_TYPE = "classification"
 
-    def get_role_definition(self) -> str:
+    def get_role(self) -> str:
         """Get the role definition."""
         return "You are an expert task classification assistant."
 
-    def get_task_definition(self) -> str:
+    def get_task(self) -> str:
         """Get the task definition."""
         return "Your goal is to determine if a user's request requires a certain capability."
 
@@ -29,7 +44,7 @@ class DefaultClassificationPromptBuilder(FrameworkPromptBuilder):
             """
         ).strip()
 
-    def _get_dynamic_context(
+    def build_dynamic_context(
         self,
         capability_instructions: str = "",
         classifier_examples: str = "",
@@ -60,7 +75,7 @@ class DefaultClassificationPromptBuilder(FrameworkPromptBuilder):
 
         return "\n\n".join(sections)
 
-    def get_system_instructions(
+    def build_prompt(
         self,
         capability_instructions: str = "",
         classifier_examples: str = "",
@@ -72,12 +87,12 @@ class DefaultClassificationPromptBuilder(FrameworkPromptBuilder):
         sections = []
 
         # Role and instructions
-        sections.append(self.get_role_definition())
-        sections.append(self.get_task_definition())
+        sections.append(self.get_role())
+        sections.append(self.get_task())
         sections.append(self.get_instructions())
 
         # Dynamic context
-        dynamic_context = self._get_dynamic_context(
+        dynamic_context = self.build_dynamic_context(
             capability_instructions=capability_instructions,
             classifier_examples=classifier_examples,
             context=context,

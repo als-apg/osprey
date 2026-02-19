@@ -1,12 +1,13 @@
 """Runtime channel limits validation engine - simplified single-layer design."""
 
 import json
-import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from osprey.utils.logger import get_logger
+
+logger = get_logger("limits_validator")
 
 
 # Reserved metadata fields (underscore prefix)

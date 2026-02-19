@@ -181,7 +181,7 @@ def has_capability_react_model(config_path: Path, capability_name: str) -> bool:
         if "models" in config and model_key in config["models"]:
             return True
     except Exception:
-        pass
+        pass  # Config read/parse failed; return default below
 
     return False
 
@@ -207,7 +207,7 @@ def get_orchestrator_model_config(config_path: Path) -> dict | None:
                 "max_tokens": orch_config.get("max_tokens", 4096),
             }
     except Exception:
-        pass
+        pass  # Config read/parse failed; return default below
 
     return None
 
@@ -404,7 +404,7 @@ def get_capability_react_config(config_path: Path, capability_name: str) -> dict
         if "models" in config and model_key in config["models"]:
             return config["models"][model_key]
     except Exception:
-        pass
+        pass  # Config read/parse failed; return default below
 
     return None
 
@@ -438,7 +438,7 @@ def get_control_system_type(config_path: Path, key: str = "control_system.type")
 
         return value
     except Exception:
-        pass
+        pass  # Config read/parse failed; return default below
 
     return None
 
@@ -599,7 +599,7 @@ def get_epics_gateway_config(config_path: Path) -> dict | None:
         )
         return gateways
     except Exception:
-        pass
+        pass  # Config read/parse failed; return default below
 
     return None
 
@@ -665,7 +665,7 @@ def get_all_model_configs(config_path: Path) -> dict | None:
 
         return config.get("models", {})
     except Exception:
-        pass
+        pass  # Config read/parse failed; return default below
 
     return None
 

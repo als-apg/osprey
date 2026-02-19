@@ -22,7 +22,7 @@ Developer Guides
 
          **Key Architecture Concepts:**
 
-         * :doc:`01_understanding-the-framework/04_orchestrator-first-philosophy` - Why upfront planning works
+         * :doc:`01_understanding-the-framework/04_orchestration-architecture` - Orchestration modes and architecture
          * :doc:`01_understanding-the-framework/02_convention-over-configuration` - Zero-boilerplate development
          * :doc:`01_understanding-the-framework/03_langgraph-integration` - StateGraph workflows
 
@@ -123,7 +123,7 @@ Developer Guides
 
          * :doc:`04_infrastructure-components/03_classification-and-routing` - Capability selection logic
          * :doc:`04_infrastructure-components/04_orchestrator-planning` - Execution plan creation
-         * :doc:`01_understanding-the-framework/04_orchestrator-first-philosophy` - Planning vs reactive patterns
+         * :doc:`01_understanding-the-framework/04_orchestration-architecture` - Planning vs reactive patterns
 
          **State & Registry Systems**
 
@@ -146,7 +146,7 @@ Guide Categories
       :class-body: text-center
       :shadow: md
 
-      Core concepts, design principles, and the orchestrator-first philosophy that makes the framework powerful and reliable.
+      Core concepts, design principles, and the orchestration architecture that makes the framework powerful and reliable.
 
    .. grid-item-card:: 🚀 Quick Start Patterns
       :link: 02_quick-start-patterns/index
@@ -196,7 +196,7 @@ Guide Categories
    * :doc:`01_understanding-the-framework/01_infrastructure-architecture` - Gateway, three-pillar pipeline, and system integration
    * :doc:`01_understanding-the-framework/02_convention-over-configuration` - Configuration-driven loading, registry patterns, and reduced boilerplate
    * :doc:`01_understanding-the-framework/03_langgraph-integration` - StateGraph, interrupts, checkpoints, and native features
-   * :doc:`01_understanding-the-framework/04_orchestrator-first-philosophy` - Upfront planning vs. iterative tool calling
+   * :doc:`01_understanding-the-framework/04_orchestration-architecture` - Plan-first and reactive (ReAct) orchestration modes
 
    **🚀 Quick Start Patterns**
 

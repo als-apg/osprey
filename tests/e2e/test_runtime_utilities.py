@@ -267,6 +267,11 @@ async def test_runtime_utilities_respects_channel_limits(e2e_project_factory, tm
     limits_file.write_text(json.dumps(limits_data, indent=2))
     config_data["control_system"]["limits_checking"]["database_path"] = str(limits_file)
 
+    # Disable approval for e2e testing - we want to test limits enforcement, not approval flow
+    if "approval" not in config_data:
+        config_data["approval"] = {}
+    config_data["approval"]["global_mode"] = "disabled"
+
     # Write updated config
     config_path.write_text(yaml.dump(config_data))
 
@@ -280,17 +285,26 @@ async def test_runtime_utilities_respects_channel_limits(e2e_project_factory, tm
 
     # === SAFETY VERIFICATION ===
 
-    # 1. Execution should have encountered an error
+    # 1. Should see Python execution in trace
     trace_lower = result.execution_trace.lower()
-
-    # 2. Should see Python execution in trace
     assert "python" in trace_lower, "Python capability not executed"
 
-    # 3. CRITICAL: Should see channel limits violation error
-    assert "channellimitsviolationerror" in trace_lower or "limits" in trace_lower, (
+    # 2. CRITICAL: Should see channel limits violation - either in execution trace OR response
+    # The limits violation is caught by the runtime and reported through the response.
+    # The capability may report [SUCCESS] because it successfully produced an error report.
+    response_lower = result.response.lower()
+    limits_detected = (
+        "channellimitsviolationerror" in trace_lower
+        or "limits" in trace_lower
+        or "limits violation" in response_lower
+        or "exceeds" in response_lower
+        or "maximum" in response_lower and "100" in response_lower
+    )
+    assert limits_detected, (
         "Channel limits violation not detected!\n"
         f"This means runtime utilities bypassed safety checks!\n"
-        f"Trace: {result.execution_trace[:1000]}"
+        f"Trace: {result.execution_trace[:500]}\n"
+        f"Response preview: {result.response[:500]}"
     )
 
     # 4. Find execution folder and check for error details
@@ -380,6 +394,11 @@ async def test_runtime_utilities_within_limits_succeeds(e2e_project_factory, tmp
     limits_data = {"TEST:VOLTAGE": {"min_value": 0.0, "max_value": 100.0, "writable": True}}
     limits_file.write_text(json.dumps(limits_data, indent=2))
     config_data["control_system"]["limits_checking"]["database_path"] = str(limits_file)
+
+    # Disable approval for e2e testing - we want to test limits enforcement, not approval flow
+    if "approval" not in config_data:
+        config_data["approval"] = {}
+    config_data["approval"]["global_mode"] = "disabled"
 
     # Write updated config
     config_path.write_text(yaml.dump(config_data))

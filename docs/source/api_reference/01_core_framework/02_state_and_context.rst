@@ -52,6 +52,18 @@ AgentState
 
       Error state for manual retry handling.
 
+   **Reactive Orchestration Fields (execution-scoped, react mode only):**
+
+   .. attribute:: react_messages
+      :type: list[dict]
+
+      Accumulated LLM reasoning messages (decisions and observations) for the ReAct loop. Each entry has a ``role`` (``assistant`` or ``observation``) and ``content``.
+
+   .. attribute:: react_step_count
+      :type: int
+
+      Safety counter tracking completed reactive steps. Used by the max iterations guard in ``_reactive_routing()``.
+
 StateManager
 ------------
 

@@ -8,15 +8,40 @@ from osprey.prompts.base import FrameworkPromptBuilder
 
 
 class DefaultResponseGenerationPromptBuilder(FrameworkPromptBuilder):
-    """Default response generation prompt builder."""
+    """Default response generation prompt builder.
+
+    **Customization Points:**
+
+    +--------------------------------------+----------------------------------------------+
+    | I want to...                         | Override...                                  |
+    +======================================+==============================================+
+    | Change the agent identity            | ``get_role()``                    |
+    +--------------------------------------+----------------------------------------------+
+    | Change conversational tone           | ``get_conversational_guidelines()``          |
+    +--------------------------------------+----------------------------------------------+
+    | Change execution summary format      | ``build_execution_section(info)``            |
+    +--------------------------------------+----------------------------------------------+
+    | Change data presentation             | ``build_data_section(relevant_context)``     |
+    +--------------------------------------+----------------------------------------------+
+    | Change context data formatting       | ``format_context_data(context_data)``        |
+    +--------------------------------------+----------------------------------------------+
+    | Change capabilities overview         | ``build_capabilities_section(overview)``     |
+    +--------------------------------------+----------------------------------------------+
+    | Change chat history presentation     | ``build_chat_history_section(history)``      |
+    +--------------------------------------+----------------------------------------------+
+    | Change response guidelines           | ``build_guidelines_section(info)``           |
+    +--------------------------------------+----------------------------------------------+
+    | Change full dynamic prompt assembly  | ``build_dynamic_context(task, info)``        |
+    +--------------------------------------+----------------------------------------------+
+    """
 
     PROMPT_TYPE = "response_generation"
 
-    def get_role_definition(self) -> str:
+    def get_role(self) -> str:
         """Get the generic role definition."""
         return "You are an expert assistant for workflow automation and data analysis."
 
-    def get_task_definition(self) -> str | None:
+    def get_task(self) -> str | None:
         """Task definition is embedded dynamically in instructions."""
         return None
 
@@ -24,7 +49,7 @@ class DefaultResponseGenerationPromptBuilder(FrameworkPromptBuilder):
         """Instructions are completely dynamic based on execution context."""
         return ""
 
-    def _get_dynamic_context(self, current_task: str = "", info=None, **kwargs) -> str:
+    def build_dynamic_context(self, current_task: str = "", info=None, **kwargs) -> str:
         """Build dynamic response generation prompt based on execution context."""
         sections = []
 
@@ -34,15 +59,15 @@ class DefaultResponseGenerationPromptBuilder(FrameworkPromptBuilder):
         if info:
             # Chat history section - critical for context-dependent tasks
             if hasattr(info, "chat_history") and info.chat_history:
-                sections.append(self._get_chat_history_section(info.chat_history))
+                sections.append(self.build_chat_history_section(info.chat_history))
 
             # Context prioritization: Show specific context if available, otherwise show all execution context
             if hasattr(info, "relevant_context") and info.relevant_context:
                 # Specific execution context provided as input to response node - show only this
-                sections.append(self._get_data_section(info.relevant_context))
+                sections.append(self.build_data_section(info.relevant_context))
             elif hasattr(info, "execution_history") and info.execution_history:
                 # No specific context, but execution history available - show all execution context
-                sections.append(self._get_execution_section(info))
+                sections.append(self.build_execution_section(info))
 
             # Capabilities section for conversational responses
             if (
@@ -50,14 +75,14 @@ class DefaultResponseGenerationPromptBuilder(FrameworkPromptBuilder):
                 and hasattr(info, "capabilities_overview")
                 and info.capabilities_overview
             ):
-                sections.append(self._get_capabilities_section(info.capabilities_overview))
+                sections.append(self.build_capabilities_section(info.capabilities_overview))
 
             # Guidelines section
-            sections.append(self._get_guidelines_section(info))
+            sections.append(self.build_guidelines_section(info))
 
         return "\n\n".join(sections)
 
-    def _get_conversational_guidelines(self) -> list[str]:
+    def get_conversational_guidelines(self) -> list[str]:
         """Get conversational response guidelines - override in subclasses for domain-specific content."""
         return [
             "Be warm, professional, and genuine while staying focused on providing assistance",
@@ -68,7 +93,7 @@ class DefaultResponseGenerationPromptBuilder(FrameworkPromptBuilder):
             "Be encouraging about the technical assistance available",
         ]
 
-    def _get_execution_section(self, info) -> str:
+    def build_execution_section(self, info) -> str:
         """Get execution summary - keep concise but informative."""
         if hasattr(info, "is_killed") and info.is_killed:
             # Handle terminated execution
@@ -123,9 +148,9 @@ class DefaultResponseGenerationPromptBuilder(FrameworkPromptBuilder):
                 """
             ).strip()
 
-    def _get_data_section(self, relevant_context: list[dict[str, Any]]) -> str:
+    def build_data_section(self, relevant_context: list[dict[str, Any]]) -> str:
         """Get retrieved data section."""
-        formatted_context = self._format_context_data(relevant_context)
+        formatted_context = self.format_context_data(relevant_context)
 
         return textwrap.dedent(
             f"""
@@ -134,7 +159,7 @@ class DefaultResponseGenerationPromptBuilder(FrameworkPromptBuilder):
             """
         ).strip()
 
-    def _format_context_data(self, context_data: list[dict[str, Any]]) -> str:
+    def format_context_data(self, context_data: list[dict[str, Any]]) -> str:
         """Format retrieved context data for the response.
 
         :param context_data: List of context summary dicts from get_summaries()
@@ -167,7 +192,7 @@ class DefaultResponseGenerationPromptBuilder(FrameworkPromptBuilder):
 
         return "\n".join(formatted_lines)
 
-    def _get_capabilities_section(self, capabilities_overview: str) -> str:
+    def build_capabilities_section(self, capabilities_overview: str) -> str:
         """Get capabilities overview for conversational responses."""
         return textwrap.dedent(
             f"""
@@ -176,7 +201,7 @@ class DefaultResponseGenerationPromptBuilder(FrameworkPromptBuilder):
             """
         ).strip()
 
-    def _get_chat_history_section(self, chat_history: str) -> str:
+    def build_chat_history_section(self, chat_history: str) -> str:
         """Get chat history section for context-dependent responses.
 
         This provides the respond capability with visibility into the conversation,
@@ -193,7 +218,7 @@ class DefaultResponseGenerationPromptBuilder(FrameworkPromptBuilder):
             """
         ).strip()
 
-    def _get_guidelines_section(self, info) -> str:
+    def build_guidelines_section(self, info) -> str:
         """Get contextually appropriate guidelines to avoid conflicts."""
         guidelines = ["Provide a clear, accurate response"]
 
@@ -256,7 +281,7 @@ class DefaultResponseGenerationPromptBuilder(FrameworkPromptBuilder):
 
         if not hasattr(info, "execution_history") or not info.execution_history:
             # Conversational response - use overridable method for domain customization
-            guidelines.extend(self._get_conversational_guidelines())
+            guidelines.extend(self.get_conversational_guidelines())
 
         if hasattr(info, "relevant_context") and info.relevant_context:
             # Technical response with relevant context

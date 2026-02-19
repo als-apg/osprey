@@ -20,12 +20,12 @@ class ChannelFinderPromptBuilder(FrameworkPromptBuilder):
     that gets combined into a single prompt for the pipeline.
 
     Note: Channel finder prompt builders are specialized and don't use the
-    standard get_role_definition()/get_instructions() pattern. Instead they
+    standard get_role()/get_instructions() pattern. Instead they
     provide get_facility_description() and get_matching_rules() which are
     combined via get_combined_description().
     """
 
-    def get_role_definition(self) -> str:
+    def get_role(self) -> str:
         """Not used for channel finder prompts. Use get_combined_description() instead."""
         return self.get_facility_description()
 

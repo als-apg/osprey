@@ -6,12 +6,11 @@ and standalone execution.
 
 Modules:
     config: Main configuration builder and access functions
-    logger: Logging configuration utilities
-    streaming: Streaming configuration utilities
+    logger: Logging configuration utilities (with typed event streaming)
     log_filter: Flexible logging filter utilities
 """
 
 # Make the main modules available at package level
-from . import config, log_filter, logger, streaming
+from . import config, log_filter, logger
 
-__all__ = ["config", "logger", "streaming", "log_filter"]
+__all__ = ["config", "logger", "log_filter"]
