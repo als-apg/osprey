@@ -332,11 +332,19 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         if not filepath or not filepath.exists():
             raise HTTPException(status_code=404, detail="Artifact file not found on disk")
 
-        content = filepath.read_bytes()
+        # For binary files (images), use FileResponse for proper streaming
         snippet = _RESPONSIVE_SNIPPETS.get(entry.artifact_type)
-        if snippet:
-            content = _inject_html_snippet(content, snippet)
+        if not snippet:
+            return FileResponse(
+                filepath,
+                media_type=entry.mime_type,
+                filename=entry.filename,
+                content_disposition_type="inline",
+            )
 
+        # HTML types may need responsive snippet injection
+        content = filepath.read_bytes()
+        content = _inject_html_snippet(content, snippet)
         return Response(
             content=content,
             media_type=entry.mime_type,
@@ -474,6 +482,43 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
             content=filepath.read_bytes(),
             media_type="application/json",
         )
+
+    @app.get("/api/context/{entry_id}/image")
+    async def get_context_image(entry_id: int):
+        """Serve the referenced image file from a context entry.
+
+        For entries like screenshots where the JSON data file contains a
+        ``data.filepath`` pointing to an image on disk, this endpoint reads
+        that path and serves the image with the correct MIME type.
+        """
+        filepath = context_store.get_file_path(entry_id)
+        if not filepath:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Context entry {entry_id} not found or data file missing",
+            )
+        try:
+            payload = json.loads(filepath.read_text())
+            image_path = Path(payload.get("data", {}).get("filepath", ""))
+        except (json.JSONDecodeError, TypeError):
+            raise HTTPException(status_code=400, detail="Cannot parse data file")
+
+        if not image_path.exists():
+            raise HTTPException(
+                status_code=404, detail=f"Referenced image not found: {image_path}"
+            )
+
+        suffix = image_path.suffix.lower()
+        media_types = {
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".gif": "image/gif",
+            ".webp": "image/webp",
+            ".svg": "image/svg+xml",
+        }
+        media_type = media_types.get(suffix, "application/octet-stream")
+        return FileResponse(image_path, media_type=media_type)
 
     @app.delete("/api/context/{entry_id}")
     async def delete_context_entry(entry_id: int):
