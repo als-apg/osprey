@@ -203,6 +203,14 @@ ariel-proxy = [
     "aiohttp-socks>=0.8.0",
 ]
 
+# Graph data extraction (DePlot service + comparison tools)
+graph = [
+    "opencv-python-headless>=4.8.0",
+    "transformers>=4.35.0",
+    "torch>=2.0.0",
+    "dtw-python>=1.3.0",
+]
+
 # Screen capture on Linux (X11) — not needed on macOS
 screen-capture-linux = [
     "mss>=9.0.0",
@@ -297,6 +305,7 @@ markers = [
     "integration: Integration tests (real external services)",
     "e2e: End-to-end workflow tests - WARNING: Use 'pytest tests/e2e/' not '-m e2e' (see tests/e2e/README.md)",
     "e2e_smoke: Quick smoke tests for critical workflows",
+    "e2e_benchmark: Channel finder benchmark validation tests",
     "e2e_tutorial: Tutorial workflow validation tests",
     "slow: Tests that take significant time",
     "requires_api: Tests that require API credentials",
