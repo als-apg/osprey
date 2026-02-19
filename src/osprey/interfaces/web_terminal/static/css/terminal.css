@@ -57,12 +57,20 @@
   white-space: pre;
   margin: 0;
   text-shadow: 0 0 8px rgba(126, 200, 160, 0.25);
+  display: inline-block; /* shrink to widest line (the ═ borders) */
 }
 
 /* Each line fades in */
 .welcome-ascii .wl {
   opacity: 0;
   animation: lineReveal 0.08s ease forwards;
+}
+
+/* Box content lines: flex to pin right ║ border */
+.welcome-ascii .wl-box {
+  display: flex;
+  justify-content: space-between;
+  white-space: pre;
 }
 
 @keyframes lineReveal {
