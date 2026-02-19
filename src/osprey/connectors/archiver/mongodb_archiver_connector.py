@@ -73,7 +73,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
         """
         try:
             from pymongo import MongoClient
-            from pymongo.errors import ConnectionFailure, ConfigurationError
+            from pymongo.errors import ConfigurationError, ConnectionFailure
 
             # Store classes in self for lazy import pattern:
             # 1. Allows module import even if pymongo isn't installed (fails only when connect() is called)
@@ -84,8 +84,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
             self._ConfigurationError = ConfigurationError
         except ImportError as e:
             raise ImportError(
-                "pymongo is required for MongoDB archiver. "
-                "Install with: pip install pymongo"
+                "pymongo is required for MongoDB archiver. Install with: pip install pymongo"
             ) from e
 
         # Validate required config
@@ -168,6 +167,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
         """Cleanup MongoDB connection."""
         if self._client:
             try:
+
                 def close_connection():
                     self._client.close()
 
@@ -276,10 +276,10 @@ class MongoDBArchiverConnector(ArchiverConnector):
 
             # Apply downsampling based on precision_ms if needed
             # This is a simple approach - could be enhanced with more sophisticated downsampling
-#            if precision_ms > 0 and len(df) > 0:
-#                # Resample to approximate precision
-#                freq = f"{precision_ms}ms"
-#                df = df.resample(freq).mean()
+            #            if precision_ms > 0 and len(df) > 0:
+            #                # Resample to approximate precision
+            #                freq = f"{precision_ms}ms"
+            #                df = df.resample(freq).mean()
 
             return df
 

@@ -14,7 +14,6 @@ How it works:
 import os
 import subprocess
 import time
-from pathlib import Path
 from datetime import datetime, timedelta
 
 import pytest
@@ -30,9 +29,7 @@ except ImportError:
 def _check_docker_available():
     """Check if Docker is available."""
     try:
-        subprocess.run(
-            ["docker", "ps"], check=True, capture_output=True, timeout=5
-        )
+        subprocess.run(["docker", "ps"], check=True, capture_output=True, timeout=5)
         return True
     except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
         return False
@@ -90,9 +87,7 @@ services:
     compose_file.write_text(compose_content)
 
     # Use pytest-docker's docker_compose as context manager
-    with docker_compose(
-        str(compose_file.parent), compose_file_name=compose_file.name
-    ):
+    with docker_compose(str(compose_file.parent), compose_file_name=compose_file.name):
         # Wait for MongoDB to be ready
         max_retries = 30
         retry_count = 0
