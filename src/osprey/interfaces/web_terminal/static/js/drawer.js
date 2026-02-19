@@ -1,5 +1,7 @@
 /* OSPREY Web Terminal — Drawer Infrastructure */
 
+import { fetchJSON } from './api.js';
+
 let activeDrawer = null;
 const SETTINGS_WARNING_KEY = 'osprey-settings-warning-ack';
 
@@ -7,13 +9,23 @@ const SETTINGS_WARNING_KEY = 'osprey-settings-warning-ack';
  * Open a drawer panel by ID.
  * Only one drawer can be open at a time — opening a new one closes the current.
  */
-export function openDrawer(drawerId) {
+export async function openDrawer(drawerId) {
   if (activeDrawer === drawerId) return;
 
-  // First-time warning for the settings drawer
-  if (drawerId === 'settings-drawer' && !localStorage.getItem(SETTINGS_WARNING_KEY)) {
-    showSettingsWarning(drawerId);
-    return;
+  // Per-session warning for the settings drawer (resets on server restart)
+  if (drawerId === 'settings-drawer') {
+    try {
+      const health = await fetchJSON('/health');
+      const serverSession = health.session_id;
+      if (!serverSession || localStorage.getItem(SETTINGS_WARNING_KEY) !== serverSession) {
+        showSettingsWarning(drawerId, serverSession);
+        return;
+      }
+    } catch {
+      // Health endpoint unreachable — show warning to be safe
+      showSettingsWarning(drawerId, null);
+      return;
+    }
   }
 
   _doOpenDrawer(drawerId);
@@ -242,9 +254,9 @@ export function getActiveDrawer() {
 
 /**
  * Show a first-time warning dialog before opening the settings drawer.
- * Persists acknowledgment in localStorage so it only appears once.
+ * Persists acknowledgment per server session so it reappears on restart.
  */
-function showSettingsWarning(drawerId) {
+function showSettingsWarning(drawerId, serverSession) {
   // Build overlay
   const overlay = document.createElement('div');
   overlay.className = 'settings-warning-overlay';
@@ -286,7 +298,9 @@ function showSettingsWarning(drawerId) {
   dialog.querySelector('.settings-warning-cancel').addEventListener('click', cleanup);
 
   dialog.querySelector('.settings-warning-proceed').addEventListener('click', () => {
-    localStorage.setItem(SETTINGS_WARNING_KEY, '1');
+    if (serverSession) {
+      localStorage.setItem(SETTINGS_WARNING_KEY, serverSession);
+    }
     cleanup();
     _doOpenDrawer(drawerId);
   });
