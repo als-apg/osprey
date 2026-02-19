@@ -1,7 +1,7 @@
-"""MCP tool: data_context_list — query the OSPREY data context index.
+"""MCP tools: data_context_list, data_context_read, data_context_delete.
 
-Provides Claude with a structured way to see what data has been collected
-across all tool invocations, with optional filtering by tool or data type.
+Provides Claude with structured access to the OSPREY data context —
+listing entries, reading full data content, and deleting entries.
 """
 
 import json
@@ -67,6 +67,77 @@ async def data_context_list(
             make_error(
                 "internal_error",
                 f"Failed to list data context: {exc}",
+                ["Check that the osprey-workspace directory is accessible."],
+            )
+        )
+
+
+@mcp.tool()
+async def data_context_read(entry_id: int) -> str:
+    """Read the full data content of a data context entry.
+
+    Returns the complete JSON payload stored in the data file for the given
+    entry. Use ``data_context_list`` first to discover available entry IDs.
+
+    Args:
+        entry_id: ID of the data context entry to read.
+
+    Returns:
+        The full JSON data content of the entry.
+    """
+    try:
+        from osprey.mcp_server.data_context import get_data_context
+
+        ctx = get_data_context()
+        entry = ctx.get_entry(entry_id)
+
+        if entry is None:
+            return json.dumps(
+                make_error(
+                    "not_found",
+                    f"Data context entry {entry_id} not found.",
+                    ["Use data_context_list to see available entries."],
+                )
+            )
+
+        from pathlib import Path
+
+        data_path = Path(entry.data_file)
+        if not data_path.exists():
+            return json.dumps(
+                make_error(
+                    "file_not_found",
+                    f"Data file for entry {entry_id} is missing from disk.",
+                    [
+                        "The data file may have been deleted externally.",
+                        "Use data_context_list to find other entries.",
+                    ],
+                )
+            )
+
+        # Guard against very large files (>5 MB)
+        size = data_path.stat().st_size
+        if size > 5 * 1024 * 1024:
+            return json.dumps(
+                make_error(
+                    "file_too_large",
+                    f"Data file for entry {entry_id} is {size:,} bytes (>5 MB).",
+                    [
+                        "Read the file directly for large datasets.",
+                        f"File path: {entry.data_file}",
+                    ],
+                )
+            )
+
+        content = data_path.read_text(encoding="utf-8")
+        return content
+
+    except Exception as exc:
+        logger.exception("data_context_read failed")
+        return json.dumps(
+            make_error(
+                "internal_error",
+                f"Failed to read data context entry: {exc}",
                 ["Check that the osprey-workspace directory is accessible."],
             )
         )

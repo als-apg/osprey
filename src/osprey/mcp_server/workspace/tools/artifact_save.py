@@ -1,4 +1,8 @@
-"""MCP tool: artifact_save — register files or inline content as gallery artifacts."""
+"""MCP tools: artifact_save, artifact_delete, artifact_get.
+
+Register files or inline content as gallery artifacts, delete them,
+or look up artifact metadata and file paths.
+"""
 
 import json
 import logging
@@ -173,6 +177,62 @@ async def artifact_delete(artifact_id: str) -> str:
             make_error(
                 "internal_error",
                 f"Failed to delete artifact: {exc}",
+                ["Check MCP server logs for details."],
+            )
+        )
+
+
+@mcp.tool()
+async def artifact_get(artifact_id: str) -> str:
+    """Look up an artifact by ID to get its file path and metadata.
+
+    Returns metadata including the on-disk file path, which can be passed
+    to tools like ``graph_extract(image_path=...)``. Does not return the
+    file content inline (artifacts can be large binaries).
+
+    Args:
+        artifact_id: ID of the artifact to look up.
+
+    Returns:
+        JSON with artifact metadata and file path.
+    """
+    try:
+        from osprey.mcp_server.artifact_store import get_artifact_store
+
+        store = get_artifact_store()
+        entry = store.get_entry(artifact_id)
+
+        if entry is None:
+            return json.dumps(
+                make_error(
+                    "not_found",
+                    f"Artifact {artifact_id} not found.",
+                    ["Use data_context_list or check a previous artifact_save response."],
+                )
+            )
+
+        file_path = store.get_file_path(artifact_id)
+        url = gallery_url()
+
+        result = {
+            "artifact_id": entry.id,
+            "title": entry.title,
+            "description": entry.description,
+            "artifact_type": entry.artifact_type,
+            "mime_type": entry.mime_type,
+            "size_bytes": entry.size_bytes,
+            "timestamp": entry.timestamp,
+            "file_path": str(file_path) if file_path else None,
+            "gallery_url": url,
+        }
+        return json.dumps(result, default=str)
+
+    except Exception as exc:
+        logger.exception("artifact_get failed")
+        return json.dumps(
+            make_error(
+                "internal_error",
+                f"Failed to get artifact: {exc}",
                 ["Check MCP server logs for details."],
             )
         )
