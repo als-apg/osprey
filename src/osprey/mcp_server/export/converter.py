@@ -3,11 +3,15 @@
 Provides a graceful fallback when Playwright is not installed —
 callers get a clear ``PlaywrightNotInstalledError`` instead of a raw
 ``ImportError``.
+
+On first use, Chromium is auto-installed if the browser binary is
+missing — no manual ``playwright install chromium`` step required.
 """
 
 from __future__ import annotations
 
 import logging
+import subprocess
 from pathlib import Path
 
 logger = logging.getLogger("osprey.mcp_server.export.converter")
@@ -19,6 +23,32 @@ class PlaywrightNotInstalledError(Exception):
     """Raised when Playwright or its browsers are not available."""
 
 
+def _ensure_chromium_installed() -> None:
+    """Auto-install Chromium browser if not already present."""
+    try:
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as p:
+            # Check if the executable exists
+            if not Path(p.chromium.executable_path).exists():
+                raise FileNotFoundError
+    except (FileNotFoundError, Exception):
+        logger.info("Chromium not found — installing via 'playwright install chromium'...")
+        try:
+            subprocess.run(
+                ["playwright", "install", "chromium"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            logger.info("Chromium installed successfully.")
+        except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+            raise PlaywrightNotInstalledError(
+                "Failed to auto-install Chromium. "
+                "Run manually: playwright install chromium"
+            ) from exc
+
+
 async def convert_html_to_image(
     html_path: str | Path,
     output_path: str | Path,
@@ -27,6 +57,9 @@ async def convert_html_to_image(
     height: int = 800,
 ) -> Path:
     """Render an HTML file to an image via headless Chromium.
+
+    On first use, automatically installs Chromium if the browser
+    binary is missing.
 
     Args:
         html_path: Path to the source HTML file.
@@ -58,6 +91,9 @@ async def convert_html_to_image(
         raise PlaywrightNotInstalledError(
             "Playwright is not installed. Run: pip install playwright && playwright install chromium"
         ) from exc
+
+    # Auto-install Chromium on first use
+    _ensure_chromium_installed()
 
     try:
         async with async_playwright() as p:

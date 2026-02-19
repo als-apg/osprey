@@ -44,7 +44,10 @@ async def test_convert_html_to_png(tmp_path):
 
     mock_mod, mock_page, mock_browser = _make_playwright_mock()
 
-    with patch.dict(sys.modules, {"playwright.async_api": mock_mod, "playwright": MagicMock()}):
+    with (
+        patch.dict(sys.modules, {"playwright.async_api": mock_mod, "playwright": MagicMock()}),
+        patch("osprey.mcp_server.export.converter._ensure_chromium_installed"),
+    ):
         result = await convert_html_to_image(html_file, output_file)
 
     assert result == output_file.resolve()
@@ -95,7 +98,10 @@ async def test_custom_viewport(tmp_path):
 
     mock_mod, mock_page, mock_browser = _make_playwright_mock()
 
-    with patch.dict(sys.modules, {"playwright.async_api": mock_mod, "playwright": MagicMock()}):
+    with (
+        patch.dict(sys.modules, {"playwright.async_api": mock_mod, "playwright": MagicMock()}),
+        patch("osprey.mcp_server.export.converter._ensure_chromium_installed"),
+    ):
         await convert_html_to_image(html_file, output_file, width=800, height=600)
 
     mock_browser.new_page.assert_called_once_with(viewport={"width": 800, "height": 600})
