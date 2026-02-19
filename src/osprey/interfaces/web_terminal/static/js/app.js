@@ -330,9 +330,11 @@ async function initWelcomeModal() {
 
   // Check server session ID — show modal once per server instance
   const STORAGE_KEY = 'osprey-server-session';
+  let version = '';
   try {
     const health = await fetchJSON('/health');
     const serverSession = health.session_id;
+    version = health.version || '';
     if (serverSession && localStorage.getItem(STORAGE_KEY) === serverSession) {
       overlay.remove();
       focusTerminal();
@@ -346,26 +348,30 @@ async function initWelcomeModal() {
   const btn = document.getElementById('welcome-dismiss');
   if (!pre || !btn) return;
 
+  // Build subtitle: "Web Terminal" left, version right (58 chars inner width)
+  const leftText = 'Web Terminal';
+  const rightText = version ? `v${version}` : '';
+  const innerWidth = 58; // matches box width (no Unicode offset needed — plain text line)
+  const pad = 4; // padding from box edges
+  const gap = innerWidth - pad - leftText.length - rightText.length - pad;
+  const versionLine = '    ║' + ' '.repeat(pad) + leftText + ' '.repeat(gap) + rightText + ' '.repeat(pad) + '║';
+
   // ASCII banner — uses the original OSPREY CLI banner art
   const lines = [
-    '    ╔═══════════════════════════════════════════════════════════╗',
-    '    ║                                                           ║',
-    '    ║                                                           ║',
-    '    ║    ░█████╗░░██████╗██████╗░██████╗░███████╗██╗░░░██╗      ║',
-    '    ║    ██╔══██╗██╔════╝██╔══██╗██╔══██╗██╔════╝╚██╗░██╔╝      ║',
-    '    ║    ██║░░██║╚█████╗░██████╔╝██████╔╝█████╗░░░╚████╔╝░      ║',
-    '    ║    ██║░░██║░╚═══██╗██╔═══╝░██╔══██╗██╔══╝░░░░╚██╔╝░░      ║',
-    '    ║    ╚█████╔╝██████╔╝██║░░░░░██║░░██║███████╗░░░██║░░░      ║',
-    '    ║    ░╚════╝░╚═════╝░╚═╝░░░░░╚═╝░░╚═╝╚══════╝░░░╚═╝░░░      ║',
-    '    ║                                                           ║',
-    '    ║                                                           ║',
-    '    ║        Web Terminal for the Osprey Framework               ║',
-    '    ╚═══════════════════════════════════════════════════════════╝',
+    '    ╔══════════════════════════════════════════════════════════╗',
+    '    ║                                                          ║',
+    '    ║                                                          ║',
+    '    ║    ░█████╗░░██████╗██████╗░██████╗░███████╗██╗░░░██╗     ║',
+    '    ║    ██╔══██╗██╔════╝██╔══██╗██╔══██╗██╔════╝╚██╗░██╔╝     ║',
+    '    ║    ██║░░██║╚█████╗░██████╔╝██████╔╝█████╗░░░╚████╔╝░     ║',
+    '    ║    ██║░░██║░╚═══██╗██╔═══╝░██╔══██╗██╔══╝░░░░╚██╔╝░░     ║',
+    '    ║    ╚█████╔╝██████╔╝██║░░░░░██║░░██║███████╗░░░██║░░░     ║',
+    '    ║    ░╚════╝░╚═════╝░╚═╝░░░░░╚═╝░░╚═╝╚══════╝░░░╚═╝░░░     ║',
+    '    ║                                                          ║',
+    versionLine,
+    '    ╚══════════════════════════════════════════════════════════╝',
     '',
-    '    With great power comes great responsibility.',
-    '',
-    '    This is a powerful system. Please make sure you',
-    '    understand what you are doing before proceeding.',
+    '        Experimental system. Proceed with caution.',
     '',
   ];
 
@@ -374,8 +380,24 @@ async function initWelcomeModal() {
   lines.forEach((line, i) => {
     const span = document.createElement('span');
     span.className = 'wl';
-    span.textContent = line + '\n';
     span.style.animationDelay = (i * lineDelay) + 'ms';
+
+    // Box content lines (║...║): split so the right border is pinned via flex
+    const trimmed = line.trimEnd();
+    if (trimmed.startsWith('    ║') && trimmed.endsWith('║') && !trimmed.startsWith('    ╔') && !trimmed.startsWith('    ╚')) {
+      span.classList.add('wl-box');
+      const lastBar = trimmed.lastIndexOf('║');
+      const left = document.createElement('span');
+      left.textContent = trimmed.substring(0, lastBar);
+      const right = document.createElement('span');
+      right.textContent = '║';
+      span.appendChild(left);
+      span.appendChild(right);
+      span.appendChild(document.createTextNode('\n'));
+    } else {
+      span.textContent = line + '\n';
+    }
+
     pre.appendChild(span);
   });
 
