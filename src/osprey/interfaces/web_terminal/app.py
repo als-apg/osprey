@@ -89,6 +89,27 @@ def _launch_tuning_server(app: FastAPI) -> None:
         app.state.tuning_server_url = None
 
 
+def _launch_deplot_server(app: FastAPI) -> None:
+    """Auto-launch the DePlot graph extraction service if configured."""
+    try:
+        from osprey.mcp_server.common import load_osprey_config
+        from osprey.mcp_server.server_launcher import ensure_deplot_server
+
+        config = load_osprey_config()
+        deplot = config.get("deplot", {})
+        if not deplot:
+            return
+        host = deplot.get("host", "127.0.0.1")
+        port = deplot.get("port", 8095)
+
+        app.state.deplot_server_url = f"http://{host}:{port}"
+        ensure_deplot_server()
+        logger.info("DePlot server available at %s", app.state.deplot_server_url)
+    except Exception:
+        logger.warning("Could not auto-launch DePlot server", exc_info=True)
+        app.state.deplot_server_url = None
+
+
 def _launch_cui_server(app: FastAPI) -> None:
     """Auto-launch the CUI server subprocess if configured."""
     try:
@@ -138,6 +159,9 @@ def _create_lifespan(
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         config = _load_web_config(config_path)
 
+        import uuid
+
+        app.state.server_session_id = uuid.uuid4().hex[:12]
         app.state.shell_command = shell_command or config.get("shell") or "claude"
         app.state.pty_registry = PtyRegistry()
         app.state.operator_registry = OperatorRegistry()
@@ -176,6 +200,9 @@ def _create_lifespan(
 
         # Auto-launch the CUI server
         _launch_cui_server(app)
+
+        # Auto-launch the DePlot graph extraction service
+        _launch_deplot_server(app)
 
         yield
 
@@ -255,6 +282,33 @@ def create_app(
     return app
 
 
+def _open_browser_when_ready(url: str, timeout: float = 15.0) -> None:
+    """Wait for the server to accept connections, then open the browser."""
+    import socket
+    import threading
+    import time
+    import webbrowser
+    from urllib.parse import urlparse
+
+    def _wait_and_open():
+        parsed = urlparse(url)
+        host = parsed.hostname or "127.0.0.1"
+        port = parsed.port or 8087
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                with socket.create_connection((host, port), timeout=0.5):
+                    break
+            except OSError:
+                time.sleep(0.3)
+        else:
+            return  # Server didn't start in time; skip browser open
+        webbrowser.open(url)
+
+    t = threading.Thread(target=_wait_and_open, daemon=True)
+    t.start()
+
+
 def run_web(
     host: str = "127.0.0.1",
     port: int = 8087,
@@ -272,6 +326,9 @@ def run_web(
         project_dir: Optional OSPREY project directory.
     """
     import uvicorn
+
+    url = f"http://{host}:{port}"
+    _open_browser_when_ready(url)
 
     app = create_app(config_path=config_path, shell_command=shell_command, project_dir=project_dir)
     uvicorn.run(app, host=host, port=port, log_level="info")

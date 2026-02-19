@@ -27,9 +27,10 @@ router = APIRouter()
 
 
 @router.get("/health")
-async def health():
+async def health(request: Request):
     """Health check endpoint."""
-    return {"status": "healthy", "service": "web_terminal"}
+    session_id = getattr(request.app.state, "server_session_id", None)
+    return {"status": "healthy", "service": "web_terminal", "session_id": session_id}
 
 
 @router.get("/api/artifact-server")
