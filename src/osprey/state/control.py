@@ -102,6 +102,9 @@ class AgentControlState(TypedDict, total=False):
     - max_step_retries: 0 (fail fast by default)
     - max_execution_time_seconds: 300 (5-minute execution limit)
     - max_concurrent_classifications: 5 (prevent API flooding during classification)
+    - task_extraction_bypass_enabled: False (use task extraction by default)
+    - capability_selection_bypass_enabled: False (use capability selection by default)
+    - approval_mode: "selective" (balanced approval mode from slash commands)
 
     .. note::
        Default values prioritize safety and security by disabling potentially
@@ -147,9 +150,14 @@ class AgentControlState(TypedDict, total=False):
 
     # Approval control
     approval_global_mode: str  # Global approval mode setting (disabled/selective/all_capabilities)
+    approval_mode: str  # Approval mode set via /approval slash command (enabled/disabled/selective)
     python_execution_approval_enabled: bool  # Whether Python execution requires approval
     python_execution_approval_mode: str  # Python approval mode (disabled/epics_writes/all_code)
     memory_approval_enabled: bool  # Whether memory operations require approval
+
+    # Bypass control (performance optimizations via /task and /caps commands)
+    task_extraction_bypass_enabled: bool  # Whether task extraction is bypassed
+    capability_selection_bypass_enabled: bool  # Whether capability selection is bypassed
 
     # Execution flow control
     max_reclassifications: int  # Maximum number of task reclassifications allowed
@@ -239,6 +247,7 @@ def apply_slash_commands_to_agent_control_state(
         planning_mode_enabled=agent_control_state.get("planning_mode_enabled", False),
         epics_writes_enabled=agent_control_state.get("epics_writes_enabled", False),
         approval_global_mode=agent_control_state.get("approval_global_mode", "selective"),
+        approval_mode=agent_control_state.get("approval_mode", "selective"),
         python_execution_approval_enabled=agent_control_state.get(
             "python_execution_approval_enabled", True
         ),
@@ -246,6 +255,12 @@ def apply_slash_commands_to_agent_control_state(
             "python_execution_approval_mode", "all_code"
         ),
         memory_approval_enabled=agent_control_state.get("memory_approval_enabled", True),
+        task_extraction_bypass_enabled=agent_control_state.get(
+            "task_extraction_bypass_enabled", False
+        ),
+        capability_selection_bypass_enabled=agent_control_state.get(
+            "capability_selection_bypass_enabled", False
+        ),
         max_reclassifications=agent_control_state.get(
             "max_reclassifications", execution_limits.get("max_reclassifications", 1)
         ),
