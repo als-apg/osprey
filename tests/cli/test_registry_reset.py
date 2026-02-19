@@ -15,6 +15,8 @@ from unittest.mock import patch
 
 import pytest
 
+pytestmark = pytest.mark.langgraph
+
 
 class TestRegistryResetInInteractiveMenu:
     """Test that handle_chat_action properly resets registry before starting chat."""

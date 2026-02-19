@@ -12,6 +12,8 @@ from click.testing import CliRunner
 
 from osprey.cli.workflows_cmd import export, get_workflows_source_path, list, workflows
 
+pytestmark = pytest.mark.langgraph
+
 
 @pytest.fixture
 def cli_runner():

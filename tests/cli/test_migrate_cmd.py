@@ -24,6 +24,8 @@ from osprey.cli.templates import (
     TemplateManager,
 )
 
+pytestmark = pytest.mark.langgraph
+
 
 class TestManifestGeneration:
     """Test manifest generation during project creation."""

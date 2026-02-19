@@ -5,8 +5,12 @@ which enables preferences like direct chat mode to persist across
 conversation turns.
 """
 
+import pytest
+
 from osprey.state import AgentState
 from osprey.state.state import merge_session_state
+
+pytestmark = pytest.mark.langgraph
 
 
 class TestSessionStateReducer:

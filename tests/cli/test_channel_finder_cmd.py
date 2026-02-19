@@ -17,6 +17,8 @@ from click.testing import CliRunner
 
 from osprey.cli.channel_finder_cmd import channel_finder
 
+pytestmark = pytest.mark.langgraph
+
 
 @pytest.fixture
 def runner():

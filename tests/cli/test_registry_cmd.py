@@ -19,6 +19,8 @@ from osprey.cli.registry_cmd import (
     handle_registry_action,
 )
 
+pytestmark = pytest.mark.langgraph
+
 
 @pytest.fixture
 def mock_registry():
