@@ -62,6 +62,10 @@ def web(port: int | None, host: str | None, reload: bool, shell: str | None, pro
         if reload:
             import uvicorn
 
+            from osprey.interfaces.web_terminal.app import _open_browser_when_ready
+
+            _open_browser_when_ready(f"http://{host}:{port}")
+
             uvicorn.run(
                 "osprey.interfaces.web_terminal.app:create_app",
                 factory=True,

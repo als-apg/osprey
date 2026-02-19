@@ -180,6 +180,18 @@
     </div>
   </div>
 
+  <!-- Welcome Modal (first visit only) -->
+  <div class="welcome-overlay" id="welcome-overlay">
+    <div class="welcome-terminal">
+      <pre class="welcome-ascii" id="welcome-ascii" aria-hidden="true"></pre>
+      <a class="welcome-safety-link" id="welcome-safety-link" style="visibility:hidden"
+         href=".claude/rules/safety.md" target="_blank" rel="noopener">Read the safety guidelines</a>
+      <button class="welcome-prompt" id="welcome-dismiss" style="visibility:hidden">
+        <span class="welcome-cursor"></span> Press ENTER to continue
+      </button>
+    </div>
+  </div>
+
   <!-- App entry point -->
   <script type="module" src="/static/js/app.js"></script>
 

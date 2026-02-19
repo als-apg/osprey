@@ -28,8 +28,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // Listen for paste requests from embedded iframes (gallery, ARIEL)
   initIframePasteBridge();
 
-  // Focus terminal on load
-  setTimeout(() => focusTerminal(), 300);
+  // Welcome modal (once per server session)
+  initWelcomeModal();
 });
 
 /* ---- Mode Toggle ---- */
@@ -318,6 +318,106 @@ function initIframePasteBridge() {
     if (e.data && e.data.type === 'osprey-paste-to-terminal' && e.data.text) {
       pasteToTerminal(e.data.text);
       focusTerminal();
+    }
+  });
+}
+
+/* ---- Welcome Modal (terminal banner) ---- */
+
+async function initWelcomeModal() {
+  const overlay = document.getElementById('welcome-overlay');
+  if (!overlay) return;
+
+  // Check server session ID — show modal once per server instance
+  const STORAGE_KEY = 'osprey-server-session';
+  try {
+    const health = await fetchJSON('/health');
+    const serverSession = health.session_id;
+    if (serverSession && localStorage.getItem(STORAGE_KEY) === serverSession) {
+      overlay.remove();
+      focusTerminal();
+      return;
+    }
+  } catch {
+    // Health endpoint unreachable — show modal to be safe
+  }
+
+  const pre = document.getElementById('welcome-ascii');
+  const btn = document.getElementById('welcome-dismiss');
+  if (!pre || !btn) return;
+
+  // ASCII banner — uses the original OSPREY CLI banner art
+  const lines = [
+    '    ╔═══════════════════════════════════════════════════════════╗',
+    '    ║                                                           ║',
+    '    ║                                                           ║',
+    '    ║    ░█████╗░░██████╗██████╗░██████╗░███████╗██╗░░░██╗      ║',
+    '    ║    ██╔══██╗██╔════╝██╔══██╗██╔══██╗██╔════╝╚██╗░██╔╝      ║',
+    '    ║    ██║░░██║╚█████╗░██████╔╝██████╔╝█████╗░░░╚████╔╝░      ║',
+    '    ║    ██║░░██║░╚═══██╗██╔═══╝░██╔══██╗██╔══╝░░░░╚██╔╝░░      ║',
+    '    ║    ╚█████╔╝██████╔╝██║░░░░░██║░░██║███████╗░░░██║░░░      ║',
+    '    ║    ░╚════╝░╚═════╝░╚═╝░░░░░╚═╝░░╚═╝╚══════╝░░░╚═╝░░░      ║',
+    '    ║                                                           ║',
+    '    ║                                                           ║',
+    '    ║        Web Terminal for the Osprey Framework               ║',
+    '    ╚═══════════════════════════════════════════════════════════╝',
+    '',
+    '    With great power comes great responsibility.',
+    '',
+    '    This is a powerful system. Please make sure you',
+    '    understand what you are doing before proceeding.',
+    '',
+  ];
+
+  // Reveal lines one by one with staggered delay
+  const lineDelay = 35; // ms between lines
+  lines.forEach((line, i) => {
+    const span = document.createElement('span');
+    span.className = 'wl';
+    span.textContent = line + '\n';
+    span.style.animationDelay = (i * lineDelay) + 'ms';
+    pre.appendChild(span);
+  });
+
+  // Show the safety link + prompt after all lines have appeared
+  const safetyLink = document.getElementById('welcome-safety-link');
+  const promptDelay = lines.length * lineDelay + 200;
+  setTimeout(() => {
+    if (safetyLink) safetyLink.style.visibility = 'visible';
+    btn.style.visibility = 'visible';
+  }, promptDelay);
+
+  // Point safety link at wiki if available, otherwise keep default
+  if (safetyLink) {
+    fetchJSON('/api/wiki-url').then(data => {
+      if (data.available && data.url) safetyLink.href = data.url;
+    }).catch(() => {});
+  }
+
+  // Dismiss handlers
+  const dismiss = async () => {
+    // Store current server session ID so modal won't show again until restart
+    try {
+      const health = await fetchJSON('/health');
+      if (health.session_id) {
+        localStorage.setItem(STORAGE_KEY, health.session_id);
+      }
+    } catch { /* best effort */ }
+    overlay.classList.add('hidden');
+    setTimeout(() => {
+      overlay.remove();
+      focusTerminal();
+    }, 500);
+  };
+
+  btn.addEventListener('click', dismiss);
+
+  // Also dismiss on Enter key
+  document.addEventListener('keydown', function handler(e) {
+    if (e.key === 'Enter' && overlay.parentNode) {
+      e.preventDefault();
+      document.removeEventListener('keydown', handler);
+      dismiss();
     }
   });
 }
