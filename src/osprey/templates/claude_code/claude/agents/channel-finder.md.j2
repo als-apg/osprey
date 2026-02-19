@@ -163,6 +163,7 @@ or browse them in chunks.
 2. `cf_ic_get_channels()` — get all channels (small databases) or use chunked access
 3. For large databases: `cf_ic_get_channels(chunk_idx=0, chunk_size=50)` to browse in chunks
 4. `cf_ic_validate(channels)` — verify your selections
+5. `cf_ic_resolve_addresses(channels)` — convert matched channel names to PV addresses
 {% endif %}
 
 {# PROMPT-PROVIDER: section=facility_context
@@ -184,6 +185,14 @@ You are exploring the {{ facility_name }} control system database.
 
 ## Submitting Results
 
+{% if channel_finder_mode == "in_context" %}
+**IMPORTANT — Address Resolution**: Channel names in this database are descriptive
+identifiers (e.g., `AcceleratingTubeBeginningGunPressureReadBack`). The actual PV
+addresses may differ (e.g., `GunPressure`). Before calling `submit_response`, you
+MUST call `cf_ic_resolve_addresses(channels)` to get the real PV addresses, then
+use those addresses (not the channel names) in the `entry_ids` field.
+
+{% endif %}
 As your FINAL action, call `submit_response` to persist your findings:
 
 - `title`: Short descriptive title (e.g. "BPM Position Channels")

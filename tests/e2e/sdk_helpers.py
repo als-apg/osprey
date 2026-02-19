@@ -68,6 +68,7 @@ def init_project(
     template: str = "control_assistant",
     provider: str = "anthropic",
     model: str = "claude-haiku-4-5-20251001",
+    channel_finder_mode: str | None = None,
 ) -> Path:
     """Create a project via ``osprey init`` CLI, return project_dir."""
     runner = CliRunner()
@@ -82,6 +83,8 @@ def init_project(
         "--model",
         model,
     ]
+    if channel_finder_mode is not None:
+        args.extend(["--channel-finder-mode", channel_finder_mode])
     result = runner.invoke(init, args)
     assert result.exit_code == 0, f"osprey init failed: {result.output}"
     project_dir = tmp_path / name
