@@ -52,8 +52,8 @@ This directory contains testing and validation scripts for the Osprey Framework 
 
 **Requirements**:
 - Virtual environment must be present (`venv` or `.venv`)
-- All dev dependencies installed: `pip install -e ".[dev,docs]"`
-- Build tools installed: `pip install build twine`
+- All dev dependencies installed: `uv sync --extra dev --extra docs`
+- Build tools installed: `uv tool install build twine` or `uv pip install build twine`
 
 **Exit codes**:
 - `0`: All checks passed (safe to push)
@@ -170,8 +170,9 @@ venv\Scripts\activate     # On Windows
 
 Install dependencies:
 ```bash
+uv sync --extra dev --extra docs
+# or
 pip install -e ".[dev,docs]"
-pip install build twine
 ```
 
 ### Tests pass locally but fail in CI
@@ -190,6 +191,8 @@ make clean
 make html
 
 # Check for missing dependencies
+uv sync --extra docs
+# or
 pip install -e ".[docs]"
 ```
 

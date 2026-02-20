@@ -26,20 +26,20 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v6
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
       with:
-        python-version: ${{ matrix.python-version }}
-        cache: 'pip'
+        enable-cache: true
+
+    - name: Set up Python ${{ matrix.python-version }}
+      run: uv python install ${{ matrix.python-version }}
 
     - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -e ".[dev]"
+      run: uv sync --extra dev
 
     - name: Run unit tests
       run: |
-        pytest tests/ --ignore=tests/e2e -v --tb=short --cov=src/osprey --cov-report=xml --cov-report=term
+        uv run pytest tests/ --ignore=tests/e2e -v --tb=short --cov=src/osprey --cov-report=xml --cov-report=term
 
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v5
@@ -60,28 +60,28 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v6
 
-    - name: Set up Python
-      uses: actions/setup-python@v6
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
       with:
-        python-version: '3.11'
-        cache: 'pip'
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
 
     - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -e ".[dev]"
+      run: uv sync --extra dev
 
     - name: Run ruff (linting)
       run: |
-        ruff check src/ tests/ --output-format=github
+        uv run ruff check src/ tests/ --output-format=github
 
     - name: Run ruff (formatting)
       run: |
-        ruff format --check src/ tests/
+        uv run ruff format --check src/ tests/
 
     - name: Run mypy (type checking)
       run: |
-        mypy src/ --no-error-summary || true
+        uv run mypy src/ --no-error-summary || true
       continue-on-error: true
 
   docs:
@@ -94,26 +94,26 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Set up Python
-      uses: actions/setup-python@v6
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
       with:
-        python-version: '3.11'
-        cache: 'pip'
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
 
     - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -e ".[docs]"
+      run: uv sync --extra docs
 
     - name: Build documentation
       run: |
         cd docs
-        make html
+        uv run make html
 
     - name: Check for broken links
       run: |
         cd docs
-        make linkcheck || true
+        uv run make linkcheck || true
       continue-on-error: true
 
     - name: Upload documentation artifact
@@ -132,24 +132,19 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v6
 
-    - name: Set up Python
-      uses: actions/setup-python@v6
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
       with:
-        python-version: '3.11'
-        cache: 'pip'
+        enable-cache: true
 
-    - name: Install build dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install build twine
+    - name: Set up Python
+      run: uv python install 3.11
 
     - name: Build package
-      run: |
-        python -m build
+      run: uv build
 
     - name: Check package
-      run: |
-        twine check dist/*
+      run: uvx twine check dist/*
 
     - name: Upload package artifacts
       uses: actions/upload-artifact@v6
@@ -170,22 +165,22 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Set up Python
-      uses: actions/setup-python@v6
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
       with:
-        python-version: '3.11'
-        cache: 'pip'
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
 
     - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -e ".[dev]"
+      run: uv sync --extra dev
 
     - name: Run E2E tests
       env:
         CBORG_API_KEY: ${{ secrets.CBORG_API_KEY }}
       run: |
-        pytest tests/e2e/ -v --tb=short
+        uv run pytest tests/e2e/ -v --tb=short
 
   deploy-e2e:
     name: Deploy E2E Test (Pipelines Container)
@@ -199,23 +194,23 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Set up Python
-      uses: actions/setup-python@v6
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
       with:
-        python-version: '3.11'
-        cache: 'pip'
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
 
     - name: Set up Docker Compose
       uses: docker/setup-compose-action@v1
 
     - name: Install osprey
-      run: |
-        python -m pip install --upgrade pip
-        pip install -e ".[dev]"
+      run: uv sync --extra dev
 
     - name: Create hello_world_weather project
       run: |
-        osprey init hello-weather-test --template hello_world_weather --provider cborg --model anthropic/claude-haiku
+        uv run osprey init hello-weather-test --template hello_world_weather --provider cborg --model anthropic/claude-haiku
         ls -la hello-weather-test/
 
     - name: Deploy pipelines container
@@ -223,7 +218,7 @@ jobs:
         CBORG_API_KEY: ${{ secrets.CBORG_API_KEY }}
       run: |
         cd hello-weather-test
-        osprey deploy up -d --dev
+        uv run osprey deploy up -d --dev
 
     - name: Wait for pipelines to be ready
       run: |
@@ -292,7 +287,7 @@ jobs:
       if: always()
       run: |
         cd hello-weather-test
-        osprey deploy down || true
+        uv run osprey deploy down || true
 
   all-checks-passed:
     name: All CI Checks Passed

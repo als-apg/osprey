@@ -53,7 +53,7 @@ livehtml: copy-shared-modules
 # Install documentation dependencies (like GitHub Actions)
 test-deps:
 	@echo "📦 Installing documentation dependencies..."
-	pip install -e "../[docs]"
+	cd .. && uv sync --extra docs
 
 # Test documentation build (replicates GitHub Actions)
 test-build: test-deps clean copy-shared-modules
