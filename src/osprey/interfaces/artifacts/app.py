@@ -19,7 +19,7 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -79,6 +79,7 @@ _RESPONSIVE_SNIPPETS = {
     "plot_html": _RESPONSIVE_PLOTLY,
     "table_html": _RESPONSIVE_TABLE_HTML,
     "html": _RESPONSIVE_TABLE_HTML,
+    "dashboard_html": _RESPONSIVE_TABLE_HTML,  # Bokeh handles its own JS sizing
 }
 
 
@@ -145,9 +146,7 @@ class _SSEBroadcaster:
 MAX_TIMESERIES_FILE_BYTES = 200 * 1024 * 1024  # 200 MB
 
 
-def lttb_downsample(
-    index: list, data: list[list], max_points: int
-) -> tuple[list, list[list]]:
+def lttb_downsample(index: list, data: list[list], max_points: int) -> tuple[list, list[list]]:
     """Largest-Triangle-Three-Buckets downsampling.
 
     Operates on split-orient DataFrame arrays.  Uses the first data column as
@@ -191,8 +190,7 @@ def lttb_downsample(
         best = b_start
         for j in range(b_start, b_end):
             area = abs(
-                (x[a_idx] - avg_x) * (y[j] - y[a_idx])
-                - (x[a_idx] - x[j]) * (avg_y - y[a_idx])
+                (x[a_idx] - avg_x) * (y[j] - y[a_idx]) - (x[a_idx] - x[j]) * (avg_y - y[a_idx])
             )
             if area > max_area:
                 max_area = area
@@ -206,6 +204,21 @@ def lttb_downsample(
     new_index = [index[i] for i in selected]
     new_data = [data[i] for i in selected]
     return new_index, new_data
+
+
+def _extract_timeseries_frame(raw: dict) -> tuple[dict, dict]:
+    """Extract split-orient DataFrame + query metadata from a data context file.
+
+    Handles two layouts:
+      - Archiver: raw["data"]["dataframe"] = {columns, index, data},
+                  raw["data"]["query"] = {...}
+      - Flat:     raw["data"] = {columns, index, data}
+    Returns (frame_dict, query_dict).
+    """
+    payload = raw.get("data", raw)
+    if "dataframe" in payload:
+        return payload["dataframe"], payload.get("query", {})
+    return payload, {}
 
 
 def create_app(workspace_root: Path | None = None) -> FastAPI:
@@ -327,6 +340,12 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     async def health():
         return {"status": "healthy", "artifact_count": len(store.list_entries())}
 
+    @app.get("/api/type-registry")
+    async def get_type_registry():
+        from osprey.mcp_server.type_registry import registry_to_api_dict
+
+        return JSONResponse(registry_to_api_dict())
+
     @app.get("/api/events")
     async def sse_events():
         q = broadcaster.subscribe()
@@ -447,9 +466,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
             cache_dir = store.artifact_dir / "_notebook_cache"
             html, _ = get_or_render_html(filepath, cache_dir=cache_dir)
-            html_bytes = _inject_html_snippet(
-                html.encode("utf-8"), _NOTEBOOK_RESPONSIVE_CSS
-            )
+            html_bytes = _inject_html_snippet(html.encode("utf-8"), _NOTEBOOK_RESPONSIVE_CSS)
             return HTMLResponse(content=html_bytes.decode("utf-8"))
         except Exception as exc:
             raise HTTPException(
@@ -572,17 +589,16 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
             raise HTTPException(
                 status_code=413,
                 detail=(
-                    f"File too large ({file_size // (1024*1024)}MB). "
+                    f"File too large ({file_size // (1024 * 1024)}MB). "
                     "Access the data file directly."
                 ),
             )
 
         raw = json.loads(filepath.read_bytes())
-        # Data files wrap content in {"_osprey_metadata": ..., "data": ...}
-        ts = raw.get("data", raw)
-        columns = ts.get("columns", [])
-        index = ts.get("index", [])
-        rows = ts.get("data", [])
+        frame, query_meta = _extract_timeseries_frame(raw)
+        columns = frame.get("columns", [])
+        index = frame.get("index", [])
+        rows = frame.get("data", [])
         total_rows = len(index)
 
         if format == "chart":
@@ -594,6 +610,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
                 "total_rows": total_rows,
                 "downsampled": len(ds_index) < total_rows,
                 "returned_points": len(ds_index),
+                "metadata": query_meta,
             }
 
         # format == "table"
@@ -631,9 +648,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="Cannot parse data file")
 
         if not image_path.exists():
-            raise HTTPException(
-                status_code=404, detail=f"Referenced image not found: {image_path}"
-            )
+            raise HTTPException(status_code=404, detail=f"Referenced image not found: {image_path}")
 
         suffix = image_path.suffix.lower()
         media_types = {

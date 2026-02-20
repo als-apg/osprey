@@ -160,6 +160,11 @@ class DataContext(BaseStore[DataContextEntry]):
         Returns:
             The newly created :class:`DataContextEntry`.
         """
+        from osprey.mcp_server.type_registry import valid_data_type_keys
+
+        if data_type not in valid_data_type_keys():
+            logger.warning("Unregistered data_type %r — add to type_registry.py", data_type)
+
         with self._with_index_lock():
             entry_id = self._next_id
             self._next_id += 1
