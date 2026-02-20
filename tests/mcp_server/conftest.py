@@ -67,7 +67,6 @@ def workspace_dir(tmp_path):
         "archiver_data",
         "python_outputs",
         "search_results",
-        "audit",
         "screenshots",
     ]:
         (ws / subdir).mkdir(parents=True)
