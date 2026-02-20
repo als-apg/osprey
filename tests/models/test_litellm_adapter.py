@@ -45,6 +45,11 @@ class TestGetLiteLLMModelName:
         result = get_litellm_model_name("argo", "claudesonnet45")
         assert result == "openai/claudesonnet45"
 
+    def test_amsc_model(self):
+        """AMSC uses openai/ prefix (OpenAI-compatible)."""
+        result = get_litellm_model_name("amsc", "anthropic/claude-haiku")
+        assert result == "openai/anthropic/claude-haiku"
+
     def test_unknown_provider(self):
         """Unknown providers use provider/model format (LiteLLM's default routing)."""
         result = get_litellm_model_name("unknown_provider", "some-model")
@@ -84,7 +89,7 @@ class TestSupportsNativeStructuredOutput:
     def test_openai_compatible_providers_return_true(self):
         """OpenAI-compatible providers (CBORG, etc.) always support structured output."""
         # These providers proxy to models that support structured output
-        for provider in ("cborg", "stanford", "argo", "vllm"):
+        for provider in ("cborg", "stanford", "argo", "vllm", "amsc"):
             result = _supports_native_structured_output("openai/some-model", provider)
             assert result is True, f"Provider {provider} should support structured output"
 

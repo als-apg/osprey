@@ -20,6 +20,7 @@ Native LangChain providers (require provider-specific packages):
 
 OpenAI-compatible providers (use ChatOpenAI with custom base_url):
     - **cborg**: LBNL's CBORG proxy (https://api.cborg.lbl.gov)
+    - **amsc**: American Science Cloud (https://api.i2-core.american-science-cloud.org)
     - **vllm**: Local vLLM server (OpenAI-compatible API)
     - **stanford**: Stanford AI Playground (https://aiapi-prod.stanford.edu/v1)
     - **argo**: ANL's Argo proxy (https://argo-bridge.cels.anl.gov)
@@ -186,6 +187,11 @@ _OPENAI_COMPATIBLE_PROVIDERS = {
             "limit_references": 0,
         },
     },
+    "amsc": {
+        "default_base_url": "https://api.i2-core.american-science-cloud.org/v1",
+        "api_key_env": "AMSC_API_KEY",
+        "description": "American Science Cloud proxy",
+    },
 }
 
 # Combined list of all supported providers
@@ -248,7 +254,7 @@ def get_langchain_model(
 
     :param provider: AI provider name. Supported providers:
         - Native: 'anthropic', 'openai', 'google', 'ollama'
-        - OpenAI-compatible: 'cborg', 'vllm', 'stanford', 'argo'
+        - OpenAI-compatible: 'cborg', 'amsc', 'vllm', 'stanford', 'argo'
     :param model_id: Specific model identifier (e.g., 'claude-sonnet-4-5-20250929', 'gpt-4o')
     :param model_config: Optional dict with 'provider', 'model_id', 'max_tokens' keys
     :param provider_config: Optional provider config dict with 'api_key', 'base_url', etc.
@@ -435,7 +441,7 @@ def _create_openai_compatible_model(
     temperature: float | None,
     **kwargs: Any,
 ) -> BaseChatModel:
-    """Create an OpenAI-compatible model (CBORG, vLLM, Stanford, Argo)."""
+    """Create an OpenAI-compatible model (CBORG, AMSC, vLLM, Stanford, Argo)."""
     config = _OPENAI_COMPATIBLE_PROVIDERS[provider]
 
     # Import ChatOpenAI

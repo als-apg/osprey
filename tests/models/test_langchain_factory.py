@@ -15,7 +15,17 @@ class TestLangChainFactory:
         providers = list_supported_providers()
 
         # Check all expected providers are present
-        expected = ["anthropic", "openai", "google", "ollama", "cborg", "vllm", "stanford", "argo"]
+        expected = [
+            "anthropic",
+            "openai",
+            "google",
+            "ollama",
+            "cborg",
+            "amsc",
+            "vllm",
+            "stanford",
+            "argo",
+        ]
         for provider in expected:
             assert provider in providers
             assert isinstance(providers[provider], str)
@@ -24,7 +34,17 @@ class TestLangChainFactory:
         """Test SUPPORTED_PROVIDERS constant."""
         from osprey.models import SUPPORTED_PROVIDERS
 
-        expected = ["anthropic", "openai", "google", "ollama", "cborg", "vllm", "stanford", "argo"]
+        expected = [
+            "anthropic",
+            "openai",
+            "google",
+            "ollama",
+            "cborg",
+            "amsc",
+            "vllm",
+            "stanford",
+            "argo",
+        ]
         for provider in expected:
             assert provider in SUPPORTED_PROVIDERS
 
@@ -93,6 +113,30 @@ class TestLangChainFactory:
         assert call_kwargs["model"] == "anthropic/claude-sonnet"
         assert call_kwargs["api_key"] == "test-key"
         assert call_kwargs["base_url"] == "https://api.cborg.lbl.gov"
+
+    @patch("osprey.models.langchain._import_chat_class")
+    def test_get_langchain_model_openai_compatible_amsc(self, mock_import):
+        """Test creating OpenAI-compatible model (AMSC)."""
+        from osprey.models import get_langchain_model
+
+        mock_chat_class = MagicMock()
+        mock_chat_class.__name__ = "MockChatOpenAI"
+        mock_import.return_value = mock_chat_class
+
+        get_langchain_model(
+            provider="amsc",
+            model_id="anthropic/claude-haiku",
+            provider_config={
+                "api_key": "test-key",
+                "base_url": "https://api.i2-core.american-science-cloud.org/v1",
+            },
+        )
+
+        mock_chat_class.assert_called_once()
+        call_kwargs = mock_chat_class.call_args[1]
+        assert call_kwargs["model"] == "anthropic/claude-haiku"
+        assert call_kwargs["api_key"] == "test-key"
+        assert call_kwargs["base_url"] == "https://api.i2-core.american-science-cloud.org/v1"
 
     @patch("osprey.models.langchain._import_chat_class")
     def test_get_langchain_model_vllm_default_key(self, mock_import):
