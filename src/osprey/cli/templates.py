@@ -6,6 +6,7 @@ This module provides the TemplateManager class which handles:
 - Creating complete project structures from templates
 - Copying service configurations to user projects
 - Generating project manifests for migration support
+- Prompt artifact override resolution via PromptRegistry
 """
 
 import hashlib
@@ -13,18 +14,19 @@ import json
 import os
 import re
 import shutil
+import warnings
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import yaml
-
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from osprey.cli.prompt_registry import PromptRegistry
 from osprey.cli.styles import console
 
 # Manifest schema version for future compatibility
-MANIFEST_SCHEMA_VERSION = "1.0.0"
+MANIFEST_SCHEMA_VERSION = "1.1.0"
 
 # File used to store project manifest
 MANIFEST_FILENAME = ".osprey-manifest.json"
@@ -315,6 +317,8 @@ class TemplateManager:
                     ctx["confluence"] = rendered_config["confluence"]
                 if "matlab" in rendered_config:
                     ctx["matlab"] = rendered_config["matlab"]
+                if "deplot" in rendered_config:
+                    ctx["deplot"] = rendered_config["deplot"]
                 # Claude Code explicit overrides
                 cc_config = rendered_config.get("claude_code", {})
                 ctx.setdefault("disable_servers", cc_config.get("disable_servers", []))
@@ -866,6 +870,8 @@ proper framework operation, especially when using containerized services.
             ctx["confluence"] = config["confluence"]
         if "matlab" in config:
             ctx["matlab"] = config["matlab"]
+        if "deplot" in config:
+            ctx["deplot"] = config["deplot"]
 
         # Claude Code explicit overrides
         claude_code_config = config.get("claude_code", {})
@@ -875,6 +881,19 @@ proper framework operation, especially when using containerized services.
         ctx["managed_files"] = claude_code_config.get(
             "managed_files", self._get_default_managed_files()
         )
+
+        # Deprecation warning for managed_files
+        if "managed_files" in claude_code_config:
+            warnings.warn(
+                "claude_code.managed_files is deprecated. Use prompts.overrides instead. "
+                "Run `osprey prompts migrate` for migration help.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
+        # Prompt overrides (first-class section)
+        prompts_config = config.get("prompts", {})
+        ctx["prompt_overrides"] = prompts_config.get("overrides", {})
 
         return ctx
 
@@ -896,7 +915,6 @@ proper framework operation, especially when using containerized services.
             ".claude/hooks/osprey_writes_check.py",
             ".claude/hooks/osprey_limits.py",
             ".claude/hooks/osprey_approval.py",
-            ".claude/hooks/osprey_audit.py",
             ".claude/hooks/osprey_error_guidance.py",
             ".claude/hooks/osprey_notebook_update.py",
             ".claude/commands/screenshot.md",
@@ -946,6 +964,8 @@ proper framework operation, especially when using containerized services.
             all_agents.append("matlab-search")
         if ctx.get("channel_finder_pipeline"):
             all_agents.append("channel-finder")
+        if ctx.get("deplot"):
+            all_agents.append("graph-analyst")
 
         active_servers = [s for s in all_servers if s not in disable_servers]
         active_agents = [a for a in all_agents if a not in disable_agents]
@@ -1081,6 +1101,9 @@ proper framework operation, especially when using containerized services.
                     if rel not in claude_code_files and rel not in changed:
                         changed.append(rel)
 
+        # Check for override drift (framework template changed since scaffolding)
+        drift_warnings = self._check_override_drift(project_dir, ctx)
+
         # Compute active/disabled summary
         summary = self._compute_regen_summary(ctx)
 
@@ -1088,8 +1111,81 @@ proper framework operation, especially when using containerized services.
             "changed": changed,
             "unchanged": unchanged,
             "backup_dir": str(backup_dir),
+            "drift_warnings": drift_warnings,
             **summary,
         }
+
+    def _check_override_drift(
+        self, project_dir: Path, ctx: dict
+    ) -> list[str]:
+        """Check if framework templates have changed since overrides were scaffolded.
+
+        Compares the current rendered framework hash against the hash stored
+        in the manifest at scaffold time.
+
+        Returns:
+            List of canonical names whose framework template has drifted.
+        """
+        manifest_path = project_dir / MANIFEST_FILENAME
+        if not manifest_path.exists():
+            return []
+
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return []
+
+        overrides_meta = manifest.get("overrides", {})
+        if not overrides_meta:
+            return []
+
+        import tempfile
+
+        registry = PromptRegistry.default()
+        claude_code_dir = self.template_root / "claude_code"
+        drift: list[str] = []
+
+        for canonical_name, meta in overrides_meta.items():
+            stored_hash = meta.get("framework_hash")
+            if not stored_hash:
+                continue
+
+            artifact = registry.get(canonical_name)
+            if artifact is None:
+                continue
+
+            template_file = claude_code_dir / artifact.template_path
+            if not template_file.exists():
+                continue
+
+            # Compute current framework hash
+            current_hash = None
+            try:
+                if template_file.suffix == ".j2":
+                    with tempfile.NamedTemporaryFile(
+                        mode="w", suffix=template_file.stem, delete=False, encoding="utf-8"
+                    ) as tmp:
+                        template_rel = f"claude_code/{artifact.template_path}"
+                        template = self.jinja_env.get_template(template_rel)
+                        rendered = template.render(**ctx)
+                        tmp.write(rendered)
+                        tmp_path = Path(tmp.name)
+                    current_hash = f"sha256:{self._sha256_file(tmp_path)}"
+                    tmp_path.unlink(missing_ok=True)
+                else:
+                    current_hash = f"sha256:{self._sha256_file(template_file)}"
+            except Exception:
+                continue
+
+            if current_hash and current_hash != stored_hash:
+                drift.append(canonical_name)
+                console.print(
+                    f"  [warning]⚠[/warning] Framework updated {canonical_name} since you scaffolded your override.\n"
+                    f"    Run `osprey prompts diff {canonical_name}` to review changes.",
+                    style="yellow",
+                )
+
+        return drift
 
     def _is_managed(self, rel_path: str, ctx: dict) -> bool:
         """Check if a file path is in the managed_files list.
@@ -1102,7 +1198,7 @@ proper framework operation, especially when using containerized services.
         the managed_files list.
 
         Args:
-            rel_path: Relative path from project root (e.g. ".claude/hooks/osprey_audit.py")
+            rel_path: Relative path from project root (e.g. ".claude/hooks/osprey_writes_check.py")
             ctx: Template context (may contain "managed_files" key)
         """
         managed = ctx.get("managed_files")
@@ -1111,6 +1207,12 @@ proper framework operation, especially when using containerized services.
         if rel_path.startswith(".claude/agents/"):
             return True  # agents always auto-managed
         return rel_path in managed
+
+    @staticmethod
+    def _output_path_to_canonical(output_path: str, registry: PromptRegistry) -> str | None:
+        """Reverse-lookup: map an output file path to its canonical artifact name."""
+        art = registry.get_by_output(output_path)
+        return art.canonical_name if art else None
 
     def _create_claude_code_integration(self, project_dir: Path, ctx: dict):
         """Create Claude Code integration files for the project.
@@ -1138,35 +1240,51 @@ proper framework operation, especially when using containerized services.
 
         files_created = 0
 
+        # Build prompt override lookup
+        prompt_overrides = ctx.get("prompt_overrides", {})
+        registry = PromptRegistry.default()
+
         # 1. Render mcp.json.j2 -> .mcp.json
         mcp_template = claude_code_dir / "mcp.json.j2"
-        if mcp_template.exists() and self._is_managed(".mcp.json", ctx):
+        if "mcp-json" in prompt_overrides:
+            override_path = project_dir / prompt_overrides["mcp-json"]
+            if override_path.exists():
+                shutil.copy2(override_path, project_dir / ".mcp.json")
+                files_created += 1
+        elif mcp_template.exists() and self._is_managed(".mcp.json", ctx):
             self.render_template("claude_code/mcp.json.j2", ctx, project_dir / ".mcp.json")
             files_created += 1
 
         # 2. Render CLAUDE.md.j2 -> CLAUDE.md (always overwritten on regen)
         claude_md_j2 = claude_code_dir / "CLAUDE.md.j2"
         claude_md_static = claude_code_dir / "CLAUDE.md"
-        if self._is_managed("CLAUDE.md", ctx):
+        if "claude-md" in prompt_overrides:
+            override_path = project_dir / prompt_overrides["claude-md"]
+            if override_path.exists():
+                shutil.copy2(override_path, project_dir / "CLAUDE.md")
+                files_created += 1
+            else:
+                console.print(
+                    f"  [warning]⚠[/warning] Override for claude-md not found: {override_path}",
+                    style="yellow",
+                )
+        elif self._is_managed("CLAUDE.md", ctx):
             if claude_md_j2.exists():
                 self.render_template("claude_code/CLAUDE.md.j2", ctx, project_dir / "CLAUDE.md")
             elif claude_md_static.exists():
                 shutil.copy2(claude_md_static, project_dir / "CLAUDE.md")
             files_created += 1
 
-        # 2b. Render CLAUDE-project.md.j2 -> CLAUDE-project.md (only on first creation)
-        claude_project_md = project_dir / "CLAUDE-project.md"
-        claude_project_j2 = claude_code_dir / "CLAUDE-project.md.j2"
-        if not claude_project_md.exists() and claude_project_j2.exists():
-            self.render_template(
-                "claude_code/CLAUDE-project.md.j2", ctx, claude_project_md
-            )
-            files_created += 1
-
-        # 2c. Create facility.md (only on first creation — never overwritten)
+        # 2b. Create facility.md (only on first creation — never overwritten)
         facility_md = project_dir / ".claude" / "rules" / "facility.md"
         facility_j2 = claude_code_dir / "claude" / "rules" / "facility.md.j2"
-        if not facility_md.exists() and facility_j2.exists():
+        if "rules/facility" in prompt_overrides:
+            override_path = project_dir / prompt_overrides["rules/facility"]
+            if override_path.exists():
+                facility_md.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(override_path, facility_md)
+                files_created += 1
+        elif not facility_md.exists() and facility_j2.exists():
             facility_md.parent.mkdir(parents=True, exist_ok=True)
             self.render_template(
                 "claude_code/claude/rules/facility.md.j2", ctx, facility_md
@@ -1192,6 +1310,19 @@ proper framework operation, especially when using containerized services.
                     if str(output_rel) == "rules/facility.md":
                         continue
 
+                    # Check if this artifact has a prompt override
+                    canonical = self._output_path_to_canonical(dst_rel, registry)
+                    if canonical and canonical in prompt_overrides:
+                        override_src = project_dir / prompt_overrides[canonical]
+                        if override_src.exists():
+                            dst_file = project_dir / ".claude" / output_rel
+                            dst_file.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copy2(override_src, dst_file)
+                            if dst_file.suffix == ".py":
+                                dst_file.chmod(dst_file.stat().st_mode | 0o755)
+                            files_created += 1
+                            continue
+
                     # Check managed_files
                     if not self._is_managed(dst_rel, ctx):
                         continue
@@ -1204,6 +1335,20 @@ proper framework operation, especially when using containerized services.
                 else:
                     # Static copy (existing behavior)
                     dst_rel = f".claude/{rel_path}"
+
+                    # Check if this artifact has a prompt override
+                    canonical = self._output_path_to_canonical(dst_rel, registry)
+                    if canonical and canonical in prompt_overrides:
+                        override_src = project_dir / prompt_overrides[canonical]
+                        if override_src.exists():
+                            dst_file = project_dir / ".claude" / rel_path
+                            dst_file.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copy2(override_src, dst_file)
+                            if dst_file.suffix == ".py":
+                                dst_file.chmod(dst_file.stat().st_mode | 0o755)
+                            files_created += 1
+                            continue
+
                     if not self._is_managed(dst_rel, ctx):
                         continue
                     dst_file = project_dir / ".claude" / rel_path
@@ -1270,6 +1415,9 @@ proper framework operation, especially when using containerized services.
         # Get framework version
         framework_version = self._get_framework_version()
 
+        # Build overrides section from context
+        overrides_manifest = self._build_overrides_manifest(project_dir, context)
+
         # Build manifest
         manifest = {
             "schema_version": MANIFEST_SCHEMA_VERSION,
@@ -1283,6 +1431,9 @@ proper framework operation, especially when using containerized services.
             "reproducible_command": reproducible_command,
             "file_checksums": file_checksums,
         }
+
+        if overrides_manifest:
+            manifest["overrides"] = overrides_manifest
 
         # Write manifest to file
         manifest_path = project_dir / MANIFEST_FILENAME
@@ -1455,3 +1606,66 @@ proper framework operation, especially when using containerized services.
             for chunk in iter(lambda: f.read(8192), b""):
                 sha256_hash.update(chunk)
         return sha256_hash.hexdigest()
+
+    def _build_overrides_manifest(
+        self, project_dir: Path, context: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Build overrides section for the manifest.
+
+        For each prompt override, records the override path and the SHA-256 of
+        the framework template as rendered at scaffold time. During regen, if
+        the framework hash changes, a drift warning is shown.
+
+        Args:
+            project_dir: Root directory of the project
+            context: Template context with ``prompt_overrides`` key
+
+        Returns:
+            Dict mapping canonical names to override metadata, or empty dict.
+        """
+        overrides = context.get("prompt_overrides", {})
+        if not overrides:
+            return {}
+
+        import tempfile
+
+        registry = PromptRegistry.default()
+        result: dict[str, Any] = {}
+        claude_code_dir = self.template_root / "claude_code"
+
+        for canonical_name, override_path in overrides.items():
+            artifact = registry.get(canonical_name)
+            if artifact is None:
+                continue
+
+            # Compute framework hash by rendering the template to a temp location
+            framework_hash = None
+            template_file = claude_code_dir / artifact.template_path
+            if template_file.exists():
+                try:
+                    if template_file.suffix == ".j2":
+                        with tempfile.NamedTemporaryFile(
+                            mode="w", suffix=template_file.stem, delete=False, encoding="utf-8"
+                        ) as tmp:
+                            template_rel = f"claude_code/{artifact.template_path}"
+                            template = self.jinja_env.get_template(template_rel)
+                            rendered = template.render(**context)
+                            tmp.write(rendered)
+                            tmp_path = Path(tmp.name)
+                        framework_hash = f"sha256:{self._sha256_file(tmp_path)}"
+                        tmp_path.unlink(missing_ok=True)
+                    else:
+                        framework_hash = f"sha256:{self._sha256_file(template_file)}"
+                except Exception:
+                    pass  # Best-effort
+
+            entry: dict[str, Any] = {
+                "override_path": override_path,
+                "scaffolded_at": datetime.now(UTC).isoformat(),
+            }
+            if framework_hash:
+                entry["framework_hash"] = framework_hash
+
+            result[canonical_name] = entry
+
+        return result

@@ -150,7 +150,7 @@ These apply to any tool that interacts with hardware or has side effects:
 
 1. **Master kill switch** — if your tool can write to hardware, respect `control_system.writes_enabled`
 2. **Human approval** — write operations must go through the hook chain or approval system
-3. **Audit logging** — all operations should be logged (PostToolUse hook)
+3. **Audit logging** — all operations are logged in Claude Code transcripts, readable via session_log
 4. **Input validation** — validate at the tool boundary, not deep in the service layer
 5. **Path traversal protection** — any file-serving endpoint must validate paths with `is_relative_to()`
 6. **No secrets in config.yml** — use `${ENV_VAR}` syntax for API keys, credentials
