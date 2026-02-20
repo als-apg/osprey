@@ -98,6 +98,85 @@
     memory: "browse",
   };
 
+  // ---- Type Registry (fetched from server, with inline fallback) ----
+
+  let _registryLoaded = false;
+  let _artifactTypeDefs = {};
+  let _dataTypeDefs = {};
+  let _toolTypeDefs = {};
+
+  async function initTypeRegistry() {
+    try {
+      const resp = await fetch('/api/type-registry');
+      if (resp.ok) {
+        const reg = await resp.json();
+        _artifactTypeDefs = reg.artifact_types || {};
+        _dataTypeDefs = reg.data_types || {};
+        _toolTypeDefs = reg.tool_types || {};
+        _registryLoaded = true;
+      }
+    } catch (e) {
+      console.warn('Type registry fetch failed, using built-in defaults', e);
+    }
+  }
+
+  function hexToRgba(hex, alpha) {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+
+  function applyTypeColor(el, key, domain) {
+    const defs = domain === 'artifact' ? _artifactTypeDefs
+               : domain === 'tool' ? _toolTypeDefs : _dataTypeDefs;
+    const def = defs[key];
+    if (!def || !def.color) return;
+    el.style.setProperty('--type-color', def.color);
+    el.style.setProperty('--type-bg', hexToRgba(def.color, 0.1));
+    el.style.setProperty('--type-border', hexToRgba(def.color, 0.25));
+  }
+
+  function applyAllTypeColors(root) {
+    if (!_registryLoaded) return;
+    root = root || document;
+    root.querySelectorAll('[data-type]').forEach(function (el) {
+      var key = el.getAttribute('data-type');
+      // Artifact types take priority, fall back to data types
+      if (_artifactTypeDefs[key]) {
+        applyTypeColor(el, key, 'artifact');
+      } else if (_dataTypeDefs[key]) {
+        applyTypeColor(el, key, 'data');
+      }
+    });
+    root.querySelectorAll('[data-tool]').forEach(function (el) {
+      applyTypeColor(el, el.getAttribute('data-tool'), 'tool');
+    });
+    // Badge elements with class badge-<key>
+    root.querySelectorAll('[class*="badge-"]').forEach(function (el) {
+      var cls = Array.from(el.classList).find(function (c) { return c.startsWith('badge-') && c !== 'badge'; });
+      if (!cls) return;
+      var key = cls.substring(6); // strip "badge-"
+      if (_artifactTypeDefs[key]) {
+        applyTypeColor(el, key, 'artifact');
+      } else if (_toolTypeDefs[key]) {
+        applyTypeColor(el, key, 'tool');
+      } else if (_dataTypeDefs[key]) {
+        applyTypeColor(el, key, 'data');
+      }
+    });
+  }
+
+  let _colorPassTimer = null;
+  function requestColorPass() {
+    if (!_registryLoaded) return;
+    if (_colorPassTimer) cancelAnimationFrame(_colorPassTimer);
+    _colorPassTimer = requestAnimationFrame(function () {
+      _colorPassTimer = null;
+      applyAllTypeColors(document);
+    });
+  }
+
   // ---- Resize Handle Factory ----
 
   function initSplitPaneResize(handle, sidebarEl) {
@@ -333,6 +412,7 @@
   }
 
   function typeBadge(type) {
+    if (_artifactTypeDefs[type]) return _artifactTypeDefs[type].label;
     const labels = {
       plot_html: "Plotly",
       plot_png: "Matplotlib",
@@ -344,6 +424,7 @@
       text: "Text",
       file: "File",
       notebook: "Notebook",
+      dashboard_html: "Dashboard",
     };
     return labels[type] || type;
   }
@@ -360,6 +441,7 @@
       text: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>',
       file: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>',
       notebook: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4h16v16H4z"/><path d="M8 2v4M8 18v4M4 8h16M12 12h4M12 15h3"/></svg>',
+      dashboard_html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></svg>',
     };
     return icons[type] || icons.file;
   }
@@ -369,6 +451,7 @@
   // ---- Tool Helpers (context entries) ----
 
   function toolLabel(tool) {
+    if (_toolTypeDefs[tool]) return _toolTypeDefs[tool].label;
     const labels = {
       channel_read: "Channel Read",
       channel_write: "Channel Write",
@@ -398,6 +481,10 @@
       "logbook-search": "Logbook Search",
       "matlab-search": "MATLAB Search",
       "wiki-search": "Wiki Search",
+      create_static_plot: "Static Plot",
+      create_interactive_plot: "Interactive Plot",
+      create_dashboard: "Dashboard",
+      create_document: "Document",
     };
     return labels[tool] || tool;
   }
@@ -432,22 +519,33 @@
       "logbook-search": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>',
       "matlab-search": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 17l4-8 4 6 4-10 4 12"/><circle cx="19" cy="7" r="2"/></svg>',
       "wiki-search": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>',
+      create_static_plot: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 16l4-8 4 4 4-6"/></svg>',
+      create_interactive_plot: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3v18h18"/><path d="M7 16l4-8 4 4 4-6"/><circle cx="15" cy="12" r="2" fill="currentColor"/></svg>',
+      create_dashboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></svg>',
+      create_document: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>',
     };
     return icons[tool] || '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>';
   }
 
   function dataTypeLabel(dt) {
+    if (_dataTypeDefs[dt]) return _dataTypeDefs[dt].label;
     const labels = {
       timeseries: "Timeseries",
       channel_values: "Channel Values",
-      channel_list: "Channel List",
-      code_result: "Code Result",
+      code_output: "Code Output",
+      write_results: "Write Results",
       memory: "Memory",
       search_results: "Search Results",
       screenshot: "Screenshot",
       graph_extraction: "Graph Extraction",
       graph_comparison: "Graph Comparison",
       graph_reference: "Graph Reference",
+      visualization: "Visualization",
+      dashboard: "Dashboard",
+      document: "Document",
+      agent_response: "Agent Response",
+      channel_addresses: "Channel Addresses",
+      logbook_research: "Logbook Research",
     };
     return labels[dt] || dt;
   }
@@ -549,6 +647,7 @@
         return `<img src="${url}" alt="" loading="lazy" onerror="this.parentElement.classList.add('img-error')" />`;
       case "plot_html":
       case "table_html":
+      case "dashboard_html":
       case "html":
         return `<iframe src="${url}" sandbox="allow-scripts allow-same-origin" loading="lazy" tabindex="-1"></iframe>`;
       case "notebook":
@@ -578,6 +677,7 @@
     switch (a.artifact_type) {
       case "plot_html":
       case "table_html":
+      case "dashboard_html":
       case "html":
         viewportContent = `<iframe src="${url}" class="focus-iframe" sandbox="allow-scripts allow-same-origin"></iframe>`;
         break;
@@ -687,6 +787,7 @@
     });
 
     loadInteractiveNotebooks();
+    requestColorPass();
   }
 
   function loadInteractiveNotebooks() {
@@ -873,6 +974,7 @@
         viewer.innerHTML = '<span class="text-muted">Failed to load data</span>';
       }
     }
+    requestColorPass();
   }
 
   function contextFocusNavigate(delta) {
@@ -923,6 +1025,7 @@
     } else {
       renderActivityMode(filtered);
     }
+    requestColorPass();
   }
 
   // ---- Gallery Card HTML (shared by both modes in gallery layout) ----
@@ -1125,6 +1228,7 @@
     switch (a.artifact_type) {
       case "plot_html":
       case "table_html":
+      case "dashboard_html":
       case "html":
         viewportHtml = `<iframe src="${url}" class="preview-iframe-light" sandbox="allow-scripts allow-same-origin"></iframe>`;
         break;
@@ -1215,6 +1319,7 @@
         })
         .catch(err => console.error("Delete failed:", err));
     });
+    requestColorPass();
   }
 
   async function setAsFocus(artifact) {
@@ -1277,6 +1382,83 @@
     return _plotlyLoading;
   }
 
+  // ---- Timeseries helpers (private to this section) ----
+
+  const _tsColorway = [
+    "#4fd1c5", "#d4a574", "#9f7aea", "#3b82f6",
+    "#22c55e", "#f59e0b", "#ef4444", "#e879f9",
+  ];
+
+  const _tsState = new WeakMap(); // container → { visible: Set, chartData, entry }
+
+  function _tsFormatTimestamp(iso) {
+    if (!iso) return "";
+    try {
+      const d = new Date(iso);
+      return d.toLocaleString(undefined, {
+        year: "numeric", month: "short", day: "numeric",
+        hour: "2-digit", minute: "2-digit", second: "2-digit",
+      });
+    } catch { return String(iso); }
+  }
+
+  function _tsShortTime(iso) {
+    if (!iso) return "";
+    try {
+      const d = new Date(iso);
+      return d.toLocaleString(undefined, {
+        month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+      });
+    } catch { return String(iso); }
+  }
+
+  function _tsFormatValue(num) {
+    if (num == null) return "--";
+    if (typeof num !== "number") return String(num);
+    const abs = Math.abs(num);
+    if (abs === 0) return "0";
+    if (abs >= 1e6 || abs < 0.001) return num.toExponential(3);
+    return num.toPrecision(5);
+  }
+
+  function _tsShortChannelName(name) {
+    if (!name) return "";
+    if (name.length <= 24) return name;
+    const parts = name.split(":");
+    if (parts.length >= 3) {
+      return parts[0] + ":...:" + parts[parts.length - 1];
+    }
+    return name.slice(0, 10) + "..." + name.slice(-10);
+  }
+
+  function _tsExportCSV(chartData) {
+    const cols = chartData.columns || [];
+    const rows = [["timestamp", ...cols].join(",")];
+    chartData.index.forEach((ts, i) => {
+      const vals = chartData.data[i] || [];
+      rows.push([ts, ...vals].join(","));
+    });
+    const blob = new Blob([rows.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `timeseries_${Date.now()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function _tsExportJSON(chartData) {
+    const blob = new Blob([JSON.stringify(chartData, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `timeseries_${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // ---- Main timeseries renderer ----
+
   async function renderTimeseriesView(container, entry) {
     container.innerHTML = '<div class="ts-loading">Loading timeseries data...</div>';
     try {
@@ -1285,42 +1467,139 @@
       );
       if (!chartResp.ok) throw new Error(`Chart fetch failed: ${chartResp.status}`);
       const chartData = await chartResp.json();
+      const columns = chartData.columns || [];
+      const summary = entry.summary || {};
+
+      // Initialize state for this container
+      const visible = new Set(columns);
+      _tsState.set(container, { visible, chartData, entry });
 
       // Build DOM structure
       let html = '<div class="ts-viewer">';
 
-      // Query info badges
-      const summary = entry.summary || {};
-      html += '<div class="ts-query-info">';
-      if (summary.channels) {
-        const ch = Array.isArray(summary.channels) ? summary.channels : [summary.channels];
-        ch.forEach(c => {
-          html += `<span class="ts-query-badge"><span class="badge-label">CH</span> ${_esc(String(c))}</span>`;
+      // ---- Info bar (badges) ----
+      html += '<div class="ts-info-bar">';
+
+      // Channel badges — use chartData.columns (reliable) not summary.channels
+      if (columns.length > 0) {
+        columns.forEach(c => {
+          html += `<span class="ts-badge ts-badge-channel"><span class="badge-label">CH</span> ${_esc(_tsShortChannelName(c))}</span>`;
         });
+      } else if (summary.channels_queried) {
+        html += `<span class="ts-badge ts-badge-channel"><span class="badge-label">Channels</span> ${summary.channels_queried}</span>`;
       }
+
+      // Time range — format object as "start → end", not String()
       if (summary.time_range) {
-        html += `<span class="ts-query-badge"><span class="badge-label">Range</span> ${_esc(String(summary.time_range))}</span>`;
+        let rangeStr;
+        if (typeof summary.time_range === "object" && summary.time_range.start) {
+          rangeStr = _tsShortTime(summary.time_range.start) + " \u2192 " + _tsShortTime(summary.time_range.end);
+        } else {
+          rangeStr = String(summary.time_range);
+        }
+        html += `<span class="ts-badge ts-badge-time"><span class="badge-label">Range</span> ${_esc(rangeStr)}</span>`;
       }
-      html += `<span class="ts-query-badge"><span class="badge-label">Rows</span> ${chartData.total_rows.toLocaleString()}</span>`;
+
+      html += `<span class="ts-badge ts-badge-rows"><span class="badge-label">Rows</span> ${chartData.total_rows.toLocaleString()}</span>`;
+
       if (chartData.downsampled) {
-        html += `<span class="ts-query-badge downsampled"><span class="badge-label">Downsampled</span> ${chartData.returned_points.toLocaleString()} pts</span>`;
+        html += `<span class="ts-badge ts-badge-downsampled"><span class="badge-label">Downsampled</span> ${chartData.returned_points.toLocaleString()} pts</span>`;
       }
       html += '</div>';
 
-      // Chart container
-      html += '<div class="ts-chart-container" id="ts-chart-area"></div>';
+      // ---- Toolbar (channel toggles + actions) ----
+      html += '<div class="ts-toolbar">';
+      html += '<div class="ts-toolbar-group">';
+      columns.forEach((col, ci) => {
+        const color = _tsColorway[ci % _tsColorway.length];
+        html += `<button class="ts-ch-toggle" data-ch-index="${ci}" data-ch-name="${_esc(col)}" title="${_esc(col)}">`;
+        html += `<span class="ts-ch-dot" style="background:${color}"></span>`;
+        html += _esc(_tsShortChannelName(col));
+        html += '</button>';
+      });
+      html += '</div>';
 
-      // Table container
-      html += '<div id="ts-table-area"></div>';
+      html += '<span class="ts-toolbar-divider"></span>';
+
+      html += '<div class="ts-toolbar-group">';
+      html += '<button class="ts-action-btn" data-action="zoom-reset" title="Reset zoom">Reset Zoom</button>';
+      html += '<button class="ts-action-btn ts-export-btn" data-action="export-csv" title="Export CSV">CSV</button>';
+      html += '<button class="ts-action-btn ts-export-btn" data-action="export-json" title="Export JSON">JSON</button>';
+      html += '</div>';
+      html += '</div>';
+
+      // ---- Chart container ----
+      html += '<div class="ts-chart-container" data-ts-chart></div>';
+
+      // ---- Stats panel ----
+      if (summary.per_channel && typeof summary.per_channel === "object") {
+        html += '<div class="ts-stats-panel">';
+        columns.forEach((col, ci) => {
+          const stats = summary.per_channel[col];
+          if (!stats) return;
+          const color = _tsColorway[ci % _tsColorway.length];
+          html += '<div class="ts-stat-card">';
+          html += `<div class="ts-stat-card-header"><span class="ts-stat-card-dot" style="background:${color}"></span>`;
+          html += `<span class="ts-stat-card-name" title="${_esc(col)}">${_esc(_tsShortChannelName(col))}</span></div>`;
+          html += `<div class="ts-stat-row"><span class="ts-stat-label">Min</span><span class="ts-stat-value">${_tsFormatValue(stats.min)}</span></div>`;
+          html += `<div class="ts-stat-row"><span class="ts-stat-label">Max</span><span class="ts-stat-value">${_tsFormatValue(stats.max)}</span></div>`;
+          html += `<div class="ts-stat-row"><span class="ts-stat-label">Mean</span><span class="ts-stat-value">${_tsFormatValue(stats.mean)}</span></div>`;
+          html += `<div class="ts-stat-row"><span class="ts-stat-label">Points</span><span class="ts-stat-value">${(stats.points || 0).toLocaleString()}</span></div>`;
+          html += '</div>';
+        });
+        html += '</div>';
+      }
+
+      // ---- Table container ----
+      html += '<div data-ts-table></div>';
 
       html += '</div>';
       container.innerHTML = html;
 
+      // ---- Wire toolbar events ----
+      const chartEl = container.querySelector("[data-ts-chart]");
+      const tableEl = container.querySelector("[data-ts-table]");
+
+      // Channel toggles
+      container.querySelectorAll(".ts-ch-toggle").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const ci = parseInt(btn.dataset.chIndex, 10);
+          const col = columns[ci];
+          if (visible.has(col)) {
+            if (visible.size <= 1) return; // keep at least one
+            visible.delete(col);
+            btn.classList.add("ts-ch-off");
+          } else {
+            visible.add(col);
+            btn.classList.remove("ts-ch-off");
+          }
+          // Update trace visibility
+          if (chartEl && chartEl.data) {
+            const update = columns.map(c => visible.has(c));
+            Plotly.restyle(chartEl, { visible: update });
+          }
+        });
+      });
+
+      // Action buttons
+      container.querySelectorAll(".ts-action-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const action = btn.dataset.action;
+          if (action === "zoom-reset" && chartEl) {
+            Plotly.relayout(chartEl, { "xaxis.autorange": true, "yaxis.autorange": true });
+          } else if (action === "export-csv") {
+            _tsExportCSV(chartData);
+          } else if (action === "export-json") {
+            _tsExportJSON(chartData);
+          }
+        });
+      });
+
       // Render chart
-      await renderTimeseriesChart("ts-chart-area", chartData);
+      await renderTimeseriesChart(chartEl, chartData);
 
       // Render first page of table
-      await renderTimeseriesTable("ts-table-area", entry.id, chartData.columns, 0);
+      await renderTimeseriesTable(tableEl, entry.id, columns, 0);
     } catch (err) {
       console.error("Timeseries render failed, falling back to JSON:", err);
       const data = await fetchContextData(entry.id);
@@ -1332,9 +1611,8 @@
     }
   }
 
-  async function renderTimeseriesChart(elementId, chartData) {
+  async function renderTimeseriesChart(el, chartData) {
     await ensurePlotlyLoaded();
-    const el = document.getElementById(elementId);
     if (!el) return;
 
     const traces = chartData.columns.map((col, ci) => ({
@@ -1343,6 +1621,7 @@
       name: col,
       type: "scattergl",
       mode: "lines",
+      hovertemplate: "%{y:.4g}<extra>%{fullData.name}</extra>",
     }));
 
     const layout = {
@@ -1350,6 +1629,7 @@
       plot_bgcolor: "#0b1120",
       font: { family: "'DM Mono', monospace", size: 11, color: "#8b9ab5" },
       margin: { t: 30, r: 20, b: 50, l: 60 },
+      hovermode: "x unified",
       xaxis: {
         gridcolor: "rgba(100,116,139,0.1)",
         linecolor: "rgba(100,116,139,0.18)",
@@ -1366,10 +1646,7 @@
         borderwidth: 1,
         font: { size: 10 },
       },
-      colorway: [
-        "#4fd1c5", "#d4a574", "#9f7aea", "#3b82f6",
-        "#22c55e", "#f59e0b", "#ef4444", "#e879f9",
-      ],
+      colorway: _tsColorway,
     };
 
     const config = {
@@ -1383,8 +1660,7 @@
 
   const TS_TABLE_PAGE_SIZE = 50;
 
-  async function renderTimeseriesTable(elementId, entryId, columns, offset) {
-    const el = document.getElementById(elementId);
+  async function renderTimeseriesTable(el, entryId, columns, offset) {
     if (!el) return;
 
     el.innerHTML = '<div class="ts-loading">Loading table...</div>';
@@ -1418,19 +1694,21 @@
 
       // Pagination
       html += '<div class="ts-pagination">';
-      html += `<button class="btn btn-secondary btn-sm" id="ts-prev-btn" ${offset === 0 ? 'disabled' : ''}>Prev</button>`;
+      const prevDisabled = offset === 0 ? "disabled" : "";
+      const nextDisabled = offset + TS_TABLE_PAGE_SIZE >= tableData.total_rows ? "disabled" : "";
+      html += `<button class="btn btn-secondary btn-sm" data-ts-prev ${prevDisabled}>Prev</button>`;
       html += `<span class="ts-page-info">Page ${currentPage} of ${totalPages}</span>`;
-      html += `<button class="btn btn-secondary btn-sm" id="ts-next-btn" ${offset + TS_TABLE_PAGE_SIZE >= tableData.total_rows ? 'disabled' : ''}>Next</button>`;
+      html += `<button class="btn btn-secondary btn-sm" data-ts-next ${nextDisabled}>Next</button>`;
       html += '</div>';
 
       el.innerHTML = html;
 
-      // Wire pagination buttons
-      document.getElementById("ts-prev-btn")?.addEventListener("click", () => {
-        renderTimeseriesTable(elementId, entryId, columns, Math.max(0, offset - TS_TABLE_PAGE_SIZE));
+      // Wire pagination buttons (use data attrs instead of IDs to avoid collisions)
+      el.querySelector("[data-ts-prev]")?.addEventListener("click", () => {
+        renderTimeseriesTable(el, entryId, columns, Math.max(0, offset - TS_TABLE_PAGE_SIZE));
       });
-      document.getElementById("ts-next-btn")?.addEventListener("click", () => {
-        renderTimeseriesTable(elementId, entryId, columns, offset + TS_TABLE_PAGE_SIZE);
+      el.querySelector("[data-ts-next]")?.addEventListener("click", () => {
+        renderTimeseriesTable(el, entryId, columns, offset + TS_TABLE_PAGE_SIZE);
       });
     } catch (err) {
       console.error("Table render failed:", err);
@@ -1500,6 +1778,7 @@
     } else {
       renderCtxActivityMode(filtered);
     }
+    requestColorPass();
   }
 
   function ctxGalleryCardHtml(entry, i) {
@@ -1797,6 +2076,7 @@
         viewer.innerHTML = '<span class="text-muted">Failed to load data</span>';
       }
     }
+    requestColorPass();
   }
 
   // ---- Memory Type Helpers ----
@@ -2729,8 +3009,10 @@
   initSplitPaneResize(memResizeHandle, memSidebarEl);
   initFocusResizeForwarding();
   refreshBtn.addEventListener("click", doRefresh);
-  fetchArtifacts();
-  fetchContextEntries();
-  fetchMemoryEntries();
-  connectSSE();
+  initTypeRegistry().then(function () {
+    fetchArtifacts();
+    fetchContextEntries();
+    fetchMemoryEntries();
+    connectSSE();
+  });
 })();

@@ -82,7 +82,7 @@ class TestSubmitResponseGrouping:
             title="Wiki Result",
             content="Wiki findings.",
             source_agent="wiki-search",
-            data_type="wiki_research",
+            data_type="search_results",
         )
         await _fn(
             title="Channel Result",

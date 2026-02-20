@@ -31,8 +31,10 @@ async def submit_response(
     Args:
         title: Short title for the response (e.g. "Vacuum Event Analysis").
         content: The full synthesized response text (markdown).
-        data_type: Category tag for filtering (e.g. "agent_response",
-            "channel_addresses", "logbook_research").
+        data_type: Category tag for filtering.  Must be a registered type:
+            "agent_response" (default), "channel_addresses",
+            "logbook_research", "search_results", or any other key from
+            the type registry.
         entry_ids: List of ARIEL entry IDs or channel addresses cited,
             stored as structured metadata for cross-referencing.
         source_agent: Name of the agent submitting the response
@@ -60,6 +62,18 @@ async def submit_response(
             )
         )
 
+    from osprey.mcp_server.type_registry import valid_data_type_keys
+
+    valid = valid_data_type_keys()
+    if data_type not in valid:
+        return json.dumps(
+            make_error(
+                "validation_error",
+                f"Unknown data_type '{data_type}'. Valid: {sorted(valid)}",
+                ["Use one of the registered data_type values."],
+            )
+        )
+
     try:
         from osprey.mcp_server.data_context import get_data_context
 
@@ -68,8 +82,9 @@ async def submit_response(
         agent = source_agent or ""
 
         ctx = get_data_context()
+        tool_name = agent if agent else "submit_response"
         entry = ctx.save(
-            tool="submit_response",
+            tool=tool_name,
             data={
                 "title": title,
                 "content": content,
