@@ -1,8 +1,6 @@
 """ARIEL ingestion adapter discovery.
 
 This module provides adapter discovery and instantiation from the Osprey registry.
-
-See 01_DATA_LAYER.md Section 5.12 for specification.
 """
 
 from __future__ import annotations
@@ -35,7 +33,6 @@ def get_adapter(config: ARIELConfig) -> BaseAdapter:
 
     registry = get_registry()
 
-    # Ensure registry is initialized so adapters are available
     if not registry._initialized:
         registry.initialize(silent=True)
 

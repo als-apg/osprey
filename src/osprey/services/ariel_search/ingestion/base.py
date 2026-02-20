@@ -1,8 +1,6 @@
 """Base ingestion adapter interface.
 
 This module defines the abstract base class for ARIEL ingestion adapters.
-
-See 01_DATA_LAYER.md Sections 5.1-5.2 for specification.
 """
 
 from abc import ABC, abstractmethod

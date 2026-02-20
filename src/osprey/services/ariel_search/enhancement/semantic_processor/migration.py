@@ -2,8 +2,6 @@
 
 This module provides the database migration for the semantic processor
 enhancement module.
-
-See 01_DATA_LAYER.md Section 2.5 for SQL specification.
 """
 
 from typing import TYPE_CHECKING
@@ -35,7 +33,6 @@ class SemanticProcessorMigration(BaseMigration):
 
     async def up(self, conn: "AsyncConnection") -> None:
         """Apply the semantic processor migration."""
-        # Add columns for semantic processing results
         await conn.execute(
             """
             ALTER TABLE enhanced_entries
@@ -49,7 +46,6 @@ class SemanticProcessorMigration(BaseMigration):
             """
         )
 
-        # Index for keywords array
         await conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_entries_keywords
@@ -57,7 +53,6 @@ class SemanticProcessorMigration(BaseMigration):
             """
         )
 
-        # Full-text search index on raw_text and summary
         await conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_entries_text_search
@@ -68,12 +63,8 @@ class SemanticProcessorMigration(BaseMigration):
 
     async def down(self, conn: "AsyncConnection") -> None:
         """Rollback the semantic processor migration."""
-        # Drop indexes first
         await conn.execute("DROP INDEX IF EXISTS idx_entries_text_search")
         await conn.execute("DROP INDEX IF EXISTS idx_entries_keywords")
 
-        # Drop columns
         await conn.execute("ALTER TABLE enhanced_entries DROP COLUMN IF EXISTS keywords")
         await conn.execute("ALTER TABLE enhanced_entries DROP COLUMN IF EXISTS summary")
-
-        # Note: We don't drop pg_trgm extension as other things may use it

@@ -3,8 +3,6 @@
 This module provides the IngestionScheduler class that periodically fetches
 new logbook entries from a live API, stores them, and runs the enhancement
 pipeline.
-
-See 04_OSPREY_INTEGRATION.md for specification context.
 """
 
 from __future__ import annotations
@@ -131,7 +129,6 @@ class IngestionScheduler:
         enhancers = create_enhancers_from_config(self.config)
         source_system = adapter.source_system_name
 
-        # Determine since-timestamp from last successful run
         last_run_time = await self.repository.get_last_successful_run(source_system)
 
         watch_config = self.config.ingestion.watch if self.config.ingestion else None
@@ -165,7 +162,6 @@ class IngestionScheduler:
                 since=since,
             )
 
-        # Start tracking the ingestion run
         run_id = await self.repository.start_ingestion_run(source_system)
 
         entries_added = 0
@@ -177,7 +173,6 @@ class IngestionScheduler:
                     await self.repository.upsert_entry(entry)
                     entries_added += 1
 
-                    # Run enhancement pipeline
                     for enhancer in enhancers:
                         try:
                             async with self.repository.pool.connection() as conn:

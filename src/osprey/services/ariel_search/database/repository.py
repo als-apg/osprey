@@ -2,9 +2,6 @@
 
 This module provides the ARIELRepository class with async CRUD operations
 for the ARIEL database.
-
-See 04_OSPREY_INTEGRATION.md Section 6 and 01_DATA_LAYER.md Section 4
-for specification.
 """
 
 import functools
@@ -88,8 +85,6 @@ class ARIELRepository:
         """
         self.pool = pool
         self.config = config
-
-    # === Core Methods (always available) ===
 
     async def get_entry(self, entry_id: str) -> EnhancedLogbookEntry | None:
         """Get a single entry by ID.
@@ -298,8 +293,6 @@ class ARIELRepository:
                 query="SELECT DISTINCT source_system",
             ) from e
 
-    # === Enhancement Status Methods ===
-
     async def get_incomplete_entries(
         self,
         module_name: str | None = None,
@@ -481,8 +474,6 @@ class ARIELRepository:
                 query=f"UPDATE entry_id={entry_id} module={module_name}",
             ) from e
 
-    # === Embedding Methods ===
-
     async def get_embedding_tables(self) -> list[EmbeddingTableInfo]:
         """Discover all embedding tables in the database.
 
@@ -491,7 +482,6 @@ class ARIELRepository:
         """
         try:
             async with self.pool.connection() as conn:
-                # Find all embedding tables
                 result = await conn.execute(
                     """
                     SELECT table_name
@@ -508,14 +498,12 @@ class ARIELRepository:
                 for row in rows:
                     table_name = row[0]
 
-                    # Get entry count
                     count_result = await conn.execute(
                         f"SELECT COUNT(*) FROM {table_name}"  # noqa: S608
                     )
                     count_row = await count_result.fetchone()
                     entry_count = int(count_row[0]) if count_row else 0
 
-                    # Get dimension from column type
                     dim_result = await conn.execute(
                         """
                         SELECT atttypmod
@@ -528,7 +516,6 @@ class ARIELRepository:
                     dim_row = await dim_result.fetchone()
                     dimension = int(dim_row[0]) if dim_row and dim_row[0] > 0 else None
 
-                    # Check if this is the active model
                     is_active = False
                     if active_model:
                         from osprey.services.ariel_search.database.migration import (
@@ -634,8 +621,6 @@ class ARIELRepository:
                 query=f"INSERT {table_name} entry_id={entry_id}",
             ) from e
 
-    # === Search Methods ===
-
     @requires_module("search", "keyword")
     async def keyword_search(
         self,
@@ -664,8 +649,7 @@ class ARIELRepository:
                 async with conn.cursor(row_factory=dict_row) as cur:
                     where_sql = " AND ".join(where_clauses) if where_clauses else "TRUE"
 
-                    # Build query with FTS ranking
-                    # Note: raw_text contains subject + details merged by adapter
+                    # raw_text contains subject + details merged by adapter
                     if include_highlights:
                         query = f"""
                             SELECT e.*,
@@ -865,8 +849,6 @@ class ARIELRepository:
                 query=f"SEMANTIC SEARCH model={model_name}",
             ) from e
 
-    # === Ingestion Run Tracking ===
-
     async def start_ingestion_run(self, source_system: str) -> int:
         """Record the start of an ingestion run.
 
@@ -981,15 +963,14 @@ class ARIELRepository:
                 )
                 row = await result.fetchone()
                 if row and row[0]:
-                    return row[0]
+                    ts: datetime = row[0]
+                    return ts
                 return None
         except Exception as e:
             raise DatabaseQueryError(
                 f"Failed to get last successful run: {e}",
                 query=f"SELECT MAX(completed_at) source_system={source_system}",
             ) from e
-
-    # === Health Check ===
 
     async def health_check(self) -> tuple[bool, str]:
         """Check database connectivity and basic health.

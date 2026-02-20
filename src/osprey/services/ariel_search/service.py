@@ -6,7 +6,6 @@ search execution. The service routes queries to one of four execution modes:
 - RAG: Deterministic pipeline (retrieve → fuse → assemble → generate)
 - AGENT: Non-deterministic ReAct agent
 
-See 04_OSPREY_INTEGRATION.md Section 5 for specification.
 """
 
 from __future__ import annotations
@@ -85,26 +84,38 @@ class ARIELSearchService:
         """
         if self._embedder is None:
             provider_name = self.config.embedding.provider
-
-            # Dynamic provider selection based on config
-            if provider_name == "ollama":
-                from osprey.models.embeddings.ollama import OllamaEmbeddingProvider
-
-                self._embedder = OllamaEmbeddingProvider()
-            else:
-                # For other providers, default to Ollama for now
-                # Additional providers can be added here as they are implemented
+            if provider_name != "ollama":
                 logger.warning(
                     f"Embedding provider '{provider_name}' not yet supported, "
                     f"falling back to 'ollama'"
                 )
-                from osprey.models.embeddings.ollama import OllamaEmbeddingProvider
+            from osprey.models.embeddings.ollama import OllamaEmbeddingProvider
 
-                self._embedder = OllamaEmbeddingProvider()
-
+            self._embedder = OllamaEmbeddingProvider()
         return self._embedder
 
-    # === Validation ===
+    @staticmethod
+    def _error_result(
+        mode: SearchMode,
+        source: str,
+        error: Exception,
+    ) -> ARIELSearchResult:
+        msg = f"{mode.value.capitalize()} search failed: {error}"
+        return ARIELSearchResult(
+            entries=(),
+            answer=None,
+            sources=(),
+            search_modes_used=(mode,),
+            reasoning=msg,
+            diagnostics=(
+                SearchDiagnostic(
+                    level=DiagnosticLevel.ERROR,
+                    source=source,
+                    message=msg,
+                    category="search",
+                ),
+            ),
+        )
 
     async def _validate_search_model(self) -> None:
         """Validate that the configured search model's table exists.
@@ -128,8 +139,6 @@ class ARIELSearchService:
                 self.config.search_modules["semantic"].enabled = False
 
         self._validated_search_model = True
-
-    # === Main Search Interface ===
 
     async def search(
         self,
@@ -181,7 +190,6 @@ class ARIELSearchService:
             ARIELSearchResult with entries, answer, and sources
         """
         try:
-            # Validate search model table on first call (if semantic enabled)
             if self.config.is_search_module_enabled("semantic"):
                 await self._validate_search_model()
 
@@ -245,8 +253,6 @@ class ARIELSearchService:
                 query=request.query,
             ) from e
 
-    # === Mode-specific execution ===
-
     async def _run_keyword(self, request: ARIELSearchRequest) -> ARIELSearchResult:
         """Run keyword search directly.
 
@@ -264,10 +270,8 @@ class ARIELSearchService:
 
         from osprey.services.ariel_search.search.keyword import keyword_search
 
-        start_date = request.time_range[0] if request.time_range else None
-        end_date = request.time_range[1] if request.time_range else None
+        start_date, end_date = request.time_range if request.time_range else (None, None)
 
-        # Extract keyword-specific advanced params
         ap = request.advanced_params
         include_highlights = ap.get("include_highlights", True)
         fuzzy_fallback = ap.get("fuzzy_fallback", True)
@@ -287,21 +291,7 @@ class ARIELSearchService:
             )
         except Exception as e:
             logger.warning(f"Keyword search failed: {e}")
-            return ARIELSearchResult(
-                entries=(),
-                answer=None,
-                sources=(),
-                search_modes_used=(SearchMode.KEYWORD,),
-                reasoning=f"Keyword search failed: {e}",
-                diagnostics=(
-                    SearchDiagnostic(
-                        level=DiagnosticLevel.ERROR,
-                        source="service.keyword",
-                        message=f"Keyword search failed: {e}",
-                        category="search",
-                    ),
-                ),
-            )
+            return self._error_result(SearchMode.KEYWORD, "service.keyword", e)
 
         entries = tuple(
             {**dict(entry), "_score": score, "_highlights": highlights}
@@ -334,10 +324,8 @@ class ARIELSearchService:
 
         from osprey.services.ariel_search.search.semantic import semantic_search
 
-        start_date = request.time_range[0] if request.time_range else None
-        end_date = request.time_range[1] if request.time_range else None
+        start_date, end_date = request.time_range if request.time_range else (None, None)
 
-        # Extract semantic-specific advanced params
         ap = request.advanced_params
         similarity_threshold = ap.get("similarity_threshold")
 
@@ -356,21 +344,7 @@ class ARIELSearchService:
             )
         except Exception as e:
             logger.warning(f"Semantic search failed: {e}")
-            return ARIELSearchResult(
-                entries=(),
-                answer=None,
-                sources=(),
-                search_modes_used=(SearchMode.SEMANTIC,),
-                reasoning=f"Semantic search failed: {e}",
-                diagnostics=(
-                    SearchDiagnostic(
-                        level=DiagnosticLevel.ERROR,
-                        source="service.semantic",
-                        message=f"Semantic search failed: {e}",
-                        category="search",
-                    ),
-                ),
-            )
+            return self._error_result(SearchMode.SEMANTIC, "service.semantic", e)
 
         entries = tuple({**dict(entry), "_score": similarity} for entry, similarity in results)
         sources = tuple(entry["entry_id"] for entry, _similarity in results)
@@ -394,20 +368,18 @@ class ARIELSearchService:
         """
         from osprey.services.ariel_search.rag import RAGPipeline
 
-        # Extract RAG-specific advanced params
         ap = request.advanced_params
         max_context_chars = ap.get("max_context_chars", 12000)
         max_chars_per_entry = ap.get("max_chars_per_entry", 2000)
         similarity_threshold = ap.get("similarity_threshold")
         temperature = ap.get("temperature")
 
-        # Load prompt from framework prompt system
         prompt_template = None
         try:
             from osprey.prompts.loader import get_framework_prompts
 
             builder = get_framework_prompts().get_ariel_rag_prompt_builder()
-            prompt_template = builder.get_prompt_template()
+            prompt_template = builder.get_prompt_template()  # type: ignore[attr-defined]
         except (ValueError, NotImplementedError, AttributeError):
             pass  # Falls back to hardcoded default inside RAGPipeline
 
@@ -420,8 +392,7 @@ class ARIELSearchService:
             prompt_template=prompt_template,
         )
 
-        start_date = request.time_range[0] if request.time_range else None
-        end_date = request.time_range[1] if request.time_range else None
+        start_date, end_date = request.time_range if request.time_range else (None, None)
 
         rag_result = await pipeline.execute(
             request.query,
@@ -462,11 +433,10 @@ class ARIELSearchService:
             from osprey.prompts.loader import get_framework_prompts
 
             builder = get_framework_prompts().get_ariel_agent_prompt_builder()
-            system_prompt = builder.get_system_prompt()
+            system_prompt = builder.get_system_prompt()  # type: ignore[attr-defined]
         except (ValueError, NotImplementedError, AttributeError):
             pass  # Falls back to hardcoded default inside AgentExecutor
 
-        # Create agent executor
         executor = AgentExecutor(
             repository=self.repository,
             config=self.config,
@@ -474,14 +444,12 @@ class ARIELSearchService:
             system_prompt=system_prompt,
         )
 
-        # Execute agent
         agent_result = await executor.execute(
             query=request.query,
             max_results=request.max_results,
             time_range=request.time_range,
         )
 
-        # Convert agent result to ARIELSearchResult
         return ARIELSearchResult(
             entries=agent_result.entries,
             answer=agent_result.answer,
@@ -492,15 +460,12 @@ class ARIELSearchService:
             pipeline_details=agent_result.pipeline_details,
         )
 
-    # === Health Check ===
-
     async def health_check(self) -> tuple[bool, str]:
         """Check service health.
 
         Returns:
             Tuple of (healthy, message)
         """
-        # Check database
         db_healthy, db_msg = await self.repository.health_check()
         if not db_healthy:
             return (False, f"Database: {db_msg}")
@@ -522,25 +487,20 @@ class ARIELSearchService:
         embedding_tables: list[EmbeddingTableInfo] = []
         last_ingestion = None
 
-        # Mask database URI for security
         masked_uri = self._mask_database_uri(self.config.database.uri)
 
-        # Check database connectivity and gather stats
         try:
             async with self.pool.connection() as conn:
                 async with conn.cursor() as cur:
                     await cur.execute("SELECT 1")
                     database_connected = True
 
-                    # Get entry count
                     await cur.execute("SELECT COUNT(*) FROM enhanced_entries")
                     row = await cur.fetchone()
                     entry_count = row[0] if row else 0
 
-                    # Get embedding tables info
                     embedding_tables = await self.repository.get_embedding_tables()
 
-                    # Get last ingestion time
                     await cur.execute(
                         "SELECT MAX(completed_at) FROM ingestion_runs WHERE status = 'success'"
                     )
@@ -551,7 +511,6 @@ class ARIELSearchService:
         except Exception as e:
             errors.append(f"Database error: {e}")
 
-        # Get active embedding model from config
         active_model = self.config.get_search_model()
 
         return ARIELStatusResult(
@@ -577,15 +536,12 @@ class ARIELSearchService:
 
         return re.sub(r"://[^@]+@", "://***@", uri)
 
-    # === Context Manager ===
-
     async def __aenter__(self) -> ARIELSearchService:
         """Enter async context."""
         return self
 
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Exit async context and cleanup."""
-        # Close the connection pool
         await self.pool.close()
 
 
@@ -609,13 +565,9 @@ async def create_ariel_service(
     from osprey.services.ariel_search.database.connection import create_connection_pool
     from osprey.services.ariel_search.database.repository import ARIELRepository
 
-    # Create connection pool
     pool = await create_connection_pool(config.database)
-
-    # Create repository
     repository = ARIELRepository(pool, config)
 
-    # Create and return service
     return ARIELSearchService(
         config=config,
         pool=pool,

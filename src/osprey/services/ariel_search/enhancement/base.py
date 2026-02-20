@@ -1,8 +1,6 @@
 """ARIEL enhancement module base class.
 
 This module provides the abstract base class for enhancement modules.
-
-See 01_DATA_LAYER.md Section 6.2 for specification.
 """
 
 from abc import ABC, abstractmethod
@@ -20,9 +18,6 @@ class BaseEnhancementModule(ABC):
 
     Enhancement modules enrich logbook entries during ingestion.
     They run sequentially as a pipeline, each adding data to the entry.
-
-    Follows Osprey's zero-argument constructor pattern with optional
-    configuration via configure() method.
     """
 
     @property

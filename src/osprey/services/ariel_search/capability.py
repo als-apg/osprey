@@ -3,7 +3,6 @@
 This module provides utilities for the LogbookSearchCapability to interface
 with the ARIELSearchService.
 
-See 04_OSPREY_INTEGRATION.md Section 7.5 for specification.
 """
 
 from __future__ import annotations
@@ -15,7 +14,6 @@ from osprey.utils.config import get_config_value
 if TYPE_CHECKING:
     from osprey.services.ariel_search.service import ARIELSearchService
 
-# Module-level service instance for singleton pattern
 _ariel_service_instance: ARIELSearchService | None = None
 
 

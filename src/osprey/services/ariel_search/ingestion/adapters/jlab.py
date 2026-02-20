@@ -1,8 +1,6 @@
 """JLab Logbook ingestion adapter.
 
 This module provides the adapter for Jefferson Lab electronic logbook system.
-
-See 01_DATA_LAYER.md Section 5.7 for specification.
 """
 
 import json
@@ -37,7 +35,6 @@ class JLabLogbookAdapter(BaseAdapter):
 
         self.source_url = config.ingestion.source_url
 
-        # JLab-specific config defaults
         self.merge_title_body = True
         self.include_thumbnails = True
         self.books_filter: list[str] | None = None
@@ -78,13 +75,11 @@ class JLabLogbookAdapter(BaseAdapter):
             try:
                 entry = self._convert_entry(entry_data)
 
-                # Apply books filter if configured
                 if self.books_filter:
                     entry_books = entry["metadata"].get("books", [])
                     if not any(b in self.books_filter for b in entry_books):
                         continue
 
-                # Apply time filters
                 if since and entry["timestamp"] <= since:
                     continue
                 if until and entry["timestamp"] >= until:
@@ -130,10 +125,7 @@ class JLabLogbookAdapter(BaseAdapter):
                 return json.load(f)
 
     def _convert_entry(self, data: dict[str, Any]) -> EnhancedLogbookEntry:
-        """Convert JLab JSON entry to EnhancedLogbookEntry.
-
-        See 01_DATA_LAYER.md Section 5.7 for field mapping.
-        """
+        """Convert JLab JSON entry to EnhancedLogbookEntry."""
         now = datetime.now(UTC)
 
         # Parse timestamp from created.timestamp (Unix epoch string)
@@ -145,7 +137,6 @@ class JLabLogbookAdapter(BaseAdapter):
         except (ValueError, TypeError):
             timestamp = now
 
-        # Build raw_text from title + body.content
         title = data.get("title", "")
         body = data.get("body", {})
         content = body.get("content", "") if isinstance(body, dict) else ""
@@ -155,10 +146,8 @@ class JLabLogbookAdapter(BaseAdapter):
         else:
             raw_text = title or content
 
-        # Transform attachments
         attachments = self._transform_attachments(data.get("attachments", []))
 
-        # Build metadata with JLab-specific fields
         metadata: dict[str, Any] = {}
         if title:
             metadata["title"] = title
@@ -197,7 +186,6 @@ class JLabLogbookAdapter(BaseAdapter):
             if not isinstance(att, dict) or "url" not in att:
                 continue
 
-            # Extract filename from URL
             url = att["url"]
             filename = url.rsplit("/", 1)[-1] if "/" in url else url
 

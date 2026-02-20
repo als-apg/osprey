@@ -1,9 +1,7 @@
 """ARIEL prompt templates.
 
 This module provides prompt templates for RAG answer generation.
-Agent system prompts are now in osprey.services.ariel_search.agent.executor.
-
-See 02_SEARCH_MODULES.md Section 5 for specification.
+Agent system prompts are in osprey.services.ariel_search.agent.executor.
 """
 
 from osprey.services.ariel_search.prompts.rag_answer import RAG_PROMPT_TEMPLATE

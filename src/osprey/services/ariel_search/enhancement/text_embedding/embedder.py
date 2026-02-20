@@ -1,8 +1,6 @@
 """ARIEL text embedding module.
 
 This module generates text embeddings for logbook entries to enable semantic search.
-
-See 01_DATA_LAYER.md Section 6.3 for specification.
 """
 
 from __future__ import annotations
@@ -33,19 +31,11 @@ class TextEmbeddingModule(BaseEnhancementModule):
     """Generate text embeddings for logbook entries.
 
     Supports multiple embedding models, each with its own dedicated table.
-    Follows Osprey's zero-argument constructor pattern with lazy loading
-    of expensive resources.
-
-    Uses Osprey's provider configuration system for credentials.
     The provider name references api.providers for api_key and base_url.
     """
 
     def __init__(self) -> None:
-        """Initialize the module.
-
-        Zero-argument constructor (Osprey pattern).
-        Expensive resources (embedding provider) are lazy-loaded.
-        """
+        """Initialize the module."""
         self._provider: BaseEmbeddingProvider | None = None
         self._models: list[dict[str, Any]] = []
         self._provider_name: str = "ollama"
@@ -80,11 +70,9 @@ class TextEmbeddingModule(BaseEnhancementModule):
             self._resolved_provider_config = provider_config
             return
 
-        # Provider name - resolve via Osprey's config system
         self._provider_name = provider_config
 
-        # Resolve provider credentials via Osprey's config system
-        # This may fail in test environments without config.yml
+        # May fail in test environments without config.yml
         try:
             from osprey.utils.config import get_provider_config
 
@@ -103,14 +91,11 @@ class TextEmbeddingModule(BaseEnhancementModule):
             Configured embedding provider instance based on provider_name
         """
         if self._provider is None:
-            # Dynamic provider selection based on config
             if self._provider_name == "ollama":
                 from osprey.models.embeddings.ollama import OllamaEmbeddingProvider
 
                 self._provider = OllamaEmbeddingProvider()
             else:
-                # For other providers, default to Ollama for now
-                # Additional providers can be added here as they are implemented
                 logger.warning(
                     f"Embedding provider '{self._provider_name}' not yet supported, "
                     f"falling back to 'ollama'"
@@ -180,19 +165,16 @@ class TextEmbeddingModule(BaseEnhancementModule):
             try:
                 model_name = model_config["name"]
 
-                # Truncate to model's max input (conservative estimate: 4 chars/token)
                 max_tokens = model_config.get("max_input_tokens") or 8192
                 max_chars = max_tokens * CHARS_PER_TOKEN
                 text = raw_text[:max_chars]
 
-                # Get credentials from resolved provider config
                 base_url = self._resolved_provider_config.get(
                     "base_url",
                     provider.default_base_url,
                 )
                 api_key = self._resolved_provider_config.get("api_key")
 
-                # Generate embedding
                 embeddings = provider.execute_embedding(
                     texts=[text],
                     model_id=model_name,

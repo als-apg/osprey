@@ -260,51 +260,39 @@ class TestResolveTimeRange:
     """Tests for resolve_time_range function."""
 
     @pytest.fixture
-    def request_with_time_range(self) -> ARIELSearchRequest:
-        """Request with time_range set."""
-        return ARIELSearchRequest(
-            query="test",
-            time_range=(
-                datetime(2024, 1, 1, tzinfo=UTC),
-                datetime(2024, 1, 31, tzinfo=UTC),
-            ),
+    def fallback_range(self) -> tuple[datetime, datetime]:
+        """Fallback time range."""
+        return (
+            datetime(2024, 1, 1, tzinfo=UTC),
+            datetime(2024, 1, 31, tzinfo=UTC),
         )
 
-    @pytest.fixture
-    def request_without_time_range(self) -> ARIELSearchRequest:
-        """Request without time_range."""
-        return ARIELSearchRequest(query="test")
-
-    def test_tool_params_override_request(
-        self, request_with_time_range: ARIELSearchRequest
-    ) -> None:
-        """Test that tool params override request context."""
+    def test_tool_params_override_fallback(self, fallback_range: tuple[datetime, datetime]) -> None:
+        """Test that tool params override fallback range."""
         tool_start = datetime(2023, 1, 1, tzinfo=UTC)
         tool_end = datetime(2023, 12, 31, tzinfo=UTC)
 
-        start, end = resolve_time_range(tool_start, tool_end, request_with_time_range)
+        start, end = resolve_time_range(tool_start, tool_end, fallback_range)
         assert start == tool_start
         assert end == tool_end
 
-    def test_partial_tool_params_override(
-        self, request_with_time_range: ARIELSearchRequest
-    ) -> None:
-        """Test that partial tool params override request context."""
+    def test_partial_tool_params_override(self, fallback_range: tuple[datetime, datetime]) -> None:
+        """Test that partial tool params override fallback range."""
         tool_start = datetime(2023, 1, 1, tzinfo=UTC)
 
-        start, end = resolve_time_range(tool_start, None, request_with_time_range)
+        start, end = resolve_time_range(tool_start, None, fallback_range)
         assert start == tool_start
         assert end is None
 
-    def test_fallback_to_request_context(self, request_with_time_range: ARIELSearchRequest) -> None:
-        """Test fallback to request context when no tool params."""
-        start, end = resolve_time_range(None, None, request_with_time_range)
+    def test_fallback_to_range(self, fallback_range: tuple[datetime, datetime]) -> None:
+        """Test fallback to range when no tool params."""
+        start, end = resolve_time_range(None, None, fallback_range)
         assert start == datetime(2024, 1, 1, tzinfo=UTC)
         assert end == datetime(2024, 1, 31, tzinfo=UTC)
 
-    def test_no_filtering(self, request_without_time_range: ARIELSearchRequest) -> None:
-        """Test no filtering when no params and no context."""
-        start, end = resolve_time_range(None, None, request_without_time_range)
+    def test_no_filtering(self) -> None:
+        """Test no filtering when no params and no fallback."""
+        start, end = resolve_time_range(None, None)
         assert start is None
         assert end is None
 

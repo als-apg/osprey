@@ -6,8 +6,6 @@ answers from multiple tool invocations.
 
 Search tools are auto-discovered from the Osprey registry via
 SearchToolDescriptor — adding a new search module requires zero changes here.
-
-See 03_AGENTIC_REASONING.md for specification.
 """
 
 from __future__ import annotations
@@ -25,6 +23,7 @@ from osprey.services.ariel_search.models import (
     AgentStep,
     AgentToolInvocation,
     DiagnosticLevel,
+    EnhancedLogbookEntry,
     PipelineDetails,
     SearchDiagnostic,
     SearchMode,
@@ -44,8 +43,6 @@ if TYPE_CHECKING:
 
 logger = get_logger("ariel")
 
-
-# === System Prompt ===
 
 AGENT_SYSTEM_PROMPT = """You are ARIEL, an AI assistant for searching and analyzing facility logbook entries.
 
@@ -68,9 +65,6 @@ Your purpose is to help users find relevant information in the electronic logboo
 """
 
 
-# === Agent Result ===
-
-
 @dataclass(frozen=True)
 class AgentResult:
     """Result from agent execution.
@@ -90,9 +84,6 @@ class AgentResult:
     reasoning: str = ""
     diagnostics: tuple[SearchDiagnostic, ...] = field(default_factory=tuple)
     pipeline_details: PipelineDetails | None = None
-
-
-# === Agent Executor ===
 
 
 class AgentExecutor:
@@ -220,17 +211,8 @@ class AgentExecutor:
         """
         from langchain_core.tools import StructuredTool
 
-        def _resolve_time_range(
-            tool_start: datetime | None,
-            tool_end: datetime | None,
-        ) -> tuple[datetime | None, datetime | None]:
-            if tool_start is not None or tool_end is not None:
-                return (tool_start, tool_end)
-            if time_range:
-                return time_range
-            return (None, None)
+        from osprey.services.ariel_search.models import resolve_time_range
 
-        # Capture descriptor in closure
         _execute = descriptor.execute
         _format = descriptor.format_result
         _needs_embedder = descriptor.needs_embedder
@@ -240,7 +222,7 @@ class AgentExecutor:
         async def _tool_fn(**kwargs: Any) -> list[dict[str, Any]]:
             start_date = kwargs.pop("start_date", None)
             end_date = kwargs.pop("end_date", None)
-            resolved_start, resolved_end = _resolve_time_range(start_date, end_date)
+            resolved_start, resolved_end = resolve_time_range(start_date, end_date, time_range)
 
             call_kwargs: dict[str, Any] = {
                 "query": kwargs.pop("query"),
@@ -338,9 +320,8 @@ class AgentExecutor:
 
             result = await self._run_agent(query, tools)
 
-            # Deduplicate collected entry IDs (preserving order) and fetch full entries
             unique_ids = list(dict.fromkeys(collected_ids))
-            entries: list[dict[str, Any]] = []
+            entries: list[EnhancedLogbookEntry] = []
             if unique_ids:
                 try:
                     entries = await self.repository.get_entries_by_ids(unique_ids)
@@ -416,7 +397,7 @@ class AgentExecutor:
         self,
         result: dict[str, Any],
         descriptors: list[SearchToolDescriptor],
-        entries: list[dict[str, Any]] | None = None,
+        entries: list[EnhancedLogbookEntry] | None = None,
     ) -> AgentResult:
         """Parse the agent's result into AgentResult.
 
@@ -433,29 +414,57 @@ class AgentExecutor:
         tool_name_to_mode = {d.name: d.search_mode for d in descriptors}
         messages = result.get("messages", [])
 
-        # Extract the final answer from the last AI message
         answer = None
         for msg in reversed(messages):
             if hasattr(msg, "content") and msg.type == "ai":
                 answer = msg.content
                 break
 
-        # Detect which retrieved entry IDs appear in the answer text
         sources: list[str] = []
         if answer and entries:
             sources = [
                 e["entry_id"] for e in entries if e.get("entry_id") and e["entry_id"] in answer
             ]
 
-        # Determine which search modes were used from tool calls
         search_modes_used: list[SearchMode] = []
         tool_invocations: list[AgentToolInvocation] = []
         steps: list[AgentStep] = []
         tool_call_order = 0
         step_order = 0
 
-        # Build a map of tool_call_id -> tool_name for result backfill
         call_id_to_name: dict[str, str] = {}
+
+        def _process_tool_calls(
+            tool_calls: list[dict],
+        ) -> None:
+            nonlocal tool_call_order, step_order
+            for tc in tool_calls:
+                t_name = tc.get("name", "unknown")
+                t_args = tc.get("args", {})
+                t_id = tc.get("id", "")
+                call_id_to_name[t_id] = t_name
+
+                tool_invocations.append(
+                    AgentToolInvocation(
+                        tool_name=t_name,
+                        tool_args=t_args,
+                        order=tool_call_order,
+                    )
+                )
+                steps.append(
+                    AgentStep(
+                        step_type="tool_call",
+                        content=str(t_args)[:200],
+                        tool_name=t_name,
+                        order=step_order,
+                    )
+                )
+                tool_call_order += 1
+                step_order += 1
+
+                mode = tool_name_to_mode.get(t_name)
+                if mode is not None and mode not in search_modes_used:
+                    search_modes_used.append(mode)
 
         for msg in messages:
             msg_type = getattr(msg, "type", None)
@@ -475,10 +484,8 @@ class AgentExecutor:
                 content = getattr(msg, "content", "")
                 tool_calls = getattr(msg, "tool_calls", None) or []
 
-                # AI reasoning (non-empty content before/without tool calls)
                 if content and isinstance(content, str):
                     if not tool_calls:
-                        # Final answer or reasoning without tools
                         steps.append(
                             AgentStep(
                                 step_type="final_answer" if msg is messages[-1] else "reasoning",
@@ -497,33 +504,7 @@ class AgentExecutor:
                         )
                         step_order += 1
 
-                for tc in tool_calls:
-                    t_name = tc.get("name", "unknown")
-                    t_args = tc.get("args", {})
-                    t_id = tc.get("id", "")
-                    call_id_to_name[t_id] = t_name
-
-                    tool_invocations.append(
-                        AgentToolInvocation(
-                            tool_name=t_name,
-                            tool_args=t_args,
-                            order=tool_call_order,
-                        )
-                    )
-                    steps.append(
-                        AgentStep(
-                            step_type="tool_call",
-                            content=str(t_args)[:200],
-                            tool_name=t_name,
-                            order=step_order,
-                        )
-                    )
-                    tool_call_order += 1
-                    step_order += 1
-
-                    mode = tool_name_to_mode.get(t_name)
-                    if mode is not None and mode not in search_modes_used:
-                        search_modes_used.append(mode)
+                _process_tool_calls(tool_calls)
 
             elif msg_type == "tool":
                 content = getattr(msg, "content", "")
@@ -531,7 +512,6 @@ class AgentExecutor:
                 t_name = call_id_to_name.get(t_id)
                 summary = str(content)[:200]
 
-                # Backfill result_summary on the matching invocation
                 for i, inv in enumerate(tool_invocations):
                     if inv.tool_name == t_name and inv.result_summary == "":
                         tool_invocations[i] = AgentToolInvocation(
@@ -553,37 +533,9 @@ class AgentExecutor:
                 step_order += 1
 
             else:
-                # Fallback: check for tool_calls on untyped messages
                 tool_calls = getattr(msg, "tool_calls", None) or []
-                for tc in tool_calls:
-                    t_name = tc.get("name", "unknown")
-                    t_args = tc.get("args", {})
-                    t_id = tc.get("id", "")
-                    call_id_to_name[t_id] = t_name
+                _process_tool_calls(tool_calls)
 
-                    tool_invocations.append(
-                        AgentToolInvocation(
-                            tool_name=t_name,
-                            tool_args=t_args,
-                            order=tool_call_order,
-                        )
-                    )
-                    steps.append(
-                        AgentStep(
-                            step_type="tool_call",
-                            content=str(t_args)[:200],
-                            tool_name=t_name,
-                            order=step_order,
-                        )
-                    )
-                    tool_call_order += 1
-                    step_order += 1
-
-                    mode = tool_name_to_mode.get(t_name)
-                    if mode is not None and mode not in search_modes_used:
-                        search_modes_used.append(mode)
-
-        # Build step summary
         tool_names = [inv.tool_name for inv in tool_invocations]
         unique_tools = list(dict.fromkeys(tool_names))
         if tool_invocations:
@@ -600,7 +552,7 @@ class AgentExecutor:
 
         return AgentResult(
             answer=answer,
-            entries=tuple(entries or ()),
+            entries=tuple(dict(e) for e in entries) if entries else (),
             sources=tuple(sources),
             search_modes_used=tuple(search_modes_used),
             reasoning="",

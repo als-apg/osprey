@@ -2,8 +2,6 @@
 
 This module provides the adapter for ALS eLog system.
 Supports both file-based (JSONL) and HTTP-based sources.
-
-See 01_DATA_LAYER.md Sections 5.3, 5.5 for specification.
 """
 
 import asyncio
@@ -42,7 +40,6 @@ def parse_als_categories(category_str: str) -> list[str]:
     """
     if not category_str:
         return []
-    # Handle leading/trailing commas in historical entries
     return [cat.strip() for cat in category_str.split(",") if cat.strip()]
 
 
@@ -63,7 +60,6 @@ def transform_als_attachments(
     for att in source_attachments:
         if isinstance(att, dict) and "url" in att:
             path = att["url"]
-            # Extract filename from path
             filename = path.rsplit("/", 1)[-1] if "/" in path else path
             result.append(
                 {
@@ -95,12 +91,10 @@ class ALSLogbookAdapter(BaseAdapter):
         self.source_url = config.ingestion.source_url
         self.source_type = self._detect_source_type(self.source_url)
 
-        # ALS-specific config defaults
         self.merge_subject_details = True
         self.attachment_url_prefix = "https://elog.als.lbl.gov/"
         self.skip_empty_entries = True
 
-        # HTTP mode configuration
         self.proxy_url = config.ingestion.proxy_url or os.environ.get("ARIEL_SOCKS_PROXY")
         self.verify_ssl = config.ingestion.verify_ssl
         self.chunk_days = config.ingestion.chunk_days or 365
@@ -140,7 +134,6 @@ class ALSLogbookAdapter(BaseAdapter):
                 yield entry
             return
 
-        # File mode: read JSONL line by line
         path = Path(self.source_url)
         if not path.exists():
             raise IngestionError(
@@ -159,11 +152,9 @@ class ALSLogbookAdapter(BaseAdapter):
                     data = json.loads(line)
                     entry = self._convert_entry(data)
 
-                    # Skip empty entries if configured
                     if self.skip_empty_entries and not entry["raw_text"].strip():
                         continue
 
-                    # Apply time filters
                     if since and entry["timestamp"] <= since:
                         continue
                     if until and entry["timestamp"] >= until:
@@ -201,25 +192,20 @@ class ALSLogbookAdapter(BaseAdapter):
         Yields:
             EnhancedLogbookEntry objects
         """
-        # Default time range: full ALS logbook history
         start_date = since or ALS_LOGBOOK_START_DATE
         end_date = until or datetime.now(UTC)
 
-        # Generate time windows
         windows = self._generate_time_windows(start_date, end_date)
         logger.info(
             f"Fetching ALS logbook entries from {start_date.isoformat()} to {end_date.isoformat()} "
             f"in {len(windows)} window(s)"
         )
 
-        # Track seen IDs for deduplication across windows
         seen_ids: set[str] = set()
         count = 0
 
-        # Create connector with optional proxy
         connector = self._create_connector()
 
-        # Create SSL context
         ssl_context: ssl.SSLContext | bool
         if self.verify_ssl:
             ssl_context = True
@@ -240,7 +226,6 @@ class ALSLogbookAdapter(BaseAdapter):
                         session, window_start, window_end, ssl_context
                     )
                 except IngestionError:
-                    # Re-raise ingestion errors
                     raise
                 except Exception as e:
                     logger.error(f"Failed to fetch window {window_start}-{window_end}: {e}")
@@ -249,7 +234,6 @@ class ALSLogbookAdapter(BaseAdapter):
                 for data in entries_data:
                     entry_id = str(data.get("id", ""))
 
-                    # Deduplicate across windows
                     if entry_id in seen_ids:
                         continue
                     seen_ids.add(entry_id)
@@ -257,7 +241,6 @@ class ALSLogbookAdapter(BaseAdapter):
                     try:
                         entry = self._convert_entry(data)
 
-                        # Skip empty entries if configured
                         if self.skip_empty_entries and not entry["raw_text"].strip():
                             continue
 
@@ -333,7 +316,6 @@ class ALSLogbookAdapter(BaseAdapter):
             except (aiohttp.ClientError, TimeoutError) as e:
                 last_error = e
 
-            # Exponential backoff
             delay = self.retry_delay * (2**attempt)
             logger.warning(
                 f"Attempt {attempt + 1}/{self.max_retries} failed for window "
@@ -365,7 +347,6 @@ class ALSLogbookAdapter(BaseAdapter):
         Returns:
             List of entry dictionaries from API
         """
-        # Convert to Unix timestamps
         start_ts = int(window_start.timestamp())
         end_ts = int(window_end.timestamp())
 
@@ -402,7 +383,6 @@ class ALSLogbookAdapter(BaseAdapter):
         if not self.proxy_url:
             return aiohttp.TCPConnector()
 
-        # Try to import aiohttp-socks for SOCKS proxy support
         try:
             from aiohttp_socks import ProxyConnector
         except ImportError as e:
@@ -417,10 +397,7 @@ class ALSLogbookAdapter(BaseAdapter):
         return connector
 
     def _convert_entry(self, data: dict[str, Any]) -> EnhancedLogbookEntry:
-        """Convert ALS JSON entry to EnhancedLogbookEntry.
-
-        See 01_DATA_LAYER.md Section 5.5 for field mapping.
-        """
+        """Convert ALS JSON entry to EnhancedLogbookEntry."""
         now = datetime.now(UTC)
 
         # Parse timestamp - ALS uses Unix epoch STRING (not int)
@@ -431,7 +408,6 @@ class ALSLogbookAdapter(BaseAdapter):
         except (ValueError, TypeError):
             timestamp = now
 
-        # Build raw_text from subject + details
         subject = data.get("subject", "")
         details = data.get("details", "")
         if self.merge_subject_details and subject and details:
@@ -439,7 +415,6 @@ class ALSLogbookAdapter(BaseAdapter):
         else:
             raw_text = subject or details
 
-        # Parse categories
         categories = parse_als_categories(data.get("category", ""))
 
         # Handle "0" as null for tag and linkedto
@@ -451,14 +426,12 @@ class ALSLogbookAdapter(BaseAdapter):
         if linked_to == "0":
             linked_to = None
 
-        # Transform attachments
         source_attachments = data.get("attachments", [])
         attachments = transform_als_attachments(
             source_attachments,
             self.attachment_url_prefix,
         )
 
-        # Build metadata with ALS-specific fields
         metadata: dict[str, Any] = {}
         if subject:
             metadata["subject"] = subject

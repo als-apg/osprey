@@ -19,9 +19,6 @@ from osprey.services.ariel_search.database.migration import (
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.database.connection import (
-        close_connection_pool as close_connection_pool,
-    )
-    from osprey.services.ariel_search.database.connection import (
         create_connection_pool as create_connection_pool,
     )
     from osprey.services.ariel_search.database.migrate import (
@@ -40,19 +37,14 @@ if TYPE_CHECKING:
         requires_module as requires_module,
     )
 
-# Lazy imports for database-dependent modules
 __all__ = [
-    # Connection (lazy)
-    "close_connection_pool",
     "create_connection_pool",
-    # Migrations
     "BaseMigration",
     "CoreMigration",
     "KNOWN_MIGRATIONS",
     "MigrationRunner",
     "model_to_table_name",
     "run_migrations",
-    # Repository
     "ARIELRepository",
     "requires_module",
 ]
@@ -60,16 +52,12 @@ __all__ = [
 
 def __getattr__(name: str):
     """Lazy load database-dependent modules."""
-    if name in ("close_connection_pool", "create_connection_pool"):
+    if name == "create_connection_pool":
         from osprey.services.ariel_search.database.connection import (
-            close_connection_pool,
             create_connection_pool,
         )
 
-        return {
-            "close_connection_pool": close_connection_pool,
-            "create_connection_pool": create_connection_pool,
-        }[name]
+        return create_connection_pool
 
     if name in ("KNOWN_MIGRATIONS", "MigrationRunner", "run_migrations"):
         from osprey.services.ariel_search.database.migrate import (

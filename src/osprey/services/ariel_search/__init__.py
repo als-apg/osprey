@@ -7,7 +7,6 @@ Four execution modes:
 - **RAG** (deterministic): Hybrid retrieval + RRF fusion + LLM generation
 - **AGENT** (agentic): ReAct agent with auto-discovered search tools
 
-See 04_OSPREY_INTEGRATION.md Section 9.1 for the public API specification.
 """
 
 from osprey.services.ariel_search.agent import (

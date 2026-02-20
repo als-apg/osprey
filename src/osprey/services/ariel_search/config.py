@@ -3,7 +3,6 @@
 This module defines typed configuration classes for ARIEL components.
 Configuration is loaded from the `ariel:` section of config.yml.
 
-See 04_OSPREY_INTEGRATION.md Sections 3.1-3.8 for full specification.
 """
 
 import os
@@ -76,8 +75,8 @@ class SearchModuleConfig:
     """
 
     enabled: bool
-    provider: str | None = None  # References api.providers for credentials
-    model: str | None = None  # Required for semantic/rag, ignored for keyword
+    provider: str | None = None
+    model: str | None = None
     settings: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -103,8 +102,8 @@ class EnhancementModuleConfig:
     """
 
     enabled: bool
-    provider: str | None = None  # References api.providers for credentials
-    models: list[ModelConfig] | None = None  # For text_embedding
+    provider: str | None = None
+    models: list[ModelConfig] | None = None
     settings: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -187,10 +186,8 @@ class IngestionConfig:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "IngestionConfig":
         """Create IngestionConfig from dictionary."""
-        # proxy_url: config value OR env var fallback
         proxy_url = data.get("proxy_url") or os.environ.get("ARIEL_SOCKS_PROXY")
 
-        # Parse watch config
         watch = WatchConfig()
         if "watch" in data:
             watch = WatchConfig.from_dict(data["watch"])
@@ -253,7 +250,7 @@ class ReasoningConfig:
         model_id: LLM model identifier (default: "gpt-4o-mini")
         max_iterations: Maximum ReAct cycles (default: 5)
         temperature: LLM temperature (default: 0.1)
-        tool_timeout_seconds: Per-tool call timeout (default: 30) - V2
+        tool_timeout_seconds: Per-tool call timeout (default: 30)
         total_timeout_seconds: Total agent execution timeout (default: 120)
     """
 
@@ -312,35 +309,28 @@ class ARIELConfig:
         Returns:
             ARIELConfig instance
         """
-        # Database is required
         database = DatabaseConfig.from_dict(config_dict["database"])
 
-        # Parse search modules
         search_modules: dict[str, SearchModuleConfig] = {}
         for name, data in config_dict.get("search_modules", {}).items():
             search_modules[name] = SearchModuleConfig.from_dict(data)
 
-        # Parse pipelines
         pipelines: dict[str, PipelineModuleConfig] = {}
         for name, data in config_dict.get("pipelines", {}).items():
             pipelines[name] = PipelineModuleConfig.from_dict(data)
 
-        # Parse enhancement modules
         enhancement_modules: dict[str, EnhancementModuleConfig] = {}
         for name, data in config_dict.get("enhancement_modules", {}).items():
             enhancement_modules[name] = EnhancementModuleConfig.from_dict(data)
 
-        # Parse ingestion
         ingestion = None
         if "ingestion" in config_dict:
             ingestion = IngestionConfig.from_dict(config_dict["ingestion"])
 
-        # Parse reasoning
         reasoning = ReasoningConfig()
         if "reasoning" in config_dict:
             reasoning = ReasoningConfig.from_dict(config_dict["reasoning"])
 
-        # Parse embedding
         embedding = EmbeddingConfig()
         if "embedding" in config_dict:
             embedding = EmbeddingConfig.from_dict(config_dict["embedding"])

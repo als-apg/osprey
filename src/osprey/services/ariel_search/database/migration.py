@@ -2,8 +2,6 @@
 
 This module provides the base class for ARIEL database migrations
 and utility functions for migration management.
-
-See 01_DATA_LAYER.md Sections 3.1-3.5 for specification.
 """
 
 from abc import ABC, abstractmethod
@@ -76,7 +74,6 @@ class BaseMigration(ABC):
         Returns:
             True if migration has been applied
         """
-        # Check ariel_migrations table
         result = await conn.execute(
             """
             SELECT EXISTS (
@@ -87,7 +84,6 @@ class BaseMigration(ABC):
         )
         row = await result.fetchone()
         if not row or not row[0]:
-            # ariel_migrations table doesn't exist yet
             return False
 
         result = await conn.execute(
@@ -136,11 +132,8 @@ def model_to_table_name(model_name: str) -> str:
     Returns:
         Table name (e.g., 'text_embeddings_nomic_embed_text')
     """
-    # Replace hyphens and other invalid characters with underscores
     safe_name = model_name.replace("-", "_").replace(".", "_").replace("/", "_")
-    # Remove any double underscores
     while "__" in safe_name:
         safe_name = safe_name.replace("__", "_")
-    # Lowercase
     safe_name = safe_name.lower()
     return f"text_embeddings_{safe_name}"

@@ -2,8 +2,6 @@
 
 This module provides full-text search using PostgreSQL's built-in
 text search capabilities with optional fuzzy matching fallback.
-
-See 02_SEARCH_MODULES.md Section 3 for specification.
 """
 
 from __future__ import annotations
@@ -25,14 +23,12 @@ if TYPE_CHECKING:
 
 logger = get_logger("ariel")
 
-# Allowed operators for query parsing
 ALLOWED_OPERATORS = {"AND", "OR", "NOT"}
 ALLOWED_FIELD_PREFIXES = {"author:", "date:"}
 
 # Default fuzzy threshold (pg_trgm similarity)
 DEFAULT_FUZZY_THRESHOLD = 0.3
 
-# Maximum query length (GAP-C002)
 MAX_QUERY_LENGTH = 1000
 
 
@@ -50,7 +46,6 @@ def _balance_quotes(query: str) -> str:
     """
     quote_count = query.count('"')
     if quote_count % 2 == 0:
-        # Quotes are balanced
         return query
 
     # Find the position of the last unbalanced quote and escape it
@@ -85,29 +80,24 @@ def parse_query(query: str) -> tuple[str, dict[str, str], list[str]]:
     field_filters: dict[str, str] = {}
     phrases: list[str] = []
 
-    # Balance unbalanced quotes before parsing (GAP-C001)
     query = _balance_quotes(query)
 
-    # Extract quoted phrases first
     phrase_pattern = r'"([^"]+)"'
     phrase_matches = re.findall(phrase_pattern, query)
     phrases.extend(phrase_matches)
 
-    # Remove phrases from query
     remaining = re.sub(phrase_pattern, "", query)
 
-    # Extract field prefixes
     tokens = remaining.split()
     search_tokens: list[str] = []
 
     for token in tokens:
         lower_token = token.lower()
 
-        # Check for field prefix
         if lower_token.startswith("author:"):
-            field_filters["author"] = token[7:]  # After "author:"
+            field_filters["author"] = token[7:]
         elif lower_token.startswith("date:"):
-            field_filters["date"] = token[5:]  # After "date:"
+            field_filters["date"] = token[5:]
         else:
             search_tokens.append(token)
 
@@ -135,12 +125,9 @@ def build_tsquery(search_text: str, phrases: list[str]) -> str:
         ts_text = re.sub(r"\bOR\b", "|", ts_text, flags=re.IGNORECASE)
         ts_text = re.sub(r"\bNOT\b", "!", ts_text, flags=re.IGNORECASE)
 
-        # Check if text has operators
         if any(op in ts_text for op in ("&", "|", "!")):
-            # Use websearch_to_tsquery for flexible parsing
             tsquery_parts.append("websearch_to_tsquery('english', %s)")
         else:
-            # Use plainto_tsquery for implicit AND
             tsquery_parts.append("plainto_tsquery('english', %s)")
 
     # Add phrase matches
@@ -150,7 +137,6 @@ def build_tsquery(search_text: str, phrases: list[str]) -> str:
     if not tsquery_parts:
         return "plainto_tsquery('english', '')"
 
-    # Combine with AND
     return " && ".join(tsquery_parts)
 
 
@@ -196,20 +182,16 @@ async def keyword_search(
         f"start_date={start_date}, end_date={end_date}"
     )
 
-    # Truncate query if too long (GAP-C002)
     if len(query) > MAX_QUERY_LENGTH:
         original_length = len(query)
         query = query[:MAX_QUERY_LENGTH]
         logger.warning(f"Query truncated from {original_length} to {MAX_QUERY_LENGTH} characters")
 
-    # Parse the query
     search_text, field_filters, phrases = parse_query(query)
 
-    # Build search parameters
     params: list[Any] = []
     where_clauses: list[str] = []
 
-    # Build tsquery
     if search_text.strip() or phrases:
         # Combine search text and phrases for tsquery
         all_search_terms = search_text
@@ -218,35 +200,30 @@ async def keyword_search(
         for phrase in phrases:
             params.append(phrase)
 
-        # Main FTS condition
-        # Note: Search is performed on raw_text which contains subject + details
+        # Search is performed on raw_text which contains subject + details
         where_clauses.append(
             f"to_tsvector('english', raw_text) @@ ({build_tsquery(search_text, phrases)})"
         )
 
-    # Add field filters
     if "author" in field_filters:
         where_clauses.append("author ILIKE %s")
         params.append(f"%{field_filters['author']}%")
 
     if "date" in field_filters:
-        # Parse date filter (YYYY-MM or YYYY-MM-DD)
         date_val = field_filters["date"]
-        if len(date_val) == 7:  # YYYY-MM
+        if len(date_val) == 7:
             where_clauses.append("timestamp >= %s AND timestamp < %s")
             params.append(f"{date_val}-01")
-            # Next month
             year, month = int(date_val[:4]), int(date_val[5:7])
             if month == 12:
                 next_month = f"{year + 1}-01-01"
             else:
                 next_month = f"{year}-{month + 1:02d}-01"
             params.append(next_month)
-        else:  # YYYY-MM-DD
+        else:
             where_clauses.append("DATE(timestamp) = %s")
             params.append(date_val)
 
-    # Add time range filters
     if start_date:
         where_clauses.append("timestamp >= %s")
         params.append(start_date)
@@ -254,7 +231,6 @@ async def keyword_search(
         where_clauses.append("timestamp <= %s")
         params.append(end_date)
 
-    # Add metadata filters (from web UI filter panel)
     if author and "author" not in field_filters:
         where_clauses.append("author ILIKE %s")
         params.append(f"%{author}%")
@@ -262,7 +238,6 @@ async def keyword_search(
         where_clauses.append("source_system = %s")
         params.append(source_system)
 
-    # Execute search via repository
     results = await repository.keyword_search(
         where_clauses=where_clauses,
         params=params,
@@ -271,7 +246,6 @@ async def keyword_search(
         include_highlights=include_highlights,
     )
 
-    # If no results and fuzzy fallback enabled, try fuzzy search
     if not results and fuzzy_fallback and (search_text.strip() or phrases):
         results = await repository.fuzzy_search(
             search_text=search_text or " ".join(phrases),
@@ -283,9 +257,6 @@ async def keyword_search(
 
     logger.info(f"keyword_search: returning {len(results)} results")
     return results
-
-
-# === Tool descriptor for agent auto-discovery ===
 
 
 class KeywordSearchInput(BaseModel):
@@ -325,16 +296,9 @@ def format_keyword_result(
     Returns:
         Formatted dict for agent
     """
-    timestamp = entry.get("timestamp")
-    return {
-        "entry_id": entry.get("entry_id"),
-        "timestamp": timestamp.isoformat() if timestamp is not None else None,
-        "author": entry.get("author"),
-        "text": entry.get("raw_text", "")[:500],  # Truncate for agent
-        "title": entry.get("metadata", {}).get("title"),
-        "score": score,
-        "highlights": highlights,
-    }
+    from osprey.services.ariel_search.models import _format_entry_base
+
+    return {**_format_entry_base(entry), "score": score, "highlights": highlights}
 
 
 def get_parameter_descriptors() -> list[ParameterDescriptor]:

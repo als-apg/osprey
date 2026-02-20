@@ -2,8 +2,6 @@
 
 This module provides the adapter for Oak Ridge National Laboratory
 electronic logbook system.
-
-See 01_DATA_LAYER.md Section 5.8 for specification.
 """
 
 import json
@@ -38,7 +36,6 @@ class ORNLLogbookAdapter(BaseAdapter):
 
         self.source_url = config.ingestion.source_url
 
-        # ORNL-specific config defaults
         self.merge_title_content = True
         self.store_event_time = True
         self.logbooks_filter: list[str] | None = None
@@ -66,7 +63,6 @@ class ORNLLogbookAdapter(BaseAdapter):
         """
         data = await self._load_data()
 
-        # Handle various response formats
         if isinstance(data, dict) and "entries" in data:
             entries = data.get("entries", [])
         elif isinstance(data, list):
@@ -79,13 +75,11 @@ class ORNLLogbookAdapter(BaseAdapter):
             try:
                 entry = self._convert_entry(entry_data)
 
-                # Apply logbooks filter if configured
                 if self.logbooks_filter:
                     entry_books = entry["metadata"].get("books", [])
                     if not any(b in self.logbooks_filter for b in entry_books):
                         continue
 
-                # Apply time filters
                 if since and entry["timestamp"] <= since:
                     continue
                 if until and entry["timestamp"] >= until:
@@ -131,17 +125,12 @@ class ORNLLogbookAdapter(BaseAdapter):
                 return json.load(f)
 
     def _convert_entry(self, data: dict[str, Any]) -> EnhancedLogbookEntry:
-        """Convert ORNL JSON entry to EnhancedLogbookEntry.
-
-        See 01_DATA_LAYER.md Section 5.8 for field mapping.
-        """
+        """Convert ORNL JSON entry to EnhancedLogbookEntry."""
         now = datetime.now(UTC)
 
-        # Parse entry_time as timestamp
         entry_time = data.get("entry_time", "")
         timestamp = self._parse_timestamp(entry_time) if entry_time else now
 
-        # Build raw_text from title + content
         title = data.get("title", "")
         content = data.get("content", "")
 
@@ -150,15 +139,13 @@ class ORNLLogbookAdapter(BaseAdapter):
         else:
             raw_text = title or content
 
-        # Transform attachments
         attachments = self._transform_attachments(data)
 
-        # Build metadata with ORNL-specific fields
         metadata: dict[str, Any] = {}
         if title:
             metadata["title"] = title
 
-        # Store logbook as books array for consistency with JLab
+        # Store logbook as books array for cross-facility consistency
         logbook = data.get("logbook")
         if logbook:
             metadata["books"] = [logbook] if isinstance(logbook, str) else logbook
@@ -171,11 +158,9 @@ class ORNLLogbookAdapter(BaseAdapter):
             event_time = self._parse_timestamp(data["event_time"])
             metadata["event_time"] = event_time.isoformat()
 
-        # Reference to related entry
         if data.get("reference"):
             metadata["linked_to"] = data["reference"]
 
-        # Attachment headers
         if data.get("attachment_header"):
             att_headers = data["attachment_header"]
             if isinstance(att_headers, str):
@@ -201,7 +186,6 @@ class ORNLLogbookAdapter(BaseAdapter):
             return datetime.fromtimestamp(value, tz=UTC)
 
         if isinstance(value, str):
-            # Try ISO 8601
             try:
                 if value.endswith("Z"):
                     value = value[:-1] + "+00:00"
@@ -209,7 +193,6 @@ class ORNLLogbookAdapter(BaseAdapter):
             except ValueError:
                 pass  # Not ISO 8601; try next format
 
-            # Try Unix epoch as string
             try:
                 return datetime.fromtimestamp(float(value), tz=UTC)
             except ValueError:
@@ -224,11 +207,8 @@ class ORNLLogbookAdapter(BaseAdapter):
         """Transform ORNL attachments to ARIEL format."""
         result: list[AttachmentInfo] = []
 
-        # ORNL may have attachment_header but not full attachment objects
-        # This is a simplified implementation
         attachments = data.get("attachments", [])
         if not attachments and data.get("attachment") == "Y":
-            # Has attachment flag but no details - create placeholder
             headers = data.get("attachment_header", [])
             if isinstance(headers, str):
                 headers = [headers]

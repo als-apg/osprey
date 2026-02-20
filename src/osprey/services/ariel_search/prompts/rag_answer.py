@@ -2,11 +2,9 @@
 
 This module provides the prompt template for RAG (Retrieval-Augmented Generation)
 answer generation.
-
-See 02_SEARCH_MODULES.md Section 5 for specification.
 """
 
-# RAG prompt template - uses [#entry_id] citation format per spec Section 5.6
+# RAG prompt template - uses [#entry_id] citation format
 RAG_PROMPT_TEMPLATE = """You are a helpful assistant answering questions about facility operations based on logbook entries.
 
 Use the following logbook entries as context to answer the question. Each entry has an ID, timestamp, author, and content.

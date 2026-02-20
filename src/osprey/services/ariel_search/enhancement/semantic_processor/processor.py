@@ -2,8 +2,6 @@
 
 This module extracts keywords and generates summaries from logbook entries
 to enable keyword search and improve retrieval quality.
-
-See 01_DATA_LAYER.md Section 6.5-6.6 for specification.
 """
 
 import json
@@ -26,12 +24,8 @@ if TYPE_CHECKING:
 logger = get_logger("ariel")
 
 
-# Pydantic model for structured output
 class SemanticProcessorResult(BaseModel):
-    """Structured output from semantic processing.
-
-    Follows the pattern from MemoryContentExtraction in osprey.capabilities.memory.
-    """
+    """Structured output from semantic processing."""
 
     keywords: list[str] = Field(
         description="Key terms, equipment names, and concepts from the entry"
@@ -39,7 +33,6 @@ class SemanticProcessorResult(BaseModel):
     summary: str = Field(description="Concise summary capturing the main point of the entry")
 
 
-# Default prompt template for semantic processing
 DEFAULT_PROMPT_TEMPLATE = """Extract keywords and generate a summary from this logbook entry.
 
 Entry text:
@@ -69,15 +62,10 @@ class SemanticProcessorModule(BaseEnhancementModule):
     """Extract keywords and generate summaries from logbook entries.
 
     Uses a small LLM to extract keywords and generate summaries.
-    Follows Osprey's zero-argument constructor pattern with lazy loading.
     """
 
     def __init__(self) -> None:
-        """Initialize the module.
-
-        Zero-argument constructor (Osprey pattern).
-        LLM is lazy-loaded on first enhance() call.
-        """
+        """Initialize the module."""
         self._model_config: dict[str, Any] = {}
         self._prompt_template: str = DEFAULT_PROMPT_TEMPLATE
 
@@ -119,7 +107,6 @@ class SemanticProcessorModule(BaseEnhancementModule):
             return
 
         try:
-            # Extract keywords and summary using LLM
             result = await self._process_text(raw_text)
 
             if result:
@@ -145,16 +132,13 @@ class SemanticProcessorModule(BaseEnhancementModule):
         try:
             from osprey.models.completion import get_chat_completion
 
-            # Build prompt
-            prompt = self._prompt_template.format(text=text[:8000])  # Truncate for safety
+            prompt = self._prompt_template.format(text=text[:8000])
 
-            # Get completion
             response = get_chat_completion(
                 message=prompt,
                 model_config=self._model_config if self._model_config else None,
             )
 
-            # Handle different response types
             if isinstance(response, str):
                 response_text = response
             else:
@@ -178,7 +162,6 @@ class SemanticProcessorModule(BaseEnhancementModule):
             SemanticProcessorResult or None if parsing failed
         """
         try:
-            # Try to extract JSON from response
             # Handle cases where LLM wraps JSON in markdown code blocks
             text = response_text.strip()
 
@@ -191,10 +174,7 @@ class SemanticProcessorModule(BaseEnhancementModule):
 
             text = text.strip()
 
-            # Parse JSON
             data = json.loads(text)
-
-            # Validate with Pydantic
             return SemanticProcessorResult(**data)
 
         except (json.JSONDecodeError, ValueError) as e:
@@ -237,7 +217,6 @@ class SemanticProcessorModule(BaseEnhancementModule):
         try:
             from osprey.models.completion import get_chat_completion
 
-            # Quick test with minimal prompt
             response = get_chat_completion(
                 message="Say OK",
                 model_config=self._model_config if self._model_config else None,

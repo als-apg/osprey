@@ -2,8 +2,6 @@
 
 This module provides the database migration for the text embedding
 enhancement module.
-
-See 01_DATA_LAYER.md Section 2.5 for SQL specification.
 """
 
 from typing import TYPE_CHECKING
@@ -50,9 +48,6 @@ class TextEmbeddingMigration(BaseMigration):
     def _get_models(self) -> list[tuple[str, int]]:
         """Get the list of models to create tables for.
 
-        In production, this would be populated from config. For MVP,
-        we use a default model list.
-
         Returns:
             List of (model_name, dimension) tuples
         """
@@ -75,7 +70,6 @@ class TextEmbeddingMigration(BaseMigration):
 
     async def up(self, conn: "AsyncConnection") -> None:
         """Apply the text embedding migration."""
-        # Check pgvector availability before attempting to create the extension
         if not await self._is_pgvector_available(conn):
             raise MigrationSkippedError(
                 "pgvector extension is not available in this PostgreSQL installation. "
@@ -83,14 +77,12 @@ class TextEmbeddingMigration(BaseMigration):
                 "ARIEL will fall back to keyword-only search."
             )
 
-        # Enable pgvector extension
         await conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
         models = self._get_models()
         for model_name, dimension in models:
             table_name = model_to_table_name(model_name)
 
-            # Create embedding table
             await conn.execute(
                 f"""
                 CREATE TABLE IF NOT EXISTS {table_name} (
@@ -103,8 +95,6 @@ class TextEmbeddingMigration(BaseMigration):
                 """  # noqa: S608
             )
 
-            # Create IVFFlat index for vector similarity search
-            # MVP default: lists=224 (sqrt of 50K entries)
             index_name = f"idx_{table_name}_vector"
             await conn.execute(
                 f"""

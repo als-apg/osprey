@@ -1,11 +1,9 @@
 """ARIEL database connection management.
 
 This module provides async connection pool management for the ARIEL database.
-
-See 04_OSPREY_INTEGRATION.md Sections 3.5, 3.5.1 for specification.
 """
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from psycopg_pool import AsyncConnectionPool
@@ -15,9 +13,6 @@ if TYPE_CHECKING:
 
 async def create_connection_pool(config: "DatabaseConfig") -> "AsyncConnectionPool":
     """Create async connection pool for ARIEL repository.
-
-    MVP settings: minimal pool size, modest maximum.
-    V2 may add configurable pool_min_size, pool_max_size.
 
     Args:
         config: Database configuration with connection URI
@@ -45,12 +40,3 @@ async def create_connection_pool(config: "DatabaseConfig") -> "AsyncConnectionPo
     )
     await pool.open()
     return pool
-
-
-async def close_connection_pool(pool: Any) -> None:
-    """Close the connection pool.
-
-    Args:
-        pool: The pool to close
-    """
-    await pool.close()

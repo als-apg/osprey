@@ -8,8 +8,6 @@ The Agent is a peer to the RAGPipeline - they are not nested.
 Use direct search calls for KEYWORD/SEMANTIC, RAGPipeline for RAG,
 and Agent for agentic orchestration (AGENT mode).
 
-See 03_AGENTIC_REASONING.md for specification.
-
 Example:
     from osprey.services.ariel_search.agent import AgentExecutor, AgentResult
 

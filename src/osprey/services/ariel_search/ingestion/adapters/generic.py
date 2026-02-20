@@ -2,8 +2,6 @@
 
 This module provides a flexible adapter for testing and facilities
 without custom APIs.
-
-See 01_DATA_LAYER.md Sections 5.4, 5.10 for specification.
 """
 
 import json
@@ -70,7 +68,6 @@ class GenericJSONAdapter(BaseAdapter):
             try:
                 entry = self._convert_entry(entry_data)
 
-                # Apply time filters
                 if since and entry["timestamp"] <= since:
                     continue
                 if until and entry["timestamp"] >= until:
@@ -89,7 +86,6 @@ class GenericJSONAdapter(BaseAdapter):
     async def _load_data(self) -> dict[str, Any]:
         """Load JSON data from source."""
         if self.source_url.startswith(("http://", "https://")):
-            # HTTP mode
             try:
                 import aiohttp
 
@@ -107,7 +103,6 @@ class GenericJSONAdapter(BaseAdapter):
                     source_system=self.source_system_name,
                 ) from err
         else:
-            # File mode
             path = Path(self.source_url)
             if not path.exists():
                 raise IngestionError(
@@ -121,10 +116,8 @@ class GenericJSONAdapter(BaseAdapter):
         """Convert generic JSON entry to EnhancedLogbookEntry."""
         now = datetime.now(UTC)
 
-        # Parse timestamp
         timestamp = self._parse_timestamp(data.get("timestamp", ""))
 
-        # Build raw_text from title + text if both present
         title = data.get("title", "")
         text = data.get("text", "")
         if title and text:
@@ -132,7 +125,6 @@ class GenericJSONAdapter(BaseAdapter):
         else:
             raw_text = title or text
 
-        # Build attachments
         attachments: list[AttachmentInfo] = []
         for att in data.get("attachments", []):
             if isinstance(att, dict) and "url" in att:
@@ -146,7 +138,6 @@ class GenericJSONAdapter(BaseAdapter):
                     }
                 )
 
-        # Build metadata from optional fields
         metadata: dict[str, Any] = {}
         if title:
             metadata["title"] = title
@@ -190,11 +181,9 @@ class GenericJSONAdapter(BaseAdapter):
     def _parse_timestamp(self, value: str | int | float) -> datetime:
         """Parse timestamp from various formats."""
         if isinstance(value, (int, float)):
-            # Unix epoch
             return datetime.fromtimestamp(value, tz=UTC)
 
         if isinstance(value, str):
-            # Try ISO 8601 first
             try:
                 # Handle with or without Z suffix
                 if value.endswith("Z"):
@@ -203,7 +192,6 @@ class GenericJSONAdapter(BaseAdapter):
             except ValueError:
                 pass  # Not ISO 8601; try next format
 
-            # Try Unix epoch as string
             try:
                 return datetime.fromtimestamp(float(value), tz=UTC)
             except ValueError:

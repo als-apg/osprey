@@ -1,8 +1,6 @@
 """ARIEL enhancement module factory.
 
 This module provides factory functions for creating enhancement modules.
-
-See 01_DATA_LAYER.md Section 6.2.1 for specification.
 """
 
 from typing import TYPE_CHECKING
@@ -19,11 +17,6 @@ def create_enhancers_from_config(
 
     Uses the central Osprey registry for module discovery with explicit
     execution ordering.
-
-    Follows Osprey's factory pattern:
-    - Zero-argument instantiation
-    - Optional configure() for module-specific settings
-    - Lazy loading of expensive resources
 
     Args:
         config: ARIEL configuration with enhancement_modules settings

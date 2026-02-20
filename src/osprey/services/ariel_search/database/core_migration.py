@@ -2,8 +2,6 @@
 
 This module provides the core database schema that is always created,
 regardless of which modules are enabled.
-
-See 01_DATA_LAYER.md Section 2.4 for the SQL specification.
 """
 
 from typing import TYPE_CHECKING
@@ -38,7 +36,6 @@ class CoreMigration(BaseMigration):
         # pg_trgm extension for fuzzy text search (used by keyword fuzzy fallback)
         await conn.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
 
-        # Create enhanced_entries table
         await conn.execute(
             """
             CREATE TABLE IF NOT EXISTS enhanced_entries (
@@ -65,7 +62,6 @@ class CoreMigration(BaseMigration):
             """
         )
 
-        # Basic indexes
         await conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_entries_timestamp
@@ -93,7 +89,6 @@ class CoreMigration(BaseMigration):
             """
         )
 
-        # Metadata indexes
         await conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_entries_metadata
@@ -107,7 +102,6 @@ class CoreMigration(BaseMigration):
             """
         )
 
-        # Auto-update trigger function
         await conn.execute(
             """
             CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -120,7 +114,6 @@ class CoreMigration(BaseMigration):
             """
         )
 
-        # Create trigger if not exists
         await conn.execute(
             """
             DO $$
@@ -139,7 +132,6 @@ class CoreMigration(BaseMigration):
             """
         )
 
-        # Create ingestion_runs table
         await conn.execute(
             """
             CREATE TABLE IF NOT EXISTS ingestion_runs (
@@ -164,7 +156,6 @@ class CoreMigration(BaseMigration):
             """
         )
 
-        # Create ariel_migrations tracking table
         await conn.execute(
             """
             CREATE TABLE IF NOT EXISTS ariel_migrations (

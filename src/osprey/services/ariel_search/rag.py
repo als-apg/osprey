@@ -86,8 +86,6 @@ class RAGPipeline:
         self._max_chars_per_entry = max_chars_per_entry
         self._prompt_template = prompt_template or RAG_PROMPT_TEMPLATE
 
-    # === Public API ===
-
     async def execute(
         self,
         query: str,
@@ -125,7 +123,6 @@ class RAGPipeline:
 
         diags: list[SearchDiagnostic] = []
 
-        # 1. Retrieve — run enabled search modules in parallel
         keyword_results, semantic_results, retrieve_diags = await self._retrieve(
             query,
             max_results=max_results,
@@ -140,7 +137,6 @@ class RAGPipeline:
         kw_count = len(keyword_results)
         sem_count = len(semantic_results)
 
-        # 2. Fuse — RRF if both returned results, otherwise use whichever returned
         entries = self._fuse(keyword_results, semantic_results, max_results)
 
         retrieval_count = len(entries)
@@ -163,7 +159,6 @@ class RAGPipeline:
                 pipeline_details=pd,
             )
 
-        # 3. Assemble — build context window
         context_text, included_entries, truncated = self._assemble_context(entries)
         if truncated:
             diags.append(
@@ -174,18 +169,15 @@ class RAGPipeline:
                 )
             )
 
-        # 4. Generate — LLM call
         answer, gen_diag = await self._generate(query, context_text, temperature=temperature)
         if gen_diag is not None:
             diags.append(gen_diag)
 
-        # 5. Detect which context entries are cited in the answer
         context_ids = [e["entry_id"] for e in included_entries]
         citations = self._find_cited_ids(answer, context_ids)
         if not citations:
             citations = context_ids  # fallback: all context entries
 
-        # Build pipeline details
         pd = PipelineDetails(
             pipeline_type="rag",
             rag_stats=RAGStageStats(
@@ -210,8 +202,6 @@ class RAGPipeline:
             diagnostics=tuple(diags),
             pipeline_details=pd,
         )
-
-    # === Retrieval ===
 
     async def _retrieve(
         self,
@@ -293,7 +283,6 @@ class RAGPipeline:
         if not tasks:
             return keyword_results, semantic_results, diags
 
-        # Run in parallel
         results = await asyncio.gather(*tasks.values(), return_exceptions=True)
         keys = list(tasks.keys())
 
@@ -311,9 +300,9 @@ class RAGPipeline:
                 )
                 failed_keys.append(key)
             elif key == "keyword":
-                keyword_results = result
+                keyword_results = result  # type: ignore[assignment]
             elif key == "semantic":
-                semantic_results = result
+                semantic_results = result  # type: ignore[assignment]
 
         if len(failed_keys) == len(tasks) and len(tasks) > 0:
             diags.append(
@@ -326,8 +315,6 @@ class RAGPipeline:
             )
 
         return keyword_results, semantic_results, diags
-
-    # === Fusion ===
 
     def _fuse(
         self,
@@ -346,11 +333,9 @@ class RAGPipeline:
         if not keyword_results and not semantic_results:
             return []
 
-        # Convert to uniform format: {entry_id: (entry_dict, score)}
         scored: dict[str, tuple[dict[str, Any], float]] = {}
         k = self._fusion_k
 
-        # Score keyword results
         for rank, (entry, _score, _highlights) in enumerate(keyword_results):
             entry_id = entry["entry_id"]
             rrf_score = 1.0 / (k + rank + 1)
@@ -360,7 +345,6 @@ class RAGPipeline:
             else:
                 scored[entry_id] = (dict(entry), rrf_score)
 
-        # Score semantic results
         for rank, (entry, _similarity) in enumerate(semantic_results):
             entry_id = entry["entry_id"]
             rrf_score = 1.0 / (k + rank + 1)
@@ -370,12 +354,9 @@ class RAGPipeline:
             else:
                 scored[entry_id] = (dict(entry), rrf_score)
 
-        # Sort by fused score descending
         sorted_items = sorted(scored.values(), key=lambda x: x[1], reverse=True)
 
         return [{**entry, "_score": score} for entry, score in sorted_items[:max_results]]
-
-    # === Context Assembly ===
 
     def _assemble_context(
         self,
@@ -383,7 +364,7 @@ class RAGPipeline:
     ) -> tuple[str, list[dict[str, Any]], bool]:
         """Assemble entries into a context string for the LLM.
 
-        Uses ENTRY #id | timestamp | Author: name format per spec Section 5.5.2.
+        Uses ENTRY #id | timestamp | Author: name format.
 
         Returns:
             Tuple of (context_text, included_entries, truncated)
@@ -432,8 +413,6 @@ class RAGPipeline:
             content = content[: self._max_chars_per_entry] + "..."
 
         return f"{header}\n{content}\n"
-
-    # === LLM Generation ===
 
     async def _generate(
         self,
@@ -494,8 +473,6 @@ class RAGPipeline:
                     message=f"LLM call failed: {e}",
                 ),
             )
-
-    # === Citation Detection ===
 
     @staticmethod
     def _find_cited_ids(text: str, candidate_ids: list[str]) -> list[str]:

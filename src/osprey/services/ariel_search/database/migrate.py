@@ -2,8 +2,6 @@
 
 This module provides the MigrationRunner class that discovers, orders,
 and executes database migrations.
-
-See 04_OSPREY_INTEGRATION.md Sections 11.1-11.8 for specification.
 """
 
 import importlib
@@ -21,7 +19,6 @@ if TYPE_CHECKING:
 logger = get_logger("ariel")
 
 
-# Known migrations registry (MVP approach - hardcoded list)
 # Format: (name, module_path, class_name, requires_module)
 # requires_module is None for core_schema (always runs), otherwise module name
 KNOWN_MIGRATIONS: list[tuple[str, str, str, str | None]] = [
@@ -29,7 +26,7 @@ KNOWN_MIGRATIONS: list[tuple[str, str, str, str | None]] = [
         "core_schema",
         "osprey.services.ariel_search.database.core_migration",
         "CoreMigration",
-        None,  # Always runs
+        None,
     ),
     (
         "semantic_processor",
@@ -72,12 +69,9 @@ class MigrationRunner:
         migrations: list[BaseMigration] = []
 
         for name, module_path, class_name, requires_module in KNOWN_MIGRATIONS:
-            # Check if module should be enabled
             if requires_module is None:
-                # Core schema always runs
                 should_run = True
             else:
-                # Check if enhancement module is enabled
                 should_run = self.config.is_enhancement_module_enabled(requires_module)
 
             if should_run:
@@ -103,21 +97,18 @@ class MigrationRunner:
         Raises:
             ConfigurationError: If circular dependency detected
         """
-        # Build name -> migration map
         migration_map = {m.name: m for m in migrations}
 
         # Kahn's algorithm for topological sort
         in_degree: dict[str, int] = {m.name: 0 for m in migrations}
         graph: dict[str, list[str]] = {m.name: [] for m in migrations}
 
-        # Build dependency graph
         for migration in migrations:
             for dep in migration.depends_on:
                 if dep in migration_map:
                     graph[dep].append(migration.name)
                     in_degree[migration.name] += 1
 
-        # Start with nodes that have no dependencies
         queue = [name for name, degree in in_degree.items() if degree == 0]
         sorted_names: list[str] = []
 

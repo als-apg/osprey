@@ -88,10 +88,7 @@ def get_capabilities(config: ARIELConfig) -> dict[str, Any]:
         "direct": {"label": "Direct", "modes": []},
     }
 
-    # Add search modules as "direct" modes
     _add_search_modules(config, categories)
-
-    # Add pipelines as "llm" modes
     _add_pipelines(config, categories)
 
     return {
