@@ -29,9 +29,7 @@ MOCK_EXECUTION_LIMITS = {
 @pytest.fixture(autouse=True)
 def mock_execution_limits():
     """Mock get_execution_limits to avoid requiring config.yml in unit tests."""
-    with patch(
-        "osprey.state.control.get_execution_limits", return_value=MOCK_EXECUTION_LIMITS
-    ):
+    with patch("osprey.state.control.get_execution_limits", return_value=MOCK_EXECUTION_LIMITS):
         yield
 
 
