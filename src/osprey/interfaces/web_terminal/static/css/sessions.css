@@ -34,7 +34,7 @@
   background: var(--bg-secondary);
   border: 1px solid var(--border-default);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-dropdown);
   z-index: 100;
   overflow: hidden;
 }
@@ -79,7 +79,7 @@
 }
 
 .session-item.active {
-  background: rgba(79, 209, 197, 0.08);
+  background: var(--accent-tint-08);
   border-left: 2px solid var(--color-accent-light);
   padding-left: 8px;
 }

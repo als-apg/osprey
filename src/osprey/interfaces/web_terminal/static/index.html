@@ -5,6 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OSPREY Web Terminal</title>
 
+  <!-- FOUC prevention: set data-theme before any CSS loads -->
+  <script>
+    (function() {
+      var t = localStorage.getItem('osprey-theme');
+      if (t !== 'dark' && t !== 'light') t = 'dark';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+
   <!-- Google Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 
@@ -15,7 +24,8 @@
   <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.min.js"></script>
 
   <!-- highlight.js (syntax highlighting) -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/atom-one-dark.min.css">
+  <link id="hljs-theme" rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/atom-one-dark.min.css">
+  <link rel="prefetch" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/atom-one-light.min.css">
   <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
 
   <!-- marked.js (markdown rendering) -->
@@ -27,9 +37,12 @@
   <link rel="stylesheet" href="/static/css/files.css">
   <link rel="stylesheet" href="/static/css/operator.css">
   <link rel="stylesheet" href="/static/css/cui.css">
+  <link rel="stylesheet" href="/static/css/md-rendered.css">
   <link rel="stylesheet" href="/static/css/drawer.css">
   <link rel="stylesheet" href="/static/css/sessions.css">
   <link rel="stylesheet" href="/static/css/settings.css">
+  <link rel="stylesheet" href="/static/css/prompts.css">
+  <link rel="stylesheet" href="/static/css/theme-light.css">
 </head>
 <body>
 
@@ -45,6 +58,10 @@
       </div>
       <div class="header-actions">
         <a class="header-icon-btn" id="wiki-link" title="Open Wiki" style="display:none" target="_blank" rel="noopener">&#128214;</a>
+        <button class="header-icon-btn" id="theme-toggle" title="Toggle theme" aria-label="Switch to light theme">
+          <svg id="theme-icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          <svg id="theme-icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
         <button class="header-icon-btn" data-drawer="settings-drawer" title="Settings">&#9881;</button>
       </div>
     </div>
@@ -103,6 +120,9 @@
       <div class="status-item" id="tuning-status" style="display: none;">
         <span class="status-dot"></span><span>TUNING</span>
       </div>
+      <div class="status-item" id="monitoring-status" style="display: none;">
+        <span class="status-dot"></span><span>OTEL</span>
+      </div>
       <div class="status-item" id="term-dims">--x--</div>
     </div>
     <div class="status-right">
@@ -122,60 +142,68 @@
         <span class="drawer-title">Settings</span>
       </div>
       <div class="drawer-tabs">
-        <button class="drawer-tab active" data-tab="tab-agent">Agent</button>
-        <button class="drawer-tab" data-tab="tab-claude">Claude</button>
+        <button class="drawer-tab active" data-tab="tab-behavior">Behavior</button>
+        <button class="drawer-tab" data-tab="tab-safety">Safety</button>
+        <button class="drawer-tab" data-tab="tab-memory">Memory</button>
+        <button class="drawer-tab" data-tab="tab-config">Config</button>
       </div>
       <button class="drawer-close-btn">&times;</button>
     </div>
 
-    <!-- Agent Settings Tab -->
-    <div class="drawer-tab-panel active" id="tab-agent">
-      <div class="settings-mode-bar">
-        <button class="settings-mode-btn active" data-mode="form">Form</button>
-        <button class="settings-mode-btn" data-mode="raw">Raw YAML</button>
+    <!-- Behavior Tab (gallery, populated by JS) -->
+    <div class="drawer-tab-panel active" id="tab-behavior"></div>
+
+    <!-- Safety Tab (gallery, populated by JS) -->
+    <div class="drawer-tab-panel" id="tab-safety"></div>
+
+    <!-- Memory Tab (agent memory entries) -->
+    <div class="drawer-tab-panel" id="tab-memory">
+      <div class="memory-tab-toolbar">
+        <input type="text" class="memory-search" id="memory-search" placeholder="Search memories..." />
+        <select class="memory-filter-importance" id="memory-filter-importance">
+          <option value="">All importance</option>
+          <option value="important">Important</option>
+          <option value="normal">Normal</option>
+        </select>
       </div>
-      <div class="drawer-body" style="position: relative;">
-        <div id="settings-loading" class="settings-loading" style="display: none;">Loading config...</div>
-        <div id="settings-error" class="settings-error" style="display: none;"></div>
-        <div id="settings-form-view">
-          <div id="settings-form" class="settings-form"></div>
-        </div>
-        <div id="settings-raw-view" class="settings-raw">
-          <textarea id="settings-raw-editor" spellcheck="false"></textarea>
-        </div>
-        <!-- Confirmation dialog overlay -->
-        <div class="settings-confirm-overlay">
-          <div class="settings-confirm-dialog">
-            <div class="settings-confirm-title">Apply Settings?</div>
-            <div class="settings-confirm-message">Applying settings will restart the terminal session. Any running processes will be terminated.</div>
-            <div class="settings-confirm-actions">
-              <button class="settings-cancel-btn">Cancel</button>
-              <button class="settings-confirm-btn">Apply &amp; Restart</button>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="settings-save-bar">
-        <span class="settings-status"></span>
-        <button class="settings-apply-btn">Apply Settings</button>
+      <div class="memory-tab-list" id="memory-tab-list">
+        <!-- Populated by memory-tab.js -->
       </div>
     </div>
 
-    <!-- Claude Setup Tab -->
-    <div class="drawer-tab-panel" id="tab-claude">
-      <div class="drawer-body">
-        <div id="claude-setup-loading" class="claude-setup-loading" style="display: none;">Loading files...</div>
-        <div id="claude-setup-error" class="claude-setup-error" style="display: none;"></div>
-        <div class="claude-setup-layout">
-          <div class="claude-setup-sidebar" id="claude-setup-list"></div>
-          <div class="claude-setup-main" id="claude-setup-viewer">
-            <div class="claude-setup-empty">Select a file to view</div>
+    <!-- Config Tab (mini gallery + YAML form) -->
+    <div class="drawer-tab-panel" id="tab-config">
+      <div id="config-gallery-section"></div>
+      <div id="config-form-section">
+        <div class="settings-mode-bar">
+          <button class="settings-mode-btn active" data-mode="form">Form</button>
+          <button class="settings-mode-btn" data-mode="raw">Raw YAML</button>
+        </div>
+        <div class="drawer-body" style="position: relative;">
+          <div id="settings-loading" class="settings-loading" style="display: none;">Loading config...</div>
+          <div id="settings-error" class="settings-error" style="display: none;"></div>
+          <div id="settings-form-view">
+            <div id="settings-form" class="settings-form"></div>
+          </div>
+          <div id="settings-raw-view" class="settings-raw">
+            <textarea id="settings-raw-editor" spellcheck="false"></textarea>
+          </div>
+          <!-- Confirmation dialog overlay -->
+          <div class="settings-confirm-overlay">
+            <div class="settings-confirm-dialog">
+              <div class="settings-confirm-title">Apply Settings?</div>
+              <div class="settings-confirm-message">Applying settings will restart the terminal session. Any running processes will be terminated.</div>
+              <div class="settings-confirm-actions">
+                <button class="settings-cancel-btn">Cancel</button>
+                <button class="settings-confirm-btn">Apply &amp; Restart</button>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
-      <div class="claude-setup-save-bar">
-        <span class="claude-setup-status"></span>
-        <button class="claude-setup-save-btn">Save File</button>
+        <div class="settings-save-bar">
+          <span class="settings-status"></span>
+          <button class="settings-apply-btn">Apply Settings</button>
+        </div>
       </div>
     </div>
   </div>

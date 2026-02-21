@@ -29,12 +29,14 @@
     transparent 2px,
     rgba(0, 0, 0, 0.03) 4px
   );
+  opacity: var(--crt-scanline-opacity);
   z-index: 1;
 }
 
 /* Inner glow while streaming */
 .operator-container.streaming {
   box-shadow: inset 0 0 60px rgba(79, 209, 197, 0.03);
+  opacity: var(--crt-glow-opacity);
 }
 
 /* ---- Session info header bar ---- */
@@ -113,7 +115,7 @@
 /* Operator (user) entries — amber */
 .op-entry.operator {
   border-left-color: var(--color-amber);
-  background: rgba(212, 165, 116, 0.04);
+  background: var(--amber-tint-04);
 }
 
 .op-entry.operator .op-entry-prefix {
@@ -123,7 +125,7 @@
 /* System (assistant) entries — teal */
 .op-entry.assistant {
   border-left-color: var(--color-accent);
-  background: rgba(49, 151, 149, 0.04);
+  background: var(--accent-system-tint-04);
 }
 
 .op-entry.assistant .op-entry-prefix {
@@ -212,7 +214,7 @@
 .op-tool.completed .op-tool-led {
   background: var(--color-success);
   animation: none;
-  box-shadow: 0 0 4px rgba(34, 197, 94, 0.5);
+  box-shadow: 0 0 4px var(--success-tint-50);
 }
 
 .op-tool.completed.errored .op-tool-led {
@@ -233,7 +235,7 @@
 /* ---- Tool result (nested) ---- */
 
 .op-tool-result {
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--overlay-white-03);
   border-top: 1px solid var(--border-default);
   margin-top: 6px;
   padding: 6px 0 2px;
@@ -252,8 +254,8 @@
 /* ---- Error block ---- */
 
 .op-error-block {
-  background: rgba(239, 68, 68, 0.08);
-  border: 1px solid rgba(239, 68, 68, 0.25);
+  background: var(--error-tint-08);
+  border: 1px solid var(--error-tint-25);
   border-radius: 4px;
   padding: 8px 12px;
   margin: 4px 0;
@@ -396,12 +398,12 @@
 
 .op-input-controls .op-stop-btn {
   color: var(--color-error);
-  border-color: rgba(239, 68, 68, 0.3);
+  border-color: var(--error-tint-30);
 }
 
 .op-input-controls .op-stop-btn:hover {
   border-color: var(--color-error);
-  background: rgba(239, 68, 68, 0.1);
+  background: var(--error-tint-10);
 }
 
 /* ---- Mode toggle button ---- */
@@ -425,5 +427,5 @@
 .mode-toggle-btn:hover {
   color: var(--color-accent-light);
   border-color: var(--color-accent-light);
-  background: rgba(79, 209, 197, 0.08);
+  background: var(--accent-tint-08);
 }

@@ -14,9 +14,11 @@
   --color-accent-light: #4fd1c5;
   --color-amber: #d4a574;
   --color-amber-light: #e8c9a0;
+  --color-amber-hover: #e08e00;
   --color-success: #22c55e;
   --color-warning: #f59e0b;
   --color-error: #ef4444;
+  --color-error-hover: #dc2626;
 
   /* Text */
   --text-primary: #f1f5f9;
@@ -43,6 +45,102 @@
   /* Layout */
   --header-height: 48px;
   --status-bar-height: 24px;
+
+  /* ---- CRT Effect Gates ---- */
+  --crt-scanline-opacity: 1;
+  --crt-vignette-opacity: 1;
+  --crt-glow-opacity: 1;
+  --crt-bezel-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
+
+  /* ---- Welcome Modal ---- */
+  --welcome-bg: #020408;
+  --welcome-text: #7ec8a0;
+  --welcome-text-glow: 0 0 8px rgba(126, 200, 160, 0.25);
+  --welcome-link: #5a8a7a;
+  --welcome-link-hover: #a0e8c0;
+  --welcome-prompt: #5a9a7a;
+  --welcome-cursor: #7ec8a0;
+
+  /* ---- Accent (teal) Tints ---- */
+  --accent-tint-04: rgba(79, 209, 197, 0.04);
+  --accent-tint-06: rgba(79, 209, 197, 0.06);
+  --accent-tint-08: rgba(79, 209, 197, 0.08);
+  --accent-tint-10: rgba(79, 209, 197, 0.10);
+  --accent-tint-12: rgba(79, 209, 197, 0.12);
+  --accent-tint-20: rgba(79, 209, 197, 0.20);
+  --accent-tint-25: rgba(79, 209, 197, 0.25);
+  --accent-tint-30: rgba(79, 209, 197, 0.30);
+
+  /* ---- Amber Tints ---- */
+  --amber-tint-04: rgba(212, 165, 116, 0.04);
+  --amber-tint-06: rgba(212, 165, 116, 0.06);
+  --amber-tint-08: rgba(212, 165, 116, 0.08);
+  --amber-tint-12: rgba(212, 165, 116, 0.12);
+  --amber-tint-15: rgba(212, 165, 116, 0.15);
+  --amber-tint-25: rgba(212, 165, 116, 0.25);
+
+  /* ---- Error (red) Tints ---- */
+  --error-tint-04: rgba(239, 68, 68, 0.04);
+  --error-tint-08: rgba(239, 68, 68, 0.08);
+  --error-tint-10: rgba(239, 68, 68, 0.10);
+  --error-tint-15: rgba(239, 68, 68, 0.15);
+  --error-tint-25: rgba(239, 68, 68, 0.25);
+  --error-tint-30: rgba(239, 68, 68, 0.30);
+  --error-tint-40: rgba(239, 68, 68, 0.40);
+
+  /* ---- Success (green) Tints ---- */
+  --success-tint-08: rgba(34, 197, 94, 0.08);
+  --success-tint-40: rgba(34, 197, 94, 0.40);
+  --success-tint-50: rgba(34, 197, 94, 0.50);
+
+  /* ---- Neutral (slate) Tints ---- */
+  --neutral-tint-03: rgba(148, 163, 184, 0.03);
+  --neutral-tint-06: rgba(148, 163, 184, 0.06);
+  --neutral-tint-08: rgba(148, 163, 184, 0.08);
+  --neutral-tint-10: rgba(148, 163, 184, 0.10);
+  --neutral-tint-12: rgba(148, 163, 184, 0.12);
+  --neutral-tint-20: rgba(148, 163, 184, 0.20);
+  --neutral-tint-35: rgba(148, 163, 184, 0.35);
+
+  /* ---- Overlays ---- */
+  --overlay-black-20: rgba(0, 0, 0, 0.2);
+  --overlay-black-30: rgba(0, 0, 0, 0.3);
+  --overlay-black-40: rgba(0, 0, 0, 0.4);
+  --overlay-black-50: rgba(0, 0, 0, 0.5);
+  --overlay-black-60: rgba(0, 0, 0, 0.6);
+  --overlay-black-70: rgba(0, 0, 0, 0.7);
+  --overlay-white-03: rgba(255, 255, 255, 0.03);
+
+  /* ---- CRT Scanline ---- */
+  --crt-scanline-bg: repeating-linear-gradient(0deg, transparent 2px, rgba(0, 0, 0, 0.03) 4px);
+
+  /* ---- Shadows ---- */
+  --shadow-panel: -4px 0 24px rgba(0, 0, 0, 0.4);
+  --shadow-dropdown: 0 8px 24px rgba(0, 0, 0, 0.4);
+  --shadow-dialog: 0 8px 32px rgba(0, 0, 0, 0.4);
+  --shadow-error-dialog: 0 0 40px rgba(239, 68, 68, 0.15), 0 8px 32px rgba(0, 0, 0, 0.5);
+
+  /* ---- Diff Colors ---- */
+  --diff-add-bg: rgba(34, 197, 94, 0.08);
+  --diff-add-text: rgba(34, 197, 94, 0.9);
+  --diff-del-bg: rgba(239, 68, 68, 0.08);
+  --diff-del-text: rgba(239, 68, 68, 0.9);
+  --diff-word-del-bg:  rgba(239, 68, 68, 0.30);
+  --diff-word-del-text: rgba(239, 68, 68, 1.0);
+  --diff-word-add-bg:  rgba(34, 197, 94, 0.30);
+  --diff-word-add-text: rgba(34, 197, 94, 1.0);
+
+  /* ---- Accent-based system colors ---- */
+  --accent-system-tint-04: rgba(49, 151, 149, 0.04);
+}
+
+/* Theme transition (applied briefly by theme.js during switch) */
+html.theme-transitioning,
+html.theme-transitioning *,
+html.theme-transitioning *::before,
+html.theme-transitioning *::after {
+  transition: background-color 200ms ease, color 200ms ease,
+              border-color 200ms ease, box-shadow 200ms ease !important;
 }
 
 /* Reset */
@@ -75,10 +173,10 @@ html, body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.2);
+  background: var(--neutral-tint-20);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.35);
+  background: var(--neutral-tint-35);
 }

@@ -19,7 +19,7 @@ class ClaudeCodeFileService:
     handlers stay thin.
     """
 
-    ALLOWED_DIRS = {"rules", "agents", "commands", "hooks"}
+    ALLOWED_DIRS = {"rules", "agents", "commands", "hooks", "skills"}
     ROOT_FILES = {"CLAUDE.md", ".mcp.json"}
 
     # Category assignments for well-known files
@@ -176,6 +176,8 @@ class ClaudeCodeFileService:
             return ClaudeCodeFileService._KNOWN_CATEGORIES[name]
         if "agents/" in rel_path or name.endswith("-agent.md"):
             return "Agents"
+        if "skills/" in rel_path:
+            return "Skills"
         if "commands/" in rel_path:
             return "Commands"
         if "hooks/" in rel_path:
