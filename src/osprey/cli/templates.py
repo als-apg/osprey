@@ -324,6 +324,15 @@ class TemplateManager:
                 ctx.setdefault("disable_servers", cc_config.get("disable_servers", []))
                 ctx.setdefault("disable_agents", cc_config.get("disable_agents", []))
                 ctx.setdefault("extra_servers", cc_config.get("extra_servers", {}))
+                # Model provider resolution for init-time rendering
+                from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
+
+                api_providers = rendered_config.get("api", {}).get("providers", {})
+                try:
+                    model_spec = ClaudeCodeModelResolver.resolve(cc_config, api_providers)
+                except ValueError:
+                    model_spec = None
+                ctx["claude_code_model_spec"] = model_spec
             # Ensure defaults exist even without rendered config
             ctx.setdefault("disable_servers", [])
             ctx.setdefault("disable_agents", [])
@@ -895,6 +904,17 @@ proper framework operation, especially when using containerized services.
         prompts_config = config.get("prompts", {})
         ctx["prompt_overrides"] = prompts_config.get("overrides", {})
 
+        # Model provider resolution for Claude Code
+        from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
+
+        api_providers = config.get("api", {}).get("providers", {})
+        try:
+            model_spec = ClaudeCodeModelResolver.resolve(claude_code_config, api_providers)
+        except ValueError as exc:
+            warnings.warn(str(exc), stacklevel=2)
+            model_spec = None
+        ctx["claude_code_model_spec"] = model_spec
+
         return ctx
 
     @staticmethod
@@ -917,7 +937,9 @@ proper framework operation, especially when using containerized services.
             ".claude/hooks/osprey_approval.py",
             ".claude/hooks/osprey_error_guidance.py",
             ".claude/hooks/osprey_notebook_update.py",
-            ".claude/commands/screenshot.md",
+            ".claude/commands/diagnose.md",
+            ".claude/skills/session-report/SKILL.md",
+            ".claude/skills/session-report/reference.md",
         ]
 
     def _compute_regen_summary(self, ctx: dict) -> dict:
@@ -936,9 +958,9 @@ proper framework operation, especially when using containerized services.
 
         # Core servers (always available)
         core_servers = [
-            "osprey-control-system",
-            "osprey-python-executor",
-            "osprey-workspace",
+            "controls",
+            "python",
+            "workspace",
             "ariel",
             "accelpapers",
         ]
@@ -1187,6 +1209,27 @@ proper framework operation, especially when using containerized services.
 
         return drift
 
+    @staticmethod
+    def _auto_register_facility_override(project_dir: Path, override_rel: str):
+        """Register rules/facility as an override in config.yml during init.
+
+        This ensures regen never overwrites the user-owned facility file.
+        Uses pyyaml (not ruamel) since this runs during init when the
+        config was just freshly rendered.
+        """
+        config_path = project_dir / "config.yml"
+        if not config_path.exists():
+            return
+        with open(config_path, encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        if "prompts" not in data:
+            data["prompts"] = {}
+        if "overrides" not in data["prompts"]:
+            data["prompts"]["overrides"] = {}
+        data["prompts"]["overrides"]["rules/facility"] = override_rel
+        with open(config_path, "w", encoding="utf-8") as f:
+            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+
     def _is_managed(self, rel_path: str, ctx: dict) -> bool:
         """Check if a file path is in the managed_files list.
 
@@ -1206,6 +1249,8 @@ proper framework operation, especially when using containerized services.
             return True  # init path — all files managed
         if rel_path.startswith(".claude/agents/"):
             return True  # agents always auto-managed
+        if rel_path.startswith(".claude/skills/"):
+            return True  # skills always auto-managed
         return rel_path in managed
 
     @staticmethod
@@ -1275,7 +1320,10 @@ proper framework operation, especially when using containerized services.
                 shutil.copy2(claude_md_static, project_dir / "CLAUDE.md")
             files_created += 1
 
-        # 2b. Create facility.md (only on first creation — never overwritten)
+        # 2b. Create facility.md — user-owned artifact
+        # During init, render the template and auto-register as an override
+        # so that regen never overwrites user customizations. If already
+        # overridden in config, use the override source instead.
         facility_md = project_dir / ".claude" / "rules" / "facility.md"
         facility_j2 = claude_code_dir / "claude" / "rules" / "facility.md.j2"
         if "rules/facility" in prompt_overrides:
@@ -1289,6 +1337,12 @@ proper framework operation, especially when using containerized services.
             self.render_template(
                 "claude_code/claude/rules/facility.md.j2", ctx, facility_md
             )
+            # Auto-register as override so regen preserves user edits
+            override_rel = "overrides/.claude/rules/facility.md"
+            override_dst = project_dir / override_rel
+            override_dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(facility_md, override_dst)
+            self._auto_register_facility_override(project_dir, override_rel)
             files_created += 1
 
         # 3. Recursively copy/render claude/ -> .claude/ (dotless to dotted)

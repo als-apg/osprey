@@ -31,7 +31,7 @@ def web(port: int | None, host: str | None, reload: bool) -> None:
     """Launch the Artifact Gallery web interface.
 
     Starts a FastAPI server that serves the artifact gallery UI.
-    Artifacts are created by Claude via save_artifact() in python_execute
+    Artifacts are created by Claude via save_artifact() in execute
     or the artifact_save MCP tool.
 
     Example:
