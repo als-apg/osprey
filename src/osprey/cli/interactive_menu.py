@@ -1015,7 +1015,7 @@ def get_api_key_name(provider: str) -> str | None:
     """
     key_names = {
         "cborg": "CBORG_API_KEY",
-        "amsc": "AMSC_API_KEY",
+        "amsc": "AMSC_I2_API_KEY",
         "stanford": "STANFORD_API_KEY",
         "argo": "ARGO_API_KEY",
         "anthropic": "ANTHROPIC_API_KEY",
@@ -1567,7 +1567,7 @@ def run_interactive_init() -> str:
         detected_env = manager._detect_environment_variables()
         api_keys = [
             "CBORG_API_KEY",
-            "AMSC_API_KEY",
+            "AMSC_I2_API_KEY",
             "OPENAI_API_KEY",
             "ANTHROPIC_API_KEY",
             "GOOGLE_API_KEY",

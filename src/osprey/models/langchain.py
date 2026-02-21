@@ -189,7 +189,7 @@ _OPENAI_COMPATIBLE_PROVIDERS = {
     },
     "amsc": {
         "default_base_url": "https://api.i2-core.american-science-cloud.org/v1",
-        "api_key_env": "AMSC_API_KEY",
+        "api_key_env": "AMSC_I2_API_KEY",
         "description": "American Science Cloud proxy",
     },
 }

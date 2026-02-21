@@ -220,7 +220,7 @@ def init(
         # Check if API keys were detected and .env was created
         api_keys = [
             "CBORG_API_KEY",
-            "AMSC_API_KEY",
+            "AMSC_I2_API_KEY",
             "OPENAI_API_KEY",
             "ANTHROPIC_API_KEY",
             "GOOGLE_API_KEY",

@@ -11,7 +11,7 @@ from .litellm_adapter import check_litellm_health, execute_litellm_completion
 
 
 class AMSCProviderAdapter(BaseProvider):
-    """American Science Cloud (AMSC) provider implementation using LiteLLM."""
+    """American Science Cloud Intelligent Interfaces (AMSC i2) provider implementation using LiteLLM."""
 
     # Metadata (single source of truth)
     name = "amsc"
