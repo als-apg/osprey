@@ -1567,6 +1567,7 @@ def run_interactive_init() -> str:
         detected_env = manager._detect_environment_variables()
         api_keys = [
             "CBORG_API_KEY",
+            "AMSC_API_KEY",
             "OPENAI_API_KEY",
             "ANTHROPIC_API_KEY",
             "GOOGLE_API_KEY",
