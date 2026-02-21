@@ -32,9 +32,7 @@ class AMSCProviderAdapter(BaseProvider):
     ]
 
     # API key acquisition information
-    api_key_url = (
-        "https://api.i2-core.american-science-cloud.org/"
-    )
+    api_key_url = "https://api.i2-core.american-science-cloud.org/"
     api_key_instructions = [
         "If you have an americansciencecloud.org Google account, log in and go to 'API Key Manager.",
         "Otherwise, request access at https://docs.google.com/forms/d/1xcuOTxzvwu6sEmQfNu5zxLsjaS_hMvAfr99XQzdc_nY/viewform",
