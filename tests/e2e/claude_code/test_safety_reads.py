@@ -1,13 +1,16 @@
 """E2E safety tests for read operations via Claude Code SDK.
 
 Scenario 1: Verify that channel_read succeeds for a valid channel.
+
+Uses run_sdk_query_with_hooks to exercise the full hook chain. Reads in
+selective mode don't trigger approval, so hook_events should be EMPTY.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from tests.e2e.sdk_helpers import run_sdk_query
+from tests.e2e.sdk_helpers import run_sdk_query_with_hooks
 
 
 @pytest.mark.requires_api
@@ -26,9 +29,10 @@ async def test_channel_read_succeeds(safety_project):
         "Report the value you get back."
     )
 
-    result = await run_sdk_query(
+    result = await run_sdk_query_with_hooks(
         safety_project,
         prompt,
+        approval_policy="auto_approve",
         max_turns=5,
         max_budget_usd=0.25,
     )
@@ -38,6 +42,9 @@ async def test_channel_read_succeeds(safety_project):
     print(f"  tools called: {result.tool_names}")
     print(f"  num_turns: {result.num_turns}")
     print(f"  cost: ${result.cost_usd:.4f}" if result.cost_usd else "  cost: N/A")
+    print(f"  hook_events: {len(result.hook_events)}")
+    for evt in result.hook_events:
+        print(f"    {evt.tool_name}: {evt.decision}")
     for trace in result.tool_traces:
         print(f"  tool: {trace.name}")
         print(f"    is_error: {trace.is_error}")
@@ -57,4 +64,11 @@ async def test_channel_read_succeeds(safety_project):
     # The tool call should not have errored
     assert not read_calls[0].is_error, (
         f"channel_read returned error: {read_calls[0].result}"
+    )
+
+    # Reads in selective mode don't trigger approval → hook_events should be EMPTY
+    assert len(result.hook_events) == 0, (
+        f"Expected no hook_events for reads in selective mode "
+        f"but got {len(result.hook_events)}: "
+        f"{[(e.tool_name, e.decision) for e in result.hook_events]}"
     )

@@ -1,7 +1,57 @@
 #!/usr/bin/env python3
-"""PreToolUse hook: Channel limits validation.
+"""
+---
+name: Channel Limits Validator
+description: Validates channel write values against the limits database before execution
+summary: Validates channel write values against the limits database
+event: PreToolUse
+tools: channel_write
+safety_layer: 3
+---
 
-Validates channel write values against the limits database before execution.
+## Flow
+
+```
+stdin ──► Parse JSON
+              │
+              ▼
+         Is channel_write? ──NO──► EXIT (allow)
+              │
+             YES
+              │
+              ▼
+         Import LimitsValidator
+              │
+              ▼
+         validator = from_config()
+              │
+              ▼
+         validator exists? ──NO──► EXIT (allow)
+              │
+             YES
+              │
+              ▼
+         Collect operations
+         (single or batch)
+              │
+              ▼
+         Validate each op
+              │
+              ▼
+         Violations found? ──NO──► EXIT (allow)
+              │
+             YES
+              │
+              ▼
+         DENY: limits violated
+```
+
+## Details
+
+Validates every channel write against min/max/step/writable constraints
+from the limits database. Supports both single-write and batch-write forms.
+If `LimitsValidator` is not importable or not configured, allows the write
+through (fail-open for environments without limits).
 
 PROMPT-PROVIDER: This hook contains facility-customizable static text:
   - Limits violation denial message (section=limits_violation_message)
@@ -23,7 +73,7 @@ def main():
     tool_name = hook_input.get("tool_name", "")
 
     # Only validate channel_write
-    if tool_name != "mcp__osprey-control-system__channel_write":
+    if tool_name != "mcp__controls__channel_write":
         sys.exit(0)
 
     tool_input = hook_input.get("tool_input", {})

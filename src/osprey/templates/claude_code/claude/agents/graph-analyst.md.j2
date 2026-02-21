@@ -1,7 +1,8 @@
 {% if deplot is defined and "graph-analyst" not in disable_agents %}---
 name: graph-analyst
 description: "Extracts numerical data from graph/chart images, compares them against reference datasets using mathematical metrics (RMSE, correlation, DTW), and saves reference patterns. Delegate to this agent when the user needs to digitize a plot, compare current graphs to a baseline, or save reference datasets."
-model: sonnet
+summary: Extracts data from graph images and compares against reference datasets
+model: {{ claude_code_model_spec.agent_tier("graph-analyst") if claude_code_model_spec is defined and claude_code_model_spec else "sonnet" }}
 maxTurns: 25
 disallowedTools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, NotebookEdit, Task
 ---

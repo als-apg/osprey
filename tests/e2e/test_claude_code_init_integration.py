@@ -3,7 +3,7 @@
 These tests verify the complete workflow:
 1. `osprey init` creates a project with Claude Code integration files
 2. The Claude Code CLI discovers the OSPREY MCP server via .mcp.json
-3. Claude calls MCP tools (archiver_read, python_execute, channel_find)
+3. Claude calls MCP tools (archiver_read, execute, channel_find)
 4. The tools produce real artifacts (archiver data files, PNG plots)
 
 This is the Claude Code equivalent of test_tutorials.py's BPM tutorial test,
@@ -168,7 +168,7 @@ def find_png_files(root: Path) -> list[Path]:
     """Recursively find generated .png files under *root*.
 
     Excludes template assets (logos, icons) that ship with ``osprey init``
-    and therefore don't prove that ``python_execute`` created a plot.
+    and therefore don't prove that ``execute`` created a plot.
     """
     template_names = {"ALS_assistant_logo.png"}
     return sorted(
@@ -211,7 +211,7 @@ def diagnose_workspace(project_dir: Path, max_depth: int = 3) -> str:
 
 
 def diagnose_python_execute(project_dir: Path) -> str:
-    """Build a diagnostic string showing python_execute execution evidence.
+    """Build a diagnostic string showing execute tool execution evidence.
 
     Checks four evidence layers:
     1. Execution folder existence (proves subprocess ran)
@@ -224,7 +224,7 @@ def diagnose_python_execute(project_dir: Path) -> str:
     # Layer 1: Execution folders
     exec_dir = project_dir / "osprey-workspace" / "data" / "python_executions"
     if not exec_dir.exists():
-        parts.append("python_executions/ does not exist — tool likely never ran")
+        parts.append("python_executions/ does not exist -- tool likely never ran")
     else:
         runs = sorted(exec_dir.iterdir()) if exec_dir.is_dir() else []
         parts.append(f"python_executions/ has {len(runs)} run(s)")
@@ -333,18 +333,16 @@ class TestInitProjectClaudeCodeFilesSmoke:
         assert (project_dir / ".claude" / "hooks" / "osprey_writes_check.py").exists()
         assert (project_dir / ".claude" / "hooks" / "osprey_limits.py").exists()
         assert (project_dir / ".claude" / "hooks" / "osprey_approval.py").exists()
-        assert (project_dir / ".claude" / "hooks" / "osprey_audit.py").exists()
-
         # -- .mcp.json has correct MCP server entries --
         mcp_data = json.loads((project_dir / ".mcp.json").read_text())
         assert "mcpServers" in mcp_data
         # Core servers must be present
-        assert "osprey-control-system" in mcp_data["mcpServers"]
-        assert "osprey-python-executor" in mcp_data["mcpServers"]
-        assert "osprey-workspace" in mcp_data["mcpServers"]
+        assert "controls" in mcp_data["mcpServers"]
+        assert "python" in mcp_data["mcpServers"]
+        assert "workspace" in mcp_data["mcpServers"]
         assert "ariel" in mcp_data["mcpServers"]
         # Control system server has correct config env
-        server = mcp_data["mcpServers"]["osprey-control-system"]
+        server = mcp_data["mcpServers"]["controls"]
         assert "OSPREY_CONFIG" in server["env"]
         # No sentinel entries
         for key in mcp_data["mcpServers"]:
@@ -356,7 +354,6 @@ class TestInitProjectClaudeCodeFilesSmoke:
             "osprey_writes_check.py",
             "osprey_limits.py",
             "osprey_approval.py",
-            "osprey_audit.py",
         ]:
             hook_path = hooks_dir / hook_name
             mode = os.stat(hook_path).st_mode
@@ -370,11 +367,11 @@ class TestInitProjectClaudeCodeFilesSmoke:
 
 
 # ===========================================================================
-# Test 2 — archiver_read + python_execute (API required)
+# Test 2 — archiver_read + execute (API required)
 # ===========================================================================
 
 class TestClaudeExecutesArchiverAndPlots:
-    """Verify Claude can call archiver_read then python_execute to plot data.
+    """Verify Claude can call archiver_read then execute to plot data.
 
     This test bypasses channel_find to reduce LLM non-determinism and cost.
     It uses hardcoded channel names that the mock archiver accepts.
@@ -396,7 +393,7 @@ class TestClaudeExecutesArchiverAndPlots:
             "Use the archiver_read tool to retrieve data for channels "
             "'DIAG:BPM01:POSITION:X', 'DIAG:BPM02:POSITION:X', "
             "'DIAG:BPM03:POSITION:X' over the last 24 hours. "
-            "Then use python_execute with execution_mode='readonly' to create "
+            "Then use the execute tool with execution_mode='readonly' to create "
             "a timeseries plot of the data and save it as a PNG file in the "
             "current directory. All permissions are pre-approved; do not ask "
             "for confirmation."
@@ -438,7 +435,7 @@ class TestClaudeExecutesArchiverAndPlots:
         workspace_tree = diagnose_workspace(project_dir)
         assert len(png_files) > 0, (
             "No PNG files found anywhere in the project. "
-            "python_execute may not have created a plot.\n"
+            "execute tool may not have created a plot.\n"
             f"--- Execution diagnostics ---\n{exec_diag}\n"
             f"--- Workspace tree ---\n{workspace_tree}\n"
             f"--- stderr (first 1000) ---\n{result.stderr[:1000]}\n"
@@ -475,7 +472,7 @@ class TestClaudeExecutesArchiverAndPlots:
 # ===========================================================================
 
 class TestClaudeFullBpmAnalysisPipeline:
-    """Full multi-tool pipeline: channel_find -> archiver_read -> python_execute.
+    """Full multi-tool pipeline: channel_find -> archiver_read -> execute.
 
     This is the Claude Code equivalent of
     ``test_tutorials.py::test_bpm_timeseries_and_correlation_tutorial``.
@@ -499,7 +496,7 @@ class TestClaudeFullBpmAnalysisPipeline:
             "Give me a timeseries and a correlation plot of all horizontal "
             "BPM positions over the last 24 hours. Use the channel_find tool "
             "to discover BPM channels, then archiver_read to get historical "
-            "data, then python_execute with execution_mode='readonly' to create "
+            "data, then the execute tool with execution_mode='readonly' to create "
             "the plots. Save the plots as PNG files. All permissions are "
             "pre-approved; do not ask for confirmation."
         )
@@ -540,7 +537,7 @@ class TestClaudeFullBpmAnalysisPipeline:
         workspace_tree = diagnose_workspace(project_dir)
         assert len(png_files) > 0, (
             "No PNG files found in the project. "
-            "python_execute may not have created plots.\n"
+            "execute tool may not have created plots.\n"
             f"--- Execution diagnostics ---\n{exec_diag}\n"
             f"--- Workspace tree ---\n{workspace_tree}\n"
             f"--- stderr (first 1000) ---\n{result.stderr[:1000]}\n"

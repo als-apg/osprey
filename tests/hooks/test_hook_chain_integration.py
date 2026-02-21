@@ -5,7 +5,6 @@ The expected chain for osprey write operations is:
   1. osprey_writes_check — master kill switch (deny if writes disabled)
   2. osprey_limits — channel limits validation (deny if out of range)
   3. osprey_approval — human approval prompt (ask if required)
-  4. osprey_audit — audit logging (always passes, logs the call)
 
 If any hook denies, subsequent hooks do not run. These tests verify
 the chain behavior by running hooks sequentially.
@@ -23,7 +22,6 @@ WRITE_HOOK_CHAIN = [
     "osprey_writes_check.py",
     "osprey_limits.py",
     "osprey_approval.py",
-    "osprey_audit.py",
 ]
 
 
@@ -90,7 +88,7 @@ def test_writes_disabled_blocks_before_limits(tmp_path, hook_runner):
     result, blocked_by = run_hook_chain(
         hook_runner,
         WRITE_HOOK_CHAIN,
-        "mcp__osprey-control-system__channel_write",
+        "mcp__controls__channel_write",
         {"operations": [{"channel": "TEST:PV", "value": 50.0}]},
         config_path=config,
         cwd=tmp_path,
@@ -115,7 +113,7 @@ def test_limits_violation_blocks_before_approval(tmp_path, hook_runner):
     result, blocked_by = run_hook_chain(
         hook_runner,
         WRITE_HOOK_CHAIN,
-        "mcp__osprey-control-system__channel_write",
+        "mcp__controls__channel_write",
         {"operations": [{"channel": "TEST:PV", "value": 999.0}]},
         config_path=config,
         cwd=tmp_path,
@@ -140,7 +138,7 @@ def test_valid_write_reaches_approval(tmp_path, hook_runner):
     result, blocked_by = run_hook_chain(
         hook_runner,
         WRITE_HOOK_CHAIN,
-        "mcp__osprey-control-system__channel_write",
+        "mcp__controls__channel_write",
         {"operations": [{"channel": "TEST:PV", "value": 50.0}]},
         config_path=config,
         cwd=tmp_path,
@@ -162,13 +160,10 @@ def test_valid_write_disabled_approval_passes_all(tmp_path, hook_runner):
         allow_unlisted=True,
     )
 
-    audit_dir = tmp_path / "osprey-workspace" / "audit"
-    audit_dir.mkdir(parents=True)
-
     result, blocked_by = run_hook_chain(
         hook_runner,
         WRITE_HOOK_CHAIN,
-        "mcp__osprey-control-system__channel_write",
+        "mcp__controls__channel_write",
         {"operations": [{"channel": "TEST:PV", "value": 50.0}]},
         config_path=config,
         cwd=tmp_path,
@@ -188,13 +183,10 @@ def test_read_tool_skips_write_checks(tmp_path, hook_runner):
         approval_mode="disabled",
     )
 
-    audit_dir = tmp_path / "osprey-workspace" / "audit"
-    audit_dir.mkdir(parents=True)
-
     result, blocked_by = run_hook_chain(
         hook_runner,
         WRITE_HOOK_CHAIN,
-        "mcp__osprey-control-system__channel_read",
+        "mcp__controls__channel_read",
         {"channels": ["SR:CURRENT:RB"]},
         config_path=config,
         cwd=tmp_path,
@@ -240,7 +232,7 @@ def test_python_execute_chain_with_framework_patterns(tmp_path, hook_runner):
     result, blocked_by = run_hook_chain(
         hook_runner,
         WRITE_HOOK_CHAIN,
-        "mcp__osprey-python-executor__python_execute",
+        "mcp__python__execute",
         {"code": "device.write_attribute('MOTOR:POS', 100)", "execution_mode": "readonly"},
         config_path=config,
         cwd=tmp_path,
@@ -249,3 +241,145 @@ def test_python_execute_chain_with_framework_patterns(tmp_path, hook_runner):
     assert result is not None
     assert blocked_by == "osprey_approval.py"
     assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
+
+
+# ============================================================================
+# Hook crash resilience tests
+# ============================================================================
+
+
+@pytest.mark.integration
+def test_hook_invalid_json_stdin_exits_cleanly(hook_runner_raw):
+    """Hook receiving invalid JSON on stdin exits with code 0 (fail-open).
+
+    All hooks wrap stdin parsing in try/except and call sys.exit(0) on failure,
+    which allows the tool to proceed. This is intentional — a broken hook
+    should not block the entire system.
+    """
+    returncode, stdout, stderr = hook_runner_raw(
+        "osprey_writes_check.py",
+        tool_name="unused",
+        tool_input={},
+        stdin_override="this is not valid json {{{",
+    )
+
+    assert returncode == 0
+    assert stdout.strip() == ""  # No output = allow
+
+
+@pytest.mark.integration
+def test_hook_empty_stdin_exits_cleanly(hook_runner_raw):
+    """Hook receiving empty stdin exits with code 0."""
+    returncode, stdout, stderr = hook_runner_raw(
+        "osprey_approval.py",
+        tool_name="unused",
+        tool_input={},
+        stdin_override="",
+    )
+
+    assert returncode == 0
+    assert stdout.strip() == ""
+
+
+# ============================================================================
+# PostToolUse chain integration tests
+# ============================================================================
+
+
+@pytest.mark.integration
+def test_error_guidance_fires_on_tool_error(hook_runner, make_config):
+    """After a tool returns an error envelope, error_guidance injects additionalContext."""
+    config = make_config({})
+
+    result = hook_runner(
+        "osprey_error_guidance.py",
+        "mcp__controls__channel_read",
+        {"channels": ["SR:CURRENT:RB"]},
+        config_path=config,
+        tool_response=json.dumps({
+            "error": True,
+            "error_type": "connection_error",
+            "error_message": "Control system unreachable",
+            "suggestions": [],
+        }),
+    )
+
+    assert result is not None
+    assert "additionalContext" in result["hookSpecificOutput"]
+    ctx = result["hookSpecificOutput"]["additionalContext"]
+    assert "Connection" in ctx
+    assert "error-handling" in ctx.lower()
+
+
+@pytest.mark.integration
+def test_notebook_update_fires_on_notebook_edit(tmp_path, hook_runner):
+    """After NotebookEdit, notebook cache hook deletes stale cached HTML."""
+    # Create a fake notebook and its cached HTML
+    nb_path = tmp_path / "test_notebook.ipynb"
+    nb_path.write_text("{}")  # Minimal file
+    cache_dir = tmp_path / "_notebook_cache"
+    cache_dir.mkdir()
+    cached_html = cache_dir / "test_notebook_rendered.html"
+    cached_html.write_text("<html>stale</html>")
+
+    assert cached_html.exists()
+
+    # Run the notebook_update hook
+    hook_runner(
+        "osprey_notebook_update.py",
+        "NotebookEdit",
+        {"notebook_path": str(nb_path)},
+    )
+
+    # Cached HTML should have been deleted
+    assert not cached_html.exists()
+
+
+@pytest.mark.integration
+def test_notebook_update_no_cache_is_noop(tmp_path, hook_runner):
+    """Notebook update hook is a no-op when no cached HTML exists."""
+    nb_path = tmp_path / "test_notebook.ipynb"
+    nb_path.write_text("{}")
+
+    # No cache dir exists — should not raise or produce output
+    result = hook_runner(
+        "osprey_notebook_update.py",
+        "NotebookEdit",
+        {"notebook_path": str(nb_path)},
+    )
+
+    assert result is None  # Silent no-op
+
+
+@pytest.mark.integration
+def test_post_tool_use_hooks_independent(hook_runner, make_config):
+    """PostToolUse hooks can fire independently for different tool matchers.
+
+    error_guidance matches OSPREY MCP tools, notebook_update matches NotebookEdit.
+    They don't interfere with each other.
+    """
+    config = make_config({})
+
+    # error_guidance does not fire for NotebookEdit (not an OSPREY prefix)
+    error_result = hook_runner(
+        "osprey_error_guidance.py",
+        "NotebookEdit",
+        {"notebook_path": "/tmp/test.ipynb"},
+        config_path=config,
+        tool_response=json.dumps({
+            "error": True,
+            "error_type": "internal_error",
+            "error_message": "something broke",
+        }),
+    )
+
+    assert error_result is None  # NotebookEdit is not an OSPREY MCP tool
+
+    # notebook_update does not fire for channel_read (not NotebookEdit)
+    nb_result = hook_runner(
+        "osprey_notebook_update.py",
+        "mcp__controls__channel_read",
+        {"channels": ["SR:CURRENT:RB"]},
+    )
+
+    assert nb_result is None  # channel_read has no notebook_path

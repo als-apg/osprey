@@ -1,7 +1,8 @@
 {% if matlab is defined and "matlab-search" not in disable_agents %}---
 name: matlab-search
 description: "Searches the MATLAB Middle Layer (MML) codebase database for function definitions, dependencies, call graphs, and source code. Delegate to this agent when the user asks about MML functions, MATLAB accelerator control code, function relationships, or needs to understand MML codebase structure."
-model: sonnet
+summary: Searches MATLAB MML functions and accelerator toolbox code
+model: {{ claude_code_model_spec.agent_tier("matlab-search") if claude_code_model_spec is defined and claude_code_model_spec else "sonnet" }}
 maxTurns: 30
 disallowedTools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, NotebookEdit, Task
 ---

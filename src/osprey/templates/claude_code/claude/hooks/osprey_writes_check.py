@@ -1,7 +1,47 @@
 #!/usr/bin/env python3
-"""PreToolUse hook: Master writes kill switch.
+"""
+---
+name: Writes Kill Switch
+description: Blocks ALL write operations when control_system.writes_enabled is false
+summary: Blocks write operations when writes are disabled
+event: PreToolUse
+tools: channel_write, execute
+safety_layer: 1
+---
 
-Blocks ALL write operations when control_system.writes_enabled is false in config.yml.
+## Flow
+
+```
+stdin ──► Parse JSON
+              │
+              ▼
+         Is write tool?  ──NO──► EXIT (allow)
+              │
+             YES
+              │
+              ▼
+         execute          ──YES──► readonly mode? ──YES──► EXIT (allow)
+         tool?                          │
+              │                        NO
+             NO                         │
+              │◄────────────────────────┘
+              ▼
+         Load config.yml
+              │
+              ▼
+         writes_enabled?  ──YES──► EXIT (allow)
+              │
+             NO
+              │
+              ▼
+         DENY: writes disabled
+```
+
+## Details
+
+First gate in the PreToolUse chain. Checks `control_system.writes_enabled`
+in `config.yml`. When false, **all** channel writes and non-readonly Python
+executions are blocked before any other hook runs.
 
 PROMPT-PROVIDER: This hook contains facility-customizable static text:
   - Writes-disabled denial message (section=writes_disabled_message)
@@ -18,9 +58,9 @@ import yaml
 
 
 def load_osprey_config():
-    config_path = Path(os.path.expandvars(
-        os.environ.get("OSPREY_CONFIG", str(Path.cwd() / "config.yml"))
-    ))
+    config_path = Path(
+        os.path.expandvars(os.environ.get("OSPREY_CONFIG", str(Path.cwd() / "config.yml")))
+    )
     if config_path.exists():
         with open(config_path) as f:
             return yaml.safe_load(f) or {}
@@ -28,8 +68,8 @@ def load_osprey_config():
 
 
 WRITE_TOOLS = {
-    "mcp__osprey-control-system__channel_write",
-    "mcp__osprey-python-executor__python_execute",
+    "mcp__controls__channel_write",
+    "mcp__python__execute",
 }
 
 
@@ -47,8 +87,8 @@ def main():
 
     tool_input = hook_input.get("tool_input", {})
 
-    # For python_execute: allow readonly even when writes disabled
-    if tool_name == "mcp__osprey-python-executor__python_execute":
+    # For execute: allow readonly even when writes disabled
+    if tool_name == "mcp__python__execute":
         if tool_input.get("execution_mode") == "readonly":
             sys.exit(0)
 

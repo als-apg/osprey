@@ -1,4 +1,6 @@
 ---
+summary: Safety boundaries and tool confinement
+description: Safety boundaries and tool confinement rules for MCP tool interactions
 paths:
   - "osprey-workspace/**"
   - "_agent_data/**"
@@ -14,7 +16,7 @@ paths:
 - Never attempt to read project configuration, source code, or system files
 - If an MCP tool returns an error, follow the error-handling protocol
   in `.claude/rules/error-handling.md` — report clearly, never work around it
-- Audit logs in osprey-workspace/audit/ must never be deleted or modified
+- Session transcripts in ~/.claude/projects/ are the audit record — do not modify
 - Files in _agent_data/ are for your reference (example scripts, memory)
 
 ## Data Integrity

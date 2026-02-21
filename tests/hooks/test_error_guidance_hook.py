@@ -34,7 +34,7 @@ def test_connection_error_injects_guidance(hook_runner, make_config):
     config = make_config({})
     result = hook_runner(
         "osprey_error_guidance.py",
-        "mcp__osprey-control-system__channel_read",
+        "mcp__controls__channel_read",
         {"channels": ["SR:CURRENT:RB"]},
         config_path=config,
         tool_response=_make_error_response(
@@ -55,7 +55,7 @@ def test_timeout_error_injects_guidance(hook_runner, make_config):
     config = make_config({})
     result = hook_runner(
         "osprey_error_guidance.py",
-        "mcp__osprey-control-system__archiver_read",
+        "mcp__controls__archiver_read",
         {"channels": ["SR:CURRENT:RB"]},
         config_path=config,
         tool_response=_make_error_response(
@@ -75,7 +75,7 @@ def test_validation_error_injects_guidance(hook_runner, make_config):
     config = make_config({})
     result = hook_runner(
         "osprey_error_guidance.py",
-        "mcp__osprey-workspace__artifact_save",
+        "mcp__workspace__artifact_save",
         {"content": "test"},
         config_path=config,
         tool_response=_make_error_response(
@@ -95,12 +95,12 @@ def test_internal_error_injects_guidance(hook_runner, make_config):
     config = make_config({})
     result = hook_runner(
         "osprey_error_guidance.py",
-        "mcp__osprey-python-executor__python_execute",
+        "mcp__python__execute",
         {"code": "1/0"},
         config_path=config,
         tool_response=_make_error_response(
             "internal_error",
-            "Unexpected error during python_execute: ZeroDivisionError",
+            "Unexpected error during execute: ZeroDivisionError",
         ),
     )
 
@@ -115,7 +115,7 @@ def test_ariel_error_detected(hook_runner, make_config):
     config = make_config({})
     result = hook_runner(
         "osprey_error_guidance.py",
-        "mcp__ariel__ariel_search",
+        "mcp__ariel__search",
         {"query": "test"},
         config_path=config,
         tool_response=_make_error_response(
@@ -138,7 +138,7 @@ def test_success_response_no_output(hook_runner, make_config):
     config = make_config({})
     result = hook_runner(
         "osprey_error_guidance.py",
-        "mcp__osprey-control-system__channel_read",
+        "mcp__controls__channel_read",
         {"channels": ["SR:CURRENT:RB"]},
         config_path=config,
         tool_response=json.dumps(
@@ -170,7 +170,7 @@ def test_no_tool_response_no_output(hook_runner, make_config):
     config = make_config({})
     result = hook_runner(
         "osprey_error_guidance.py",
-        "mcp__osprey-control-system__channel_read",
+        "mcp__controls__channel_read",
         {"channels": ["SR:CURRENT:RB"]},
         config_path=config,
         # tool_response omitted
@@ -185,7 +185,7 @@ def test_non_json_success_no_output(hook_runner, make_config):
     config = make_config({})
     result = hook_runner(
         "osprey_error_guidance.py",
-        "mcp__osprey-control-system__channel_read",
+        "mcp__controls__channel_read",
         {"channels": ["SR:CURRENT:RB"]},
         config_path=config,
         tool_response="Channel read successful: SR:CURRENT:RB = 500.1",
@@ -203,7 +203,7 @@ def test_non_json_error_string_detected(hook_runner, make_config):
     config = make_config({})
     result = hook_runner(
         "osprey_error_guidance.py",
-        "mcp__osprey-control-system__channel_read",
+        "mcp__controls__channel_read",
         {"channels": ["SR:CURRENT:RB"]},
         config_path=config,
         tool_response="Error: Failed to connect to IOC at 192.168.1.100:5064",
@@ -220,7 +220,7 @@ def test_unknown_error_type_defaults_to_internal(hook_runner, make_config):
     config = make_config({})
     result = hook_runner(
         "osprey_error_guidance.py",
-        "mcp__osprey-control-system__channel_read",
+        "mcp__controls__channel_read",
         {"channels": ["SR:CURRENT:RB"]},
         config_path=config,
         tool_response=_make_error_response(
@@ -240,7 +240,7 @@ def test_guidance_includes_anti_pattern_reminders(hook_runner, make_config):
     config = make_config({})
     result = hook_runner(
         "osprey_error_guidance.py",
-        "mcp__osprey-control-system__channel_read",
+        "mcp__controls__channel_read",
         {"channels": ["SR:CURRENT:RB"]},
         config_path=config,
         tool_response=_make_error_response(
@@ -264,7 +264,7 @@ def test_dict_tool_response_detected(hook_runner, make_config):
     # Pass dict directly — the hook should handle both str and dict
     result = hook_runner(
         "osprey_error_guidance.py",
-        "mcp__osprey-control-system__channel_read",
+        "mcp__controls__channel_read",
         {"channels": ["SR:CURRENT:RB"]},
         config_path=config,
         tool_response={
@@ -278,3 +278,116 @@ def test_dict_tool_response_detected(hook_runner, make_config):
     assert result is not None
     ctx = result["hookSpecificOutput"]["additionalContext"]
     assert "Connection" in ctx
+
+
+# -- Missing error classes (gap fill) --
+
+
+@pytest.mark.unit
+def test_permission_error_injects_guidance(hook_runner, make_config):
+    """Permission-denied errors from hooks are classified as Execution class.
+
+    The hook itself doesn't have a 'permission_error' type in ERROR_CLASS_MAP,
+    so unrecognized types default to Internal. This test documents the behavior.
+    """
+    config = make_config({})
+    result = hook_runner(
+        "osprey_error_guidance.py",
+        "mcp__controls__channel_write",
+        {"operations": [{"channel": "PROTECTED:PV", "value": 1.0}]},
+        config_path=config,
+        tool_response=_make_error_response(
+            "permission_error",
+            "Insufficient permissions to write to PROTECTED:PV",
+        ),
+    )
+
+    assert result is not None
+    ctx = result["hookSpecificOutput"]["additionalContext"]
+    # permission_error is not in ERROR_CLASS_MAP → defaults to Internal
+    assert "Internal" in ctx
+    assert "error-handling" in ctx.lower()
+
+
+@pytest.mark.unit
+def test_execution_error_injects_guidance(hook_runner, make_config):
+    """Execution errors (python code failures) produce Execution class guidance."""
+    config = make_config({})
+    result = hook_runner(
+        "osprey_error_guidance.py",
+        "mcp__python__execute",
+        {"code": "import nonexistent_module"},
+        config_path=config,
+        tool_response=_make_error_response(
+            "execution_error",
+            "ModuleNotFoundError: No module named 'nonexistent_module'",
+        ),
+    )
+
+    assert result is not None
+    ctx = result["hookSpecificOutput"]["additionalContext"]
+    assert "Execution" in ctx
+    assert "error-handling" in ctx.lower()
+
+
+@pytest.mark.unit
+def test_data_not_found_injects_guidance(hook_runner, make_config):
+    """Data not-found errors produce Data class guidance."""
+    config = make_config({})
+    result = hook_runner(
+        "osprey_error_guidance.py",
+        "mcp__controls__channel_read",
+        {"channels": ["NONEXISTENT:PV"]},
+        config_path=config,
+        tool_response=_make_error_response(
+            "not_found",
+            "Channel NONEXISTENT:PV not found in the control system",
+        ),
+    )
+
+    assert result is not None
+    ctx = result["hookSpecificOutput"]["additionalContext"]
+    assert "Data" in ctx
+    assert "error-handling" in ctx.lower()
+
+
+@pytest.mark.unit
+def test_data_no_results_injects_guidance(hook_runner, make_config):
+    """No-results data errors produce Data class guidance."""
+    config = make_config({})
+    result = hook_runner(
+        "osprey_error_guidance.py",
+        "mcp__workspace__artifact_save",
+        {"query": "nonexistent artifact"},
+        config_path=config,
+        tool_response=_make_error_response(
+            "no_results",
+            "No artifacts matched the query 'nonexistent artifact'",
+        ),
+    )
+
+    assert result is not None
+    ctx = result["hookSpecificOutput"]["additionalContext"]
+    assert "Data" in ctx
+    assert "error-handling" in ctx.lower()
+
+
+@pytest.mark.unit
+def test_limits_violation_error_injects_guidance(hook_runner, make_config):
+    """Limits violation errors produce Validation class guidance."""
+    config = make_config({})
+    result = hook_runner(
+        "osprey_error_guidance.py",
+        "mcp__controls__channel_write",
+        {"operations": [{"channel": "TEST:PV", "value": 999.0}]},
+        config_path=config,
+        tool_response=_make_error_response(
+            "limits_violation",
+            "Value 999.0 exceeds max_value=100.0 for TEST:PV",
+        ),
+    )
+
+    assert result is not None
+    ctx = result["hookSpecificOutput"]["additionalContext"]
+    assert "Validation" in ctx
+    assert "error-handling" in ctx.lower()

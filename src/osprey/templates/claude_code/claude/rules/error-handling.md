@@ -1,4 +1,6 @@
 ---
+summary: Error taxonomy and response protocols
+description: Error taxonomy and response protocols for MCP tool failures
 paths:
   - "osprey-workspace/**"
   - "_agent_data/**"
@@ -23,7 +25,7 @@ or work around failures.
 | **Permission** | Writes disabled, approval denied, channel not writable | Explain the restriction. Do NOT retry or suggest workarounds. |
 | **Validation** | Limits violation, invalid channel name, bad parameter | Show the specific violation. Explain what the valid range or format is, if the error says. |
 | **Data** | Channel not found, archiver has no data for range, empty results | Report what was searched and that no data was found. Suggest refining the query. |
-| **Execution** | Python code error, runtime exception in python_execute | Show the traceback. Help the user fix *their* code (not OSPREY's). |
+| **Execution** | Python code error, runtime exception in execute | Show the traceback. Help the user fix *their* code (not OSPREY's). |
 | **Internal** | Unexpected server error, malformed response, stack trace from MCP server | Report the error verbatim. Suggest the operator check server logs. |
 
 ## Response Protocol
@@ -50,7 +52,7 @@ When a tool returns an error:
 - **NEVER retry silently.** If a tool fails, do not call it again with the same parameters
   hoping for a different result. Report the failure.
 - **NEVER try alternative access paths.** If `channel_read` fails, do not try to read the
-  channel via `python_execute` with pyepics. The MCP tools are the ONLY sanctioned interface.
+  channel via `execute` with pyepics. The MCP tools are the ONLY sanctioned interface.
 - **NEVER modify configuration files** (config.yml, .mcp.json, settings.json) to "fix" an error.
 - **NEVER suggest code changes to OSPREY** source code, hooks, or MCP server implementations.
 - **NEVER speculate about root causes** beyond what the error message says. State what you
@@ -68,6 +70,20 @@ Some errors indicate conditions that need human operator attention:
   Suggest checking archiver appliance status.
 - **Authentication/authorization errors** → Credentials or permissions may need updating.
   Suggest contacting the system administrator.
+
+## Diagnosing Failures
+
+When a subagent returns unexpected results or a multi-step workflow partially fails,
+use `session_log` to inspect what happened before escalating:
+
+- **Agent overview**: `session_log(list_agents=True)` — see all agents, tool counts, error counts
+- **Agent detail**: `session_log(agent_id="agent-xyz")` — tool calls by a specific agent instance
+- **Recent errors**: `session_log(errors_only=True, last_n=10)` — last 10 errors
+- **Time-scoped**: `session_log(since="2026-02-19T12:00:00+00:00")` — events since a specific time
+
+This is a diagnostic tool. Use it after failures, not routinely.
+
+For systematic investigation of complex failures, use the `/diagnose` command.
 
 ## Retries
 

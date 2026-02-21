@@ -1,7 +1,8 @@
 {% if confluence is defined and "wiki-search" not in disable_agents %}---
 name: wiki-search
 description: "Searches the facility wiki for documentation, procedures, reference material, and operational guides. Delegate to this agent when the user asks about how-to procedures, technical documentation, equipment references, or facility policies."
-model: sonnet
+summary: Searches the facility Confluence wiki for documentation
+model: {{ claude_code_model_spec.agent_tier("wiki-search") if claude_code_model_spec is defined and claude_code_model_spec else "sonnet" }}
 maxTurns: 30
 disallowedTools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, NotebookEdit, Task
 ---

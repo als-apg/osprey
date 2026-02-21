@@ -1,11 +1,67 @@
 #!/usr/bin/env python3
-"""PreToolUse hook: Human approval for dangerous operations.
+"""
+---
+name: Human Approval Gate
+description: Requires human approval for dangerous operations based on config approval mode
+summary: Requires human approval for dangerous operations
+event: PreToolUse
+tools: channel_write, execute
+safety_layer: 2
+---
 
-Requires human approval for dangerous operations based on config approval mode.
+## Flow
+
+```
+stdin ──► Parse JSON
+              │
+              ▼
+         Is OSPREY tool?  ──NO──► EXIT (allow)
+              │
+             YES
+              │
+              ▼
+         Load config.yml
+         approval.global_mode
+              │
+              ▼
+     ┌────────┼────────────┐
+     │        │            │
+  disabled  selective  all_capabilities
+     │        │            │
+     ▼        ▼            ▼
+   EXIT    channel_write?  ASK (approve
+  (allow)     │           every tool)
+              ▼
+          ──YES──► ASK (channel details)
+              │
+             NO
+              │
+              ▼
+          execute?
+              │
+          ──YES──► write mode OR  ──YES──► ASK (with
+              │    write patterns?         notebook link)
+             NO         │
+              │        NO
+              ▼         │
+           EXIT ◄───────┘
+          (allow)
+```
+
+## Details
+
+Supports three modes from `approval.global_mode` in config:
+- **disabled**: all tools allowed without prompt
+- **all_capabilities**: every OSPREY tool call requires approval
+- **selective** (default): only `channel_write` and write-mode `execute`
+  need approval; includes pattern detection for EPICS write calls
+
+Creates a pre-execution notebook artifact for code review when approving
+`execute` with write patterns.
 
 PROMPT-PROVIDER: This hook contains facility-customizable static text:
   - build_approval_output(): Approval prompt message (section=approval_prompt)
-  - Approval reason messages for channel_write and python_execute (section=approval_reasons)
+  - Approval reason messages for channel_write and execute (section=approval_reasons)
   Future: source from FrameworkPromptProvider.get_approval_messages()
   Facility-customizable: approval prompt wording,
   reason detail format, severity/tone of approval messages
@@ -19,9 +75,9 @@ from pathlib import Path
 import yaml
 
 OSPREY_PREFIXES = (
-    "mcp__osprey-control-system__",
-    "mcp__osprey-python-executor__",
-    "mcp__osprey-workspace__",
+    "mcp__controls__",
+    "mcp__python__",
+    "mcp__workspace__",
 )
 
 # Pattern detection: prefer framework module (regex-based, config-driven, 11+ patterns)
@@ -44,9 +100,9 @@ except ImportError:
 
 
 def load_osprey_config():
-    config_path = Path(os.path.expandvars(
-        os.environ.get("OSPREY_CONFIG", str(Path.cwd() / "config.yml"))
-    ))
+    config_path = Path(
+        os.path.expandvars(os.environ.get("OSPREY_CONFIG", str(Path.cwd() / "config.yml")))
+    )
     if config_path.exists():
         with open(config_path) as f:
             return yaml.safe_load(f) or {}
@@ -70,6 +126,16 @@ def build_approval_output(reason_detail: str) -> dict:
     }
 
 
+def build_allow_output() -> dict:
+    """Explicit allow decision — overrides static permission lists."""
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+        }
+    }
+
+
 def _create_pre_execution_notebook(code: str, exec_mode: str, config: dict) -> str | None:
     """Create a pre-execution notebook artifact for code review.
 
@@ -83,11 +149,13 @@ def _create_pre_execution_notebook(code: str, exec_mode: str, config: dict) -> s
 
         # Build a minimal notebook with the code to be reviewed
         cells = []
-        cells.append(nbformat.v4.new_markdown_cell(
-            f"# Pre-Execution Review\n\n"
-            f"**Mode:** `{exec_mode or 'unspecified'}`  \n"
-            f"**Status:** Pending approval  \n"
-        ))
+        cells.append(
+            nbformat.v4.new_markdown_cell(
+                f"# Pre-Execution Review\n\n"
+                f"**Mode:** `{exec_mode or 'unspecified'}`  \n"
+                f"**Status:** Pending approval  \n"
+            )
+        )
         cells.append(nbformat.v4.new_code_cell(code))
         nb = nbformat.v4.new_notebook()
         nb.cells = cells
@@ -132,14 +200,15 @@ def main():
         sys.exit(0)
 
     tool_input = hook_input.get("tool_input", {})
-    short_name = tool_name[len(matched_prefix):]
+    short_name = tool_name[len(matched_prefix) :]
 
     config = load_osprey_config()
     approval_config = config.get("approval", {})
     mode = approval_config.get("global_mode", "selective")
 
-    # Disabled — allow everything
+    # Disabled — explicitly allow everything
     if mode == "disabled":
+        json.dump(build_allow_output(), sys.stdout)
         sys.exit(0)
 
     # All-capabilities — approve every OSPREY tool
@@ -158,15 +227,13 @@ def main():
                 val = tool_input.get("value")
                 if ch is not None:
                     channels = [{"channel": ch, "value": val}]
-            channel_list = ", ".join(
-                f"{op.get('channel')}={op.get('value')}" for op in channels
-            )
+            channel_list = ", ".join(f"{op.get('channel')}={op.get('value')}" for op in channels)
             reason = f"Channel write: {channel_list or 'unknown'}"
             json.dump(build_approval_output(reason), sys.stdout)
             sys.exit(0)
 
-        # python_execute: approve if mode=="write" or code has write patterns
-        if short_name == "python_execute":
+        # execute: approve if mode=="write" or code has write patterns
+        if short_name == "execute":
             exec_mode = tool_input.get("execution_mode", "")
             code = tool_input.get("code", "")
 
@@ -185,7 +252,8 @@ def main():
                 json.dump(build_approval_output(reason), sys.stdout)
                 sys.exit(0)
 
-    # No approval needed
+    # No approval needed — explicitly allow so hook decision overrides static lists
+    json.dump(build_allow_output(), sys.stdout)
     sys.exit(0)
 
 

@@ -1,22 +1,65 @@
 #!/usr/bin/env python3
-"""PostToolUse hook: Error-handling guidance injection.
+"""
+---
+name: Error Guidance
+description: Injects error-handling protocol guidance when an OSPREY tool returns a structured error
+summary: Injects error-handling guidance into tool error responses
+event: PostToolUse
+tools: all OSPREY MCP tools
+---
 
-When an OSPREY MCP tool returns a structured error (the cross-team standard
-``{"error": true, "error_type": ...}`` envelope), this hook injects a short
-reminder into Claude's context pointing it to the error-handling protocol.
+## Flow
 
-This hook NEVER blocks — it only adds ``additionalContext`` on error.
-On success (no error detected), it produces no output at all.
+```
+stdin ──► Parse JSON
+              │
+              ▼
+         Is OSPREY tool?  ──NO──► EXIT (silent)
+              │
+             YES
+              │
+              ▼
+         Parse tool_response
+              │
+              ▼
+         Detect error envelope
+         {"error": true, ...}
+              │
+              ▼
+         Error found?  ──NO──► EXIT (silent)
+              │
+             YES
+              │
+              ▼
+         Map error_type to class
+         (Connection/Validation/
+          Data/Execution/Internal)
+              │
+              ▼
+         Inject additionalContext:
+         error class + protocol ref
+```
+
+## Details
+
+Never blocks execution — only adds `additionalContext` pointing Claude to
+the error-handling protocol in `.claude/rules/error-handling.md`. Detects
+the standard OSPREY error envelope (`{"error": true, "error_type": ...}`)
+and falls back to keyword detection for non-JSON responses.
 """
 
 import json
 import sys
 
 OSPREY_PREFIXES = (
-    "mcp__osprey-control-system__",
-    "mcp__osprey-python-executor__",
-    "mcp__osprey-workspace__",
+    "mcp__controls__",
+    "mcp__python__",
+    "mcp__workspace__",
     "mcp__ariel__",
+    "mcp__accelpapers__",
+    "mcp__matlab__",
+    "mcp__channel-finder__",
+    "mcp__confluence__",
 )
 
 # Map OSPREY error_type values to short human-readable classes.

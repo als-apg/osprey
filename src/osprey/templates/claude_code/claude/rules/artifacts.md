@@ -1,4 +1,6 @@
 ---
+summary: Artifact-first reuse rule
+description: Reuse existing workspace artifacts before creating new content
 paths:
   - "osprey-workspace/**"
 ---

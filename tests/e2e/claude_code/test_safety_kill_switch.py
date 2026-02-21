@@ -1,27 +1,21 @@
 """E2E safety tests for the writes-disabled kill switch via Claude Code SDK.
 
 Scenarios 9-10: Master kill switch (writes_enabled: false) blocks all writes.
+
+Uses run_sdk_query_with_hooks to exercise the full hook chain. Kill switch
+returns "deny" (not "ask"), so hook_events should be EMPTY.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from tests.e2e.sdk_helpers import run_sdk_query
+from tests.e2e.sdk_helpers import combined_text, run_sdk_query_with_hooks
 
 # Keywords that indicate the writes_check hook denied the operation
 WRITES_DISABLED_KEYWORDS = ["writes", "disabled", "denied", "blocked", "not allowed",
                             "not enabled", "kill switch", "write operations",
                             "cannot write", "refused"]
-
-
-def _combined_text(result) -> str:
-    """Combine all text blocks and tool results into a single searchable string."""
-    parts = list(result.text_blocks)
-    for trace in result.tool_traces:
-        if trace.result:
-            parts.append(trace.result)
-    return " ".join(parts).lower()
 
 
 # ---------------------------------------------------------------------------
@@ -36,7 +30,7 @@ async def test_channel_write_denied_when_writes_disabled(safety_project_writes_o
     """Scenario 9: channel_write should be blocked when writes_enabled=false.
 
     The writes_check hook reads config.yml and denies any channel_write
-    or python_execute(write) when writes_enabled is false.
+    or execute(write) when writes_enabled is false.
 
     Cost budget: $0.50
     """
@@ -45,9 +39,10 @@ async def test_channel_write_denied_when_writes_disabled(safety_project_writes_o
         "'MAG:HCM01:CURRENT:SP'. Report the result."
     )
 
-    result = await run_sdk_query(
+    result = await run_sdk_query_with_hooks(
         safety_project_writes_off,
         prompt,
+        approval_policy="auto_approve",
         max_turns=5,
         max_budget_usd=0.50,
     )
@@ -57,6 +52,9 @@ async def test_channel_write_denied_when_writes_disabled(safety_project_writes_o
     print(f"  tools called: {result.tool_names}")
     print(f"  num_turns: {result.num_turns}")
     print(f"  cost: ${result.cost_usd:.4f}" if result.cost_usd else "  cost: N/A")
+    print(f"  hook_events: {len(result.hook_events)}")
+    for evt in result.hook_events:
+        print(f"    {evt.tool_name}: {evt.decision}")
     for trace in result.tool_traces:
         print(f"  tool: {trace.name}")
         print(f"    is_error: {trace.is_error}")
@@ -66,7 +64,7 @@ async def test_channel_write_denied_when_writes_disabled(safety_project_writes_o
     # -- Assertions --
     assert result.result is not None, "No ResultMessage received from SDK"
 
-    combined = _combined_text(result)
+    combined = combined_text(result)
     write_calls = result.tools_matching("channel_write")
 
     denied = (
@@ -79,9 +77,16 @@ async def test_channel_write_denied_when_writes_disabled(safety_project_writes_o
         f"  Text: {combined[:500]}"
     )
 
+    # Kill switch returns "deny" (not "ask"), so no approval callback fires
+    assert len(result.hook_events) == 0, (
+        f"Expected no hook_events (kill switch denies before ask) "
+        f"but got {len(result.hook_events)}: "
+        f"{[(e.tool_name, e.decision) for e in result.hook_events]}"
+    )
+
 
 # ---------------------------------------------------------------------------
-# Scenario 10: Writes disabled — python_execute in write mode
+# Scenario 10: Writes disabled — execute in write mode
 # ---------------------------------------------------------------------------
 
 
@@ -89,30 +94,34 @@ async def test_channel_write_denied_when_writes_disabled(safety_project_writes_o
 @pytest.mark.requires_anthropic
 @pytest.mark.asyncio
 async def test_python_write_denied_when_writes_disabled(safety_project_writes_off):
-    """Scenario 10: python_execute with write mode should be blocked.
+    """Scenario 10: execute with write mode should be blocked.
 
-    The writes_check hook also blocks python_execute when execution_mode
+    The writes_check hook also blocks execute when execution_mode
     is 'write' or 'readwrite' and writes_enabled is false.
 
     Cost budget: $0.50
     """
     prompt = (
-        "Use the python_execute tool with execution_mode 'write' to run "
+        "Use the execute tool with execution_mode 'write' to run "
         "this code: caput('X', 1). Report the result."
     )
 
-    result = await run_sdk_query(
+    result = await run_sdk_query_with_hooks(
         safety_project_writes_off,
         prompt,
+        approval_policy="auto_approve",
         max_turns=5,
         max_budget_usd=0.50,
     )
 
     # -- Debug output --
-    print("\n--- Scenario 10: writes disabled (python_execute write) ---")
+    print("\n--- Scenario 10: writes disabled (execute write) ---")
     print(f"  tools called: {result.tool_names}")
     print(f"  num_turns: {result.num_turns}")
     print(f"  cost: ${result.cost_usd:.4f}" if result.cost_usd else "  cost: N/A")
+    print(f"  hook_events: {len(result.hook_events)}")
+    for evt in result.hook_events:
+        print(f"    {evt.tool_name}: {evt.decision}")
     for trace in result.tool_traces:
         print(f"  tool: {trace.name}")
         print(f"    is_error: {trace.is_error}")
@@ -122,15 +131,22 @@ async def test_python_write_denied_when_writes_disabled(safety_project_writes_of
     # -- Assertions --
     assert result.result is not None, "No ResultMessage received from SDK"
 
-    combined = _combined_text(result)
-    py_calls = result.tools_matching("python_execute")
+    combined = combined_text(result)
+    py_calls = result.tools_matching("execute")
 
     denied = (
         any(t.is_error for t in py_calls)
         or any(kw in combined for kw in WRITES_DISABLED_KEYWORDS)
     )
     assert denied, (
-        f"Expected python_execute write to be denied by kill switch.\n"
+        f"Expected execute write to be denied by kill switch.\n"
         f"  Tools: {result.tool_names}\n"
         f"  Text: {combined[:500]}"
+    )
+
+    # Kill switch returns "deny" (not "ask"), so no approval callback fires
+    assert len(result.hook_events) == 0, (
+        f"Expected no hook_events (kill switch denies before ask) "
+        f"but got {len(result.hook_events)}: "
+        f"{[(e.tool_name, e.decision) for e in result.hook_events]}"
     )

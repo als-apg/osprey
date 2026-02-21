@@ -2,7 +2,8 @@
 ---
 name: channel-finder
 description: "Finds and verifies EPICS channel/PV addresses by exploring the channel database. Delegate to this agent when the user needs to find, locate, or discover channels by description or function (e.g., 'beam current', 'BPM positions', 'corrector magnets')."
-model: haiku
+summary: Finds EPICS channel/PV addresses by exploring the channel database
+model: {{ claude_code_model_spec.agent_tier("channel-finder") if claude_code_model_spec is defined and claude_code_model_spec else "haiku" }}
 maxTurns: 30
 disallowedTools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, NotebookEdit, Task
 ---
@@ -52,13 +53,13 @@ When descriptions are ABSENT (empty strings):
 
 ## Exploration Strategy
 
-1. `cf_ml_list_systems()` — see what's available, check descriptions
-2. `cf_ml_list_families(system)` — find relevant device families, read descriptions
-3. `cf_ml_inspect_fields(system, family)` — understand field structure and purposes
-4. For nested structures: `cf_ml_inspect_fields(system, family, field)` to explore subfields
-5. `cf_ml_list_channels(system, family, field, ...)` — get actual PV addresses
-6. `cf_ml_get_common_names(system, family)` — get friendly device names if needed
-7. Use `cf_ml_validate(channels)` to verify channel names when uncertain
+1. `list_systems()` — see what's available, check descriptions
+2. `list_families(system)` — find relevant device families, read descriptions
+3. `inspect_fields(system, family)` — understand field structure and purposes
+4. For nested structures: `inspect_fields(system, family, field)` to explore subfields
+5. `list_channels(system, family, field, ...)` — get actual PV addresses
+6. `get_common_names(system, family)` — get friendly device names if needed
+7. Use `validate(channels)` to verify channel names when uncertain
 
 ## Common Patterns (when descriptions are not available)
 
@@ -85,7 +86,7 @@ structure, then navigate level by level.
 
 ### Step 1: Understand the hierarchy
 
-Call `cf_hier_hierarchy_info()` to get:
+Call `hierarchy_info()` to get:
 - **hierarchy_levels**: Ordered list of level names (e.g., system, device, signal)
 - **hierarchy_config**: Type of each level (tree=categorical, instances=numbered)
 - **naming_pattern**: How levels combine into channel names (e.g., `{system}:{device}:{signal}`)
@@ -93,7 +94,7 @@ Call `cf_hier_hierarchy_info()` to get:
 ### Step 2: Navigate level by level
 
 For each level in the hierarchy:
-1. Call `cf_hier_get_options(level, selections)` to see available options
+1. Call `get_options(level, selections)` to see available options
 2. Select the option(s) that match the user's query
 3. Add your selection to the selections dict and move to the next level
 
@@ -103,7 +104,7 @@ For each level in the hierarchy:
 ### Step 3: Build channel names
 
 Once all relevant levels have selections:
-- Call `cf_hier_build_channels(selections)` to construct the full channel addresses
+- Call `build_channels(selections)` to construct the full channel addresses
 - The tool uses the naming pattern to combine your selections into valid PV names
 
 ### Branching Behavior
@@ -118,7 +119,7 @@ skip it — the channel name will be constructed without that component.
 
 ### Verification
 
-Use `cf_hier_validate(channels)` to verify the constructed channel names exist in the database.
+Use `validate(channels)` to verify the constructed channel names exist in the database.
 {% elif channel_finder_mode == "in_context" %}
 {# PROMPT-PROVIDER: section=channel_finding_in_context
    Future: source from FrameworkPromptProvider.get_in_context_prompt_builder()
@@ -130,7 +131,7 @@ Use `cf_hier_validate(channels)` to verify the constructed channel names exist i
    location/device/axis terminology, precision-vs-recall tradeoff guidance #}
 ## Channel Matching
 
-The database is loaded directly. Use `cf_ic_get_channels()` to retrieve all channels
+The database is loaded directly. Use `get_channels()` to retrieve all channels
 or browse them in chunks.
 
 ### Matching Rules — Apply ALL constraints strictly:
@@ -159,11 +160,11 @@ or browse them in chunks.
 
 ### Exploration Strategy
 
-1. `cf_ic_statistics()` — understand database size and format
-2. `cf_ic_get_channels()` — get all channels (small databases) or use chunked access
-3. For large databases: `cf_ic_get_channels(chunk_idx=0, chunk_size=50)` to browse in chunks
-4. `cf_ic_validate(channels)` — verify your selections
-5. `cf_ic_resolve_addresses(channels)` — convert matched channel names to PV addresses
+1. `statistics()` — understand database size and format
+2. `get_channels()` — get all channels (small databases) or use chunked access
+3. For large databases: `get_channels(chunk_idx=0, chunk_size=50)` to browse in chunks
+4. `validate(channels)` — verify your selections
+5. `resolve_addresses(channels)` — convert matched channel names to PV addresses
 {% endif %}
 
 {# PROMPT-PROVIDER: section=facility_context
@@ -181,7 +182,7 @@ You are exploring the {{ facility_name }} control system database.
 - Read descriptions carefully when available
 - Present results clearly to the user for confirmation
 - If no channels match, report honestly
-- Use `cf_*_validate()` to verify channel names when uncertain
+- Use `validate()` to verify channel names when uncertain
 
 ## Submitting Results
 
@@ -189,7 +190,7 @@ You are exploring the {{ facility_name }} control system database.
 **IMPORTANT — Address Resolution**: Channel names in this database are descriptive
 identifiers (e.g., `AcceleratingTubeBeginningGunPressureReadBack`). The actual PV
 addresses may differ (e.g., `GunPressure`). Before calling `submit_response`, you
-MUST call `cf_ic_resolve_addresses(channels)` to get the real PV addresses, then
+MUST call `resolve_addresses(channels)` to get the real PV addresses, then
 use those addresses (not the channel names) in the `entry_ids` field.
 
 {% endif %}

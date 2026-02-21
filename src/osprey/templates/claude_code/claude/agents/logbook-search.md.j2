@@ -1,7 +1,8 @@
 {% if "logbook-search" not in disable_agents %}---
 name: logbook-search
 description: "Searches the facility logbook for operational history, shift logs, maintenance records, and past events. Delegate to this agent when the user asks about what happened, historical incidents, previous observations, or needs to find logbook entries."
-model: sonnet
+summary: Searches the electronic logbook for operational entries
+model: {{ claude_code_model_spec.agent_tier("logbook-search") if claude_code_model_spec is defined and claude_code_model_spec else "sonnet" }}
 maxTurns: 30
 disallowedTools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, NotebookEdit, Task
 ---
@@ -21,35 +22,35 @@ accurately and use the correct domain language in your searches.
 
 You have access to these ARIEL MCP tools:
 
-- `ariel_keyword_search` — Full-text keyword search (exact matching, operators)
-- `ariel_semantic_search` — Embedding similarity search (conceptual matching)
-- `ariel_browse` — List recent entries with optional filters
-- `ariel_filter_options` — Discover available authors and source systems
-- `ariel_entry_get` — Fetch full entry details by ID
-- `ariel_capabilities` — Check available search modes and modules
+- `keyword_search` — Full-text keyword search (exact matching, operators)
+- `semantic_search` — Embedding similarity search (conceptual matching)
+- `browse` — List recent entries with optional filters
+- `filter_options` — Discover available authors and source systems
+- `entry_get` — Fetch full entry details by ID
+- `capabilities` — Check available search modes and modules
 
 ## Multi-Strategy Search Pattern
 
 Follow this approach to find the most relevant logbook entries:
 
-1. **Check capabilities** (first call only): `ariel_capabilities` — confirm which
+1. **Check capabilities** (first call only): `capabilities` — confirm which
    search modes are available.
 
-2. **Keyword search first**: `ariel_keyword_search(query=...)` — start with exact term
+2. **Keyword search first**: `keyword_search(query=...)` — start with exact term
    matching. This is fast and precise for known terms, names, and specific events.
 
 3. **Semantic search to broaden**: If keyword results are insufficient, use
-   `ariel_semantic_search(query=...)` — finds conceptually similar entries even when
+   `semantic_search(query=...)` — finds conceptually similar entries even when
    exact terms don't match.
 
 4. **Browse for time-based queries**: For "what happened today/this week" style
-   questions, use `ariel_browse` with date range filters to explore entries
+   questions, use `browse` with date range filters to explore entries
    chronologically.
 
-5. **Discover filter options**: Use `ariel_filter_options` to find available
+5. **Discover filter options**: Use `filter_options` to find available
    authors and source systems, then refine searches with those filters.
 
-6. **Get full details**: Use `ariel_entry_get` with an entry ID when summaries
+6. **Get full details**: Use `entry_get` with an entry ID when summaries
    from search results aren't detailed enough.
 
 ## Synthesis Guidelines
