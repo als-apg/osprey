@@ -12,15 +12,21 @@ from fastmcp import FastMCP
 
 logger = logging.getLogger("osprey.mcp_server.workspace")
 
-mcp = FastMCP("osprey-workspace")
+mcp = FastMCP("workspace")
 
 
 def create_server() -> FastMCP:
     """Initialize workspace singletons and import tool modules, then return the server."""
     from osprey.mcp_server.common import (
         initialize_workspace_singletons,
+        prime_config_builder,
         resolve_workspace_root,
     )
+
+    # Prime the main ConfigBuilder and registry so downstream services
+    # (LimitsValidator, pattern_detection) find their config when tools
+    # like create_static_plot call execute_code().
+    prime_config_builder()
 
     workspace_root = resolve_workspace_root()
     logger.info("Workspace root: %s", workspace_root)
@@ -28,13 +34,21 @@ def create_server() -> FastMCP:
 
     # Import tool modules (each registers itself via @mcp.tool())
     from osprey.mcp_server.workspace.tools import (  # noqa: F401
+        archiver_downsample,
         artifact_export,
         artifact_save,
+        create_dashboard,
+        create_document,
+        create_interactive_plot,
+        create_static_plot,
         data_context_tools,
         facility_description,
         focus_tools,
+        graph_tools,
         memory,
         screen_capture,
+        session_log,
+        session_summary,
         submit_response,
     )
 
