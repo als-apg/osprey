@@ -21,26 +21,23 @@ class AMSCProviderAdapter(BaseProvider):
     requires_model_id = True
     supports_proxy = True
     default_base_url = None
-    default_model_id = "anthropic/claude-haiku"  # Claude Haiku via ASC for general use
-    health_check_model_id = "anthropic/claude-haiku"  # Fast and cost-effective for health checks
-    # TODO: Update available_models when the AMSC model list is confirmed
+    default_model_id = "claude-haiku"  # Claude Haiku via AMSC for general use
+    health_check_model_id = "claude-haiku"  # Fast and cost-effective for health checks
     available_models = [
-        "anthropic/claude-sonnet",
-        "anthropic/claude-haiku",
-        "google/gemini-flash",
-        "google/gemini-pro",
-        "openai/gpt-4o",
-        "openai/gpt-4o-mini",
+        "claude-opus",
+        "claude-sonnet",
+        "claude-haiku",
+        "gpt-oss-120b",
+        "gpt-oss-20b",
     ]
 
     # API key acquisition information
     api_key_url = (
-        "https://docs.google.com/forms/d/1xcuOTxzvwu6sEmQfNu5zxLsjaS_hMvAfr99XQzdc_nY/edit"
+        "https://api.i2-core.american-science-cloud.org/"
     )
     api_key_instructions = [
-        "If you have an americansciencecloud.org Google account (workshop attendees), log in directly",
-        "Otherwise, request access via GlobusAuth whitelist form with your lab ID",
-        "Copy the API key provided after access is granted",
+        "If you have an americansciencecloud.org Google account, log in and go to 'API Key Manager.",
+        "Otherwise, request access at https://docs.google.com/forms/d/1xcuOTxzvwu6sEmQfNu5zxLsjaS_hMvAfr99XQzdc_nY/viewform",
     ]
     api_key_note = (
         "Requires an americansciencecloud.org Google account or lab ID via GlobusAuth whitelist."
