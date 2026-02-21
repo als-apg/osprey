@@ -1,4 +1,4 @@
-"""MCP tool: cf_hier_get_options — get available options at a hierarchy level.
+"""MCP tool: get_options — get available options at a hierarchy level.
 
 PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code.
   Future: source from FrameworkPromptProvider.get_hierarchical_prompt_builder()
@@ -15,10 +15,10 @@ logger = logging.getLogger("osprey.services.channel_finder.mcp.hierarchical.tool
 
 
 @mcp.tool()
-def cf_hier_get_options(level: str, selections: dict | None = None) -> str:
+def get_options(level: str, selections: dict | None = None) -> str:
     """Get available options at a specific hierarchy level.
 
-    Use cf_hier_hierarchy_info first to learn the level names and order.
+    Use hierarchy_info first to learn the level names and order.
     Then call this tool iteratively, passing previous selections to drill down.
 
     Args:
@@ -49,13 +49,13 @@ def cf_hier_get_options(level: str, selections: dict | None = None) -> str:
                 "validation_error",
                 str(exc),
                 [
-                    "Use cf_hier_hierarchy_info to see available hierarchy levels.",
+                    "Use hierarchy_info to see available hierarchy levels.",
                     "Ensure previous level selections are valid.",
                 ],
             )
         )
     except Exception as exc:
-        logger.exception("cf_hier_get_options failed")
+        logger.exception("get_options failed")
         return json.dumps(
             make_error(
                 "internal_error",

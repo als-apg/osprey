@@ -1,4 +1,4 @@
-"""Tests for cf_hier_get_options tool."""
+"""Tests for get_options tool."""
 
 import json
 from unittest.mock import MagicMock, PropertyMock, patch
@@ -33,10 +33,10 @@ def test_get_options_happy_path(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.hierarchical.tools.get_options import (
-            cf_hier_get_options,
+            get_options,
         )
 
-        fn = get_tool_fn(cf_hier_get_options)
+        fn = get_tool_fn(get_options)
         result = fn(level="system", selections=None)
     data = json.loads(result)
     assert data["level"] == "system"
@@ -61,10 +61,10 @@ def test_get_options_with_selections(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.hierarchical.tools.get_options import (
-            cf_hier_get_options,
+            get_options,
         )
 
-        fn = get_tool_fn(cf_hier_get_options)
+        fn = get_tool_fn(get_options)
         result = fn(level="family", selections={"system": "SR"})
     data = json.loads(result)
     assert data["level"] == "family"
@@ -85,10 +85,10 @@ def test_get_options_value_error(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.hierarchical.tools.get_options import (
-            cf_hier_get_options,
+            get_options,
         )
 
-        fn = get_tool_fn(cf_hier_get_options)
+        fn = get_tool_fn(get_options)
         result = fn(level="bogus", selections=None)
     data = json.loads(result)
     assert data["error"] is True
@@ -107,10 +107,10 @@ def test_get_options_internal_error(tmp_path, monkeypatch):
         side_effect=RuntimeError("db exploded"),
     ):
         from osprey.services.channel_finder.mcp.hierarchical.tools.get_options import (
-            cf_hier_get_options,
+            get_options,
         )
 
-        fn = get_tool_fn(cf_hier_get_options)
+        fn = get_tool_fn(get_options)
         result = fn(level="system", selections=None)
     data = json.loads(result)
     assert data["error"] is True

@@ -1,4 +1,4 @@
-"""Tests for cf_ml_list_families tool."""
+"""Tests for list_families tool."""
 
 import json
 from unittest.mock import MagicMock, PropertyMock, patch
@@ -32,10 +32,10 @@ def test_list_families_returns_families(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.middle_layer.tools.list_families import (
-            cf_ml_list_families,
+            list_families,
         )
 
-        fn = get_tool_fn(cf_ml_list_families)
+        fn = get_tool_fn(list_families)
         result = fn(system="SR")
 
     data = json.loads(result)
@@ -57,10 +57,10 @@ def test_list_families_validation_error(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.middle_layer.tools.list_families import (
-            cf_ml_list_families,
+            list_families,
         )
 
-        fn = get_tool_fn(cf_ml_list_families)
+        fn = get_tool_fn(list_families)
         result = fn(system="XX")
 
     data = json.loads(result)
@@ -81,10 +81,10 @@ def test_list_families_internal_error(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.middle_layer.tools.list_families import (
-            cf_ml_list_families,
+            list_families,
         )
 
-        fn = get_tool_fn(cf_ml_list_families)
+        fn = get_tool_fn(list_families)
         result = fn(system="SR")
 
     data = json.loads(result)

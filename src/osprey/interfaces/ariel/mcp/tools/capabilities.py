@@ -1,4 +1,4 @@
-"""MCP tool: ariel_capabilities — report ARIEL service capabilities."""
+"""MCP tool: capabilities — report ARIEL service capabilities."""
 
 import json
 import logging
@@ -11,7 +11,7 @@ logger = logging.getLogger("osprey.interfaces.ariel.mcp.tools.capabilities")
 
 
 @mcp.tool()
-async def ariel_capabilities() -> str:
+async def capabilities() -> str:
     """Report available ARIEL search capabilities.
 
     Returns enabled search modules, pipelines, search modes,
@@ -45,7 +45,7 @@ async def ariel_capabilities() -> str:
         )
 
     except Exception as exc:
-        logger.exception("ariel_capabilities failed")
+        logger.exception("capabilities failed")
         return json.dumps(
             make_error(
                 "internal_error",

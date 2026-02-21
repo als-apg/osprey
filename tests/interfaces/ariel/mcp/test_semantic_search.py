@@ -1,4 +1,4 @@
-"""Tests for the ariel_semantic_search MCP tool."""
+"""Tests for the semantic_search MCP tool."""
 
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -23,10 +23,10 @@ def _make_search_result(entries, reasoning="", sources=()):
     return result
 
 
-def _get_ariel_semantic_search():
-    from osprey.interfaces.ariel.mcp.tools.semantic_search import ariel_semantic_search
+def _get_semantic_search():
+    from osprey.interfaces.ariel.mcp.tools.semantic_search import semantic_search
 
-    return get_tool_fn(ariel_semantic_search)
+    return get_tool_fn(semantic_search)
 
 
 def _setup_registry(tmp_path, monkeypatch):
@@ -51,7 +51,7 @@ async def test_semantic_search_basic(tmp_path, monkeypatch):
         "osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_ariel_semantic_search()
+        fn = _get_semantic_search()
         result = await fn(query="beam loss problems")
 
     data = json.loads(result)
@@ -74,7 +74,7 @@ async def test_semantic_search_similarity_threshold(tmp_path, monkeypatch):
         "osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_ariel_semantic_search()
+        fn = _get_semantic_search()
         await fn(query="test", similarity_threshold=0.8)
 
     call_kwargs = mock_service.search.call_args.kwargs
@@ -99,7 +99,7 @@ async def test_semantic_search_exclude_entry_ids(tmp_path, monkeypatch):
         "osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_ariel_semantic_search()
+        fn = _get_semantic_search()
         result = await fn(query="entry", exclude_entry_ids=["e1"])
 
     data = json.loads(result)
@@ -110,7 +110,7 @@ async def test_semantic_search_exclude_entry_ids(tmp_path, monkeypatch):
 @pytest.mark.unit
 async def test_semantic_search_empty_query():
     """Empty query returns validation error."""
-    fn = _get_ariel_semantic_search()
+    fn = _get_semantic_search()
     result = await fn(query="")
 
     data = json.loads(result)
@@ -130,7 +130,7 @@ async def test_semantic_search_service_error(tmp_path, monkeypatch):
         "osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_ariel_semantic_search()
+        fn = _get_semantic_search()
         result = await fn(query="test")
 
     data = json.loads(result)

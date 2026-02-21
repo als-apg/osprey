@@ -13,9 +13,9 @@ from pathlib import Path
 logger = logging.getLogger("osprey.mcp_server.workspace.transcript_reader")
 
 OSPREY_MCP_PREFIXES = (
-    "mcp__osprey-control-system__",
-    "mcp__osprey-python-executor__",
-    "mcp__osprey-workspace__",
+    "mcp__controls__",
+    "mcp__python__",
+    "mcp__workspace__",
     "mcp__ariel__",
     "mcp__accelpapers__",
     "mcp__matlab__",
@@ -63,7 +63,7 @@ def _match_osprey_prefix(tool_name: str) -> tuple[str, str, str] | None:
     """
     for prefix in OSPREY_MCP_PREFIXES:
         if tool_name.startswith(prefix):
-            short_name = tool_name[len(prefix):]
+            short_name = tool_name[len(prefix) :]
             parts = tool_name.split("__")
             server = parts[1] if len(parts) >= 3 else "unknown"
             return short_name, server, tool_name
@@ -173,9 +173,7 @@ class TranscriptReader:
 
                 if tool_use_id in tool_uses:
                     block, ts, sid = tool_uses.pop(tool_use_id)
-                    events.append(
-                        self._make_tool_event(block, content, is_err, ts, sid, agent_id)
-                    )
+                    events.append(self._make_tool_event(block, content, is_err, ts, sid, agent_id))
                 elif tool_use_id in task_uses:
                     block, ts = task_uses.pop(tool_use_id)
                     task_events = self._make_task_events(block, content, is_err, ts)
@@ -310,19 +308,23 @@ class TranscriptReader:
             except (json.JSONDecodeError, ValueError):
                 pass
 
-        events.append({
-            "type": "agent_start",
-            "timestamp": timestamp,
-            "agent_id": result_agent_id or task_use_block.get("id", ""),
-            "agent_type": agent_type,
-        })
+        events.append(
+            {
+                "type": "agent_start",
+                "timestamp": timestamp,
+                "agent_id": result_agent_id or task_use_block.get("id", ""),
+                "agent_type": agent_type,
+            }
+        )
 
-        events.append({
-            "type": "agent_stop",
-            "timestamp": timestamp,
-            "agent_id": result_agent_id or task_use_block.get("id", ""),
-            "agent_type": agent_type,
-            "agent_transcript_path": agent_transcript_path,
-        })
+        events.append(
+            {
+                "type": "agent_stop",
+                "timestamp": timestamp,
+                "agent_id": result_agent_id or task_use_block.get("id", ""),
+                "agent_type": agent_type,
+                "agent_transcript_path": agent_transcript_path,
+            }
+        )
 
         return events

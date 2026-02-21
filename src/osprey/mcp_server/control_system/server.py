@@ -12,7 +12,7 @@ from fastmcp import FastMCP
 
 logger = logging.getLogger("osprey.mcp_server.control_system")
 
-mcp = FastMCP("osprey-control-system")
+mcp = FastMCP("controls")
 
 
 def create_server() -> FastMCP:

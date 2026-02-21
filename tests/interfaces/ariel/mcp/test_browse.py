@@ -1,4 +1,4 @@
-"""Tests for ariel_browse and ariel_filter_options MCP tools."""
+"""Tests for browse and filter_options MCP tools."""
 
 import json
 from unittest.mock import AsyncMock, patch
@@ -9,16 +9,16 @@ from osprey.interfaces.ariel.mcp.registry import initialize_ariel_registry
 from tests.interfaces.ariel.mcp.conftest import get_tool_fn, make_mock_entry
 
 
-def _get_ariel_browse():
-    from osprey.interfaces.ariel.mcp.tools.browse import ariel_browse
+def _get_browse():
+    from osprey.interfaces.ariel.mcp.tools.browse import browse
 
-    return get_tool_fn(ariel_browse)
+    return get_tool_fn(browse)
 
 
-def _get_ariel_filter_options():
-    from osprey.interfaces.ariel.mcp.tools.browse import ariel_filter_options
+def _get_filter_options():
+    from osprey.interfaces.ariel.mcp.tools.browse import filter_options
 
-    return get_tool_fn(ariel_filter_options)
+    return get_tool_fn(filter_options)
 
 
 def _setup_registry(tmp_path, monkeypatch):
@@ -47,7 +47,7 @@ async def test_browse_returns_entries(tmp_path, monkeypatch):
         "osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_ariel_browse()
+        fn = _get_browse()
         result = await fn(page_size=20)
 
     data = json.loads(result)
@@ -69,7 +69,7 @@ async def test_browse_empty_db(tmp_path, monkeypatch):
         "osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_ariel_browse()
+        fn = _get_browse()
         result = await fn()
 
     data = json.loads(result)
@@ -96,7 +96,7 @@ async def test_browse_author_filter(tmp_path, monkeypatch):
         "osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_ariel_browse()
+        fn = _get_browse()
         result = await fn(author="Alice")
 
     data = json.loads(result)
@@ -116,7 +116,7 @@ async def test_filter_options_authors(tmp_path, monkeypatch):
         "osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_ariel_filter_options()
+        fn = _get_filter_options()
         result = await fn(field="authors")
 
     data = json.loads(result)
@@ -136,7 +136,7 @@ async def test_filter_options_source_systems(tmp_path, monkeypatch):
         "osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_ariel_filter_options()
+        fn = _get_filter_options()
         result = await fn(field="source_systems")
 
     data = json.loads(result)
@@ -155,7 +155,7 @@ async def test_filter_options_unknown_field(tmp_path, monkeypatch):
         "osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_ariel_filter_options()
+        fn = _get_filter_options()
         result = await fn(field="unknown")
 
     data = json.loads(result)

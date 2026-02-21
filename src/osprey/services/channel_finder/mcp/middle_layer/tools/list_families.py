@@ -1,4 +1,4 @@
-"""MCP tool: cf_ml_list_families — list device families in a system.
+"""MCP tool: list_families — list device families in a system.
 
 PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code.
   Future: source from FrameworkPromptProvider.get_middle_layer_prompt_builder()
@@ -15,7 +15,7 @@ logger = logging.getLogger("osprey.services.channel_finder.mcp.middle_layer.tool
 
 
 @mcp.tool()
-def cf_ml_list_families(system: str) -> str:
+def list_families(system: str) -> str:
     """List all device families in a system with their descriptions.
 
     Args:
@@ -35,11 +35,11 @@ def cf_ml_list_families(system: str) -> str:
             make_error(
                 "validation_error",
                 str(exc),
-                ["Use cf_ml_list_systems to see available systems."],
+                ["Use list_systems to see available systems."],
             )
         )
     except Exception as exc:
-        logger.exception("cf_ml_list_families failed")
+        logger.exception("list_families failed")
         return json.dumps(
             make_error(
                 "internal_error",

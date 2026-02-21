@@ -41,7 +41,7 @@ async def artifact_export(
             make_error(
                 "not_found",
                 f"Artifact '{artifact_id}' not found.",
-                ["Use artifact_save or python_execute to create artifacts first."],
+                ["Use artifact_save or execute to create artifacts first."],
             )
         )
 

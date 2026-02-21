@@ -1,4 +1,4 @@
-"""MCP tool: ariel_sql_query — raw SQL query against the ARIEL database.
+"""MCP tool: sql_query — raw SQL query against the ARIEL database.
 
 PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code.
   Facility-customizable: table schema, metadata JSONB keys
@@ -21,7 +21,7 @@ logger = logging.getLogger("osprey.interfaces.ariel.mcp.tools.sql_query")
 
 
 @mcp.tool()
-async def ariel_sql_query(
+async def sql_query(
     query: str,
     max_rows: int = 100,
 ) -> str:
@@ -93,7 +93,7 @@ async def ariel_sql_query(
             )
         )
     except Exception as exc:
-        logger.exception("ariel_sql_query failed")
+        logger.exception("sql_query failed")
         return json.dumps(
             make_error(
                 "internal_error",

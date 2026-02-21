@@ -1,4 +1,4 @@
-"""MCP tool: cf_hier_statistics — get database statistics."""
+"""MCP tool: statistics — get database statistics."""
 
 import json
 import logging
@@ -10,7 +10,7 @@ logger = logging.getLogger("osprey.services.channel_finder.mcp.hierarchical.tool
 
 
 @mcp.tool()
-def cf_hier_statistics() -> str:
+def statistics() -> str:
     """Get database statistics including total channels and hierarchy levels.
 
     Returns:
@@ -25,7 +25,7 @@ def cf_hier_statistics() -> str:
         return json.dumps(stats)
 
     except Exception as exc:
-        logger.exception("cf_hier_statistics failed")
+        logger.exception("statistics failed")
         return json.dumps(
             make_error(
                 "internal_error",

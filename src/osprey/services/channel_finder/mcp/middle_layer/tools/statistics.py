@@ -1,4 +1,4 @@
-"""MCP tool: cf_ml_statistics — get database statistics."""
+"""MCP tool: statistics — get database statistics."""
 
 import json
 import logging
@@ -10,7 +10,7 @@ logger = logging.getLogger("osprey.services.channel_finder.mcp.middle_layer.tool
 
 
 @mcp.tool()
-def cf_ml_statistics() -> str:
+def statistics() -> str:
     """Get database statistics (total channels, systems, families).
 
     Returns:
@@ -24,7 +24,7 @@ def cf_ml_statistics() -> str:
         return json.dumps(stats)
 
     except Exception as exc:
-        logger.exception("cf_ml_statistics failed")
+        logger.exception("statistics failed")
         return json.dumps(
             make_error(
                 "internal_error",

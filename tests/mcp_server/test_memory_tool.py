@@ -7,7 +7,7 @@ Covers:
     empty query
   - memory_update: content, tags, importance, nonexistent, no fields
   - memory_delete: existing, nonexistent
-  - memory_focus: valid entry, unknown entry
+  - artifact_pin: valid artifact, unknown artifact
 """
 
 import json
@@ -41,10 +41,10 @@ def _get_memory_delete():
     return get_tool_fn(memory_delete)
 
 
-def _get_memory_focus():
-    from osprey.mcp_server.workspace.tools.focus_tools import memory_focus
+def _get_artifact_pin():
+    from osprey.mcp_server.workspace.tools.focus_tools import artifact_pin
 
-    return get_tool_fn(memory_focus)
+    return get_tool_fn(artifact_pin)
 
 
 # ---------------------------------------------------------------------------
@@ -453,44 +453,46 @@ class TestMemoryDelete:
 
 
 # ---------------------------------------------------------------------------
-# memory_focus
+# artifact_pin
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.unit
-class TestMemoryFocusTool:
-    """Tests for the memory_focus MCP tool."""
+class TestArtifactPinTool:
+    """Tests for the artifact_pin MCP tool."""
 
-    async def test_focus_unknown_entry(self, tmp_path, monkeypatch):
-        """Focusing on a nonexistent memory returns not_found error."""
+    async def test_pin_unknown_artifact(self, tmp_path, monkeypatch):
+        """Pinning a nonexistent artifact returns not_found error."""
         monkeypatch.chdir(tmp_path)
 
-        fn = _get_memory_focus()
-        result = await fn(memory_id=999)
+        fn = _get_artifact_pin()
+        result = await fn(artifact_id="nonexistent-id")
 
         data = json.loads(result)
         assert data["error"] is True
         assert data["error_type"] == "not_found"
 
-    async def test_focus_valid_entry(self, tmp_path, monkeypatch):
-        """Focusing on an existing memory returns success with preview."""
+    async def test_pin_valid_artifact(self, tmp_path, monkeypatch):
+        """Pinning an existing artifact returns success."""
         monkeypatch.chdir(tmp_path)
 
-        from osprey.mcp_server.memory_store import get_memory_store
+        from osprey.mcp_server.artifact_store import get_artifact_store
 
-        store = get_memory_store()
-        entry = store.save(
-            content="focused memory content",
-            memory_type="note",
-            tags=[],
-            importance="normal",
+        store = get_artifact_store()
+        entry = store.save_file(
+            file_content=b"test content",
+            filename="test.txt",
+            artifact_type="text",
+            title="Pinnable artifact",
+            description="test",
+            mime_type="text/plain",
+            tool_source="test",
         )
 
-        fn = _get_memory_focus()
-        result = await fn(memory_id=entry.id)
+        fn = _get_artifact_pin()
+        result = await fn(artifact_id=entry.id)
 
         data = json.loads(result)
         assert data["status"] == "success"
-        assert data["memory_id"] == entry.id
-        assert "focused memory" in data["content"]
-        assert "gallery_url" in data
+        assert data["artifact_id"] == entry.id
+        assert data["pinned"] is True

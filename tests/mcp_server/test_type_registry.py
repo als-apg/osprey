@@ -96,7 +96,7 @@ class TestKnownDataTypes:
         "timeseries",       # archiver_read
         "channel_values",   # channel_read
         "write_results",    # channel_write
-        "code_output",      # python_execute
+        "code_output",      # execute
         "visualization",    # create_static_plot, create_interactive_plot
         "dashboard",        # create_dashboard
         "document",         # create_document

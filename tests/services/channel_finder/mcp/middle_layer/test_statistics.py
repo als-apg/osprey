@@ -1,4 +1,4 @@
-"""Tests for cf_ml_statistics tool."""
+"""Tests for statistics tool."""
 
 import json
 from unittest.mock import MagicMock, PropertyMock, patch
@@ -33,10 +33,10 @@ def test_statistics_returns_stats(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.middle_layer.tools.statistics import (
-            cf_ml_statistics,
+            statistics,
         )
 
-        fn = get_tool_fn(cf_ml_statistics)
+        fn = get_tool_fn(statistics)
         result = fn()
 
     data = json.loads(result)
@@ -61,10 +61,10 @@ def test_statistics_empty_database(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.middle_layer.tools.statistics import (
-            cf_ml_statistics,
+            statistics,
         )
 
-        fn = get_tool_fn(cf_ml_statistics)
+        fn = get_tool_fn(statistics)
         result = fn()
 
     data = json.loads(result)
@@ -84,10 +84,10 @@ def test_statistics_internal_error(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.middle_layer.tools.statistics import (
-            cf_ml_statistics,
+            statistics,
         )
 
-        fn = get_tool_fn(cf_ml_statistics)
+        fn = get_tool_fn(statistics)
         result = fn()
 
     data = json.loads(result)

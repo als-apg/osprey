@@ -1,4 +1,4 @@
-"""MCP tool: cf_hier_build_channels — build channel addresses from selections.
+"""MCP tool: build_channels — build channel addresses from selections.
 
 PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code.
   Future: source from FrameworkPromptProvider.get_hierarchical_prompt_builder()
@@ -15,10 +15,10 @@ logger = logging.getLogger("osprey.services.channel_finder.mcp.hierarchical.tool
 
 
 @mcp.tool()
-def cf_hier_build_channels(selections: dict) -> str:
+def build_channels(selections: dict) -> str:
     """Build channel addresses from hierarchy selections.
 
-    After navigating the hierarchy with cf_hier_get_options, use this tool
+    After navigating the hierarchy with get_options, use this tool
     to construct the final channel addresses from your selections.
 
     Args:
@@ -47,13 +47,13 @@ def cf_hier_build_channels(selections: dict) -> str:
                 "validation_error",
                 str(exc),
                 [
-                    "Use cf_hier_hierarchy_info to see required hierarchy levels.",
-                    "Use cf_hier_get_options to see valid options at each level.",
+                    "Use hierarchy_info to see required hierarchy levels.",
+                    "Use get_options to see valid options at each level.",
                 ],
             )
         )
     except Exception as exc:
-        logger.exception("cf_hier_build_channels failed")
+        logger.exception("build_channels failed")
         return json.dumps(
             make_error(
                 "internal_error",

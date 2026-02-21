@@ -1,4 +1,4 @@
-"""Tests for cf_ml_list_systems tool."""
+"""Tests for list_systems tool."""
 
 import json
 from unittest.mock import MagicMock, PropertyMock, patch
@@ -32,10 +32,10 @@ def test_list_systems_returns_systems(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.middle_layer.tools.list_systems import (
-            cf_ml_list_systems,
+            list_systems,
         )
 
-        fn = get_tool_fn(cf_ml_list_systems)
+        fn = get_tool_fn(list_systems)
         result = fn()
 
     data = json.loads(result)
@@ -56,10 +56,10 @@ def test_list_systems_empty(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.middle_layer.tools.list_systems import (
-            cf_ml_list_systems,
+            list_systems,
         )
 
-        fn = get_tool_fn(cf_ml_list_systems)
+        fn = get_tool_fn(list_systems)
         result = fn()
 
     data = json.loads(result)
@@ -79,10 +79,10 @@ def test_list_systems_internal_error(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.middle_layer.tools.list_systems import (
-            cf_ml_list_systems,
+            list_systems,
         )
 
-        fn = get_tool_fn(cf_ml_list_systems)
+        fn = get_tool_fn(list_systems)
         result = fn()
 
     data = json.loads(result)

@@ -1,4 +1,4 @@
-"""Tests for cf_ml_inspect_fields tool."""
+"""Tests for inspect_fields tool."""
 
 import json
 from unittest.mock import MagicMock, PropertyMock, patch
@@ -32,10 +32,10 @@ def test_inspect_fields_returns_fields(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.middle_layer.tools.inspect_fields import (
-            cf_ml_inspect_fields,
+            inspect_fields,
         )
 
-        fn = get_tool_fn(cf_ml_inspect_fields)
+        fn = get_tool_fn(inspect_fields)
         result = fn(system="SR", family="BPM")
 
     data = json.loads(result)
@@ -59,10 +59,10 @@ def test_inspect_fields_with_field_drilldown(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.middle_layer.tools.inspect_fields import (
-            cf_ml_inspect_fields,
+            inspect_fields,
         )
 
-        fn = get_tool_fn(cf_ml_inspect_fields)
+        fn = get_tool_fn(inspect_fields)
         result = fn(system="SR", family="BPM", field="Monitor")
 
     data = json.loads(result)
@@ -83,10 +83,10 @@ def test_inspect_fields_validation_error(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.middle_layer.tools.inspect_fields import (
-            cf_ml_inspect_fields,
+            inspect_fields,
         )
 
-        fn = get_tool_fn(cf_ml_inspect_fields)
+        fn = get_tool_fn(inspect_fields)
         result = fn(system="SR", family="XYZ")
 
     data = json.loads(result)
@@ -107,10 +107,10 @@ def test_inspect_fields_internal_error(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.middle_layer.tools.inspect_fields import (
-            cf_ml_inspect_fields,
+            inspect_fields,
         )
 
-        fn = get_tool_fn(cf_ml_inspect_fields)
+        fn = get_tool_fn(inspect_fields)
         result = fn(system="SR", family="BPM")
 
     data = json.loads(result)

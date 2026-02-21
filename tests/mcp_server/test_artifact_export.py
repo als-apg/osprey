@@ -28,7 +28,7 @@ async def test_export_html_to_png(tmp_path, monkeypatch):
         artifact_type="html",
         title="My Plot",
         mime_type="text/html",
-        tool_source="python_execute",
+        tool_source="execute",
     )
 
     async def fake_convert(html_path, output_path, fmt="png", width=1200, height=800):

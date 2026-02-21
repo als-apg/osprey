@@ -1,4 +1,4 @@
-"""MCP tool: cf_ml_get_common_names — get common/friendly names for devices.
+"""MCP tool: get_common_names — get common/friendly names for devices.
 
 PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code.
   Future: source from FrameworkPromptProvider.get_middle_layer_prompt_builder()
@@ -15,7 +15,7 @@ logger = logging.getLogger("osprey.services.channel_finder.mcp.middle_layer.tool
 
 
 @mcp.tool()
-def cf_ml_get_common_names(system: str, family: str) -> str:
+def get_common_names(system: str, family: str) -> str:
     """Get common/friendly names for devices in a family.
 
     Returns the human-readable names (e.g., "BPM 1", "BPM 2") that correspond
@@ -46,7 +46,7 @@ def cf_ml_get_common_names(system: str, family: str) -> str:
             )
 
     except Exception as exc:
-        logger.exception("cf_ml_get_common_names failed")
+        logger.exception("get_common_names failed")
         return json.dumps(
             make_error(
                 "internal_error",

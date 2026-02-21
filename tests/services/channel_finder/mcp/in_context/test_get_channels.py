@@ -1,4 +1,4 @@
-"""Tests for cf_ic_get_channels tool."""
+"""Tests for get_channels tool."""
 
 import json
 from unittest.mock import MagicMock, PropertyMock, patch
@@ -31,10 +31,10 @@ def test_get_all_channels(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.in_context.tools.get_channels import (
-            cf_ic_get_channels,
+            get_channels,
         )
 
-        fn = get_tool_fn(cf_ic_get_channels)
+        fn = get_tool_fn(get_channels)
         result = fn()
     data = json.loads(result)
     assert data["total"] == 2
@@ -56,10 +56,10 @@ def test_get_channels_chunked(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.in_context.tools.get_channels import (
-            cf_ic_get_channels,
+            get_channels,
         )
 
-        fn = get_tool_fn(cf_ic_get_channels)
+        fn = get_tool_fn(get_channels)
         result = fn(chunk_idx=0, chunk_size=1)
     data = json.loads(result)
     assert data["chunk_idx"] == 0
@@ -78,10 +78,10 @@ def test_get_channels_invalid_chunk(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.in_context.tools.get_channels import (
-            cf_ic_get_channels,
+            get_channels,
         )
 
-        fn = get_tool_fn(cf_ic_get_channels)
+        fn = get_tool_fn(get_channels)
         result = fn(chunk_idx=5, chunk_size=1)
     data = json.loads(result)
     assert data["error"] is True
@@ -99,10 +99,10 @@ def test_get_channels_internal_error(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.in_context.tools.get_channels import (
-            cf_ic_get_channels,
+            get_channels,
         )
 
-        fn = get_tool_fn(cf_ic_get_channels)
+        fn = get_tool_fn(get_channels)
         result = fn()
     data = json.loads(result)
     assert data["error"] is True

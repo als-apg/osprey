@@ -1,4 +1,4 @@
-"""Tests for cf_ml_validate tool."""
+"""Tests for validate tool."""
 
 import json
 from unittest.mock import MagicMock, PropertyMock, patch
@@ -29,10 +29,10 @@ def test_validate_returns_results(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.middle_layer.tools.validate import (
-            cf_ml_validate,
+            validate,
         )
 
-        fn = get_tool_fn(cf_ml_validate)
+        fn = get_tool_fn(validate)
         result = fn(channels=["SR:BPM1:X", "INVALID:PV"])
 
     data = json.loads(result)
@@ -48,10 +48,10 @@ def test_validate_empty_list(tmp_path, monkeypatch):
     """Empty channel list returns validation_error envelope."""
     _setup(tmp_path, monkeypatch)
     from osprey.services.channel_finder.mcp.middle_layer.tools.validate import (
-        cf_ml_validate,
+        validate,
     )
 
-    fn = get_tool_fn(cf_ml_validate)
+    fn = get_tool_fn(validate)
     result = fn(channels=[])
 
     data = json.loads(result)
@@ -72,10 +72,10 @@ def test_validate_internal_error(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.middle_layer.tools.validate import (
-            cf_ml_validate,
+            validate,
         )
 
-        fn = get_tool_fn(cf_ml_validate)
+        fn = get_tool_fn(validate)
         result = fn(channels=["SR:BPM1:X"])
 
     data = json.loads(result)

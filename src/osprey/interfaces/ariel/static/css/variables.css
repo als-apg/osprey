@@ -132,14 +132,73 @@
   --header-height: 64px;
 }
 
-/* === Light mode overrides (future) === */
-@media (prefers-color-scheme: light) {
-  :root.light-mode {
-    --bg-primary: #f8fafc;
-    --bg-secondary: #f1f5f9;
-    --bg-tertiary: #e2e8f0;
-    --text-primary: #0f172a;
-    --text-secondary: #475569;
-    --text-muted: #64748b;
-  }
+/* === Light mode overrides (data-theme attribute from Web Terminal) === */
+[data-theme="light"] {
+  /* Backgrounds */
+  --bg-primary: #f7f9fc;
+  --bg-secondary: #eef2f7;
+  --bg-tertiary: #e4e9f0;
+  --bg-elevated: #dce3ed;
+  --bg-input: #fafbfd;
+
+  /* Surface colors */
+  --surface-card: rgba(238, 242, 247, 0.9);
+  --surface-modal: rgba(247, 249, 252, 0.98);
+  --surface-hover: rgba(228, 233, 240, 0.6);
+
+  /* Text */
+  --text-primary: #0c1322;
+  --text-secondary: #374155;
+  --text-muted: #64748b;
+  --text-accent: #0d7377;
+  --text-amber: #9a6d35;
+
+  /* Primary Palette */
+  --color-primary: #1a365d;
+  --color-primary-light: #2b4a82;
+  --color-primary-dark: #0f2340;
+
+  /* Accent */
+  --color-accent: #0a8f8c;
+  --color-accent-light: #0d7377;
+  --color-accent-dark: #065f5c;
+  --color-accent-glow: rgba(10, 143, 140, 0.15);
+
+  /* Amber */
+  --color-amber: #b8894e;
+  --color-amber-light: #9a6d35;
+  --color-amber-dark: #7a5528;
+  --color-amber-glow: rgba(184, 137, 78, 0.12);
+
+  /* Status indicators */
+  --color-success: #16a34a;
+  --color-success-bg: rgba(22, 163, 74, 0.1);
+  --color-warning: #d97706;
+  --color-warning-bg: rgba(217, 119, 6, 0.1);
+  --color-error: #dc2626;
+  --color-error-bg: rgba(220, 38, 38, 0.1);
+  --color-info: #2563eb;
+  --color-info-bg: rgba(37, 99, 235, 0.1);
+
+  /* Score visualization */
+  --score-high: #16a34a;
+  --score-high-bg: rgba(22, 163, 74, 0.12);
+  --score-medium: #d97706;
+  --score-medium-bg: rgba(217, 119, 6, 0.12);
+  --score-low: #64748b;
+  --score-low-bg: rgba(100, 116, 139, 0.12);
+
+  /* Borders */
+  --border-subtle: rgba(0, 0, 0, 0.06);
+  --border-default: #d1d8e3;
+  --border-strong: #b0bac8;
+  --border-accent: rgba(13, 115, 119, 0.25);
+  --border-amber: rgba(184, 137, 78, 0.3);
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+  --shadow-glow-accent: 0 0 12px rgba(10, 143, 140, 0.15);
+  --shadow-glow-amber: 0 0 10px rgba(184, 137, 78, 0.12);
 }

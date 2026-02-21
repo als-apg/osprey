@@ -1,4 +1,4 @@
-"""Tests for cf_ml_get_common_names tool."""
+"""Tests for get_common_names tool."""
 
 import json
 from unittest.mock import MagicMock, PropertyMock, patch
@@ -29,10 +29,10 @@ def test_get_common_names_returns_names(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.middle_layer.tools.get_common_names import (
-            cf_ml_get_common_names,
+            get_common_names,
         )
 
-        fn = get_tool_fn(cf_ml_get_common_names)
+        fn = get_tool_fn(get_common_names)
         result = fn(system="SR", family="BPM")
 
     data = json.loads(result)
@@ -52,10 +52,10 @@ def test_get_common_names_returns_none(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.middle_layer.tools.get_common_names import (
-            cf_ml_get_common_names,
+            get_common_names,
         )
 
-        fn = get_tool_fn(cf_ml_get_common_names)
+        fn = get_tool_fn(get_common_names)
         result = fn(system="SR", family="QF")
 
     data = json.loads(result)
@@ -76,10 +76,10 @@ def test_get_common_names_internal_error(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.middle_layer.tools.get_common_names import (
-            cf_ml_get_common_names,
+            get_common_names,
         )
 
-        fn = get_tool_fn(cf_ml_get_common_names)
+        fn = get_tool_fn(get_common_names)
         result = fn(system="SR", family="BPM")
 
     data = json.loads(result)

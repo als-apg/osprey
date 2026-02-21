@@ -1,4 +1,4 @@
-"""MCP tool: cf_ic_get_channels -- retrieve channels from the in-context database.
+"""MCP tool: get_channels -- retrieve channels from the in-context database.
 
 PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code.
   Future: source from FrameworkPromptProvider.get_in_context_prompt_builder()
@@ -15,7 +15,7 @@ logger = logging.getLogger("osprey.services.channel_finder.mcp.in_context.tools.
 
 
 @mcp.tool()
-def cf_ic_get_channels(chunk_idx: int | None = None, chunk_size: int = 50) -> str:
+def get_channels(chunk_idx: int | None = None, chunk_size: int = 50) -> str:
     """Get channels from the database, optionally in chunks.
 
     When called without chunk_idx, returns all channels.
@@ -62,7 +62,7 @@ def cf_ic_get_channels(chunk_idx: int | None = None, chunk_size: int = 50) -> st
     except ValueError as exc:
         return json.dumps(make_error("validation_error", str(exc)))
     except Exception as exc:
-        logger.exception("cf_ic_get_channels failed")
+        logger.exception("get_channels failed")
         return json.dumps(
             make_error(
                 "internal_error",

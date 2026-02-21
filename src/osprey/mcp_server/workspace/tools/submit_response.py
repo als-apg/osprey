@@ -1,13 +1,14 @@
 """MCP tool: submit_response — persist an agent's final synthesized result.
 
 Sub-agents call this as their last action to save their synthesis to
-DataContext so the parent session and other tools can reference it.
+DataContext **and** the artifact gallery so the parent session, other
+tools, and the gallery UI can all reference it.
 """
 
 import json
 import logging
 
-from osprey.mcp_server.common import make_error
+from osprey.mcp_server.common import gallery_url, make_error
 from osprey.mcp_server.workspace.server import mcp
 
 logger = logging.getLogger("osprey.mcp_server.tools.submit_response")
@@ -42,7 +43,7 @@ async def submit_response(
             and grouping results by agent.
 
     Returns:
-        JSON with context_entry_id and data_file path.
+        JSON with context_entry_id, data_file path, artifact_id, and gallery_url.
     """
     if not title or not title.strip():
         return json.dumps(
@@ -75,12 +76,14 @@ async def submit_response(
         )
 
     try:
+        from osprey.mcp_server.artifact_store import get_artifact_store
         from osprey.mcp_server.data_context import get_data_context
 
         cited = entry_ids or []
 
         agent = source_agent or ""
 
+        # 1. Save to DataContext (structured data for tools & cross-referencing)
         ctx = get_data_context()
         tool_name = agent if agent else "submit_response"
         entry = ctx.save(
@@ -106,7 +109,35 @@ async def submit_response(
             data_type=data_type,
             source_agent=agent,
         )
-        return json.dumps(entry.to_tool_response(), default=str)
+
+        # 2. Save to Artifact Gallery (markdown artifact for gallery UI)
+        store = get_artifact_store()
+        artifact = store.save_file(
+            file_content=content.encode(),
+            filename=f"{tool_name}.md",
+            artifact_type="markdown",
+            title=title,
+            description=f"{data_type} from {agent}" if agent else data_type,
+            mime_type="text/markdown",
+            tool_source="submit_response",
+            metadata={
+                "context_entry_id": entry.id,
+                "data_type": data_type,
+                "source_agent": agent,
+                "entry_ids": cited,
+            },
+            highlighted=True,
+        )
+
+        response = entry.to_tool_response()
+        response["artifact_id"] = artifact.id
+        response["artifact_highlighted"] = True
+        response["gallery_url"] = gallery_url()
+        response["note"] = (
+            "Artifact is already highlighted in the gallery. "
+            "Do NOT call artifact_focus or set_highlighted — it is already visible."
+        )
+        return json.dumps(response, default=str)
 
     except Exception as exc:
         logger.exception("submit_response failed")

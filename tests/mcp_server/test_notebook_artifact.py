@@ -1,7 +1,7 @@
-"""Tests for notebook artifact integration with python_execute.
+"""Tests for notebook artifact integration with the execute tool.
 
 Covers:
-  - python_execute auto-creates notebook artifact
+  - execute tool auto-creates notebook artifact
   - Notebook contains executed code
   - Response includes notebook_artifact_id
   - Gallery render endpoint returns HTML
@@ -16,14 +16,14 @@ from tests.mcp_server.conftest import get_tool_fn
 
 
 def _get_python_execute():
-    from osprey.mcp_server.python_executor.tools.python_execute import python_execute
+    from osprey.mcp_server.python_executor.tools.python_execute import execute
 
-    return get_tool_fn(python_execute)
+    return get_tool_fn(execute)
 
 
 @pytest.mark.unit
 async def test_python_execute_creates_notebook_artifact(tmp_path, monkeypatch):
-    """python_execute creates a notebook artifact alongside normal output."""
+    """The execute tool creates a notebook artifact alongside normal output."""
     monkeypatch.chdir(tmp_path)
 
     with patch(
@@ -92,7 +92,7 @@ async def test_notebook_artifact_contains_code(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 async def test_notebook_failure_does_not_break_execution(tmp_path, monkeypatch):
-    """If notebook creation fails, python_execute still succeeds."""
+    """If notebook creation fails, the execute tool still succeeds."""
     monkeypatch.chdir(tmp_path)
 
     with (

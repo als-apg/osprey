@@ -1,4 +1,4 @@
-"""MCP tool: python_execute — run user-provided Python code with safety checks.
+"""MCP tool: execute — run user-provided Python code with safety checks.
 
 PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code.
   Future: source from FrameworkPromptProvider.get_python_prompt_builder()
@@ -14,7 +14,7 @@ import nbformat
 from osprey.mcp_server.common import make_error
 from osprey.mcp_server.python_executor.server import mcp
 
-logger = logging.getLogger("osprey.mcp_server.tools.python_execute")
+logger = logging.getLogger("osprey.mcp_server.tools.execute")
 
 # Maximum characters of stdout/stderr returned inline in the summary.
 _STDOUT_PREVIEW_LIMIT = 500
@@ -22,7 +22,7 @@ _STDERR_PREVIEW_LIMIT = 500
 
 
 @mcp.tool()
-async def python_execute(
+async def execute(
     code: str,
     description: str,
     execution_mode: str = "readonly",
@@ -127,7 +127,7 @@ async def python_execute(
                 title=f"Figure: {fig_path.stem}",
                 description=f"Figure from: {description}",
                 mime_type=f"image/{fig_path.suffix.lstrip('.')}",
-                tool_source="python_execute",
+                tool_source="execute",
             )
             artifact_ids.append(fig_entry.id)
         except Exception:
@@ -146,7 +146,7 @@ async def python_execute(
                 title=art["title"],
                 description=art["description"],
                 mime_type=art["mime_type"],
-                tool_source="python_execute",
+                tool_source="execute",
             )
             artifact_ids.append(art_entry.id)
         except Exception:
@@ -187,7 +187,7 @@ async def python_execute(
             title=f"Notebook: {description}",
             description=description,
             mime_type="application/x-ipynb+json",
-            tool_source="python_execute",
+            tool_source="execute",
         )
         notebook_artifact_id = nb_entry.id
         artifact_ids.append(notebook_artifact_id)
@@ -232,7 +232,7 @@ async def python_execute(
 
     ctx = get_data_context()
     entry = ctx.save(
-        tool="python_execute",
+        tool="execute",
         data=full_result,
         description=description,
         summary=summary,

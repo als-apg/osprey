@@ -1,4 +1,4 @@
-"""Tests for the ariel_keyword_search MCP tool."""
+"""Tests for the keyword_search MCP tool."""
 
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -23,10 +23,10 @@ def _make_search_result(entries, reasoning="", sources=()):
     return result
 
 
-def _get_ariel_keyword_search():
-    from osprey.interfaces.ariel.mcp.tools.keyword_search import ariel_keyword_search
+def _get_keyword_search():
+    from osprey.interfaces.ariel.mcp.tools.keyword_search import keyword_search
 
-    return get_tool_fn(ariel_keyword_search)
+    return get_tool_fn(keyword_search)
 
 
 def _setup_registry(tmp_path, monkeypatch):
@@ -51,7 +51,7 @@ async def test_keyword_search_basic(tmp_path, monkeypatch):
         "osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_ariel_keyword_search()
+        fn = _get_keyword_search()
         result = await fn(query="beam loss")
 
     data = json.loads(result)
@@ -74,7 +74,7 @@ async def test_keyword_search_date_filtering(tmp_path, monkeypatch):
         "osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_ariel_keyword_search()
+        fn = _get_keyword_search()
         await fn(
             query="test",
             start_date="2024-01-01",
@@ -102,7 +102,7 @@ async def test_keyword_search_author_filtering(tmp_path, monkeypatch):
         "osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_ariel_keyword_search()
+        fn = _get_keyword_search()
         await fn(query="test", author="Jane")
 
     call_kwargs = mock_service.search.call_args.kwargs
@@ -128,7 +128,7 @@ async def test_keyword_search_exclude_entry_ids(tmp_path, monkeypatch):
         "osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_ariel_keyword_search()
+        fn = _get_keyword_search()
         result = await fn(query="entry", exclude_entry_ids=["e1", "e3"])
 
     data = json.loads(result)
@@ -143,7 +143,7 @@ async def test_keyword_search_exclude_entry_ids(tmp_path, monkeypatch):
 @pytest.mark.unit
 async def test_keyword_search_empty_query():
     """Empty query returns validation error."""
-    fn = _get_ariel_keyword_search()
+    fn = _get_keyword_search()
     result = await fn(query="")
 
     data = json.loads(result)
@@ -163,7 +163,7 @@ async def test_keyword_search_service_error(tmp_path, monkeypatch):
         "osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_ariel_keyword_search()
+        fn = _get_keyword_search()
         result = await fn(query="test")
 
     data = json.loads(result)

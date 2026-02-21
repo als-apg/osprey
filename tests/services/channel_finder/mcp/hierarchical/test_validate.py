@@ -1,4 +1,4 @@
-"""Tests for cf_hier_validate tool."""
+"""Tests for validate tool."""
 
 import json
 from unittest.mock import MagicMock, PropertyMock, patch
@@ -31,10 +31,10 @@ def test_validate_mixed_valid_invalid(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.hierarchical.tools.validate import (
-            cf_hier_validate,
+            validate,
         )
 
-        fn = get_tool_fn(cf_hier_validate)
+        fn = get_tool_fn(validate)
         result = fn(channels=["SR:BPM:01:X", "FAKE:CHANNEL", "SR:BPM:02:Y"])
     data = json.loads(result)
     assert data["total"] == 3
@@ -59,10 +59,10 @@ def test_validate_all_valid(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.hierarchical.tools.validate import (
-            cf_hier_validate,
+            validate,
         )
 
-        fn = get_tool_fn(cf_hier_validate)
+        fn = get_tool_fn(validate)
         result = fn(channels=["SR:BPM:01:X"])
     data = json.loads(result)
     assert data["valid_count"] == 1
@@ -81,10 +81,10 @@ def test_validate_empty_list(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.hierarchical.tools.validate import (
-            cf_hier_validate,
+            validate,
         )
 
-        fn = get_tool_fn(cf_hier_validate)
+        fn = get_tool_fn(validate)
         result = fn(channels=[])
     data = json.loads(result)
     assert data["total"] == 0
@@ -104,10 +104,10 @@ def test_validate_internal_error(tmp_path, monkeypatch):
         side_effect=RuntimeError("db unreachable"),
     ):
         from osprey.services.channel_finder.mcp.hierarchical.tools.validate import (
-            cf_hier_validate,
+            validate,
         )
 
-        fn = get_tool_fn(cf_hier_validate)
+        fn = get_tool_fn(validate)
         result = fn(channels=["SR:BPM:01:X"])
     data = json.loads(result)
     assert data["error"] is True

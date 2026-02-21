@@ -221,6 +221,18 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
             "message": "Database unavailable — drafts, UI, and settings work",
         }
 
+    # Prevent browsers from caching JS/CSS (avoids stale code after updates)
+    from starlette.middleware.base import BaseHTTPMiddleware
+
+    class NoCacheStaticMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request, call_next):
+            response = await call_next(request)
+            if request.url.path.startswith("/static/"):
+                response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            return response
+
+    app.add_middleware(NoCacheStaticMiddleware)
+
     # Mount static assets
     if STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

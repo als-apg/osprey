@@ -1,4 +1,4 @@
-"""MCP tool: cf_ic_validate -- validate channel names against the database."""
+"""MCP tool: validate -- validate channel names against the database."""
 
 import json
 import logging
@@ -10,7 +10,7 @@ logger = logging.getLogger("osprey.services.channel_finder.mcp.in_context.tools.
 
 
 @mcp.tool()
-def cf_ic_validate(channels: list[str]) -> str:
+def validate(channels: list[str]) -> str:
     """Validate that channel names exist in the database.
 
     Args:
@@ -51,7 +51,7 @@ def cf_ic_validate(channels: list[str]) -> str:
     except ValueError as exc:
         return json.dumps(make_error("validation_error", str(exc)))
     except Exception as exc:
-        logger.exception("cf_ic_validate failed")
+        logger.exception("validate failed")
         return json.dumps(
             make_error(
                 "internal_error",

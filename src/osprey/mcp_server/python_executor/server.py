@@ -1,6 +1,6 @@
 """OSPREY Python Executor MCP Server.
 
-FastMCP server exposing the python_execute tool.
+FastMCP server exposing the execute tool.
 
 Usage:
     python -m osprey.mcp_server.python_executor
@@ -12,7 +12,7 @@ from fastmcp import FastMCP
 
 logger = logging.getLogger("osprey.mcp_server.python_executor")
 
-mcp = FastMCP("osprey-python-executor")
+mcp = FastMCP("python")
 
 
 def create_server() -> FastMCP:

@@ -1,4 +1,4 @@
-"""MCP tool: cf_hier_validate — validate channel names against the database."""
+"""MCP tool: validate — validate channel names against the database."""
 
 import json
 import logging
@@ -10,7 +10,7 @@ logger = logging.getLogger("osprey.services.channel_finder.mcp.hierarchical.tool
 
 
 @mcp.tool()
-def cf_hier_validate(channels: list[str]) -> str:
+def validate(channels: list[str]) -> str:
     """Validate that channel names exist in the database.
 
     Checks each provided channel name against the hierarchical database
@@ -56,7 +56,7 @@ def cf_hier_validate(channels: list[str]) -> str:
             )
         )
     except Exception as exc:
-        logger.exception("cf_hier_validate failed")
+        logger.exception("validate failed")
         return json.dumps(
             make_error(
                 "internal_error",

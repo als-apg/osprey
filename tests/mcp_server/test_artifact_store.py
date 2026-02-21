@@ -3,7 +3,7 @@
 Covers:
   - ArtifactStore: save_file, save_object, save_from_path, list/get
   - Smart serialization (_serialize_object)
-  - save_artifact() injection into python_execute namespace
+  - save_artifact() injection into execute tool namespace
   - artifact_save MCP tool (file_path and content modes)
   - Artifact Gallery app routes
 """
@@ -341,12 +341,12 @@ class TestSingleton:
 
 
 # ---------------------------------------------------------------------------
-# save_artifact injection in python_execute
+# save_artifact injection in execute tool
 # ---------------------------------------------------------------------------
 
 
 class TestSaveArtifactInjection:
-    """Tests for save_artifact() inside python_execute."""
+    """Tests for save_artifact() inside the execute tool."""
 
     @pytest.mark.asyncio
     async def test_save_artifact_available_in_namespace(self, tmp_path, monkeypatch):
@@ -514,9 +514,9 @@ save_artifact("# Third", title="Third Artifact")
 
 
 def _get_python_execute():
-    from osprey.mcp_server.python_executor.tools.python_execute import python_execute
+    from osprey.mcp_server.python_executor.tools.python_execute import execute
 
-    return get_tool_fn(python_execute)
+    return get_tool_fn(execute)
 
 
 def _get_artifact_save():

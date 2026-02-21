@@ -1,4 +1,4 @@
-"""Tests for cf_hier_hierarchy_info tool."""
+"""Tests for hierarchy_info tool."""
 
 import json
 from unittest.mock import MagicMock, PropertyMock, patch
@@ -37,10 +37,10 @@ def test_hierarchy_info_returns_structure(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.hierarchical.tools.hierarchy_info import (
-            cf_hier_hierarchy_info,
+            hierarchy_info,
         )
 
-        fn = get_tool_fn(cf_hier_hierarchy_info)
+        fn = get_tool_fn(hierarchy_info)
         result = fn()
     data = json.loads(result)
     assert data["hierarchy_levels"] == ["system", "device", "signal"]
@@ -58,10 +58,10 @@ def test_hierarchy_info_error(tmp_path, monkeypatch):
         side_effect=RuntimeError("not configured"),
     ):
         from osprey.services.channel_finder.mcp.hierarchical.tools.hierarchy_info import (
-            cf_hier_hierarchy_info,
+            hierarchy_info,
         )
 
-        fn = get_tool_fn(cf_hier_hierarchy_info)
+        fn = get_tool_fn(hierarchy_info)
         result = fn()
     data = json.loads(result)
     assert data["error"] is True

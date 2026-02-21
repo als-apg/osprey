@@ -1,6 +1,6 @@
 """Standalone code safety checks — no framework or LangGraph dependencies.
 
-Usable by both the LangGraph StaticCodeAnalyzer node and the MCP python_execute tool.
+Usable by both the LangGraph StaticCodeAnalyzer node and the MCP execute tool.
 """
 
 import ast

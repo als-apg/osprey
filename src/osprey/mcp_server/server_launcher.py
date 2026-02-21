@@ -228,3 +228,46 @@ _tuning_launcher = ServerLauncher(
 def ensure_tuning_server() -> None:
     """Ensure the tuning panel server is running; launch if needed."""
     _tuning_launcher.ensure_running()
+
+
+# ---------------------------------------------------------------------------
+# DePlot service
+# ---------------------------------------------------------------------------
+
+
+def _deplot_config() -> tuple[str, int]:
+    config = load_osprey_config()
+    deplot = config.get("deplot", {})
+    return deplot.get("host", "127.0.0.1"), deplot.get("port", 8095)
+
+
+def _deplot_auto_launch() -> bool:
+    config = load_osprey_config()
+    deplot = config.get("deplot", {})
+    if not deplot:
+        return False  # No deplot section → don't launch
+    return deplot.get("auto_launch", True)
+
+
+def _deplot_app_factory() -> object:
+    try:
+        from osprey.services.deplot.server import create_app
+
+        return create_app()
+    except ImportError as err:
+        raise ImportError(
+            "DePlot dependencies not installed. Install with: uv sync --extra graph"
+        ) from err
+
+
+_deplot_launcher = ServerLauncher(
+    name="DePlot service",
+    config_reader=_deplot_config,
+    auto_launch_checker=_deplot_auto_launch,
+    app_factory=_deplot_app_factory,
+)
+
+
+def ensure_deplot_server() -> None:
+    """Ensure the DePlot service is running; launch if needed."""
+    _deplot_launcher.ensure_running()
