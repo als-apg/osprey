@@ -3,7 +3,6 @@
 Covers:
   - GET /api/memory — list entries with type, tag, search filters
   - GET /api/memory/{id} — get single entry, 404 for missing
-  - GET/POST /api/memory/focus — focus management
   - PATCH /api/memory/{id} — update entry, 404 for missing
   - DELETE /api/memory/{id} — delete entry, 404 for missing
 """
@@ -111,65 +110,6 @@ class TestMemoryRoutes:
     @pytest.mark.unit
     def test_get_memory_not_found(self, app_client):
         resp = app_client.get("/api/memory/999")
-        assert resp.status_code == 404
-
-
-# ---------------------------------------------------------------------------
-# Memory focus endpoints
-# ---------------------------------------------------------------------------
-
-
-class TestMemoryFocusRoutes:
-    """Tests for memory focus GET/POST routes."""
-
-    @pytest.fixture
-    def app_client(self, tmp_path):
-        from fastapi.testclient import TestClient
-
-        from osprey.interfaces.artifacts.app import create_app
-
-        app = create_app(workspace_root=tmp_path)
-        return TestClient(app)
-
-    @pytest.mark.unit
-    def test_get_focus_empty(self, app_client):
-        resp = app_client.get("/api/memory/focus")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["focused"] is False
-        assert data["entry"] is None
-
-    @pytest.mark.unit
-    def test_get_focus_returns_latest(self, app_client):
-        mem = app_client.app.state.memory_store
-        _save_memory(mem, content="first memory")
-        _save_memory(mem, content="second memory")
-
-        resp = app_client.get("/api/memory/focus")
-        data = resp.json()
-        assert data["focused"] is False
-        assert data["entry"]["content"] == "second memory"
-
-    @pytest.mark.unit
-    def test_set_and_get_focus(self, app_client):
-        mem = app_client.app.state.memory_store
-        e1 = _save_memory(mem, content="first memory")
-        _save_memory(mem, content="second memory")
-
-        # Focus on the first entry
-        resp = app_client.post("/api/memory/focus", json={"memory_id": e1.id})
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "ok"
-
-        # GET should return the focused entry
-        resp = app_client.get("/api/memory/focus")
-        data = resp.json()
-        assert data["focused"] is True
-        assert data["entry"]["id"] == e1.id
-
-    @pytest.mark.unit
-    def test_set_focus_not_found(self, app_client):
-        resp = app_client.post("/api/memory/focus", json={"memory_id": 999})
         assert resp.status_code == 404
 
 

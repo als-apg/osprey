@@ -1,9 +1,8 @@
 """OSPREY Artifact Gallery — FastAPI Application.
 
-A lightweight web gallery that serves interactive artifacts (plots, tables,
-HTML, markdown) produced by Claude during analysis sessions, a browsable
-index of all MCP tool output data (the "data context"), and a memory domain
-for persistent session memories (notes and pins).
+A unified gallery for interactive artifacts (plots, tables, HTML, markdown)
+produced by Claude during analysis sessions.  Memory is served via API for
+the Settings drawer Memory tab.
 """
 
 from __future__ import annotations
@@ -99,12 +98,12 @@ class FocusRequest(BaseModel):
     artifact_id: str
 
 
-class ContextFocusRequest(BaseModel):
-    entry_id: int
+class PinRequest(BaseModel):
+    pinned: bool = True
 
 
-class MemoryFocusRequest(BaseModel):
-    memory_id: int
+class HighlightRequest(BaseModel):
+    highlighted: bool = True
 
 
 class MemoryUpdateRequest(BaseModel):
@@ -286,7 +285,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     app = FastAPI(
         title="OSPREY Artifact Gallery",
         description="Interactive gallery for analysis artifacts",
-        version="1.0.0",
+        version="2.0.0",
         lifespan=lifespan,
     )
 
@@ -301,9 +300,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     app.state.artifact_store = store
     app.state.focused_artifact_id = None  # None = show latest
     app.state.context_store = context_store
-    app.state.focused_context_id = None
     app.state.memory_store = memory_store
-    app.state.focused_memory_id = None
 
     focus_file = workspace_root / "focus_state.txt"
 
@@ -315,16 +312,11 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
             entry = store.get_entry(aid)
             if entry:
                 lines.append(f'  artifact: "{entry.title}" (id={aid})')
-        cid = app.state.focused_context_id
-        if cid is not None:
-            entry = context_store.get_entry(cid)
-            if entry:
-                lines.append(f"  context:  #{cid} {entry.description[:80]}")
-        mid = app.state.focused_memory_id
-        if mid is not None:
-            entry = memory_store.get_entry(mid)
-            if entry:
-                lines.append(f"  memory:   #{mid} {entry.content[:60]}")
+        # List pinned artifacts
+        pinned = store.list_entries(pinned=True)
+        for p in pinned:
+            if p.id != aid:
+                lines.append(f'  pinned:   "{p.title}" (id={p.id})')
         if lines:
             focus_file.write_text("[Gallery Focus]\n" + "\n".join(lines) + "\n")
         elif focus_file.exists():
@@ -365,8 +357,15 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     # --- Artifact routes ---
 
     @app.get("/api/artifacts")
-    async def list_artifacts(type: str | None = None, search: str | None = None):
-        entries = store.list_entries(type_filter=type, search=search)
+    async def list_artifacts(
+        type: str | None = None,
+        search: str | None = None,
+        highlighted: bool | None = Query(None),
+        pinned: bool | None = Query(None),
+    ):
+        entries = store.list_entries(
+            type_filter=type, search=search, highlighted=highlighted, pinned=pinned,
+        )
         return {
             "count": len(entries),
             "artifacts": [e.to_dict() for e in entries],
@@ -378,6 +377,103 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         if not entry:
             raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
         return entry.to_dict()
+
+    @app.post("/api/artifacts/{artifact_id}/pin")
+    async def pin_artifact(artifact_id: str, req: PinRequest):
+        entry = store.set_pinned(artifact_id, req.pinned)
+        if not entry:
+            raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
+        _write_focus_file()
+        broadcaster.broadcast({"type": "artifact_updated", **entry.to_dict()})
+        return {"status": "ok", "artifact_id": artifact_id, "pinned": entry.pinned}
+
+    @app.post("/api/artifacts/{artifact_id}/highlight")
+    async def highlight_artifact(artifact_id: str, req: HighlightRequest):
+        entry = store.set_highlighted(artifact_id, req.highlighted)
+        if not entry:
+            raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
+        broadcaster.broadcast({"type": "artifact_updated", **entry.to_dict()})
+        return {"status": "ok", "artifact_id": artifact_id, "highlighted": entry.highlighted}
+
+    @app.get("/api/artifacts/{artifact_id}/data")
+    async def get_artifact_data(
+        artifact_id: str,
+        format: str | None = Query(None, pattern="^(chart|table)$"),
+        max_points: int = Query(2000, ge=10, le=50000),
+        offset: int = Query(0, ge=0),
+        limit: int = Query(100, ge=1, le=10000),
+    ):
+        """Serve timeseries data for artifacts with metadata.data_file."""
+        entry = store.get_entry(artifact_id)
+        if not entry:
+            raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
+
+        data_file = entry.metadata.get("data_file")
+        if not data_file:
+            raise HTTPException(
+                status_code=400, detail="Artifact has no associated data file"
+            )
+
+        filepath = Path(data_file)
+        if not filepath.is_absolute():
+            filepath = store._workspace / filepath
+        if not filepath.exists():
+            raise HTTPException(status_code=404, detail="Data file not found on disk")
+
+        # No format param → return full file as-is
+        if format is None:
+            return Response(content=filepath.read_bytes(), media_type="application/json")
+
+        # format=chart or format=table requires timeseries data
+        data_type = entry.metadata.get("data_type", "")
+        if data_type != "timeseries":
+            raise HTTPException(
+                status_code=400,
+                detail="format parameter is only supported for timeseries data",
+            )
+
+        file_size = filepath.stat().st_size
+        if file_size > MAX_TIMESERIES_FILE_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"File too large ({file_size // (1024 * 1024)}MB). "
+                    "Access the data file directly."
+                ),
+            )
+
+        raw = json.loads(filepath.read_bytes())
+        frame, query_meta = _extract_timeseries_frame(raw)
+        columns = frame.get("columns", [])
+        index = frame.get("index", [])
+        rows = frame.get("data", [])
+        total_rows = len(index)
+
+        if format == "chart":
+            ds_index, ds_rows = lttb_downsample(index, rows, max_points)
+            return {
+                "columns": columns,
+                "index": ds_index,
+                "data": ds_rows,
+                "total_rows": total_rows,
+                "downsampled": len(ds_index) < total_rows,
+                "returned_points": len(ds_index),
+                "metadata": query_meta,
+            }
+
+        # format == "table"
+        end = min(offset + limit, total_rows)
+        sliced_index = index[offset:end]
+        sliced_data = rows[offset:end]
+        return {
+            "columns": columns,
+            "index": sliced_index,
+            "data": sliced_data,
+            "total_rows": total_rows,
+            "offset": offset,
+            "limit": limit,
+            "returned_rows": len(sliced_index),
+        }
 
     @app.get("/api/focus")
     async def get_focus():
@@ -486,10 +582,6 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         if not filepath or not filepath.exists():
             raise HTTPException(status_code=404, detail="Notebook file not found")
 
-        # Always use read container (port 8088) for safety.
-        # Use /doc/tree/ (single-document mode) instead of /lab/tree/ so the
-        # notebook opens directly without the file browser sidebar and
-        # immediately triggers kernel selection.
         jupyter_path = f"artifacts/{entry.filename}"
         jupyter_url = f"http://127.0.0.1:8088/doc/tree/{jupyter_path}"
 
@@ -498,184 +590,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
             "artifact_id": artifact_id,
         }
 
-    # --- Context routes ---
-    # NOTE: /api/context/focus must be registered BEFORE /api/context/{entry_id}
-    # so FastAPI doesn't try to parse "focus" as an int path parameter.
-
-    @app.get("/api/context")
-    async def list_context(
-        tool: str | None = None,
-        data_type: str | None = None,
-        search: str | None = None,
-    ):
-        entries = context_store.list_entries(
-            tool_filter=tool,
-            data_type_filter=data_type,
-            search=search,
-        )
-        return {
-            "count": len(entries),
-            "entries": [e.to_dict() for e in entries],
-        }
-
-    @app.get("/api/context/focus")
-    async def get_context_focus():
-        focused_id = app.state.focused_context_id
-        if focused_id is not None:
-            entry = context_store.get_entry(focused_id)
-            if entry:
-                return {"focused": True, "entry": entry.to_dict()}
-            # Stale focus — clear it and fall back to latest
-            app.state.focused_context_id = None
-
-        # Fall back to latest context entry
-        entries = context_store.list_entries()
-        if entries:
-            return {"focused": False, "entry": entries[-1].to_dict()}
-        return {"focused": False, "entry": None}
-
-    @app.post("/api/context/focus")
-    async def set_context_focus(req: ContextFocusRequest):
-        entry = context_store.get_entry(req.entry_id)
-        if not entry:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Context entry {req.entry_id} not found",
-            )
-        app.state.focused_context_id = req.entry_id
-        _write_focus_file()
-        broadcaster.broadcast({"type": "focus", "domain": "context", "id": req.entry_id})
-        return {"status": "ok", "entry_id": req.entry_id}
-
-    @app.get("/api/context/{entry_id}")
-    async def get_context_entry(entry_id: int):
-        entry = context_store.get_entry(entry_id)
-        if not entry:
-            raise HTTPException(status_code=404, detail=f"Context entry {entry_id} not found")
-        return entry.to_dict()
-
-    @app.get("/api/context/{entry_id}/data")
-    async def get_context_data(
-        entry_id: int,
-        format: str | None = Query(None, pattern="^(chart|table)$"),
-        max_points: int = Query(2000, ge=10, le=50000),
-        offset: int = Query(0, ge=0),
-        limit: int = Query(100, ge=1, le=10000),
-    ):
-        filepath = context_store.get_file_path(entry_id)
-        if not filepath:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Context entry {entry_id} not found or data file missing",
-            )
-
-        # No format param → return full file as-is (backward-compatible)
-        if format is None:
-            return Response(
-                content=filepath.read_bytes(),
-                media_type="application/json",
-            )
-
-        # format=chart or format=table requires timeseries data
-        entry = context_store.get_entry(entry_id)
-        if not entry or entry.data_type != "timeseries":
-            raise HTTPException(
-                status_code=400,
-                detail="format parameter is only supported for timeseries data",
-            )
-
-        file_size = filepath.stat().st_size
-        if file_size > MAX_TIMESERIES_FILE_BYTES:
-            raise HTTPException(
-                status_code=413,
-                detail=(
-                    f"File too large ({file_size // (1024 * 1024)}MB). "
-                    "Access the data file directly."
-                ),
-            )
-
-        raw = json.loads(filepath.read_bytes())
-        frame, query_meta = _extract_timeseries_frame(raw)
-        columns = frame.get("columns", [])
-        index = frame.get("index", [])
-        rows = frame.get("data", [])
-        total_rows = len(index)
-
-        if format == "chart":
-            ds_index, ds_rows = lttb_downsample(index, rows, max_points)
-            return {
-                "columns": columns,
-                "index": ds_index,
-                "data": ds_rows,
-                "total_rows": total_rows,
-                "downsampled": len(ds_index) < total_rows,
-                "returned_points": len(ds_index),
-                "metadata": query_meta,
-            }
-
-        # format == "table"
-        end = min(offset + limit, total_rows)
-        sliced_index = index[offset:end]
-        sliced_data = rows[offset:end]
-        return {
-            "columns": columns,
-            "index": sliced_index,
-            "data": sliced_data,
-            "total_rows": total_rows,
-            "offset": offset,
-            "limit": limit,
-            "returned_rows": len(sliced_index),
-        }
-
-    @app.get("/api/context/{entry_id}/image")
-    async def get_context_image(entry_id: int):
-        """Serve the referenced image file from a context entry.
-
-        For entries like screenshots where the JSON data file contains a
-        ``data.filepath`` pointing to an image on disk, this endpoint reads
-        that path and serves the image with the correct MIME type.
-        """
-        filepath = context_store.get_file_path(entry_id)
-        if not filepath:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Context entry {entry_id} not found or data file missing",
-            )
-        try:
-            payload = json.loads(filepath.read_text())
-            image_path = Path(payload.get("data", {}).get("filepath", ""))
-        except (json.JSONDecodeError, TypeError):
-            raise HTTPException(status_code=400, detail="Cannot parse data file")
-
-        if not image_path.exists():
-            raise HTTPException(status_code=404, detail=f"Referenced image not found: {image_path}")
-
-        suffix = image_path.suffix.lower()
-        media_types = {
-            ".png": "image/png",
-            ".jpg": "image/jpeg",
-            ".jpeg": "image/jpeg",
-            ".gif": "image/gif",
-            ".webp": "image/webp",
-            ".svg": "image/svg+xml",
-        }
-        media_type = media_types.get(suffix, "application/octet-stream")
-        return FileResponse(image_path, media_type=media_type)
-
-    @app.delete("/api/context/{entry_id}")
-    async def delete_context_entry(entry_id: int):
-        deleted = context_store.delete_entry(entry_id)
-        if not deleted:
-            raise HTTPException(status_code=404, detail=f"Context entry {entry_id} not found")
-        if app.state.focused_context_id == entry_id:
-            app.state.focused_context_id = None
-            _write_focus_file()
-        broadcaster.broadcast({"type": "context_deleted", "id": entry_id})
-        return {"status": "ok", "entry_id": entry_id}
-
-    # --- Memory routes ---
-    # NOTE: /api/memory/focus must be registered BEFORE /api/memory/{memory_id}
-    # so FastAPI doesn't try to parse "focus" as an int path parameter.
+    # --- Memory routes (consumed by Settings drawer Memory tab) ---
 
     @app.get("/api/memory")
     async def list_memories(
@@ -695,35 +610,6 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
             "count": len(entries),
             "entries": [e.to_dict() for e in entries],
         }
-
-    @app.get("/api/memory/focus")
-    async def get_memory_focus():
-        focused_id = app.state.focused_memory_id
-        if focused_id is not None:
-            entry = memory_store.get_entry(focused_id)
-            if entry:
-                return {"focused": True, "entry": entry.to_dict()}
-            # Stale focus — clear it and fall back to latest
-            app.state.focused_memory_id = None
-
-        # Fall back to latest memory entry
-        entries = memory_store.list_entries()
-        if entries:
-            return {"focused": False, "entry": entries[-1].to_dict()}
-        return {"focused": False, "entry": None}
-
-    @app.post("/api/memory/focus")
-    async def set_memory_focus(req: MemoryFocusRequest):
-        entry = memory_store.get_entry(req.memory_id)
-        if not entry:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Memory {req.memory_id} not found",
-            )
-        app.state.focused_memory_id = req.memory_id
-        _write_focus_file()
-        broadcaster.broadcast({"type": "focus", "domain": "memory", "id": req.memory_id})
-        return {"status": "ok", "memory_id": req.memory_id}
 
     @app.get("/api/memory/{memory_id}")
     async def get_memory(memory_id: int):
@@ -755,11 +641,25 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         deleted = memory_store.delete_entry(memory_id)
         if not deleted:
             raise HTTPException(status_code=404, detail=f"Memory {memory_id} not found")
-        if app.state.focused_memory_id == memory_id:
-            app.state.focused_memory_id = None
-            _write_focus_file()
         broadcaster.broadcast({"type": "memory_deleted", "id": memory_id})
         return {"status": "ok", "memory_id": memory_id}
+
+    # Logbook entry composer
+    from osprey.interfaces.artifacts.logbook import logbook_router
+
+    app.include_router(logbook_router)
+
+    # Prevent browsers from caching JS/CSS (avoids stale code after updates)
+    from starlette.middleware.base import BaseHTTPMiddleware
+
+    class NoCacheStaticMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request, call_next):
+            response = await call_next(request)
+            if request.url.path.startswith("/static/"):
+                response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            return response
+
+    app.add_middleware(NoCacheStaticMiddleware)
 
     # Mount static assets
     if STATIC_DIR.exists():
