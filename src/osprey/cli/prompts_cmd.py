@@ -1,6 +1,6 @@
-"""CLI subcommands for managing prompt artifact overrides.
+"""CLI subcommands for managing prompt artifact ownership.
 
-Provides ``osprey prompts list|scaffold|diff|unoverride`` commands
+Provides ``osprey prompts list|claim|diff|unclaim`` commands
 for inspecting and customizing the Claude Code prompt artifacts
 that OSPREY generates during ``osprey init`` / ``osprey claude regen``.
 """
@@ -33,27 +33,27 @@ def _load_config(project_dir: Path) -> dict[str, Any]:
         return yaml.safe_load(f) or {}
 
 
-def _get_overrides(config: dict) -> dict[str, str]:
-    """Extract prompts.overrides dict from config."""
-    return config.get("prompts", {}).get("overrides", {})
+def _get_user_owned(config: dict) -> list[str]:
+    """Extract prompts.user_owned list from config."""
+    return config.get("prompts", {}).get("user_owned", [])
 
 
 @click.group(name="prompts", invoke_without_command=True)
 @click.pass_context
 def prompts(ctx):
-    """Manage prompt artifact overrides.
+    """Manage prompt artifact ownership.
 
-    Framework-managed prompt artifacts can be customized per-facility
-    using overrides. Use the subcommands to inspect, scaffold, diff,
-    and remove overrides.
+    Framework-managed prompt artifacts can be claimed per-facility
+    for in-place editing. Use the subcommands to inspect, claim, diff,
+    and unclaim artifacts.
 
     Examples:
 
     \b
       osprey prompts list                       # Show all artifacts
-      osprey prompts scaffold agents/channel-finder  # Create editable copy
-      osprey prompts diff agents/channel-finder      # Compare override vs framework
-      osprey prompts unoverride agents/channel-finder # Remove override
+      osprey prompts claim agents/channel-finder # Claim for editing
+      osprey prompts diff agents/channel-finder  # Compare yours vs framework
+      osprey prompts unclaim agents/channel-finder # Restore framework management
     """
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
@@ -68,7 +68,7 @@ def prompts(ctx):
     help="Project directory (default: current directory)",
 )
 def list_artifacts(project):
-    """List all prompt artifacts and their override status."""
+    """List all prompt artifacts and their ownership status."""
     project_dir = Path(project) if project else Path.cwd()
 
     try:
@@ -76,15 +76,15 @@ def list_artifacts(project):
     except click.ClickException:
         config = {}
 
-    overrides = _get_overrides(config)
+    user_owned = _get_user_owned(config)
     registry = PromptRegistry.default()
 
     framework_managed = []
-    overridden = []
+    owned = []
 
     for art in registry.all_artifacts():
-        if art.canonical_name in overrides:
-            overridden.append((art, overrides[art.canonical_name]))
+        if art.canonical_name in user_owned:
+            owned.append(art)
         else:
             framework_managed.append(art)
 
@@ -97,17 +97,17 @@ def list_artifacts(project):
                 f"    [success]\u2713[/success] {art.canonical_name:<35s} {art.description}"
             )
 
-    if overridden:
-        console.print("\n  [dim]Overridden:[/dim]")
-        for art, path in overridden:
+    if owned:
+        console.print("\n  [dim]User-owned:[/dim]")
+        for art in owned:
             console.print(
-                f"    [bold]\u2605[/bold] {art.canonical_name:<35s} {path}"
+                f"    [bold]\u2605[/bold] {art.canonical_name:<35s} {art.output_path}"
             )
 
     console.print()
 
 
-@prompts.command(name="scaffold")
+@prompts.command(name="claim")
 @click.argument("name")
 @click.option(
     "--project",
@@ -116,18 +116,18 @@ def list_artifacts(project):
     default=None,
     help="Project directory (default: current directory)",
 )
-def scaffold(name, project):
-    """Create an editable override from a framework artifact.
+def claim(name, project):
+    """Claim ownership of a framework artifact for in-place editing.
 
-    Renders the framework template with the current config context and
-    writes it to overrides/<output_path>. Also adds the override entry
-    to config.yml and updates .osprey-manifest.json.
+    If the file doesn't exist yet, renders the framework template in-place
+    at the canonical output path. If it already exists, just marks it as
+    user-owned. Regen will skip user-owned files.
 
     Examples:
 
     \b
-      osprey prompts scaffold agents/channel-finder
-      osprey prompts scaffold rules/safety
+      osprey prompts claim agents/channel-finder
+      osprey prompts claim rules/safety
     """
     project_dir = Path(project) if project else Path.cwd()
     registry = PromptRegistry.default()
@@ -140,66 +140,66 @@ def scaffold(name, project):
         )
 
     config = _load_config(project_dir)
-    overrides = _get_overrides(config)
+    user_owned = _get_user_owned(config)
 
-    if name in overrides:
-        existing = project_dir / overrides[name]
-        if existing.exists():
-            raise click.ClickException(
-                f"Override for '{name}' already exists at {overrides[name]}. "
-                f"Edit it directly or run `osprey prompts unoverride {name}` first."
-            )
+    if name in user_owned:
+        raise click.ClickException(
+            f"'{name}' is already user-owned. "
+            f"Edit it directly at {artifact.output_path}."
+        )
 
     # Build template context
     manager = TemplateManager()
     ctx = manager._build_claude_code_context(project_dir, config)
 
-    # Render the framework template
-    claude_code_dir = manager.template_root / "claude_code"
-    template_file = claude_code_dir / artifact.template_path
+    # If file doesn't exist, render the framework template in-place
+    output_file = project_dir / artifact.output_path
+    if not output_file.exists():
+        claude_code_dir = manager.template_root / "claude_code"
+        template_file = claude_code_dir / artifact.template_path
 
-    if not template_file.exists():
-        raise click.ClickException(
-            f"Template file not found: {artifact.template_path}"
-        )
+        if not template_file.exists():
+            raise click.ClickException(
+                f"Template file not found: {artifact.template_path}"
+            )
 
-    if template_file.suffix == ".j2":
-        template_rel = f"claude_code/{artifact.template_path}"
-        template = manager.jinja_env.get_template(template_rel)
-        content = template.render(**ctx)
-    else:
-        content = template_file.read_text(encoding="utf-8")
+        if template_file.suffix == ".j2":
+            template_rel = f"claude_code/{artifact.template_path}"
+            template = manager.jinja_env.get_template(template_rel)
+            content = template.render(**ctx)
+        else:
+            content = template_file.read_text(encoding="utf-8")
 
-    if not content.strip():
+        if not content.strip():
+            console.print(
+                "[warning]\u26a0[/warning] Template renders to empty content "
+                "(likely a Jinja2 condition is not met for your config).",
+                style="yellow",
+            )
+            if not click.confirm("Create an empty file anyway?"):
+                return
+
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_text(content, encoding="utf-8")
+        if output_file.suffix == ".py":
+            output_file.chmod(output_file.stat().st_mode | 0o755)
+
         console.print(
-            "[warning]\u26a0[/warning] Template renders to empty content "
-            "(likely a Jinja2 condition is not met for your config).",
-            style="yellow",
+            f"  [success]\u2713[/success] Rendered {name} \u2192 {artifact.output_path}"
         )
-        if not click.confirm("Create an empty override file anyway?"):
-            return
+    else:
+        console.print(
+            f"  [success]\u2713[/success] File already exists at {artifact.output_path}"
+        )
 
-    # Determine override path
-    override_rel = f"overrides/{artifact.output_path}"
-    override_path = project_dir / override_rel
-    override_path.parent.mkdir(parents=True, exist_ok=True)
-    override_path.write_text(content, encoding="utf-8")
-    if override_path.suffix == ".py":
-        override_path.chmod(override_path.stat().st_mode | 0o755)
-
-    console.print(
-        f"  [success]\u2713[/success] Scaffolded {name} \u2192 {override_rel}"
-    )
-
-    # Update config.yml using ruamel.yaml for comment-preserving round-trip
-    _update_config_add_override(project_dir, name, override_rel)
+    # Update config.yml
+    _update_config_add_user_owned(project_dir, name)
 
     # Update manifest
-    _update_manifest_add_override(project_dir, manager, ctx, name, override_rel)
+    _update_manifest_add_user_owned(project_dir, manager, ctx, name)
 
     console.print(
-        f"\n  Edit [path]{override_rel}[/path] to customize, then run "
-        f"[command]osprey claude regen[/command].\n"
+        f"\n  Edit [path]{artifact.output_path}[/path] — regen will skip it.\n"
     )
 
 
@@ -213,24 +213,25 @@ def scaffold(name, project):
     help="Project directory (default: current directory)",
 )
 def diff(name, project):
-    """Show diff between a framework template and your override.
+    """Show diff between a framework template and your file.
 
     Renders the current framework template and compares it against
-    your override file using a unified diff.
+    your file at the canonical output path using a unified diff.
 
     Examples:
 
     \b
       osprey prompts diff agents/channel-finder
+      osprey prompts diff rules/facility
     """
     project_dir = Path(project) if project else Path.cwd()
     config = _load_config(project_dir)
-    overrides = _get_overrides(config)
+    user_owned = _get_user_owned(config)
 
-    if name not in overrides:
+    if name not in user_owned:
         raise click.ClickException(
-            f"'{name}' is not overridden in config.yml. "
-            f"Run `osprey prompts scaffold {name}` first."
+            f"'{name}' is not user-owned in config.yml. "
+            f"Run `osprey prompts claim {name}` first."
         )
 
     registry = PromptRegistry.default()
@@ -238,11 +239,11 @@ def diff(name, project):
     if artifact is None:
         raise click.ClickException(f"Unknown artifact '{name}'.")
 
-    # Read override file
-    override_path = project_dir / overrides[name]
-    if not override_path.exists():
-        raise click.ClickException(f"Override file not found: {overrides[name]}")
-    override_lines = override_path.read_text(encoding="utf-8").splitlines(keepends=True)
+    # Read user's file from canonical output path
+    user_file = project_dir / artifact.output_path
+    if not user_file.exists():
+        raise click.ClickException(f"File not found: {artifact.output_path}")
+    user_lines = user_file.read_text(encoding="utf-8").splitlines(keepends=True)
 
     # Render framework template
     manager = TemplateManager()
@@ -262,9 +263,9 @@ def diff(name, project):
     # Generate unified diff
     diff_lines = difflib.unified_diff(
         framework_lines,
-        override_lines,
+        user_lines,
         fromfile=f"framework:{artifact.template_path}",
-        tofile=f"override:{overrides[name]}",
+        tofile=f"yours:{artifact.output_path}",
     )
 
     output = "".join(diff_lines)
@@ -272,11 +273,11 @@ def diff(name, project):
         click.echo(output)
     else:
         console.print(
-            "[success]\u2713[/success] Override matches the current framework template — no differences."
+            "[success]\u2713[/success] Your file matches the current framework template — no differences."
         )
 
 
-@prompts.command(name="unoverride")
+@prompts.command(name="unclaim")
 @click.argument("name")
 @click.option(
     "--project",
@@ -285,64 +286,47 @@ def diff(name, project):
     default=None,
     help="Project directory (default: current directory)",
 )
-@click.option(
-    "--delete-file/--keep-file",
-    default=False,
-    help="Delete the override file (default: keep it)",
-)
-def unoverride(name, project, delete_file):
-    """Remove an override and restore framework management.
+def unclaim(name, project):
+    """Release ownership and restore framework management.
 
-    Removes the override entry from config.yml and .osprey-manifest.json.
-    By default keeps the override file on disk.
+    Removes the artifact from the user_owned list in config.yml and
+    .osprey-manifest.json. The next ``osprey claude regen`` will
+    overwrite the file with the framework template.
 
     Examples:
 
     \b
-      osprey prompts unoverride agents/channel-finder
-      osprey prompts unoverride agents/channel-finder --delete-file
+      osprey prompts unclaim agents/channel-finder
+      osprey prompts unclaim rules/safety
     """
     project_dir = Path(project) if project else Path.cwd()
     config = _load_config(project_dir)
-    overrides = _get_overrides(config)
+    user_owned = _get_user_owned(config)
 
-    if name not in overrides:
+    if name not in user_owned:
         raise click.ClickException(
-            f"'{name}' is not overridden in config.yml."
+            f"'{name}' is not user-owned in config.yml."
         )
 
-    override_rel = overrides[name]
-
     # Remove from config.yml
-    _update_config_remove_override(project_dir, name)
+    _update_config_remove_user_owned(project_dir, name)
 
     # Remove from manifest
-    _update_manifest_remove_override(project_dir, name)
-
-    # Optionally delete the file
-    if delete_file:
-        override_path = project_dir / override_rel
-        if override_path.exists():
-            override_path.unlink()
-            console.print(f"  [success]\u2713[/success] Deleted {override_rel}")
-        # Clean up empty parent directories
-        _cleanup_empty_dirs(override_path.parent, project_dir / "overrides")
-    else:
-        console.print(f"  [dim]Override file kept at {override_rel}[/dim]")
+    _update_manifest_remove_user_owned(project_dir, name)
 
     console.print(
-        f"  [success]\u2713[/success] Removed override for {name}"
+        f"  [success]\u2713[/success] Released ownership of {name}"
     )
     console.print(
-        "\n  Next `osprey claude regen` will use the framework template.\n"
+        "\n  Next `osprey claude regen` will overwrite with the framework template.\n"
     )
 
 
 # ── Config.yml helpers ───────────────────────────────────────────────
 
 
-def _update_config_add_override(project_dir: Path, name: str, override_rel: str):
-    """Add a prompts.overrides entry to config.yml, preserving comments."""
+def _update_config_add_user_owned(project_dir: Path, name: str):
+    """Add a name to prompts.user_owned list in config.yml, preserving comments."""
     config_path = project_dir / "config.yml"
 
     try:
@@ -358,44 +342,43 @@ def _update_config_add_override(project_dir: Path, name: str, override_rel: str)
 
         if "prompts" not in data:
             data["prompts"] = {}
-        if "overrides" not in data["prompts"]:
-            data["prompts"]["overrides"] = {}
+        if "user_owned" not in data["prompts"]:
+            data["prompts"]["user_owned"] = []
 
-        data["prompts"]["overrides"][name] = override_rel
+        if name not in data["prompts"]["user_owned"]:
+            data["prompts"]["user_owned"].append(name)
 
         with open(config_path, "w", encoding="utf-8") as f:
             ry.dump(data, f)
 
         console.print(
             f"  [success]\u2713[/success] Updated config.yml — "
-            f"prompts.overrides.{name}"
+            f"prompts.user_owned += {name}"
         )
     except ImportError:
-        # Fallback: append to file as a comment-less YAML block
-        _append_override_to_config(config_path, name, override_rel)
+        _append_user_owned_to_config(config_path, name)
 
 
-def _append_override_to_config(config_path: Path, name: str, override_rel: str):
-    """Fallback: append override entry when ruamel.yaml is not available."""
+def _append_user_owned_to_config(config_path: Path, name: str):
+    """Fallback: append user_owned entry when ruamel.yaml is not available."""
     content = config_path.read_text(encoding="utf-8")
 
-    if "prompts:" in content and "overrides:" in content:
-        # Append under existing overrides section
-        content += f"    {name}: {override_rel}\n"
+    if "prompts:" in content and "user_owned:" in content:
+        content += f"    - {name}\n"
     elif "prompts:" in content:
-        content += f"  overrides:\n    {name}: {override_rel}\n"
+        content += f"  user_owned:\n    - {name}\n"
     else:
-        content += f"\nprompts:\n  overrides:\n    {name}: {override_rel}\n"
+        content += f"\nprompts:\n  user_owned:\n    - {name}\n"
 
     config_path.write_text(content, encoding="utf-8")
     console.print(
         f"  [success]\u2713[/success] Updated config.yml — "
-        f"prompts.overrides.{name}"
+        f"prompts.user_owned += {name}"
     )
 
 
-def _update_config_remove_override(project_dir: Path, name: str):
-    """Remove a prompts.overrides entry from config.yml."""
+def _update_config_remove_user_owned(project_dir: Path, name: str):
+    """Remove a name from prompts.user_owned list in config.yml."""
     config_path = project_dir / "config.yml"
 
     try:
@@ -406,26 +389,26 @@ def _update_config_remove_override(project_dir: Path, name: str):
         with open(config_path, encoding="utf-8") as f:
             data = ry.load(f)
 
-        if data and "prompts" in data and "overrides" in data["prompts"]:
-            overrides = data["prompts"]["overrides"]
-            if name in overrides:
-                del overrides[name]
-                # Clean up empty sections
-                if not overrides:
-                    del data["prompts"]["overrides"]
+        if data and "prompts" in data and "user_owned" in data["prompts"]:
+            user_owned = data["prompts"]["user_owned"]
+            if name in user_owned:
+                user_owned.remove(name)
+                if not user_owned:
+                    del data["prompts"]["user_owned"]
                 if not data["prompts"]:
                     del data["prompts"]
 
         with open(config_path, "w", encoding="utf-8") as f:
             ry.dump(data, f)
     except ImportError:
-        # Fallback: use pyyaml (loses comments, but functional)
         with open(config_path, encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
-        if "prompts" in data and "overrides" in data["prompts"]:
-            data["prompts"]["overrides"].pop(name, None)
-            if not data["prompts"]["overrides"]:
-                del data["prompts"]["overrides"]
+        if "prompts" in data and "user_owned" in data["prompts"]:
+            user_owned = data["prompts"]["user_owned"]
+            if name in user_owned:
+                user_owned.remove(name)
+            if not user_owned:
+                del data["prompts"]["user_owned"]
             if not data["prompts"]:
                 del data["prompts"]
         with open(config_path, "w", encoding="utf-8") as f:
@@ -435,14 +418,13 @@ def _update_config_remove_override(project_dir: Path, name: str):
 # ── Manifest helpers ─────────────────────────────────────────────────
 
 
-def _update_manifest_add_override(
+def _update_manifest_add_user_owned(
     project_dir: Path,
     manager: TemplateManager,
     ctx: dict,
     name: str,
-    override_rel: str,
 ):
-    """Add an override entry to .osprey-manifest.json."""
+    """Add a user_owned entry to .osprey-manifest.json."""
     manifest_path = project_dir / MANIFEST_FILENAME
     if not manifest_path.exists():
         return
@@ -452,8 +434,8 @@ def _update_manifest_add_override(
     except (json.JSONDecodeError, OSError):
         return
 
-    if "overrides" not in manifest:
-        manifest["overrides"] = {}
+    if "user_owned" not in manifest:
+        manifest["user_owned"] = {}
 
     # Compute framework hash
     registry = PromptRegistry.default()
@@ -483,20 +465,19 @@ def _update_manifest_add_override(
                 pass
 
     entry: dict[str, Any] = {
-        "override_path": override_rel,
-        "scaffolded_at": datetime.now(UTC).isoformat(),
+        "claimed_at": datetime.now(UTC).isoformat(),
     }
     if framework_hash:
         entry["framework_hash"] = framework_hash
 
-    manifest["overrides"][name] = entry
+    manifest["user_owned"][name] = entry
 
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, sort_keys=False)
 
 
-def _update_manifest_remove_override(project_dir: Path, name: str):
-    """Remove an override entry from .osprey-manifest.json."""
+def _update_manifest_remove_user_owned(project_dir: Path, name: str):
+    """Remove a user_owned entry from .osprey-manifest.json."""
     manifest_path = project_dir / MANIFEST_FILENAME
     if not manifest_path.exists():
         return
@@ -506,25 +487,11 @@ def _update_manifest_remove_override(project_dir: Path, name: str):
     except (json.JSONDecodeError, OSError):
         return
 
-    overrides = manifest.get("overrides", {})
-    if name in overrides:
-        del overrides[name]
-        if not overrides:
-            manifest.pop("overrides", None)
+    user_owned = manifest.get("user_owned", {})
+    if name in user_owned:
+        del user_owned[name]
+        if not user_owned:
+            manifest.pop("user_owned", None)
 
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, sort_keys=False)
-
-
-def _cleanup_empty_dirs(directory: Path, stop_at: Path):
-    """Remove empty directories up to stop_at."""
-    current = directory
-    while current != stop_at and current.exists():
-        try:
-            if not any(current.iterdir()):
-                current.rmdir()
-            else:
-                break
-        except OSError:
-            break
-        current = current.parent
