@@ -443,15 +443,17 @@ class TestGetFrameworkDefaults:
         assert "TIME_RANGE" in ctx_types
 
     def test_framework_has_providers(self):
-        """Test that framework includes AI model providers."""
-        framework = get_framework_defaults()
+        """Test that built-in AI model providers are resolvable.
 
-        # Should have provider registrations
-        assert len(framework.providers) > 0
+        Built-in providers now live in ProviderRegistry (single source of
+        truth), not in RegistryConfig.providers.
+        """
+        from osprey.models.provider_registry import get_provider_registry
 
-        provider_modules = [p.module_path for p in framework.providers]
-        assert "osprey.models.providers.anthropic" in provider_modules
-        assert "osprey.models.providers.openai" in provider_modules
+        pr = get_provider_registry()
+        assert pr.get_provider("anthropic") is not None
+        assert pr.get_provider("openai") is not None
+        assert len(pr.list_providers()) >= 9
 
     def test_framework_initialization_order(self):
         """Test that framework has proper initialization order."""

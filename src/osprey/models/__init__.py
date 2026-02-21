@@ -29,7 +29,7 @@ warnings.filterwarnings(
     category=UserWarning,
 )
 
-from .completion import get_chat_completion  # noqa: E402
+from .completion import aget_chat_completion, get_chat_completion  # noqa: E402
 from .langchain import (  # noqa: E402
     SUPPORTED_PROVIDERS,
     get_langchain_model,
@@ -39,13 +39,17 @@ from .langchain import (  # noqa: E402
 )
 from .logging import set_api_call_context  # noqa: E402
 from .messages import ChatCompletionRequest, ChatMessage  # noqa: E402
+from .provider_registry import ProviderRegistry, get_provider_registry  # noqa: E402
 
 __all__ = [
     "ChatCompletionRequest",
     "ChatMessage",
+    "ProviderRegistry",
+    "aget_chat_completion",
     "get_chat_completion",
     "get_langchain_model",
     "get_langchain_model_from_name",
+    "get_provider_registry",
     "list_supported_providers",
     "retry_budget_override",
     "set_api_call_context",

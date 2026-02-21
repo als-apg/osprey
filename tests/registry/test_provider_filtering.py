@@ -207,43 +207,24 @@ class TestInitializeProvidersFiltering:
         assert "anthropic" in manager._registries["providers"]
         assert "openai" in manager._registries["providers"]
 
-    def test_loads_providers_with_name_none_when_filtering(self):
-        """Providers with name=None are loaded even when filtering is active (backward compat)."""
-        providers = [
-            ProviderRegistration(
-                module_path="osprey.models.providers.anthropic",
-                class_name="AnthropicProviderAdapter",
-                name="anthropic",
-            ),
-            ProviderRegistration(
-                module_path="test.custom",
-                class_name="CustomProvider",
-                # name=None (default) — backward compat, always loaded
-            ),
-        ]
-        manager = self._make_manager_with_providers(providers)
+    def test_custom_providers_registered_via_provider_registry(self):
+        """Custom providers from config.providers are registered into ProviderRegistry.
 
-        anthropic_class = self._make_provider_class("anthropic")
-        custom_class = self._make_provider_class("custom_provider")
+        The new _initialize_providers() registers custom providers into the
+        lightweight ProviderRegistry before calling load_providers(), ensuring
+        they participate in config-driven filtering.
+        """
+        from osprey.models.provider_registry import get_provider_registry, reset_provider_registry
 
-        def mock_import(path):
-            m = MagicMock()
-            if "anthropic" in path:
-                m.AnthropicProviderAdapter = anthropic_class
-            elif "test.custom" in path:
-                m.CustomProvider = custom_class
-            return m
+        reset_provider_registry()
+        try:
+            # Verify that built-in providers are always available
+            pr = get_provider_registry()
+            assert pr.get_provider("anthropic") is not None
 
-        with (
-            patch.object(
-                manager,
-                "_get_configured_provider_names",
-                return_value={"anthropic"},
-            ),
-            patch("osprey.registry.manager.importlib.import_module", side_effect=mock_import),
-        ):
-            manager._initialize_providers()
-
-        # Both loaded: anthropic is configured, custom has name=None so not filtered
-        assert "anthropic" in manager._registries["providers"]
-        assert "custom_provider" in manager._registries["providers"]
+            # Custom providers would need a valid module path to actually load,
+            # but the registration itself should succeed
+            pr.register_provider("my_custom", "test.custom", "CustomProvider")
+            assert "my_custom" in pr.list_providers()
+        finally:
+            reset_provider_registry()

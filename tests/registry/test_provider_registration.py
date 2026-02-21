@@ -2,6 +2,13 @@
 
 This test module validates the provider registration feature that allows
 applications to register custom AI model providers through the registry system.
+
+Architecture note: Built-in providers (anthropic, openai, etc.) now live in
+``osprey.models.provider_registry`` as the single source of truth.
+``RegistryManager._initialize_providers()`` delegates to it. Tests that
+previously checked ``manager.config.providers`` for built-in entries now check
+``get_provider_registry()`` instead.
+
 Tests cover:
 - Registering custom providers in application registries
 - Provider merging during registry initialization
@@ -12,12 +19,21 @@ Tests cover:
 
 import pytest
 
+from osprey.models.provider_registry import get_provider_registry, reset_provider_registry
 from osprey.registry.base import (
     ProviderRegistration,
     RegistryConfig,
 )
 from osprey.registry.helpers import extend_framework_registry
 from osprey.registry.manager import RegistryManager
+
+
+@pytest.fixture(autouse=True)
+def _clean_provider_registry():
+    """Reset the provider registry singleton around each test."""
+    reset_provider_registry()
+    yield
+    reset_provider_registry()
 
 
 class TestProviderMerging:
@@ -51,23 +67,17 @@ class AppProvider(RegistryConfigProvider):
 """
         )
 
-        # Load registry and get initial framework provider count
-        framework_manager = RegistryManager(registry_path=None)
-        framework_provider_count = len(framework_manager.config.providers)
-
         manager = RegistryManager(registry_path=str(registry_file))
+
+        # Custom providers should be in config.providers
         provider_module_paths = [p.module_path for p in manager.config.providers]
-
-        # Framework providers should still be present
-        assert "osprey.models.providers.anthropic" in provider_module_paths
-        assert "osprey.models.providers.openai" in provider_module_paths
-
-        # Application providers should be added
         assert "test_app.providers.custom" in provider_module_paths
         assert "test_app.providers.institutional" in provider_module_paths
 
-        # Total count should be framework + 2 application providers
-        assert len(manager.config.providers) == framework_provider_count + 2
+        # Built-in providers are resolved via ProviderRegistry (not config.providers)
+        pr = get_provider_registry()
+        assert pr.get_provider("anthropic") is not None
+        assert pr.get_provider("openai") is not None
 
     def test_multiple_providers_in_single_application(self, tmp_path):
         """Test that single application can add multiple providers."""
@@ -126,8 +136,9 @@ class AppProvider(RegistryConfigProvider):
         # Should not raise
         manager = RegistryManager(registry_path=str(registry_file))
 
-        # Framework providers should still be present
-        assert len(manager.config.providers) > 0
+        # Built-in providers should still be resolvable via ProviderRegistry
+        pr = get_provider_registry()
+        assert len(pr.list_providers()) >= 9
 
 
 class TestProviderExclusions:
@@ -292,12 +303,13 @@ class AppProvider(RegistryConfigProvider):
         manager = RegistryManager(registry_path=str(registry_file))
         provider_modules = [p.module_path for p in manager.config.providers]
 
-        # Custom provider should be added
+        # Custom provider should be in config.providers
         assert "app.providers.custom" in provider_modules
 
-        # Framework providers should still be present
-        assert "osprey.models.providers.anthropic" in provider_modules
-        assert "osprey.models.providers.openai" in provider_modules
+        # Built-in providers are resolved via ProviderRegistry
+        pr = get_provider_registry()
+        assert pr.get_provider("anthropic") is not None
+        assert pr.get_provider("openai") is not None
 
     def test_helper_with_exclusions_in_registry_provider(self, tmp_path):
         """Test helper with provider exclusions in actual registry."""
@@ -390,12 +402,13 @@ class AppProvider(RegistryConfigProvider):
         # Framework OpenAI should be excluded
         assert "openai" in manager._excluded_provider_names
 
-        # Custom provider should be present
+        # Custom provider should be present in config.providers
         provider_modules = [p.module_path for p in manager.config.providers]
         assert "my_app.providers.custom_openai" in provider_modules
 
-        # Other framework providers should still be in config (not excluded)
-        assert "osprey.models.providers.anthropic" in provider_modules
+        # Other built-in providers still resolvable via ProviderRegistry
+        pr = get_provider_registry()
+        assert pr.get_provider("anthropic") is not None
 
 
 class TestProviderMergingEdgeCases:
@@ -422,26 +435,21 @@ class AppProvider(RegistryConfigProvider):
         # Should not raise
         manager = RegistryManager(registry_path=str(registry_file))
 
-        # Framework providers should still be present
-        framework_provider_modules = [
-            "osprey.models.providers.anthropic",
-            "osprey.models.providers.openai",
-        ]
-        provider_modules = [p.module_path for p in manager.config.providers]
-        for framework_module in framework_provider_modules:
-            assert framework_module in provider_modules
+        # Built-in providers resolved via ProviderRegistry (not config.providers)
+        pr = get_provider_registry()
+        assert pr.get_provider("anthropic") is not None
+        assert pr.get_provider("openai") is not None
 
     def test_framework_only_registry_has_providers(self):
-        """Test that framework-only registry includes default providers."""
+        """Test that framework-only setup still resolves built-in providers."""
         manager = RegistryManager(registry_path=None)
 
-        # Framework should have providers
-        assert len(manager.config.providers) > 0
-
-        # Should include standard framework providers
-        provider_modules = [p.module_path for p in manager.config.providers]
-        assert "osprey.models.providers.anthropic" in provider_modules
-        assert "osprey.models.providers.openai" in provider_modules
+        # config.providers is now empty (built-ins live in ProviderRegistry)
+        # but providers are still resolvable
+        pr = get_provider_registry()
+        assert len(pr.list_providers()) >= 9
+        assert pr.get_provider("anthropic") is not None
+        assert pr.get_provider("openai") is not None
 
 
 if __name__ == "__main__":
