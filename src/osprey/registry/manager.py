@@ -1253,19 +1253,29 @@ class RegistryManager:
             return None  # Config not available (TUI init, framework-only mode)
 
     def _initialize_providers(self) -> None:
-        """Initialize AI model providers from registry configuration.
+        """Initialize AI model providers via the lightweight ProviderRegistry.
 
-        Loads provider classes and introspects their class attributes for metadata.
-        This avoids duplication between ProviderRegistration and provider class.
-        Provider metadata (requires_api_key, supports_proxy, etc.) is defined as
-        class attributes and introspected after loading.
+        Delegates to ``ProviderRegistry.load_providers()`` for the actual import
+        loop, then stores the results in the RegistryManager's internal dict for
+        backward compatibility. Custom providers from ``self.config.providers``
+        (non-built-in) are registered first so they participate in the bulk load.
 
         Uses config-driven filtering to skip imports for unconfigured providers,
         avoiding costly module-level network calls on air-gapped machines.
-
-        :raises RegistryError: If provider class doesn't inherit from BaseProvider
-        :raises RegistryError: If provider doesn't define required metadata
         """
+        from osprey.models.provider_registry import get_provider_registry
+
+        pr = get_provider_registry()
+
+        # Register any custom (non-built-in) providers from RegistryConfig
+        for registration in self.config.providers:
+            if registration.name and registration.name not in pr.list_providers():
+                pr.register_provider(
+                    registration.name,
+                    registration.module_path,
+                    registration.class_name,
+                )
+
         configured_providers = self._get_configured_provider_names()
 
         if configured_providers is not None:
@@ -1273,78 +1283,20 @@ class RegistryManager:
                 f"Initializing providers (config-driven: {sorted(configured_providers)})..."
             )
         else:
-            logger.info(f"Initializing {len(self.config.providers)} provider(s)...")
+            logger.info("Initializing providers (all available)...")
 
-        for registration in self.config.providers:
-            # Config-driven filtering: skip providers not in config before import
-            if (
-                configured_providers is not None
-                and registration.name is not None
-                and registration.name not in configured_providers
-            ):
-                logger.debug(f"  ⊘ Skipping unconfigured provider: {registration.name}")
-                continue
+        loaded = pr.load_providers(
+            configured_names=configured_providers,
+            excluded_names=self._excluded_provider_names or None,
+        )
 
-            try:
-                # Lazy load provider class
-                module = importlib.import_module(registration.module_path)
-                provider_class = getattr(module, registration.class_name)
-
-                # Validate it's a provider
-                try:
-                    from osprey.models.providers.base import BaseProvider
-
-                    if not issubclass(provider_class, BaseProvider):
-                        raise RegistryError(
-                            f"Provider class {registration.class_name} "
-                            f"must inherit from BaseProvider"
-                        )
-                except ImportError:
-                    # BaseProvider not yet created, skip validation for now
-                    logger.warning(
-                        f"BaseProvider not found, skipping validation for {registration.class_name}"
-                    )
-
-                # Introspect metadata from class attributes (single source of truth)
-                provider_name = getattr(provider_class, "name", None)
-
-                # Validate required metadata is present
-                if provider_name is None or provider_name == NotImplemented:
-                    raise RegistryError(
-                        f"Provider {registration.class_name} must define 'name' class attribute"
-                    )
-
-                # Check if this provider is excluded
-                if provider_name in self._excluded_provider_names:
-                    logger.info(f"  ⊘ Skipping excluded provider: {provider_name}")
-                    continue
-
-                # Store provider class (indexed by its name attribute)
-                self._registries["providers"][provider_name] = provider_class
-
-                # Store registration for reference
-                self._provider_registrations[provider_name] = registration
-
-                logger.info(f"  ✓ Registered provider: {provider_name}")
-                logger.debug(f"    - Module: {registration.module_path}")
-                logger.debug(f"    - Class: {registration.class_name}")
-                logger.debug(
-                    f"    - Requires API key: {getattr(provider_class, 'requires_api_key', 'N/A')}"
-                )
-                logger.debug(
-                    f"    - Supports proxy: {getattr(provider_class, 'supports_proxy', 'N/A')}"
-                )
-
-            except Exception as e:
-                logger.error(
-                    f"  ✗ Failed to register provider from {registration.module_path}: {e}"
-                )
-                raise RegistryError(
-                    f"Provider registration failed for {registration.class_name}"
-                ) from e
+        for name, provider_class in loaded.items():
+            self._registries["providers"][name] = provider_class
+            logger.info(f"  ✓ Registered provider: {name}")
 
         logger.info(
-            f"Provider initialization complete: {len(self._registries['providers'])} providers loaded"
+            f"Provider initialization complete: "
+            f"{len(self._registries['providers'])} providers loaded"
         )
 
     def _initialize_connectors(self) -> None:
@@ -2290,13 +2242,19 @@ class RegistryManager:
     def get_provider(self, name: str) -> type[Any] | None:
         """Retrieve registered provider class by name.
 
+        Falls back to the lightweight ``ProviderRegistry`` when the full
+        ``RegistryManager`` hasn't been initialized, so callers like
+        ``get_chat_completion()`` work without LangGraph infrastructure.
+
         :param name: Unique provider name from registration
         :type name: str
         :return: Provider class if registered, None otherwise
         :rtype: Type[BaseProvider] or None
         """
         if not self._initialized:
-            raise RegistryError("Registry not initialized. Call initialize_registry() first.")
+            from osprey.models.provider_registry import get_provider_registry
+
+            return get_provider_registry().get_provider(name)
 
         return self._registries["providers"].get(name)
 

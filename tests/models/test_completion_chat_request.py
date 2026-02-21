@@ -7,6 +7,25 @@ import pytest
 from osprey.models.messages import ChatCompletionRequest, ChatMessage
 
 
+def _mock_provider_cls():
+    """Build a mock provider class with required metadata attributes."""
+    cls = MagicMock()
+    cls.requires_api_key = False
+    cls.requires_base_url = False
+    cls.requires_model_id = False
+    instance = MagicMock()
+    instance.execute_completion.return_value = "response"
+    cls.return_value = instance
+    return cls, instance
+
+
+def _mock_registry(provider_cls):
+    """Build a mock ProviderRegistry that returns *provider_cls*."""
+    registry = MagicMock()
+    registry.get_provider.return_value = provider_cls
+    return registry
+
+
 class TestChatRequestValidation:
     """Test validation of message vs chat_request exclusivity."""
 
@@ -28,19 +47,13 @@ class TestChatRequestValidation:
         """Existing message= path continues to work (mocked provider)."""
         from osprey.models.completion import get_chat_completion
 
-        mock_provider_cls = MagicMock()
-        mock_provider_cls.requires_api_key = False
-        mock_provider_cls.requires_base_url = False
-        mock_provider_cls.requires_model_id = False
-        mock_instance = MagicMock()
-        mock_instance.execute_completion.return_value = "response"
-        mock_provider_cls.return_value = mock_instance
-
-        mock_registry = MagicMock()
-        mock_registry.get_provider.return_value = mock_provider_cls
+        provider_cls, _ = _mock_provider_cls()
 
         with (
-            patch("osprey.registry.get_registry", return_value=mock_registry),
+            patch(
+                "osprey.models.provider_registry.get_provider_registry",
+                return_value=_mock_registry(provider_cls),
+            ),
             patch("osprey.models.logging.log_api_call"),
         ):
             result = get_chat_completion(message="hello", provider="test", model_id="test-model")
@@ -51,21 +64,14 @@ class TestChatRequestValidation:
         """chat_request= path works (mocked provider)."""
         from osprey.models.completion import get_chat_completion
 
-        mock_provider_cls = MagicMock()
-        mock_provider_cls.requires_api_key = False
-        mock_provider_cls.requires_base_url = False
-        mock_provider_cls.requires_model_id = False
-        mock_instance = MagicMock()
-        mock_instance.execute_completion.return_value = "response"
-        mock_provider_cls.return_value = mock_instance
-
-        mock_registry = MagicMock()
-        mock_registry.get_provider.return_value = mock_provider_cls
-
+        provider_cls, _ = _mock_provider_cls()
         req = ChatCompletionRequest(messages=[ChatMessage("user", "hello")])
 
         with (
-            patch("osprey.registry.get_registry", return_value=mock_registry),
+            patch(
+                "osprey.models.provider_registry.get_provider_registry",
+                return_value=_mock_registry(provider_cls),
+            ),
             patch("osprey.models.logging.log_api_call"),
         ):
             result = get_chat_completion(chat_request=req, provider="test", model_id="test-model")
@@ -80,26 +86,20 @@ class TestChatRequestFlowThrough:
         """Verify chat_request is included in kwargs passed to execute_completion."""
         from osprey.models.completion import get_chat_completion
 
-        mock_provider_cls = MagicMock()
-        mock_provider_cls.requires_api_key = False
-        mock_provider_cls.requires_base_url = False
-        mock_provider_cls.requires_model_id = False
-        mock_instance = MagicMock()
-        mock_instance.execute_completion.return_value = "ok"
-        mock_provider_cls.return_value = mock_instance
-
-        mock_registry = MagicMock()
-        mock_registry.get_provider.return_value = mock_provider_cls
-
+        provider_cls, instance = _mock_provider_cls()
+        instance.execute_completion.return_value = "ok"
         req = ChatCompletionRequest(messages=[ChatMessage("user", "test")])
 
         with (
-            patch("osprey.registry.get_registry", return_value=mock_registry),
+            patch(
+                "osprey.models.provider_registry.get_provider_registry",
+                return_value=_mock_registry(provider_cls),
+            ),
             patch("osprey.models.logging.log_api_call"),
         ):
             get_chat_completion(chat_request=req, provider="test", model_id="m")
 
-        call_kwargs = mock_instance.execute_completion.call_args[1]
+        call_kwargs = instance.execute_completion.call_args[1]
         assert call_kwargs["chat_request"] is req
 
     @patch("osprey.models.completion.get_provider_config", return_value={"api_key": "test"})
@@ -107,24 +107,19 @@ class TestChatRequestFlowThrough:
         """When using message=, chat_request is None in kwargs."""
         from osprey.models.completion import get_chat_completion
 
-        mock_provider_cls = MagicMock()
-        mock_provider_cls.requires_api_key = False
-        mock_provider_cls.requires_base_url = False
-        mock_provider_cls.requires_model_id = False
-        mock_instance = MagicMock()
-        mock_instance.execute_completion.return_value = "ok"
-        mock_provider_cls.return_value = mock_instance
-
-        mock_registry = MagicMock()
-        mock_registry.get_provider.return_value = mock_provider_cls
+        provider_cls, instance = _mock_provider_cls()
+        instance.execute_completion.return_value = "ok"
 
         with (
-            patch("osprey.registry.get_registry", return_value=mock_registry),
+            patch(
+                "osprey.models.provider_registry.get_provider_registry",
+                return_value=_mock_registry(provider_cls),
+            ),
             patch("osprey.models.logging.log_api_call"),
         ):
             get_chat_completion(message="hello", provider="test", model_id="m")
 
-        call_kwargs = mock_instance.execute_completion.call_args[1]
+        call_kwargs = instance.execute_completion.call_args[1]
         assert call_kwargs["chat_request"] is None
 
     @patch("osprey.models.completion.get_provider_config", return_value={"api_key": "test"})
@@ -132,16 +127,8 @@ class TestChatRequestFlowThrough:
         """When chat_request is provided, log_api_call receives the flattened string."""
         from osprey.models.completion import get_chat_completion
 
-        mock_provider_cls = MagicMock()
-        mock_provider_cls.requires_api_key = False
-        mock_provider_cls.requires_base_url = False
-        mock_provider_cls.requires_model_id = False
-        mock_instance = MagicMock()
-        mock_instance.execute_completion.return_value = "ok"
-        mock_provider_cls.return_value = mock_instance
-
-        mock_registry = MagicMock()
-        mock_registry.get_provider.return_value = mock_provider_cls
+        provider_cls, instance = _mock_provider_cls()
+        instance.execute_completion.return_value = "ok"
 
         req = ChatCompletionRequest(
             messages=[
@@ -151,7 +138,10 @@ class TestChatRequestFlowThrough:
         )
 
         with (
-            patch("osprey.registry.get_registry", return_value=mock_registry),
+            patch(
+                "osprey.models.provider_registry.get_provider_registry",
+                return_value=_mock_registry(provider_cls),
+            ),
             patch("osprey.models.logging.log_api_call") as mock_log,
         ):
             get_chat_completion(chat_request=req, provider="test", model_id="m")

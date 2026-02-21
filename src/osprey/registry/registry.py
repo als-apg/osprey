@@ -496,59 +496,10 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     },
                 )
             ],
-            # Framework AI model providers (SIMPLIFIED - metadata introspected from class)
-            providers=[
-                ProviderRegistration(
-                    module_path="osprey.models.providers.anthropic",
-                    class_name="AnthropicProviderAdapter",
-                    name="anthropic",
-                ),
-                ProviderRegistration(
-                    module_path="osprey.models.providers.openai",
-                    class_name="OpenAIProviderAdapter",
-                    name="openai",
-                ),
-                ProviderRegistration(
-                    module_path="osprey.models.providers.google",
-                    class_name="GoogleProviderAdapter",
-                    name="google",
-                ),
-                ProviderRegistration(
-                    module_path="osprey.models.providers.ollama",
-                    class_name="OllamaProviderAdapter",
-                    name="ollama",
-                ),
-                ProviderRegistration(
-                    module_path="osprey.models.providers.cborg",
-                    class_name="CBorgProviderAdapter",
-                    name="cborg",
-                ),
-                ProviderRegistration(
-                    module_path="osprey.models.providers.stanford",
-                    class_name="StanfordProviderAdapter",
-                    name="stanford",
-                ),
-                ProviderRegistration(
-                    module_path="osprey.models.providers.argo",
-                    class_name="ArgoProviderAdapter",
-                    name="argo",
-                ),
-                ProviderRegistration(
-                    module_path="osprey.models.providers.asksage",
-                    class_name="AskSageProviderAdapter",
-                    name="asksage",
-                ),
-                ProviderRegistration(
-                    module_path="osprey.models.providers.vllm",
-                    class_name="VLLMProviderAdapter",
-                    name="vllm",
-                ),
-                ProviderRegistration(
-                    module_path="osprey.models.providers.amsc",
-                    class_name="AMSCProviderAdapter",
-                    name="amsc",
-                ),
-            ],
+            # Framework AI model providers — built-in table now lives in
+            # osprey.models.provider_registry (single source of truth).
+            # RegistryManager._initialize_providers() delegates to it.
+            providers=[],
             # Framework connectors for control systems and archivers
             connectors=[
                 # Control system connectors
