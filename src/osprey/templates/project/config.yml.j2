@@ -64,6 +64,10 @@ models:
   time_parsing:
     provider: {{ default_provider | default("cborg") }}
     model_id: {{ default_model | default("anthropic/claude-haiku") }}
+  logbook_composition:
+    provider: {{ default_provider | default("cborg") }}
+    model_id: {{ default_model | default("anthropic/claude-haiku") }}
+    max_tokens: 1024
 
 # ============================================================
 # DEPLOYMENT CONFIGURATION
@@ -332,13 +336,34 @@ claude_code:
     - .claude/hooks/osprey_writes_check.py
     - .claude/hooks/osprey_limits.py
     - .claude/hooks/osprey_approval.py
-    - .claude/hooks/osprey_audit.py
     - .claude/hooks/osprey_error_guidance.py
     - .claude/hooks/osprey_notebook_update.py
-    - .claude/commands/screenshot.md
   # disable_servers: []     # e.g. ["accelpapers"] to remove a server
   # disable_agents: []      # e.g. ["literature-search"] to remove an agent
   # extra_servers: {}        # Add custom MCP servers
+  #
+  # ── Model Provider ──────────────────────────────────────────
+  # Which provider serves Claude models. Must support Anthropic Messages API.
+  # Supported: anthropic (direct), cborg (LBNL proxy)
+  # When set, `osprey claude regen` injects env vars into .claude/settings.json.
+{%- set _cc_provider = default_provider | default("cborg") %}
+{%- if _cc_provider in ["cborg", "anthropic"] %}
+  provider: {{ _cc_provider }}
+{%- else %}
+  # provider: cborg
+{%- endif %}
+  #
+  # Default model tier for Claude Code (optional):
+  # default_model: opus   # Options: haiku, sonnet, opus
+  #
+  # Override model IDs per tier (optional):
+  # models:
+  #   haiku: anthropic/claude-haiku-alt
+  #
+  # Override model tier per agent (optional):
+  # agent_models:
+  #   logbook-search: haiku
+  #   logbook-deep-research: sonnet
 
 # ============================================================
 # CLI CONFIGURATION

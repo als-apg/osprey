@@ -1,6 +1,6 @@
 {%- set server_blocks = [] -%}
-{%- if "osprey-control-system" not in disable_servers -%}
-{%- set _ = server_blocks.append('    "osprey-control-system": {
+{%- if "controls" not in disable_servers -%}
+{%- set _ = server_blocks.append('    "controls": {
       "command": "' ~ current_python_env ~ '",
       "args": ["-m", "osprey.mcp_server.control_system"],
       "env": {
@@ -10,8 +10,8 @@
       }
     }') -%}
 {%- endif -%}
-{%- if "osprey-python-executor" not in disable_servers -%}
-{%- set _ = server_blocks.append('    "osprey-python-executor": {
+{%- if "python" not in disable_servers -%}
+{%- set _ = server_blocks.append('    "python": {
       "command": "' ~ current_python_env ~ '",
       "args": ["-m", "osprey.mcp_server.python_executor"],
       "env": {
@@ -21,8 +21,8 @@
       }
     }') -%}
 {%- endif -%}
-{%- if "osprey-workspace" not in disable_servers -%}
-{%- set _ = server_blocks.append('    "osprey-workspace": {
+{%- if "workspace" not in disable_servers -%}
+{%- set _ = server_blocks.append('    "workspace": {
       "command": "' ~ current_python_env ~ '",
       "args": ["-m", "osprey.mcp_server.workspace"],
       "env": {

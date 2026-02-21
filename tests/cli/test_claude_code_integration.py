@@ -36,7 +36,6 @@ class TestClaudeCodeIntegrationDefault:
         assert (project_dir / ".claude" / "hooks" / "osprey_writes_check.py").exists()
         assert (project_dir / ".claude" / "hooks" / "osprey_limits.py").exists()
         assert (project_dir / ".claude" / "hooks" / "osprey_approval.py").exists()
-        assert (project_dir / ".claude" / "hooks" / "osprey_audit.py").exists()
         assert (project_dir / ".claude" / "hooks" / "osprey_error_guidance.py").exists()
 
     def test_claude_code_false_skips_generation(self, tmp_path):
@@ -73,26 +72,26 @@ class TestClaudeCodeFileContents:
 
         assert "mcpServers" in data
         # Three OSPREY servers
-        assert "osprey-control-system" in data["mcpServers"]
-        assert "osprey-python-executor" in data["mcpServers"]
-        assert "osprey-workspace" in data["mcpServers"]
+        assert "controls" in data["mcpServers"]
+        assert "python" in data["mcpServers"]
+        assert "workspace" in data["mcpServers"]
 
         import sys
 
         # Control system server
-        cs = data["mcpServers"]["osprey-control-system"]
+        cs = data["mcpServers"]["controls"]
         assert cs["command"] == sys.executable
         assert cs["args"] == ["-m", "osprey.mcp_server.control_system"]
         expected_config = f"{project_dir}/config.yml"
         assert cs["env"]["OSPREY_CONFIG"] == expected_config
 
         # Python executor server
-        pe = data["mcpServers"]["osprey-python-executor"]
+        pe = data["mcpServers"]["python"]
         assert pe["args"] == ["-m", "osprey.mcp_server.python_executor"]
         assert "${ANTHROPIC_API_KEY" in pe["env"]["ANTHROPIC_API_KEY"]
 
         # Workspace server
-        ws = data["mcpServers"]["osprey-workspace"]
+        ws = data["mcpServers"]["workspace"]
         assert ws["args"] == ["-m", "osprey.mcp_server.workspace"]
 
     def test_settings_json_has_hooks_and_permissions(self, project_dir):
@@ -103,9 +102,13 @@ class TestClaudeCodeFileContents:
         assert "permissions" in data
         assert "allow" in data["permissions"]
         assert "ask" in data["permissions"]
-        assert "mcp__osprey-control-system__channel_read" in data["permissions"]["allow"]
-        assert "mcp__osprey-control-system__channel_write" in data["permissions"]["ask"]
-        assert "mcp__osprey-workspace__submit_response" in data["permissions"]["allow"]
+        # channel_read is hook-managed (not in allow) so all_capabilities mode works
+        assert "mcp__controls__channel_read" not in data["permissions"]["allow"]
+        assert "mcp__controls__channel_write" in data["permissions"]["ask"]
+        # channel_read has a PreToolUse matcher for dynamic approval
+        pre_matchers = [h["matcher"] for h in data["hooks"]["PreToolUse"]]
+        assert "mcp__controls__channel_read" in pre_matchers
+        assert "mcp__workspace__submit_response" in data["permissions"]["allow"]
 
         assert "hooks" in data
         assert "PreToolUse" in data["hooks"]
@@ -140,7 +143,7 @@ class TestClaudeCodeFileContents:
         assert "Task(logbook-search)" in data["permissions"]["allow"]
 
         # Stale channel_find entry removed from allow
-        assert "mcp__osprey-control-system__channel_find" not in data["permissions"]["allow"]
+        assert "mcp__controls__channel_find" not in data["permissions"]["allow"]
 
         # Read should not be in bare allow (only scoped Read(...) entries)
         allow = data["permissions"]["allow"]
@@ -182,7 +185,6 @@ class TestClaudeCodeFileContents:
             "osprey_writes_check.py",
             "osprey_limits.py",
             "osprey_approval.py",
-            "osprey_audit.py",
         ]
         for hook_name in hook_files:
             hook_path = hooks_dir / hook_name
@@ -383,7 +385,8 @@ class TestChannelFinderAgent:
         content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
         assert "name: channel-finder" in content
         assert "description:" in content
-        assert "model: haiku" in content
+        # Model is either canonical tier or provider-resolved ID
+        assert "model: haiku" in content or "model: anthropic/claude-haiku" in content
         assert "maxTurns: 30" in content
         assert "disallowedTools:" in content
         assert "Bash" in content  # Bash is disallowed
@@ -401,13 +404,13 @@ class TestChannelFinderAgent:
         )
 
         content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
-        assert "cf_hier_hierarchy_info" in content
-        assert "cf_hier_build_channels" in content
-        assert "cf_ml_" not in content
-        assert "cf_ic_" not in content
+        assert "hierarchy_info" in content
+        assert "build_channels" in content
+        assert "list_systems" not in content
+        assert "get_channels" not in content
 
     def test_middle_layer_pipeline_tools(self, tmp_path):
-        """Middle layer mode includes cf_ml_* tools, not cf_hier_* or cf_ic_*."""
+        """Middle layer mode includes ml tools, not hier or ic tools."""
         manager = TemplateManager()
         project_dir = manager.create_project(
             project_name="ml-pipeline-test",
@@ -417,13 +420,13 @@ class TestChannelFinderAgent:
         )
 
         content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
-        assert "cf_ml_list_systems" in content
-        assert "cf_ml_list_families" in content
-        assert "cf_hier_" not in content
-        assert "cf_ic_" not in content
+        assert "list_systems" in content
+        assert "list_families" in content
+        assert "hierarchy_info" not in content
+        assert "get_channels" not in content
 
     def test_in_context_pipeline_tools(self, tmp_path):
-        """In-context mode includes cf_ic_* tools, not cf_hier_* or cf_ml_*."""
+        """In-context mode includes ic tools, not hier or ml tools."""
         manager = TemplateManager()
         project_dir = manager.create_project(
             project_name="ic-pipeline-test",
@@ -433,10 +436,10 @@ class TestChannelFinderAgent:
         )
 
         content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
-        assert "cf_ic_get_channels" in content
-        assert "cf_ic_validate" in content
-        assert "cf_hier_" not in content
-        assert "cf_ml_" not in content
+        assert "get_channels" in content
+        assert "validate" in content
+        assert "hierarchy_info" not in content
+        assert "list_systems" not in content
 
     def test_minimal_template_no_agent(self, tmp_path):
         """Minimal template does NOT produce a non-empty agent file."""
@@ -540,7 +543,7 @@ class TestLogbookSearchAgent:
         )
         content = (project_dir / ".claude" / "agents" / "logbook-search.md").read_text()
         assert "name: logbook-search" in content
-        assert "model: sonnet" in content
+        assert "model: sonnet" in content or "model: anthropic/claude-sonnet" in content
         assert "description:" in content
         assert "disallowedTools:" in content
         assert "mcpServers" not in content  # project-level, not inline
@@ -568,8 +571,8 @@ class TestLogbookSearchAgent:
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
         assert "Task(logbook-search)" in data["permissions"]["allow"]
         # Per-module search tools should be in allow
-        assert "mcp__ariel__ariel_keyword_search" in data["permissions"]["allow"]
-        assert "mcp__ariel__ariel_semantic_search" in data["permissions"]["allow"]
+        assert "mcp__ariel__keyword_search" in data["permissions"]["allow"]
+        assert "mcp__ariel__semantic_search" in data["permissions"]["allow"]
 
     def test_claude_md_has_delegation_instructions(self, tmp_path):
         """CLAUDE.md has logbook-search delegation instructions."""
@@ -610,7 +613,7 @@ class TestLogbookDeepResearchAgent:
         )
         content = (project_dir / ".claude" / "agents" / "logbook-deep-research.md").read_text()
         assert "name: logbook-deep-research" in content
-        assert "model: opus" in content
+        assert "model: opus" in content or "model: anthropic/claude-opus" in content
         assert "maxTurns: 100" in content
         assert "description:" in content
         assert "disallowedTools:" in content
@@ -682,7 +685,7 @@ class TestWikiSearchAgent:
         )
         content = (project_dir / ".claude" / "agents" / "wiki-search.md").read_text()
         assert "name: wiki-search" in content
-        assert "model: sonnet" in content
+        assert "model: sonnet" in content or "model: anthropic/claude-sonnet" in content
         assert "description:" in content
         assert "disallowedTools:" in content
         assert "mcpServers" not in content  # project-level, not inline
@@ -725,6 +728,138 @@ class TestWikiSearchAgent:
         if agent_path.exists():
             # If file exists, it should be empty (Jinja2 guard renders nothing)
             assert agent_path.read_text().strip() == ""
+
+
+class TestGraphAnalystAgent:
+    """Test graph-analyst agent generation."""
+
+    def test_agent_rendered_with_deplot(self, tmp_path):
+        """Agent file exists and has content when deplot is defined."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="graph-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+            context={"deplot": {"host": "127.0.0.1", "port": 8095}},
+        )
+        agent_path = project_dir / ".claude" / "agents" / "graph-analyst.md"
+        assert agent_path.exists()
+        content = agent_path.read_text()
+        assert len(content.strip()) > 0
+
+    def test_agent_has_correct_frontmatter(self, tmp_path):
+        """Agent file has YAML frontmatter with name, model, disallowedTools."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="graph-fm-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+            context={"deplot": {"host": "127.0.0.1", "port": 8095}},
+        )
+        content = (project_dir / ".claude" / "agents" / "graph-analyst.md").read_text()
+        assert "name: graph-analyst" in content
+        assert "model: sonnet" in content or "model: anthropic/claude-sonnet" in content
+        assert "description:" in content
+        assert "disallowedTools:" in content
+
+    def test_agent_has_submit_response_instructions(self, tmp_path):
+        """Agent prompt includes submit_response and Submitting Results section."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="graph-submit-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+            context={"deplot": {"host": "127.0.0.1", "port": 8095}},
+        )
+        content = (project_dir / ".claude" / "agents" / "graph-analyst.md").read_text()
+        assert "submit_response" in content
+        assert "Submitting Results" in content
+
+    def test_task_allowed_in_settings(self, tmp_path):
+        """Task(graph-analyst) and graph tools are in settings.json allow list."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="graph-perm-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+            context={"deplot": {"host": "127.0.0.1", "port": 8095}},
+        )
+        data = json.loads((project_dir / ".claude" / "settings.json").read_text())
+        allow = data["permissions"]["allow"]
+        assert "Task(graph-analyst)" in allow
+        assert "mcp__workspace__graph_extract" in allow
+        assert "mcp__workspace__graph_compare" in allow
+        assert "mcp__workspace__graph_save_reference" in allow
+
+    def test_no_agent_without_deplot(self, tmp_path):
+        """Minimal template without deplot does NOT produce graph-analyst agent."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="no-graph-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+        agent_path = project_dir / ".claude" / "agents" / "graph-analyst.md"
+        if agent_path.exists():
+            assert agent_path.read_text().strip() == ""
+
+    def test_no_task_without_deplot(self, tmp_path):
+        """Without deplot, Task(graph-analyst) is NOT in settings.json allow list."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="no-graph-perm-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+        data = json.loads((project_dir / ".claude" / "settings.json").read_text())
+        allow = data["permissions"]["allow"]
+        assert "Task(graph-analyst)" not in allow
+
+    def test_claude_md_has_graph_analyst_section(self, tmp_path):
+        """CLAUDE.md includes graph-analyst sub-agent section when deplot defined."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="graph-md-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+            context={"deplot": {"host": "127.0.0.1", "port": 8095}},
+        )
+        content = (project_dir / "CLAUDE.md").read_text()
+        assert "graph-analyst" in content
+        assert "graph-analyst` sub-agent" in content
+
+    def test_claude_md_no_graph_section_without_deplot(self, tmp_path):
+        """CLAUDE.md does NOT include graph-analyst section without deplot."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="no-graph-md-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+        content = (project_dir / "CLAUDE.md").read_text()
+        assert "graph-analyst` sub-agent" not in content
+
+    def test_agent_disabled_via_disable_agents(self, tmp_path):
+        """graph-analyst is suppressed when in disable_agents."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="graph-disabled-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+            context={
+                "deplot": {"host": "127.0.0.1", "port": 8095},
+                "disable_agents": ["graph-analyst"],
+            },
+        )
+        agent_path = project_dir / ".claude" / "agents" / "graph-analyst.md"
+        if agent_path.exists():
+            assert agent_path.read_text().strip() == ""
+
+        data = json.loads((project_dir / ".claude" / "settings.json").read_text())
+        assert "Task(graph-analyst)" not in data["permissions"]["allow"]
+
+        content = (project_dir / "CLAUDE.md").read_text()
+        assert "graph-analyst` sub-agent" not in content
 
 
 class TestNeverFabricateDataRule:
@@ -801,6 +936,163 @@ class TestChannelFinderAwareness:
         # The opening awareness block should not appear in minimal
         assert "channel-finder` sub-agent" not in content
         assert "do NOT have channel-finder tools" not in content
+
+
+class TestPromptOverrides:
+    """Test prompt override resolution during project creation and regen."""
+
+    def _setup_override(self, project_dir, rel_path, content):
+        """Helper: create an override file inside the project dir."""
+        override_file = project_dir / rel_path
+        override_file.parent.mkdir(parents=True, exist_ok=True)
+        override_file.write_text(content)
+
+    def test_override_replaces_agent(self, tmp_path):
+        """Agent file uses override content when prompts.overrides is set."""
+        project_dir = tmp_path / "test-override"
+        project_dir.mkdir()
+        override_content = "# Custom channel-finder agent\nThis is my override."
+        self._setup_override(
+            project_dir, "overrides/agents/channel-finder.md", override_content
+        )
+
+        manager = TemplateManager()
+        manager.create_project(
+            project_name="test-override",
+            output_dir=tmp_path,
+            template_name="control_assistant",
+            force=True,
+            context={
+                "prompt_overrides": {
+                    "agents/channel-finder": "overrides/agents/channel-finder.md",
+                },
+            },
+        )
+
+        agent_path = project_dir / ".claude" / "agents" / "channel-finder.md"
+        assert agent_path.exists()
+        assert agent_path.read_text() == override_content
+
+    def test_override_replaces_claude_md(self, tmp_path):
+        """CLAUDE.md uses override content when prompts.overrides is set."""
+        project_dir = tmp_path / "test-md-override"
+        project_dir.mkdir()
+        override_content = "# My Custom CLAUDE.md\nFacility-specific content."
+        self._setup_override(project_dir, "overrides/CLAUDE.md", override_content)
+
+        manager = TemplateManager()
+        manager.create_project(
+            project_name="test-md-override",
+            output_dir=tmp_path,
+            template_name="minimal",
+            force=True,
+            context={
+                "prompt_overrides": {
+                    "claude-md": "overrides/CLAUDE.md",
+                },
+            },
+        )
+
+        assert (project_dir / "CLAUDE.md").read_text() == override_content
+
+    def test_override_replaces_hook(self, tmp_path):
+        """Hook file uses override content and is executable."""
+        project_dir = tmp_path / "test-hook-override"
+        project_dir.mkdir()
+        override_content = "#!/usr/bin/env python3\nprint('custom error guidance')"
+        self._setup_override(
+            project_dir, "overrides/hooks/osprey_error_guidance.py", override_content
+        )
+
+        manager = TemplateManager()
+        manager.create_project(
+            project_name="test-hook-override",
+            output_dir=tmp_path,
+            template_name="minimal",
+            force=True,
+            context={
+                "prompt_overrides": {
+                    "hooks/error-guidance": "overrides/hooks/osprey_error_guidance.py",
+                },
+            },
+        )
+
+        hook_path = project_dir / ".claude" / "hooks" / "osprey_error_guidance.py"
+        assert hook_path.exists()
+        assert hook_path.read_text() == override_content
+        mode = os.stat(hook_path).st_mode
+        assert mode & 0o111, "Overridden hook should be executable"
+
+    def test_no_overrides_behaves_as_before(self, tmp_path):
+        """Project without prompts section behaves exactly as before."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="test-no-override",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+
+        # All standard files should exist with framework content
+        assert (project_dir / "CLAUDE.md").exists()
+        content = (project_dir / "CLAUDE.md").read_text()
+        assert "CRITICAL SAFETY RULES" in content
+
+    def test_claude_project_md_not_generated(self, tmp_path):
+        """CLAUDE-project.md is NOT generated (retired)."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="no-project-md-test",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+
+        assert not (project_dir / "CLAUDE-project.md").exists()
+
+    def test_override_replaces_static_rule(self, tmp_path):
+        """Static rule file uses override content."""
+        project_dir = tmp_path / "test-rule-override"
+        project_dir.mkdir()
+        override_content = "# Custom Safety Rules\nFacility-specific safety."
+        self._setup_override(project_dir, "overrides/rules/safety.md", override_content)
+
+        manager = TemplateManager()
+        manager.create_project(
+            project_name="test-rule-override",
+            output_dir=tmp_path,
+            template_name="minimal",
+            force=True,
+            context={
+                "prompt_overrides": {
+                    "rules/safety": "overrides/rules/safety.md",
+                },
+            },
+        )
+
+        safety_path = project_dir / ".claude" / "rules" / "safety.md"
+        assert safety_path.exists()
+        assert safety_path.read_text() == override_content
+
+    def test_override_replaces_mcp_json(self, tmp_path):
+        """.mcp.json uses override content when prompts.overrides is set."""
+        project_dir = tmp_path / "test-mcp-override"
+        project_dir.mkdir()
+        override_content = '{"mcpServers": {"custom": {}}}'
+        self._setup_override(project_dir, "overrides/mcp.json", override_content)
+
+        manager = TemplateManager()
+        manager.create_project(
+            project_name="test-mcp-override",
+            output_dir=tmp_path,
+            template_name="minimal",
+            force=True,
+            context={
+                "prompt_overrides": {
+                    "mcp-json": "overrides/mcp.json",
+                },
+            },
+        )
+
+        assert (project_dir / ".mcp.json").read_text() == override_content
 
 
 if __name__ == "__main__":

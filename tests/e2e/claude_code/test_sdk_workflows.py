@@ -101,7 +101,7 @@ class TestClaudeCodeSDKIntegration:
     @pytest.mark.requires_anthropic
     @pytest.mark.asyncio
     async def test_archiver_and_plot_via_sdk(self, tmp_path):
-        """Verify archiver_read -> python_execute pipeline with tool ordering.
+        """Verify archiver_read -> execute pipeline with tool ordering.
 
         Uses hardcoded channel names to bypass the channel-finder and
         reduce LLM non-determinism and cost.
@@ -112,7 +112,7 @@ class TestClaudeCodeSDKIntegration:
             "Use the archiver_read tool to retrieve data for channels "
             "'DIAG:BPM01:POSITION:X', 'DIAG:BPM02:POSITION:X', "
             "'DIAG:BPM03:POSITION:X' over the last 24 hours. "
-            "Then use python_execute to create a timeseries plot of "
+            "Then use the execute tool to create a timeseries plot of "
             "the data and save it as a PNG file in the current directory."
         )
 
@@ -143,28 +143,28 @@ class TestClaudeCodeSDKIntegration:
             f"archiver_read not called. Tools used: {result.tool_names}"
         )
 
-        # python_execute was called
-        python_calls = result.tools_matching("python_execute")
+        # execute was called
+        python_calls = result.tools_matching("execute")
         assert len(python_calls) > 0, (
-            f"python_execute not called. Tools used: {result.tool_names}"
+            f"execute not called. Tools used: {result.tool_names}"
         )
 
-        # archiver_read was called BEFORE python_execute
+        # archiver_read was called BEFORE execute
         archiver_idx = next(
             i for i, t in enumerate(result.tool_traces) if "archiver_read" in t.name
         )
         python_idx = next(
-            i for i, t in enumerate(result.tool_traces) if "python_execute" in t.name
+            i for i, t in enumerate(result.tool_traces) if "execute" in t.name
         )
         assert archiver_idx < python_idx, (
             f"archiver_read (idx={archiver_idx}) should come before "
-            f"python_execute (idx={python_idx})"
+            f"execute (idx={python_idx})"
         )
 
         # PNG artifact exists in the project tree
         png_files = find_png_files(project_dir)
         assert len(png_files) > 0, (
-            "No PNG files found in the project — python_execute may not have created a plot."
+            "No PNG files found in the project -- execute may not have created a plot."
         )
 
         # Cost should be under budget
@@ -187,7 +187,7 @@ class TestClaudeCodeSDKIntegration:
         """Full multi-tool pipeline with sub-agent delegation.
 
         Natural language prompt matching the user's interactive workflow:
-        channel-finder sub-agent -> archiver_read -> python_execute -> artifact.
+        channel-finder sub-agent -> archiver_read -> execute -> artifact.
         """
         project_dir = init_project(tmp_path, "sdk-bpm-pipeline")
 
@@ -195,7 +195,7 @@ class TestClaudeCodeSDKIntegration:
             "Give me a timeseries and a correlation plot of all horizontal "
             "BPM positions over the last 24 hours. Use the channel_find tool "
             "to discover BPM channels, then archiver_read to get historical "
-            "data, then python_execute to create the plots. Save the plots "
+            "data, then the execute tool to create the plots. Save the plots "
             "as PNG files."
         )
 
@@ -238,13 +238,13 @@ class TestClaudeCodeSDKIntegration:
             f"archiver_read not called. Tools used: {result.tool_names}"
         )
 
-        # python_execute was called (should contain plotting code)
-        python_calls = result.tools_matching("python_execute")
+        # execute was called (should contain plotting code)
+        python_calls = result.tools_matching("execute")
         assert len(python_calls) > 0, (
-            f"python_execute not called. Tools used: {result.tool_names}"
+            f"execute not called. Tools used: {result.tool_names}"
         )
 
-        # Check that python_execute input contains plotting-related code
+        # Check that execute input contains plotting-related code
         plot_related = False
         for call in python_calls:
             code = call.input.get("code", "")
@@ -255,13 +255,13 @@ class TestClaudeCodeSDKIntegration:
                 plot_related = True
                 break
         assert plot_related, (
-            "python_execute was called but code doesn't contain plot-related keywords"
+            "execute was called but code doesn't contain plot-related keywords"
         )
 
         # At least one PNG artifact was created
         png_files = find_png_files(project_dir)
         assert len(png_files) > 0, (
-            "No PNG files found — python_execute may not have created plots."
+            "No PNG files found -- execute may not have created plots."
         )
 
         # Cost should be under budget
@@ -279,3 +279,107 @@ class TestClaudeCodeSDKIntegration:
         print(f"  PNG files: {[p.name for p in png_files]}")
         print(f"  archiver calls: {len(archiver_calls)}")
         print(f"  python calls: {len(python_calls)}")
+
+    # -------------------------------------------------------------------
+    # Test 4 — 3D scatter plot via data-visualizer subagent
+    # -------------------------------------------------------------------
+
+    @pytest.mark.slow
+    @pytest.mark.requires_api
+    @pytest.mark.requires_anthropic
+    @pytest.mark.asyncio
+    async def test_3d_scatter_plot_via_data_visualizer(self, tmp_path):
+        """Verify the data-visualizer agent can create a 3D scatter plot.
+
+        Regression test: mpl_toolkits.mplot3d must be whitelisted in the
+        sandbox executor's import allowlist, otherwise the agent falls back
+        to Plotly or fails entirely when asked for a 3D matplotlib plot.
+
+        Pipeline: archiver_read -> data-visualizer subagent -> create_static_plot
+        or create_interactive_plot -> artifact with 3D scatter.
+
+        Cost budget: $2.00
+        """
+        project_dir = init_project(tmp_path, "sdk-3d-scatter")
+
+        prompt = (
+            "Use archiver_read to retrieve data for channels "
+            "'DIAG:BPM[BPM18]:POSITION:X', 'DIAG:BPM[BPM19]:POSITION:X', "
+            "'DIAG:BPM[BPM20]:POSITION:X' over the last 24 hours with "
+            "processing 'mean' and bin_size 60. "
+            "Then create a 3D scatter plot with BPM18 on X-axis, BPM19 on "
+            "Y-axis, BPM20 on Z-axis, colored by time. "
+            "Use the data-visualizer agent to create the plot."
+        )
+
+        result = await run_sdk_query(
+            project_dir,
+            prompt,
+            max_turns=25,
+            max_budget_usd=2.0,
+        )
+
+        # -- Debug output --
+        print("\n--- SDK 3D scatter plot test ---")
+        print(f"  tools called ({len(result.tool_traces)}): {result.tool_names}")
+        print(f"  num_turns: {result.num_turns}")
+        print(f"  cost: ${result.cost_usd:.4f}" if result.cost_usd else "  cost: N/A")
+        for trace in result.tool_traces:
+            error_flag = " [ERROR]" if trace.is_error else ""
+            parent_flag = (
+                f" (sub-agent: {trace.parent_tool_use_id})"
+                if trace.parent_tool_use_id
+                else ""
+            )
+            print(f"  tool: {trace.name}{error_flag}{parent_flag}")
+
+        # -- Assertions --
+        assert result.result is not None, "No ResultMessage received"
+        assert not result.result.is_error, (
+            f"SDK query ended in error: {result.result.result}"
+        )
+
+        # archiver_read was called
+        archiver_calls = result.tools_matching("archiver_read")
+        assert len(archiver_calls) > 0, (
+            f"archiver_read not called. Tools used: {result.tool_names}"
+        )
+
+        # A visualization tool was called (static or interactive)
+        viz_calls = (
+            result.tools_matching("create_static_plot")
+            + result.tools_matching("create_interactive_plot")
+        )
+        assert len(viz_calls) > 0, (
+            f"No visualization tool called. Tools used: {result.tool_names}"
+        )
+
+        # The viz tool should have succeeded (no errors)
+        viz_errors = [t for t in viz_calls if t.is_error]
+        assert len(viz_errors) == 0, (
+            f"Visualization tool returned errors: "
+            f"{[t.result[:300] for t in viz_errors]}"
+        )
+
+        # Check that the viz code contains 3D-related keywords
+        has_3d_code = False
+        for call in viz_calls:
+            code = call.input.get("code", "")
+            if any(kw in code.lower() for kw in [
+                "3d", "scatter3d", "mplot3d", "axes3d", "projection",
+            ]):
+                has_3d_code = True
+                break
+        assert has_3d_code, (
+            "Visualization tool was called but code doesn't contain 3D keywords. "
+            f"Code snippets: {[c.input.get('code', '')[:200] for c in viz_calls]}"
+        )
+
+        # Cost should be under budget
+        if result.cost_usd is not None:
+            assert result.cost_usd < 2.0, (
+                f"Test cost ${result.cost_usd:.4f} — exceeded $2.00 budget"
+            )
+
+        print(f"  viz calls: {len(viz_calls)}")
+        print(f"  viz errors: {len(viz_errors)}")

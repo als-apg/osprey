@@ -56,3 +56,37 @@ def safety_project_writes_off(tmp_path_factory):
     config["control_system"]["writes_enabled"] = False
     config_path.write_text(yaml.dump(config, default_flow_style=False))
     return project_dir
+
+
+@pytest.fixture(scope="module")
+def safety_project_selective(tmp_path_factory):
+    """Module-scoped project with approval.global_mode: selective.
+
+    Used by approval flow tests to verify that write operations trigger
+    the approval callback while reads pass through silently.
+    """
+    tmp = tmp_path_factory.mktemp("safety-selective")
+    project_dir = init_project(tmp, "safety-selective")
+    config_path = project_dir / "config.yml"
+    config = yaml.safe_load(config_path.read_text())
+    config["approval"]["global_mode"] = "selective"
+    config["control_system"]["writes_enabled"] = True
+    config_path.write_text(yaml.dump(config, default_flow_style=False))
+    return project_dir
+
+
+@pytest.fixture(scope="module")
+def safety_project_all_capabilities(tmp_path_factory):
+    """Module-scoped project with approval.global_mode: all_capabilities.
+
+    Used by approval flow tests to verify that ALL tool calls (including
+    reads) trigger the approval callback.
+    """
+    tmp = tmp_path_factory.mktemp("safety-all-caps")
+    project_dir = init_project(tmp, "safety-all-caps")
+    config_path = project_dir / "config.yml"
+    config = yaml.safe_load(config_path.read_text())
+    config["approval"]["global_mode"] = "all_capabilities"
+    config["control_system"]["writes_enabled"] = True
+    config_path.write_text(yaml.dump(config, default_flow_style=False))
+    return project_dir

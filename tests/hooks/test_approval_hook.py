@@ -5,10 +5,18 @@ This hook implements the human-in-the-loop approval system. Based on config:
 - selective: only specific tool types require approval
 - all_capabilities: all osprey tools require approval
 
-Also covers pre-execution notebook creation for python_execute approval.
+Also covers pre-execution notebook creation for execute (python) approval.
 """
 
 import pytest
+
+
+def _is_allow(result) -> bool:
+    """Check if hook result is an allow decision (None or explicit allow)."""
+    if result is None:
+        return True
+    output = result.get("hookSpecificOutput", {})
+    return output.get("permissionDecision") == "allow"
 
 
 @pytest.mark.unit
@@ -23,13 +31,13 @@ def test_approval_disabled_passes_all(tmp_path, hook_runner, make_config):
 
     result = hook_runner(
         "osprey_approval.py",
-        "mcp__osprey-control-system__channel_write",
+        "mcp__controls__channel_write",
         {"operations": [{"channel": "TEST:PV", "value": 1.0}]},
         config_path=config,
         cwd=tmp_path,
     )
 
-    assert result is None  # All tools pass
+    assert _is_allow(result)  # All tools pass
 
 
 @pytest.mark.unit
@@ -39,7 +47,7 @@ def test_selective_mode_blocks_write(tmp_path, hook_runner, make_config):
         {
             "approval": {
                 "global_mode": "selective",
-                "requires_approval": ["channel_write", "python_execute"],
+                "requires_approval": ["channel_write", "execute"],
             },
             "control_system": {"writes_enabled": True},
         }
@@ -47,7 +55,7 @@ def test_selective_mode_blocks_write(tmp_path, hook_runner, make_config):
 
     result = hook_runner(
         "osprey_approval.py",
-        "mcp__osprey-control-system__channel_write",
+        "mcp__controls__channel_write",
         {"operations": [{"channel": "TEST:PV", "value": 1.0}]},
         config_path=config,
         cwd=tmp_path,
@@ -72,7 +80,7 @@ def test_selective_mode_blocks_python_write(tmp_path, hook_runner, make_config):
 
     result = hook_runner(
         "osprey_approval.py",
-        "mcp__osprey-python-executor__python_execute",
+        "mcp__python__execute",
         {"code": "caput('PV', 1.0)", "execution_mode": "write"},
         config_path=config,
         cwd=tmp_path,
@@ -97,13 +105,13 @@ def test_selective_mode_allows_readonly_python(tmp_path, hook_runner, make_confi
 
     result = hook_runner(
         "osprey_approval.py",
-        "mcp__osprey-python-executor__python_execute",
+        "mcp__python__execute",
         {"code": "print(42)", "execution_mode": "readonly"},
         config_path=config,
         cwd=tmp_path,
     )
 
-    assert result is None  # Readonly without write patterns passes
+    assert _is_allow(result)  # Readonly without write patterns passes
 
 
 @pytest.mark.unit
@@ -113,7 +121,7 @@ def test_selective_mode_allows_read(tmp_path, hook_runner, make_config):
         {
             "approval": {
                 "global_mode": "selective",
-                "requires_approval": ["channel_write", "python_execute"],
+                "requires_approval": ["channel_write", "execute"],
             },
             "control_system": {"writes_enabled": True},
         }
@@ -121,13 +129,13 @@ def test_selective_mode_allows_read(tmp_path, hook_runner, make_config):
 
     result = hook_runner(
         "osprey_approval.py",
-        "mcp__osprey-control-system__channel_read",
+        "mcp__controls__channel_read",
         {"channels": ["SR:CURRENT:RB"]},
         config_path=config,
         cwd=tmp_path,
     )
 
-    assert result is None  # Read passes through in selective mode
+    assert _is_allow(result)  # Read passes through in selective mode
 
 
 @pytest.mark.unit
@@ -143,7 +151,7 @@ def test_all_capabilities_mode_blocks_all(tmp_path, hook_runner, make_config):
     # channel_read — normally read-only, but all_capabilities blocks everything
     result = hook_runner(
         "osprey_approval.py",
-        "mcp__osprey-control-system__channel_read",
+        "mcp__controls__channel_read",
         {"channels": ["SR:CURRENT:RB"]},
         config_path=config,
         cwd=tmp_path,
@@ -190,7 +198,7 @@ def test_approval_ask_includes_tool_info(tmp_path, hook_runner, make_config):
 
     result = hook_runner(
         "osprey_approval.py",
-        "mcp__osprey-control-system__channel_write",
+        "mcp__controls__channel_write",
         {"operations": [{"channel": "TEST:PV", "value": 42.0}]},
         config_path=config,
         cwd=tmp_path,
@@ -217,7 +225,7 @@ def test_approval_python_write_creates_notebook(tmp_path, hook_runner, make_conf
 
     result = hook_runner(
         "osprey_approval.py",
-        "mcp__osprey-python-executor__python_execute",
+        "mcp__python__execute",
         {"code": "caput('PV', 1.0)", "execution_mode": "write"},
         config_path=config,
         cwd=tmp_path,
@@ -245,7 +253,7 @@ def test_approval_notebook_failure_nonfatal(tmp_path, hook_runner, make_config):
     # Even without osprey importable, the hook should not crash
     result = hook_runner(
         "osprey_approval.py",
-        "mcp__osprey-python-executor__python_execute",
+        "mcp__python__execute",
         {"code": "epics.caput('PV', 5.0)", "execution_mode": "write"},
         config_path=config,
         cwd=tmp_path,
@@ -274,7 +282,7 @@ def test_framework_pattern_detection_tango_write(tmp_path, hook_runner, make_con
 
     result = hook_runner(
         "osprey_approval.py",
-        "mcp__osprey-python-executor__python_execute",
+        "mcp__python__execute",
         {"code": "device.write_attribute('MOTOR:POS', 100)", "execution_mode": "readonly"},
         config_path=config,
         cwd=tmp_path,
@@ -297,7 +305,7 @@ def test_framework_pattern_detection_labview_write(tmp_path, hook_runner, make_c
 
     result = hook_runner(
         "osprey_approval.py",
-        "mcp__osprey-python-executor__python_execute",
+        "mcp__python__execute",
         {"code": "labview.set_control('temperature', 350)", "execution_mode": "readonly"},
         config_path=config,
         cwd=tmp_path,
@@ -320,7 +328,7 @@ def test_framework_pattern_detection_set_value(tmp_path, hook_runner, make_confi
 
     result = hook_runner(
         "osprey_approval.py",
-        "mcp__osprey-python-executor__python_execute",
+        "mcp__python__execute",
         {"code": "pv.set_value(42.0)", "execution_mode": "readonly"},
         config_path=config,
         cwd=tmp_path,
@@ -343,13 +351,13 @@ def test_framework_pattern_no_false_positive_dict(tmp_path, hook_runner, make_co
 
     result = hook_runner(
         "osprey_approval.py",
-        "mcp__osprey-python-executor__python_execute",
+        "mcp__python__execute",
         {"code": "cache = {}\ncache['key'] = 'value'", "execution_mode": "readonly"},
         config_path=config,
         cwd=tmp_path,
     )
 
-    assert result is None  # No approval needed
+    assert _is_allow(result)  # No approval needed
 
 
 @pytest.mark.unit
@@ -369,7 +377,7 @@ def test_framework_pattern_detection_import_fallback(
     # caput( is in the fallback list, so it should always be caught.
     result = hook_runner(
         "osprey_approval.py",
-        "mcp__osprey-python-executor__python_execute",
+        "mcp__python__execute",
         {"code": "caput('TEST:PV', 1.0)", "execution_mode": "readonly"},
         config_path=config,
         cwd=tmp_path,
@@ -398,7 +406,7 @@ def test_framework_pattern_config_driven(tmp_path, hook_runner, make_config):
 
     result = hook_runner(
         "osprey_approval.py",
-        "mcp__osprey-python-executor__python_execute",
+        "mcp__python__execute",
         {"code": "my_custom_write('DEVICE', 42)", "execution_mode": "readonly"},
         config_path=config,
         cwd=tmp_path,
@@ -407,3 +415,61 @@ def test_framework_pattern_config_driven(tmp_path, hook_runner, make_config):
     assert result is not None
     output = result["hookSpecificOutput"]
     assert output["permissionDecision"] == "ask"
+
+
+# -- Config edge cases (gap fill) --
+
+
+@pytest.mark.unit
+def test_missing_approval_section_defaults_selective(tmp_path, hook_runner, make_config):
+    """Config without 'approval' key defaults to selective mode.
+
+    The hook uses config.get("approval", {}).get("global_mode", "selective"),
+    so a missing approval section is treated as selective mode.
+    """
+    config = make_config(
+        {
+            "control_system": {"writes_enabled": True},
+            # No 'approval' section at all
+        }
+    )
+
+    # channel_write in selective mode requires approval
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__controls__channel_write",
+        {"operations": [{"channel": "TEST:PV", "value": 1.0}]},
+        config_path=config,
+        cwd=tmp_path,
+    )
+
+    assert result is not None
+    output = result["hookSpecificOutput"]
+    assert output["permissionDecision"] == "ask"
+
+
+@pytest.mark.unit
+def test_invalid_approval_mode_passes_through(tmp_path, hook_runner, make_config):
+    """Unknown approval mode string does not match any branch → passes through.
+
+    The hook checks for 'disabled', 'all_capabilities', and 'selective' explicitly.
+    An unknown mode falls through all conditionals, allowing the tool without approval.
+    This documents the current behavior — not necessarily desired, but important to know.
+    """
+    config = make_config(
+        {
+            "approval": {"global_mode": "nonexistent_mode"},
+            "control_system": {"writes_enabled": True},
+        }
+    )
+
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__controls__channel_write",
+        {"operations": [{"channel": "TEST:PV", "value": 1.0}]},
+        config_path=config,
+        cwd=tmp_path,
+    )
+
+    # Unknown mode falls through all branches → explicit allow
+    assert _is_allow(result)

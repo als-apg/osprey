@@ -1,8 +1,44 @@
 #!/usr/bin/env python3
-"""PostToolUse hook: Invalidate cached notebook HTML after NotebookEdit.
+"""
+---
+name: Notebook Cache Invalidation
+description: Invalidates cached notebook HTML after NotebookEdit so the gallery re-renders
+summary: Tracks notebook edits as workspace artifacts
+event: PostToolUse
+tools: NotebookEdit
+---
 
-When Claude edits a notebook via NotebookEdit, this hook deletes the
-cached rendered HTML so the gallery re-renders on next view.
+## Flow
+
+```
+stdin ──► Parse JSON
+              │
+              ▼
+         Has notebook_path? ──NO──► EXIT
+              │
+             YES
+              │
+              ▼
+         Locate _notebook_cache/
+         {stem}_rendered.html
+              │
+              ▼
+         Cached file exists? ──NO──► EXIT
+              │
+             YES
+              │
+              ▼
+         Delete cached HTML
+              │
+              ▼
+         EXIT
+```
+
+## Details
+
+Lightweight utility hook with no safety implications. When Claude edits a
+notebook via `NotebookEdit`, the gallery's cached HTML rendering becomes
+stale. This hook deletes it so the next gallery view triggers a fresh render.
 """
 
 import json

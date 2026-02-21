@@ -26,7 +26,10 @@ def hook_runner():
     tool_name and tool_input, stdout receives JSON output (or empty for allow).
     """
 
-    def run(hook_name, tool_name, tool_input, config_path=None, cwd=None, tool_response=None):
+    def run(
+        hook_name, tool_name, tool_input, config_path=None, cwd=None,
+        tool_response=None, hook_input_extra=None,
+    ):
         hook_script = HOOKS_DIR / hook_name
         payload = {
             "tool_name": tool_name,
@@ -34,6 +37,8 @@ def hook_runner():
         }
         if tool_response is not None:
             payload["tool_response"] = tool_response
+        if hook_input_extra:
+            payload.update(hook_input_extra)
         stdin_data = json.dumps(payload)
         env = os.environ.copy()
         if config_path:
@@ -67,6 +72,51 @@ def hook_runner():
             return json.loads(stdout)
         except json.JSONDecodeError:
             return None  # Non-JSON output = treat as pass through
+
+    return run
+
+
+
+@pytest.fixture
+def hook_runner_raw():
+    """Factory to run hook scripts without asserting returncode.
+
+    Same as hook_runner but returns a (returncode, stdout, stderr) tuple
+    instead of parsing the JSON output. Used for crash resilience tests.
+    """
+
+    def run(
+        hook_name, tool_name, tool_input, config_path=None, cwd=None,
+        tool_response=None, hook_input_extra=None, stdin_override=None,
+    ):
+        hook_script = HOOKS_DIR / hook_name
+        if stdin_override is not None:
+            stdin_data = stdin_override
+        else:
+            payload = {
+                "tool_name": tool_name,
+                "tool_input": tool_input,
+            }
+            if tool_response is not None:
+                payload["tool_response"] = tool_response
+            if hook_input_extra:
+                payload.update(hook_input_extra)
+            stdin_data = json.dumps(payload)
+
+        env = os.environ.copy()
+        if config_path:
+            env["OSPREY_CONFIG"] = str(config_path)
+            env["CONFIG_FILE"] = str(config_path)
+
+        result = subprocess.run(
+            [sys.executable, str(hook_script)],
+            input=stdin_data,
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=str(cwd) if cwd else None,
+        )
+        return result.returncode, result.stdout, result.stderr
 
     return run
 
