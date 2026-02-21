@@ -49,6 +49,7 @@ def create_server() -> FastMCP:
         screen_capture,
         session_log,
         session_summary,
+        setup,
         submit_response,
     )
 

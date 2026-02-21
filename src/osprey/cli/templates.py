@@ -1040,6 +1040,7 @@ proper framework operation, especially when using containerized services.
         ".claude/commands/diagnose.md",
         ".claude/skills/session-report/SKILL.md",
         ".claude/skills/session-report/reference.md",
+        ".claude/skills/setup-mode/SKILL.md",
     ]
 
     def _compute_regen_summary(self, ctx: dict) -> dict:
