@@ -605,26 +605,24 @@ class TestFacilityMd:
         assert "Facility Identity" in content
         assert "Example Research Facility" in content
 
-    def test_facility_md_override_registered_on_init(self, tmp_path):
-        """Init auto-registers facility.md as a prompt override in config.yml."""
+    def test_facility_md_user_owned_on_init(self, tmp_path):
+        """Init auto-registers facility.md as user-owned in config.yml."""
         manager = TemplateManager()
         project_dir = manager.create_project(
-            project_name="facility-override",
+            project_name="facility-owned",
             output_dir=tmp_path,
             template_name="minimal",
         )
 
-        # Verify override registered in config.yml
         config = yaml.safe_load((project_dir / "config.yml").read_text())
-        override_rel = config["prompts"]["overrides"]["rules/facility"]
-        assert override_rel == "overrides/.claude/rules/facility.md"
+        user_owned = config.get("prompts", {}).get("user_owned", [])
+        assert "rules/facility" in user_owned
 
-        # Verify override source file was created
-        override_file = project_dir / override_rel
-        assert override_file.exists()
+        # No overrides/ directory should exist
+        assert not (project_dir / "overrides").exists()
 
-    def test_facility_md_preserved_via_override(self, tmp_path):
-        """Regen preserves customized facility.md via the override mechanism."""
+    def test_facility_md_preserved_via_user_owned(self, tmp_path):
+        """Regen preserves customized facility.md via user_owned mechanism."""
         manager = TemplateManager()
         project_dir = manager.create_project(
             project_name="facility-preserve",
@@ -632,20 +630,19 @@ class TestFacilityMd:
             template_name="minimal",
         )
 
-        # Customize facility.md via the override source (the user-editable copy)
+        # Customize facility.md in-place
         facility_file = project_dir / ".claude" / "rules" / "facility.md"
-        override_file = project_dir / "overrides" / ".claude" / "rules" / "facility.md"
         custom_content = "# My Custom Facility\n\nAdvanced Light Source at LBNL\n"
-        override_file.write_text(custom_content)
+        facility_file.write_text(custom_content)
 
         # Regen
         manager.regenerate_claude_code(project_dir)
 
-        # Verify override content was applied to the output file
+        # Verify custom content preserved
         assert facility_file.read_text() == custom_content
 
     def test_facility_md_created_on_regen_if_missing(self, tmp_path):
-        """If facility.md doesn't exist, regen creates it."""
+        """If facility.md doesn't exist and not user-owned, regen creates it."""
         manager = TemplateManager()
         project_dir = manager.create_project(
             project_name="facility-regen-create",
@@ -653,10 +650,18 @@ class TestFacilityMd:
             template_name="minimal",
         )
 
-        # Delete facility.md
+        # Delete facility.md and remove from user_owned
         facility_file = project_dir / ".claude" / "rules" / "facility.md"
         facility_file.unlink()
         assert not facility_file.exists()
+
+        # Remove from user_owned so regen will recreate it
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        if "prompts" in config and "user_owned" in config["prompts"]:
+            config["prompts"]["user_owned"] = [
+                n for n in config["prompts"]["user_owned"] if n != "rules/facility"
+            ]
+        (project_dir / "config.yml").write_text(yaml.dump(config))
 
         # Regen should recreate it
         manager.regenerate_claude_code(project_dir)
@@ -666,51 +671,32 @@ class TestFacilityMd:
         assert "Facility Identity" in content
 
 
-class TestManagedFiles:
-    """Test managed_files configuration."""
+class TestUserOwned:
+    """Test user_owned configuration for skipping files during regen."""
 
-    def test_managed_files_default_fallback(self, tmp_path):
-        """Without managed_files in config, uses default list."""
+    def test_user_owned_default_empty(self, tmp_path):
+        """Without user_owned in config, list is empty."""
         manager = TemplateManager()
         project_dir = manager.create_project(
-            project_name="managed-defaults",
+            project_name="owned-defaults",
             output_dir=tmp_path,
             template_name="minimal",
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
-        ctx = manager._build_claude_code_context(project_dir, config)
-
-        # Should have the default managed_files list
-        assert "managed_files" in ctx
-        assert "CLAUDE.md" in ctx["managed_files"]
-        assert ".mcp.json" in ctx["managed_files"]
-        assert ".claude/settings.json" in ctx["managed_files"]
-
-    def test_managed_files_from_config(self, tmp_path):
-        """managed_files from config.yml is respected."""
-        manager = TemplateManager()
-        project_dir = manager.create_project(
-            project_name="managed-config",
-            output_dir=tmp_path,
-            template_name="minimal",
-        )
-
-        # Set custom managed_files in config
-        config = yaml.safe_load((project_dir / "config.yml").read_text())
-        config["claude_code"] = {
-            "managed_files": ["CLAUDE.md", ".mcp.json"],
-        }
+        # Remove auto-registered facility
+        if "prompts" in config and "user_owned" in config["prompts"]:
+            config["prompts"]["user_owned"] = []
         (project_dir / "config.yml").write_text(yaml.dump(config))
 
         ctx = manager._build_claude_code_context(project_dir, config)
-        assert ctx["managed_files"] == ["CLAUDE.md", ".mcp.json"]
+        assert ctx["user_owned"] == []
 
-    def test_managed_files_controls_regen(self, tmp_path):
-        """Removing a file from managed_files prevents overwrite on regen."""
+    def test_user_owned_controls_regen(self, tmp_path):
+        """Adding a file to user_owned prevents overwrite on regen."""
         manager = TemplateManager()
         project_dir = manager.create_project(
-            project_name="managed-regen",
+            project_name="owned-regen",
             output_dir=tmp_path,
             template_name="minimal",
         )
@@ -720,11 +706,13 @@ class TestManagedFiles:
         custom_safety = "# My Custom Safety Rules\n\nCustom content here.\n"
         safety_file.write_text(custom_safety)
 
-        # Remove safety.md from managed_files
+        # Add safety to user_owned
         config = yaml.safe_load((project_dir / "config.yml").read_text())
-        default_files = manager._get_default_managed_files()
-        custom_files = [f for f in default_files if f != ".claude/rules/safety.md"]
-        config["claude_code"] = {"managed_files": custom_files}
+        if "prompts" not in config:
+            config["prompts"] = {}
+        user_owned = config["prompts"].get("user_owned", [])
+        user_owned.append("rules/safety")
+        config["prompts"]["user_owned"] = user_owned
         (project_dir / "config.yml").write_text(yaml.dump(config))
 
         # Regen
@@ -733,20 +721,20 @@ class TestManagedFiles:
         # safety.md should be preserved
         assert safety_file.read_text() == custom_safety
 
-    def test_agents_always_managed(self, tmp_path):
-        """Agent files are always managed regardless of managed_files list."""
+    def test_agents_never_user_owned(self, tmp_path):
+        """Agent files are always regenerated even if user_owned list is long."""
         manager = TemplateManager()
         project_dir = manager.create_project(
-            project_name="managed-agents",
+            project_name="owned-agents",
             output_dir=tmp_path,
             template_name="minimal",
         )
 
-        # Set minimal managed_files (no agent paths)
+        # Regen with some user_owned entries
         config = yaml.safe_load((project_dir / "config.yml").read_text())
-        config["claude_code"] = {
-            "managed_files": ["CLAUDE.md", ".mcp.json", ".claude/settings.json"],
-        }
+        if "prompts" not in config:
+            config["prompts"] = {}
+        config["prompts"]["user_owned"] = ["rules/safety", "rules/error-handling"]
         (project_dir / "config.yml").write_text(yaml.dump(config))
 
         # Regen

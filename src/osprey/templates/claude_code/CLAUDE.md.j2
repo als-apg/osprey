@@ -134,7 +134,7 @@ Tools are split across multiple MCP servers. Use the correct server prefix for e
 | **python** | `execute` |
 {% endif -%}
 {% if "workspace" not in disable_servers -%}
-| **workspace** | `artifact_save`, `artifact_export`, `data_read`, `data_list`, `focus_artifact`, `memory_save`, `memory_recall`, `screen_capture`, `graph_extract`, `graph_compare`, `graph_save_reference`, `create_static_plot`, `create_interactive_plot`, `create_dashboard`, `create_document`, `session_log` |
+| **workspace** | `artifact_save`, `artifact_export`, `data_read`, `data_list`, `focus_artifact`, `screen_capture`, `graph_extract`, `graph_compare`, `graph_save_reference`, `create_static_plot`, `create_interactive_plot`, `create_dashboard`, `create_document`, `session_log` |
 {% endif -%}
 {% if "ariel" not in disable_servers -%}
 | **ariel** | `keyword_search`, `semantic_search`, `sql_query`, `browse`, `filter_options`, `entry_get`, `entries_by_ids`, `entry_create`, `capabilities`, `status` — search tools used by logbook-search and logbook-deep-research agents; `entry_create`/`status` used directly |
@@ -360,11 +360,11 @@ You do NOT have access to the shell, filesystem browser, or web.
 - Do NOT speculate about the system's internal configuration or mode
 - All data you need comes through the MCP tools
 
-## Prompt Overrides
+## Prompt Ownership
 
-Framework-managed prompt artifacts can be customized per-facility using overrides.
+Framework-managed prompt artifacts can be claimed for per-facility customization.
 
-- `osprey prompts list` — see all artifacts and their status
-- `osprey prompts scaffold <name>` — create an editable copy of a framework artifact
-- `osprey prompts diff <name>` — compare your override against the current framework version
-- `osprey claude regen` respects overrides: your custom files are used instead of framework templates
+- `osprey prompts list` — see all artifacts and their ownership status
+- `osprey prompts claim <name>` — mark a framework artifact as user-owned (edit in-place)
+- `osprey prompts diff <name>` — compare your edits against the current framework version
+- `osprey claude regen` skips user-owned files: your edits are preserved

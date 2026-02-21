@@ -6,7 +6,7 @@ This module provides the TemplateManager class which handles:
 - Creating complete project structures from templates
 - Copying service configurations to user projects
 - Generating project manifests for migration support
-- Prompt artifact override resolution via PromptRegistry
+- Prompt artifact user-ownership via PromptRegistry
 """
 
 import hashlib
@@ -110,6 +110,7 @@ class TemplateManager:
             "GOOGLE_API_KEY",
             "ARGO_API_KEY",
             "STANFORD_API_KEY",
+            "ALS_APG_API_KEY",
             "PROJECT_ROOT",
             "LOCAL_PYTHON_VENV",
             "CONFLUENCE_ACCESS_TOKEN",
@@ -289,18 +290,29 @@ class TemplateManager:
                 }
             )
 
+        claude_code_only = ctx.get("claude_code_only", False)
+
         # 4. Create project structure
         self._create_project_structure(project_dir, template_name, ctx)
 
-        # 5. Copy services
-        self.copy_services(project_dir)
+        # 5. Copy services (conditional on mode)
+        if claude_code_only:
+            # Claude Code mode: only postgresql for control_assistant, nothing for others
+            if template_name == "control_assistant":
+                self._copy_services_selective(project_dir, ["postgresql"])
+        else:
+            self.copy_services(project_dir)
 
-        # 6. Create src directory and application code
-        src_dir = project_dir / "src"
-        src_dir.mkdir(parents=True, exist_ok=True)
-        self._create_application_code(
-            src_dir, package_name, template_name, ctx, registry_style, project_dir
-        )
+        # 6. Create application code (or just data files in claude_code_only mode)
+        if claude_code_only:
+            # Copy only data/ subdirectories from template (no src/ package)
+            self._copy_template_data(project_dir, package_name, template_name, ctx)
+        else:
+            src_dir = project_dir / "src"
+            src_dir.mkdir(parents=True, exist_ok=True)
+            self._create_application_code(
+                src_dir, package_name, template_name, ctx, registry_style, project_dir
+            )
 
         # 7. Create _agent_data directory structure
         self._create_agent_data_structure(project_dir, ctx)
@@ -352,14 +364,20 @@ class TemplateManager:
         project_template_dir = self.template_root / "project"
         app_template_dir = self.template_root / "apps" / template_name
 
+        claude_code_only = ctx.get("claude_code_only", False)
+
         # Render template files
         files_to_render = [
             ("config.yml.j2", "config.yml"),
             ("env.example.j2", ".env.example"),
             ("README.md.j2", "README.md"),
-            ("pyproject.toml.j2", "pyproject.toml"),
-            ("requirements.txt", "requirements.txt"),  # Render to replace framework_version
         ]
+        # Skip pyproject.toml and requirements.txt in claude_code_only mode (no src/ package)
+        if not claude_code_only:
+            files_to_render.extend([
+                ("pyproject.toml.j2", "pyproject.toml"),
+                ("requirements.txt", "requirements.txt"),  # Render to replace framework_version
+            ])
 
         # Copy static files
         static_files = [
@@ -394,6 +412,7 @@ class TemplateManager:
             "GOOGLE_API_KEY",
             "ARGO_API_KEY",
             "STANFORD_API_KEY",
+            "ALS_APG_API_KEY",
         ]
         has_api_keys = any(key in detected_env_vars for key in api_keys)
 
@@ -457,6 +476,87 @@ class TemplateManager:
             elif item.is_file() and item.suffix in [".j2", ".yml", ".yaml"]:
                 # Copy docker-compose template/config files
                 shutil.copy(item, dst_services / item.name)
+
+    def _copy_services_selective(self, project_dir: Path, service_names: list[str]):
+        """Copy only specified service directories to project.
+
+        Args:
+            project_dir: Root directory of the project
+            service_names: List of service directory names to copy (e.g., ["postgresql"])
+        """
+        src_services = self.template_root / "services"
+        dst_services = project_dir / "services"
+
+        if not src_services.exists():
+            return
+
+        dst_services.mkdir(parents=True, exist_ok=True)
+
+        for name in service_names:
+            src_dir = src_services / name
+            if src_dir.is_dir():
+                shutil.copytree(src_dir, dst_services / name, dirs_exist_ok=True)
+
+        # Also copy docker-compose template if any services were copied
+        if service_names:
+            for item in src_services.iterdir():
+                if item.is_file() and item.suffix in [".j2", ".yml", ".yaml"]:
+                    shutil.copy(item, dst_services / item.name)
+
+    def _copy_template_data(
+        self,
+        project_dir: Path,
+        package_name: str,
+        template_name: str,
+        ctx: dict,
+    ):
+        """Copy data files from template to project root (no src/ package).
+
+        In claude_code_only mode, data files (channel databases, channel_limits.json,
+        logbook seeds, benchmark datasets) are placed at project_dir/data/ instead
+        of inside a src/<package>/ directory.
+
+        Args:
+            project_dir: Root directory of the project
+            package_name: Python package name (used to locate template data dirs)
+            template_name: Name of the application template
+            ctx: Template context variables
+        """
+        app_template_dir = self.template_root / "apps" / template_name
+
+        # Look for data/ subdirectory in the template
+        template_data_dir = app_template_dir / "data"
+        if template_data_dir.exists() and template_data_dir.is_dir():
+            dst_data = project_dir / "data"
+            shutil.copytree(template_data_dir, dst_data, dirs_exist_ok=True)
+            console.print(
+                f"  [success]✓[/success] Copied template data files to [path]{dst_data}[/path]"
+            )
+            return
+
+        # Fallback: scan for data/ directories inside template subdirectories
+        # (some templates put data inside package-level dirs)
+        for template_file in app_template_dir.rglob("*"):
+            if not template_file.is_dir():
+                continue
+            if template_file.name == "data":
+                # Copy to project root data/ (flatten from template structure)
+                dst_data = project_dir / "data"
+                if not dst_data.exists():
+                    shutil.copytree(template_file, dst_data, dirs_exist_ok=True)
+                else:
+                    # Merge into existing data/
+                    for item in template_file.iterdir():
+                        dst_item = dst_data / item.name
+                        if item.is_dir():
+                            shutil.copytree(item, dst_item, dirs_exist_ok=True)
+                        elif item.is_file():
+                            dst_item.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copy2(item, dst_item)
+                console.print(
+                    f"  [success]✓[/success] Copied template data files to [path]{dst_data}[/path]"
+                )
+                return
 
     def _create_application_code(
         self,
@@ -713,16 +813,25 @@ class TemplateManager:
         agent_data_dir = project_dir / "_agent_data"
         agent_data_dir.mkdir(parents=True, exist_ok=True)
 
-        # Create standard subdirectories based on default framework configuration
-        subdirs = [
-            "executed_scripts",
-            "execution_plans",
-            "user_memory",
-            "registry_exports",
-            "prompts",
-            "checkpoints",
-            "api_calls",
-        ]
+        # Create standard subdirectories based on mode
+        claude_code_only = ctx.get("claude_code_only", False)
+        if claude_code_only:
+            # Trimmed set for Claude Code-only projects
+            subdirs = [
+                "executed_scripts",
+                "user_memory",
+                "api_calls",
+            ]
+        else:
+            subdirs = [
+                "executed_scripts",
+                "execution_plans",
+                "user_memory",
+                "registry_exports",
+                "prompts",
+                "checkpoints",
+                "api_calls",
+            ]
 
         # Conditionally add example_scripts for control_assistant with claude_code generator
         template_name = ctx.get("template_name", "")
@@ -777,8 +886,18 @@ class TemplateManager:
         )
 
         # Create a README to explain the directory structure
-        # Base content for all projects
-        readme_content = """# Agent Data Directory
+        if claude_code_only:
+            readme_content = """# Agent Data Directory
+
+This directory contains runtime data for the Claude Code project:
+
+- `executed_scripts/`: Python scripts executed via MCP tools
+- `user_memory/`: User memory data
+- `api_calls/`: Raw LLM API inputs/outputs (when API logging enabled)
+"""
+        else:
+            # Base content for full LangGraph projects
+            readme_content = """# Agent Data Directory
 
 This directory contains runtime data generated by the Osprey Framework:
 
@@ -887,22 +1006,8 @@ proper framework operation, especially when using containerized services.
         ctx["disable_servers"] = claude_code_config.get("disable_servers", [])
         ctx["disable_agents"] = claude_code_config.get("disable_agents", [])
         ctx["extra_servers"] = claude_code_config.get("extra_servers", {})
-        ctx["managed_files"] = claude_code_config.get(
-            "managed_files", self._get_default_managed_files()
-        )
-
-        # Deprecation warning for managed_files
-        if "managed_files" in claude_code_config:
-            warnings.warn(
-                "claude_code.managed_files is deprecated. Use prompts.overrides instead. "
-                "Run `osprey prompts migrate` for migration help.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-
-        # Prompt overrides (first-class section)
-        prompts_config = config.get("prompts", {})
-        ctx["prompt_overrides"] = prompts_config.get("overrides", {})
+        # User-owned files: regen skips these, users edit in-place
+        ctx["user_owned"] = config.get("prompts", {}).get("user_owned", [])
 
         # Model provider resolution for Claude Code
         from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
@@ -917,30 +1022,25 @@ proper framework operation, especially when using containerized services.
 
         return ctx
 
-    @staticmethod
-    def _get_default_managed_files() -> list[str]:
-        """Return the default list of files managed by ``osprey claude regen``.
-
-        This list matches the hardcoded set that regen has always managed.
-        Users can override it in ``config.yml`` under ``claude_code.managed_files``
-        to "claim" files from framework management.
-        """
-        return [
-            "CLAUDE.md",
-            ".mcp.json",
-            ".claude/settings.json",
-            ".claude/rules/safety.md",
-            ".claude/rules/error-handling.md",
-            ".claude/rules/artifacts.md",
-            ".claude/hooks/osprey_writes_check.py",
-            ".claude/hooks/osprey_limits.py",
-            ".claude/hooks/osprey_approval.py",
-            ".claude/hooks/osprey_error_guidance.py",
-            ".claude/hooks/osprey_notebook_update.py",
-            ".claude/commands/diagnose.md",
-            ".claude/skills/session-report/SKILL.md",
-            ".claude/skills/session-report/reference.md",
-        ]
+    # Known framework-managed files for checksum collection during regen.
+    _REGEN_TRACKED_FILES = [
+        "CLAUDE.md",
+        ".mcp.json",
+        ".claude/settings.json",
+        ".claude/rules/safety.md",
+        ".claude/rules/error-handling.md",
+        ".claude/rules/artifacts.md",
+        ".claude/rules/facility.md",
+        ".claude/hooks/osprey_writes_check.py",
+        ".claude/hooks/osprey_limits.py",
+        ".claude/hooks/osprey_approval.py",
+        ".claude/hooks/osprey_error_guidance.py",
+        ".claude/hooks/osprey_notebook_update.py",
+        ".claude/rules/code-generation.md",
+        ".claude/commands/diagnose.md",
+        ".claude/skills/session-report/SKILL.md",
+        ".claude/skills/session-report/reference.md",
+    ]
 
     def _compute_regen_summary(self, ctx: dict) -> dict:
         """Compute active/disabled server and agent lists from template context.
@@ -1030,12 +1130,9 @@ proper framework operation, especially when using containerized services.
 
         ctx = self._build_claude_code_context(project_dir, config)
 
-        # Determine which files regen manages (from config or defaults)
-        managed_files = ctx.get("managed_files", self._get_default_managed_files())
-
         # Collect checksums of existing Claude Code files before regeneration.
-        # Start with managed_files, then add agent files (always auto-managed).
-        claude_code_files = list(managed_files)
+        # Use known tracked files, then add agent files (always auto-managed).
+        claude_code_files = list(self._REGEN_TRACKED_FILES)
         agents_dir = project_dir / ".claude" / "agents"
         if agents_dir.exists():
             for agent_file in agents_dir.iterdir():
@@ -1123,8 +1220,8 @@ proper framework operation, especially when using containerized services.
                     if rel not in claude_code_files and rel not in changed:
                         changed.append(rel)
 
-        # Check for override drift (framework template changed since scaffolding)
-        drift_warnings = self._check_override_drift(project_dir, ctx)
+        # Check for user-owned drift (framework template changed since claiming)
+        drift_warnings = self._check_user_owned_drift(project_dir, ctx)
 
         # Compute active/disabled summary
         summary = self._compute_regen_summary(ctx)
@@ -1137,13 +1234,13 @@ proper framework operation, especially when using containerized services.
             **summary,
         }
 
-    def _check_override_drift(
+    def _check_user_owned_drift(
         self, project_dir: Path, ctx: dict
     ) -> list[str]:
-        """Check if framework templates have changed since overrides were scaffolded.
+        """Check if framework templates changed since user claimed ownership.
 
         Compares the current rendered framework hash against the hash stored
-        in the manifest at scaffold time.
+        in the manifest at claim time.
 
         Returns:
             List of canonical names whose framework template has drifted.
@@ -1157,8 +1254,8 @@ proper framework operation, especially when using containerized services.
         except (json.JSONDecodeError, OSError):
             return []
 
-        overrides_meta = manifest.get("overrides", {})
-        if not overrides_meta:
+        user_owned_meta = manifest.get("user_owned", {})
+        if not user_owned_meta:
             return []
 
         import tempfile
@@ -1167,7 +1264,7 @@ proper framework operation, especially when using containerized services.
         claude_code_dir = self.template_root / "claude_code"
         drift: list[str] = []
 
-        for canonical_name, meta in overrides_meta.items():
+        for canonical_name, meta in user_owned_meta.items():
             stored_hash = meta.get("framework_hash")
             if not stored_hash:
                 continue
@@ -1180,7 +1277,6 @@ proper framework operation, especially when using containerized services.
             if not template_file.exists():
                 continue
 
-            # Compute current framework hash
             current_hash = None
             try:
                 if template_file.suffix == ".j2":
@@ -1202,7 +1298,7 @@ proper framework operation, especially when using containerized services.
             if current_hash and current_hash != stored_hash:
                 drift.append(canonical_name)
                 console.print(
-                    f"  [warning]⚠[/warning] Framework updated {canonical_name} since you scaffolded your override.\n"
+                    f"  [warning]⚠[/warning] Framework updated {canonical_name} since you claimed it.\n"
                     f"    Run `osprey prompts diff {canonical_name}` to review changes.",
                     style="yellow",
                 )
@@ -1210,12 +1306,11 @@ proper framework operation, especially when using containerized services.
         return drift
 
     @staticmethod
-    def _auto_register_facility_override(project_dir: Path, override_rel: str):
-        """Register rules/facility as an override in config.yml during init.
+    def _auto_register_user_owned(project_dir: Path, canonical_name: str):
+        """Add a canonical name to ``prompts.user_owned`` in config.yml.
 
-        This ensures regen never overwrites the user-owned facility file.
-        Uses pyyaml (not ruamel) since this runs during init when the
-        config was just freshly rendered.
+        Used during init to mark facility.md as user-owned so regen
+        never overwrites user customizations.
         """
         config_path = project_dir / "config.yml"
         if not config_path.exists():
@@ -1224,34 +1319,34 @@ proper framework operation, especially when using containerized services.
             data = yaml.safe_load(f) or {}
         if "prompts" not in data:
             data["prompts"] = {}
-        if "overrides" not in data["prompts"]:
-            data["prompts"]["overrides"] = {}
-        data["prompts"]["overrides"]["rules/facility"] = override_rel
+        user_owned = data["prompts"].get("user_owned", [])
+        if canonical_name not in user_owned:
+            user_owned.append(canonical_name)
+        data["prompts"]["user_owned"] = user_owned
         with open(config_path, "w", encoding="utf-8") as f:
             yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
-    def _is_managed(self, rel_path: str, ctx: dict) -> bool:
-        """Check if a file path is in the managed_files list.
+    def _is_user_owned(self, rel_path: str, ctx: dict) -> bool:
+        """Check if a file is user-owned (regen should skip it).
 
-        During ``osprey init`` (no managed_files in ctx), all files are managed.
-        During ``osprey claude regen``, only files listed in managed_files are
-        written; user-claimed files are skipped.
-
-        Agent files (.claude/agents/*.md) are always managed regardless of
-        the managed_files list.
+        User-owned files are listed in ``prompts.user_owned`` in config.yml.
+        During init (empty list), nothing is user-owned so all files are written.
+        Agent and skill files are never user-owned (always auto-managed).
 
         Args:
-            rel_path: Relative path from project root (e.g. ".claude/hooks/osprey_writes_check.py")
-            ctx: Template context (may contain "managed_files" key)
+            rel_path: Relative path from project root (e.g. ".claude/rules/safety.md")
+            ctx: Template context (must contain "user_owned" key)
         """
-        managed = ctx.get("managed_files")
-        if managed is None:
-            return True  # init path — all files managed
         if rel_path.startswith(".claude/agents/"):
-            return True  # agents always auto-managed
+            return False  # agents always auto-managed
         if rel_path.startswith(".claude/skills/"):
-            return True  # skills always auto-managed
-        return rel_path in managed
+            return False  # skills always auto-managed
+        user_owned = ctx.get("user_owned", [])
+        if not user_owned:
+            return False
+        registry = PromptRegistry.default()
+        art = registry.get_by_output(rel_path)
+        return art is not None and art.canonical_name in user_owned
 
     @staticmethod
     def _output_path_to_canonical(output_path: str, registry: PromptRegistry) -> str | None:
@@ -1266,9 +1361,8 @@ proper framework operation, especially when using containerized services.
         applying dotless-to-dotted naming convention (claude/ -> .claude/,
         mcp.json.j2 -> .mcp.json).
 
-        Files listed in ``ctx["managed_files"]`` (if present) control which
-        files are written during regeneration. Files not in the list are
-        skipped, preserving user customizations.
+        User-owned files (listed in ``ctx["user_owned"]``) are skipped during
+        regeneration, preserving user customizations.
 
         Args:
             project_dir: Root directory of the project
@@ -1285,35 +1379,16 @@ proper framework operation, especially when using containerized services.
 
         files_created = 0
 
-        # Build prompt override lookup
-        prompt_overrides = ctx.get("prompt_overrides", {})
-        registry = PromptRegistry.default()
-
         # 1. Render mcp.json.j2 -> .mcp.json
         mcp_template = claude_code_dir / "mcp.json.j2"
-        if "mcp-json" in prompt_overrides:
-            override_path = project_dir / prompt_overrides["mcp-json"]
-            if override_path.exists():
-                shutil.copy2(override_path, project_dir / ".mcp.json")
-                files_created += 1
-        elif mcp_template.exists() and self._is_managed(".mcp.json", ctx):
+        if mcp_template.exists() and not self._is_user_owned(".mcp.json", ctx):
             self.render_template("claude_code/mcp.json.j2", ctx, project_dir / ".mcp.json")
             files_created += 1
 
-        # 2. Render CLAUDE.md.j2 -> CLAUDE.md (always overwritten on regen)
+        # 2. Render CLAUDE.md.j2 -> CLAUDE.md
         claude_md_j2 = claude_code_dir / "CLAUDE.md.j2"
         claude_md_static = claude_code_dir / "CLAUDE.md"
-        if "claude-md" in prompt_overrides:
-            override_path = project_dir / prompt_overrides["claude-md"]
-            if override_path.exists():
-                shutil.copy2(override_path, project_dir / "CLAUDE.md")
-                files_created += 1
-            else:
-                console.print(
-                    f"  [warning]⚠[/warning] Override for claude-md not found: {override_path}",
-                    style="yellow",
-                )
-        elif self._is_managed("CLAUDE.md", ctx):
+        if not self._is_user_owned("CLAUDE.md", ctx):
             if claude_md_j2.exists():
                 self.render_template("claude_code/CLAUDE.md.j2", ctx, project_dir / "CLAUDE.md")
             elif claude_md_static.exists():
@@ -1321,28 +1396,19 @@ proper framework operation, especially when using containerized services.
             files_created += 1
 
         # 2b. Create facility.md — user-owned artifact
-        # During init, render the template and auto-register as an override
-        # so that regen never overwrites user customizations. If already
-        # overridden in config, use the override source instead.
+        # During init, render the template in-place and auto-register as
+        # user-owned so regen never overwrites user customizations.
         facility_md = project_dir / ".claude" / "rules" / "facility.md"
         facility_j2 = claude_code_dir / "claude" / "rules" / "facility.md.j2"
-        if "rules/facility" in prompt_overrides:
-            override_path = project_dir / prompt_overrides["rules/facility"]
-            if override_path.exists():
-                facility_md.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(override_path, facility_md)
-                files_created += 1
+        if self._is_user_owned(".claude/rules/facility.md", ctx):
+            pass  # Skip — user owns it
         elif not facility_md.exists() and facility_j2.exists():
             facility_md.parent.mkdir(parents=True, exist_ok=True)
             self.render_template(
                 "claude_code/claude/rules/facility.md.j2", ctx, facility_md
             )
-            # Auto-register as override so regen preserves user edits
-            override_rel = "overrides/.claude/rules/facility.md"
-            override_dst = project_dir / override_rel
-            override_dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(facility_md, override_dst)
-            self._auto_register_facility_override(project_dir, override_rel)
+            # Auto-register as user-owned so regen preserves user edits
+            self._auto_register_user_owned(project_dir, "rules/facility")
             files_created += 1
 
         # 3. Recursively copy/render claude/ -> .claude/ (dotless to dotted)
@@ -1356,7 +1422,6 @@ proper framework operation, especially when using containerized services.
                 rel_path = src_file.relative_to(claude_src)
 
                 if src_file.suffix == ".j2":
-                    # Determine output rel_path (strip .j2)
                     output_rel = rel_path.with_suffix("")
                     dst_rel = f".claude/{output_rel}"
 
@@ -1364,21 +1429,8 @@ proper framework operation, especially when using containerized services.
                     if str(output_rel) == "rules/facility.md":
                         continue
 
-                    # Check if this artifact has a prompt override
-                    canonical = self._output_path_to_canonical(dst_rel, registry)
-                    if canonical and canonical in prompt_overrides:
-                        override_src = project_dir / prompt_overrides[canonical]
-                        if override_src.exists():
-                            dst_file = project_dir / ".claude" / output_rel
-                            dst_file.parent.mkdir(parents=True, exist_ok=True)
-                            shutil.copy2(override_src, dst_file)
-                            if dst_file.suffix == ".py":
-                                dst_file.chmod(dst_file.stat().st_mode | 0o755)
-                            files_created += 1
-                            continue
-
-                    # Check managed_files
-                    if not self._is_managed(dst_rel, ctx):
+                    # Skip user-owned files
+                    if self._is_user_owned(dst_rel, ctx):
                         continue
 
                     # Render Jinja2 template, strip .j2 extension
@@ -1387,24 +1439,12 @@ proper framework operation, especially when using containerized services.
                     template_path = f"claude_code/claude/{rel_path}"
                     self.render_template(template_path, ctx, dst_file)
                 else:
-                    # Static copy (existing behavior)
                     dst_rel = f".claude/{rel_path}"
 
-                    # Check if this artifact has a prompt override
-                    canonical = self._output_path_to_canonical(dst_rel, registry)
-                    if canonical and canonical in prompt_overrides:
-                        override_src = project_dir / prompt_overrides[canonical]
-                        if override_src.exists():
-                            dst_file = project_dir / ".claude" / rel_path
-                            dst_file.parent.mkdir(parents=True, exist_ok=True)
-                            shutil.copy2(override_src, dst_file)
-                            if dst_file.suffix == ".py":
-                                dst_file.chmod(dst_file.stat().st_mode | 0o755)
-                            files_created += 1
-                            continue
-
-                    if not self._is_managed(dst_rel, ctx):
+                    # Skip user-owned files
+                    if self._is_user_owned(dst_rel, ctx):
                         continue
+
                     dst_file = project_dir / ".claude" / rel_path
                     dst_file.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(src_file, dst_file)
@@ -1469,10 +1509,11 @@ proper framework operation, especially when using containerized services.
         # Get framework version
         framework_version = self._get_framework_version()
 
-        # Build overrides section from context
-        overrides_manifest = self._build_overrides_manifest(project_dir, context)
+        # Build user_owned section from context
+        user_owned_manifest = self._build_user_owned_manifest(project_dir, context)
 
         # Build manifest
+        claude_code_only = context.get("claude_code_only", False)
         manifest = {
             "schema_version": MANIFEST_SCHEMA_VERSION,
             "creation": {
@@ -1480,14 +1521,15 @@ proper framework operation, especially when using containerized services.
                 "timestamp": datetime.now(UTC).isoformat(),
                 "template": template_name,
                 "registry_style": registry_style,
+                "claude_code_only": claude_code_only,
             },
             "init_args": init_args,
             "reproducible_command": reproducible_command,
             "file_checksums": file_checksums,
         }
 
-        if overrides_manifest:
-            manifest["overrides"] = overrides_manifest
+        if user_owned_manifest:
+            manifest["user_owned"] = user_owned_manifest
 
         # Write manifest to file
         manifest_path = project_dir / MANIFEST_FILENAME
@@ -1524,6 +1566,10 @@ proper framework operation, especially when using containerized services.
             "registry_style": registry_style,
         }
 
+        # Track claude_code_only mode
+        if context.get("claude_code_only"):
+            init_args["claude_code_only"] = True
+
         # Optional arguments that may be in context
         optional_keys = [
             ("default_provider", "provider"),
@@ -1551,15 +1597,21 @@ proper framework operation, especially when using containerized services.
         Returns:
             CLI command string that can recreate the project
         """
-        parts = ["osprey", "init", init_args["project_name"]]
+        # Use init-legacy command for non-claude_code_only projects
+        if init_args.get("claude_code_only"):
+            cmd = "init"
+        else:
+            cmd = "init-legacy"
+        parts = ["osprey", cmd, init_args["project_name"]]
 
         # Add template if not default
         if init_args.get("template") and init_args["template"] != "minimal":
             parts.extend(["--template", init_args["template"]])
 
-        # Add registry style if not default
-        if init_args.get("registry_style") and init_args["registry_style"] != "extend":
-            parts.extend(["--registry-style", init_args["registry_style"]])
+        # Add registry style if not default (only for init-legacy)
+        if cmd == "init-legacy":
+            if init_args.get("registry_style") and init_args["registry_style"] != "extend":
+                parts.extend(["--registry-style", init_args["registry_style"]])
 
         # Add provider if specified
         if init_args.get("provider"):
@@ -1661,24 +1713,24 @@ proper framework operation, especially when using containerized services.
                 sha256_hash.update(chunk)
         return sha256_hash.hexdigest()
 
-    def _build_overrides_manifest(
+    def _build_user_owned_manifest(
         self, project_dir: Path, context: dict[str, Any]
     ) -> dict[str, Any]:
-        """Build overrides section for the manifest.
+        """Build user_owned section for the manifest.
 
-        For each prompt override, records the override path and the SHA-256 of
-        the framework template as rendered at scaffold time. During regen, if
-        the framework hash changes, a drift warning is shown.
+        For each user-owned artifact, records the SHA-256 of the framework
+        template as rendered at claim time. During regen, if the framework
+        hash changes, a drift warning is shown.
 
         Args:
             project_dir: Root directory of the project
-            context: Template context with ``prompt_overrides`` key
+            context: Template context with ``user_owned`` key
 
         Returns:
-            Dict mapping canonical names to override metadata, or empty dict.
+            Dict mapping canonical names to user_owned metadata, or empty dict.
         """
-        overrides = context.get("prompt_overrides", {})
-        if not overrides:
+        user_owned = context.get("user_owned", [])
+        if not user_owned:
             return {}
 
         import tempfile
@@ -1687,12 +1739,11 @@ proper framework operation, especially when using containerized services.
         result: dict[str, Any] = {}
         claude_code_dir = self.template_root / "claude_code"
 
-        for canonical_name, override_path in overrides.items():
+        for canonical_name in user_owned:
             artifact = registry.get(canonical_name)
             if artifact is None:
                 continue
 
-            # Compute framework hash by rendering the template to a temp location
             framework_hash = None
             template_file = claude_code_dir / artifact.template_path
             if template_file.exists():
@@ -1714,8 +1765,7 @@ proper framework operation, especially when using containerized services.
                     pass  # Best-effort
 
             entry: dict[str, Any] = {
-                "override_path": override_path,
-                "scaffolded_at": datetime.now(UTC).isoformat(),
+                "claimed_at": datetime.now(UTC).isoformat(),
             }
             if framework_hash:
                 entry["framework_hash"] = framework_hash
