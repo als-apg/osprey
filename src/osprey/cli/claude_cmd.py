@@ -452,7 +452,7 @@ def regen(project, dry_run):
     (.mcp.json, .claude/settings.json, CLAUDE.md, agents). Existing files
     are backed up to osprey-workspace/backup/ before overwriting.
 
-    User-maintained files (CLAUDE-project.md) are never overwritten.
+    Prompt overrides (in ``overrides/``) are used instead of framework templates.
 
     Examples:
 
@@ -538,6 +538,121 @@ def _print_regen_summary(result: dict):
         console.print("[dim]Disabled agents:[/dim]")
         for a in disabled_agents:
             console.print(f"  [dim]- {a}[/dim]")
+
+
+@claude.command(name="status")
+@click.option(
+    "--project",
+    "-p",
+    type=click.Path(exists=True, file_okay=False, resolve_path=True),
+    default=None,
+    help="Project directory (default: current directory)",
+)
+def status(project):
+    """Show Claude Code configuration status.
+
+    Displays provider configuration, model tier mappings, per-agent model
+    assignments, and artifact sync status (drift detection via dry-run).
+
+    Examples:
+
+    \b
+      # Show status for current directory
+      osprey claude status
+
+      # Show status for a specific project
+      osprey claude status --project /path/to/project
+    """
+    from osprey.cli.claude_code_resolver import (
+        AGENT_DEFAULT_TIERS,
+        ClaudeCodeModelResolver,
+    )
+    from osprey.cli.templates import TemplateManager
+
+    project_dir = Path(project) if project else Path.cwd()
+
+    config_file = project_dir / "config.yml"
+    if not config_file.exists():
+        console.print("[error]Error:[/error] No config.yml found.", style="red")
+        console.print(f"  Looked in: {project_dir}")
+        raise SystemExit(1)
+
+    config = yaml.safe_load(config_file.read_text()) or {}
+    claude_code_config = config.get("claude_code", {})
+    api_providers = config.get("api", {}).get("providers", {})
+
+    console.print("\n[bold]Claude Code Status[/bold]\n")
+
+    # ── Provider ──────────────────────────────────────────────
+    provider_name = claude_code_config.get("provider")
+    if not provider_name:
+        console.print("[dim]Provider:[/dim]  not configured")
+        console.print(
+            "  [dim]Set claude_code.provider in config.yml to enable "
+            "automatic env/model resolution.[/dim]"
+        )
+    else:
+        try:
+            spec = ClaudeCodeModelResolver.resolve(claude_code_config, api_providers)
+        except ValueError as exc:
+            console.print(f"[error]Provider error:[/error] {exc}")
+            raise SystemExit(1)
+
+        console.print(f"[dim]Provider:[/dim]  {spec.provider}")
+
+        # Env block
+        console.print("\n[bold]Environment Variables[/bold]  (settings.json env block)")
+        for key, value in spec.env_block.items():
+            console.print(f"  {key} = [dim]{value}[/dim]")
+
+        # Shell exports
+        if spec.shell_exports:
+            console.print("\n[bold]Required Shell Exports[/bold]  (add to ~/.zshrc)")
+            for line in spec.shell_exports:
+                console.print(f"  [dim]{line}[/dim]")
+
+        # Model tiers
+        console.print("\n[bold]Model Tiers[/bold]")
+        model_overrides = claude_code_config.get("models", {}) or {}
+        for tier in ("haiku", "sonnet", "opus"):
+            model_id = spec.tier_to_model.get(tier, "?")
+            suffix = " [dim](override)[/dim]" if tier in model_overrides else ""
+            console.print(f"  {tier:8s} → {model_id}{suffix}")
+
+        # Agent models
+        console.print("\n[bold]Agent Models[/bold]")
+        agent_overrides = claude_code_config.get("agent_models", {}) or {}
+        for agent_name, default_tier in sorted(AGENT_DEFAULT_TIERS.items()):
+            model_id = spec.agent_model(agent_name)
+            if agent_name in agent_overrides:
+                note = f" [dim](override: {agent_overrides[agent_name]})[/dim]"
+            else:
+                note = f" [dim]({default_tier})[/dim]"
+            console.print(f"  {agent_name:28s} → {model_id}{note}")
+
+    # ── Artifact drift ────────────────────────────────────────
+    console.print("\n[bold]Artifact Status[/bold]")
+    try:
+        manager = TemplateManager()
+        result = manager.regenerate_claude_code(project_dir, dry_run=True)
+    except FileNotFoundError:
+        console.print("  [dim]Could not check artifact status[/dim]")
+        result = None
+
+    if result:
+        if result["changed"]:
+            console.print("  [warning]Out of sync — run `osprey claude regen`:[/warning]")
+            for f in result["changed"]:
+                console.print(f"    [warning]~[/warning] {f}")
+        else:
+            console.print("  [success]All artifacts up to date[/success]")
+        if result["unchanged"]:
+            console.print(f"  [dim]{len(result['unchanged'])} files in sync[/dim]")
+
+        # Reuse the server/agent summary
+        _print_regen_summary(result)
+
+    console.print()
 
 
 @claude.command(name="chat")

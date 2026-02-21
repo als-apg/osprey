@@ -72,6 +72,8 @@ class LazyGroup(click.Group):
             "ariel": "osprey.cli.ariel",  # ARIEL search service
             "artifacts": "osprey.cli.artifacts_cmd",  # Artifact Gallery
             "web": "osprey.cli.web_cmd",  # Web Terminal
+            "monitoring": "osprey.cli.monitoring_cmd",  # OTEL Monitoring Stack
+            "prompts": "osprey.cli.prompts_cmd",  # Prompt artifact overrides
         }
 
         if cmd_name not in commands:
@@ -97,6 +99,10 @@ class LazyGroup(click.Group):
             cmd_func = mod.artifacts
         elif cmd_name == "web":
             cmd_func = mod.web
+        elif cmd_name == "monitoring":
+            cmd_func = mod.monitoring
+        elif cmd_name == "prompts":
+            cmd_func = mod.prompts
         else:
             cmd_func = getattr(mod, cmd_name)
 
@@ -121,6 +127,8 @@ class LazyGroup(click.Group):
             "ariel",
             "artifacts",
             "web",
+            "monitoring",
+            "prompts",
         ]
 
 
