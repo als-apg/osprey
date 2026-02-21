@@ -129,6 +129,12 @@ def _get_default_artifacts() -> list[PromptArtifact]:
             output_path=".claude/rules/facility.md",
             description="Facility identity & context",
         ),
+        PromptArtifact(
+            canonical_name="rules/code-generation",
+            template_path="claude/rules/code-generation.md.j2",
+            output_path=".claude/rules/code-generation.md",
+            description="Code generation safety rules (control_assistant only)",
+        ),
         # ── Hooks ────────────────────────────────────────────────────
         PromptArtifact(
             canonical_name="hooks/approval",
@@ -172,6 +178,12 @@ def _get_default_artifacts() -> list[PromptArtifact]:
             template_path="claude/skills/session-report/reference.md",
             output_path=".claude/skills/session-report/reference.md",
             description="CSS/JS reference patterns for session reports",
+        ),
+        PromptArtifact(
+            canonical_name="skills/setup-mode",
+            template_path="claude/skills/setup-mode/SKILL.md.j2",
+            output_path=".claude/skills/setup-mode/SKILL.md",
+            description="Configuration diagnostic and troubleshooting skill",
         ),
         # ── Commands ─────────────────────────────────────────────────
         PromptArtifact(

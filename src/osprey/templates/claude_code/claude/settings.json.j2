@@ -6,7 +6,7 @@
     "{{ key }}": "{{ value }}"{% if not loop.last %},{% endif %}
 {%- endfor %}
   },
-  "model": "{{ claude_code_model_spec.default_model_tier }}",
+  "model": "{{ claude_code_model_spec.tier_to_model[claude_code_model_spec.default_model_tier] }}",
 {%- endif %}
   "_PROMPT_PROVIDER_NOTE": "PROMPT-PROVIDER: section=permissions_policy. Future: source from FrameworkPromptProvider.get_permissions_policy(). Facility-customizable: allow/deny/ask tool lists, file access paths, additional facility-specific tools or restrictions.",
   "permissions": {
@@ -25,7 +25,6 @@
     the can_use_tool callback. -#}
 {%- endif -%}
 {%- if "workspace" not in disable_servers -%}
-{%- set _ = allow_entries.append('"mcp__workspace__memory_recall"') -%}
 {%- set _ = allow_entries.append('"mcp__workspace__facility_description"') -%}
 {%- set _ = allow_entries.append('"mcp__workspace__screenshot_capture"') -%}
 {%- set _ = allow_entries.append('"mcp__workspace__list_windows"') -%}
@@ -45,6 +44,7 @@
 {%- set _ = allow_entries.append('"mcp__workspace__create_document"') -%}
 {%- set _ = allow_entries.append('"mcp__workspace__artifact_save"') -%}
 {%- set _ = allow_entries.append('"mcp__workspace__session_log"') -%}
+{%- set _ = allow_entries.append('"mcp__workspace__setup_inspect"') -%}
 {%- endif -%}
 {%- if "ariel" not in disable_servers -%}
 {%- set _ = allow_entries.append('"mcp__ariel__keyword_search"') -%}
@@ -124,11 +124,11 @@
 {%- if "python" not in disable_servers -%}
 {%- set _ = ask_entries.append('"mcp__python__execute"') -%}
 {%- endif -%}
-{%- if "workspace" not in disable_servers -%}
-{%- set _ = ask_entries.append('"mcp__workspace__memory_save"') -%}
-{%- endif -%}
 {%- if "ariel" not in disable_servers -%}
 {%- set _ = ask_entries.append('"mcp__ariel__entry_create"') -%}
+{%- endif -%}
+{%- if "workspace" not in disable_servers -%}
+{%- set _ = ask_entries.append('"mcp__workspace__setup_patch"') -%}
 {%- endif -%}
 {%- for name in extra_servers -%}
 {%- if name not in disable_servers -%}
