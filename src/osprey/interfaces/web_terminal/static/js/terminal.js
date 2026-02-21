@@ -1,6 +1,7 @@
 /* OSPREY Web Terminal — Terminal Module */
 
 import { createWebSocket } from './api.js';
+import { getXtermPalette, setTerminalRef } from './theme.js';
 
 let term = null;
 let fitAddon = null;
@@ -21,30 +22,11 @@ export function initTerminal(containerId) {
     fontFamily: "'JetBrains Mono', monospace",
     fontSize: 14,
     lineHeight: 1.2,
-    theme: {
-      background: '#050a10',
-      foreground: '#c8d6e5',
-      cursor: '#4fd1c5',
-      cursorAccent: '#050a10',
-      selectionBackground: 'rgba(79, 209, 197, 0.25)',
-      black: '#1a2332',
-      red: '#ef4444',
-      green: '#22c55e',
-      yellow: '#f59e0b',
-      blue: '#3b82f6',
-      magenta: '#a855f7',
-      cyan: '#4fd1c5',
-      white: '#e2e8f0',
-      brightBlack: '#64748b',
-      brightRed: '#f87171',
-      brightGreen: '#4ade80',
-      brightYellow: '#fbbf24',
-      brightBlue: '#60a5fa',
-      brightMagenta: '#c084fc',
-      brightCyan: '#67e8f9',
-      brightWhite: '#f8fafc',
-    },
+    theme: getXtermPalette(),
   });
+
+  // Register terminal reference for live theme switching
+  setTerminalRef(term);
 
   fitAddon = new FitAddon.FitAddon();
   const webLinksAddon = new WebLinksAddon.WebLinksAddon();

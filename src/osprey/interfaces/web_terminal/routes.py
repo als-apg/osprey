@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 from osprey.interfaces.web_terminal.claude_code_files import ClaudeCodeFileService
 from osprey.interfaces.web_terminal.operator_session import build_clean_env
+from osprey.interfaces.web_terminal.prompt_gallery_service import PromptGalleryService
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery, SessionRegistry
 
 logger = logging.getLogger(__name__)
@@ -103,6 +104,22 @@ async def cui_server_config(request: Request):
     return {"url": url, "available": healthy, "authToken": auth_token}
 
 
+@router.get("/api/monitoring-server")
+async def monitoring_server_config(request: Request):
+    """Return the Grafana monitoring server URL for iframe embedding.
+
+    Returns the dashboard URL in kiosk mode so the embedded view shows
+    only the OSPREY dashboard without Grafana's sidebar/nav chrome.
+    """
+    base_url = getattr(request.app.state, "monitoring_server_url", None)
+    if base_url:
+        # Navigate directly to the provisioned OSPREY dashboard in kiosk mode
+        url = f"{base_url}/d/osprey-claude-code/claude-code-overview?kiosk"
+    else:
+        url = None
+    return {"url": url, "available": url is not None}
+
+
 class PanelFocusRequest(BaseModel):
     panel: str
     url: str | None = None
@@ -118,7 +135,7 @@ async def get_panel_focus(request: Request):
 @router.post("/api/panel-focus")
 async def set_panel_focus(body: PanelFocusRequest, request: Request):
     """Set the active panel and broadcast a focus event via SSE."""
-    known = {"artifacts", "ariel", "tuning"}
+    known = {"artifacts", "ariel", "tuning", "monitoring"}
     if body.panel not in known:
         raise HTTPException(status_code=422, detail=f"Unknown panel: {body.panel}")
     request.app.state.active_panel = body.panel
@@ -219,6 +236,11 @@ async def terminal_ws(websocket: WebSocket):
     extra_env: dict[str, str] = {}
     if claude_session_id:
         extra_env["OSPREY_SESSION_ID"] = claude_session_id
+
+    # Inject OTEL env vars so Claude Code exports telemetry
+    otel_env = getattr(websocket.app.state, "otel_env", {})
+    if otel_env:
+        extra_env.update(otel_env)
 
     session = registry.create_session(
         pty_key,
@@ -622,3 +644,104 @@ async def create_claude_setup(request: Request, body: ClaudeSetupSaveRequest):
         raise HTTPException(status_code=403, detail=str(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
+
+
+# ---- Prompt Gallery Endpoints ---- #
+
+
+class PromptOverrideRequest(BaseModel):
+    content: str
+
+
+def _prompt_service(request: Request) -> PromptGalleryService:
+    """Construct a PromptGalleryService from the request's project dir."""
+    return PromptGalleryService(Path(request.app.state.project_cwd))
+
+
+@router.get("/api/prompts")
+async def list_prompts(request: Request):
+    """List all prompt artifacts with status and summary counts."""
+    service = _prompt_service(request)
+    artifacts = service.list_artifacts()
+    framework_count = sum(1 for a in artifacts if a["status"] == "framework")
+    overridden_count = sum(1 for a in artifacts if a["status"] == "overridden")
+    return {
+        "artifacts": artifacts,
+        "summary": {
+            "total": len(artifacts),
+            "framework": framework_count,
+            "overridden": overridden_count,
+        },
+    }
+
+
+@router.get("/api/prompts/{name:path}/framework")
+async def get_prompt_framework(name: str, request: Request):
+    """Get the framework-rendered content for an artifact."""
+    service = _prompt_service(request)
+    try:
+        content = service.get_framework_content(name)
+        return {"name": name, "content": content, "source": "framework"}
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.get("/api/prompts/{name:path}/diff")
+async def get_prompt_diff(name: str, request: Request):
+    """Get unified diff between framework and override."""
+    service = _prompt_service(request)
+    try:
+        return service.compute_diff(name)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.post("/api/prompts/{name:path}/scaffold")
+async def scaffold_prompt(name: str, request: Request):
+    """Scaffold an override from the framework template."""
+    service = _prompt_service(request)
+    try:
+        return service.scaffold_override(name)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except FileExistsError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+
+
+@router.put("/api/prompts/{name:path}/override")
+async def save_prompt_override(name: str, body: PromptOverrideRequest, request: Request):
+    """Save content to an existing override file."""
+    service = _prompt_service(request)
+    try:
+        return service.save_override(name, body.content)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.delete("/api/prompts/{name:path}/override")
+async def delete_prompt_override(name: str, request: Request):
+    """Remove an override, restoring framework management."""
+    delete_file = request.query_params.get("delete_file", "false").lower() == "true"
+    service = _prompt_service(request)
+    try:
+        return service.unoverride(name, delete_file=delete_file)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.get("/api/prompts/{name:path}")
+async def get_prompt(name: str, request: Request):
+    """Get artifact content (auto-resolves framework vs override)."""
+    service = _prompt_service(request)
+    try:
+        result = service.get_content(name)
+        result["name"] = name
+        return result
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e

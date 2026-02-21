@@ -1,0 +1,152 @@
+/* OSPREY Web Terminal — Shared Markdown Rendering */
+
+.osprey-md-rendered {
+  padding: 4px 0;
+  color: var(--text-primary);
+  line-height: 1.7;
+  white-space: normal;
+}
+
+.osprey-md-rendered h1,
+.osprey-md-rendered h2,
+.osprey-md-rendered h3,
+.osprey-md-rendered h4,
+.osprey-md-rendered h5,
+.osprey-md-rendered h6 {
+  font-family: var(--font-display);
+  color: var(--color-accent-light);
+  margin: 1.2em 0 0.4em;
+  line-height: 1.3;
+}
+
+.osprey-md-rendered h1 {
+  font-size: 18px;
+  font-weight: 700;
+  border-bottom: 1px solid var(--border-accent);
+  padding-bottom: 6px;
+}
+
+.osprey-md-rendered h2 {
+  font-size: 15px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border-default);
+  padding-bottom: 4px;
+}
+
+.osprey-md-rendered h3 {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.osprey-md-rendered h4,
+.osprey-md-rendered h5,
+.osprey-md-rendered h6 {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.osprey-md-rendered p {
+  margin: 0.6em 0;
+  font-size: 12px;
+}
+
+.osprey-md-rendered ul,
+.osprey-md-rendered ol {
+  margin: 0.5em 0;
+  padding-left: 1.6em;
+  font-size: 12px;
+}
+
+.osprey-md-rendered li {
+  margin: 0.2em 0;
+}
+
+.osprey-md-rendered li::marker {
+  color: var(--text-muted);
+}
+
+.osprey-md-rendered a {
+  color: var(--color-accent-light);
+  text-decoration: none;
+  border-bottom: 1px solid var(--accent-tint-30);
+  transition: border-color var(--transition-fast);
+}
+
+.osprey-md-rendered a:hover {
+  border-bottom-color: var(--color-accent-light);
+}
+
+.osprey-md-rendered code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--neutral-tint-10);
+  border: 1px solid var(--border-default);
+  border-radius: 3px;
+  padding: 1px 4px;
+  color: var(--color-amber-light);
+}
+
+.osprey-md-rendered pre {
+  margin: 0.8em 0;
+  padding: 10px 12px;
+  background: var(--overlay-black-30);
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  overflow-x: auto;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.osprey-md-rendered pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--terminal-text);
+  font-size: inherit;
+}
+
+.osprey-md-rendered blockquote {
+  margin: 0.8em 0;
+  padding: 6px 12px;
+  border-left: 3px solid var(--color-accent);
+  background: var(--accent-tint-04);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.osprey-md-rendered hr {
+  border: none;
+  border-top: 1px solid var(--border-default);
+  margin: 1em 0;
+}
+
+.osprey-md-rendered table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.8em 0;
+  font-size: 11px;
+}
+
+.osprey-md-rendered th,
+.osprey-md-rendered td {
+  border: 1px solid var(--border-default);
+  padding: 4px 8px;
+  text-align: left;
+}
+
+.osprey-md-rendered th {
+  background: var(--bg-secondary);
+  color: var(--color-accent-light);
+  font-weight: 500;
+}
+
+.osprey-md-rendered strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.osprey-md-rendered em {
+  color: var(--text-secondary);
+  font-style: italic;
+}

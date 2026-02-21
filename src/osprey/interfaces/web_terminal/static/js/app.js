@@ -5,13 +5,16 @@ import { onConnectionStateChange, fetchJSON } from './api.js';
 import { initPanelManager } from './panel-manager.js';
 import { initDrawers } from './drawer.js';
 import { initSettings } from './settings.js';
-import { initClaudeSetup } from './claude-setup.js';
+import { initMemoryTab } from './memory-tab.js';
+import { initPromptsGallery } from './prompts-gallery.js';
 import { initSessionSelector, startNewSession } from './sessions.js';
+import { initTheme } from './theme.js';
 
 let currentMode = 'terminal';
 let cuiIframeCreated = false;
 
 document.addEventListener('DOMContentLoaded', () => {
+  initTheme();
   initTerminal('terminal-container');
   initPanelManager('right-panel');
   initSessionSelector('session-selector');
@@ -22,7 +25,8 @@ document.addEventListener('DOMContentLoaded', () => {
   initNewSessionButton();
   initDrawers();
   initSettings();
-  initClaudeSetup();
+  initMemoryTab();
+  initPromptsGallery();
   initWikiLink();
 
   // Listen for paste requests from embedded iframes (gallery, ARIEL)

@@ -7,6 +7,7 @@
  */
 
 import { fetchJSON } from './api.js';
+import { getTheme } from './theme.js';
 
 // ---- Panel Registry ----
 
@@ -15,6 +16,7 @@ const PANELS = [
     id: 'artifacts',
     label: 'WORKSPACE',
     configEndpoint: '/api/artifact-server',
+    healthEndpoint: null,    // embedded same-origin — skip health polling
     statusBarId: null,       // no dedicated status-bar item
   },
   {
@@ -29,6 +31,13 @@ const PANELS = [
     configEndpoint: '/api/tuning-server',
     statusBarId: 'tuning-status',
   },
+  {
+    id: 'monitoring',
+    label: 'MONITORING',
+    configEndpoint: '/api/monitoring-server',
+    healthEndpoint: null,    // backend verifies Grafana health before advertising URL
+    statusBarId: 'monitoring-status',
+  },
 ];
 
 // ---- State ----
@@ -37,8 +46,9 @@ let containerEl = null;
 let tabsEl = null;
 let contentEl = null;
 let activeTabId = null;
+let userSelectedTab = false;
 
-// Per-panel state: { url, healthy, iframe, pollTimer }
+// Per-panel state: { url, healthy, iframe, pollTimer, configLoaded }
 const panelState = {};
 
 // Default panel to activate first (must match an id in PANELS)
@@ -65,6 +75,7 @@ export function initPanelManager(panelId) {
       iframe: null,
       pollTimer: null,
       polling: false,
+      configLoaded: false,
     };
   }
 
@@ -83,8 +94,10 @@ export function initPanelManager(panelId) {
     try {
       const data = JSON.parse(e.data);
       if (data.type === 'panel_focus' && data.panel) {
-        activateTab(data.panel);
         if (data.url) navigatePanel(data.panel, data.url);
+        if (!userSelectedTab) {
+          activateTab(data.panel);
+        }
       }
     } catch { /* ignore parse errors */ }
   };
@@ -121,6 +134,8 @@ async function initPanel(panel) {
     }
   } catch {
     // Config endpoint not available — panel stays disabled
+  } finally {
+    state.configLoaded = true;
   }
 
   if (state.url) {
@@ -189,8 +204,8 @@ async function pollHealth(panel) {
         activateTab(panel.id);
       } else if (!activeTabId) {
         const defaultState = panelState[DEFAULT_PANEL];
-        // Default panel already polled and not healthy — fall back
-        if (defaultState && defaultState.url !== null && !defaultState.healthy) {
+        // Only fall back if default panel finished loading config and isn't healthy
+        if (defaultState?.configLoaded && !defaultState.healthy) {
           activateTab(panel.id);
         }
       }
@@ -245,6 +260,7 @@ function activateTab(panelId, { userInitiated = false } = {}) {
   const state = panelState[panelId];
   if (!state || !state.healthy) return;
 
+  if (userInitiated) userSelectedTab = true;
   activeTabId = panelId;
 
   // Update tab active states
@@ -267,6 +283,17 @@ function activateTab(panelId, { userInitiated = false } = {}) {
     createIframe(panelId);
   }
 
+  // Re-send current theme to the newly visible iframe (handles edge cases
+  // where a postMessage was missed while the iframe was hidden or loading)
+  if (state.iframe?.contentWindow) {
+    try {
+      state.iframe.contentWindow.postMessage(
+        { type: 'osprey-theme-change', theme: getTheme() },
+        '*'
+      );
+    } catch { /* cross-origin */ }
+  }
+
   // Report user-initiated tab switches to the server (avoids SSE feedback loop)
   if (userInitiated) {
     fetch('/api/panel-focus', {
@@ -284,6 +311,7 @@ function navigatePanel(panelId, url) {
   if (!state?.iframe) return;
   const embedUrl = new URL(url);
   embedUrl.searchParams.set('embedded', 'true');
+  embedUrl.searchParams.set('theme', getTheme());
   state.iframe.src = embedUrl.toString();
 }
 
@@ -297,6 +325,7 @@ function createIframe(panelId) {
   iframe.className = 'panel-iframe';
   const embedUrl = new URL(state.url);
   embedUrl.searchParams.set('embedded', 'true');
+  embedUrl.searchParams.set('theme', getTheme());
   iframe.src = embedUrl.toString();
   iframe.sandbox = 'allow-scripts allow-same-origin allow-popups allow-forms allow-modals';
 

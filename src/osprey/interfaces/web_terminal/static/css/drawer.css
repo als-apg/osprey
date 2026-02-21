@@ -8,7 +8,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--overlay-black-50);
   z-index: 100;
   opacity: 0;
   pointer-events: none;
@@ -31,7 +31,7 @@
   height: 100vh;
   background: var(--bg-primary);
   border-left: 1px solid var(--border-accent);
-  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-panel);
   z-index: 101;
   display: flex;
   flex-direction: column;
@@ -54,8 +54,8 @@
   background: linear-gradient(
     to bottom,
     transparent 0%,
-    rgba(79, 209, 197, 0.3) 30%,
-    rgba(79, 209, 197, 0.3) 70%,
+    var(--accent-tint-30) 30%,
+    var(--accent-tint-30) 70%,
     transparent 100%
   );
   pointer-events: none;
@@ -77,8 +77,8 @@
 
 .drawer-resize-handle:hover,
 .drawer-resize-handle.dragging {
-  background: rgba(79, 209, 197, 0.25);
-  box-shadow: 0 0 6px rgba(79, 209, 197, 0.3);
+  background: var(--accent-tint-25);
+  box-shadow: 0 0 6px var(--accent-tint-30);
 }
 
 body.drawer-resizing {
@@ -151,7 +151,7 @@ body.drawer-resizing {
 .drawer-tab.active {
   color: var(--color-accent-light);
   border-color: var(--color-accent);
-  background: rgba(79, 209, 197, 0.1);
+  background: var(--accent-tint-10);
 }
 
 /* ---- Tab Panels ---- */
@@ -199,6 +199,12 @@ body.drawer-resizing {
   overflow-x: hidden;
 }
 
+/* ---- Drawer Body — Detail Active (no scroll) ---- */
+
+.drawer-body.detail-active {
+  overflow: hidden;
+}
+
 /* ---- Header Icon Buttons ---- */
 
 .header-actions {
@@ -226,619 +232,13 @@ body.drawer-resizing {
 .header-icon-btn:hover {
   color: var(--color-accent-light);
   border-color: var(--border-accent);
-  background: rgba(79, 209, 197, 0.06);
+  background: var(--accent-tint-06);
 }
 
 .header-icon-btn.active {
   color: var(--color-accent-light);
   border-color: var(--color-accent);
-  background: rgba(79, 209, 197, 0.1);
-}
-
-/* ---- Claude Setup Viewer ---- */
-
-.claude-setup-layout {
-  display: flex;
-  height: 100%;
-  overflow: hidden;
-}
-
-.claude-setup-sidebar {
-  width: 180px;
-  flex-shrink: 0;
-  overflow-y: auto;
-  border-right: 1px solid var(--border-default);
-  background: var(--bg-panel);
-  display: flex;
-  flex-direction: column;
-}
-
-.claude-setup-sidebar-files {
-  flex: 1;
-  overflow-y: auto;
-}
-
-.claude-setup-category {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--color-amber);
-  padding: 8px 12px 4px;
-  background: rgba(212, 165, 116, 0.04);
-}
-
-.claude-setup-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 12px;
-  cursor: pointer;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-secondary);
-  border-left: 2px solid transparent;
-  transition: background var(--transition-fast), border-color var(--transition-fast);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.claude-setup-item:hover {
-  background: rgba(148, 163, 184, 0.06);
-}
-
-.claude-setup-item.selected {
-  background: rgba(79, 209, 197, 0.08);
-  border-left-color: var(--color-accent-light);
-  color: var(--text-primary);
-}
-
-.claude-setup-item-icon {
-  font-size: 11px;
-  width: 16px;
-  text-align: center;
-  flex-shrink: 0;
-}
-
-.claude-setup-item-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.claude-setup-main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.claude-setup-file-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 12px;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-default);
-  flex-shrink: 0;
-  gap: 8px;
-}
-
-.claude-setup-file-path {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-}
-
-.claude-setup-file-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-.claude-setup-file-lang {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  flex-shrink: 0;
-}
-
-.claude-setup-edit-btn {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-secondary);
-  background: rgba(148, 163, 184, 0.08);
-  border: 1px solid var(--border-default);
-  border-radius: 3px;
-  padding: 2px 8px;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.claude-setup-edit-btn:hover {
-  color: var(--color-accent-light);
-  border-color: var(--color-accent);
-}
-
-.claude-setup-edit-btn.active {
-  color: var(--color-accent-light);
-  border-color: var(--color-accent);
-  background: rgba(79, 209, 197, 0.1);
-}
-
-.claude-setup-content {
-  flex: 1;
-  overflow: auto;
-  margin: 0;
-  padding: 12px;
-  background: var(--bg-terminal);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--terminal-text);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.claude-setup-content code {
-  font-family: inherit;
-}
-
-/* Editor textarea (hidden by default, shown in edit mode) */
-.claude-setup-content-editor {
-  flex: 1;
-  display: none;
-  margin: 0;
-  padding: 12px;
-  background: var(--bg-terminal);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--terminal-text);
-  border: none;
-  outline: none;
-  resize: none;
-  tab-size: 2;
-  white-space: pre;
-  word-break: break-word;
-}
-
-.claude-setup-content-editor.active {
-  display: block;
-}
-
-/* ---- Edit / Danger Mode ---- */
-/* When editing Claude Code files, the entire panel shifts to red accents
-   to signal that these files control agent behavior and should only be
-   touched by experts. */
-
-.claude-editing .claude-setup-file-header {
-  border-bottom-color: rgba(239, 68, 68, 0.3);
-  background: rgba(239, 68, 68, 0.08);
-}
-
-.claude-editing .claude-setup-content-editor {
-  background: rgba(239, 68, 68, 0.04);
-  border-left: 2px solid rgba(239, 68, 68, 0.4);
-}
-
-.claude-editing .claude-setup-edit-btn {
-  color: var(--color-error);
-  border-color: var(--color-error);
-  background: rgba(239, 68, 68, 0.12);
-  animation: danger-pulse 2s ease-in-out infinite;
-}
-
-.claude-editing .claude-setup-save-bar {
-  border-top-color: rgba(239, 68, 68, 0.3);
-}
-
-.claude-editing .claude-setup-save-btn {
-  background: var(--color-error);
-}
-
-.claude-editing .claude-setup-save-btn:hover {
-  background: #dc2626;
-}
-
-@keyframes danger-pulse {
-  0%, 100% { box-shadow: none; }
-  50% { box-shadow: 0 0 6px rgba(239, 68, 68, 0.3); }
-}
-
-.claude-setup-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.claude-setup-loading,
-.claude-setup-error {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 32px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.claude-setup-error {
-  color: var(--color-error);
-}
-
-/* ---- Claude Setup Save Bar ---- */
-
-.claude-setup-save-bar {
-  display: none;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 16px;
-  background: var(--bg-secondary);
-  border-top: 1px solid var(--border-default);
-  flex-shrink: 0;
-}
-
-.claude-setup-save-bar.visible {
-  display: flex;
-}
-
-.claude-setup-save-bar .claude-setup-status {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.claude-setup-save-btn {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--bg-primary);
-  background: var(--color-accent-light);
-  border: none;
-  border-radius: 3px;
-  padding: 5px 14px;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.claude-setup-save-btn:hover {
-  background: var(--color-accent);
-}
-
-.claude-setup-save-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-/* ---- Claude Setup Create Button ---- */
-
-.claude-setup-create-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  width: 100%;
-  padding: 6px 12px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
-  background: transparent;
-  border: none;
-  border-top: 1px solid var(--border-default);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  flex-shrink: 0;
-}
-
-.claude-setup-create-btn:hover {
-  color: var(--color-accent-light);
-  background: rgba(79, 209, 197, 0.06);
-}
-
-/* ---- Create File Form ---- */
-
-.claude-setup-create-form {
-  display: none;
-  padding: 8px 12px;
-  border-top: 1px solid var(--border-default);
-  background: var(--bg-secondary);
-  flex-shrink: 0;
-}
-
-.claude-setup-create-form.active {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.claude-setup-create-form select,
-.claude-setup-create-form input {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-default);
-  border-radius: 3px;
-  color: var(--text-primary);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  padding: 4px 8px;
-  outline: none;
-  width: 100%;
-}
-
-.claude-setup-create-form select:focus,
-.claude-setup-create-form input:focus {
-  border-color: var(--color-accent);
-}
-
-.claude-setup-create-actions {
-  display: flex;
-  gap: 6px;
-  justify-content: flex-end;
-}
-
-.claude-setup-create-actions button {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  border-radius: 3px;
-  padding: 3px 10px;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.claude-setup-create-cancel {
-  color: var(--text-muted);
-  background: transparent;
-  border: 1px solid var(--border-default);
-}
-
-.claude-setup-create-cancel:hover {
-  color: var(--text-primary);
-  border-color: var(--text-secondary);
-}
-
-.claude-setup-create-submit {
-  color: var(--bg-primary);
-  background: var(--color-accent-light);
-  border: none;
-}
-
-.claude-setup-create-submit:hover {
-  background: var(--color-accent);
-}
-
-/* ---- View/Raw Toggle Buttons ---- */
-
-.claude-setup-mode-btn {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
-  background: transparent;
-  border: 1px solid var(--border-default);
-  padding: 2px 8px;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.claude-setup-mode-btn:first-of-type {
-  border-radius: 3px 0 0 3px;
-}
-
-.claude-setup-mode-btn:nth-of-type(2) {
-  border-radius: 0 3px 3px 0;
-  border-left: none;
-}
-
-.claude-setup-mode-btn:hover {
-  color: var(--color-accent-light);
-  border-color: var(--color-accent);
-}
-
-.claude-setup-mode-btn.active {
-  color: var(--color-accent-light);
-  border-color: var(--color-accent);
-  background: rgba(79, 209, 197, 0.1);
-}
-
-/* ---- Raw Pre/Code (syntax highlighted) ---- */
-
-.claude-setup-raw-pre {
-  margin: 0;
-  padding: 0;
-  background: transparent;
-  font-family: inherit;
-  font-size: inherit;
-  line-height: inherit;
-}
-
-.claude-setup-raw-pre code {
-  font-family: inherit;
-  background: transparent;
-}
-
-/* Override highlight.js background to match terminal */
-.claude-setup-content .hljs {
-  background: transparent;
-  padding: 0;
-}
-
-/* ---- Rendered Markdown ---- */
-
-.claude-md-rendered {
-  padding: 4px 0;
-  color: var(--text-primary);
-  line-height: 1.7;
-}
-
-.claude-md-rendered h1,
-.claude-md-rendered h2,
-.claude-md-rendered h3,
-.claude-md-rendered h4,
-.claude-md-rendered h5,
-.claude-md-rendered h6 {
-  font-family: var(--font-display);
-  color: var(--color-accent-light);
-  margin: 1.2em 0 0.4em;
-  line-height: 1.3;
-}
-
-.claude-md-rendered h1 {
-  font-size: 18px;
-  font-weight: 700;
-  border-bottom: 1px solid var(--border-accent);
-  padding-bottom: 6px;
-}
-
-.claude-md-rendered h2 {
-  font-size: 15px;
-  font-weight: 600;
-  border-bottom: 1px solid var(--border-default);
-  padding-bottom: 4px;
-}
-
-.claude-md-rendered h3 {
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.claude-md-rendered h4,
-.claude-md-rendered h5,
-.claude-md-rendered h6 {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-secondary);
-}
-
-.claude-md-rendered p {
-  margin: 0.6em 0;
-  font-size: 12px;
-}
-
-.claude-md-rendered ul,
-.claude-md-rendered ol {
-  margin: 0.5em 0;
-  padding-left: 1.6em;
-  font-size: 12px;
-}
-
-.claude-md-rendered li {
-  margin: 0.2em 0;
-}
-
-.claude-md-rendered li::marker {
-  color: var(--text-muted);
-}
-
-.claude-md-rendered a {
-  color: var(--color-accent-light);
-  text-decoration: none;
-  border-bottom: 1px solid rgba(79, 209, 197, 0.3);
-  transition: border-color var(--transition-fast);
-}
-
-.claude-md-rendered a:hover {
-  border-bottom-color: var(--color-accent-light);
-}
-
-.claude-md-rendered code {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  background: rgba(148, 163, 184, 0.1);
-  border: 1px solid var(--border-default);
-  border-radius: 3px;
-  padding: 1px 4px;
-  color: var(--color-amber-light);
-}
-
-.claude-md-rendered pre {
-  margin: 0.8em 0;
-  padding: 10px 12px;
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid var(--border-default);
-  border-radius: 4px;
-  overflow-x: auto;
-  font-size: 11px;
-  line-height: 1.5;
-}
-
-.claude-md-rendered pre code {
-  background: transparent;
-  border: none;
-  padding: 0;
-  color: var(--terminal-text);
-  font-size: inherit;
-}
-
-.claude-md-rendered blockquote {
-  margin: 0.8em 0;
-  padding: 6px 12px;
-  border-left: 3px solid var(--color-accent);
-  background: rgba(79, 209, 197, 0.04);
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-
-.claude-md-rendered hr {
-  border: none;
-  border-top: 1px solid var(--border-default);
-  margin: 1em 0;
-}
-
-.claude-md-rendered table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 0.8em 0;
-  font-size: 11px;
-}
-
-.claude-md-rendered th,
-.claude-md-rendered td {
-  border: 1px solid var(--border-default);
-  padding: 4px 8px;
-  text-align: left;
-}
-
-.claude-md-rendered th {
-  background: var(--bg-secondary);
-  color: var(--color-accent-light);
-  font-weight: 500;
-}
-
-.claude-md-rendered strong {
-  color: var(--text-primary);
-  font-weight: 600;
-}
-
-.claude-md-rendered em {
-  color: var(--text-secondary);
-  font-style: italic;
+  background: var(--accent-tint-10);
 }
 
 /* ---- MCP Server Tree View ---- */
@@ -851,7 +251,7 @@ body.drawer-resizing {
   margin: 2px 0;
   border: 1px solid var(--border-default);
   border-radius: 4px;
-  background: rgba(148, 163, 184, 0.03);
+  background: var(--neutral-tint-03);
   overflow: hidden;
 }
 
@@ -884,7 +284,7 @@ body.drawer-resizing {
 }
 
 .mcp-server-header:hover {
-  background: rgba(148, 163, 184, 0.08);
+  background: var(--neutral-tint-08);
 }
 
 .mcp-server-header::before {
@@ -908,7 +308,7 @@ body.drawer-resizing {
 
 .mcp-status-active {
   background: var(--color-success);
-  box-shadow: 0 0 4px rgba(34, 197, 94, 0.4);
+  box-shadow: 0 0 4px var(--success-tint-40);
 }
 
 .mcp-status-unknown {
@@ -928,7 +328,7 @@ body.drawer-resizing {
   align-items: flex-start;
   gap: 12px;
   padding: 4px 0;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.06);
+  border-bottom: 1px solid var(--neutral-tint-06);
 }
 
 .mcp-row:last-child {
@@ -956,7 +356,7 @@ body.drawer-resizing {
 }
 
 .mcp-row-value code {
-  background: rgba(148, 163, 184, 0.08);
+  background: var(--neutral-tint-08);
   padding: 1px 4px;
   border-radius: 2px;
   font-size: 11px;
@@ -972,7 +372,7 @@ body.drawer-resizing {
 
 .mcp-arg {
   display: inline-block;
-  background: rgba(148, 163, 184, 0.08);
+  background: var(--neutral-tint-08);
   border: 1px solid var(--border-default);
   border-radius: 3px;
   padding: 1px 6px;
@@ -1008,7 +408,7 @@ body.drawer-resizing {
 
 .mcp-type-badge {
   display: inline-block;
-  background: rgba(79, 209, 197, 0.1);
+  background: var(--accent-tint-10);
   border: 1px solid var(--border-accent);
   border-radius: 3px;
   padding: 1px 6px;
@@ -1037,7 +437,7 @@ body.drawer-resizing {
   margin: 6px 0;
   border: 1px solid var(--border-default);
   border-radius: 4px;
-  background: rgba(148, 163, 184, 0.03);
+  background: var(--neutral-tint-03);
   overflow: hidden;
 }
 
@@ -1077,13 +477,13 @@ body.drawer-resizing {
 }
 
 .json-section-header:hover {
-  background: rgba(148, 163, 184, 0.08);
+  background: var(--neutral-tint-08);
 }
 
 .json-count {
   font-size: 9px;
   color: var(--text-muted);
-  background: rgba(148, 163, 184, 0.1);
+  background: var(--neutral-tint-10);
   border-radius: 8px;
   padding: 0 6px;
   margin-left: 4px;
@@ -1110,7 +510,7 @@ body.drawer-resizing {
   font-size: 10px;
   line-height: 1.5;
   color: var(--text-secondary);
-  background: rgba(0, 0, 0, 0.2);
+  background: var(--overlay-black-20);
   border-radius: 3px;
   padding: 4px 8px;
   margin-top: 2px;
@@ -1124,7 +524,7 @@ body.drawer-resizing {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: var(--overlay-black-70);
   z-index: 200;
   display: flex;
   align-items: center;
@@ -1139,9 +539,9 @@ body.drawer-resizing {
 
 .settings-warning-dialog {
   background: var(--bg-primary);
-  border: 1px solid rgba(239, 68, 68, 0.4);
+  border: 1px solid var(--error-tint-40);
   border-radius: 8px;
-  box-shadow: 0 0 40px rgba(239, 68, 68, 0.15), 0 8px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-error-dialog);
   max-width: 420px;
   width: 90vw;
   padding: 24px;
@@ -1217,24 +617,12 @@ body.drawer-resizing {
 
 .settings-warning-proceed {
   color: var(--text-primary);
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid rgba(239, 68, 68, 0.4);
+  background: var(--error-tint-15);
+  border: 1px solid var(--error-tint-40);
 }
 
 .settings-warning-proceed:hover {
-  background: rgba(239, 68, 68, 0.25);
+  background: var(--error-tint-25);
   border-color: var(--color-error);
 }
 
-/* ---- Parse Error ---- */
-
-.claude-parse-error {
-  padding: 8px 12px;
-  background: rgba(239, 68, 68, 0.08);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  border-radius: 4px;
-  color: var(--color-error);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  margin-bottom: 8px;
-}

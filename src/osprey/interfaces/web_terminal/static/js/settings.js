@@ -32,7 +32,7 @@ const BOOLEAN_FIELDS = new Set([
  */
 export function initSettings() {
   const drawer = document.getElementById('settings-drawer');
-  agentPanel = document.getElementById('tab-agent');
+  agentPanel = document.getElementById('tab-config');
   if (!drawer || !agentPanel) return;
 
   // Load config when agent tab becomes active (covers both drawer open and tab switch)

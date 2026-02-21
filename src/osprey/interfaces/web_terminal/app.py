@@ -110,6 +110,58 @@ def _launch_deplot_server(app: FastAPI) -> None:
         app.state.deplot_server_url = None
 
 
+def _launch_monitoring_stack(app: FastAPI) -> None:
+    """Auto-launch the OTEL monitoring stack if configured."""
+    try:
+        from osprey.mcp_server.common import load_osprey_config
+        from osprey.interfaces.monitoring.launcher import ensure_monitoring_stack
+
+        config = load_osprey_config()
+        mon_config = config.get("monitoring", {})
+        grafana = mon_config.get("grafana", {})
+        host = grafana.get("host", "127.0.0.1")
+        port = grafana.get("port", 8091)
+
+        app.state.monitoring_server_url = f"http://{host}:{port}"
+
+        # OTEL env vars for PTY injection
+        otel = mon_config.get("otel_collector", {})
+        app.state.otel_env = {
+            "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+            "OTEL_METRICS_EXPORTER": "otlp",
+            "OTEL_LOGS_EXPORTER": "otlp",
+            "OTEL_EXPORTER_OTLP_PROTOCOL": "grpc",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": (
+                f"http://{otel.get('host', '127.0.0.1')}:{otel.get('grpc_port', 4317)}"
+            ),
+            "OTEL_METRIC_EXPORT_INTERVAL": "15000",
+        }
+
+        ensure_monitoring_stack()
+
+        # Verify Grafana is actually reachable before advertising the URL
+        import urllib.request as _urllib
+
+        try:
+            req = _urllib.Request(f"http://{host}:{port}/api/health", method="GET")
+            with _urllib.urlopen(req, timeout=2) as resp:
+                if resp.status == 200:
+                    logger.info("Monitoring stack available at %s", app.state.monitoring_server_url)
+                else:
+                    raise ConnectionError("Grafana not healthy")
+        except Exception:
+            logger.warning(
+                "Monitoring stack not available (binaries installed? "
+                "Run: osprey monitoring install)"
+            )
+            app.state.monitoring_server_url = None
+            app.state.otel_env = {}
+    except Exception:
+        logger.warning("Could not auto-launch monitoring stack", exc_info=True)
+        app.state.monitoring_server_url = None
+        app.state.otel_env = {}
+
+
 def _launch_cui_server(app: FastAPI) -> None:
     """Auto-launch the CUI server subprocess if configured."""
     try:
@@ -204,6 +256,9 @@ def _create_lifespan(
         # Auto-launch the DePlot graph extraction service
         _launch_deplot_server(app)
 
+        # Auto-launch the OTEL monitoring stack
+        _launch_monitoring_stack(app)
+
         yield
 
         app.state.watcher.stop()
@@ -215,6 +270,14 @@ def _create_lifespan(
             from osprey.interfaces.cui.launcher import stop_cui_server
 
             stop_cui_server()
+        except Exception:
+            pass
+
+        # Stop monitoring stack subprocesses
+        try:
+            from osprey.interfaces.monitoring.launcher import stop_monitoring_stack
+
+            stop_monitoring_stack()
         except Exception:
             pass
 
