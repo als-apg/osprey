@@ -1,4 +1,4 @@
-"""Tests for cf_hier_build_channels tool."""
+"""Tests for build_channels tool."""
 
 import json
 from unittest.mock import MagicMock, PropertyMock, patch
@@ -34,10 +34,10 @@ def test_build_channels_happy_path(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.hierarchical.tools.build_channels import (
-            cf_hier_build_channels,
+            build_channels,
         )
 
-        fn = get_tool_fn(cf_hier_build_channels)
+        fn = get_tool_fn(build_channels)
         selections = {"system": "SR", "family": "BPM", "device": ["01", "02"]}
         result = fn(selections=selections)
     data = json.loads(result)
@@ -62,10 +62,10 @@ def test_build_channels_value_error(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.hierarchical.tools.build_channels import (
-            cf_hier_build_channels,
+            build_channels,
         )
 
-        fn = get_tool_fn(cf_hier_build_channels)
+        fn = get_tool_fn(build_channels)
         result = fn(selections={})
     data = json.loads(result)
     assert data["error"] is True
@@ -84,10 +84,10 @@ def test_build_channels_internal_error(tmp_path, monkeypatch):
         side_effect=RuntimeError("db crashed"),
     ):
         from osprey.services.channel_finder.mcp.hierarchical.tools.build_channels import (
-            cf_hier_build_channels,
+            build_channels,
         )
 
-        fn = get_tool_fn(cf_hier_build_channels)
+        fn = get_tool_fn(build_channels)
         result = fn(selections={"system": "SR"})
     data = json.loads(result)
     assert data["error"] is True

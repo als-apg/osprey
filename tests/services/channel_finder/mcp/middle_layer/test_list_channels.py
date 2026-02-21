@@ -1,4 +1,4 @@
-"""Tests for cf_ml_list_channels tool."""
+"""Tests for list_channels tool."""
 
 import json
 from unittest.mock import MagicMock, PropertyMock, patch
@@ -33,10 +33,10 @@ def test_list_channels_returns_channels(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.middle_layer.tools.list_channels import (
-            cf_ml_list_channels,
+            list_channels,
         )
 
-        fn = get_tool_fn(cf_ml_list_channels)
+        fn = get_tool_fn(list_channels)
         result = fn(system="SR", family="BPM", field="Monitor")
 
     data = json.loads(result)
@@ -57,10 +57,10 @@ def test_list_channels_with_subfield_and_filters(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.middle_layer.tools.list_channels import (
-            cf_ml_list_channels,
+            list_channels,
         )
 
-        fn = get_tool_fn(cf_ml_list_channels)
+        fn = get_tool_fn(list_channels)
         result = fn(
             system="SR",
             family="BPM",
@@ -88,10 +88,10 @@ def test_list_channels_validation_error(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.middle_layer.tools.list_channels import (
-            cf_ml_list_channels,
+            list_channels,
         )
 
-        fn = get_tool_fn(cf_ml_list_channels)
+        fn = get_tool_fn(list_channels)
         result = fn(system="SR", family="BPM", field="Bad")
 
     data = json.loads(result)
@@ -112,10 +112,10 @@ def test_list_channels_internal_error(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.middle_layer.tools.list_channels import (
-            cf_ml_list_channels,
+            list_channels,
         )
 
-        fn = get_tool_fn(cf_ml_list_channels)
+        fn = get_tool_fn(list_channels)
         result = fn(system="SR", family="BPM", field="Monitor")
 
     data = json.loads(result)

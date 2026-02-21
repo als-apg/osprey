@@ -318,7 +318,7 @@ If your tool writes to hardware or has safety implications, add hooks in `.claud
       {
         "matcher": "mcp__my-server__*",
         "hooks": [
-          { "command": ".claude/hooks/osprey_audit.py" }
+          { "command": ".claude/hooks/osprey_error_guidance.py" }
         ]
       }
     ]

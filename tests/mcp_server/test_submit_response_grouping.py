@@ -9,6 +9,7 @@ import json
 
 import pytest
 
+from osprey.mcp_server.artifact_store import initialize_artifact_store, reset_artifact_store
 from osprey.mcp_server.data_context import DataContext, initialize_data_context
 from osprey.mcp_server.workspace.tools.submit_response import submit_response
 
@@ -18,7 +19,9 @@ _fn = submit_response.fn if hasattr(submit_response, "fn") else submit_response
 @pytest.fixture
 def workspace(tmp_path):
     initialize_data_context(workspace_root=tmp_path)
-    return tmp_path
+    initialize_artifact_store(workspace_root=tmp_path)
+    yield tmp_path
+    reset_artifact_store()
 
 
 class TestSubmitResponseGrouping:

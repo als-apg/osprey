@@ -1,4 +1,4 @@
-"""Tests for the ariel_sql_query MCP tool and sql_query validation."""
+"""Tests for the sql_query MCP tool and sql_query validation."""
 
 import json
 from unittest.mock import AsyncMock, patch
@@ -101,14 +101,14 @@ class TestValidateSqlQuery:
 
 
 # ---------------------------------------------------------------------------
-# ariel_sql_query MCP tool tests
+# sql_query MCP tool tests
 # ---------------------------------------------------------------------------
 
 
-def _get_ariel_sql_query():
-    from osprey.interfaces.ariel.mcp.tools.sql_query import ariel_sql_query
+def _get_sql_query():
+    from osprey.interfaces.ariel.mcp.tools.sql_query import sql_query
 
-    return get_tool_fn(ariel_sql_query)
+    return get_tool_fn(sql_query)
 
 
 def _setup_registry(tmp_path, monkeypatch):
@@ -141,7 +141,7 @@ async def test_sql_query_valid(tmp_path, monkeypatch):
             new=AsyncMock(return_value=mock_rows),
         ),
     ):
-        fn = _get_ariel_sql_query()
+        fn = _get_sql_query()
         result = await fn(query="SELECT entry_id, author FROM enhanced_entries LIMIT 2")
 
     data = json.loads(result)
@@ -153,7 +153,7 @@ async def test_sql_query_valid(tmp_path, monkeypatch):
 @pytest.mark.unit
 async def test_sql_query_rejected_dml():
     """DML queries return validation error without touching the database."""
-    fn = _get_ariel_sql_query()
+    fn = _get_sql_query()
     result = await fn(query="INSERT INTO enhanced_entries VALUES ('x')")
 
     data = json.loads(result)
@@ -165,7 +165,7 @@ async def test_sql_query_rejected_dml():
 @pytest.mark.unit
 async def test_sql_query_empty():
     """Empty query returns validation error."""
-    fn = _get_ariel_sql_query()
+    fn = _get_sql_query()
     result = await fn(query="")
 
     data = json.loads(result)
@@ -193,7 +193,7 @@ async def test_sql_query_row_limit(tmp_path, monkeypatch):
             new=mock_sql,
         ),
     ):
-        fn = _get_ariel_sql_query()
+        fn = _get_sql_query()
         await fn(query="SELECT * FROM enhanced_entries", max_rows=500)
 
     # Tool passes max_rows through; capping happens inside sql_query()
@@ -218,7 +218,7 @@ async def test_sql_query_service_error(tmp_path, monkeypatch):
             new=AsyncMock(side_effect=RuntimeError("Connection refused")),
         ),
     ):
-        fn = _get_ariel_sql_query()
+        fn = _get_sql_query()
         result = await fn(query="SELECT * FROM enhanced_entries")
 
     data = json.loads(result)

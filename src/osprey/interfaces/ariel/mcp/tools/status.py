@@ -1,4 +1,4 @@
-"""MCP tool: ariel_status — report ARIEL service health and statistics."""
+"""MCP tool: status — report ARIEL service health and statistics."""
 
 import json
 import logging
@@ -10,7 +10,7 @@ logger = logging.getLogger("osprey.interfaces.ariel.mcp.tools.status")
 
 
 @mcp.tool()
-async def ariel_status() -> str:
+async def status() -> str:
     """Get ARIEL service status including health, database connectivity,
     entry counts, embedding tables, and enabled modules.
 
@@ -50,7 +50,7 @@ async def ariel_status() -> str:
         )
 
     except Exception as exc:
-        logger.exception("ariel_status failed")
+        logger.exception("status failed")
         return json.dumps(
             make_error(
                 "internal_error",

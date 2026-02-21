@@ -1,4 +1,4 @@
-"""Tests for the ariel_capabilities MCP tool."""
+"""Tests for the capabilities MCP tool."""
 
 import json
 
@@ -8,10 +8,10 @@ from osprey.interfaces.ariel.mcp.registry import initialize_ariel_registry
 from tests.interfaces.ariel.mcp.conftest import get_tool_fn
 
 
-def _get_ariel_capabilities():
-    from osprey.interfaces.ariel.mcp.tools.capabilities import ariel_capabilities
+def _get_capabilities():
+    from osprey.interfaces.ariel.mcp.tools.capabilities import capabilities
 
-    return get_tool_fn(ariel_capabilities)
+    return get_tool_fn(capabilities)
 
 
 def _setup_registry(tmp_path, monkeypatch):
@@ -47,7 +47,7 @@ async def test_capabilities_returns_modules(tmp_path, monkeypatch):
     """Capabilities returns enabled modules and pipelines."""
     _setup_registry(tmp_path, monkeypatch)
 
-    fn = _get_ariel_capabilities()
+    fn = _get_capabilities()
     result = await fn()
 
     data = json.loads(result)
@@ -64,7 +64,7 @@ async def test_capabilities_includes_search_modes(tmp_path, monkeypatch):
     """Capabilities includes all search mode enum values."""
     _setup_registry(tmp_path, monkeypatch)
 
-    fn = _get_ariel_capabilities()
+    fn = _get_capabilities()
     result = await fn()
 
     data = json.loads(result)
@@ -79,7 +79,7 @@ async def test_capabilities_includes_reasoning(tmp_path, monkeypatch):
     """Capabilities includes reasoning configuration."""
     _setup_registry(tmp_path, monkeypatch)
 
-    fn = _get_ariel_capabilities()
+    fn = _get_capabilities()
     result = await fn()
 
     data = json.loads(result)
@@ -102,5 +102,5 @@ async def test_capabilities_no_registry_import():
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             if isinstance(node, ast.ImportFrom) and node.module:
                 assert not node.module.startswith("osprey.registry"), (
-                    "ariel_capabilities must NOT import from osprey.registry"
+                    "capabilities must NOT import from osprey.registry"
                 )

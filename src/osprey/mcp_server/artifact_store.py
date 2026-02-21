@@ -5,7 +5,7 @@ Claude during analysis sessions.  Artifacts are stored in
 ``osprey-workspace/artifacts/`` and served by the Artifact Server gallery.
 
 Two entry points create artifacts:
-  1. ``save_artifact()`` — injected into ``python_execute`` namespace
+  1. ``save_artifact()`` — injected into ``execute`` namespace
   2. ``artifact_save`` — standalone MCP tool for files / inline content
 
 This module provides the low-level storage layer used by both.
@@ -62,6 +62,8 @@ class ArtifactEntry:
     timestamp: str
     tool_source: str
     metadata: dict[str, Any] = field(default_factory=dict)
+    highlighted: bool = False
+    pinned: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -74,6 +76,8 @@ class ArtifactEntry:
             "title": self.title,
             "artifact_type": self.artifact_type,
             "size_bytes": self.size_bytes,
+            "highlighted": self.highlighted,
+            "pinned": self.pinned,
         }
         if gallery_url:
             resp["gallery_url"] = gallery_url
@@ -192,6 +196,9 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
     _index_filename = "artifacts.json"
 
     def _entry_from_dict(self, d: dict) -> ArtifactEntry:
+        # Gracefully handle old index files missing highlighted/pinned
+        d.setdefault("highlighted", False)
+        d.setdefault("pinned", False)
         return ArtifactEntry(**d)
 
     def _entry_to_dict(self, entry: ArtifactEntry) -> dict:
@@ -216,6 +223,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         mime_type: str = "application/octet-stream",
         tool_source: str = "unknown",
         metadata: dict[str, Any] | None = None,
+        highlighted: bool = True,
     ) -> ArtifactEntry:
         """Low-level save: write raw bytes to disk and register in the index."""
         with self._with_index_lock():
@@ -236,6 +244,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
                 timestamp=datetime.now(UTC).isoformat(),
                 tool_source=tool_source,
                 metadata=metadata or {},
+                highlighted=highlighted,
             )
             self._entries.append(entry)
             self._save_index()
@@ -258,8 +267,9 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         title: str,
         description: str = "",
         artifact_type: str | None = None,
-        tool_source: str = "python_execute",
+        tool_source: str = "execute",
         metadata: dict[str, Any] | None = None,
+        highlighted: bool = True,
     ) -> ArtifactEntry:
         """Smart-serialize a Python object and save it.
 
@@ -276,6 +286,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             mime_type=mime,
             tool_source=tool_source,
             metadata=metadata,
+            highlighted=highlighted,
         )
 
     def save_from_path(
@@ -286,6 +297,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         artifact_type: str | None = None,
         tool_source: str = "artifact_save",
         metadata: dict[str, Any] | None = None,
+        highlighted: bool = True,
     ) -> ArtifactEntry:
         """Copy an existing file into the artifact store."""
         source = Path(source_path)
@@ -305,22 +317,49 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             mime_type=mime,
             tool_source=tool_source,
             metadata=metadata,
+            highlighted=highlighted,
         )
 
     def list_entries(
         self,
         type_filter: str | None = None,
         search: str | None = None,
+        highlighted: bool | None = None,
+        pinned: bool | None = None,
     ) -> list[ArtifactEntry]:
         """Return artifact entries, optionally filtered."""
         self._refresh_if_stale()
         entries = list(self._entries)
         if type_filter:
             entries = [e for e in entries if e.artifact_type == type_filter]
+        if highlighted is not None:
+            entries = [e for e in entries if e.highlighted == highlighted]
+        if pinned is not None:
+            entries = [e for e in entries if e.pinned == pinned]
         if search:
             q = search.lower()
             entries = [e for e in entries if q in e.title.lower() or q in e.description.lower()]
         return entries
+
+    def set_pinned(self, artifact_id: str, pinned: bool = True) -> ArtifactEntry | None:
+        """Toggle the pinned flag on an artifact. Returns the updated entry or None."""
+        with self._with_index_lock():
+            for e in self._entries:
+                if e.id == artifact_id:
+                    e.pinned = pinned
+                    self._save_index()
+                    return e
+        return None
+
+    def set_highlighted(self, artifact_id: str, highlighted: bool = True) -> ArtifactEntry | None:
+        """Toggle the highlighted flag on an artifact. Returns the updated entry or None."""
+        with self._with_index_lock():
+            for e in self._entries:
+                if e.id == artifact_id:
+                    e.highlighted = highlighted
+                    self._save_index()
+                    return e
+        return None
 
     def get_entry(self, artifact_id: str) -> ArtifactEntry | None:
         self._refresh_if_stale()

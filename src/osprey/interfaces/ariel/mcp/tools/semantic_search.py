@@ -1,4 +1,4 @@
-"""MCP tool: ariel_semantic_search — semantic similarity search the ARIEL logbook.
+"""MCP tool: semantic_search — semantic similarity search the ARIEL logbook.
 
 PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code.
   Facility-customizable: similarity threshold guidance, embedding model info
@@ -19,7 +19,7 @@ logger = logging.getLogger("osprey.interfaces.ariel.mcp.tools.semantic_search")
 
 
 @mcp.tool()
-async def ariel_semantic_search(
+async def semantic_search(
     query: str,
     max_results: int = 10,
     start_date: str | None = None,
@@ -107,7 +107,7 @@ async def ariel_semantic_search(
         return json.dumps(response, default=str)
 
     except Exception as exc:
-        logger.exception("ariel_semantic_search failed")
+        logger.exception("semantic_search failed")
         return json.dumps(
             make_error(
                 "internal_error",

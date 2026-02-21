@@ -1,4 +1,4 @@
-"""MCP tool: cf_hier_hierarchy_info — get hierarchy structure information.
+"""MCP tool: hierarchy_info — get hierarchy structure information.
 
 PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code.
   Future: source from FrameworkPromptProvider.get_hierarchical_prompt_builder()
@@ -15,7 +15,7 @@ logger = logging.getLogger("osprey.services.channel_finder.mcp.hierarchical.tool
 
 
 @mcp.tool()
-def cf_hier_hierarchy_info() -> str:
+def hierarchy_info() -> str:
     """Get hierarchy structure information: level names, types, and naming pattern.
 
     Returns the hierarchy levels, their configuration (tree vs instances, optional),
@@ -38,7 +38,7 @@ def cf_hier_hierarchy_info() -> str:
         )
 
     except Exception as exc:
-        logger.exception("cf_hier_hierarchy_info failed")
+        logger.exception("hierarchy_info failed")
         return json.dumps(
             make_error(
                 "internal_error",

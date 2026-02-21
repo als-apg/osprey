@@ -1,4 +1,4 @@
-"""MCP tools: ariel_browse + ariel_filter_options — browse and filter logbook entries.
+"""MCP tools: browse + filter_options — browse and filter logbook entries.
 
 PROMPT-PROVIDER: Tool docstrings are static prompts visible to Claude Code.
   Future: source from FrameworkPromptProvider.get_logbook_search_prompt_builder()
@@ -15,7 +15,7 @@ logger = logging.getLogger("osprey.interfaces.ariel.mcp.tools.browse")
 
 
 @mcp.tool()
-async def ariel_browse(
+async def browse(
     page_size: int = 20,
     start_date: str | None = None,
     end_date: str | None = None,
@@ -78,7 +78,7 @@ async def ariel_browse(
         )
 
     except Exception as exc:
-        logger.exception("ariel_browse failed")
+        logger.exception("browse failed")
         return json.dumps(
             make_error(
                 "internal_error",
@@ -89,13 +89,13 @@ async def ariel_browse(
 
 
 @mcp.tool()
-async def ariel_filter_options(
+async def filter_options(
     field: str = "authors",
 ) -> str:
     """Get distinct values for a filterable field.
 
     Useful for discovering available authors or source systems
-    before filtering with ariel_browse or ariel_search.
+    before filtering with browse or keyword_search/semantic_search.
 
     Args:
         field: Field to get options for — "authors" or "source_systems".
@@ -134,7 +134,7 @@ async def ariel_filter_options(
         )
 
     except Exception as exc:
-        logger.exception("ariel_filter_options failed")
+        logger.exception("filter_options failed")
         return json.dumps(
             make_error(
                 "internal_error",

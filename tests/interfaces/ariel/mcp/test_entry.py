@@ -1,4 +1,4 @@
-"""Tests for ariel_entry_get and ariel_entry_create MCP tools."""
+"""Tests for entry_get and entry_create MCP tools."""
 
 import json
 from unittest.mock import AsyncMock, patch
@@ -9,16 +9,16 @@ from osprey.interfaces.ariel.mcp.registry import initialize_ariel_registry
 from tests.interfaces.ariel.mcp.conftest import get_tool_fn, make_mock_entry
 
 
-def _get_ariel_entry_get():
-    from osprey.interfaces.ariel.mcp.tools.entry import ariel_entry_get
+def _get_entry_get():
+    from osprey.interfaces.ariel.mcp.tools.entry import entry_get
 
-    return get_tool_fn(ariel_entry_get)
+    return get_tool_fn(entry_get)
 
 
-def _get_ariel_entry_create():
-    from osprey.interfaces.ariel.mcp.tools.entry import ariel_entry_create
+def _get_entry_create():
+    from osprey.interfaces.ariel.mcp.tools.entry import entry_create
 
-    return get_tool_fn(ariel_entry_create)
+    return get_tool_fn(entry_create)
 
 
 def _setup_registry(tmp_path, monkeypatch):
@@ -30,7 +30,7 @@ def _setup_registry(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# ariel_entry_get tests
+# entry_get tests
 # ---------------------------------------------------------------------------
 
 
@@ -48,7 +48,7 @@ async def test_entry_get_existing(tmp_path, monkeypatch):
         "osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_ariel_entry_get()
+        fn = _get_entry_get()
         result = await fn(entry_id="e1")
 
     data = json.loads(result)
@@ -69,7 +69,7 @@ async def test_entry_get_nonexistent(tmp_path, monkeypatch):
         "osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_ariel_entry_get()
+        fn = _get_entry_get()
         result = await fn(entry_id="nonexistent")
 
     data = json.loads(result)
@@ -80,7 +80,7 @@ async def test_entry_get_nonexistent(tmp_path, monkeypatch):
 @pytest.mark.unit
 async def test_entry_get_empty_id():
     """Empty entry_id returns validation error."""
-    fn = _get_ariel_entry_get()
+    fn = _get_entry_get()
     result = await fn(entry_id="")
 
     data = json.loads(result)
@@ -89,7 +89,7 @@ async def test_entry_get_empty_id():
 
 
 # ---------------------------------------------------------------------------
-# ariel_entry_create — direct mode (draft=False)
+# entry_create — direct mode (draft=False)
 # ---------------------------------------------------------------------------
 
 
@@ -105,7 +105,7 @@ async def test_entry_create_all_fields(tmp_path, monkeypatch):
         "osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_ariel_entry_create()
+        fn = _get_entry_create()
         result = await fn(
             subject="Test entry",
             details="Detailed description",
@@ -143,7 +143,7 @@ async def test_entry_create_minimal_fields(tmp_path, monkeypatch):
         "osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_ariel_entry_create()
+        fn = _get_entry_create()
         result = await fn(subject="Quick note", details="Something happened", draft=False)
 
     data = json.loads(result)
@@ -156,7 +156,7 @@ async def test_entry_create_minimal_fields(tmp_path, monkeypatch):
 @pytest.mark.unit
 async def test_entry_create_empty_subject():
     """Empty subject returns validation error."""
-    fn = _get_ariel_entry_create()
+    fn = _get_entry_create()
     result = await fn(subject="", details="some details")
 
     data = json.loads(result)
@@ -167,7 +167,7 @@ async def test_entry_create_empty_subject():
 @pytest.mark.unit
 async def test_entry_create_empty_details():
     """Empty details returns validation error."""
-    fn = _get_ariel_entry_create()
+    fn = _get_entry_create()
     result = await fn(subject="A subject", details="")
 
     data = json.loads(result)
@@ -192,7 +192,7 @@ async def test_entry_create_with_file_paths(tmp_path, monkeypatch):
         "osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_ariel_entry_create()
+        fn = _get_entry_create()
         result = await fn(
             subject="Test with attachment",
             details="Has a screenshot",
@@ -219,7 +219,7 @@ async def test_entry_create_with_invalid_file_path(tmp_path, monkeypatch):
     """Nonexistent file path returns validation error without creating entry."""
     _setup_registry(tmp_path, monkeypatch)
 
-    fn = _get_ariel_entry_create()
+    fn = _get_entry_create()
     result = await fn(
         subject="Test",
         details="Bad file",
@@ -241,7 +241,7 @@ async def test_entry_create_with_oversized_file(tmp_path, monkeypatch):
     big_file = tmp_path / "huge.bin"
     big_file.write_bytes(b"\x00" * (10 * 1024 * 1024 + 1))
 
-    fn = _get_ariel_entry_create()
+    fn = _get_entry_create()
     result = await fn(
         subject="Test",
         details="Big file",
@@ -267,7 +267,7 @@ async def test_entry_create_file_paths_none(tmp_path, monkeypatch):
         "osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_ariel_entry_create()
+        fn = _get_entry_create()
         result = await fn(
             subject="No attachments",
             details="Just text",
@@ -284,7 +284,7 @@ async def test_entry_create_file_paths_none(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# ariel_entry_create — draft mode (draft=True, the default)
+# entry_create — draft mode (draft=True, the default)
 # ---------------------------------------------------------------------------
 
 
@@ -296,7 +296,7 @@ async def test_entry_create_draft_default(tmp_path, monkeypatch):
     drafts_dir = tmp_path / "drafts"
     monkeypatch.setattr(entry_mod, "_get_drafts_dir", lambda: drafts_dir)
 
-    fn = _get_ariel_entry_create()
+    fn = _get_entry_create()
     result = await fn(subject="Beam lost", details="Beam lost at SR BM 4.3.2")
 
     data = json.loads(result)
@@ -321,7 +321,7 @@ async def test_entry_create_draft_all_fields(tmp_path, monkeypatch):
     drafts_dir = tmp_path / "drafts"
     monkeypatch.setattr(entry_mod, "_get_drafts_dir", lambda: drafts_dir)
 
-    fn = _get_ariel_entry_create()
+    fn = _get_entry_create()
     result = await fn(
         subject="Injection tuning",
         details="Adjusted kicker timing",
@@ -349,7 +349,7 @@ async def test_entry_create_draft_custom_web_url(tmp_path, monkeypatch):
     monkeypatch.setattr(entry_mod, "_get_drafts_dir", lambda: drafts_dir)
     monkeypatch.setenv("ARIEL_WEB_URL", "https://ariel.lbl.gov")
 
-    fn = _get_ariel_entry_create()
+    fn = _get_entry_create()
     result = await fn(subject="Test", details="Details")
 
     data = json.loads(result)
@@ -357,7 +357,7 @@ async def test_entry_create_draft_custom_web_url(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# ariel_entry_create — artifact_ids parameter
+# entry_create — artifact_ids parameter
 # ---------------------------------------------------------------------------
 
 
@@ -392,7 +392,7 @@ async def test_entry_create_with_artifact_ids_direct(tmp_path, monkeypatch):
             return_value=store,
         ),
     ):
-        fn = _get_ariel_entry_create()
+        fn = _get_entry_create()
         result = await fn(
             subject="Test with artifact",
             details="Has an artifact attachment",
@@ -419,7 +419,7 @@ async def test_entry_create_with_html_artifact_auto_converts(tmp_path, monkeypat
         artifact_type="html",
         title="Interactive Plot",
         mime_type="text/html",
-        tool_source="python_execute",
+        tool_source="execute",
     )
 
     # Mock convert_html_to_image to write a fake PNG
@@ -447,7 +447,7 @@ async def test_entry_create_with_html_artifact_auto_converts(tmp_path, monkeypat
             side_effect=fake_convert,
         ),
     ):
-        fn = _get_ariel_entry_create()
+        fn = _get_entry_create()
         result = await fn(
             subject="Test HTML conversion",
             details="Should auto-convert",
@@ -474,7 +474,7 @@ async def test_entry_create_with_markdown_artifact(tmp_path, monkeypatch):
         artifact_type="markdown",
         title="Report",
         mime_type="text/markdown",
-        tool_source="python_execute",
+        tool_source="execute",
     )
 
     async def fake_convert(html_path, output_path, **kwargs):
@@ -501,7 +501,7 @@ async def test_entry_create_with_markdown_artifact(tmp_path, monkeypatch):
             side_effect=fake_convert,
         ),
     ):
-        fn = _get_ariel_entry_create()
+        fn = _get_entry_create()
         result = await fn(
             subject="Test markdown conversion",
             details="Should convert md to png",
@@ -555,7 +555,7 @@ async def test_entry_create_with_unknown_mime_type_artifact(tmp_path, monkeypatc
             side_effect=fake_convert,
         ),
     ):
-        fn = _get_ariel_entry_create()
+        fn = _get_entry_create()
         result = await fn(
             subject="Test fallback conversion",
             details="Unknown MIME type should use text_to_png",
@@ -584,7 +584,7 @@ async def test_entry_create_with_invalid_artifact_id(tmp_path, monkeypatch):
         "osprey.mcp_server.artifact_store.get_artifact_store",
         return_value=store,
     ):
-        fn = _get_ariel_entry_create()
+        fn = _get_entry_create()
         result = await fn(
             subject="Test",
             details="Bad artifact",
@@ -621,7 +621,7 @@ async def test_entry_create_draft_with_artifact_ids(tmp_path, monkeypatch):
         "osprey.mcp_server.artifact_store.get_artifact_store",
         return_value=store,
     ):
-        fn = _get_ariel_entry_create()
+        fn = _get_entry_create()
         result = await fn(
             subject="Draft with artifact",
             details="Should have attachment_paths",
@@ -651,7 +651,7 @@ async def test_entry_create_draft_with_file_paths(tmp_path, monkeypatch):
     img = tmp_path / "screenshot.png"
     img.write_bytes(b"\x89PNG" + b"\x00" * 100)
 
-    fn = _get_ariel_entry_create()
+    fn = _get_entry_create()
     result = await fn(
         subject="Draft with file",
         details="Should attach the screenshot",
@@ -687,7 +687,7 @@ async def test_entry_create_draft_with_relative_file_path(tmp_path, monkeypatch)
     # chdir so relative path resolves
     monkeypatch.chdir(tmp_path)
 
-    fn = _get_ariel_entry_create()
+    fn = _get_entry_create()
     result = await fn(
         subject="Relative path test",
         details="Uses relative path",
@@ -717,7 +717,7 @@ async def test_entry_create_draft_with_invalid_file_path(tmp_path, monkeypatch):
     drafts_dir = tmp_path / "drafts"
     monkeypatch.setattr(entry_mod, "_get_drafts_dir", lambda: drafts_dir)
 
-    fn = _get_ariel_entry_create()
+    fn = _get_entry_create()
     result = await fn(
         subject="Bad file",
         details="File does not exist",
@@ -732,14 +732,14 @@ async def test_entry_create_draft_with_invalid_file_path(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# ariel_entries_by_ids tests
+# entries_by_ids tests
 # ---------------------------------------------------------------------------
 
 
-def _get_ariel_entries_by_ids():
-    from osprey.interfaces.ariel.mcp.tools.entry import ariel_entries_by_ids
+def _get_entries_by_ids():
+    from osprey.interfaces.ariel.mcp.tools.entry import entries_by_ids
 
-    return get_tool_fn(ariel_entries_by_ids)
+    return get_tool_fn(entries_by_ids)
 
 
 @pytest.mark.unit
@@ -759,7 +759,7 @@ async def test_entries_by_ids_batch_retrieval(tmp_path, monkeypatch):
         "osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_ariel_entries_by_ids()
+        fn = _get_entries_by_ids()
         result = await fn(entry_ids=["e1", "e2", "e3"])
 
     data = json.loads(result)
@@ -772,7 +772,7 @@ async def test_entries_by_ids_batch_retrieval(tmp_path, monkeypatch):
 @pytest.mark.unit
 async def test_entries_by_ids_empty_list():
     """Empty list returns validation error."""
-    fn = _get_ariel_entries_by_ids()
+    fn = _get_entries_by_ids()
     result = await fn(entry_ids=[])
 
     data = json.loads(result)
@@ -783,7 +783,7 @@ async def test_entries_by_ids_empty_list():
 @pytest.mark.unit
 async def test_entries_by_ids_max_limit_exceeded():
     """More than 50 IDs returns validation error."""
-    fn = _get_ariel_entries_by_ids()
+    fn = _get_entries_by_ids()
     result = await fn(entry_ids=[f"e{i}" for i in range(51)])
 
     data = json.loads(result)
@@ -804,7 +804,7 @@ async def test_entries_by_ids_service_error(tmp_path, monkeypatch):
         "osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_ariel_entries_by_ids()
+        fn = _get_entries_by_ids()
         result = await fn(entry_ids=["e1"])
 
     data = json.loads(result)

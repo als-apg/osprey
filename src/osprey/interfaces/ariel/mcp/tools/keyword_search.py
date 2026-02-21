@@ -1,4 +1,4 @@
-"""MCP tool: ariel_keyword_search — keyword search the ARIEL logbook.
+"""MCP tool: keyword_search — keyword search the ARIEL logbook.
 
 PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code.
   Facility-customizable: field prefix examples, operator guidance
@@ -19,7 +19,7 @@ logger = logging.getLogger("osprey.interfaces.ariel.mcp.tools.keyword_search")
 
 
 @mcp.tool()
-async def ariel_keyword_search(
+async def keyword_search(
     query: str,
     max_results: int = 10,
     start_date: str | None = None,
@@ -103,7 +103,7 @@ async def ariel_keyword_search(
         return json.dumps(response, default=str)
 
     except Exception as exc:
-        logger.exception("ariel_keyword_search failed")
+        logger.exception("keyword_search failed")
         return json.dumps(
             make_error(
                 "internal_error",

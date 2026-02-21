@@ -13,6 +13,9 @@ import { initDrawers } from './drawer.js';
 import { initSettings, loadConfig } from './settings.js';
 import { loadFileList } from './claude-setup.js';
 
+// Theme sync is handled by the inline <script> in <head> (index.html),
+// NOT here — so it has zero import dependencies and always registers.
+
 // Current view
 let currentView = 'search';
 

@@ -1,4 +1,4 @@
-"""Tests for the ariel_status MCP tool."""
+"""Tests for the status MCP tool."""
 
 import json
 from datetime import datetime
@@ -11,10 +11,10 @@ from osprey.services.ariel_search.models import ARIELStatusResult, EmbeddingTabl
 from tests.interfaces.ariel.mcp.conftest import get_tool_fn
 
 
-def _get_ariel_status():
-    from osprey.interfaces.ariel.mcp.tools.status import ariel_status
+def _get_status():
+    from osprey.interfaces.ariel.mcp.tools.status import status
 
-    return get_tool_fn(ariel_status)
+    return get_tool_fn(status)
 
 
 def _setup_registry(tmp_path, monkeypatch):
@@ -58,7 +58,7 @@ async def test_status_healthy(tmp_path, monkeypatch):
         "osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_ariel_status()
+        fn = _get_status()
         result = await fn()
 
     data = json.loads(result)
@@ -97,7 +97,7 @@ async def test_status_db_error(tmp_path, monkeypatch):
         "osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_ariel_status()
+        fn = _get_status()
         result = await fn()
 
     data = json.loads(result)
@@ -118,7 +118,7 @@ async def test_status_service_exception(tmp_path, monkeypatch):
         "osprey.interfaces.ariel.mcp.registry.ARIELMCPRegistry.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_ariel_status()
+        fn = _get_status()
         result = await fn()
 
     data = json.loads(result)

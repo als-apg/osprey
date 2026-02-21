@@ -1,4 +1,4 @@
-"""MCP tool: cf_ml_list_systems — list all systems in the channel database.
+"""MCP tool: list_systems — list all systems in the channel database.
 
 PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code.
   Future: source from FrameworkPromptProvider.get_middle_layer_prompt_builder()
@@ -15,7 +15,7 @@ logger = logging.getLogger("osprey.services.channel_finder.mcp.middle_layer.tool
 
 
 @mcp.tool()
-def cf_ml_list_systems() -> str:
+def list_systems() -> str:
     """List all systems in the channel database with their descriptions.
 
     Returns:
@@ -28,7 +28,7 @@ def cf_ml_list_systems() -> str:
         return json.dumps({"systems": systems, "total": len(systems)})
 
     except Exception as exc:
-        logger.exception("cf_ml_list_systems failed")
+        logger.exception("list_systems failed")
         return json.dumps(
             make_error(
                 "internal_error",

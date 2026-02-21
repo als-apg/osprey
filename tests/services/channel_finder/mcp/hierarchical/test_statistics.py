@@ -1,4 +1,4 @@
-"""Tests for cf_hier_statistics tool."""
+"""Tests for statistics tool."""
 
 import json
 from unittest.mock import MagicMock, PropertyMock, patch
@@ -37,10 +37,10 @@ def test_statistics_happy_path(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.hierarchical.tools.statistics import (
-            cf_hier_statistics,
+            statistics,
         )
 
-        fn = get_tool_fn(cf_hier_statistics)
+        fn = get_tool_fn(statistics)
         result = fn()
     data = json.loads(result)
     assert data["total_channels"] == 1500
@@ -60,10 +60,10 @@ def test_statistics_internal_error(tmp_path, monkeypatch):
         side_effect=RuntimeError("db not available"),
     ):
         from osprey.services.channel_finder.mcp.hierarchical.tools.statistics import (
-            cf_hier_statistics,
+            statistics,
         )
 
-        fn = get_tool_fn(cf_hier_statistics)
+        fn = get_tool_fn(statistics)
         result = fn()
     data = json.loads(result)
     assert data["error"] is True

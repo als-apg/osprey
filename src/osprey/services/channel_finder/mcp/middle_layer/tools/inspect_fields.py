@@ -1,4 +1,4 @@
-"""MCP tool: cf_ml_inspect_fields — inspect field structure of a device family.
+"""MCP tool: inspect_fields — inspect field structure of a device family.
 
 PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code.
   Future: source from FrameworkPromptProvider.get_middle_layer_prompt_builder()
@@ -16,7 +16,7 @@ logger = logging.getLogger("osprey.services.channel_finder.mcp.middle_layer.tool
 
 
 @mcp.tool()
-def cf_ml_inspect_fields(
+def inspect_fields(
     system: str,
     family: str,
     field: str | None = None,
@@ -46,13 +46,13 @@ def cf_ml_inspect_fields(
                 "validation_error",
                 str(exc),
                 [
-                    "Use cf_ml_list_systems to see available systems.",
-                    "Use cf_ml_list_families to see families in a system.",
+                    "Use list_systems to see available systems.",
+                    "Use list_families to see families in a system.",
                 ],
             )
         )
     except Exception as exc:
-        logger.exception("cf_ml_inspect_fields failed")
+        logger.exception("inspect_fields failed")
         return json.dumps(
             make_error(
                 "internal_error",

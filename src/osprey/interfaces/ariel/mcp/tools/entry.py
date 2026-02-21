@@ -1,4 +1,4 @@
-"""MCP tools: ariel_entry_get + ariel_entry_create — logbook entry CRUD.
+"""MCP tools: entry_get + entry_create — logbook entry CRUD.
 
 PROMPT-PROVIDER: Tool docstrings are static prompts visible to Claude Code.
   Future: source from FrameworkPromptProvider.get_logbook_search_prompt_builder()
@@ -65,7 +65,7 @@ async def _resolve_artifacts(artifact_ids: list[str]) -> list[str]:
 
 
 @mcp.tool()
-async def ariel_entry_get(
+async def entry_get(
     entry_id: str,
 ) -> str:
     """Get a single logbook entry by its ID.
@@ -97,7 +97,7 @@ async def ariel_entry_get(
                     f"Entry {entry_id} not found.",
                     [
                         "Check the entry_id is correct.",
-                        "Use ariel_search or ariel_browse to find valid entry IDs.",
+                        "Use keyword_search/semantic_search or browse to find valid entry IDs.",
                     ],
                 )
             )
@@ -121,7 +121,7 @@ async def ariel_entry_get(
         )
 
     except Exception as exc:
-        logger.exception("ariel_entry_get failed")
+        logger.exception("entry_get failed")
         return json.dumps(
             make_error(
                 "internal_error",
@@ -132,7 +132,7 @@ async def ariel_entry_get(
 
 
 @mcp.tool()
-async def ariel_entries_by_ids(
+async def entries_by_ids(
     entry_ids: list[str],
 ) -> str:
     """Get multiple logbook entries by their IDs in a single call.
@@ -185,7 +185,7 @@ async def ariel_entries_by_ids(
         )
 
     except Exception as exc:
-        logger.exception("ariel_entries_by_ids failed")
+        logger.exception("entries_by_ids failed")
         return json.dumps(
             make_error(
                 "internal_error",
@@ -196,7 +196,7 @@ async def ariel_entries_by_ids(
 
 
 @mcp.tool()
-async def ariel_entry_create(
+async def entry_create(
     subject: str,
     details: str,
     author: str | None = None,
@@ -340,7 +340,7 @@ async def ariel_entry_create(
                 }
             )
         except Exception as exc:
-            logger.exception("ariel_entry_create (draft) failed")
+            logger.exception("entry_create (draft) failed")
             return json.dumps(
                 make_error(
                     "internal_error",
@@ -405,7 +405,7 @@ async def ariel_entry_create(
         )
 
     except Exception as exc:
-        logger.exception("ariel_entry_create failed")
+        logger.exception("entry_create failed")
         return json.dumps(
             make_error(
                 "internal_error",

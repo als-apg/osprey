@@ -13,9 +13,9 @@ from tests.mcp_server.conftest import get_tool_fn
 
 
 def _get_python_execute():
-    from osprey.mcp_server.python_executor.tools.python_execute import python_execute
+    from osprey.mcp_server.python_executor.tools.python_execute import execute
 
-    return get_tool_fn(python_execute)
+    return get_tool_fn(execute)
 
 
 @pytest.mark.unit

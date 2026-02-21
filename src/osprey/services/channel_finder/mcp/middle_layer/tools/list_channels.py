@@ -1,4 +1,4 @@
-"""MCP tool: cf_ml_list_channels — get channel names for a system/family/field path.
+"""MCP tool: list_channels — get channel names for a system/family/field path.
 
 PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code.
   Future: source from FrameworkPromptProvider.get_middle_layer_prompt_builder()
@@ -16,7 +16,7 @@ logger = logging.getLogger("osprey.services.channel_finder.mcp.middle_layer.tool
 
 
 @mcp.tool()
-def cf_ml_list_channels(
+def list_channels(
     system: str,
     family: str,
     field: str,
@@ -56,14 +56,14 @@ def cf_ml_list_channels(
                 "validation_error",
                 str(exc),
                 [
-                    "Use cf_ml_list_systems to see available systems.",
-                    "Use cf_ml_list_families to see families in a system.",
-                    "Use cf_ml_inspect_fields to see available fields.",
+                    "Use list_systems to see available systems.",
+                    "Use list_families to see families in a system.",
+                    "Use inspect_fields to see available fields.",
                 ],
             )
         )
     except Exception as exc:
-        logger.exception("cf_ml_list_channels failed")
+        logger.exception("list_channels failed")
         return json.dumps(
             make_error(
                 "internal_error",

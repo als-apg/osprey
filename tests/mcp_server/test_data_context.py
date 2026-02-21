@@ -78,7 +78,7 @@ class TestDataContextSave:
         ctx = DataContext(workspace_root=tmp_path)
         e1 = _save_entry(ctx)
         e2 = _save_entry(ctx, tool="archiver_read")
-        e3 = _save_entry(ctx, tool="python_execute")
+        e3 = _save_entry(ctx, tool="execute")
 
         assert e1.id == 1
         assert e2.id == 2

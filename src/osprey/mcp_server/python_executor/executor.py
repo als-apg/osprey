@@ -1,4 +1,4 @@
-"""MCP execution adapter — bridges python_execute tool to existing execution infrastructure.
+"""MCP execution adapter — bridges execute tool to existing execution infrastructure.
 
 Delegates code execution to ContainerExecutor (Jupyter containers) or local subprocess
 with ExecutionWrapper, adding limits monkeypatch, process isolation, and timeout.
@@ -218,9 +218,7 @@ async def _execute_via_local(
             stderr=asyncio.subprocess.PIPE,
             cwd=str(project_root),
         )
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            proc.communicate(), timeout=timeout
-        )
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         stdout_text = stdout_bytes.decode("utf-8", errors="replace")
         stderr_text = stderr_bytes.decode("utf-8", errors="replace")
     except asyncio.TimeoutError:

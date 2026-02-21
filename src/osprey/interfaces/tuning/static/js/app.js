@@ -10,6 +10,9 @@ import { initOptimizationForm } from './optimization-form.js';
 import { initProgressDisplay } from './progress-display.js';
 import { initResultsViewer } from './results-viewer.js';
 
+// Theme sync is handled by the inline <script> in <head> (index.html),
+// NOT here — so it has zero import dependencies and always registers.
+
 // ---- Embedded Detection ----
 
 function checkEmbedded() {

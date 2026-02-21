@@ -2,6 +2,7 @@
 
 Covers:
   - Basic save to DataContext with context_entry_id returned
+  - Automatic artifact creation in the gallery
   - entry_ids persisted in data payload
   - Validation: empty title, empty content
   - Custom data_type passed through
@@ -11,6 +12,7 @@ import json
 
 import pytest
 
+from osprey.mcp_server.artifact_store import initialize_artifact_store, reset_artifact_store
 from osprey.mcp_server.data_context import initialize_data_context
 from osprey.mcp_server.workspace.tools.submit_response import submit_response
 
@@ -20,9 +22,11 @@ _fn = submit_response.fn if hasattr(submit_response, "fn") else submit_response
 
 @pytest.fixture
 def workspace(tmp_path):
-    """Initialize a temporary DataContext workspace."""
+    """Initialize a temporary DataContext + ArtifactStore workspace."""
     initialize_data_context(workspace_root=tmp_path)
-    return tmp_path
+    initialize_artifact_store(workspace_root=tmp_path)
+    yield tmp_path
+    reset_artifact_store()
 
 
 class TestSubmitResponse:
@@ -159,3 +163,77 @@ class TestSubmitResponse:
         assert payload["data"]["content"] == "Test markdown content"
         assert payload["data"]["data_type"] == "logbook_research"
         assert payload["data"]["entry_ids"] == ["e1"]
+
+    # ---- Artifact auto-registration tests ----
+
+    @pytest.mark.asyncio
+    async def test_submit_response_creates_artifact(self, workspace):
+        """submit_response should automatically create a gallery artifact."""
+        raw = await _fn(title="Beam Loss Analysis", content="Found 3 beam loss events.")
+        data = json.loads(raw)
+
+        assert data["status"] == "success"
+        assert "artifact_id" in data, "artifact_id missing from response"
+        assert "gallery_url" in data, "gallery_url missing from response"
+        assert len(data["artifact_id"]) == 12  # hex UUID prefix
+        assert data["artifact_highlighted"] is True
+        assert "already highlighted" in data["note"]
+
+    @pytest.mark.asyncio
+    async def test_artifact_is_markdown_file(self, workspace):
+        """The auto-created artifact should be a markdown file on disk."""
+        from osprey.mcp_server.artifact_store import get_artifact_store
+
+        raw = await _fn(
+            title="BPM Calibration Literature Review",
+            content="## Summary\n\nFound 5 relevant papers.",
+            data_type="literature_research",
+            source_agent="literature-search",
+        )
+        data = json.loads(raw)
+        artifact_id = data["artifact_id"]
+
+        store = get_artifact_store()
+        entry = store.get_entry(artifact_id)
+        assert entry is not None
+        assert entry.artifact_type == "markdown"
+        assert entry.mime_type == "text/markdown"
+        assert entry.title == "BPM Calibration Literature Review"
+        assert entry.tool_source == "submit_response"
+
+        # Verify file content matches
+        file_path = store.get_file_path(artifact_id)
+        assert file_path.exists()
+        assert file_path.read_text() == "## Summary\n\nFound 5 relevant papers."
+
+    @pytest.mark.asyncio
+    async def test_artifact_metadata_links_to_data_context(self, workspace):
+        """Artifact metadata should cross-reference the DataContext entry."""
+        raw = await _fn(
+            title="Orbit Correction Functions",
+            content="Found 12 MML functions.",
+            data_type="mml_research",
+            source_agent="matlab-search",
+            entry_ids=["getbpmresp", "setorbit"],
+        )
+        data = json.loads(raw)
+
+        from osprey.mcp_server.artifact_store import get_artifact_store
+
+        entry = get_artifact_store().get_entry(data["artifact_id"])
+        assert entry.metadata["context_entry_id"] == data["context_entry_id"]
+        assert entry.metadata["data_type"] == "mml_research"
+        assert entry.metadata["source_agent"] == "matlab-search"
+        assert entry.metadata["entry_ids"] == ["getbpmresp", "setorbit"]
+
+    @pytest.mark.asyncio
+    async def test_artifact_not_created_on_validation_error(self, workspace):
+        """Validation errors should NOT create an artifact."""
+        from osprey.mcp_server.artifact_store import get_artifact_store
+
+        raw = await _fn(title="", content="Some content.")
+        data = json.loads(raw)
+
+        assert data["error"] is True
+        store = get_artifact_store()
+        assert len(store.list_entries()) == 0

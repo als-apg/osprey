@@ -1,4 +1,4 @@
-"""Tests for cf_ic_validate tool."""
+"""Tests for validate tool."""
 
 import json
 from unittest.mock import MagicMock, PropertyMock, patch
@@ -33,10 +33,10 @@ def test_validate_valid_and_invalid(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.in_context.tools.validate import (
-            cf_ic_validate,
+            validate,
         )
 
-        fn = get_tool_fn(cf_ic_validate)
+        fn = get_tool_fn(validate)
         result = fn(channels=["CH1", "FAKE"])
     data = json.loads(result)
     assert data["total"] == 2
@@ -50,10 +50,10 @@ def test_validate_valid_and_invalid(tmp_path, monkeypatch):
 def test_validate_empty_list(tmp_path, monkeypatch):
     _setup(tmp_path, monkeypatch)
     from osprey.services.channel_finder.mcp.in_context.tools.validate import (
-        cf_ic_validate,
+        validate,
     )
 
-    fn = get_tool_fn(cf_ic_validate)
+    fn = get_tool_fn(validate)
     result = fn(channels=[])
     data = json.loads(result)
     assert data["error"] is True
@@ -72,10 +72,10 @@ def test_validate_internal_error(tmp_path, monkeypatch):
         return_value=mock_db,
     ):
         from osprey.services.channel_finder.mcp.in_context.tools.validate import (
-            cf_ic_validate,
+            validate,
         )
 
-        fn = get_tool_fn(cf_ic_validate)
+        fn = get_tool_fn(validate)
         result = fn(channels=["CH1"])
     data = json.loads(result)
     assert data["error"] is True

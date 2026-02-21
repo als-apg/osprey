@@ -80,6 +80,55 @@
   --transition-base: 200ms ease;
 }
 
+/* ----------------------------------------------------------------
+   Light Theme Overrides (Lab Instrument Panel palette)
+   ---------------------------------------------------------------- */
+
+[data-theme="light"] {
+  /* Backgrounds */
+  --bg-primary: #f7f9fc;
+  --bg-secondary: #eef2f7;
+  --bg-tertiary: #e4e9f0;
+  --bg-elevated: #ffffff;
+  --bg-input: #ffffff;
+  --bg-panel: #f2f5fa;
+
+  /* Surfaces */
+  --surface-card: rgba(255, 255, 255, 0.92);
+  --surface-hover: rgba(226, 232, 240, 0.5);
+
+  /* OSPREY accent palette */
+  --color-accent: #0a8f8c;
+  --color-accent-light: #0d7377;
+  --color-accent-dark: #086462;
+  --color-accent-glow: rgba(10, 143, 140, 0.18);
+  --color-accent-subtle: rgba(10, 143, 140, 0.06);
+
+  --color-amber: #b07a3a;
+  --color-amber-light: #c9944e;
+
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-error: #dc2626;
+  --color-info: #2563eb;
+
+  /* Text */
+  --text-primary: #0c1322;
+  --text-secondary: #374155;
+  --text-muted: #64748b;
+  --text-accent: var(--color-accent);
+
+  /* Borders */
+  --border-subtle: rgba(209, 216, 227, 0.5);
+  --border-default: #d1d8e3;
+  --border-strong: #b4bfcf;
+  --border-accent: var(--color-accent);
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
 /* ================================================================
    Reset & Base
    ================================================================ */

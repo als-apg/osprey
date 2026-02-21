@@ -44,7 +44,7 @@ ARTIFACT_TYPES: dict[str, TypeDef] = {
 }
 
 # ---------------------------------------------------------------------------
-# Data types (16) — verified against Python tools + documented agent types
+# Data types (20) — verified against Python tools + documented agent types
 # ---------------------------------------------------------------------------
 
 DATA_TYPES: dict[str, TypeDef] = {
@@ -64,6 +64,10 @@ DATA_TYPES: dict[str, TypeDef] = {
     "channel_addresses": TypeDef("channel_addresses", "Channel Addresses", "#2dd4bf"),
     "logbook_research": TypeDef("logbook_research", "Logbook Research", "#e879f9"),
     "search_results": TypeDef("search_results", "Search Results", "#fb7185"),
+    "graph_analysis": TypeDef("graph_analysis", "Graph Analysis", "#38bdf8"),
+    "literature_research": TypeDef("literature_research", "Literature Research", "#fb7185"),
+    "wiki_research": TypeDef("wiki_research", "Wiki Research", "#fbbf24"),
+    "mml_research": TypeDef("mml_research", "MML Research", "#fb923c"),
 }
 
 # ---------------------------------------------------------------------------
@@ -74,7 +78,7 @@ TOOL_TYPES: dict[str, TypeDef] = {
     "channel_read": TypeDef("channel_read", "Channel Read", "#4fd1c5"),
     "channel_write": TypeDef("channel_write", "Channel Write", "#e8c9a0"),
     "archiver_read": TypeDef("archiver_read", "Archiver Read", "#3b82f6"),
-    "python_execute": TypeDef("python_execute", "Python Execute", "#c084fc"),
+    "execute": TypeDef("execute", "Python Execute", "#c084fc"),
     "channel_find": TypeDef("channel_find", "Channel Find", "#22c55e"),
     "memory_save": TypeDef("memory_save", "Memory Save", "#d4a574"),
     "memory_recall": TypeDef("memory_recall", "Memory Recall", "#e8c9a0"),

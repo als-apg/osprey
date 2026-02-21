@@ -1,6 +1,6 @@
 """Notebook rendering utilities for OSPREY MCP tools.
 
-Creates Jupyter notebooks from python_execute code and results,
+Creates Jupyter notebooks from execute tool code and results,
 and renders them to HTML for the Artifact Gallery.
 """
 
@@ -41,7 +41,7 @@ def create_notebook_from_code(
         f"# {description}\n\n"
         f"**Status:** {status}  \n"
         f"**Timestamp:** {timestamp}  \n"
-        f"**Source:** `python_execute`\n"
+        f"**Source:** `execute`\n"
     )
     cells.append(nbformat.v4.new_markdown_cell(header))
 
