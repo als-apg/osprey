@@ -572,7 +572,10 @@ class TemplateManager:
 
             latest = max(timestamps)
             target = datetime.now(UTC) - timedelta(days=2)
-            offset = target - latest
+            # Round to whole days so time-of-day is preserved -- entry text
+            # contains hardcoded clock times (e.g. "tripped at 03:15") that
+            # we can't programmatically adjust.
+            offset = timedelta(days=(target - latest).days)
 
             for entry in entries:
                 ts_str = entry.get("timestamp", "")

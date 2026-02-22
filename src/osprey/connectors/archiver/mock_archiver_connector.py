@@ -130,6 +130,106 @@ class MockArchiverConnector(ArchiverConnector):
         """All PVs are available in mock archiver."""
         return dict.fromkeys(pv_names, True)
 
+    def _is_rf_channel(self, pv_lower: str) -> bool:
+        """Check if PV belongs to the RF system (cavity or klystron)."""
+        return "rf" in pv_lower and ("cavity" in pv_lower or "klystron" in pv_lower)
+
+    def _rf_event_envelope(
+        self, t: np.ndarray, events: list[tuple[float, float]], width: float = 0.024
+    ) -> np.ndarray:
+        """
+        Generate a Gaussian event envelope from a list of (center, intensity) pairs.
+
+        Width of 0.024 ≈ 4 hours in a 7-day window.
+        """
+        envelope = np.zeros_like(t)
+        for center, intensity in events:
+            envelope += intensity * np.exp(-((t - center) ** 2) / (2 * width**2))
+        return envelope
+
+    def _generate_rf_time_series(
+        self, pv_lower: str, t: np.ndarray, num_points: int, rng: np.random.Generator
+    ) -> np.ndarray:
+        """
+        Generate RF system data with correlated thermal excursion / trip patterns.
+
+        C1/K1 is the "problematic" cavity — three thermal excursion events where
+        body temperature rises, reflected power spikes, and forward power trips.
+        C2/K2 is the "stable" reference — one minor event for contrast.
+
+        Event positions are hardcoded so temperature, power, and voltage channels
+        all show correlated behavior at the same time points.
+        """
+        is_primary = "c1" in pv_lower or "k1" in pv_lower
+
+        if is_primary:
+            events = [(0.20, 1.0), (0.55, 0.7), (0.85, 1.2)]
+        else:
+            events = [(0.55, 0.25)]
+
+        envelope = self._rf_event_envelope(t, events)
+
+        if "temperature" in pv_lower or "temp" in pv_lower:
+            base = 27.0 if is_primary else 26.5
+            daily = 1.0 * np.sin(2 * np.pi * t * 7)
+            excursion = envelope * 7.0
+            noise = rng.normal(0, 0.2, num_points)
+            return base + daily + excursion + noise
+
+        if "power" in pv_lower:
+            if "fwd" in pv_lower or "forward" in pv_lower:
+                base = 450.0
+                dip = -envelope * 440.0
+                noise = rng.normal(0, 5, num_points)
+                return np.maximum(base + dip + noise, 0)
+
+            if "rev" in pv_lower or "reflect" in pv_lower:
+                base = 5.0
+                spike = envelope * 80.0
+                noise = rng.normal(0, 1, num_points)
+                return np.maximum(base + spike + noise, 0)
+
+            if "net" in pv_lower:
+                base = 445.0
+                dip = -envelope * 440.0
+                spike = envelope * 80.0
+                noise = rng.normal(0, 5, num_points)
+                return np.maximum(base + dip - spike + noise, 0)
+
+            # Klystron output power or generic RF power
+            base = 400.0
+            dip = -envelope * 390.0
+            noise = rng.normal(0, 4, num_points)
+            return np.maximum(base + dip + noise, 0)
+
+        if "voltage" in pv_lower:
+            if "klystron" in pv_lower:
+                base = 80.0  # kV — stable
+                noise = rng.normal(0, 0.5, num_points)
+                return base + noise
+            # Cavity voltage drops during trips
+            base = 2.5  # MV
+            dip = -envelope * 2.4
+            noise = rng.normal(0, 0.02, num_points)
+            return np.maximum(base + dip + noise, 0)
+
+        if "frequency" in pv_lower or "freq" in pv_lower:
+            base = 499.654  # MHz
+            thermal_shift = -envelope * 0.001  # detuning from thermal expansion
+            noise = rng.normal(0, 0.0001, num_points)
+            return base + thermal_shift + noise
+
+        if "tuner" in pv_lower:
+            base = 5.0  # cm
+            compensation = envelope * 0.05
+            noise = rng.normal(0, 0.01, num_points)
+            return base + compensation + noise
+
+        # Fallback for status/interlock/other RF channels
+        base = 1.0
+        noise = rng.normal(0, 0.01, num_points)
+        return base + noise
+
     def _generate_time_series(self, pv_name: str, num_points: int) -> np.ndarray:
         """
         Generate synthetic time series with trends and noise.
@@ -140,34 +240,29 @@ class MockArchiverConnector(ArchiverConnector):
         - Random noise
         - PV-type-specific characteristics
         - BPMs use random offsets with slow oscillations
+        - RF system channels use correlated event patterns
         """
         t = np.linspace(0, 1, num_points)
         pv_lower = pv_name.lower()
+        rng = np.random.default_rng(seed=hash(pv_name) % (2**32))
 
-        # Check if this is a BPM - use new approach
+        # RF system channels — correlated thermal excursion / trip patterns
+        if self._is_rf_channel(pv_lower):
+            return self._generate_rf_time_series(pv_lower, t, num_points, rng)
+
+        # BPM channels — reproducible random offsets with slow oscillations
         if "position" in pv_lower or "pos" in pv_lower or "bpm" in pv_lower:
-            # Use PV name as seed for reproducibility
-            rng = np.random.default_rng(seed=hash(pv_name) % (2**32))
-
-            # BPM positions in mm (±100 µm = ±0.1 mm range)
             base = 0.0
             offset_range = 0.1  # ±100 µm equilibrium position
             perturbation_amp = 0.01  # ±10 µm oscillation
             trend = np.ones(num_points) * base
 
-            # Random offset for this BPM (equilibrium position)
             offset = rng.uniform(-offset_range, offset_range)
-
-            # Random phase and frequency for perturbation
             phase = rng.uniform(0, 2 * np.pi)
-            # Very low frequencies: 0.01 to 0.5 cycles over time range
-            # Appears as slow drift / quasi-linear behavior
             frequency = rng.uniform(0.01, 0.5)
 
-            # Sinusoidal perturbation with random phase
             wave = perturbation_amp * np.sin(2 * np.pi * t * frequency + phase)
 
-            # Add random noise
             noise_amplitude = perturbation_amp * self._noise_level
             noise = rng.normal(0, noise_amplitude, num_points)
 
@@ -175,12 +270,9 @@ class MockArchiverConnector(ArchiverConnector):
 
         # Original behavior for all other PV types
         if ("beam" in pv_lower and "current" in pv_lower) or "dcct" in pv_lower:
-            # Beam current: slow decay with refills
             base = 500.0
-            # Simulate refills 10 times over the time range
             trend = np.ones(num_points) * base
             for i in range(num_points):
-                # Decay between refills (5% loss per cycle)
                 decay_phase = i % (num_points // 10)
                 trend[i] = base * (1 - 0.05 * (decay_phase / (num_points // 10)))
             wave = 5 * np.sin(2 * np.pi * t * 5)
@@ -206,14 +298,13 @@ class MockArchiverConnector(ArchiverConnector):
             wave = 0.5 * np.sin(2 * np.pi * t * 8)
         elif "lifetime" in pv_lower:
             base = 10.0
-            trend = base - 2 * t  # Lifetime decreases with current
+            trend = base - 2 * t
             wave = 1 * np.sin(2 * np.pi * t * 3)
         else:
             base = 100.0
             trend = base + 20 * t
             wave = 10 * np.sin(2 * np.pi * t * 2)
 
-        # Add random noise
         noise_amplitude = abs(base) * self._noise_level
         noise = np.random.normal(0, noise_amplitude, num_points)
 
