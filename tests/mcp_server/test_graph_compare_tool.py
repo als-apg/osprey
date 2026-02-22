@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from osprey.mcp_server.data_context import get_data_context, initialize_data_context
+from osprey.mcp_server.artifact_store import get_artifact_store, initialize_artifact_store
 
 
 class TestGraphCompare:
@@ -12,39 +12,45 @@ class TestGraphCompare:
 
     @pytest.fixture(autouse=True)
     def setup_workspace(self, tmp_path):
-        """Set up workspace and seed data context with test entries."""
+        """Set up workspace and seed artifact store with test entries."""
         ws = tmp_path / "osprey-workspace"
         ws.mkdir()
-        (ws / "data").mkdir()
-        initialize_data_context(workspace_root=ws)
+        (ws / "artifacts").mkdir()
+        initialize_artifact_store(workspace_root=ws)
+
+        store = get_artifact_store()
 
         # Seed current data
-        ctx = get_data_context()
-        ctx.save(
+        current = store.save_data(
             tool="graph_extract",
             data={
                 "columns": ["x", "y"],
                 "data": [[0, 1.0], [1, 2.0], [2, 3.0], [3, 4.0], [4, 5.0]],
             },
+            title="Current measurement",
             description="Current measurement",
             summary={"num_points": 5},
             access_details={"format": "tabular"},
-            data_type="graph_extraction",
+            category="graph_extraction",
         )
 
         # Seed reference data
-        ctx.save(
+        reference = store.save_data(
             tool="graph_save_reference",
             data={
                 "columns": ["x", "y"],
                 "data": [[0, 1.1], [1, 2.1], [2, 3.1], [3, 4.1], [4, 5.1]],
                 "reference_title": "Nominal profile",
             },
+            title="Nominal profile",
             description="Nominal profile",
             summary={"num_points": 5},
             access_details={"format": "tabular"},
-            data_type="graph_reference",
+            category="graph_reference",
         )
+
+        self._current_id = current.id
+        self._reference_id = reference.id
 
     @pytest.fixture
     def tool_fn(self):
@@ -56,7 +62,10 @@ class TestGraphCompare:
 
     async def test_compare_by_entry_ids(self, tool_fn):
         result = json.loads(
-            await tool_fn(current_entry_id=1, reference_entry_id=2)
+            await tool_fn(
+                current_entry_id=self._current_id,
+                reference_entry_id=self._reference_id,
+            )
         )
         assert result["status"] == "success"
         assert "comparison" in result
@@ -68,35 +77,47 @@ class TestGraphCompare:
 
     async def test_compare_by_query(self, tool_fn):
         result = json.loads(
-            await tool_fn(current_entry_id=1, reference_query="Nominal")
+            await tool_fn(
+                current_entry_id=self._current_id,
+                reference_query="Nominal",
+            )
         )
         assert result["status"] == "success"
-        assert result["comparison"]["reference_entry_id"] == 2
+        assert result["comparison"]["reference_entry_id"] == self._reference_id
 
     async def test_missing_current_entry(self, tool_fn):
         result = json.loads(
-            await tool_fn(current_entry_id=999, reference_entry_id=2)
+            await tool_fn(
+                current_entry_id="nonexistent_id",
+                reference_entry_id=self._reference_id,
+            )
         )
         assert result["error"] is True
         assert result["error_type"] == "not_found"
 
     async def test_missing_reference_entry(self, tool_fn):
         result = json.loads(
-            await tool_fn(current_entry_id=1, reference_entry_id=999)
+            await tool_fn(
+                current_entry_id=self._current_id,
+                reference_entry_id="nonexistent_id",
+            )
         )
         assert result["error"] is True
         assert result["error_type"] == "not_found"
 
     async def test_no_reference_provided(self, tool_fn):
         result = json.loads(
-            await tool_fn(current_entry_id=1)
+            await tool_fn(current_entry_id=self._current_id)
         )
         assert result["error"] is True
         assert result["error_type"] == "validation_error"
 
     async def test_query_no_match(self, tool_fn):
         result = json.loads(
-            await tool_fn(current_entry_id=1, reference_query="nonexistent")
+            await tool_fn(
+                current_entry_id=self._current_id,
+                reference_query="nonexistent",
+            )
         )
         assert result["error"] is True
         assert result["error_type"] == "not_found"
@@ -104,8 +125,8 @@ class TestGraphCompare:
     async def test_selected_metrics(self, tool_fn):
         result = json.loads(
             await tool_fn(
-                current_entry_id=1,
-                reference_entry_id=2,
+                current_entry_id=self._current_id,
+                reference_entry_id=self._reference_id,
                 metrics=["rmse"],
             )
         )

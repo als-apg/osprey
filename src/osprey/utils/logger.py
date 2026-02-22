@@ -6,16 +6,10 @@ Provides colored logging for Osprey and application components with:
 - Rich terminal output with component-specific colors
 - Graceful fallbacks when configuration is unavailable
 - Simple, clear interface
-- Optional LangGraph streaming support via lazy initialization
 - Typed event emission for structured streaming (OspreyEvent types)
 
 Usage:
-    # Components with streaming (via BaseCapability.get_logger())
-    logger = self.get_logger()
-    logger.status("Creating execution plan...")  # Logs + streams typed event
-    logger.info("Active capabilities: [...]")   # Logs only
-
-    # Module-level (no streaming)
+    # Module-level
     logger = get_logger("orchestrator")
     logger.key_info("Starting orchestration")
 
@@ -86,8 +80,6 @@ class ComponentLogger:
     """
     Rich-formatted logger for Osprey and application components with color coding and message hierarchy.
 
-    Now includes optional LangGraph streaming support via lazy initialization.
-
     Message Types:
     - status: High-level status updates (logs + streams automatically)
     - key_info: Important operational information
@@ -131,56 +123,17 @@ class ComponentLogger:
         self._event_emitter = EventEmitter(component_name)
 
     def _get_stream_writer(self):
-        """Lazy initialization of stream writer (only when first needed)."""
+        """Lazy initialization of stream writer (not used without LangGraph)."""
         if not self._stream_writer_attempted:
             self._stream_writer_attempted = True
-            try:
-                from langgraph.config import get_stream_writer
-
-                self._stream_writer = get_stream_writer()
-                # Also extract step info when we get the writer
-                self._step_info = self._extract_step_info(self._state)
-            except (RuntimeError, ImportError):
-                # Not in LangGraph context - that's fine
-                self._stream_writer = None
-                self._step_info = {}
+            self._stream_writer = None
+            self._step_info = self._extract_step_info(self._state)
         return self._stream_writer
 
     def _extract_step_info(self, state):
-        """Extract step context from AgentState for streaming metadata.
-
-        Reuses existing logic from StreamWriter._get_step_info():
-        - Task preparation phases use hard-coded step mapping
-        - Execution phases extract from execution plan in state
-        - Falls back to basic component info
-        """
-        # Check if this is a task preparation component
+        """Extract step context for streaming metadata."""
         if self.component_name in TASK_PREPARATION_STEPS:
             return TASK_PREPARATION_STEPS[self.component_name]
-
-        # For execution phase, extract from state
-        if state and hasattr(state, "get"):
-            try:
-                from osprey.state.state_manager import StateManager
-
-                execution_plan = state.get("planning_execution_plan")
-                if execution_plan and execution_plan.get("steps"):
-                    current_step_index = StateManager.get_current_step_index(state)
-                    total_steps = len(execution_plan.get("steps", []))
-
-                    if total_steps > 0:
-                        return {
-                            "step": current_step_index + 1,
-                            "total_steps": total_steps,
-                            "phase": "Execution",
-                        }
-            except Exception:
-                # Silently fall through to default step info below.
-                # Cannot log here: runs inside logging infrastructure,
-                # logging.debug() risks recursion or handler re-entry.
-                pass
-
-        # Default: no step info
         return {
             "step": None,
             "total_steps": None,

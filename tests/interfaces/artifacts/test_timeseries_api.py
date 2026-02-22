@@ -229,55 +229,9 @@ class TestArtifactPinHighlightAPI:
         assert resp.json()["pinned"] is False
 
     @pytest.mark.unit
-    def test_highlight_artifact(self, app_client):
-        store = app_client.app.state.artifact_store
-        entry = store.save_file(
-            file_content=b"test",
-            filename="test.txt",
-            artifact_type="text",
-            title="Highlight Test",
-            description="",
-            mime_type="text/plain",
-            tool_source="test",
-            highlighted=False,
-        )
-
-        resp = app_client.post(f"/api/artifacts/{entry.id}/highlight", json={"highlighted": True})
-        assert resp.status_code == 200
-        assert resp.json()["highlighted"] is True
-
-    @pytest.mark.unit
     def test_pin_not_found(self, app_client):
         resp = app_client.post("/api/artifacts/nonexistent/pin", json={"pinned": True})
         assert resp.status_code == 404
-
-    @pytest.mark.unit
-    def test_highlight_not_found(self, app_client):
-        resp = app_client.post("/api/artifacts/nonexistent/highlight", json={"highlighted": True})
-        assert resp.status_code == 404
-
-    @pytest.mark.unit
-    def test_list_filter_highlighted(self, app_client):
-        """GET /api/artifacts?highlighted=true filters correctly."""
-        store = app_client.app.state.artifact_store
-        store.save_file(
-            file_content=b"a", filename="a.txt", artifact_type="text",
-            title="A", description="", mime_type="text/plain",
-            tool_source="test", highlighted=True,
-        )
-        store.save_file(
-            file_content=b"b", filename="b.txt", artifact_type="text",
-            title="B", description="", mime_type="text/plain",
-            tool_source="test", highlighted=False,
-        )
-
-        resp = app_client.get("/api/artifacts?highlighted=true")
-        assert resp.json()["count"] == 1
-        assert resp.json()["artifacts"][0]["title"] == "A"
-
-        resp = app_client.get("/api/artifacts?highlighted=false")
-        assert resp.json()["count"] == 1
-        assert resp.json()["artifacts"][0]["title"] == "B"
 
 
 class TestLTTBAlgorithm:

@@ -24,8 +24,6 @@ from osprey.cli.preview_styles import (
 )
 from osprey.cli.styles import ColorTheme
 
-pytestmark = pytest.mark.langgraph
-
 
 @pytest.fixture
 def mock_console():

@@ -16,7 +16,7 @@ maintainers = [
     {name = "Thorsten Hellert", email = "thellert@lbl.gov"},
 ]
 keywords = [
-    "ai", "agents", "framework", "scientific-computing", "langgraph",
+    "ai", "agents", "framework", "scientific-computing",
     "epics", "accelerator-physics", "als", "berkeley", "agent-framework",
     "capability-based", "human-in-the-loop", "container-orchestration"
 ]
@@ -37,11 +37,6 @@ classifiers = [
 
 # Core runtime dependencies from requirements.txt analysis
 dependencies = [
-    # LangGraph dependencies - CRITICAL VERSION REQUIREMENTS
-    "langgraph>=0.5.2",
-    "langchain-core>=0.3.68",
-    "langgraph-sdk>=0.1.70,<0.4.0",
-
     # Core framework dependencies
     "rich>=14.0.0",
     "click>=8.1.0",
@@ -89,16 +84,10 @@ dependencies = [
     "MarkupSafe>=3.0.2",
     "markdown>=3.5",  # Markdown-to-HTML rendering for artifact converters
 
-    # Terminal User Interface (TUI) - Textual-based full-screen interface
-    "textual>=0.70.0",
     "aiofiles>=24.1.0",  # Async file I/O for non-blocking Python executor
-
-    # LangChain integration (required for channel finder middle layer pipeline)
-    "langchain-openai>=0.3.0",
 
     # MCP server development (for building MCP servers)
     "fastmcp>=2.0.0",
-    "langchain-mcp-adapters",  # LangChain/LangGraph MCP integration
 
     # Scientific computing stack - for Python execution capability
     "scipy>=1.15.3",
@@ -179,11 +168,9 @@ storage = [
     "pymongo",
     "neo4j",
     "qdrant-client",
-    # PostgreSQL checkpointing (production persistence)
-    "langgraph-checkpoint-postgres>=2.0.22,<4.0.0",
+    # PostgreSQL
     "psycopg[pool]>=3.1.0,<4.0.0",
     "psycopg-pool>=3.1.0,<4.0.0",
-    "langchain-postgres>=0.0.12,<0.1.0",
     # Memory and vector storage
     "mem0ai>=0.1.88",
     "vecs>=0.4.5",
@@ -195,9 +182,6 @@ ariel = [
     # PostgreSQL with pgvector for vector similarity search
     "psycopg[pool]>=3.1.0,<4.0.0",
     "psycopg-pool>=3.1.0,<4.0.0",
-    # LangGraph for ReAct agent
-    "langgraph>=0.5.2",
-    "langchain-openai>=0.3.0",
 ]
 
 # ARIEL proxy support for HTTP ingestion through SOCKS tunnels
@@ -224,9 +208,16 @@ screen-capture-linux = [
     "python-xlib>=0.33",
 ]
 
+# LangGraph/LangChain for channel finder middle layer pipeline (ReAct agent)
+channel-finder-ml = [
+    "langgraph>=0.5.2",
+    "langchain-core>=0.3.68",
+    "langchain-openai>=0.3.0",
+]
+
 # All optional dependencies for complete installation
 all = [
-    "osprey-framework[docs,dev,storage,ariel,sheets,graph,screen-capture-linux]"
+    "osprey-framework[docs,dev,storage,ariel,sheets,graph,channel-finder-ml,screen-capture-linux]"
 ]
 
 [project.urls]
@@ -243,7 +234,6 @@ Changelog = "https://github.com/als-apg/osprey/blob/main/CHANGELOG.md"
 osprey = "osprey.cli.main:cli"
 
 # Legacy entry points (maintained for backward compatibility)
-alpha-berkeley = "osprey.interfaces.cli.direct_conversation:main"
 alpha-berkeley-deploy = "osprey.deployment.container_manager:main"
 
 # Hatchling build configuration
@@ -323,7 +313,6 @@ markers = [
     "requires_ollama: Tests that require local Ollama service",
     "asyncio: Async test marker",
     "vcr: VCR cassette recording/replay marker",
-    "langgraph: Tests for LangGraph orchestration infrastructure (skip with -m 'not langgraph')",
     "e2e_services: E2E tests requiring local MCP service infrastructure (PostgreSQL, AccelPapers, DePlot, etc.)",
 ]
 
@@ -357,7 +346,6 @@ ignore = [
 "tests/documentation/test_workflow_autodoc.py" = ["E402"]  # Late imports after path manipulation
 "tests/services/channel_finder/test_registration.py" = ["E402"]  # Late imports after path manipulation
 "src/osprey/templates/apps/control_assistant/_agent_data/example_scripts/**/*.py" = ["E402"]  # Example scripts with late imports
-"src/osprey/templates/services/jupyter/startup_script.py" = ["F401"]  # Intentionally loaded in namespace
 "src/osprey/services/channel_finder/__init__.py" = ["E402"]  # Grouped imports with section comments
 
 [tool.ruff.lint.isort]

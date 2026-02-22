@@ -1,8 +1,8 @@
 """E2E test: Natural workflow + Audit observability.
 
-Consolidates the python_execute functional tests and audit verification into
+Consolidates the execute functional tests and audit verification into
 a single test that exercises the natural user workflow:
-  channel_find → archiver_read → python_execute (plot) → PNG artifact
+  channel_find → archiver_read → execute (plot) → PNG artifact
 
 Then verifies that Claude Code native transcripts contain the expected OSPREY
 tool-call events and (optionally) lifecycle events (read via TranscriptReader).
@@ -34,7 +34,7 @@ class TestAuditObservability:
     @pytest.mark.requires_anthropic
     @pytest.mark.asyncio
     async def test_channel_read_archiver_plot_with_audit(self, tmp_path):
-        """Full pipeline: channel_find → archiver_read → python_execute (plot) + audit.
+        """Full pipeline: channel_find → archiver_read → execute (plot) + audit.
 
         Prompts Claude to find horizontal BPM channels, read archiver data for
         the first one, and create a timeseries plot saved as PNG. Then verifies
@@ -54,7 +54,7 @@ class TestAuditObservability:
             "1. Use channel_find to discover horizontal BPM channels\n"
             "2. Use archiver_read to get the last 1 hour of data for the "
             "first BPM channel\n"
-            "3. Use python_execute to create a timeseries plot and save it "
+            "3. Use execute to create a timeseries plot and save it "
             "as a PNG file\n"
             "Do not stop until you have completed all three steps and saved "
             "the PNG plot."
@@ -97,18 +97,18 @@ class TestAuditObservability:
             f"Expected archiver_read call but got: {result.tool_names}"
         )
 
-        # A plot was created — via python_execute or create_static_plot/create_interactive_plot
-        plot_tool_names = ["python_execute", "create_static_plot", "create_interactive_plot"]
+        # A plot was created — via execute or create_static_plot/create_interactive_plot
+        plot_tool_names = ["execute", "create_static_plot", "create_interactive_plot"]
         plot_tools = [
             t for t in result.tool_traces if any(p in t.name for p in plot_tool_names)
         ]
         assert len(plot_tools) >= 1, (
-            f"Expected a plot tool call (python_execute or create_*_plot) "
+            f"Expected a plot tool call (execute or create_*_plot) "
             f"but got: {result.tool_names}"
         )
 
-        # If python_execute was used, verify it contains plot-related code
-        py_tools = result.tools_matching("python_execute")
+        # If execute was used, verify it contains plot-related code
+        py_tools = result.tools_matching("execute")
         if py_tools:
             py_code_combined = " ".join(
                 str(t.input.get("code", "")) for t in py_tools
@@ -116,7 +116,7 @@ class TestAuditObservability:
             plot_keywords = ["plot", "plt", "matplotlib", "savefig", "figure"]
             has_plot_code = any(kw in py_code_combined for kw in plot_keywords)
             assert has_plot_code, (
-                f"python_execute code doesn't appear to create a plot. "
+                f"execute code doesn't appear to create a plot. "
                 f"Code: {py_code_combined[:500]}"
             )
 
@@ -174,11 +174,11 @@ class TestAuditObservability:
             f"No tool_call events. Event types: {[e.get('type') for e in events]}"
         )
 
-        # 3. At least one tool_call from control-system or channel-finder server
+        # 3. At least one tool_call from controls or channel-finder server
         control_system_calls = [
             e
             for e in tool_calls
-            if e.get("server") in ("osprey-control-system", "channel-finder")
+            if e.get("server") in ("controls", "channel-finder")
         ]
         assert len(control_system_calls) >= 1, (
             f"No tool_call from control-system or channel-finder server. "

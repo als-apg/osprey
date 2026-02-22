@@ -106,11 +106,11 @@ async def screenshot_capture(
         elif mode == "window":
             info = await backend.capture_window(target, str(filepath))
 
-        # Save to DataContext
-        from osprey.mcp_server.data_context import get_data_context
+        # Save to ArtifactStore (unified)
+        from osprey.mcp_server.artifact_store import get_artifact_store
 
-        data_ctx = get_data_context()
-        entry = data_ctx.save(
+        store = get_artifact_store()
+        entry = store.save_data(
             tool="screenshot_capture",
             data={
                 "mode": mode,
@@ -119,6 +119,7 @@ async def screenshot_capture(
                 "width": info.width,
                 "height": info.height,
             },
+            title=f"Screenshot ({mode}): {info.width}x{info.height}",
             description=f"Screenshot ({mode}): {info.width}x{info.height}",
             summary={
                 "mode": mode,
@@ -130,7 +131,7 @@ async def screenshot_capture(
                 "file_format": "PNG",
                 "view_hint": f"Use Read tool on {info.filepath} to view the screenshot.",
             },
-            data_type="screenshot",
+            category="screenshot",
         )
 
         return json.dumps(entry.to_tool_response(), default=str)

@@ -18,7 +18,6 @@ provides specialized handlers with appropriate error handling and user feedback.
 
 from typing import Any
 
-from langchain_core.messages import SystemMessage
 from rich.panel import Panel
 from rich.table import Table
 
@@ -130,11 +129,12 @@ def register_cli_commands(registry) -> None:
                 # Create transition marker message for task extraction context
                 # This helps the LLM understand that previous messages were from a
                 # specialized direct chat session and new messages should be treated fresh
-                transition_message = SystemMessage(
-                    content=f"[End of direct chat session with '{capability_name}'. "
+                transition_message = {
+                    "role": "system",
+                    "content": f"[End of direct chat session with '{capability_name}'. "
                     f"The messages above were from a specialized mode. "
-                    f"New user messages should be processed as fresh requests.]"
-                )
+                    f"New user messages should be processed as fresh requests.]",
+                }
 
                 # Return session state update and transition marker
                 return {

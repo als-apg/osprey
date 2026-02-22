@@ -1,8 +1,8 @@
 """MCP tool: submit_response — persist an agent's final synthesized result.
 
 Sub-agents call this as their last action to save their synthesis to
-DataContext **and** the artifact gallery so the parent session, other
-tools, and the gallery UI can all reference it.
+the artifact gallery so the parent session, other tools, and the gallery
+UI can all reference it.
 """
 
 import json
@@ -13,6 +13,17 @@ from osprey.mcp_server.workspace.server import mcp
 
 logger = logging.getLogger("osprey.mcp_server.tools.submit_response")
 
+# Map well-known agent names to categories
+_AGENT_CATEGORY_MAP: dict[str, str] = {
+    "channel-finder": "channel_finder",
+    "logbook-search": "logbook_research",
+    "logbook-deep-research": "logbook_research",
+    "literature-search": "literature_research",
+    "wiki-search": "wiki_research",
+    "matlab-search": "mml_research",
+    "graph-analyst": "graph_analysis",
+}
+
 
 @mcp.tool()
 async def submit_response(
@@ -21,6 +32,7 @@ async def submit_response(
     data_type: str = "agent_response",
     entry_ids: list[str] | None = None,
     source_agent: str | None = None,
+    skip_artifact: bool = False,
 ) -> str:
     """Submit your final synthesized response. Call this as your LAST action
     before responding. This persists your findings to the workspace so
@@ -41,9 +53,12 @@ async def submit_response(
         source_agent: Name of the agent submitting the response
             (e.g. "logbook-search", "wiki-search"). Used for filtering
             and grouping results by agent.
+        skip_artifact: If True, skip creating a new artifact (use when
+            the agent already created plot/dashboard artifacts and wants
+            to avoid double-registration).
 
     Returns:
-        JSON with context_entry_id, data_file path, artifact_id, and gallery_url.
+        JSON with artifact_id, gallery_url, and summary.
     """
     if not title or not title.strip():
         return json.dumps(
@@ -63,80 +78,69 @@ async def submit_response(
             )
         )
 
-    from osprey.mcp_server.type_registry import valid_data_type_keys
+    from osprey.mcp_server.type_registry import valid_category_keys, valid_data_type_keys
 
-    valid = valid_data_type_keys()
+    valid = valid_data_type_keys() | valid_category_keys()
     if data_type not in valid:
         return json.dumps(
             make_error(
                 "validation_error",
                 f"Unknown data_type '{data_type}'. Valid: {sorted(valid)}",
-                ["Use one of the registered data_type values."],
+                ["Use one of the registered data_type or category values."],
             )
         )
 
     try:
         from osprey.mcp_server.artifact_store import get_artifact_store
-        from osprey.mcp_server.data_context import get_data_context
 
         cited = entry_ids or []
-
         agent = source_agent or ""
 
-        # 1. Save to DataContext (structured data for tools & cross-referencing)
-        ctx = get_data_context()
-        tool_name = agent if agent else "submit_response"
-        entry = ctx.save(
-            tool=tool_name,
-            data={
-                "title": title,
-                "content": content,
-                "entry_ids": cited,
-                "data_type": data_type,
-                "source_agent": agent,
-            },
-            description=title,
-            summary={
-                "title": title,
-                "content_length": len(content),
-                "cited_entries": len(cited),
-                "source_agent": agent,
-            },
-            access_details={
-                "format": "markdown",
-                "data_type": data_type,
-            },
-            data_type=data_type,
-            source_agent=agent,
-        )
+        if skip_artifact:
+            return json.dumps(
+                {
+                    "status": "success",
+                    "skipped_artifact": True,
+                    "title": title,
+                    "source_agent": agent,
+                    "note": "Artifact creation skipped (skip_artifact=True).",
+                },
+                default=str,
+            )
 
-        # 2. Save to Artifact Gallery (markdown artifact for gallery UI)
+        # Determine category from agent name or data_type
+        category = _AGENT_CATEGORY_MAP.get(agent, data_type)
+
         store = get_artifact_store()
+        tool_name = agent if agent else "submit_response"
         artifact = store.save_file(
             file_content=content.encode(),
             filename=f"{tool_name}.md",
             artifact_type="markdown",
             title=title,
-            description=f"{data_type} from {agent}" if agent else data_type,
+            description=f"{category} from {agent}" if agent else category,
             mime_type="text/markdown",
             tool_source="submit_response",
             metadata={
-                "context_entry_id": entry.id,
                 "data_type": data_type,
                 "source_agent": agent,
                 "entry_ids": cited,
             },
-            highlighted=True,
         )
+        # Set unified fields on the entry
+        artifact.category = category
+        artifact.source_agent = agent
+        artifact.summary = {
+            "title": title,
+            "content_length": len(content),
+            "cited_entries": len(cited),
+            "source_agent": agent,
+        }
+        # Persist the updated fields
+        store._save_index()
 
-        response = entry.to_tool_response()
-        response["artifact_id"] = artifact.id
-        response["artifact_highlighted"] = True
+        response = artifact.to_tool_response()
         response["gallery_url"] = gallery_url()
-        response["note"] = (
-            "Artifact is already highlighted in the gallery. "
-            "Do NOT call artifact_focus or set_highlighted — it is already visible."
-        )
         return json.dumps(response, default=str)
 
     except Exception as exc:

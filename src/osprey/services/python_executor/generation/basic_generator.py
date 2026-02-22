@@ -16,7 +16,6 @@ Claude SDK.
 .. seealso::
    :class:`osprey.services.python_executor.generation.interface.CodeGenerator`
    :class:`osprey.services.python_executor.generation.factory.create_code_generator`
-   :func:`osprey.models.get_langchain_model`
 
 Examples:
     Using the basic generator directly::
@@ -44,9 +43,8 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from langchain_core.messages import HumanMessage
 
-from osprey.models import get_langchain_model
+from osprey.models.completion import aget_chat_completion
 from osprey.utils.config import get_model_config
 from osprey.utils.logger import get_logger
 
@@ -64,8 +62,7 @@ class BasicLLMCodeGenerator:
     execution request, includes error feedback for iterative improvement, and
     automatically cleans up common LLM formatting issues.
 
-    The generator uses LangChain models with streaming support via get_langchain_model()
-    for real-time token streaming. It handles all aspects of prompt construction,
+    It handles all aspects of prompt construction,
     code generation, and post-processing to produce clean, executable Python code.
 
     Configuration:
@@ -87,7 +84,6 @@ class BasicLLMCodeGenerator:
 
     .. seealso::
        :class:`CodeGenerator` : Protocol interface this class implements
-       :func:`osprey.models.get_langchain_model` : LLM interface used for streaming generation
     """
 
     # Default prompts (used when no config file exists)
@@ -277,19 +273,12 @@ Analyze what went wrong and fix the root cause, not just symptoms."""
             if self._save_prompts:
                 self._prompt_data["generation_prompt"] = prompt
 
-            # Get LangChain model for streaming (same pattern as respond node)
-            model = get_langchain_model(model_config=self.model_config)
-            messages = [HumanMessage(content=prompt)]
-
-            # Stream tokens using native LangGraph streaming
-            # LangGraph automatically captures these tokens via "messages" stream mode
-            # with subgraphs=True and routes them by metadata["langgraph_node"]
-            response_chunks: list[str] = []
-            async for chunk in model.astream(messages):
-                if chunk.content:
-                    response_chunks.append(chunk.content)
-
-            generated_code = "".join(response_chunks)
+            # Generate code via LiteLLM
+            generated_code = await aget_chat_completion(
+                message=prompt,
+                provider=self.model_config.get("provider", "openai"),
+                model_id=self.model_config.get("model_id", "gpt-4"),
+            )
 
             if not generated_code or not generated_code.strip():
                 raise CodeGenerationError(

@@ -14,17 +14,14 @@ import pytest
 
 from osprey.interfaces.ariel.mcp.registry import reset_ariel_registry
 from osprey.mcp_server.common import reset_config_cache
-from osprey.mcp_server.data_context import initialize_data_context, reset_data_context
 from tests.mcp_server.conftest import get_tool_fn  # noqa: F401
 
 
 @pytest.fixture(autouse=True)
 def _reset_registry(tmp_path):
-    """Reset the ARIEL MCP registry and DataContext singletons between tests."""
-    initialize_data_context(workspace_root=tmp_path / "osprey-workspace")
+    """Reset the ARIEL MCP registry singletons between tests."""
     yield
     reset_ariel_registry()
-    reset_data_context()
     reset_config_cache()
 
 

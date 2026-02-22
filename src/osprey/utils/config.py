@@ -1,14 +1,13 @@
 """
 Configuration System
 
-Professional configuration system that works seamlessly both inside and outside
-LangGraph contexts. Features:
+Professional configuration system for standalone execution. Features:
 - Single-file YAML loading with environment resolution
-- LangGraph integration, pre-computed structures, context awareness
+- Pre-computed structures, context awareness
 - Single source of truth with automatic context detection
 - Flat structure: framework and application settings coexist via unique naming
 
-Clean, modern configuration architecture supporting both standalone and graph execution.
+Clean, modern configuration architecture supporting standalone execution.
 """
 
 import logging
@@ -20,10 +19,7 @@ from typing import Any
 
 import yaml
 
-try:
-    from langgraph.config import get_config
-except (RuntimeError, ImportError):
-    get_config = None
+get_config = None
 
 # Use standard logging (not get_logger) to avoid circular imports with logger.py
 # The short name 'CONFIG' enables easy filtering: quiet_logger(['registry', 'CONFIG'])
@@ -580,27 +576,18 @@ def _get_configurable(
     Returns:
         Complete configuration dictionary with all configurable values
     """
-    try:
-        # Prefer LangGraph context for runtime-injected configuration
-        # (only when no explicit config_path is provided)
-        if config_path is None and get_config:
-            config = get_config()
-            return config.get("configurable", {})
-        else:
-            raise ImportError("LangGraph not available or explicit path provided")
-    except (RuntimeError, ImportError):
-        # Use cached configurable for standalone execution
-        config = _get_config(config_path, set_as_default=set_as_default)
+    # Use cached configurable for standalone execution
+    config = _get_config(config_path, set_as_default=set_as_default)
 
-        # For default config, use cached configurable for performance
-        if config_path is None:
-            global _default_configurable
-            if _default_configurable is None:
-                _default_configurable = config.configurable.copy()
-            return _default_configurable
+    # For default config, use cached configurable for performance
+    if config_path is None:
+        global _default_configurable
+        if _default_configurable is None:
+            _default_configurable = config.configurable.copy()
+        return _default_configurable
 
-        # For explicit paths, return configurable directly
-        return config.configurable
+    # For explicit paths, return configurable directly
+    return config.configurable
 
 
 # =============================================================================
@@ -949,7 +936,7 @@ def get_agent_dir(sub_dir: str, host_path: bool = False) -> str:
 
 
 # =============================================================================
-# LANGGRAPH NATIVE ACCESS
+# CONFIGURATION ACCESS
 # =============================================================================
 
 

@@ -1,9 +1,6 @@
 ---
 summary: Error taxonomy and response protocols
 description: Error taxonomy and response protocols for MCP tool failures
-paths:
-  - "osprey-workspace/**"
-  - "_agent_data/**"
 ---
 
 <!-- PROMPT-PROVIDER: section=error_handling_rules

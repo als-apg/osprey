@@ -1,7 +1,7 @@
 /* OSPREY Logbook Entry Composer
  *
  * Creates a modal UI for composing and submitting ARIEL logbook entries
- * from artifacts and data context items in the gallery.
+ * from artifacts in the gallery.
  *
  * Depends on: gallery.js (for window._galleryState)
  */
@@ -241,23 +241,6 @@
       }
     }
 
-    // Context Focus — append to the nav bar in focus-footer
-    const focusedContext = gs.getFocusedContext && gs.getFocusedContext();
-    if (focusedContext) {
-      const bar = document.querySelector("#ctx-focus-container .focus-nav");
-      if (bar) {
-        bar.appendChild(createLogbookBtn({ context_id: focusedContext.id }));
-      }
-    }
-
-    // Context Preview — append to the header actions bar
-    const selectedContext = gs.getSelectedContext && gs.getSelectedContext();
-    if (selectedContext) {
-      const bar = document.querySelector("#ctx-preview-content .preview-header-actions");
-      if (bar) {
-        bar.appendChild(createLogbookBtn({ context_id: selectedContext.id }));
-      }
-    }
   }
 
   // Expose for gallery.js to call

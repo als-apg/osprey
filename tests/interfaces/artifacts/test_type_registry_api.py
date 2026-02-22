@@ -31,7 +31,7 @@ async def test_type_registry_endpoint_returns_200(client):
 async def test_type_registry_endpoint_structure(client):
     resp = await client.get("/api/type-registry")
     data = resp.json()
-    assert set(data.keys()) == {"artifact_types", "data_types", "tool_types"}
+    assert set(data.keys()) == {"artifact_types", "categories", "data_types", "tool_types"}
 
 
 @pytest.mark.asyncio

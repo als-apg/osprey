@@ -127,7 +127,7 @@ Welcome to the presentation.
         assert result["status"] == "success"
         # Should have 2 artifacts: PDF + .tex source
         assert len(result["artifact_ids"]) == 2
-        assert result["context_entry_id"] is not None
+        assert result["pdf_artifact_id"] is not None
         # pdflatex called 2 times (2 passes)
         assert call_count == 2
 
@@ -217,8 +217,7 @@ Welcome to the presentation.
 
         assert result["status"] == "success"
         # The figure should have been copied to build dir
-        # (We can verify through the summary)
-        assert result["summary"]["figures_included"] == 1
+        assert result["figures_included"] == 1
 
     async def test_missing_artifact_id_skipped(self, tool_fn, simple_latex):
         """Non-existent artifact IDs are skipped without failing."""
@@ -246,4 +245,4 @@ Welcome to the presentation.
 
         # Should still succeed — missing artifact is just skipped
         assert result["status"] == "success"
-        assert result["summary"]["figures_included"] == 0
+        assert result["figures_included"] == 0

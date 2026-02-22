@@ -256,13 +256,18 @@ class TestSafetyPreservation:
         assert "PostToolUse" in settings["hooks"]
 
     def test_always_denies_dangerous_tools(self, regen_project):
-        """After regen, settings.json still denies Bash, Edit, Write, WebFetch, WebSearch."""
+        """After regen, settings.json denies Bash, Edit, WebFetch, WebSearch.
+
+        Write is NOT in the deny list — it's guarded by the memory_guard hook
+        which allows writes only to the Claude Code memory directory.
+        """
         settings = json.loads(
             (regen_project / ".claude" / "settings.json").read_text()
         )
         deny = settings["permissions"]["deny"]
-        for tool in ["Bash", "Edit", "Write", "WebFetch", "WebSearch"]:
+        for tool in ["Bash", "Edit", "WebFetch", "WebSearch"]:
             assert tool in deny, f"{tool} should be in deny list after regen"
+        assert "Write" not in deny, "Write should be guarded by hook, not deny list"
 
     def test_preserves_writes_check_hook(self, regen_project):
         """osprey_writes_check.py is in PreToolUse for channel_write after regen."""
@@ -281,6 +286,25 @@ class TestSafetyPreservation:
             for hook in entry["hooks"]
         ]
         assert any("osprey_writes_check.py" in cmd for cmd in hook_commands)
+
+    def test_has_memory_guard_hook(self, regen_project):
+        """After regen, memory_guard hook is in PreToolUse for Write."""
+        settings = json.loads(
+            (regen_project / ".claude" / "settings.json").read_text()
+        )
+        pre_tool_use = settings["hooks"]["PreToolUse"]
+        write_hooks = [
+            h for h in pre_tool_use
+            if h.get("matcher") == "Write"
+        ]
+        assert len(write_hooks) == 1
+        hook_commands = [
+            hook["command"]
+            for entry in write_hooks
+            for hook in entry["hooks"]
+        ]
+        assert any("osprey_memory_guard.py" in cmd for cmd in hook_commands)
+        assert (regen_project / ".claude" / "hooks" / "osprey_memory_guard.py").exists()
 
     def test_hooks_remain_executable(self, regen_project):
         """After regen, all hook .py files retain executable permissions."""

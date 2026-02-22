@@ -30,8 +30,8 @@
 {%- set _ = allow_entries.append('"mcp__workspace__list_windows"') -%}
 {%- set _ = allow_entries.append('"mcp__workspace__manage_window"') -%}
 {%- set _ = allow_entries.append('"mcp__workspace__submit_response"') -%}
-{%- set _ = allow_entries.append('"mcp__workspace__data_context_list"') -%}
-{%- set _ = allow_entries.append('"mcp__workspace__data_context_read"') -%}
+{%- set _ = allow_entries.append('"mcp__workspace__data_list"') -%}
+{%- set _ = allow_entries.append('"mcp__workspace__data_read"') -%}
 {%- set _ = allow_entries.append('"mcp__workspace__artifact_get"') -%}
 {%- set _ = allow_entries.append('"mcp__workspace__artifact_focus"') -%}
 {%- set _ = allow_entries.append('"mcp__workspace__artifact_export"') -%}
@@ -110,7 +110,6 @@
     "deny": [
       "Bash",
       "Edit",
-      "Write",
       "WebFetch",
       "WebSearch",
       "mcp__plugin_playwright_playwright__*",
@@ -151,6 +150,16 @@
       }
     ],
     "PreToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_memory_guard.py\"",
+            "timeout": 5
+          }
+        ]
+      }{% if "controls" not in disable_servers or "python" not in disable_servers %},{% endif %}
 {% if "controls" not in disable_servers %}      {
         "matcher": "mcp__controls__channel_write",
         "hooks": [

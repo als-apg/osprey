@@ -1,37 +1,22 @@
 """Unified Approval System for Production-Ready Workflow Management.
 
-This module provides a comprehensive approval system that integrates with the
-LangGraph-native framework architecture for clean approval handling across
-all capabilities. The system enables secure, configurable approval workflows
+This module provides a comprehensive approval system for clean approval handling
+across all capabilities. The system enables secure, configurable approval workflows
 for operations requiring human oversight.
 
 The approval system consists of several key components:
 
-1. **Core Approval Functions**: Create approval interrupts and manage approval state
-2. **Configuration Management**: Type-safe configuration loading and validation
-3. **Business Logic Evaluators**: Capability-specific approval decision logic
-4. **Policy Management**: Centralized approval policy configuration
+1. **Configuration Management**: Type-safe configuration loading and validation
+2. **Business Logic Evaluators**: Capability-specific approval decision logic
+3. **Policy Management**: Centralized approval policy configuration
 
 Key Features:
-    - LangGraph-native approval interrupts with structured data
-    - Dynamic approval type generation for any capability
     - Configurable approval modes (disabled, selective, all_capabilities)
     - Type-safe configuration management with validation
     - Clean separation between configuration and business logic
     - Production-ready error handling and logging
 
 Examples:
-    Basic approval interrupt creation::
-
-        >>> from osprey.approval import create_code_approval_interrupt
-        >>> interrupt_data = create_code_approval_interrupt(
-        ...     code="print('Hello World')",
-        ...     analysis_details={'safety_level': 'low'},
-        ...     execution_mode='readonly',
-        ...     safety_concerns=[]
-        ... )
-        >>> # interrupt_data contains structured data for LangGraph
-
     Configuration management::
 
         >>> from osprey.approval import get_approval_manager
@@ -49,18 +34,6 @@ Examples:
 """
 
 from .approval_manager import ApprovalManager, get_approval_manager
-from .approval_system import (
-    clear_approval_state,
-    create_approval_type,
-    create_channel_write_approval_interrupt,
-    create_code_approval_interrupt,
-    create_memory_approval_interrupt,
-    create_plan_approval_interrupt,
-    create_step_approval_interrupt,
-    get_approval_resume_data,
-    get_approved_payload_from_state,
-    handle_service_with_interrupts,
-)
 from .config_models import (
     ApprovalMode,
     GlobalApprovalConfig,
@@ -70,17 +43,6 @@ from .config_models import (
 from .evaluators import ApprovalDecision, MemoryApprovalEvaluator, PythonExecutionApprovalEvaluator
 
 __all__ = [
-    # Core approval functions
-    "create_approval_type",
-    "create_plan_approval_interrupt",
-    "create_step_approval_interrupt",
-    "create_code_approval_interrupt",
-    "create_memory_approval_interrupt",
-    "create_channel_write_approval_interrupt",
-    "get_approved_payload_from_state",
-    "get_approval_resume_data",
-    "clear_approval_state",
-    "handle_service_with_interrupts",
     # Configuration and policy management
     "ApprovalManager",
     "get_approval_manager",

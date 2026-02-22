@@ -5,7 +5,7 @@ import { onConnectionStateChange, fetchJSON } from './api.js';
 import { initPanelManager } from './panel-manager.js';
 import { initDrawers } from './drawer.js';
 import { initSettings } from './settings.js';
-import { initMemoryTab } from './memory-tab.js';
+import { initMemoryGallery } from './memory-gallery.js';
 import { initPromptsGallery } from './prompts-gallery.js';
 import { initSessionSelector, startNewSession } from './sessions.js';
 import { initTheme } from './theme.js';
@@ -25,7 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initNewSessionButton();
   initDrawers();
   initSettings();
-  initMemoryTab();
+  initMemoryGallery();
   initPromptsGallery();
   initWikiLink();
 
@@ -324,6 +324,23 @@ function initIframePasteBridge() {
       focusTerminal();
     }
   });
+
+  // Drop zone: accept dragged artifacts onto the terminal container
+  const termContainer = document.getElementById('terminal-container');
+  if (termContainer) {
+    termContainer.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    });
+    termContainer.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const text = e.dataTransfer.getData('text/plain');
+      if (text) {
+        pasteToTerminal(text);
+        focusTerminal();
+      }
+    });
+  }
 }
 
 /* ---- Welcome Modal (terminal banner) ---- */

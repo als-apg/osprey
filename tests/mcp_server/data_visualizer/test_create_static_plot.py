@@ -117,7 +117,7 @@ class TestCreateStaticPlot:
 
         assert result["status"] == "success"
         assert len(result["artifact_ids"]) == 1
-        assert result["context_entry_id"] is not None
+        assert result["artifact_id"] is not None
 
     async def test_data_source_file_path(self, tool_fn, mock_execution_folder):
         """Verify data_source generates loading code in executed code."""

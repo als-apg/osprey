@@ -6,8 +6,8 @@ that provide better validation, IDE support, and pattern matching capabilities.
 
 Architecture:
     - Events are typed dataclasses defined in types.py
-    - EventEmitter in emitter.py handles emission via LangGraph streaming
-    - parse_event() in parser.py reconstructs typed events from stream dicts
+    - EventEmitter in emitter.py handles emission via registered handlers
+    - parse_event() in parser.py reconstructs typed events from dicts
     - Interface handlers (TUI, CLI, Web) use pattern matching for clean routing
 
 Usage:
@@ -20,34 +20,22 @@ Usage:
     # Consuming events (in interfaces)
     from osprey.events import parse_event, StatusEvent, CapabilityStartEvent
 
-    async for chunk in graph.astream(..., stream_mode="custom"):
-        event = parse_event(chunk)
-        if event:
-            match event:
-                case StatusEvent(message=msg):
-                    display_status(msg)
-                case CapabilityStartEvent(capability_name=name):
-                    show_capability_start(name)
+    event = parse_event(event_dict)
+    if event:
+        match event:
+            case StatusEvent(message=msg):
+                display_status(msg)
+            case CapabilityStartEvent(capability_name=name):
+                show_capability_start(name)
 
-    # Fallback handlers for events outside graph execution
+    # Register handlers to receive events
     from osprey.events import register_fallback_handler
 
     unregister = register_fallback_handler(lambda e: queue.put_nowait(e))
     # ... run UI ...
     unregister()
-
-    # Multi-mode streaming with LLM tokens
-    from osprey.events import consume_stream, LLMToken
-
-    async for output in consume_stream(graph, input_data, config):
-        match output:
-            case StatusEvent(message=msg):
-                display_status(msg)
-            case LLMToken(content=text):
-                print(text, end="", flush=True)
 """
 
-# Event types
 # Event emission
 from .emitter import (
     EventEmitter,
@@ -62,14 +50,6 @@ from .parser import (
     parse_event,
 )
 
-# Multi-mode streaming
-from .streaming import (
-    LLMToken,
-    StateUpdate,
-    StreamMode,
-    consume_custom_events,
-    consume_stream,
-)
 from .types import (
     ApprovalReceivedEvent,
     ApprovalRequiredEvent,
@@ -133,10 +113,4 @@ __all__ = [
     "parse_event",
     "is_osprey_event",
     "EVENT_CLASSES",
-    # Streaming
-    "consume_stream",
-    "consume_custom_events",
-    "LLMToken",
-    "StateUpdate",
-    "StreamMode",
 ]

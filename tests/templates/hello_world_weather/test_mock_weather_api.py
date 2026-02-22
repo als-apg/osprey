@@ -15,8 +15,6 @@ from osprey.templates.apps.hello_world_weather.mock_weather_api import (
     weather_api,
 )
 
-pytestmark = pytest.mark.langgraph
-
 # Common test locations used across multiple tests
 COMMON_TEST_LOCATIONS = ["San Francisco", "New York", "Prague", "Tokyo", "London", "local"]
 

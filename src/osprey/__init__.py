@@ -5,8 +5,6 @@ intelligent agents with specialized capabilities.
 
 This package contains:
 - Base classes and interfaces
-- Infrastructure components
-- State management
 - Service integrations
 - Configuration management
 """
@@ -17,4 +15,3 @@ __version__ = "0.11.5"
 __all__ = ["__version__"]
 
 # Framework is designed for on-demand imports to avoid circular dependencies
-# Use specific imports like: from osprey.state import AgentState

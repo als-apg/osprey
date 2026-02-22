@@ -1,24 +1,10 @@
 """Tests for SSE event type discrimination.
 
-The context gallery routes have been removed (context data is now accessed
-via DataContext MCP tools only). This file retains SSE discrimination tests
-to verify broadcast event format.
+Verifies that artifact SSE broadcast events include type tags so consumers
+can distinguish between file-based artifacts and data artifacts.
 """
 
 import pytest
-
-
-def _save_context_entry(context_store, tool="channel_read", data_type="channel_values",
-                        description="test entry"):
-    """Helper to save a context entry directly on the store."""
-    return context_store.save(
-        tool=tool,
-        data={"value": 42},
-        description=description,
-        summary={"count": 1},
-        access_details={"format": "json"},
-        data_type=data_type,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -53,10 +39,18 @@ class TestSSEDiscrimination:
         assert tagged["type"] == "artifact"
         assert tagged["id"] == entry.id
 
-    def test_context_event_has_type(self, app_client):
-        """Context events include {"type": "context"}."""
-        ctx = app_client.app.state.context_store
-        entry = _save_context_entry(ctx)
-        tagged = {"type": "context", **entry.to_dict()}
-        assert tagged["type"] == "context"
+    def test_data_artifact_event_has_type(self, app_client):
+        """Data artifact SSE events include {"type": "artifact"}."""
+        store = app_client.app.state.artifact_store
+        entry = store.save_data(
+            tool="channel_read",
+            data={"value": 42},
+            title="Channel snapshot",
+            description="test data artifact",
+            summary={"count": 1},
+            access_details={"format": "json"},
+            artifact_type="json",
+        )
+        tagged = {"type": "artifact", **entry.to_dict()}
+        assert tagged["type"] == "artifact"
         assert tagged["id"] == entry.id

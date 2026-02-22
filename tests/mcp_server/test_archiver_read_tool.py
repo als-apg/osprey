@@ -1,10 +1,10 @@
 """Tests for the archiver_read MCP tool.
 
-Covers: time parsing, raw vs processed data, data context persistence,
+Covers: time parsing, raw vs processed data, artifact persistence,
 timeout handling, and error format compliance.
 
 Note: archiver_read uses the registry to get the archiver connector.
-It returns a DataFrame, and always saves to the DataContext.
+It returns a DataFrame, and always saves to the ArtifactStore.
 """
 
 import json
@@ -57,7 +57,7 @@ async def test_archiver_read_basic(tmp_path, monkeypatch):
 
     data = json.loads(result)
     assert data["status"] == "success"
-    assert "context_entry_id" in data
+    assert "artifact_id" in data
     assert "data_file" in data
     assert data["summary"]["channels_queried"] == 1
     assert data["summary"]["total_rows"] == 2
@@ -65,7 +65,7 @@ async def test_archiver_read_basic(tmp_path, monkeypatch):
 
     # access_details is returned inline so Claude knows how to read the data file
     ad = data["access_details"]
-    assert ad["data_file_structure"]["root_keys"] == ["_osprey_metadata", "data"]
+    assert ad["data_file_structure"]["root_keys"] == ["query", "dataframe"]
     assert ad["data_file_structure"]["dataframe_keys"] == ["index", "columns", "data"]
     assert ad["schema"]["index"] == "list of ISO-8601 timestamp strings (one per row)"
     assert "all_timestamps" in ad["access_patterns"]
@@ -105,7 +105,7 @@ async def test_archiver_read_relative_time(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 async def test_archiver_read_file_persistence(tmp_path, monkeypatch):
-    """Archiver read saves data to osprey-workspace/data/ via DataContext."""
+    """Archiver read saves data to osprey-workspace/artifacts/ via ArtifactStore."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("archiver:\n  type: mock\n")
     initialize_mcp_registry()
@@ -127,13 +127,22 @@ async def test_archiver_read_file_persistence(tmp_path, monkeypatch):
 
     data = json.loads(result)
     assert "data_file" in data
+
+    # Data file is a relative filename within the artifacts dir
     from pathlib import Path
 
-    data_file = Path(data["data_file"])
+    artifacts_dir = tmp_path / "osprey-workspace" / "artifacts"
+    data_file = artifacts_dir / data["data_file"]
     assert data_file.exists()
 
-    # Verify the index file was created
-    index_file = tmp_path / "osprey-workspace" / "data_context.json"
+    # Verify the data file is raw JSON (no _osprey_metadata envelope)
+    file_content = json.loads(data_file.read_text())
+    assert "query" in file_content
+    assert "dataframe" in file_content
+    assert "_osprey_metadata" not in file_content
+
+    # Verify the index file was created (inside the artifacts subdir)
+    index_file = artifacts_dir / "artifacts.json"
     assert index_file.exists()
 
 

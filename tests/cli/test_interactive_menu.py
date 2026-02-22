@@ -6,8 +6,6 @@ import pytest
 
 from osprey.cli.interactive_menu import _check_simulation_ioc_running
 
-pytestmark = pytest.mark.langgraph
-
 
 class TestCheckSimulationIOCRunning:
     """Tests for the _check_simulation_ioc_running helper function."""

@@ -1,86 +1,75 @@
 """
 Context Loading Utilities
 
-Utilities for loading context data from various sources (JSON files, etc.)
-for use with the ContextManager system.
+Utilities for loading context data from various sources (JSON files, etc.).
+Used by the generated code wrapper to provide context access in subprocess execution.
 """
+
+from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from osprey.utils.logger import get_logger
-
-from .context_manager import ContextManager
 
 logger = get_logger("context_loader")
 
 
-def load_context(context_file: str = "context.json") -> ContextManager | None:
-    """
-    Load agent execution context from a JSON file in the current directory.
+class _DictNamespace:
+    """Lightweight namespace providing dot-notation access to nested dicts.
 
-    This function provides the same interface as the old load_context function
-    but uses the new Pydantic-based ContextManager system. It maintains exact
-    compatibility with existing access patterns.
+    Replaces the deleted ContextManager for simple read-only context access
+    in generated code wrappers.
+    """
+
+    def __init__(self, data: dict[str, Any]) -> None:
+        self._data = data
+
+    def __getattr__(self, name: str) -> Any:
+        try:
+            value = self._data[name]
+        except KeyError:
+            raise AttributeError(f"No context key '{name}'") from None
+        if isinstance(value, dict):
+            return _DictNamespace(value)
+        return value
+
+    def __repr__(self) -> str:
+        return f"_DictNamespace({list(self._data.keys())})"
+
+
+def load_context(context_file: str = "context.json") -> _DictNamespace | None:
+    """Load agent execution context from a JSON file in the current directory.
+
+    Provides dot-notation access to context data stored as nested JSON.
+    Used by the generated code wrapper for subprocess execution.
 
     Args:
         context_file: Name of the context file (default: "context.json")
 
     Returns:
-        ContextManager instance with dot notation access, or None if loading fails
+        Namespace with dot-notation access to context data, or None if loading fails
 
     Usage:
         >>> from osprey.context import load_context
         >>> context = load_context()
         >>> data = context.ARCHIVER_DATA.beam_current_historical_data
-        >>> pv_values = context.PV_ADDRESSES.step_1.pv_values
     """
     try:
-        # Look for context file in current working directory
         context_path = Path.cwd() / context_file
 
         if not context_path.exists():
             logger.warning(f"Context file not found: {context_path}")
-            logger.info(f"⚠️  Context file not found: {context_path}")
-            logger.info("Make sure you're running this from a directory with a context.json file")
             return None
 
-        # Load JSON data
         with open(context_path, encoding="utf-8") as f:
             context_data = json.load(f)
 
-        # Ensure registry is initialized before creating ContextManager
-        # This is required for context reconstruction to work properly
-        try:
-            import os
-
-            from osprey.registry import get_registry, initialize_registry
-
-            # Get config path from environment variable if available
-            # This is critical for subprocess execution where cwd is not project root
-            config_path = os.environ.get("CONFIG_FILE")
-
-            registry = get_registry(config_path=config_path)
-            if not getattr(registry, "_initialized", False):
-                logger.debug("Registry not initialized, initializing now...")
-                initialize_registry(auto_export=False, config_path=config_path)
-                logger.debug("Registry initialization completed")
-        except Exception as e:
-            logger.warning(f"Failed to initialize registry: {e}")
-            logger.info("Context loading may not work properly")
-
-        # Create ContextManager with the loaded data
-        # The data structure should be: {context_type: {context_key: {field: value}}}
-        # ContextManager expects an AgentState with capability_context_data key
-        fake_state = {"capability_context_data": context_data}
-        context_manager = ContextManager(fake_state)
-
-        # Validate that we have properly structured data
         if context_data:
-            logger.info("✓ Agent context loaded successfully!")
-            logger.info(f"Context available with {len(context_data)} context categories")
+            logger.info("Context loaded successfully")
             logger.info(f"Available context types: {list(context_data.keys())}")
-            return context_manager
+            return _DictNamespace(context_data)
         else:
             logger.warning("Context loaded but no data found")
             return None

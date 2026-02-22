@@ -34,31 +34,26 @@ class TestTemplateManager:
         assert "control_assistant" in templates
         assert len(templates) >= 3
 
-    def test_create_project_minimal_compact(self, tmp_path):
-        """Test creating project with minimal template (compact style)."""
+    def test_create_project_minimal(self, tmp_path):
+        """Test creating project with minimal template."""
         manager = TemplateManager()
 
         project_dir = manager.create_project(
             project_name="test-project",
             output_dir=tmp_path,
             template_name="minimal",
-            registry_style="compact",
         )
 
-        # Verify structure
+        # Verify structure (Claude Code mode — no src/ or pyproject.toml)
         assert project_dir.exists()
         assert (project_dir / "config.yml").exists()
         assert (project_dir / ".env.example").exists()
-        assert (project_dir / "pyproject.toml").exists()
         assert (project_dir / "README.md").exists()
-        assert (project_dir / "src").exists()
-        assert (project_dir / "src" / "test_project").exists()
-        assert (project_dir / "src" / "test_project" / "registry.py").exists()
+        assert (project_dir / "_agent_data").exists()
 
-        # Verify services copied
-        assert (project_dir / "services").exists()
-        assert (project_dir / "services" / "docker-compose.yml.j2").exists()
-        assert (project_dir / "services" / "jupyter").exists()
+        # Claude Code integration
+        assert (project_dir / "CLAUDE.md").exists()
+        assert (project_dir / ".mcp.json").exists()
 
     def test_create_project_hello_world(self, tmp_path):
         """Test creating project with hello_world_weather template."""
@@ -68,12 +63,10 @@ class TestTemplateManager:
             project_name="weather-app", output_dir=tmp_path, template_name="hello_world_weather"
         )
 
-        # Verify weather-specific structure
-        assert (
-            project_dir / "src" / "weather_app" / "capabilities" / "current_weather.py"
-        ).exists()
-        assert (project_dir / "src" / "weather_app" / "context_classes.py").exists()
-        assert (project_dir / "src" / "weather_app" / "mock_weather_api.py").exists()
+        # Verify basic structure (Claude Code mode — no src/ package)
+        assert project_dir.exists()
+        assert (project_dir / "config.yml").exists()
+        assert (project_dir / "CLAUDE.md").exists()
 
     def test_duplicate_project_raises_error(self, tmp_path):
         """Test that creating duplicate project raises error."""
@@ -94,45 +87,6 @@ class TestTemplateManager:
             manager.create_project("test-project", tmp_path, "nonexistent_template")
 
 
-class TestGeneratedRegistries:
-    """Test that generated registries use helper functions correctly."""
-
-    def test_minimal_uses_helper(self, tmp_path):
-        """Test that minimal template generates registry with helper."""
-        manager = TemplateManager()
-        project_dir = manager.create_project("test-app", tmp_path, "minimal")
-
-        registry_file = project_dir / "src" / "test_app" / "registry.py"
-        content = registry_file.read_text()
-
-        # Should import helper
-        assert "from osprey.registry import" in content
-        assert "extend_framework_registry" in content
-
-        # Should use helper
-        assert "return extend_framework_registry(" in content
-
-        # Should have capabilities and context_classes parameters
-        assert "capabilities=[" in content
-        assert "context_classes=[" in content
-
-    def test_hello_world_uses_helper(self, tmp_path):
-        """Test that hello_world_weather uses helper."""
-        manager = TemplateManager()
-        project_dir = manager.create_project("weather", tmp_path, "hello_world_weather")
-
-        registry_file = project_dir / "src" / "weather" / "registry.py"
-        content = registry_file.read_text()
-
-        # Should use helper
-        assert "extend_framework_registry" in content
-        assert "return extend_framework_registry(" in content
-
-        # Should have weather capability
-        assert '"current_weather"' in content
-        assert "CurrentWeatherCapability" in content
-
-
 class TestCLIIntegration:
     """Test CLI command integration with templates."""
 
@@ -144,9 +98,8 @@ class TestCLIIntegration:
 
         assert result.exit_code == 0
         assert "Project created successfully" in result.output
-        # Match registry style (may have ANSI color codes)
-        assert "Registry style:" in result.output
-        assert "extend" in result.output
+        # New init shows Mode: Claude Code
+        assert "Mode: Claude Code" in result.output
 
     def test_init_command_with_template(self, tmp_path):
         """Test init command with specific template."""
@@ -162,30 +115,6 @@ class TestCLIIntegration:
         assert "Using template:" in result.output
         assert "hello_world_weather" in result.output
 
-    def test_init_command_with_registry_style(self, tmp_path):
-        """Test init command with registry style option."""
-        runner = CliRunner()
-
-        # Test extend style
-        result = runner.invoke(
-            init, ["extend-app", "--registry-style", "extend", "--output-dir", str(tmp_path)]
-        )
-
-        assert result.exit_code == 0
-        # Match registry style (may have ANSI color codes)
-        assert "Registry style:" in result.output
-        assert "extend" in result.output
-
-        # Test standalone style
-        result = runner.invoke(
-            init,
-            ["standalone-app", "--registry-style", "standalone", "--output-dir", str(tmp_path)],
-        )
-
-        assert result.exit_code == 0
-        assert "Registry style:" in result.output
-        assert "standalone" in result.output
-
     def test_init_command_shows_next_steps(self, tmp_path):
         """Test that init command shows helpful next steps."""
         runner = CliRunner()
@@ -196,8 +125,7 @@ class TestCLIIntegration:
         # Should show next steps
         assert "Next steps:" in result.output
         assert "cd test-project" in result.output
-        assert "osprey deploy up" in result.output
-        assert "osprey chat" in result.output
+        assert "claude" in result.output
 
     def test_init_command_with_channel_finder_mode(self, tmp_path):
         """Test init command with --channel-finder-mode option."""
@@ -369,8 +297,8 @@ class TestGeneratorConfigRendering:
         assert (project_dir / "claude_generator_config.yml").exists()
         assert not (project_dir / "basic_generator_config.yml").exists()
 
-    def test_generator_config_excluded_from_app_package(self, tmp_path):
-        """Test that generator config is at project root, not in src/."""
+    def test_generator_config_at_project_root(self, tmp_path):
+        """Test that generator config is at project root."""
         manager = TemplateManager()
 
         project_dir = manager.create_project(
@@ -382,11 +310,6 @@ class TestGeneratorConfigRendering:
 
         # Should be at project root
         assert (project_dir / "basic_generator_config.yml").exists()
-
-        # Should NOT be in src/ directory
-        src_dir = project_dir / "src" / "placement_test"
-        assert not (src_dir / "basic_generator_config.yml").exists()
-        assert not (src_dir / "basic_generator_config.yml.j2").exists()
 
 
 if __name__ == "__main__":

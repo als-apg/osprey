@@ -32,6 +32,12 @@ const PANELS = [
     statusBarId: 'tuning-status',
   },
   {
+    id: 'channel-finder',
+    label: 'CHANNELS',
+    configEndpoint: '/api/channel-finder-server',
+    statusBarId: 'channel-finder-status',
+  },
+  {
     id: 'monitoring',
     label: 'MONITORING',
     configEndpoint: '/api/monitoring-server',

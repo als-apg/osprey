@@ -45,6 +45,7 @@ __all__ = [
     "ChatCompletionRequest",
     "ChatMessage",
     "ProviderRegistry",
+    "SUPPORTED_PROVIDERS",
     "aget_chat_completion",
     "get_chat_completion",
     "get_langchain_model",
@@ -53,5 +54,4 @@ __all__ = [
     "list_supported_providers",
     "retry_budget_override",
     "set_api_call_context",
-    "SUPPORTED_PROVIDERS",
 ]

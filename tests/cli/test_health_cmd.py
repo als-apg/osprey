@@ -13,8 +13,6 @@ from click.testing import CliRunner
 
 from osprey.cli.health_cmd import HealthChecker, HealthCheckResult, health
 
-pytestmark = pytest.mark.langgraph
-
 
 @pytest.fixture
 def cli_runner():

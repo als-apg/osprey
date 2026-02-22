@@ -1,5 +1,5 @@
-"""Middle Layer React Agent Pipeline for Channel Finding."""
+"""Middle Layer React Agent Pipeline for Channel Finding.
 
-from .pipeline import MiddleLayerPipeline
-
-__all__ = ["MiddleLayerPipeline"]
+Note: The MiddleLayerPipeline (pipeline.py) has been removed.
+This module is retained as a placeholder for the package structure.
+"""

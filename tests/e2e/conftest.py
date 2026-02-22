@@ -13,7 +13,7 @@ import pytest
 from click.testing import CliRunner
 from langgraph.checkpoint.memory import MemorySaver
 
-from osprey.cli.init_cmd import init
+from osprey.cli.init_legacy_cmd import init_legacy
 from osprey.graph import create_graph
 from osprey.infrastructure.gateway import Gateway
 from osprey.registry import get_registry, initialize_registry, reset_registry
@@ -419,7 +419,7 @@ async def e2e_project_factory(tmp_path, request):
             args.extend(["--model", model])
 
         # Create project
-        result = runner.invoke(init, args)
+        result = runner.invoke(init_legacy, args)
 
         if result.exit_code != 0:
             raise RuntimeError(

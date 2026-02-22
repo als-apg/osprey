@@ -1,8 +1,8 @@
 """Project initialization command.
 
 This module provides the 'osprey init' command which creates new
-projects from templates. It offers a streamlined way to scaffold complete
-agent applications with proper structure and configuration.
+projects from templates with Claude Code integration (MCP servers,
+hooks, and rules).
 """
 
 from pathlib import Path
@@ -22,13 +22,6 @@ from .templates import TemplateManager
     help="Application template to use (minimal, hello_world_weather, control_assistant)",
 )
 @click.option(
-    "--registry-style",
-    "-r",
-    type=click.Choice(["extend", "standalone"], case_sensitive=False),
-    default="extend",
-    help="Registry style: extend (recommended - extends framework defaults) or standalone (advanced - explicit control)",
-)
-@click.option(
     "--output-dir",
     "-o",
     type=click.Path(),
@@ -41,10 +34,10 @@ from .templates import TemplateManager
 @click.option(
     "--provider",
     type=click.Choice(
-        ["anthropic", "openai", "google", "cborg", "ollama", "amsc"], case_sensitive=False
+        ["anthropic", "openai", "google", "cborg", "ollama", "amsc", "als-apg"], case_sensitive=False
     ),
     default=None,
-    help="AI provider to configure (anthropic, openai, google, cborg, ollama, amsc)",
+    help="AI provider to configure (anthropic, openai, google, cborg, ollama, amsc, als-apg)",
 )
 @click.option(
     "--model",
@@ -53,7 +46,9 @@ from .templates import TemplateManager
 )
 @click.option(
     "--channel-finder-mode",
-    type=click.Choice(["in_context", "hierarchical", "middle_layer", "all"], case_sensitive=False),
+    type=click.Choice(
+        ["in_context", "hierarchical", "middle_layer", "all"], case_sensitive=False
+    ),
     default=None,
     help="Channel finder pipeline mode (control_assistant template only)",
 )
@@ -62,29 +57,20 @@ from .templates import TemplateManager
     default=None,
     help="Code generator to use (e.g., basic, claude_code)",
 )
-@click.option(
-    "--no-claude-code",
-    is_flag=True,
-    default=False,
-    help="Skip generating Claude Code integration files (.mcp.json, CLAUDE.md, hooks)",
-)
 def init(
     project_name: str,
     template: str,
-    registry_style: str,
     output_dir: str,
     force: bool,
     provider: str,
     model: str,
     channel_finder_mode: str,
     code_generator: str,
-    no_claude_code: bool,
 ):
-    """Create a new Osprey project.
+    """Create a new project.
 
-    Creates a complete self-contained project with application code,
-    service configurations, and documentation. The project will be
-    ready to run immediately after adding API keys.
+    Creates a project configured for Claude Code with MCP servers,
+    hooks, and rules.
 
     PROJECT_NAME: Name of your project (e.g., my-assistant, beamline-agent)
 
@@ -95,30 +81,20 @@ def init(
       - hello_world_weather: Simple weather query example (tutorial)
       - control_assistant: Control system integration with channel finder (production-grade)
 
-    Registry styles:
-
-    \b
-      - extend (default): Extends framework defaults (recommended for most applications)
-      - standalone: Complete explicit registry (advanced - full control over all components)
-
     The generated project includes:
 
     \b
-      - Application code (capabilities, registry, context classes)
-      - Configuration file (config.yml)
+      - Configuration file (config.yml) — streamlined for Claude Code
       - Environment template (.env.example)
-      - Dependencies file (pyproject.toml)
       - Documentation (README.md)
-      - Service configurations (for production templates)
+      - Claude Code integration (.mcp.json, CLAUDE.md, .claude/ hooks & rules)
+      - Template data files (channel databases, logbook seeds for control_assistant)
 
     Examples:
 
     \b
-      # Create minimal project (extend registry style)
+      # Create minimal project
       $ osprey init my-assistant
-
-      # Create with standalone registry (advanced users)
-      $ osprey init my-assistant --registry-style standalone
 
       # Create from specific template
       $ osprey init my-assistant --template hello_world_weather
@@ -134,9 +110,6 @@ def init(
 
       # Create with specific AI provider and model
       $ osprey init my-assistant --provider cborg --model anthropic/claude-haiku
-
-      # Create with OpenAI
-      $ osprey init my-assistant --provider openai --model gpt-4
     """
     console.print(f"🚀 Creating project: [header]{project_name}[/header]")
 
@@ -155,12 +128,14 @@ def init(
             raise click.Abort()
 
         console.print(f"  📋 Using template: [accent]{template}[/accent]")
-        console.print(f"  📝 Registry style: [accent]{registry_style}[/accent]")
+        console.print("  🤖 Mode: Claude Code")
 
         # Detect environment variables
         detected_env = manager._detect_environment_variables()
         if detected_env:
-            console.print(f"  🔑 Detected {len(detected_env)} environment variable(s) from system:")
+            console.print(
+                f"  🔑 Detected {len(detected_env)} environment variable(s) from system:"
+            )
             for env_var in detected_env.keys():
                 console.print(f"     • {env_var}", style=Styles.DIM)
 
@@ -184,7 +159,7 @@ def init(
                 )
                 raise click.Abort()
 
-        # Create project with provider/model context
+        # Create project context
         context = {}
         if provider:
             context["default_provider"] = provider
@@ -194,42 +169,34 @@ def init(
             context["channel_finder_mode"] = channel_finder_mode
         if code_generator:
             context["code_generator"] = code_generator
-        if no_claude_code:
-            context["claude_code"] = False
 
         project_path = manager.create_project(
             project_name=project_name,
             output_dir=output_path,
             template_name=template,
-            registry_style=registry_style,
-            context=context if context else None,
+            registry_style="extend",  # Hardcoded default for Claude Code mode
+            context=context,
         )
 
         # Generate manifest for migration support
         manifest_context = {
-            "default_provider": context.get("default_provider", "cborg") if context else "cborg",
-            "default_model": context.get("default_model", "anthropic/claude-haiku")
-            if context
-            else "anthropic/claude-haiku",
+            "default_provider": context.get("default_provider", "cborg"),
+            "default_model": context.get("default_model", "anthropic/claude-haiku"),
         }
         if channel_finder_mode:
             manifest_context["channel_finder_mode"] = channel_finder_mode
         if code_generator:
             manifest_context["code_generator"] = code_generator
-        manifest_context["claude_code"] = not no_claude_code
         manager.generate_manifest(
             project_dir=project_path,
             project_name=project_name,
             template_name=template,
-            registry_style=registry_style,
+            registry_style="extend",
             context=manifest_context,
         )
 
-        console.print("  ✓ Creating application code...", style=Styles.SUCCESS)
-        console.print("  ✓ Creating service configurations...", style=Styles.SUCCESS)
         console.print("  ✓ Creating project configuration...", style=Styles.SUCCESS)
-        if not no_claude_code:
-            console.print("  ✓ Creating Claude Code integration...", style=Styles.SUCCESS)
+        console.print("  ✓ Creating Claude Code integration...", style=Styles.SUCCESS)
 
         # Check if API keys were detected and .env was created
         api_keys = [
@@ -238,6 +205,7 @@ def init(
             "OPENAI_API_KEY",
             "ANTHROPIC_API_KEY",
             "GOOGLE_API_KEY",
+            "ALS_APG_API_KEY",
         ]
         has_api_keys = any(key in detected_env for key in api_keys)
 
@@ -250,30 +218,25 @@ def init(
         if provider or model:
             if provider:
                 console.print(
-                    f"  ✓ Configured AI provider: [accent]{provider}[/accent]", style=Styles.SUCCESS
+                    f"  ✓ Configured AI provider: [accent]{provider}[/accent]",
+                    style=Styles.SUCCESS,
                 )
             if model:
                 console.print(
                     f"  ✓ Configured model: [accent]{model}[/accent]", style=Styles.SUCCESS
                 )
 
-        # Show next steps
+        # Show next steps (Claude Code focused)
         console.print("\n📋 [bold]Next steps:[/bold]")
         console.print(f"  1. {Messages.command(f'cd {project_name}')}")
 
         if has_api_keys:
             console.print("  2. # .env already configured with detected API keys")
-            console.print(f"  3. {Messages.command('osprey deploy up')}")
-            console.print(f"  4. {Messages.command('osprey chat')}")
-            if not no_claude_code:
-                console.print(f"     # or: {Messages.command('claude')}")
+            console.print(f"  3. {Messages.command('claude')}")
         else:
             console.print(f"  2. {Messages.command('cp .env.example .env')}")
-            console.print("  3. # Edit .env with your API keys (OPENAI_API_KEY, etc.)")
-            console.print(f"  4. {Messages.command('osprey deploy up')}")
-            console.print(f"  5. {Messages.command('osprey chat')}")
-            if not no_claude_code:
-                console.print(f"     # or: {Messages.command('claude')}")
+            console.print("  3. # Edit .env with your API keys")
+            console.print(f"  4. {Messages.command('claude')}")
 
     except ValueError as e:
         console.print(f"❌ Error: {e}", style=Styles.ERROR)

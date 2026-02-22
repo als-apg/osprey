@@ -3,15 +3,21 @@ Comprehensive tests for ContextManager extract_from_step fix.
 
 This test suite validates the critical bug fix for handling multiple contexts
 of the same type in extract_from_step().
+
+Note: ContextManager has been removed (LangGraph-only). Tests retained for
+reference but skipped when the module is unavailable.
 """
 
+import pytest
 from typing import ClassVar
 
-import pytest
 from pydantic import Field
 
+ContextManager = pytest.importorskip(
+    "osprey.context.context_manager", reason="ContextManager removed (LangGraph-only)"
+).ContextManager
+
 from osprey.context.base import CapabilityContext
-from osprey.context.context_manager import ContextManager
 
 # ===================================================================
 # Test Context Classes

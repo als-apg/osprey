@@ -271,3 +271,41 @@ _deplot_launcher = ServerLauncher(
 def ensure_deplot_server() -> None:
     """Ensure the DePlot service is running; launch if needed."""
     _deplot_launcher.ensure_running()
+
+
+# ---------------------------------------------------------------------------
+# Channel Finder web interface
+# ---------------------------------------------------------------------------
+
+
+def _channel_finder_config() -> tuple[str, int]:
+    config = load_osprey_config()
+    cf = config.get("channel_finder", {}).get("web", {})
+    return cf.get("host", "127.0.0.1"), cf.get("port", 8092)
+
+
+def _channel_finder_auto_launch() -> bool:
+    config = load_osprey_config()
+    cf = config.get("channel_finder", {})
+    if not cf:
+        return False  # No channel_finder section → don't launch
+    return cf.get("web", {}).get("auto_launch", True)
+
+
+def _channel_finder_app_factory() -> object:
+    from osprey.interfaces.channel_finder.app import create_app
+
+    return create_app()
+
+
+_channel_finder_launcher = ServerLauncher(
+    name="Channel Finder",
+    config_reader=_channel_finder_config,
+    auto_launch_checker=_channel_finder_auto_launch,
+    app_factory=_channel_finder_app_factory,
+)
+
+
+def ensure_channel_finder_server() -> None:
+    """Ensure the Channel Finder web server is running; launch if needed."""
+    _channel_finder_launcher.ensure_running()

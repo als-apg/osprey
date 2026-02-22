@@ -204,13 +204,11 @@ def prime_config_builder() -> None:
 # Workspace singleton initialization
 # ---------------------------------------------------------------------------
 def initialize_workspace_singletons(workspace_root: Path) -> None:
-    """Initialize ArtifactStore, DataContext, and MemoryStore singletons for a workspace."""
+    """Initialize ArtifactStore and MemoryStore singletons for a workspace."""
     from osprey.mcp_server.artifact_store import initialize_artifact_store
-    from osprey.mcp_server.data_context import initialize_data_context
     from osprey.mcp_server.memory_store import initialize_memory_store
 
     initialize_artifact_store(workspace_root=workspace_root)
-    initialize_data_context(workspace_root=workspace_root)
     initialize_memory_store(workspace_root=workspace_root)
 
 

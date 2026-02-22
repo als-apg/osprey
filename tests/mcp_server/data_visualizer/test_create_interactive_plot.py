@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from osprey.mcp_server.data_context import get_data_context
+from osprey.mcp_server.artifact_store import get_artifact_store
 from osprey.mcp_server.workspace.execution.sandbox_executor import SandboxExecutionResult
 from osprey.mcp_server.workspace.tools._viz_common import resolve_data_source
 
@@ -122,7 +122,7 @@ class TestCreateInteractivePlot:
 
         assert result["status"] == "success"
         assert len(result["artifact_ids"]) == 1
-        assert result["context_entry_id"] is not None
+        assert result["artifact_id"] is not None
 
     async def test_preamble_has_no_matplotlib(self, tool_fn, mock_execution_folder):
         """Verify no matplotlib imports in the interactive plot preamble."""
@@ -202,19 +202,20 @@ class TestCreateInteractivePlot:
         # Resolved path should appear in the generated code
         assert str(art_file) in captured_code
 
-    async def test_data_source_context_entry_id(self, tool_fn, tmp_path, mock_execution_folder):
-        """Verify numeric data_source resolves via DataContext to a file path."""
-        # Save an entry to DataContext so entry ID 1 exists
-        ctx = get_data_context()
-        data_file = Path(ctx._data_dir) / "001_archiver_read.json"
-        data_file.write_text('{"_osprey_metadata": {}, "data": {"dataframe": {}}}')
-        ctx.save(
+    async def test_data_source_artifact_store_entry(
+        self, tool_fn, tmp_path, mock_execution_folder
+    ):
+        """Verify hex artifact ID data_source resolves via ArtifactStore."""
+        # Save data to ArtifactStore so a hex artifact ID exists
+        store = get_artifact_store()
+        entry = store.save_data(
             tool="archiver_read",
             data={"dataframe": {}},
+            title="test data",
             description="test data",
             summary={"channels_queried": 1},
             access_details={"format": "timeseries"},
-            data_type="timeseries",
+            category="timeseries",
         )
 
         captured_code = None
@@ -233,15 +234,13 @@ class TestCreateInteractivePlot:
             await tool_fn(
                 code="pass",
                 title="Test",
-                data_source="1",
+                data_source=entry.id,
             )
 
         assert captured_code is not None
-        # Should contain the resolved absolute path, not the raw "1"
+        # Should contain the resolved absolute path
         assert "_data_path" in captured_code
-        assert "001_archiver_read.json" in captured_code
-        # Should NOT contain artifact store code
-        assert "get_artifact_store" not in captured_code
+        assert entry.filename in captured_code
 
 
 class TestResolveDataSource:
@@ -271,43 +270,28 @@ class TestResolveDataSource:
             with pytest.raises(FileNotFoundError, match="Artifact.*not found"):
                 resolve_data_source("a1b2c3d4e5f6")
 
-    def test_context_entry_id_resolves_via_data_context(self):
-        """Numeric string should resolve via DataContext.get_file_path()."""
-        ctx = get_data_context()
-        # Create a real entry
-        data_file = Path(ctx._data_dir) / "001_test.json"
-        data_file.write_text("{}")
-        ctx.save(
+    def test_artifact_hex_id_resolves_via_artifact_store(self):
+        """Hex artifact ID should resolve via ArtifactStore.get_file_path()."""
+        store = get_artifact_store()
+        entry = store.save_data(
             tool="test",
-            data={},
+            data={"value": 42},
+            title="test artifact",
             description="test",
-            summary={},
-            access_details={},
-            data_type="test",
         )
 
-        result = resolve_data_source("1")
-        assert result.endswith("001_test.json")
+        result = resolve_data_source(entry.id)
+        assert result.endswith(entry.filename)
         assert Path(result).exists()
 
-    def test_context_entry_id_not_found_raises(self):
-        with pytest.raises(FileNotFoundError, match="Data context entry.*not found"):
-            resolve_data_source("999")
+    def test_artifact_hex_id_not_found_raises(self):
+        """Non-existent hex artifact ID should raise FileNotFoundError."""
+        with pytest.raises(FileNotFoundError, match="Artifact.*not found"):
+            resolve_data_source("deadbeef0123")
 
-    def test_context_entry_id_multi_digit(self):
-        """Multi-digit numeric strings (e.g. '15') should resolve."""
-        ctx = get_data_context()
-        # Create entries until we have ID > 1
-        for i in range(3):
-            ctx.save(
-                tool=f"test_{i}",
-                data={},
-                description=f"test {i}",
-                summary={},
-                access_details={},
-                data_type="test",
-            )
-
-        # Entry 3 should exist
-        result = resolve_data_source("3")
-        assert Path(result).exists()
+    def test_numeric_string_treated_as_file_path(self):
+        """Numeric strings are no longer context entry IDs; treated as file paths."""
+        # Numeric strings don't match the 12-char hex pattern, so they
+        # fall through to the "assume file path" branch and are returned as-is.
+        result = resolve_data_source("42")
+        assert result == "42"

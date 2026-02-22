@@ -327,92 +327,23 @@ def unclaim(name, project):
 
 def _update_config_add_user_owned(project_dir: Path, name: str):
     """Add a name to prompts.user_owned list in config.yml, preserving comments."""
+    from osprey.utils.yaml_config import config_add_to_list
+
     config_path = project_dir / "config.yml"
-
-    try:
-        from ruamel.yaml import YAML
-
-        ry = YAML(typ="rt")
-        ry.preserve_quotes = True
-        with open(config_path, encoding="utf-8") as f:
-            data = ry.load(f)
-
-        if data is None:
-            data = {}
-
-        if "prompts" not in data:
-            data["prompts"] = {}
-        if "user_owned" not in data["prompts"]:
-            data["prompts"]["user_owned"] = []
-
-        if name not in data["prompts"]["user_owned"]:
-            data["prompts"]["user_owned"].append(name)
-
-        with open(config_path, "w", encoding="utf-8") as f:
-            ry.dump(data, f)
-
+    added = config_add_to_list(config_path, ["prompts", "user_owned"], name)
+    if added:
         console.print(
             f"  [success]\u2713[/success] Updated config.yml — "
             f"prompts.user_owned += {name}"
         )
-    except ImportError:
-        _append_user_owned_to_config(config_path, name)
-
-
-def _append_user_owned_to_config(config_path: Path, name: str):
-    """Fallback: append user_owned entry when ruamel.yaml is not available."""
-    content = config_path.read_text(encoding="utf-8")
-
-    if "prompts:" in content and "user_owned:" in content:
-        content += f"    - {name}\n"
-    elif "prompts:" in content:
-        content += f"  user_owned:\n    - {name}\n"
-    else:
-        content += f"\nprompts:\n  user_owned:\n    - {name}\n"
-
-    config_path.write_text(content, encoding="utf-8")
-    console.print(
-        f"  [success]\u2713[/success] Updated config.yml — "
-        f"prompts.user_owned += {name}"
-    )
 
 
 def _update_config_remove_user_owned(project_dir: Path, name: str):
     """Remove a name from prompts.user_owned list in config.yml."""
+    from osprey.utils.yaml_config import config_remove_from_list
+
     config_path = project_dir / "config.yml"
-
-    try:
-        from ruamel.yaml import YAML
-
-        ry = YAML(typ="rt")
-        ry.preserve_quotes = True
-        with open(config_path, encoding="utf-8") as f:
-            data = ry.load(f)
-
-        if data and "prompts" in data and "user_owned" in data["prompts"]:
-            user_owned = data["prompts"]["user_owned"]
-            if name in user_owned:
-                user_owned.remove(name)
-                if not user_owned:
-                    del data["prompts"]["user_owned"]
-                if not data["prompts"]:
-                    del data["prompts"]
-
-        with open(config_path, "w", encoding="utf-8") as f:
-            ry.dump(data, f)
-    except ImportError:
-        with open(config_path, encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-        if "prompts" in data and "user_owned" in data["prompts"]:
-            user_owned = data["prompts"]["user_owned"]
-            if name in user_owned:
-                user_owned.remove(name)
-            if not user_owned:
-                del data["prompts"]["user_owned"]
-            if not data["prompts"]:
-                del data["prompts"]
-        with open(config_path, "w", encoding="utf-8") as f:
-            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+    config_remove_from_list(config_path, ["prompts", "user_owned"], name)
 
 
 # ── Manifest helpers ─────────────────────────────────────────────────

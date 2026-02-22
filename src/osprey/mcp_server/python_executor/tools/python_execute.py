@@ -227,17 +227,18 @@ async def execute(
         "stderr_length": len(stderr_text),
     }
 
-    # Save via DataContext
-    from osprey.mcp_server.data_context import get_data_context
+    # Save via ArtifactStore (unified)
+    from osprey.mcp_server.artifact_store import get_artifact_store
 
-    ctx = get_data_context()
-    entry = ctx.save(
+    store = get_artifact_store()
+    entry = store.save_data(
         tool="execute",
         data=full_result,
+        title=description,
         description=description,
         summary=summary,
         access_details=access_details,
-        data_type="code_output",
+        category="code_output",
     )
 
     response = entry.to_tool_response()

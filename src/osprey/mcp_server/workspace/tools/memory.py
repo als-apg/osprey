@@ -1,8 +1,7 @@
 """MCP tools: memory_save / memory_recall / memory_update / memory_delete.
 
 Persistent session memory with enriched data model (note/pin types, tags,
-importance, cross-domain links). Data stored via MemoryStore and also
-registered in the DataContext index for cross-tool completeness.
+importance, cross-domain links). Data stored via MemoryStore.
 
 PROMPT-PROVIDER: Tool docstrings are static prompts visible to Claude Code.
   Future: source from FrameworkPromptProvider.get_memory_extraction_prompt_builder()
@@ -90,18 +89,12 @@ async def memory_save(
             linked_label = art.title
 
         if linked_context_id is not None:
-            from osprey.mcp_server.data_context import get_data_context
-
-            ctx_entry = get_data_context().get_entry(linked_context_id)
-            if not ctx_entry:
-                return json.dumps(
-                    make_error(
-                        "not_found",
-                        f"Context entry {linked_context_id} not found.",
-                        ["Check the context_entry_id from a previous tool response."],
-                    )
-                )
-            linked_label = linked_label or ctx_entry.description
+            # Deprecated: linked_context_id accepted for backward compat
+            # but no longer validated against DataContext (which is removed)
+            logger.info(
+                "linked_context_id=%s is deprecated; use linked_artifact_id instead",
+                linked_context_id,
+            )
 
         # Merge category into tags for backward compat
         effective_tags = list(tags) if tags else []
@@ -136,23 +129,16 @@ async def memory_save(
             "tags": effective_tags,
         }
 
-        # Register in data context for index completeness
-        from osprey.mcp_server.data_context import get_data_context
-
-        data_ctx = get_data_context()
-        ctx_entry = data_ctx.save(
-            tool="memory_save",
-            data=entry.to_dict(),
-            description=(
-                f"Saved {memory_type} #{entry.id}"
-                + (f" [{', '.join(effective_tags)}]" if effective_tags else "")
-            ),
-            summary=summary,
-            access_details=access_details,
-            data_type="memory",
+        return json.dumps(
+            {
+                "status": "success",
+                "memory_id": entry.id,
+                "memory_type": memory_type,
+                "summary": summary,
+                "access_details": access_details,
+            },
+            default=str,
         )
-
-        return json.dumps(ctx_entry.to_tool_response(), default=str)
 
     except Exception as exc:
         logger.exception("memory_save failed")
@@ -226,20 +212,15 @@ async def memory_recall(
         }
         access_details = {"query": query, "matches_found": len(matches)}
 
-        # Register in data context for index completeness
-        from osprey.mcp_server.data_context import get_data_context
-
-        data_ctx = get_data_context()
-        entry = data_ctx.save(
-            tool="memory_recall",
-            data=recall_result,
-            description=f"Memory recall: '{query}' — {len(matches)} match(es)",
-            summary=summary,
-            access_details=access_details,
-            data_type="memory",
+        return json.dumps(
+            {
+                "status": "success",
+                "description": f"Memory recall: '{query}' — {len(matches)} match(es)",
+                "summary": summary,
+                "access_details": access_details,
+            },
+            default=str,
         )
-
-        return json.dumps(entry.to_tool_response(), default=str)
 
     except Exception as exc:
         logger.exception("memory_recall failed")

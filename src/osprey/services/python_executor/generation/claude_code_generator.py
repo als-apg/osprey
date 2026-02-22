@@ -188,14 +188,9 @@ from ..models import ExecutionError, PythonExecutionRequest
 
 logger = get_logger("claude_code_generator")
 
-# Try to import LangGraph's stream writer (optional - graceful degradation)
-try:
-    from langgraph.config import get_stream_writer
-
-    LANGGRAPH_STREAMING_AVAILABLE = True
-except ImportError:
-    LANGGRAPH_STREAMING_AVAILABLE = False
-    get_stream_writer = None  # type: ignore
+# LangGraph streaming removed — always use fallback
+LANGGRAPH_STREAMING_AVAILABLE = False
+get_stream_writer = None
 
 
 class ClaudeCodeGenerator:

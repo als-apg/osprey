@@ -23,7 +23,6 @@ from .databases import (
 )
 from .pipelines.hierarchical import HierarchicalPipeline
 from .pipelines.in_context import InContextPipeline
-from .pipelines.middle_layer import MiddleLayerPipeline
 from .utils.prompt_loader import load_prompts
 
 logger = logging.getLogger(__name__)
@@ -491,6 +490,8 @@ class ChannelFinderService:
 
     def _init_middle_layer_pipeline(self, config: dict, db_path: str, model_config: dict, **kwargs):
         """Initialize middle layer pipeline."""
+        from .pipelines.middle_layer import MiddleLayerPipeline
+
         # Get middle_layer specific config
         middle_layer_config = (
             config.get("channel_finder", {}).get("pipelines", {}).get("middle_layer", {})
@@ -543,7 +544,7 @@ class ChannelFinderService:
             logger.info(
                 f"[dim]✓ Loaded facility context from framework prompts ({len(facility_description)} chars)[/dim]"
             )
-        except (ValueError, NotImplementedError):
+        except (ValueError, NotImplementedError, ImportError):
             # Fall back to app-level prompts module
             prompts_module = load_prompts(config)
             if hasattr(prompts_module, "system") and hasattr(

@@ -1,13 +1,10 @@
 """Code generation utilities for Osprey Framework.
 
-This package provides generators for creating Osprey components from
-various sources (MCP servers, OpenAPI specs, natural language prompts, etc.).
+This package provides generators for creating Osprey components and
+simulation backends.
 
 Architecture:
-- base_generator: BaseCapabilityGenerator with shared functionality
 - models: Shared Pydantic models for LLM analysis
-- generate_from_mcp: Generate from MCP servers
-- generate_from_prompt: Generate from natural language prompts
 - registry_updater: Auto-register generated capabilities
 - config_updater: Auto-update config files
 - backend_protocol: Protocol for custom simulation backends
@@ -17,9 +14,6 @@ Architecture:
 
 from . import config_updater, registry_updater
 from .backend_protocol import SimulationBackend
-from .base_generator import BaseCapabilityGenerator
-from .generate_from_mcp import MCPCapabilityGenerator
-from .generate_from_prompt import PromptCapabilityGenerator
 from .ioc_backends import (
     ChainedBackend,
     MockStyleBackend,
@@ -36,10 +30,6 @@ from .models import (
 )
 
 __all__ = [
-    # Generators
-    "BaseCapabilityGenerator",
-    "MCPCapabilityGenerator",
-    "PromptCapabilityGenerator",
     # Models
     "CapabilityMetadata",
     "ClassifierAnalysis",

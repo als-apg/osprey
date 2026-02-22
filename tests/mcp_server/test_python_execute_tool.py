@@ -134,7 +134,7 @@ async def test_python_execute_execution_error(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 async def test_python_execute_data_file_saving(tmp_path, monkeypatch):
-    """Execution saves output to data context file."""
+    """Execution saves output to artifact store data file."""
     monkeypatch.chdir(tmp_path)
 
     with patch(
@@ -151,10 +151,11 @@ async def test_python_execute_data_file_saving(tmp_path, monkeypatch):
 
     data = json.loads(result)
     assert data["status"] == "success"
+    assert "artifact_id" in data
     assert "data_file" in data
-    from pathlib import Path
-
-    assert Path(data["data_file"]).exists()
+    # data_file is a relative filename within the artifacts/ directory
+    artifacts_dir = tmp_path / "osprey-workspace" / "artifacts"
+    assert (artifacts_dir / data["data_file"]).exists()
 
 
 @pytest.mark.unit
@@ -549,7 +550,7 @@ def test_executor_no_in_process_fallback():
 
 @pytest.mark.unit
 async def test_data_context_saves_adapter_result(tmp_path, monkeypatch):
-    """DataContext.save() receives full result including execution_method."""
+    """ArtifactStore.save_data() receives full result including execution_method."""
     monkeypatch.chdir(tmp_path)
 
     mock_exec = _mock_execute_code(
@@ -578,13 +579,15 @@ async def test_data_context_saves_adapter_result(tmp_path, monkeypatch):
 
     data = json.loads(result)
     assert data["status"] == "success"
+    assert "artifact_id" in data
     assert "data_file" in data
 
-    # Read the saved data file and verify it contains execution_method
-    data_file = Path(data["data_file"])
+    # data_file is a relative filename within the artifacts/ directory
+    artifacts_dir = tmp_path / "osprey-workspace" / "artifacts"
+    data_file = artifacts_dir / data["data_file"]
     assert data_file.exists()
-    saved_envelope = json.loads(data_file.read_text())
-    saved_data = saved_envelope["data"]
+    # ArtifactStore writes raw JSON (no envelope)
+    saved_data = json.loads(data_file.read_text())
     assert saved_data["execution_method"] == "local"
     assert saved_data["stdout"] == "context test\n"
 

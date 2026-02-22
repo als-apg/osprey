@@ -24,8 +24,6 @@ from osprey.cli.templates import (
     TemplateManager,
 )
 
-pytestmark = pytest.mark.langgraph
-
 
 class TestManifestGeneration:
     """Test manifest generation during project creation."""
@@ -160,7 +158,6 @@ class TestManifestGeneration:
         # Should have checksums for key files
         assert "config.yml" in checksums
         assert "README.md" in checksums
-        assert "pyproject.toml" in checksums
 
         # Checksums should be in expected format
         for path, checksum in checksums.items():
@@ -451,11 +448,28 @@ def get_registry():
         """Test that migrate init --force overwrites existing manifest."""
         runner = CliRunner()
 
-        # Create project with manifest
-        result = runner.invoke(init, ["test-project", "--output-dir", str(tmp_path)])
-        assert result.exit_code == 0
-
+        # Create a project directory manually with src/ package structure
+        # (migrate init is designed for legacy projects that have src/)
         project_dir = tmp_path / "test-project"
+        src_dir = project_dir / "src" / "test_project"
+        src_dir.mkdir(parents=True)
+
+        config_content = "project_name: test-project\n"
+        (project_dir / "config.yml").write_text(config_content)
+
+        registry_content = (
+            "from osprey.registry import extend_framework_registry\n"
+            "def get_registry():\n"
+            "    return extend_framework_registry()\n"
+        )
+        (src_dir / "registry.py").write_text(registry_content)
+
+        # First migrate init creates manifest
+        result = runner.invoke(
+            migrate,
+            ["init", "--project", str(project_dir), "--version", "0.9.0"],
+        )
+        assert result.exit_code == 0
 
         # Try to init again without force
         result = runner.invoke(migrate, ["init", "--project", str(project_dir)])

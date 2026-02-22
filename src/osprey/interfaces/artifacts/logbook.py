@@ -88,10 +88,8 @@ async def gather_context(
         artifact_meta = entry.to_dict()
 
     if context_id is not None:
-        entry = context_store.get_entry(context_id)
-        if entry is None:
-            raise HTTPException(status_code=404, detail=f"Context entry {context_id} not found")
-        context_meta = entry.to_dict()
+        # DataContext has been removed; context_id lookups always 404
+        raise HTTPException(status_code=404, detail=f"Context entry {context_id} not found")
 
     # Read audit trail from transcript
     audit_trail: list[dict[str, Any]] = []
@@ -257,14 +255,13 @@ async def compose(req: ComposeRequest, request: Request):
         )
 
     store = request.app.state.artifact_store
-    context_store = request.app.state.context_store
     project_dir = Path.cwd()
 
     ctx = await gather_context(
         artifact_id=req.artifact_id,
         context_id=req.context_id,
         artifact_store=store,
-        context_store=context_store,
+        context_store=None,
         project_dir=project_dir,
     )
 

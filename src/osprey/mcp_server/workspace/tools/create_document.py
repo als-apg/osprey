@@ -164,7 +164,10 @@ async def create_document(
             description=description or f"PDF document: {title}",
             mime_type="application/pdf",
             tool_source="create_document",
+            metadata={"figures_included": len(resolved_files)},
         )
+        pdf_entry.category = "document"
+        pdf_entry.source_agent = "data-visualizer"
         output_artifact_ids.append(pdf_entry.id)
 
         # Save .tex source
@@ -177,37 +180,21 @@ async def create_document(
             mime_type="application/x-tex",
             tool_source="create_document",
         )
+        tex_entry.category = "document"
+        tex_entry.source_agent = "data-visualizer"
         output_artifact_ids.append(tex_entry.id)
 
-    # Save to DataContext
-    from osprey.mcp_server.data_context import get_data_context
+        store._save_index()
 
-    ctx = get_data_context()
-    entry = ctx.save(
-        tool="create_document",
-        data={
-            "title": title,
-            "description": description,
-            "artifact_ids": output_artifact_ids,
-            "input_artifact_ids": artifact_ids or [],
-            "resolved_figures": resolved_files,
-        },
-        description=f"Document: {title}",
-        summary={
-            "title": title,
-            "pdf_artifact_id": output_artifact_ids[0],
-            "source_artifact_id": output_artifact_ids[1],
-            "figures_included": len(resolved_files),
-        },
-        access_details={
-            "format": "latex_document",
-            "artifact_ids": output_artifact_ids,
-        },
-        data_type="document",
-    )
-
-    response = entry.to_tool_response()
-    response["artifact_ids"] = output_artifact_ids
+    # Return artifact info (PDF + source already saved to ArtifactStore above)
+    response: dict = {
+        "status": "success",
+        "title": title,
+        "artifact_ids": output_artifact_ids,
+        "pdf_artifact_id": output_artifact_ids[0],
+        "source_artifact_id": output_artifact_ids[1],
+        "figures_included": len(resolved_files),
+    }
     try:
         from osprey.mcp_server.common import gallery_url
 

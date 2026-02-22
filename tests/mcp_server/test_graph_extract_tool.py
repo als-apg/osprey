@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from osprey.mcp_server.data_context import initialize_data_context
+from osprey.mcp_server.artifact_store import initialize_artifact_store
 
 
 class TestGraphExtract:
@@ -13,11 +13,11 @@ class TestGraphExtract:
 
     @pytest.fixture(autouse=True)
     def setup_workspace(self, tmp_path):
-        """Set up workspace and data context."""
+        """Set up workspace and artifact store."""
         ws = tmp_path / "osprey-workspace"
         ws.mkdir()
-        (ws / "data").mkdir()
-        initialize_data_context(workspace_root=ws)
+        (ws / "artifacts").mkdir()
+        initialize_artifact_store(workspace_root=ws)
 
     @pytest.fixture
     def tool_fn(self):
@@ -79,7 +79,7 @@ class TestGraphExtract:
             result = json.loads(await tool_fn(image_path=str(img), title="Test Chart"))
 
         assert result["status"] == "success"
-        assert result["context_entry_id"] is not None
+        assert result["artifact_id"] is not None
         assert result["summary"]["num_points"] == 3
         assert result["summary"]["columns"] == ["time", "current"]
 

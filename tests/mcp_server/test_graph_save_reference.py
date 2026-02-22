@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from osprey.mcp_server.data_context import get_data_context, initialize_data_context
+from osprey.mcp_server.artifact_store import get_artifact_store, initialize_artifact_store
 
 
 class TestGraphSaveReference:
@@ -15,22 +15,24 @@ class TestGraphSaveReference:
         """Set up workspace and seed a source entry."""
         ws = tmp_path / "osprey-workspace"
         ws.mkdir()
-        (ws / "data").mkdir()
-        initialize_data_context(workspace_root=ws)
+        (ws / "artifacts").mkdir()
+        initialize_artifact_store(workspace_root=ws)
 
-        ctx = get_data_context()
-        ctx.save(
+        store = get_artifact_store()
+        source = store.save_data(
             tool="graph_extract",
             data={
                 "columns": ["time", "value"],
                 "data": [[0, 10.0], [1, 20.0], [2, 15.0]],
                 "title": "Extracted chart",
             },
+            title="Extracted chart",
             description="Extracted chart",
             summary={"num_points": 3},
             access_details={"format": "tabular"},
-            data_type="graph_extraction",
+            category="graph_extraction",
         )
+        self._source_id = source.id
 
     @pytest.fixture
     def tool_fn(self):
@@ -43,46 +45,48 @@ class TestGraphSaveReference:
     async def test_save_reference_success(self, tool_fn):
         result = json.loads(
             await tool_fn(
-                source_entry_id=1,
+                source_entry_id=self._source_id,
                 title="Nominal beam profile",
                 description="Baseline measurement from Jan 2024",
             )
         )
         assert result["status"] == "success"
-        assert result["context_entry_id"] == 2
+        assert isinstance(result["artifact_id"], str)
         assert result["summary"]["title"] == "Nominal beam profile"
-        assert result["summary"]["source_entry_id"] == 1
+        assert result["summary"]["source_entry_id"] == self._source_id
         assert result["summary"]["num_points"] == 3
 
     async def test_save_reference_default_title(self, tool_fn):
-        result = json.loads(await tool_fn(source_entry_id=1))
+        result = json.loads(await tool_fn(source_entry_id=self._source_id))
         assert result["status"] == "success"
-        assert "Reference:" in result["description"]
+        assert "Reference:" in result["title"]
 
     async def test_save_reference_not_found(self, tool_fn):
-        result = json.loads(await tool_fn(source_entry_id=999))
+        result = json.loads(await tool_fn(source_entry_id="nonexistent_id"))
         assert result["error"] is True
         assert result["error_type"] == "not_found"
 
     async def test_saved_reference_is_discoverable(self, tool_fn):
-        """Verify saved references can be found via data_type_filter."""
-        await tool_fn(source_entry_id=1, title="My Reference")
+        """Verify saved references can be found via category_filter."""
+        await tool_fn(source_entry_id=self._source_id, title="My Reference")
 
-        ctx = get_data_context()
-        refs = ctx.list_entries(data_type_filter="graph_reference")
+        store = get_artifact_store()
+        refs = store.list_entries(category_filter="graph_reference")
         assert len(refs) == 1
-        assert refs[0].description == "My Reference"
+        assert refs[0].title == "My Reference"
 
     async def test_saved_reference_preserves_data(self, tool_fn, tmp_path):
         """Verify the reference contains the original data."""
-        await tool_fn(source_entry_id=1, title="Preserved Data")
+        raw = await tool_fn(source_entry_id=self._source_id, title="Preserved Data")
+        ref_result = json.loads(raw)
+        ref_id = ref_result["artifact_id"]
 
-        ctx = get_data_context()
-        ref_entry = ctx.get_entry(2)
+        store = get_artifact_store()
+        ref_entry = store.get_entry(ref_id)
         assert ref_entry is not None
 
-        # Read the data file
-        data_file = ctx.get_file_path(2)
+        # Read the data file (raw JSON, no envelope)
+        data_file = store.get_file_path(ref_id)
         assert data_file is not None
 
         import json as json_mod
@@ -90,6 +94,5 @@ class TestGraphSaveReference:
         with open(data_file) as f:
             payload = json_mod.load(f)
 
-        ref_data = payload["data"]
-        assert ref_data["reference_title"] == "Preserved Data"
-        assert ref_data["source_entry_id"] == 1
+        assert payload["reference_title"] == "Preserved Data"
+        assert payload["source_entry_id"] == self._source_id

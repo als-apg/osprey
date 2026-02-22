@@ -1,14 +1,14 @@
 """Tests for Claude Code integration file generation.
 
 Tests that `osprey init` generates Claude Code integration files
-(.mcp.json, CLAUDE.md, .claude/ hooks) by default and respects
-the --no-claude-code flag.
+(.mcp.json, CLAUDE.md, .claude/ hooks).
 """
 
 import json
 import os
 
 import pytest
+import yaml
 from click.testing import CliRunner
 
 from osprey.cli.init_cmd import init
@@ -33,24 +33,24 @@ class TestClaudeCodeIntegrationDefault:
         assert (project_dir / ".claude" / "settings.json").exists()
         assert (project_dir / ".claude" / "rules" / "safety.md").exists()
         assert (project_dir / ".claude" / "rules" / "error-handling.md").exists()
+        assert (project_dir / ".claude" / "hooks" / "osprey_memory_guard.py").exists()
         assert (project_dir / ".claude" / "hooks" / "osprey_writes_check.py").exists()
         assert (project_dir / ".claude" / "hooks" / "osprey_limits.py").exists()
         assert (project_dir / ".claude" / "hooks" / "osprey_approval.py").exists()
         assert (project_dir / ".claude" / "hooks" / "osprey_error_guidance.py").exists()
 
-    def test_claude_code_false_skips_generation(self, tmp_path):
-        """claude_code=False skips all Claude Code file generation."""
+    def test_claude_code_always_generated(self, tmp_path):
+        """Claude Code files are always generated (single mode)."""
         manager = TemplateManager()
         project_dir = manager.create_project(
-            project_name="no-claude-project",
+            project_name="always-claude-project",
             output_dir=tmp_path,
             template_name="minimal",
-            context={"claude_code": False},
         )
 
-        assert not (project_dir / ".mcp.json").exists()
-        assert not (project_dir / "CLAUDE.md").exists()
-        assert not (project_dir / ".claude").exists()
+        assert (project_dir / ".mcp.json").exists()
+        assert (project_dir / "CLAUDE.md").exists()
+        assert (project_dir / ".claude").exists()
 
 
 class TestClaudeCodeFileContents:
@@ -122,7 +122,7 @@ class TestClaudeCodeFileContents:
         deny = data["permissions"]["deny"]
         assert "Bash" in deny
         assert "Edit" in deny
-        assert "Write" in deny
+        assert "Write" not in deny  # Write guarded by memory_guard hook, not deny list
         assert "WebFetch" in deny
         assert "WebSearch" in deny
 
@@ -182,6 +182,7 @@ class TestClaudeCodeFileContents:
         """Hook scripts have executable permissions."""
         hooks_dir = project_dir / ".claude" / "hooks"
         hook_files = [
+            "osprey_memory_guard.py",
             "osprey_writes_check.py",
             "osprey_limits.py",
             "osprey_approval.py",
@@ -196,13 +197,12 @@ class TestClaudeCodeFileContents:
         """settings.local.json (dev-only) is NOT included."""
         assert not (project_dir / ".claude" / "settings.local.json").exists()
 
-    def test_claude_md_has_safety_rules(self, project_dir):
-        """CLAUDE.md contains safety rules and tool confinement."""
+    def test_claude_md_has_identity_and_agents(self, project_dir):
+        """CLAUDE.md has forceful identity and agent roster."""
         content = (project_dir / "CLAUDE.md").read_text()
-        assert "CRITICAL SAFETY RULES" in content
-        assert "NEVER write to control system channels" in content
-        assert "Tool Confinement" in content
-        assert "EXCLUSIVELY through your MCP tools" in content
+        assert "never fabricated" in content
+        assert "## Agents" in content
+        assert "Delegate" in content
 
     def test_claude_md_has_no_configuration_section(self, project_dir):
         """CLAUDE.md does not expose internal configuration details."""
@@ -210,17 +210,19 @@ class TestClaudeCodeFileContents:
         assert "## Configuration" not in content
         assert "config.yml" not in content
 
-    def test_safety_rules_md_has_workspace_paths(self, project_dir):
-        """safety.md references osprey-workspace and _agent_data."""
+    def test_safety_rules_md_loads_unconditionally(self, project_dir):
+        """safety.md has no paths restriction (loads at startup, not conditionally)."""
         content = (project_dir / ".claude" / "rules" / "safety.md").read_text()
-        assert "osprey-workspace" in content
+        assert "paths:" not in content
         assert "_agent_data" in content
 
     def test_safety_rules_md_has_confinement(self, project_dir):
-        """safety.md includes MCP-only confinement rules."""
+        """safety.md includes MCP-only confinement and channel write safety."""
         content = (project_dir / ".claude" / "rules" / "safety.md").read_text()
-        assert "ONLY interact with the control system through MCP tools" in content
-        assert "never work around it" in content
+        assert "EXCLUSIVELY through MCP tools" in content
+        assert "Channel Write Safety" in content
+        assert "NEVER write to control system channels" in content
+        assert "never work around failures" in content
 
 
 class TestClaudeCodeAcrossTemplates:
@@ -261,21 +263,7 @@ class TestClaudeCodeGitignore:
 
 
 class TestClaudeCodeCLI:
-    """Test CLI --no-claude-code flag."""
-
-    def test_no_claude_code_flag_works(self, tmp_path):
-        """--no-claude-code flag prevents generation."""
-        runner = CliRunner()
-        result = runner.invoke(
-            init,
-            ["no-cc-project", "--no-claude-code", "--output-dir", str(tmp_path)],
-        )
-
-        assert result.exit_code == 0
-        project_dir = tmp_path / "no-cc-project"
-        assert not (project_dir / ".mcp.json").exists()
-        assert not (project_dir / "CLAUDE.md").exists()
-        assert not (project_dir / ".claude" / "settings.json").exists()
+    """Test CLI Claude Code generation."""
 
     def test_default_init_includes_claude_hint(self, tmp_path):
         """Default init shows 'claude' in next steps."""
@@ -288,48 +276,26 @@ class TestClaudeCodeCLI:
         assert result.exit_code == 0
         assert "claude" in result.output
 
-    def test_no_claude_code_omits_claude_hint(self, tmp_path):
-        """--no-claude-code omits 'claude' from next steps."""
+    def test_init_always_creates_claude_code_files(self, tmp_path):
+        """Init always generates Claude Code integration files."""
         runner = CliRunner()
         result = runner.invoke(
             init,
-            ["ncc-project", "--no-claude-code", "--output-dir", str(tmp_path)],
+            ["cc-full-project", "--output-dir", str(tmp_path)],
         )
 
         assert result.exit_code == 0
-        assert "Creating Claude Code integration" not in result.output
+        project_dir = tmp_path / "cc-full-project"
+        assert (project_dir / ".mcp.json").exists()
+        assert (project_dir / "CLAUDE.md").exists()
+        assert (project_dir / ".claude" / "settings.json").exists()
 
 
 class TestClaudeCodeManifest:
-    """Test that manifest tracks claude_code setting."""
+    """Test that manifest tracks settings."""
 
-    def test_manifest_tracks_claude_code_true(self, tmp_path):
-        """Manifest records claude_code=True by default."""
-        runner = CliRunner()
-        runner.invoke(
-            init,
-            ["manifest-test", "--output-dir", str(tmp_path)],
-        )
-
-        manifest_path = tmp_path / "manifest-test" / ".osprey-manifest.json"
-        manifest = json.loads(manifest_path.read_text())
-        assert manifest["init_args"]["claude_code"] is True
-
-    def test_manifest_tracks_claude_code_false(self, tmp_path):
-        """Manifest records claude_code=False with --no-claude-code."""
-        runner = CliRunner()
-        runner.invoke(
-            init,
-            ["manifest-off", "--no-claude-code", "--output-dir", str(tmp_path)],
-        )
-
-        manifest_path = tmp_path / "manifest-off" / ".osprey-manifest.json"
-        manifest = json.loads(manifest_path.read_text())
-        assert manifest["init_args"]["claude_code"] is False
-        assert "--no-claude-code" in manifest["reproducible_command"]
-
-    def test_manifest_default_omits_no_claude_code_flag(self, tmp_path):
-        """Default manifest reproducible_command does not include --no-claude-code."""
+    def test_manifest_reproducible_command(self, tmp_path):
+        """Default manifest reproducible_command uses init command."""
         runner = CliRunner()
         runner.invoke(
             init,
@@ -338,6 +304,7 @@ class TestClaudeCodeManifest:
 
         manifest_path = tmp_path / "manifest-default" / ".osprey-manifest.json"
         manifest = json.loads(manifest_path.read_text())
+        assert manifest["reproducible_command"].startswith("osprey init ")
         assert "--no-claude-code" not in manifest["reproducible_command"]
 
     def test_claude_code_files_in_manifest_checksums(self, tmp_path):
@@ -816,7 +783,7 @@ class TestGraphAnalystAgent:
         assert "Task(graph-analyst)" not in allow
 
     def test_claude_md_has_graph_analyst_section(self, tmp_path):
-        """CLAUDE.md includes graph-analyst sub-agent section when deplot defined."""
+        """CLAUDE.md lists graph-analyst agent when deplot defined."""
         manager = TemplateManager()
         project_dir = manager.create_project(
             project_name="graph-md-test",
@@ -826,10 +793,9 @@ class TestGraphAnalystAgent:
         )
         content = (project_dir / "CLAUDE.md").read_text()
         assert "graph-analyst" in content
-        assert "graph-analyst` sub-agent" in content
 
     def test_claude_md_no_graph_section_without_deplot(self, tmp_path):
-        """CLAUDE.md does NOT include graph-analyst section without deplot."""
+        """CLAUDE.md does NOT list graph-analyst without deplot."""
         manager = TemplateManager()
         project_dir = manager.create_project(
             project_name="no-graph-md-test",
@@ -837,7 +803,7 @@ class TestGraphAnalystAgent:
             template_name="minimal",
         )
         content = (project_dir / "CLAUDE.md").read_text()
-        assert "graph-analyst` sub-agent" not in content
+        assert "graph-analyst" not in content
 
     def test_agent_disabled_via_disable_agents(self, tmp_path):
         """graph-analyst is suppressed when in disable_agents."""
@@ -859,7 +825,7 @@ class TestGraphAnalystAgent:
         assert "Task(graph-analyst)" not in data["permissions"]["allow"]
 
         content = (project_dir / "CLAUDE.md").read_text()
-        assert "graph-analyst` sub-agent" not in content
+        assert "graph-analyst" not in content
 
 
 class TestNeverFabricateDataRule:
@@ -879,8 +845,8 @@ class TestNeverFabricateDataRule:
         assert "fabricate" in content
         assert "error-handling.md" in content
 
-    def test_claude_md_has_fabrication_rule(self, tmp_path):
-        """CLAUDE.md contains rule #9 about data fabrication with cross-reference."""
+    def test_claude_md_references_data_integrity(self, tmp_path):
+        """CLAUDE.md identity asserts data integrity."""
         manager = TemplateManager()
         project_dir = manager.create_project(
             project_name="fabrication-claude-test",
@@ -889,8 +855,7 @@ class TestNeverFabricateDataRule:
         )
 
         content = (project_dir / "CLAUDE.md").read_text()
-        assert "Never fabricate, simulate, or generate synthetic data" in content
-        assert "error-handling.md" in content
+        assert "never fabricated" in content
 
 
 class TestChannelFinderAwareness:
@@ -906,10 +871,9 @@ class TestChannelFinderAwareness:
         )
 
         content = (project_dir / "CLAUDE.md").read_text()
-        # Agent mentioned in the opening identity section (before safety rules)
-        safety_idx = content.index("CRITICAL SAFETY RULES")
+        agents_idx = content.index("## Agents")
         agent_idx = content.index("channel-finder")
-        assert agent_idx < safety_idx, "Agent should be mentioned before safety rules"
+        assert agents_idx < agent_idx, "Agent should be listed in the Agents section"
 
     def test_claude_md_warns_no_direct_tools(self, tmp_path):
         """CLAUDE.md tells the main session it does NOT have channel-finder tools."""
@@ -921,7 +885,7 @@ class TestChannelFinderAwareness:
         )
 
         content = (project_dir / "CLAUDE.md").read_text()
-        assert "do NOT have channel-finder tools" in content
+        assert "do NOT have channel-finding tools" in content
 
     def test_minimal_template_no_agent_awareness_block(self, tmp_path):
         """Minimal template CLAUDE.md does NOT have the agent awareness block."""
@@ -933,109 +897,99 @@ class TestChannelFinderAwareness:
         )
 
         content = (project_dir / "CLAUDE.md").read_text()
-        # The opening awareness block should not appear in minimal
-        assert "channel-finder` sub-agent" not in content
-        assert "do NOT have channel-finder tools" not in content
+        assert "channel-finder" not in content
+        assert "do NOT have channel-finding tools" not in content
 
 
-class TestPromptOverrides:
-    """Test prompt override resolution during project creation and regen."""
+class TestUserOwnedSkipBehavior:
+    """Test user_owned skip behavior during project creation and regen."""
 
-    def _setup_override(self, project_dir, rel_path, content):
-        """Helper: create an override file inside the project dir."""
-        override_file = project_dir / rel_path
-        override_file.parent.mkdir(parents=True, exist_ok=True)
-        override_file.write_text(content)
-
-    def test_override_replaces_agent(self, tmp_path):
-        """Agent file uses override content when prompts.overrides is set."""
-        project_dir = tmp_path / "test-override"
-        project_dir.mkdir()
-        override_content = "# Custom channel-finder agent\nThis is my override."
-        self._setup_override(
-            project_dir, "overrides/agents/channel-finder.md", override_content
-        )
-
+    def test_user_owned_skips_safety_on_regen(self, tmp_path):
+        """Regen skips user-owned safety.md, preserving custom content."""
         manager = TemplateManager()
-        manager.create_project(
-            project_name="test-override",
-            output_dir=tmp_path,
-            template_name="control_assistant",
-            force=True,
-            context={
-                "prompt_overrides": {
-                    "agents/channel-finder": "overrides/agents/channel-finder.md",
-                },
-            },
-        )
-
-        agent_path = project_dir / ".claude" / "agents" / "channel-finder.md"
-        assert agent_path.exists()
-        assert agent_path.read_text() == override_content
-
-    def test_override_replaces_claude_md(self, tmp_path):
-        """CLAUDE.md uses override content when prompts.overrides is set."""
-        project_dir = tmp_path / "test-md-override"
-        project_dir.mkdir()
-        override_content = "# My Custom CLAUDE.md\nFacility-specific content."
-        self._setup_override(project_dir, "overrides/CLAUDE.md", override_content)
-
-        manager = TemplateManager()
-        manager.create_project(
-            project_name="test-md-override",
+        project_dir = manager.create_project(
+            project_name="test-skip-safety",
             output_dir=tmp_path,
             template_name="minimal",
-            force=True,
-            context={
-                "prompt_overrides": {
-                    "claude-md": "overrides/CLAUDE.md",
-                },
-            },
         )
 
-        assert (project_dir / "CLAUDE.md").read_text() == override_content
+        # Customize safety.md and add to user_owned
+        safety_path = project_dir / ".claude" / "rules" / "safety.md"
+        custom_content = "# Custom Safety Rules\nFacility-specific safety."
+        safety_path.write_text(custom_content)
 
-    def test_override_replaces_hook(self, tmp_path):
-        """Hook file uses override content and is executable."""
-        project_dir = tmp_path / "test-hook-override"
-        project_dir.mkdir()
-        override_content = "#!/usr/bin/env python3\nprint('custom error guidance')"
-        self._setup_override(
-            project_dir, "overrides/hooks/osprey_error_guidance.py", override_content
-        )
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        if "prompts" not in config:
+            config["prompts"] = {}
+        user_owned = config["prompts"].get("user_owned", [])
+        user_owned.append("rules/safety")
+        config["prompts"]["user_owned"] = user_owned
+        (project_dir / "config.yml").write_text(yaml.dump(config))
 
+        manager.regenerate_claude_code(project_dir)
+
+        assert safety_path.read_text() == custom_content
+
+    def test_user_owned_skips_claude_md_on_regen(self, tmp_path):
+        """Regen skips user-owned CLAUDE.md."""
         manager = TemplateManager()
-        manager.create_project(
-            project_name="test-hook-override",
+        project_dir = manager.create_project(
+            project_name="test-skip-md",
             output_dir=tmp_path,
             template_name="minimal",
-            force=True,
-            context={
-                "prompt_overrides": {
-                    "hooks/error-guidance": "overrides/hooks/osprey_error_guidance.py",
-                },
-            },
         )
 
-        hook_path = project_dir / ".claude" / "hooks" / "osprey_error_guidance.py"
-        assert hook_path.exists()
-        assert hook_path.read_text() == override_content
-        mode = os.stat(hook_path).st_mode
-        assert mode & 0o111, "Overridden hook should be executable"
+        custom_content = "# My Custom CLAUDE.md\nFacility-specific content."
+        (project_dir / "CLAUDE.md").write_text(custom_content)
 
-    def test_no_overrides_behaves_as_before(self, tmp_path):
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        if "prompts" not in config:
+            config["prompts"] = {}
+        user_owned = config["prompts"].get("user_owned", [])
+        user_owned.append("claude-md")
+        config["prompts"]["user_owned"] = user_owned
+        (project_dir / "config.yml").write_text(yaml.dump(config))
+
+        manager.regenerate_claude_code(project_dir)
+
+        assert (project_dir / "CLAUDE.md").read_text() == custom_content
+
+    def test_user_owned_skips_mcp_json_on_regen(self, tmp_path):
+        """Regen skips user-owned .mcp.json."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="test-skip-mcp",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+
+        custom_content = '{"mcpServers": {"custom": {}}}'
+        (project_dir / ".mcp.json").write_text(custom_content)
+
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        if "prompts" not in config:
+            config["prompts"] = {}
+        user_owned = config["prompts"].get("user_owned", [])
+        user_owned.append("mcp-json")
+        config["prompts"]["user_owned"] = user_owned
+        (project_dir / "config.yml").write_text(yaml.dump(config))
+
+        manager.regenerate_claude_code(project_dir)
+
+        assert (project_dir / ".mcp.json").read_text() == custom_content
+
+    def test_no_user_owned_behaves_as_before(self, tmp_path):
         """Project without prompts section behaves exactly as before."""
         manager = TemplateManager()
         project_dir = manager.create_project(
-            project_name="test-no-override",
+            project_name="test-no-owned",
             output_dir=tmp_path,
             template_name="minimal",
         )
 
-        # All standard files should exist with framework content
         assert (project_dir / "CLAUDE.md").exists()
         content = (project_dir / "CLAUDE.md").read_text()
-        assert "CRITICAL SAFETY RULES" in content
+        assert "OSPREY" in content
 
     def test_claude_project_md_not_generated(self, tmp_path):
         """CLAUDE-project.md is NOT generated (retired)."""
@@ -1048,51 +1002,121 @@ class TestPromptOverrides:
 
         assert not (project_dir / "CLAUDE-project.md").exists()
 
-    def test_override_replaces_static_rule(self, tmp_path):
-        """Static rule file uses override content."""
-        project_dir = tmp_path / "test-rule-override"
-        project_dir.mkdir()
-        override_content = "# Custom Safety Rules\nFacility-specific safety."
-        self._setup_override(project_dir, "overrides/rules/safety.md", override_content)
-
+    def test_no_overrides_directory_created(self, tmp_path):
+        """Init does not create an overrides/ directory."""
         manager = TemplateManager()
-        manager.create_project(
-            project_name="test-rule-override",
+        project_dir = manager.create_project(
+            project_name="no-overrides-dir",
             output_dir=tmp_path,
             template_name="minimal",
-            force=True,
-            context={
-                "prompt_overrides": {
-                    "rules/safety": "overrides/rules/safety.md",
-                },
-            },
         )
 
-        safety_path = project_dir / ".claude" / "rules" / "safety.md"
-        assert safety_path.exists()
-        assert safety_path.read_text() == override_content
+        assert not (project_dir / "overrides").exists()
 
-    def test_override_replaces_mcp_json(self, tmp_path):
-        """.mcp.json uses override content when prompts.overrides is set."""
-        project_dir = tmp_path / "test-mcp-override"
-        project_dir.mkdir()
-        override_content = '{"mcpServers": {"custom": {}}}'
-        self._setup_override(project_dir, "overrides/mcp.json", override_content)
+
+class TestProviderEnvBlock:
+    """settings.json must contain an env block for any configured provider.
+
+    Regression: control_assistant/config.yml.j2 had a guard that silently
+    commented out the claude_code: section for providers other than 'cborg'
+    and 'anthropic', leaving settings.json without an env block.
+    """
+
+    @pytest.mark.parametrize("provider", ["cborg", "anthropic", "als-apg"])
+    def test_settings_json_has_env_block_for_provider(self, tmp_path, provider):
+        """settings.json has an env block for every supported provider."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name=f"env-block-{provider}",
+            output_dir=tmp_path,
+            template_name="control_assistant",
+            context={"default_provider": provider},
+        )
+
+        data = json.loads((project_dir / ".claude" / "settings.json").read_text())
+        assert "env" in data, (
+            f"settings.json has no 'env' block for provider '{provider}'. "
+            f"Keys present: {list(data.keys())}"
+        )
+        assert "ANTHROPIC_DEFAULT_OPUS_MODEL" in data["env"]
+        assert "ANTHROPIC_DEFAULT_SONNET_MODEL" in data["env"]
+        assert "ANTHROPIC_DEFAULT_HAIKU_MODEL" in data["env"]
+
+    @pytest.mark.parametrize("provider", ["cborg", "als-apg"])
+    def test_settings_json_has_base_url_for_proxy_provider(self, tmp_path, provider):
+        """Proxy providers always inject ANTHROPIC_BASE_URL into settings.json."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name=f"base-url-{provider}",
+            output_dir=tmp_path,
+            template_name="control_assistant",
+            context={"default_provider": provider},
+        )
+
+        data = json.loads((project_dir / ".claude" / "settings.json").read_text())
+        assert "env" in data
+        assert "ANTHROPIC_BASE_URL" in data["env"], (
+            f"ANTHROPIC_BASE_URL missing from settings.json for provider '{provider}'"
+        )
+
+    def test_als_apg_base_url_is_correct(self, tmp_path):
+        """als-apg provider injects the correct base URL."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="als-apg-url-test",
+            output_dir=tmp_path,
+            template_name="control_assistant",
+            context={"default_provider": "als-apg"},
+        )
+
+        data = json.loads((project_dir / ".claude" / "settings.json").read_text())
+        assert data["env"]["ANTHROPIC_BASE_URL"] == "https://llm.gianlucamartino.com"
+
+    @pytest.mark.parametrize("provider", ["cborg", "anthropic", "als-apg"])
+    def test_settings_json_model_is_concrete_id_not_tier_alias(self, tmp_path, provider):
+        """settings.json 'model' field must be a concrete model ID, not a tier alias.
+
+        Regression: when 'model' was set to 'opus' (a tier alias), Claude Code had to
+        resolve it via ANTHROPIC_DEFAULT_OPUS_MODEL.  If the env block was applied after
+        model selection, the tier alias reached the proxy unresolved, causing a 401.
+        Using a concrete ID removes the dependency on resolution order.
+        """
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name=f"concrete-model-{provider}",
+            output_dir=tmp_path,
+            template_name="control_assistant",
+            context={"default_provider": provider},
+        )
+
+        data = json.loads((project_dir / ".claude" / "settings.json").read_text())
+        assert "model" in data, "settings.json missing 'model' field"
+        model_value = data["model"]
+        # Must NOT be a bare tier alias
+        assert model_value not in {"opus", "sonnet", "haiku"}, (
+            f"settings.json 'model' is a tier alias '{model_value}' — must be a concrete "
+            f"model ID (e.g. 'claude-opus-4-6') so Claude Code doesn't need to resolve it."
+        )
+        # Must look like a real model ID (contains a hyphen or slash)
+        assert "-" in model_value or "/" in model_value, (
+            f"settings.json 'model' value '{model_value}' doesn't look like a model ID"
+        )
+
+    def test_config_yml_has_claude_code_provider_for_als_apg(self, tmp_path):
+        """Generated config.yml has claude_code.provider: als-apg (not commented out)."""
+        import yaml
 
         manager = TemplateManager()
-        manager.create_project(
-            project_name="test-mcp-override",
+        project_dir = manager.create_project(
+            project_name="als-apg-config-test",
             output_dir=tmp_path,
-            template_name="minimal",
-            force=True,
-            context={
-                "prompt_overrides": {
-                    "mcp-json": "overrides/mcp.json",
-                },
-            },
+            template_name="control_assistant",
+            context={"default_provider": "als-apg"},
         )
 
-        assert (project_dir / ".mcp.json").read_text() == override_content
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        assert "claude_code" in config, "config.yml missing top-level claude_code: section"
+        assert config["claude_code"].get("provider") == "als-apg"
 
 
 if __name__ == "__main__":

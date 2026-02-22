@@ -1,8 +1,8 @@
 /**
  * OSPREY Artifact Gallery — Unified Browse View
  *
- * Single gallery for all artifacts with type filtering, highlight/pin flags,
- * and inline timeseries rendering. No more domain switcher.
+ * Single gallery for all artifacts with type filtering, pin flag,
+ * and inline timeseries rendering.
  */
 (function () {
   "use strict";
@@ -27,10 +27,11 @@
   let focusedArtifact = null;
   let browseMode = "tree"; // "tree" | "activity"
   let sidebarLayout = "list"; // "list" | "gallery"
-  let activeFilter = "all"; // "all" | "highlighted" | "pinned" | "stats" | type string
-  let activeView = "browse"; // "browse" | "stats"
+  let activeFilter = "all"; // "all" | "pinned" | type string
   let typeRegistry = {};
   let _sessionStart = new Date().toISOString();
+  let isFullscreen = false;
+  let _newArtifactsSinceFullscreen = 0;
 
   // ---- Type Registry ----
 
@@ -45,12 +46,14 @@
 
   function typeBadge(type) {
     const info =
+      (typeRegistry.categories && typeRegistry.categories[type]) ||
       (typeRegistry.artifact_types && typeRegistry.artifact_types[type]) || {};
     return info.label || type.replace(/_/g, " ");
   }
 
   function typeIcon(type) {
     const icons = {
+      // Artifact types
       plot_html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>',
       plot_png: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>',
       table_html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>',
@@ -61,12 +64,34 @@
       image: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>',
       notebook: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>',
       dashboard_html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
+      // Category types
+      archiver_data: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>',
+      channel_values: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>',
+      write_results: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>',
+      code_output: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',
+      visualization: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><polyline points="7 14 11 10 15 14 19 8"/></svg>',
+      dashboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
+      document: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>',
+      screenshot: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>',
+      channel_finder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+      graph_extraction: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><polyline points="7 14 11 10 15 14 19 8"/></svg>',
+      graph_comparison: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><polyline points="7 14 11 10 15 14 19 8"/></svg>',
+      graph_reference: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><polyline points="7 14 11 10 15 14 19 8"/></svg>',
+      graph_analysis: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><polyline points="7 14 11 10 15 14 19 8"/></svg>',
+      search_results: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+      logbook_research: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>',
+      literature_research: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>',
+      wiki_research: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>',
+      mml_research: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+      agent_response: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>',
+      user_artifact: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
     };
     return icons[type] || icons.text;
   }
 
   function typeColor(type) {
     const info =
+      (typeRegistry.categories && typeRegistry.categories[type]) ||
       (typeRegistry.artifact_types && typeRegistry.artifact_types[type]) || {};
     return info.color || "#64748b";
   }
@@ -135,7 +160,7 @@
   function sendToTerminal(text) {
     try {
       if (window.parent && window.parent !== window) {
-        window.parent.postMessage({ type: "paste-to-terminal", text }, "*");
+        window.parent.postMessage({ type: "osprey-paste-to-terminal", text }, "*");
       }
     } catch { /* cross-origin */ }
   }
@@ -152,6 +177,12 @@
 
   // ---- Color pass: color badges by type ----
 
+  function _setTypeColorVars(el, color) {
+    el.style.setProperty("--type-color", color);
+    el.style.setProperty("--type-bg", color + "14");
+    el.style.setProperty("--type-border", color + "40");
+  }
+
   function requestColorPass() {
     requestAnimationFrame(() => {
       document.querySelectorAll("[class*='badge-']").forEach((el) => {
@@ -162,6 +193,18 @@
           el.style.color = color;
           el.style.borderColor = color;
         }
+      });
+      document.querySelectorAll(".tree-section[data-type]").forEach((el) => {
+        const type = el.dataset.type;
+        if (type) _setTypeColorVars(el, typeColor(type));
+      });
+      document.querySelectorAll(".gallery-card[data-type]").forEach((el) => {
+        const type = el.dataset.type;
+        if (type) _setTypeColorVars(el, typeColor(type));
+      });
+      document.querySelectorAll(".timeline-item[data-type]").forEach((el) => {
+        const type = el.dataset.type;
+        if (type) _setTypeColorVars(el, typeColor(type));
       });
     });
   }
@@ -199,18 +242,11 @@
 
   /** Rebuild all conditional filter chips based on current artifacts. */
   function rebuildTypeChips() {
-    // --- Highlighted / Pinned chips: show only when count > 0 ---
-    const highlightedCount = artifacts.filter((a) => a.highlighted).length;
+    // --- Pinned chip: show only when count > 0 ---
     const pinnedCount = artifacts.filter((a) => a.pinned).length;
 
-    const highlightedChip = filterBar.querySelector('[data-filter="highlighted"]');
     const pinnedChip = filterBar.querySelector('[data-filter="pinned"]');
 
-    if (highlightedChip) {
-      highlightedChip.hidden = highlightedCount === 0;
-      const countEl = highlightedChip.querySelector(".chip-count");
-      if (countEl) countEl.textContent = highlightedCount || "";
-    }
     if (pinnedChip) {
       pinnedChip.hidden = pinnedCount === 0;
       const countEl = pinnedChip.querySelector(".chip-count");
@@ -221,23 +257,23 @@
     const typesContainer = document.getElementById("filter-type-chips");
     if (!typesContainer) return;
 
-    const presentTypes = new Set(artifacts.map((a) => a.artifact_type));
+    const presentTypes = new Set(artifacts.map((a) => a.category || a.artifact_type));
 
     // If current filter no longer has artifacts, reset to "all"
-    if (activeFilter === "highlighted" && highlightedCount === 0) {
+    if (activeFilter === "pinned" && pinnedCount === 0) {
       activeFilter = "all";
-    } else if (activeFilter === "pinned" && pinnedCount === 0) {
-      activeFilter = "all";
-    } else if (activeFilter !== "all" && activeFilter !== "highlighted"
+    } else if (activeFilter !== "all"
         && activeFilter !== "pinned" && !presentTypes.has(activeFilter)) {
       activeFilter = "all";
     }
 
     typesContainer.innerHTML = "";
-    if (typeRegistry.artifact_types) {
-      Object.entries(typeRegistry.artifact_types).forEach(([type, info]) => {
+    // Prefer category-based chips when registry provides categories
+    const chipSource = typeRegistry.categories || typeRegistry.artifact_types;
+    if (chipSource) {
+      Object.entries(chipSource).forEach(([type, info]) => {
         if (!presentTypes.has(type)) return;
-        const count = artifacts.filter((a) => a.artifact_type === type).length;
+        const count = artifacts.filter((a) => (a.category || a.artifact_type) === type).length;
         const chip = document.createElement("button");
         chip.className = "filter-chip type-chip";
         chip.dataset.filter = type;
@@ -253,19 +289,7 @@
   function wireFilterChips() {
     filterBar.querySelectorAll(".filter-chip").forEach((chip) => {
       chip.addEventListener("click", () => {
-        const filter = chip.dataset.filter;
-
-        if (filter === "stats") {
-          activeView = activeView === "stats" ? "browse" : "stats";
-          updateViewVisibility();
-          updateFilterBarActive();
-          if (activeView === "stats") renderStats();
-          return;
-        }
-
-        activeView = "browse";
-        activeFilter = filter;
-        updateViewVisibility();
+        activeFilter = chip.dataset.filter;
         updateFilterBarActive();
         renderSidebar();
       });
@@ -274,20 +298,8 @@
 
   function updateFilterBarActive() {
     filterBar.querySelectorAll(".filter-chip").forEach((chip) => {
-      const f = chip.dataset.filter;
-      if (f === "stats") {
-        chip.classList.toggle("active", activeView === "stats");
-      } else {
-        chip.classList.toggle("active", activeView === "browse" && activeFilter === f);
-      }
+      chip.classList.toggle("active", activeFilter === chip.dataset.filter);
     });
-  }
-
-  function updateViewVisibility() {
-    const browseView = document.getElementById("view-artifacts-browse");
-    const statsView = document.getElementById("view-stats");
-    if (browseView) browseView.classList.toggle("hidden", activeView !== "browse");
-    if (statsView) statsView.classList.toggle("hidden", activeView !== "stats");
   }
 
   // ---- API ----
@@ -325,13 +337,11 @@
     let filtered = [...artifacts];
 
     // Apply filter
-    if (activeFilter === "highlighted") {
-      filtered = filtered.filter((a) => a.highlighted);
-    } else if (activeFilter === "pinned") {
+    if (activeFilter === "pinned") {
       filtered = filtered.filter((a) => a.pinned);
     } else if (activeFilter !== "all") {
       // Type filter
-      filtered = filtered.filter((a) => a.artifact_type === activeFilter);
+      filtered = filtered.filter((a) => a.category === activeFilter || a.artifact_type === activeFilter);
     }
 
     // Apply search
@@ -364,17 +374,16 @@
     return `
       <div class="gallery-card${sel}${pinnedCls}"
            data-id="${a.id}"
-           data-type="${a.artifact_type}"
+           data-type="${a.category || a.artifact_type}"
            style="animation-delay: ${i * 30}ms">
         <div class="gallery-card-thumb">${thumbnailHtml(a)}</div>
         <div class="gallery-card-info">
           <div class="gallery-card-title" title="${escapeHtml(a.title)}">
             ${a.pinned ? '<span class="pin-indicator" title="Pinned">&#128204;</span>' : ""}
-            ${a.highlighted ? '<span class="highlight-indicator" title="Highlighted">&#9733;</span>' : ""}
             ${escapeHtml(a.title)}
           </div>
           <div class="gallery-card-meta">
-            <span class="gallery-card-type">${typeBadge(a.artifact_type)}</span>
+            <span class="gallery-card-type">${typeBadge(a.category || a.artifact_type)}</span>
             <span class="gallery-card-time">${formatTime(a.timestamp)}</span>
             <span class="gallery-card-size">${formatSize(a.size_bytes)}</span>
           </div>
@@ -415,8 +424,9 @@
   function renderTreeMode(items) {
     const groups = {};
     items.forEach((a) => {
-      if (!groups[a.artifact_type]) groups[a.artifact_type] = [];
-      groups[a.artifact_type].push(a);
+      const groupKey = a.category || a.artifact_type;
+      if (!groups[groupKey]) groups[groupKey] = [];
+      groups[groupKey].push(a);
     });
 
     const sortedTypes = Object.keys(groups).sort((a, b) => {
@@ -461,7 +471,6 @@
                      data-id="${a.id}"
                      style="animation-delay: ${i * 30}ms">
                   ${a.pinned ? '<span class="pin-indicator" title="Pinned">&#128204;</span>' : ""}
-                  ${a.highlighted ? '<span class="highlight-indicator" title="Highlighted">&#9733;</span>' : ""}
                   <span class="tree-item-icon">${typeIcon(a.artifact_type)}</span>
                   <span class="tree-item-name" title="${escapeHtml(a.title)}">${escapeHtml(a.title)}</span>
                   ${isNewThisSession(a) ? '<span class="tree-item-badge new">new</span>' : ""}
@@ -505,17 +514,16 @@
           html += `
             <div class="timeline-item${selectedArtifact && selectedArtifact.id === a.id ? " selected" : ""}${a.pinned ? " pinned" : ""}"
                  data-id="${a.id}"
-                 data-type="${a.artifact_type}"
+                 data-type="${a.category || a.artifact_type}"
                  style="animation-delay: ${itemIndex * 25}ms">
               <span class="timeline-dot"></span>
               <div class="timeline-item-body">
                 <div class="timeline-item-title" title="${escapeHtml(a.title)}">
                   ${a.pinned ? '<span class="pin-indicator">&#128204;</span>' : ""}
-                  ${a.highlighted ? '<span class="highlight-indicator">&#9733;</span>' : ""}
                   ${escapeHtml(a.title)}
                 </div>
                 <div class="timeline-item-meta">
-                  <span class="timeline-item-type">${typeBadge(a.artifact_type)}</span>
+                  <span class="timeline-item-type">${typeBadge(a.category || a.artifact_type)}</span>
                   <span class="timeline-item-time">${formatTime(a.timestamp)}</span>
                 </div>
               </div>
@@ -539,7 +547,7 @@
       });
     });
 
-    // Item click + drag-and-drop
+    // Item click, double-click (fullscreen), drag-and-drop (send to terminal)
     const clickables = ".tree-item, .timeline-item, .gallery-card";
     sidebarBody.querySelectorAll(clickables).forEach((el) => {
       el.addEventListener("click", (e) => {
@@ -548,19 +556,32 @@
         const a = artifacts.find((x) => x.id === id);
         if (a) {
           selectedArtifact = a;
+          setAsFocus(a);  // Update focus_state.txt for agent awareness
           sidebarBody.querySelectorAll(clickables).forEach((item) => item.classList.remove("selected"));
           el.classList.add("selected");
           renderPreview();
         }
       });
 
-      // Send-to-terminal: double-click
+      // Fullscreen: double-click
       el.addEventListener("dblclick", (e) => {
         e.preventDefault();
         const id = el.dataset.id;
         const a = artifacts.find((x) => x.id === id);
         if (!a) return;
-        sendToTerminal(`Read this artifact file: osprey-workspace/artifacts/${a.filename}`);
+        selectedArtifact = a;
+        enterFullscreen(a);
+      });
+
+      // Drag-and-drop: drag artifact to terminal to paste reference
+      el.draggable = true;
+      el.addEventListener("dragstart", (e) => {
+        const id = el.dataset.id;
+        const a = artifacts.find((x) => x.id === id);
+        if (!a) return;
+        const text = `Please have a look at osprey-workspace/artifacts/${a.filename}`;
+        e.dataTransfer.setData("text/plain", text);
+        e.dataTransfer.effectAllowed = "copy";
       });
     });
   }
@@ -583,7 +604,7 @@
     let viewportHtml = "";
 
     // Check for timeseries data
-    if (a.metadata && a.metadata.data_type === "timeseries" && a.metadata.data_file) {
+    if ((a.metadata && a.metadata.data_type === "timeseries" || a.category === "archiver_data") && (a.data_file || (a.metadata && a.metadata.data_file))) {
       viewportHtml = `<div id="ts-viewport" class="ts-viewport-container"></div>`;
     } else {
       switch (a.artifact_type) {
@@ -601,6 +622,8 @@
           viewportHtml = `<img src="${url}" alt="${escapeHtml(a.title)}" />`;
           break;
         case "markdown":
+          viewportHtml = `<div id="md-viewport" class="md-preview-container"></div>`;
+          break;
         case "text":
         case "json":
           viewportHtml = `<iframe src="${url}" class="preview-iframe-dark"></iframe>`;
@@ -620,22 +643,21 @@
     previewContent.innerHTML = `
       <div class="preview-header">
         <div class="preview-header-left">
-          <span class="badge badge-${a.artifact_type}">${typeBadge(a.artifact_type)}</span>
+          <button class="fullscreen-back-btn" id="fullscreen-back" title="Exit fullscreen (Esc)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+            Back
+          </button>
+          <span class="badge badge-${a.category || a.artifact_type}">${typeBadge(a.category || a.artifact_type)}</span>
           <span class="preview-header-title">${escapeHtml(a.title)}</span>
         </div>
         <div class="preview-header-actions">
-          <button class="btn btn-sm ${a.highlighted ? "btn-warning" : "btn-secondary"}" id="preview-toggle-highlight" title="${a.highlighted ? "Remove highlight" : "Highlight"}">
-            &#9733; ${a.highlighted ? "Highlighted" : "Highlight"}
-          </button>
+          <span class="fullscreen-new-badge" id="fullscreen-new-badge" data-count="0"></span>
           <button class="btn btn-sm ${a.pinned ? "btn-primary" : "btn-secondary"}" id="preview-toggle-pin" title="${a.pinned ? "Unpin" : "Pin"}">
             &#128204; ${a.pinned ? "Pinned" : "Pin"}
           </button>
-          <button class="btn btn-primary btn-sm" id="preview-set-focus" title="Set as focus artifact">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="10"/>
-              <circle cx="12" cy="12" r="3"/>
-            </svg>
-            Focus
+          <button class="btn btn-secondary btn-sm fullscreen-enter-btn" id="fullscreen-enter" title="Fullscreen (F)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 00-2 2v3M21 8V5a2 2 0 00-2-2h-3M16 21h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>
+            Maximize
           </button>
           <a href="${url}" target="_blank" class="btn btn-secondary btn-sm" title="Open in new tab">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -673,9 +695,7 @@
     `;
 
     // Wire action buttons
-    document.getElementById("preview-toggle-highlight").addEventListener("click", () => toggleHighlight(a));
     document.getElementById("preview-toggle-pin").addEventListener("click", () => togglePin(a));
-    document.getElementById("preview-set-focus").addEventListener("click", () => setAsFocus(a));
     document.getElementById("preview-delete").addEventListener("click", () => {
       if (!confirm(`Delete "${a.title}"? This cannot be undone.`)) return;
       fetch(`/api/artifacts/${a.id}`, { method: "DELETE" })
@@ -691,17 +711,46 @@
         .catch((err) => console.error("Delete failed:", err));
     });
 
+    // Fullscreen buttons
+    const enterBtn = document.getElementById("fullscreen-enter");
+    if (enterBtn) enterBtn.addEventListener("click", () => enterFullscreen());
+
+    const backBtn = document.getElementById("fullscreen-back");
+    if (backBtn) backBtn.addEventListener("click", () => exitFullscreen());
+
+    const newBadge = document.getElementById("fullscreen-new-badge");
+    if (newBadge) {
+      newBadge.addEventListener("click", () => {
+        // Navigate to newest artifact, stay in fullscreen
+        if (artifacts.length > 0) {
+          const sorted = [...artifacts].sort((a, b) => (b.timestamp || "").localeCompare(a.timestamp || ""));
+          selectedArtifact = sorted[0];
+          _newArtifactsSinceFullscreen = 0;
+          renderPreview();
+        }
+      });
+    }
+
+    // Update badge if in fullscreen
+    if (isFullscreen) updateNewArtifactBadge();
+
     // Render timeseries if applicable
-    if (a.metadata && a.metadata.data_type === "timeseries" && a.metadata.data_file) {
+    if ((a.metadata && a.metadata.data_type === "timeseries" || a.category === "archiver_data") && (a.data_file || (a.metadata && a.metadata.data_file))) {
       const tsEl = document.getElementById("ts-viewport");
       if (tsEl) renderTimeseriesView(tsEl, a);
+    }
+
+    // Render markdown inline
+    if (a.artifact_type === "markdown") {
+      const mdEl = document.getElementById("md-viewport");
+      if (mdEl) renderMarkdownView(mdEl, a);
     }
 
     requestColorPass();
     if (window.injectLogbookButtons) window.injectLogbookButtons();
   }
 
-  // ---- Pin / Highlight / Focus actions ----
+  // ---- Pin / Focus actions ----
 
   async function togglePin(artifact) {
     const newPinned = !artifact.pinned;
@@ -721,22 +770,71 @@
     }
   }
 
-  async function toggleHighlight(artifact) {
-    const newHighlighted = !artifact.highlighted;
-    try {
-      const resp = await fetch(`/api/artifacts/${artifact.id}/highlight`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ highlighted: newHighlighted }),
-      });
-      if (resp.ok) {
-        artifact.highlighted = newHighlighted;
-        renderSidebar();
-        renderPreview();
-      }
-    } catch (err) {
-      console.error("Failed to toggle highlight:", err);
+  // ---- Fullscreen Mode ----
+
+  function enterFullscreen(artifact) {
+    if (isFullscreen) return;
+    if (artifact) {
+      selectedArtifact = artifact;
     }
+    if (!selectedArtifact) return;
+
+    isFullscreen = true;
+    _newArtifactsSinceFullscreen = 0;
+    document.body.classList.add('fullscreen-mode');
+    document.body.classList.add('fullscreen-entering');
+    setTimeout(() => document.body.classList.remove('fullscreen-entering'), 700);
+
+    updateNewArtifactBadge();
+    renderPreview();
+
+    // Resize iframes / Plotly charts
+    requestAnimationFrame(() => {
+      const iframe = previewContent.querySelector('iframe');
+      if (iframe?.contentWindow) {
+        try { iframe.contentWindow.dispatchEvent(new Event('resize')); } catch {}
+      }
+      const tsChart = document.getElementById('ts-viewport');
+      if (tsChart && typeof Plotly !== 'undefined') {
+        try { Plotly.Plots.resize(tsChart); } catch {}
+      }
+    });
+  }
+
+  function exitFullscreen() {
+    if (!isFullscreen) return;
+    isFullscreen = false;
+    _newArtifactsSinceFullscreen = 0;
+    document.body.classList.remove('fullscreen-mode');
+    document.body.classList.remove('fullscreen-entering');
+
+    renderPreview();
+    renderSidebar();
+
+    // Resize iframes / Plotly charts
+    requestAnimationFrame(() => {
+      const iframe = previewContent.querySelector('iframe');
+      if (iframe?.contentWindow) {
+        try { iframe.contentWindow.dispatchEvent(new Event('resize')); } catch {}
+      }
+      const tsChart = document.getElementById('ts-viewport');
+      if (tsChart && typeof Plotly !== 'undefined') {
+        try { Plotly.Plots.resize(tsChart); } catch {}
+      }
+      // Scroll selected item into view in sidebar
+      if (selectedArtifact) {
+        const sel = sidebarBody.querySelector(`[data-id="${selectedArtifact.id}"]`);
+        if (sel) sel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    });
+  }
+
+  function updateNewArtifactBadge() {
+    const badge = document.getElementById('fullscreen-new-badge');
+    if (!badge) return;
+    const count = _newArtifactsSinceFullscreen;
+    badge.dataset.count = String(count);
+    badge.textContent = count > 0 ? `${count} new` : '';
   }
 
   async function setAsFocus(artifact) {
@@ -751,6 +849,64 @@
       }
     } catch (err) {
       console.error("Failed to set focus:", err);
+    }
+  }
+
+  // ---- Markdown Rendering ----
+
+  let _markedConfigured = false;
+
+  function configureMarked() {
+    if (_markedConfigured) return;
+    _markedConfigured = true;
+    if (typeof marked === "undefined") return;
+
+    const renderer = {
+      code({ text, lang }) {
+        const src = text ?? "";
+        let highlighted = escapeHtml(src);
+        if (typeof hljs !== "undefined" && src) {
+          try {
+            if (lang && hljs.getLanguage(lang)) {
+              highlighted = hljs.highlight(src, { language: lang }).value;
+            } else {
+              highlighted = hljs.highlightAuto(src).value;
+            }
+          } catch { /* fallback to escaped */ }
+        }
+        return `<pre><code class="hljs${lang ? ` language-${lang}` : ""}">${highlighted}</code></pre>`;
+      },
+    };
+
+    marked.use({ gfm: true, breaks: false, renderer });
+  }
+
+  async function renderMarkdownView(container, artifact) {
+    container.innerHTML = '<div style="padding:16px;color:var(--text-muted)">Loading...</div>';
+    try {
+      const url = fileUrl(artifact);
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(`Fetch failed: ${resp.status}`);
+      const text = await resp.text();
+
+      configureMarked();
+
+      const mdDiv = document.createElement("div");
+      mdDiv.className = "osprey-md-rendered";
+      if (typeof marked !== "undefined") {
+        try {
+          mdDiv.innerHTML = marked.parse(text);
+        } catch {
+          mdDiv.textContent = text;
+        }
+      } else {
+        mdDiv.textContent = text;
+      }
+      container.innerHTML = "";
+      container.appendChild(mdDiv);
+    } catch (err) {
+      console.error("Markdown render failed:", err);
+      container.innerHTML = '<span style="color:var(--text-muted)">Failed to load markdown</span>';
     }
   }
 
@@ -934,6 +1090,23 @@
     }
   }
 
+  const _tsThemes = {
+    dark: {
+      paper: "#131c2e", plot: "#0b1120", font: "#8b9ab5",
+      grid: "rgba(100,116,139,0.1)", line: "rgba(100,116,139,0.18)",
+      legendBg: "rgba(19,28,46,0.85)", legendBorder: "rgba(100,116,139,0.18)",
+    },
+    light: {
+      paper: "#ffffff", plot: "#ffffff", font: "#1a202c",
+      grid: "rgba(0,0,0,0.08)", line: "rgba(0,0,0,0.12)",
+      legendBg: "rgba(255,255,255,0.9)", legendBorder: "rgba(0,0,0,0.1)",
+    },
+  };
+
+  function _currentTheme() {
+    return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+  }
+
   async function renderTimeseriesChart(el, chartData) {
     await ensurePlotlyLoaded();
     if (!el) return;
@@ -947,15 +1120,17 @@
       hovertemplate: "%{y:.4g}<extra>%{fullData.name}</extra>",
     }));
 
+    const t = _tsThemes[_currentTheme()] || _tsThemes.dark;
+
     const layout = {
-      paper_bgcolor: "#131c2e",
-      plot_bgcolor: "#0b1120",
-      font: { family: "'DM Mono', monospace", size: 11, color: "#8b9ab5" },
+      paper_bgcolor: t.paper,
+      plot_bgcolor: t.plot,
+      font: { family: "'DM Mono', monospace", size: 11, color: t.font },
       margin: { t: 30, r: 20, b: 50, l: 60 },
       hovermode: "x unified",
-      xaxis: { gridcolor: "rgba(100,116,139,0.1)", linecolor: "rgba(100,116,139,0.18)", tickfont: { size: 10 } },
-      yaxis: { gridcolor: "rgba(100,116,139,0.1)", linecolor: "rgba(100,116,139,0.18)", tickfont: { size: 10 } },
-      legend: { bgcolor: "rgba(19,28,46,0.85)", bordercolor: "rgba(100,116,139,0.18)", borderwidth: 1, font: { size: 10 } },
+      xaxis: { gridcolor: t.grid, linecolor: t.line, tickfont: { size: 10 } },
+      yaxis: { gridcolor: t.grid, linecolor: t.line, tickfont: { size: 10 } },
+      legend: { bgcolor: t.legendBg, bordercolor: t.legendBorder, borderwidth: 1, font: { size: 10 } },
       colorway: _tsColorway,
     };
 
@@ -1046,57 +1221,6 @@
     return escapeHtml(String(obj));
   }
 
-  // ---- Stats View ----
-
-  function renderStats() {
-    const statsContent = document.getElementById("stats-content");
-    if (!statsContent) return;
-
-    const totalCount = artifacts.length;
-    const totalSize = artifacts.reduce((sum, a) => sum + (a.size_bytes || 0), 0);
-    const typeCounts = {};
-    artifacts.forEach((a) => { typeCounts[a.artifact_type] = (typeCounts[a.artifact_type] || 0) + 1; });
-
-    const highlightedCount = artifacts.filter((a) => a.highlighted).length;
-    const pinnedCount = artifacts.filter((a) => a.pinned).length;
-
-    let html = `
-      <div class="stat-card">
-        <div class="stat-card-title">Total Artifacts</div>
-        <div class="stat-card-value">${totalCount}</div>
-        <div class="stat-card-subtitle">${Object.keys(typeCounts).length} types</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-card-title">Total Size</div>
-        <div class="stat-card-value">${formatSize(totalSize)}</div>
-        <div class="stat-card-subtitle">across all artifacts</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-card-title">Highlighted</div>
-        <div class="stat-card-value">${highlightedCount}</div>
-        <div class="stat-card-subtitle">agent-flagged items</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-card-title">Pinned</div>
-        <div class="stat-card-value">${pinnedCount}</div>
-        <div class="stat-card-subtitle">quick-access items</div>
-      </div>
-    `;
-
-    const sortedTypes = Object.entries(typeCounts).sort((a, b) => b[1] - a[1]);
-    sortedTypes.forEach(([type, count]) => {
-      html += `
-        <div class="stat-card">
-          <div class="stat-card-title">${typeBadge(type)}</div>
-          <div class="stat-card-value">${count}</div>
-          <div class="stat-card-subtitle">${((count / totalCount) * 100).toFixed(0)}% of total</div>
-        </div>
-      `;
-    });
-
-    statsContent.innerHTML = html;
-  }
-
   // ---- Events ----
 
   if (searchInput) {
@@ -1127,16 +1251,43 @@
     });
   });
 
-  // Keyboard shortcuts
+  // Keyboard shortcuts (priority order)
   document.addEventListener("keydown", (e) => {
-    if (e.key === "/" && document.activeElement !== searchInput) {
+    const tag = document.activeElement?.tagName;
+    const isInput = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+
+    // 1. Escape + fullscreen → exit fullscreen (highest priority)
+    if (e.key === "Escape" && isFullscreen) {
       e.preventDefault();
-      searchInput.focus();
+      exitFullscreen();
+      return;
     }
+
+    // 2. Escape + search focused → clear search
     if (e.key === "Escape" && document.activeElement === searchInput) {
       searchInput.blur();
       searchInput.value = "";
       renderSidebar();
+      return;
+    }
+
+    // 3. "/" (no input focused) → exit fullscreen first, then focus search
+    if (e.key === "/" && !isInput) {
+      e.preventDefault();
+      if (isFullscreen) exitFullscreen();
+      searchInput.focus();
+      return;
+    }
+
+    // 4. "F" (no input focused, no modifiers) → toggle fullscreen
+    if (e.key === "f" && !isInput && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      if (isFullscreen) {
+        exitFullscreen();
+      } else {
+        enterFullscreen();
+      }
+      return;
     }
   });
 
@@ -1164,7 +1315,36 @@
       const eventType = eventData && eventData.type;
 
       if (eventType === "focus") {
-        fetchFocus();
+        // Agent called artifact_focus — select that artifact in the gallery
+        const focusId = eventData.id;
+        const wantFullscreen = !!eventData.fullscreen;
+        if (focusId) {
+          const a = artifacts.find((x) => x.id === focusId);
+          if (a) {
+            selectedArtifact = a;
+            focusedArtifact = a;
+            renderSidebar();
+            renderPreview();
+            if (wantFullscreen) enterFullscreen(a);
+            // Scroll the selected item into view
+            requestAnimationFrame(() => {
+              const sel = sidebarBody.querySelector(`[data-id="${focusId}"]`);
+              if (sel) sel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            });
+          } else {
+            // Artifact not yet in local list — refresh and retry
+            fetchArtifacts().then(() => {
+              const retry = artifacts.find((x) => x.id === focusId);
+              if (retry) {
+                selectedArtifact = retry;
+                focusedArtifact = retry;
+                renderSidebar();
+                renderPreview();
+                if (wantFullscreen) enterFullscreen(retry);
+              }
+            });
+          }
+        }
         return;
       }
 
@@ -1193,10 +1373,11 @@
       }
 
       if (eventType === "artifact" || !eventType) {
-        fetchArtifacts().catch(() => {});
+        if (isFullscreen) _newArtifactsSinceFullscreen++;
+        fetchArtifacts().then(() => {
+          if (isFullscreen) updateNewArtifactBadge();
+        }).catch(() => {});
       }
-
-      if (activeView === "stats") renderStats();
     };
     source.onerror = () => updateHealth(false);
   }
@@ -1206,9 +1387,47 @@
     fetchArtifacts().finally(() => {
       refreshBtn.classList.remove("refreshing");
     });
-    if (activeView === "stats") renderStats();
     connectSSE();
   }
+
+  // ---- Theme change: forward to iframes + re-style timeseries charts ----
+
+  function _onThemeChange(theme) {
+    // Forward to all preview iframes (Plotly HTML artifacts)
+    document.querySelectorAll(".preview-viewport iframe, .browse-preview-pane iframe").forEach((iframe) => {
+      try { iframe.contentWindow.postMessage({ type: "osprey-theme-change", theme }, "*"); } catch {}
+    });
+    // Re-style any visible timeseries Plotly chart
+    const tsChart = document.getElementById("ts-viewport");
+    if (tsChart && typeof Plotly !== "undefined") {
+      const t = _tsThemes[theme] || _tsThemes.dark;
+      try {
+        Plotly.relayout(tsChart, {
+          paper_bgcolor: t.paper, plot_bgcolor: t.plot,
+          "font.color": t.font,
+          "xaxis.gridcolor": t.grid, "xaxis.linecolor": t.line,
+          "yaxis.gridcolor": t.grid, "yaxis.linecolor": t.line,
+          "legend.bgcolor": t.legendBg, "legend.bordercolor": t.legendBorder,
+        });
+      } catch {}
+    }
+  }
+
+  // Listen for theme changes from the parent (Web Terminal) or self
+  window.addEventListener("message", (e) => {
+    if (e.data && e.data.type === "osprey-theme-change" && e.data.theme) {
+      _onThemeChange(e.data.theme);
+    }
+  });
+
+  // Also observe data-theme attribute changes (covers non-postMessage scenarios)
+  new MutationObserver((mutations) => {
+    for (const m of mutations) {
+      if (m.attributeName === "data-theme") {
+        _onThemeChange(document.documentElement.getAttribute("data-theme") || "dark");
+      }
+    }
+  }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
   // ---- Init ----
 

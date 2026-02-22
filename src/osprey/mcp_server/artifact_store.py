@@ -62,23 +62,40 @@ class ArtifactEntry:
     timestamp: str
     tool_source: str
     metadata: dict[str, Any] = field(default_factory=dict)
-    highlighted: bool = False
     pinned: bool = False
+    # --- Unified artifact fields (replaces DataContext) ---
+    category: str = ""
+    summary: dict[str, Any] = field(default_factory=dict)
+    access_details: dict[str, Any] = field(default_factory=dict)
+    data_file: str = ""
+    source_agent: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     def to_tool_response(self, gallery_url: str | None = None) -> dict[str, Any]:
-        """Compact response returned to Claude after artifact creation."""
+        """Compact response returned to Claude after artifact creation.
+
+        When ``summary`` / ``access_details`` are populated (data artifacts),
+        the response includes them so Claude sees the same compact info that
+        DataContext.to_tool_response() used to provide.
+        """
         resp: dict[str, Any] = {
             "status": "success",
             "artifact_id": self.id,
             "title": self.title,
             "artifact_type": self.artifact_type,
             "size_bytes": self.size_bytes,
-            "highlighted": self.highlighted,
             "pinned": self.pinned,
         }
+        if self.category:
+            resp["category"] = self.category
+        if self.summary:
+            resp["summary"] = self.summary
+        if self.access_details:
+            resp["access_details"] = self.access_details
+        if self.data_file:
+            resp["data_file"] = self.data_file
         if gallery_url:
             resp["gallery_url"] = gallery_url
         return resp
@@ -196,9 +213,14 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
     _index_filename = "artifacts.json"
 
     def _entry_from_dict(self, d: dict) -> ArtifactEntry:
-        # Gracefully handle old index files missing highlighted/pinned
-        d.setdefault("highlighted", False)
+        # Gracefully handle old index files missing fields
+        d.pop("highlighted", None)  # Removed concept; strip from old indexes
         d.setdefault("pinned", False)
+        d.setdefault("category", "")
+        d.setdefault("summary", {})
+        d.setdefault("access_details", {})
+        d.setdefault("data_file", "")
+        d.setdefault("source_agent", "")
         return ArtifactEntry(**d)
 
     def _entry_to_dict(self, entry: ArtifactEntry) -> dict:
@@ -223,7 +245,6 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         mime_type: str = "application/octet-stream",
         tool_source: str = "unknown",
         metadata: dict[str, Any] | None = None,
-        highlighted: bool = True,
     ) -> ArtifactEntry:
         """Low-level save: write raw bytes to disk and register in the index."""
         with self._with_index_lock():
@@ -244,7 +265,6 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
                 timestamp=datetime.now(UTC).isoformat(),
                 tool_source=tool_source,
                 metadata=metadata or {},
-                highlighted=highlighted,
             )
             self._entries.append(entry)
             self._save_index()
@@ -269,7 +289,6 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         artifact_type: str | None = None,
         tool_source: str = "execute",
         metadata: dict[str, Any] | None = None,
-        highlighted: bool = True,
     ) -> ArtifactEntry:
         """Smart-serialize a Python object and save it.
 
@@ -286,7 +305,6 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             mime_type=mime,
             tool_source=tool_source,
             metadata=metadata,
-            highlighted=highlighted,
         )
 
     def save_from_path(
@@ -297,7 +315,6 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         artifact_type: str | None = None,
         tool_source: str = "artifact_save",
         metadata: dict[str, Any] | None = None,
-        highlighted: bool = True,
     ) -> ArtifactEntry:
         """Copy an existing file into the artifact store."""
         source = Path(source_path)
@@ -317,28 +334,99 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             mime_type=mime,
             tool_source=tool_source,
             metadata=metadata,
-            highlighted=highlighted,
         )
+
+    def save_data(
+        self,
+        tool: str,
+        data: Any,
+        title: str,
+        description: str = "",
+        summary: dict[str, Any] | None = None,
+        access_details: dict[str, Any] | None = None,
+        category: str = "",
+        source_agent: str = "",
+        artifact_type: str = "json",
+        metadata: dict[str, Any] | None = None,
+    ) -> ArtifactEntry:
+        """Save structured data as an artifact.  Replaces ``DataContext.save()``.
+
+        Writes raw JSON (no envelope) to ``artifacts/{id}_{tool}.json`` and
+        registers the entry in the unified artifact index.
+        """
+        from osprey.mcp_server.type_registry import valid_category_keys
+
+        if category and category not in valid_category_keys():
+            logger.warning("Unregistered category %r — add to type_registry.py", category)
+
+        content = json.dumps(data, indent=2, default=str).encode()
+        filename = f"{tool}.json"
+
+        with self._with_index_lock():
+            art_id = self._make_id()
+            safe_filename = f"{art_id}_{filename}"
+            filepath = self._store_dir / safe_filename
+            filepath.write_bytes(content)
+
+            entry = ArtifactEntry(
+                id=art_id,
+                artifact_type=artifact_type,
+                title=title,
+                description=description,
+                filename=safe_filename,
+                mime_type="application/json",
+                size_bytes=len(content),
+                timestamp=datetime.now(UTC).isoformat(),
+                tool_source=tool,
+                metadata=metadata or {},
+                category=category,
+                summary=summary or {},
+                access_details=access_details or {},
+                data_file=safe_filename,
+                source_agent=source_agent,
+            )
+            self._entries.append(entry)
+            self._save_index()
+
+        self._notify_listeners(entry)
+
+        try:
+            from osprey.mcp_server.server_launcher import ensure_artifact_server
+
+            ensure_artifact_server()
+        except Exception as exc:
+            logger.warning("Artifact server auto-launch failed: %s", exc, exc_info=True)
+
+        return entry
 
     def list_entries(
         self,
         type_filter: str | None = None,
         search: str | None = None,
-        highlighted: bool | None = None,
         pinned: bool | None = None,
+        category_filter: str | None = None,
+        tool_filter: str | None = None,
+        source_agent_filter: str | None = None,
+        last_n: int | None = None,
     ) -> list[ArtifactEntry]:
         """Return artifact entries, optionally filtered."""
         self._refresh_if_stale()
         entries = list(self._entries)
         if type_filter:
             entries = [e for e in entries if e.artifact_type == type_filter]
-        if highlighted is not None:
-            entries = [e for e in entries if e.highlighted == highlighted]
+        if category_filter:
+            entries = [e for e in entries if e.category == category_filter]
+        if tool_filter:
+            entries = [e for e in entries if e.tool_source == tool_filter]
+        if source_agent_filter:
+            entries = [e for e in entries if e.source_agent == source_agent_filter]
         if pinned is not None:
             entries = [e for e in entries if e.pinned == pinned]
         if search:
             q = search.lower()
             entries = [e for e in entries if q in e.title.lower() or q in e.description.lower()]
+        if last_n is not None:
+            entries = entries[-last_n:]
         return entries
 
     def set_pinned(self, artifact_id: str, pinned: bool = True) -> ArtifactEntry | None:
@@ -347,16 +435,6 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             for e in self._entries:
                 if e.id == artifact_id:
                     e.pinned = pinned
-                    self._save_index()
-                    return e
-        return None
-
-    def set_highlighted(self, artifact_id: str, highlighted: bool = True) -> ArtifactEntry | None:
-        """Toggle the highlighted flag on an artifact. Returns the updated entry or None."""
-        with self._with_index_lock():
-            for e in self._entries:
-                if e.id == artifact_id:
-                    e.highlighted = highlighted
                     self._save_index()
                     return e
         return None

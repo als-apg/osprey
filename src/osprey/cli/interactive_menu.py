@@ -1460,41 +1460,21 @@ def run_interactive_init() -> str:
                     input("\nPress ENTER to continue...")
                     return "menu"
 
-    # 3. Registry style (step number adjusts based on previous steps)
+    # 3. Provider selection (step number adjusts)
     if template == "control_assistant":
         step_num = 6  # After template, name, channel_finder, capabilities, code_generator
     else:
         step_num = 3  # After template, name
-    console.print(f"\n[bold]Step {step_num}: Registry Style[/bold]\n")
-
-    registry_style = questionary.select(
-        "Select registry style:",
-        choices=[
-            Choice("extend     - Extends framework defaults (recommended)", value="extend"),
-            Choice("standalone - Complete explicit registry (advanced)", value="standalone"),
-        ],
-        style=custom_style,
-        instruction="(extend mode is recommended for most projects)",
-    ).ask()
-
-    if registry_style is None:
-        return "menu"
-
-    # 4. Provider selection (step number adjusts)
-    if template == "control_assistant":
-        step_num = 7  # After template, name, channel_finder, capabilities, code_generator, registry
-    else:
-        step_num = 4  # After template, name, registry
     console.print(f"\n[bold]Step {step_num}: AI Provider[/bold]\n")
     provider = select_provider(providers)
     if provider is None:
         return "menu"
 
-    # 5. Model selection (step number adjusts)
+    # 4. Model selection (step number adjusts)
     if template == "control_assistant":
-        step_num = 8  # After template, name, channel_finder, capabilities, code_generator, registry, provider
+        step_num = 7  # After template, name, channel_finder, capabilities, code_generator, provider
     else:
-        step_num = 5  # After template, name, registry, provider
+        step_num = 4  # After template, name, provider
     console.print(f"\n[bold]Step {step_num}: Model Selection[/bold]\n")
     model = select_model(provider, providers)
     if model is None:
@@ -1511,7 +1491,7 @@ def run_interactive_init() -> str:
         console.print(f"  Capabilities:  [value]{caps_str}[/value]")
     if code_generator:
         console.print(f"  Code Gen:      [value]{code_generator}[/value]")
-    console.print(f"  Registry:      [value]{registry_style}[/value]")
+    console.print("  Mode:          [value]Claude Code[/value]")
     console.print(f"  Provider:      [value]{provider}[/value]")
     console.print(f"  Model:         [value]{model}[/value]\n")
 
@@ -1533,7 +1513,11 @@ def run_interactive_init() -> str:
     try:
         # Note: force=True because we already handled directory deletion if user chose override
         # Build context dict with optional channel_finder_mode and code_generator
-        context = {"default_provider": provider, "default_model": model}
+        context = {
+            "default_provider": provider,
+            "default_model": model,
+            "claude_code_only": True,
+        }
         if channel_finder_mode:
             context["channel_finder_mode"] = channel_finder_mode
         if control_capabilities is not None:
@@ -1545,7 +1529,7 @@ def run_interactive_init() -> str:
             project_name=project_name,
             output_dir=Path.cwd(),
             template_name=template,
-            registry_style=registry_style,
+            registry_style="extend",
             context=context,
             force=True,
         )
@@ -1555,7 +1539,7 @@ def run_interactive_init() -> str:
             project_dir=project_path,
             project_name=project_name,
             template_name=template,
-            registry_style=registry_style,
+            registry_style="extend",
             context=context,
         )
 

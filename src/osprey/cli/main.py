@@ -6,7 +6,7 @@ commands under the `osprey` command namespace.
 Note: This will become 'osprey' in Phase 8 of the migration.
 
 Performance Note: Uses lazy imports to avoid loading heavy dependencies
-(langgraph, langchain, etc.) until a command is actually invoked.
+until a command is actually invoked.
 This keeps `osprey --help` fast.
 """
 
@@ -57,14 +57,9 @@ class LazyGroup(click.Group):
         commands = {
             "init": "osprey.cli.init_cmd",
             "deploy": "osprey.cli.deploy_cmd",
-            "chat": "osprey.cli.chat_cmd",
             "config": "osprey.cli.config_cmd",
-            "export-config": "osprey.cli.export_config_cmd",  # DEPRECATED: kept for backward compat
             "health": "osprey.cli.health_cmd",
-            "generate": "osprey.cli.generate_cmd",
-            "remove": "osprey.cli.remove_cmd",
             "migrate": "osprey.cli.migrate_cmd",
-            "workflows": "osprey.cli.workflows_cmd",  # DEPRECATED: use 'tasks' instead
             "tasks": "osprey.cli.tasks_cmd",
             "claude": "osprey.cli.claude_cmd",
             "eject": "osprey.cli.eject_cmd",
@@ -88,9 +83,6 @@ class LazyGroup(click.Group):
         # Convention: module name without _cmd suffix
         if cmd_name == "config":
             cmd_func = mod.config
-        elif cmd_name == "export-config":
-            # DEPRECATED: Show warning and redirect to new command
-            cmd_func = mod.export_config
         elif cmd_name == "channel-finder":
             cmd_func = mod.channel_finder
         elif cmd_name == "ariel":
@@ -115,9 +107,6 @@ class LazyGroup(click.Group):
             "init",
             "config",
             "deploy",
-            "chat",
-            "generate",
-            "remove",
             "migrate",
             "health",
             "tasks",

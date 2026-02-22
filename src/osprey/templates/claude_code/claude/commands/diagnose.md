@@ -58,12 +58,12 @@ Do NOT treat empty session_log results as "nothing to see." Document what was qu
 
 ### 2c. Workspace State
 
-1. Call `session_summary()` to get the current workspace inventory (data contexts, artifacts, agents)
-2. Call `data_context_list()` to see all data context entries
+1. Call `session_summary()` to get the current workspace inventory (artifacts, agents)
+2. Call `data_list()` to see all data entries
 
 Cross-reference against session_log findings:
-- Are there data contexts that should exist but don't? (tool succeeded but no data saved)
-- Are there data contexts from unexpected sources? (different agent, different tool)
+- Are there data entries that should exist but don't? (tool succeeded but no data saved)
+- Are there data entries from unexpected sources? (different agent, different tool)
 - Does the artifact count match expected outputs?
 
 ### 2d. Direct Evidence

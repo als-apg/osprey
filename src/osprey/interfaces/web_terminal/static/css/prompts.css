@@ -215,7 +215,7 @@
   border: 1px solid var(--accent-tint-25);
 }
 
-.prompts-badge.overridden {
+.prompts-badge.user-owned {
   color: var(--color-amber-light);
   background: var(--amber-tint-12);
   border: 1px solid var(--amber-tint-25);
@@ -239,14 +239,16 @@
   font-size: 10px;
   color: var(--color-accent-light);
   background: transparent;
-  border: none;
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
   cursor: pointer;
-  padding: 2px 4px;
-  transition: color var(--transition-fast);
+  padding: 3px 8px;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
 }
 
 .prompts-back-btn:hover {
   color: var(--color-accent);
+  border-color: var(--color-accent-light);
 }
 
 .prompts-detail-name {
@@ -907,6 +909,8 @@
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+  min-height: 0;
+  overflow: hidden;
   border-bottom: 1px solid var(--border-default);
 }
 
@@ -915,4 +919,784 @@
   flex-direction: column;
   flex: 1;
   min-height: 0;
+}
+
+/* ========================================================================
+   Memory Gallery ("Lab Notebook")
+   Amber (primary brain) + teal (topic files) accents, monospace typography.
+   ======================================================================== */
+
+/* ---- Loading / Error / Empty ---- */
+
+.memory-loading,
+.memory-error,
+.memory-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.memory-error,
+.memory-content-error {
+  color: var(--color-error);
+}
+
+.memory-loading-inline {
+  padding: 16px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ---- Gallery View ---- */
+
+.memory-gallery-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.memory-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-default);
+  flex-shrink: 0;
+}
+
+.memory-search-input {
+  flex: 1;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 3px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 5px 10px;
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.memory-search-input:focus {
+  border-color: var(--color-accent);
+}
+
+.memory-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.memory-new-btn {
+  background: var(--accent-tint-08);
+  border: 1px solid var(--color-accent);
+  border-radius: 3px;
+  color: var(--color-accent-light);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  white-space: nowrap;
+}
+
+.memory-new-btn:hover {
+  background: var(--accent-tint-20);
+}
+
+.memory-summary {
+  padding: 6px 16px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-default);
+  flex-shrink: 0;
+}
+
+.memory-file-list {
+  overflow-y: auto;
+  padding: 12px 16px;
+  flex: 1;
+}
+
+/* ---- File Cards ---- */
+
+.memory-file-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.memory-file-card:hover {
+  border-color: var(--color-accent);
+  background: var(--accent-tint-04);
+}
+
+.memory-file-primary {
+  border-left: 2px solid var(--color-amber);
+}
+
+.memory-file-primary:hover {
+  border-color: var(--color-amber);
+  border-left-color: var(--color-amber);
+  background: var(--amber-tint-04);
+}
+
+.memory-file-icon {
+  font-size: 16px;
+  color: var(--color-accent);
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+}
+
+.memory-icon-primary {
+  color: var(--color-amber);
+}
+
+.memory-file-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.memory-file-name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.memory-file-meta {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* ---- File Badge ---- */
+
+.memory-file-badge {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-radius: 3px;
+  padding: 1px 6px;
+  flex-shrink: 0;
+}
+
+.memory-badge-primary {
+  color: var(--color-amber);
+  background: var(--amber-tint-08);
+  border: 1px solid var(--amber-tint-25);
+}
+
+.memory-badge-topic {
+  color: var(--color-accent-light);
+  background: var(--accent-tint-08);
+  border: 1px solid var(--accent-tint-25);
+}
+
+/* ---- Line Gauge (truncation indicator) ---- */
+
+.memory-line-gauge {
+  width: 48px;
+  height: 2px;
+  background: var(--neutral-tint-10);
+  border-radius: 1px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.memory-line-gauge-fill {
+  height: 100%;
+  background: var(--color-accent);
+  border-radius: 1px;
+  transition: width var(--transition-normal);
+}
+
+.memory-gauge-warn {
+  background: var(--color-amber);
+}
+
+.memory-gauge-over {
+  background: var(--color-error);
+}
+
+.memory-gauge-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-muted);
+  margin-left: 4px;
+}
+
+/* ---- Detail View ---- */
+
+.memory-detail-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.memory-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-default);
+  flex-shrink: 0;
+}
+
+.memory-back-btn {
+  background: none;
+  border: 1px solid var(--border-default);
+  border-radius: 3px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.memory-back-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--color-accent);
+}
+
+.memory-detail-name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.memory-detail-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 16px;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-default);
+  flex-shrink: 0;
+}
+
+.memory-actions-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.memory-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.memory-detail-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.memory-edit-textarea {
+  flex: 1;
+  width: 100%;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 16px;
+  border: none;
+  outline: none;
+  resize: none;
+  tab-size: 2;
+}
+
+/* ---- Action Buttons ---- */
+
+.memory-save-btn {
+  background: var(--accent-tint-10);
+  border: 1px solid var(--color-accent);
+  border-radius: 3px;
+  color: var(--color-accent-light);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  padding: 3px 10px;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.memory-save-btn:hover:not(:disabled) {
+  background: var(--accent-tint-20);
+}
+
+.memory-save-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.memory-discard-btn {
+  background: none;
+  border: 1px solid var(--border-default);
+  border-radius: 3px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 3px 10px;
+  cursor: pointer;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.memory-discard-btn:hover:not(:disabled) {
+  color: var(--text-secondary);
+  border-color: var(--neutral-tint-20);
+}
+
+.memory-discard-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.memory-delete-btn {
+  background: none;
+  border: 1px solid var(--error-tint-15);
+  border-radius: 3px;
+  color: var(--color-error);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 3px 10px;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.memory-delete-btn:hover {
+  background: var(--error-tint-08);
+}
+
+/* ---- Untracked Files Banner ---- */
+
+.prompts-untracked-banner {
+  margin: 8px 12px;
+  padding: 10px 14px;
+  background: var(--amber-tint-08);
+  border: 1px solid var(--amber-tint-25);
+  border-radius: 4px;
+}
+
+.prompts-untracked-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.prompts-untracked-icon {
+  font-size: 13px;
+  line-height: 1;
+  color: var(--color-warning);
+}
+
+.prompts-untracked-title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-warning);
+}
+
+.prompts-untracked-desc {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  margin-bottom: 8px;
+}
+
+.prompts-untracked-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.prompts-untracked-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--amber-tint-04);
+  border-radius: 3px;
+}
+
+.prompts-untracked-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.prompts-untracked-name {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.prompts-untracked-path {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.prompts-untracked-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.prompts-untracked-btn {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 3px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.prompts-untracked-register {
+  background: var(--accent-tint-10);
+  border: 1px solid var(--accent-tint-20);
+  color: var(--color-accent);
+}
+
+.prompts-untracked-register:hover {
+  background: var(--accent-tint-20);
+}
+
+.prompts-untracked-delete {
+  background: none;
+  border: 1px solid var(--error-tint-15);
+  color: var(--color-error);
+}
+
+.prompts-untracked-delete:hover {
+  background: var(--error-tint-08);
+}
+
+/* ============================================================
+   Config Structured Renderers (settings.json / .mcp.json)
+   ============================================================ */
+
+.config-structured-view {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  white-space: normal;
+  word-break: normal;
+}
+
+/* ---- Sections ---- */
+
+.config-section {
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.config-section-header {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--color-amber);
+  background: var(--amber-tint-04);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-default);
+}
+
+/* ---- Environment Grid ---- */
+
+.config-env-grid {
+  padding: 8px 12px;
+}
+
+.config-env-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--neutral-tint-06);
+}
+
+.config-env-row:last-child {
+  border-bottom: none;
+}
+
+.config-env-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.config-env-value {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-accent-light);
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+}
+
+/* ---- Permissions Columns ---- */
+
+.config-permissions-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0;
+}
+
+.config-perm-col {
+  padding: 0;
+  border-right: 1px solid var(--border-default);
+  min-width: 0;
+}
+
+.config-perm-col:last-child {
+  border-right: none;
+}
+
+.config-perm-header {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.config-perm-allow .config-perm-header {
+  color: var(--color-success);
+  background: var(--success-tint-06, rgba(34, 197, 94, 0.06));
+}
+
+.config-perm-ask .config-perm-header {
+  color: var(--color-warning);
+  background: var(--amber-tint-04);
+}
+
+.config-perm-deny .config-perm-header {
+  color: var(--color-error);
+  background: var(--error-tint-04, rgba(239, 68, 68, 0.04));
+}
+
+.config-perm-group-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  padding: 6px 10px 2px;
+  margin-top: 4px;
+  border-top: 1px solid var(--neutral-tint-06);
+}
+
+.config-perm-entry {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  padding: 2px 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- Hooks ---- */
+
+.config-hook-event {
+  border-bottom: 1px solid var(--border-default);
+}
+
+.config-hook-event:last-child {
+  border-bottom: none;
+}
+
+.config-hook-event-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-primary);
+  transition: background var(--transition-fast);
+}
+
+.config-hook-event-header:hover {
+  background: var(--neutral-tint-06);
+}
+
+.config-hook-chevron {
+  font-size: 9px;
+  color: var(--text-muted);
+  transition: transform var(--transition-fast);
+  width: 10px;
+  text-align: center;
+}
+
+.config-hook-event.expanded .config-hook-chevron {
+  transform: rotate(90deg);
+}
+
+.config-hook-count {
+  font-size: 9px;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+.config-hook-event-body {
+  display: none;
+  padding: 0 12px 8px 30px;
+}
+
+.config-hook-event.expanded .config-hook-event-body {
+  display: block;
+}
+
+.config-hook-matcher {
+  margin-bottom: 6px;
+}
+
+.config-hook-matcher-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--color-accent-light);
+  display: block;
+  padding: 2px 0;
+}
+
+.config-hook-entry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 0 1px 10px;
+  border-left: 1px solid var(--neutral-tint-10);
+}
+
+.config-hook-script {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.config-hook-timeout {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-muted);
+}
+
+/* ---- MCP Server Cards ---- */
+
+.config-mcp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+  padding: 10px;
+}
+
+.config-mcp-card {
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  overflow: hidden;
+}
+
+.config-mcp-card-header {
+  padding: 8px 10px;
+  background: var(--amber-tint-04);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.config-mcp-card-name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-amber);
+}
+
+.config-mcp-module {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-accent-light);
+  padding: 6px 10px 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.config-mcp-env-list {
+  padding: 4px 10px 8px;
+}
+
+.config-mcp-env-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 2px 0;
+}
+
+.config-mcp-env-key {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.config-mcp-env-val {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.config-mcp-env-ref {
+  color: var(--text-muted);
+  font-style: italic;
 }

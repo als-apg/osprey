@@ -462,8 +462,6 @@ class HealthChecker:
             "yaml",
             "jinja2",
             "litellm",
-            "langgraph",
-            "langchain_core",
         ]
 
         missing_deps = []
@@ -472,9 +470,6 @@ class HealthChecker:
             import_name = dep
             if dep == "yaml":
                 import_name = "yaml"
-            elif dep == "langchain_core":
-                import_name = "langchain_core"
-
             try:
                 __import__(import_name)
             except ImportError:
