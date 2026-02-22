@@ -45,14 +45,18 @@ table { max-width: 100%; }
       font: { color: '#8b9ab5' },
       xaxis: { gridcolor: 'rgba(100,116,139,0.1)', linecolor: 'rgba(100,116,139,0.18)' },
       yaxis: { gridcolor: 'rgba(100,116,139,0.1)', linecolor: 'rgba(100,116,139,0.18)' },
-      legend: { bgcolor: 'rgba(19,28,46,0.85)', bordercolor: 'rgba(100,116,139,0.18)' }
+      legend: { bgcolor: 'rgba(19,28,46,0.85)', bordercolor: 'rgba(100,116,139,0.18)' },
+      scene: { bgcolor: '#0b1120', axis_bg: '#131c2e',
+               gridcolor: 'rgba(100,116,139,0.15)', spikecolor: 'rgba(100,116,139,0.4)' }
     },
     light: {
-      paper_bgcolor: '#ffffff', plot_bgcolor: '#ffffff',
-      font: { color: '#1a202c' },
+      paper_bgcolor: '#f7f9fc', plot_bgcolor: '#f7f9fc',
+      font: { color: '#0c1322' },
       xaxis: { gridcolor: 'rgba(0,0,0,0.08)', linecolor: 'rgba(0,0,0,0.12)' },
       yaxis: { gridcolor: 'rgba(0,0,0,0.08)', linecolor: 'rgba(0,0,0,0.12)' },
-      legend: { bgcolor: 'rgba(255,255,255,0.9)', bordercolor: 'rgba(0,0,0,0.1)' }
+      legend: { bgcolor: 'rgba(247,249,252,0.9)', bordercolor: 'rgba(0,0,0,0.1)' },
+      scene: { bgcolor: '#f7f9fc', axis_bg: '#eef2f7',
+               gridcolor: 'rgba(0,0,0,0.1)', spikecolor: 'rgba(0,0,0,0.2)' }
     }
   };
 
@@ -66,13 +70,29 @@ table { max-width: 100%; }
     document.body.style.background = t.paper_bgcolor;
     if (typeof Plotly === 'undefined') return;
     document.querySelectorAll('.js-plotly-plot').forEach(function(gd) {
-      Plotly.relayout(gd, {
+      var update = {
         paper_bgcolor: t.paper_bgcolor, plot_bgcolor: t.plot_bgcolor,
         'font.color': t.font.color,
         'xaxis.gridcolor': t.xaxis.gridcolor, 'xaxis.linecolor': t.xaxis.linecolor,
         'yaxis.gridcolor': t.yaxis.gridcolor, 'yaxis.linecolor': t.yaxis.linecolor,
         'legend.bgcolor': t.legend.bgcolor, 'legend.bordercolor': t.legend.bordercolor
-      });
+      };
+      /* 3D scenes: theme the box, axis planes, grids, and spike lines */
+      if (gd.layout) {
+        Object.keys(gd.layout).forEach(function(key) {
+          if (key === 'scene' || /^scene\d+$/.test(key)) {
+            var s = t.scene, p = key + '.';
+            update[p + 'bgcolor'] = s.bgcolor;
+            ['xaxis','yaxis','zaxis'].forEach(function(ax) {
+              update[p + ax + '.backgroundcolor'] = s.axis_bg;
+              update[p + ax + '.gridcolor'] = s.gridcolor;
+              update[p + ax + '.color'] = t.font.color;
+              update[p + ax + '.spikecolor'] = s.spikecolor;
+            });
+          }
+        });
+      }
+      Plotly.relayout(gd, update);
     });
   }
 
@@ -95,6 +115,14 @@ table { max-width: 100%; }
       applyTheme(e.data.theme);
     }
   });
+  // Also observe parent document's data-theme attribute directly (bypasses
+  // postMessage chain which can be unreliable across nested iframes)
+  try {
+    var parentRoot = window.parent.document.documentElement;
+    new MutationObserver(function() {
+      applyTheme(parentRoot.getAttribute('data-theme') || 'dark');
+    }).observe(parentRoot, { attributes: true, attributeFilter: ['data-theme'] });
+  } catch(e) {}
 })();
 </script>"""
 

@@ -1097,9 +1097,9 @@
       legendBg: "rgba(19,28,46,0.85)", legendBorder: "rgba(100,116,139,0.18)",
     },
     light: {
-      paper: "#ffffff", plot: "#ffffff", font: "#1a202c",
+      paper: "#eef2f7", plot: "#f7f9fc", font: "#0c1322",
       grid: "rgba(0,0,0,0.08)", line: "rgba(0,0,0,0.12)",
-      legendBg: "rgba(255,255,255,0.9)", legendBorder: "rgba(0,0,0,0.1)",
+      legendBg: "rgba(238,242,247,0.9)", legendBorder: "rgba(0,0,0,0.1)",
     },
   };
 
@@ -1397,8 +1397,9 @@
     document.querySelectorAll(".preview-viewport iframe, .browse-preview-pane iframe").forEach((iframe) => {
       try { iframe.contentWindow.postMessage({ type: "osprey-theme-change", theme }, "*"); } catch {}
     });
-    // Re-style any visible timeseries Plotly chart
-    const tsChart = document.getElementById("ts-viewport");
+    // Re-style any visible timeseries Plotly chart (target the actual Plotly
+    // graph div inside the container, not the outer #ts-viewport wrapper)
+    const tsChart = document.querySelector("#ts-viewport [data-ts-chart]");
     if (tsChart && typeof Plotly !== "undefined") {
       const t = _tsThemes[theme] || _tsThemes.dark;
       try {
