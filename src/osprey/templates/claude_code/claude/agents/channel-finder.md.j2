@@ -20,6 +20,7 @@ Call `facility_description()` early in your work to get facility-specific termin
 naming conventions, and system descriptions. This helps you navigate the channel
 database more effectively and understand user requests in domain context.
 
+{# TODO: Remove middle_layer block — references deleted pipeline and prompt builder #}
 {% if channel_finder_mode == "middle_layer" %}
 {# PROMPT-PROVIDER: section=channel_finding_middle_layer
    Future: source from FrameworkPromptProvider.get_middle_layer_prompt_builder()

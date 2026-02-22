@@ -38,6 +38,7 @@ class {{ app_class_name }}RegistryProvider(RegistryConfigProvider):
                         "task_extraction": "ControlSystemTaskExtractionPromptBuilder",
                         "channel_finder_in_context": "FacilityInContextPromptBuilder",
                         "channel_finder_hierarchical": "FacilityHierarchicalPromptBuilder",
+                        # TODO: Remove dead "channel_finder_middle_layer" entry — references deleted middle_layer.py.j2
                         "channel_finder_middle_layer": "FacilityMiddleLayerPromptBuilder",
                     }
                 )

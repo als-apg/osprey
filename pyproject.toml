@@ -208,16 +208,9 @@ screen-capture-linux = [
     "python-xlib>=0.33",
 ]
 
-# LangGraph/LangChain for channel finder middle layer pipeline (ReAct agent)
-channel-finder-ml = [
-    "langgraph>=0.5.2",
-    "langchain-core>=0.3.68",
-    "langchain-openai>=0.3.0",
-]
-
 # All optional dependencies for complete installation
 all = [
-    "osprey-framework[docs,dev,storage,ariel,sheets,graph,channel-finder-ml,screen-capture-linux]"
+    "osprey-framework[docs,dev,storage,ariel,sheets,graph,screen-capture-linux]"
 ]
 
 [project.urls]
@@ -275,8 +268,6 @@ module = [
     "qdrant_client.*",
     "mem0.*",
     "langfuse.*",
-    "langgraph.*",
-    "langchain.*",
     "podman.*",
 ]
 ignore_missing_imports = true

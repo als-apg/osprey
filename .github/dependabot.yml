@@ -28,16 +28,6 @@ updates:
         patterns:
           - "sphinx*"
           - "*sphinx*"
-      langchain-dependencies:
-        patterns:
-          - "langchain*"
-          - "langgraph*"
-    # Ignore major version updates for stable dependencies
-    ignore:
-      - dependency-name: "langchain*"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "langgraph*"
-        update-types: ["version-update:semver-major"]
 
   # GitHub Actions
   - package-ecosystem: "github-actions"

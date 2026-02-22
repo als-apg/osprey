@@ -131,7 +131,6 @@ execution_control:
     max_planning_attempts: 2
     max_step_retries: 0
     max_execution_time_seconds: 300
-    graph_recursion_limit: 100
     max_concurrent_classifications: 5
 
 # ============================================================
@@ -265,6 +264,7 @@ machine_state:
 
 channel_finder:
   # Active pipeline mode
+  # TODO: Remove middle_layer pipeline mode references
   pipeline_mode: {{ default_pipeline }}  # "in_context", "hierarchical", or "middle_layer"
 
   # Explicit channel address validation mode
@@ -318,6 +318,7 @@ channel_finder:
         dataset_path: data/benchmarks/datasets/hierarchical_benchmark.json
         # Hierarchical pipeline benchmark with multi-level channel structure (47 queries)
 {% endif %}
+# TODO: Remove {% if enable_middle_layer %} block
 {% if enable_middle_layer %}
     # Middle Layer Pipeline (React Agent with MML Database)
     # Best for: MATLAB Middle Layer (MML) style databases, functional hierarchy (System→Family→Field), device/sector filtering
