@@ -287,6 +287,31 @@ function renderEntryDetail(container, entry) {
               </div>
             </div>
           ` : ''}
+
+          ${metadata.session_metadata ? (() => {
+            const sm = metadata.session_metadata;
+            const fields = [
+              ['Operator', sm.operator],
+              ['Session', sm.session_id, true],
+              ['Branch', sm.git_branch, true],
+              ['Model', sm.model_name || sm.model],
+              ['Source', sm.created_via],
+              ['Started', sm.session_start_time],
+            ].filter(([, v]) => v);
+            return fields.length > 0 ? `
+              <div class="metadata-card">
+                <h4>Session Context</h4>
+                <div class="metadata-list">
+                  ${fields.map(([label, value, mono]) => `
+                    <div class="metadata-item">
+                      <span class="metadata-label">${escapeHtml(label)}</span>
+                      <span class="metadata-value${mono ? ' font-mono' : ''}">${escapeHtml(String(value))}</span>
+                    </div>
+                  `).join('')}
+                </div>
+              </div>
+            ` : '';
+          })() : ''}
         </div>
       </div>
     </div>
