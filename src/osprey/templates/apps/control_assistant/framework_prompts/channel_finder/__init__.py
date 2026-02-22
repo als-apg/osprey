@@ -9,10 +9,11 @@ module files to match your control system's naming conventions and terminology.
 
 from .hierarchical import FacilityHierarchicalPromptBuilder
 from .in_context import FacilityInContextPromptBuilder
-from .middle_layer import FacilityMiddleLayerPromptBuilder
+# TODO: Remove FacilityMiddleLayerPromptBuilder import — module deleted
+# from .middle_layer import FacilityMiddleLayerPromptBuilder
 
 __all__ = [
     "FacilityInContextPromptBuilder",
     "FacilityHierarchicalPromptBuilder",
-    "FacilityMiddleLayerPromptBuilder",
+    # "FacilityMiddleLayerPromptBuilder",
 ]
