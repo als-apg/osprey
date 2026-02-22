@@ -1,8 +1,8 @@
-# Osprey Framework - Latest Release (v0.11.2)
+# Osprey Framework - Latest Release (v0.11.3)
 
-**Reactive Orchestrator, Unified Events & Prompt Builder System**
+**uv/Hatchling Migration, AMSC Provider & Safety Fixes**
 
-## What's New in v0.11.2
+## What's New in v0.11.3
 
 ### Highlights
 

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.3] - 2026-02-22
+
+### Added
+- **Providers**: Add American Science Cloud (AMSC) as LLM provider (#170)
+
+### Fixed
+- **Safety**: Block retry on channel limits violation — LLM could previously retry around a safety-blocked write, now sets `is_failed=True` to prevent workaround attempts
+- **State**: Slash commands `/task:off`, `/caps:off`, `/approval:off` silently dropped state changes due to missing fields in `AgentControlState` (#169)
+
+### Changed
+- **Build**: Migrate from pip/setuptools to uv/hatchling (#166)
+  - Switch build backend to hatchling with dynamic versioning via `hatch-vcs`
+  - Replace pip with uv across all CI workflows, container scripts, and developer tooling
+  - Delete legacy `src/setup.py` stub
+
 ## [0.11.2] - 2026-02-15
 
 ### Added
