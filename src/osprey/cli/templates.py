@@ -290,66 +290,51 @@ class TemplateManager:
                 }
             )
 
-        claude_code_only = ctx.get("claude_code_only", False)
-
         # 4. Create project structure
         self._create_project_structure(project_dir, template_name, ctx)
 
-        # 5. Copy services (conditional on mode)
-        if claude_code_only:
-            # Claude Code mode: only postgresql for control_assistant, nothing for others
-            if template_name == "control_assistant":
-                self._copy_services_selective(project_dir, ["postgresql"])
-        else:
-            self.copy_services(project_dir)
+        # 5. Copy services (selective — only postgresql for control_assistant)
+        if template_name == "control_assistant":
+            self._copy_services_selective(project_dir, ["postgresql"])
 
-        # 6. Create application code (or just data files in claude_code_only mode)
-        if claude_code_only:
-            # Copy only data/ subdirectories from template (no src/ package)
-            self._copy_template_data(project_dir, package_name, template_name, ctx)
-        else:
-            src_dir = project_dir / "src"
-            src_dir.mkdir(parents=True, exist_ok=True)
-            self._create_application_code(
-                src_dir, package_name, template_name, ctx, registry_style, project_dir
-            )
+        # 6. Copy data files from template (no src/ package)
+        self._copy_template_data(project_dir, package_name, template_name, ctx)
 
         # 7. Create _agent_data directory structure
         self._create_agent_data_structure(project_dir, ctx)
 
-        # 8. Create Claude Code integration files (if requested)
-        if ctx.get("claude_code", True):  # Default ON
-            # Load rendered config.yml so conditional sections (confluence, etc.)
-            # are available to Claude Code templates (mcp.json.j2, CLAUDE.md.j2).
-            config_file = project_dir / "config.yml"
-            if config_file.exists():
-                with open(config_file) as f:
-                    rendered_config = yaml.safe_load(f) or {}
-                if "confluence" in rendered_config:
-                    ctx["confluence"] = rendered_config["confluence"]
-                if "matlab" in rendered_config:
-                    ctx["matlab"] = rendered_config["matlab"]
-                if "deplot" in rendered_config:
-                    ctx["deplot"] = rendered_config["deplot"]
-                # Claude Code explicit overrides
-                cc_config = rendered_config.get("claude_code", {})
-                ctx.setdefault("disable_servers", cc_config.get("disable_servers", []))
-                ctx.setdefault("disable_agents", cc_config.get("disable_agents", []))
-                ctx.setdefault("extra_servers", cc_config.get("extra_servers", {}))
-                # Model provider resolution for init-time rendering
-                from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
+        # 8. Create Claude Code integration files
+        # Load rendered config.yml so conditional sections (confluence, etc.)
+        # are available to Claude Code templates (mcp.json.j2, CLAUDE.md.j2).
+        config_file = project_dir / "config.yml"
+        if config_file.exists():
+            with open(config_file) as f:
+                rendered_config = yaml.safe_load(f) or {}
+            if "confluence" in rendered_config:
+                ctx["confluence"] = rendered_config["confluence"]
+            if "matlab" in rendered_config:
+                ctx["matlab"] = rendered_config["matlab"]
+            if "deplot" in rendered_config:
+                ctx["deplot"] = rendered_config["deplot"]
+            # Claude Code explicit overrides
+            cc_config = rendered_config.get("claude_code", {})
+            ctx.setdefault("disable_servers", cc_config.get("disable_servers", []))
+            ctx.setdefault("disable_agents", cc_config.get("disable_agents", []))
+            ctx.setdefault("extra_servers", cc_config.get("extra_servers", {}))
+            # Model provider resolution for init-time rendering
+            from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
 
-                api_providers = rendered_config.get("api", {}).get("providers", {})
-                try:
-                    model_spec = ClaudeCodeModelResolver.resolve(cc_config, api_providers)
-                except ValueError:
-                    model_spec = None
-                ctx["claude_code_model_spec"] = model_spec
-            # Ensure defaults exist even without rendered config
-            ctx.setdefault("disable_servers", [])
-            ctx.setdefault("disable_agents", [])
-            ctx.setdefault("extra_servers", {})
-            self._create_claude_code_integration(project_dir, ctx)
+            api_providers = rendered_config.get("api", {}).get("providers", {})
+            try:
+                model_spec = ClaudeCodeModelResolver.resolve(cc_config, api_providers)
+            except ValueError:
+                model_spec = None
+            ctx["claude_code_model_spec"] = model_spec
+        # Ensure defaults exist even without rendered config
+        ctx.setdefault("disable_servers", [])
+        ctx.setdefault("disable_agents", [])
+        ctx.setdefault("extra_servers", {})
+        self._create_claude_code_integration(project_dir, ctx)
 
         return project_dir
 
@@ -364,20 +349,12 @@ class TemplateManager:
         project_template_dir = self.template_root / "project"
         app_template_dir = self.template_root / "apps" / template_name
 
-        claude_code_only = ctx.get("claude_code_only", False)
-
-        # Render template files
+        # Render template files (no pyproject.toml or requirements.txt — no src/ package)
         files_to_render = [
             ("config.yml.j2", "config.yml"),
             ("env.example.j2", ".env.example"),
             ("README.md.j2", "README.md"),
         ]
-        # Skip pyproject.toml and requirements.txt in claude_code_only mode (no src/ package)
-        if not claude_code_only:
-            files_to_render.extend([
-                ("pyproject.toml.j2", "pyproject.toml"),
-                ("requirements.txt", "requirements.txt"),  # Render to replace framework_version
-            ])
 
         # Copy static files
         static_files = [
@@ -512,9 +489,8 @@ class TemplateManager:
     ):
         """Copy data files from template to project root (no src/ package).
 
-        In claude_code_only mode, data files (channel databases, channel_limits.json,
-        logbook seeds, benchmark datasets) are placed at project_dir/data/ instead
-        of inside a src/<package>/ directory.
+        Data files (channel databases, channel_limits.json, logbook seeds,
+        benchmark datasets) are placed at project_dir/data/.
 
         Args:
             project_dir: Root directory of the project
@@ -813,25 +789,12 @@ class TemplateManager:
         agent_data_dir = project_dir / "_agent_data"
         agent_data_dir.mkdir(parents=True, exist_ok=True)
 
-        # Create standard subdirectories based on mode
-        claude_code_only = ctx.get("claude_code_only", False)
-        if claude_code_only:
-            # Trimmed set for Claude Code-only projects
-            subdirs = [
-                "executed_scripts",
-                "user_memory",
-                "api_calls",
-            ]
-        else:
-            subdirs = [
-                "executed_scripts",
-                "execution_plans",
-                "user_memory",
-                "registry_exports",
-                "prompts",
-                "checkpoints",
-                "api_calls",
-            ]
+        # Create standard subdirectories
+        subdirs = [
+            "executed_scripts",
+            "user_memory",
+            "api_calls",
+        ]
 
         # Conditionally add example_scripts for control_assistant with claude_code generator
         template_name = ctx.get("template_name", "")
@@ -886,27 +849,12 @@ class TemplateManager:
         )
 
         # Create a README to explain the directory structure
-        if claude_code_only:
-            readme_content = """# Agent Data Directory
+        readme_content = """# Agent Data Directory
 
 This directory contains runtime data for the Claude Code project:
 
 - `executed_scripts/`: Python scripts executed via MCP tools
 - `user_memory/`: User memory data
-- `api_calls/`: Raw LLM API inputs/outputs (when API logging enabled)
-"""
-        else:
-            # Base content for full LangGraph projects
-            readme_content = """# Agent Data Directory
-
-This directory contains runtime data generated by the Osprey Framework:
-
-- `executed_scripts/`: Python scripts executed by the framework
-- `execution_plans/`: Orchestrator execution plans (JSON format)
-- `user_memory/`: User memory data and conversation history
-- `registry_exports/`: Exported registry information
-- `prompts/`: Generated prompts (when debug mode enabled)
-- `checkpoints/`: LangGraph checkpoints for conversation state
 - `api_calls/`: Raw LLM API inputs/outputs (when API logging enabled)
 """
 
@@ -1031,6 +979,7 @@ proper framework operation, especially when using containerized services.
         ".claude/rules/error-handling.md",
         ".claude/rules/artifacts.md",
         ".claude/rules/facility.md",
+        ".claude/hooks/osprey_memory_guard.py",
         ".claude/hooks/osprey_writes_check.py",
         ".claude/hooks/osprey_limits.py",
         ".claude/hooks/osprey_approval.py",
@@ -1311,21 +1260,15 @@ proper framework operation, especially when using containerized services.
         """Add a canonical name to ``prompts.user_owned`` in config.yml.
 
         Used during init to mark facility.md as user-owned so regen
-        never overwrites user customizations.
+        never overwrites user customizations.  Uses ruamel.yaml round-trip
+        mode to preserve comments and formatting.
         """
+        from osprey.utils.yaml_config import config_add_to_list
+
         config_path = project_dir / "config.yml"
         if not config_path.exists():
             return
-        with open(config_path, encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-        if "prompts" not in data:
-            data["prompts"] = {}
-        user_owned = data["prompts"].get("user_owned", [])
-        if canonical_name not in user_owned:
-            user_owned.append(canonical_name)
-        data["prompts"]["user_owned"] = user_owned
-        with open(config_path, "w", encoding="utf-8") as f:
-            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+        config_add_to_list(config_path, ["prompts", "user_owned"], canonical_name)
 
     def _is_user_owned(self, rel_path: str, ctx: dict) -> bool:
         """Check if a file is user-owned (regen should skip it).
@@ -1514,7 +1457,6 @@ proper framework operation, especially when using containerized services.
         user_owned_manifest = self._build_user_owned_manifest(project_dir, context)
 
         # Build manifest
-        claude_code_only = context.get("claude_code_only", False)
         manifest = {
             "schema_version": MANIFEST_SCHEMA_VERSION,
             "creation": {
@@ -1522,7 +1464,7 @@ proper framework operation, especially when using containerized services.
                 "timestamp": datetime.now(UTC).isoformat(),
                 "template": template_name,
                 "registry_style": registry_style,
-                "claude_code_only": claude_code_only,
+                "claude_code_only": True,
             },
             "init_args": init_args,
             "reproducible_command": reproducible_command,
@@ -1567,17 +1509,12 @@ proper framework operation, especially when using containerized services.
             "registry_style": registry_style,
         }
 
-        # Track claude_code_only mode
-        if context.get("claude_code_only"):
-            init_args["claude_code_only"] = True
-
         # Optional arguments that may be in context
         optional_keys = [
             ("default_provider", "provider"),
             ("default_model", "model"),
             ("channel_finder_mode", "channel_finder_mode"),
             ("code_generator", "code_generator"),
-            ("claude_code", "claude_code"),
         ]
 
         for context_key, arg_key in optional_keys:
@@ -1598,21 +1535,11 @@ proper framework operation, especially when using containerized services.
         Returns:
             CLI command string that can recreate the project
         """
-        # Use init-legacy command for non-claude_code_only projects
-        if init_args.get("claude_code_only"):
-            cmd = "init"
-        else:
-            cmd = "init-legacy"
-        parts = ["osprey", cmd, init_args["project_name"]]
+        parts = ["osprey", "init", init_args["project_name"]]
 
         # Add template if not default
         if init_args.get("template") and init_args["template"] != "minimal":
             parts.extend(["--template", init_args["template"]])
-
-        # Add registry style if not default (only for init-legacy)
-        if cmd == "init-legacy":
-            if init_args.get("registry_style") and init_args["registry_style"] != "extend":
-                parts.extend(["--registry-style", init_args["registry_style"]])
 
         # Add provider if specified
         if init_args.get("provider"):
@@ -1629,10 +1556,6 @@ proper framework operation, especially when using containerized services.
         # Add code_generator if specified
         if init_args.get("code_generator"):
             parts.extend(["--code-generator", init_args["code_generator"]])
-
-        # Add --no-claude-code if claude_code is explicitly False
-        if init_args.get("claude_code") is False:
-            parts.append("--no-claude-code")
 
         return " ".join(parts)
 

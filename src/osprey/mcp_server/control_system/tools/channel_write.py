@@ -157,20 +157,16 @@ async def channel_write(
             }
             access_details = {"verification_level": verification_level}
 
-            # Save via DataContext
-            from osprey.mcp_server.data_context import get_data_context
-
-            data_ctx = get_data_context()
-            entry = data_ctx.save(
-                tool="channel_write",
-                data=payload,
-                description=f"Wrote {len(results_serialised)} channel(s)",
-                summary=summary,
-                access_details=access_details,
-                data_type="write_results",
+            # Return ephemeral result (no persistent storage for channel writes)
+            return json.dumps(
+                {
+                    "status": "success",
+                    "description": f"Wrote {len(results_serialised)} channel(s)",
+                    "summary": summary,
+                    "access_details": access_details,
+                },
+                default=str,
             )
-
-            return json.dumps(entry.to_tool_response(), default=str)
 
     except ToolError as exc:
         return exc.response

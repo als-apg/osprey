@@ -68,7 +68,7 @@ class TestMemorySaveNote:
         assert data["summary"]["operation"] == "save"
         assert data["summary"]["memory_id"] == 1
         assert data["summary"]["memory_type"] == "note"
-        assert "data_file" in data
+        assert data["memory_id"] == 1
 
     async def test_save_with_tags(self, tmp_path, monkeypatch):
         """Save with tags stores them on the memory entry."""
@@ -146,31 +146,18 @@ class TestMemorySavePin:
         """Providing linked_context_id creates a pin, not a note."""
         monkeypatch.chdir(tmp_path)
 
-        # Create a context entry to link to
-        from osprey.mcp_server.data_context import get_data_context
-
-        ctx = get_data_context()
-        ctx_entry = ctx.save(
-            tool="channel_read",
-            data={"value": 42},
-            description="Beam current reading",
-            summary={"count": 1},
-            access_details={"format": "json"},
-            data_type="channel_values",
-        )
-
         fn = _get_memory_save()
         result = await fn(
             content="This reading shows beam loss",
-            linked_context_id=ctx_entry.id,
+            linked_context_id=42,
         )
 
         data = json.loads(result)
         assert data["status"] == "success"
-        assert data["summary"]["memory_type"] == "pin"
+        assert data["memory_type"] == "pin"
 
-    async def test_pin_invalid_context_link(self, tmp_path, monkeypatch):
-        """Linking to a nonexistent context entry returns not_found error."""
+    async def test_pin_deprecated_context_link_accepted(self, tmp_path, monkeypatch):
+        """linked_context_id is deprecated but accepted (creates a pin)."""
         monkeypatch.chdir(tmp_path)
 
         fn = _get_memory_save()
@@ -180,8 +167,8 @@ class TestMemorySavePin:
         )
 
         data = json.loads(result)
-        assert data["error"] is True
-        assert data["error_type"] == "not_found"
+        assert data["status"] == "success"
+        assert data["memory_type"] == "pin"
 
     async def test_pin_invalid_artifact_link(self, tmp_path, monkeypatch):
         """Linking to a nonexistent artifact returns not_found error."""
@@ -241,22 +228,9 @@ class TestMemoryRecall:
         save_fn = _get_memory_save()
         recall_fn = _get_memory_recall()
 
-        # Create a context entry for pin linking
-        from osprey.mcp_server.data_context import get_data_context
-
-        ctx = get_data_context()
-        ctx_entry = ctx.save(
-            tool="channel_read",
-            data={"value": 42},
-            description="beam data",
-            summary={},
-            access_details={},
-            data_type="channel_values",
-        )
-
         # Save a note and a pin both containing "beam"
         await save_fn(content="beam current note")
-        await save_fn(content="beam pin annotation", linked_context_id=ctx_entry.id)
+        await save_fn(content="beam pin annotation", linked_context_id=42)
 
         # Filter for pins only
         result = await recall_fn(query="beam", memory_type="pin")

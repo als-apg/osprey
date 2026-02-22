@@ -87,16 +87,148 @@ class TestCBORGProvider:
         assert spec.tier_to_model["opus"] == "anthropic/claude-opus"
 
 
+class TestAlsApgProvider:
+    """ALS-APG (LBL AWS proxy) provider configuration."""
+
+    def test_env_block_has_base_url_but_no_auth(self):
+        """Auth is handled via shell exports, not env block."""
+        spec = ClaudeCodeModelResolver.resolve({"provider": "als-apg"})
+        assert "ANTHROPIC_AUTH_TOKEN" not in spec.env_block
+        assert "ANTHROPIC_API_KEY" not in spec.env_block
+        assert "ANTHROPIC_BASE_URL" in spec.env_block
+
+    def test_base_url_is_correct(self):
+        spec = ClaudeCodeModelResolver.resolve({"provider": "als-apg"})
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://llm.gianlucamartino.com"
+
+    def test_shell_exports_use_als_apg_api_key(self):
+        spec = ClaudeCodeModelResolver.resolve({"provider": "als-apg"})
+        assert len(spec.shell_exports) == 1
+        assert 'ANTHROPIC_AUTH_TOKEN="$ALS_APG_API_KEY"' in spec.shell_exports[0]
+
+    def test_model_tiers(self):
+        spec = ClaudeCodeModelResolver.resolve({"provider": "als-apg"})
+        assert spec.tier_to_model["haiku"] == "claude-haiku-4-5-20251001"
+        assert spec.tier_to_model["sonnet"] == "claude-sonnet-4-6"
+        assert spec.tier_to_model["opus"] == "claude-opus-4-6"
+
+    def test_default_model_tier_is_opus(self):
+        spec = ClaudeCodeModelResolver.resolve({"provider": "als-apg"})
+        assert spec.default_model_tier == "opus"
+
+
 class TestUnsupportedProvider:
-    """Unsupported provider raises ValueError."""
+    """Unknown provider without api_providers entry raises ValueError."""
 
     def test_raises_value_error(self):
-        with pytest.raises(ValueError, match="Unsupported.*'openai'"):
+        with pytest.raises(ValueError, match="Unknown.*'openai'"):
             ClaudeCodeModelResolver.resolve({"provider": "openai"})
 
-    def test_error_lists_supported(self):
+    def test_error_lists_built_ins(self):
         with pytest.raises(ValueError, match="anthropic.*cborg"):
             ClaudeCodeModelResolver.resolve({"provider": "bad"})
+
+    def test_error_mentions_api_providers(self):
+        with pytest.raises(ValueError, match="api.providers"):
+            ClaudeCodeModelResolver.resolve({"provider": "my-proxy"})
+
+    def test_known_in_api_providers_does_not_raise(self):
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "my-proxy"},
+            api_providers={"my-proxy": {"base_url": "https://my-proxy.example.com"}},
+        )
+        assert spec is not None
+
+
+class TestCustomProxyProvider:
+    """Custom Anthropic-compatible proxy via api.providers.
+
+    With the redesign, custom proxies own their model IDs via
+    api.providers[name].models.  If not specified, the last-resort
+    Anthropic direct IDs are used so env block generation never crashes.
+    """
+
+    _API_PROVIDERS = {
+        "lbl-aws": {
+            "api_key": "${LBL_AWS_API_KEY}",
+            "base_url": "https://llm.example.com",
+            "models": {
+                "haiku": "claude-haiku-4-5-20251001",
+                "sonnet": "claude-sonnet-4-6",
+                "opus": "claude-opus-4-6",
+            },
+        }
+    }
+
+    def test_resolves_to_spec(self):
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "lbl-aws"}, api_providers=self._API_PROVIDERS
+        )
+        assert spec is not None
+        assert spec.provider == "lbl-aws"
+
+    def test_injects_base_url_from_api_providers(self):
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "lbl-aws"}, api_providers=self._API_PROVIDERS
+        )
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://llm.example.com"
+
+    def test_uses_model_ids_from_api_providers(self):
+        """Model IDs come from api.providers[name].models, not from hardcoded defaults."""
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "lbl-aws"}, api_providers=self._API_PROVIDERS
+        )
+        assert spec.tier_to_model["haiku"] == "claude-haiku-4-5-20251001"
+        assert spec.tier_to_model["sonnet"] == "claude-sonnet-4-6"
+        assert spec.tier_to_model["opus"] == "claude-opus-4-6"
+
+    def test_default_model_tier_is_opus(self):
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "lbl-aws"}, api_providers=self._API_PROVIDERS
+        )
+        assert spec.default_model_tier == "opus"
+
+    def test_shell_exports_use_auth_token(self):
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "lbl-aws"}, api_providers=self._API_PROVIDERS
+        )
+        assert any("ANTHROPIC_AUTH_TOKEN" in e for e in spec.shell_exports)
+
+    def test_env_block_has_tier_model_vars(self):
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "lbl-aws"}, api_providers=self._API_PROVIDERS
+        )
+        assert "ANTHROPIC_DEFAULT_HAIKU_MODEL" in spec.env_block
+        assert "ANTHROPIC_DEFAULT_SONNET_MODEL" in spec.env_block
+        assert "ANTHROPIC_DEFAULT_OPUS_MODEL" in spec.env_block
+
+    def test_per_tier_overrides_still_apply(self):
+        spec = ClaudeCodeModelResolver.resolve(
+            {
+                "provider": "lbl-aws",
+                "models": {"sonnet": "claude-sonnet-special"},
+            },
+            api_providers=self._API_PROVIDERS,
+        )
+        assert spec.tier_to_model["sonnet"] == "claude-sonnet-special"
+        assert spec.tier_to_model["haiku"] == "claude-haiku-4-5-20251001"  # from api.providers
+
+    def test_no_models_in_api_providers_falls_back_to_last_resort(self):
+        """Without api.providers.models, Anthropic direct IDs are used as last resort."""
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "lbl-aws"},
+            api_providers={"lbl-aws": {"base_url": "https://llm.example.com"}},
+        )
+        # Falls back to last-resort Anthropic direct IDs
+        assert spec.tier_to_model["haiku"] == "claude-haiku-4-5-20251001"
+        assert spec.tier_to_model["opus"] == "claude-opus-4-6"
+
+    def test_hyphenated_name_generates_valid_secret_env(self):
+        """Provider name 'lbl-aws' → secret env var 'LBL_AWS_API_KEY'."""
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "lbl-aws"}, api_providers=self._API_PROVIDERS
+        )
+        assert any("LBL_AWS_API_KEY" in e for e in spec.shell_exports)
 
 
 class TestAgentModel:
@@ -146,15 +278,99 @@ class TestPerTierOverrides:
         assert spec.agent_model("channel-finder") == "anthropic/claude-haiku-v2"
 
 
+class TestApiProvidersModelAuthority:
+    """api.providers[name].models is the authoritative source for model IDs.
+
+    These tests verify that model IDs defined in api.providers override the
+    built-in fallback values in CLAUDE_CODE_PROVIDERS, and that claude_code.models
+    overrides api.providers.models.
+    """
+
+    def test_api_providers_models_override_builtin_for_cborg(self):
+        """api.providers.cborg.models overrides the built-in cborg fallback."""
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "cborg"},
+            api_providers={"cborg": {"base_url": "https://api.cborg.lbl.gov/v1", "models": {
+                "haiku": "anthropic/claude-haiku-4",
+                "sonnet": "anthropic/claude-sonnet-4",
+                "opus": "anthropic/claude-opus-4",
+            }}},
+        )
+        assert spec.tier_to_model["haiku"] == "anthropic/claude-haiku-4"
+        assert spec.tier_to_model["sonnet"] == "anthropic/claude-sonnet-4"
+        assert spec.tier_to_model["opus"] == "anthropic/claude-opus-4"
+
+    def test_api_providers_models_override_builtin_for_als_apg(self):
+        """api.providers.als-apg.models overrides the built-in als-apg fallback."""
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "als-apg"},
+            api_providers={"als-apg": {"base_url": "https://llm.gianlucamartino.com/v1", "models": {
+                "haiku": "claude-haiku-4-5-20251001",
+                "sonnet": "claude-sonnet-4-6",
+                "opus": "claude-opus-4-6",
+            }}},
+        )
+        assert spec.tier_to_model["haiku"] == "claude-haiku-4-5-20251001"
+        assert spec.tier_to_model["sonnet"] == "claude-sonnet-4-6"
+        assert spec.tier_to_model["opus"] == "claude-opus-4-6"
+
+    def test_claude_code_models_override_api_providers_models(self):
+        """claude_code.models takes highest priority over api.providers.models."""
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "cborg", "models": {"sonnet": "anthropic/claude-sonnet-special"}},
+            api_providers={"cborg": {"models": {"sonnet": "anthropic/claude-sonnet-4"}}},
+        )
+        assert spec.tier_to_model["sonnet"] == "anthropic/claude-sonnet-special"
+        # haiku comes from api.providers (not builtin, not claude_code.models)
+        assert spec.tier_to_model["haiku"] == "anthropic/claude-haiku"  # builtin fallback
+
+    def test_resolution_priority_chain(self):
+        """Full priority chain: claude_code.models > api.providers.models > builtin."""
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "cborg", "models": {"opus": "override-opus"}},
+            api_providers={"cborg": {"models": {"sonnet": "api-sonnet"}}},
+        )
+        assert spec.tier_to_model["opus"] == "override-opus"   # claude_code.models
+        assert spec.tier_to_model["sonnet"] == "api-sonnet"    # api.providers.models
+        assert spec.tier_to_model["haiku"] == "anthropic/claude-haiku"  # builtin fallback
+
+    def test_custom_proxy_uses_api_providers_models(self):
+        """Custom proxy reads model IDs from api.providers, not from hardcoded fallback."""
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "my-proxy"},
+            api_providers={"my-proxy": {
+                "base_url": "https://my-proxy.example.com",
+                "models": {
+                    "haiku": "my-haiku-model",
+                    "sonnet": "my-sonnet-model",
+                    "opus": "my-opus-model",
+                },
+            }},
+        )
+        assert spec.tier_to_model["haiku"] == "my-haiku-model"
+        assert spec.tier_to_model["sonnet"] == "my-sonnet-model"
+        assert spec.tier_to_model["opus"] == "my-opus-model"
+
+
 class TestValidateProvider:
     """validate_provider() static method."""
 
-    def test_supported_providers(self):
+    def test_built_in_providers(self):
         assert ClaudeCodeModelResolver.validate_provider("anthropic") is True
         assert ClaudeCodeModelResolver.validate_provider("cborg") is True
 
-    def test_unsupported_provider(self):
+    def test_unknown_without_api_providers(self):
         assert ClaudeCodeModelResolver.validate_provider("openai") is False
+
+    def test_custom_provider_in_api_providers(self):
+        assert ClaudeCodeModelResolver.validate_provider(
+            "my-proxy", api_providers={"my-proxy": {"base_url": "https://x.example.com"}}
+        ) is True
+
+    def test_custom_provider_not_in_api_providers(self):
+        assert ClaudeCodeModelResolver.validate_provider(
+            "my-proxy", api_providers={"other": {}}
+        ) is False
 
 
 class TestAgentDefaultTiersConsistency:

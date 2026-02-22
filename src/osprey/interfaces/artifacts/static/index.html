@@ -28,6 +28,13 @@
   <!-- Fonts — DM Mono for that instrument-readout feel, Outfit for display -->
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
+  <!-- highlight.js (syntax highlighting for code blocks) -->
+  <link id="hljs-theme" rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/atom-one-dark.min.css">
+  <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+
+  <!-- marked.js (markdown rendering) -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+
   <!-- Stylesheet -->
   <link rel="stylesheet" href="/static/css/gallery.css">
 
@@ -76,12 +83,6 @@
     <nav class="filter-bar" id="filter-bar">
       <div class="filter-bar-inner">
         <button class="filter-chip active" data-filter="all">ALL</button>
-        <button class="filter-chip" data-filter="highlighted" title="Highlighted items" hidden>
-          <svg class="filter-chip-icon" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
-          </svg>
-          Highlights <span class="chip-count"></span>
-        </button>
         <button class="filter-chip" data-filter="pinned" title="Pinned items" hidden>
           <svg class="filter-chip-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M15 4.5L7.5 12 4 8.5"/>
@@ -94,39 +95,11 @@
         </button>
         <!-- Type chips populated dynamically by JS from the type registry -->
         <span class="filter-chip-separator" id="filter-type-chips"></span>
-        <button class="filter-chip" data-filter="stats" title="Workspace statistics">
-          <svg class="filter-chip-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M18 20V10M12 20V4M6 20v-6"/>
-          </svg>
-          Stats
-        </button>
       </div>
     </nav>
 
     <!-- Main Content -->
     <main class="main">
-      <!-- Artifact Focus View (overlay — activated when selecting an artifact for detail) -->
-      <section id="view-artifacts-focus" class="view">
-        <div id="focus-container" class="focus-container">
-          <!-- Focus artifact rendered dynamically -->
-        </div>
-        <div id="focus-empty" class="focus-empty hidden">
-          <div class="empty-state-glyph">
-            <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1">
-              <circle cx="24" cy="24" r="20" stroke-dasharray="4 4"/>
-              <circle cx="24" cy="24" r="8"/>
-              <path d="M24 4v8M24 36v8M4 24h8M36 24h8" stroke-dasharray="2 2"/>
-            </svg>
-          </div>
-          <h3 class="empty-state-title">Waiting for Artifacts</h3>
-          <p class="empty-state-text">
-            Artifacts will appear here when created via
-            <code>save_artifact()</code> in execute or the
-            <code>artifact_save</code> MCP tool.
-          </p>
-        </div>
-      </section>
-
       <!-- Browse View — Split Pane: sidebar (tree/timeline) + preview -->
       <section id="view-artifacts-browse" class="view active">
         <div class="browse-layout">
@@ -208,16 +181,6 @@
         </div>
       </section>
 
-      <!-- Stats View -->
-      <section id="view-stats" class="view dashboard-view">
-        <div class="dashboard-header">
-          <h2>Artifact Statistics</h2>
-          <p class="text-secondary">Overview of generated artifacts by type and size</p>
-        </div>
-        <div id="stats-content" class="dashboard-grid">
-          <!-- Stats rendered dynamically -->
-        </div>
-      </section>
     </main>
   </div>
 

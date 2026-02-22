@@ -1,7 +1,7 @@
 """Shared utilities for visualization tools (static plot, interactive plot, dashboard).
 
-Provides data-loading code generation, artifact collection, and DataContext
-save patterns used by all three visualization tools.
+Provides data-loading code generation, artifact collection, and save
+patterns used by all three visualization tools.
 """
 
 import logging
@@ -12,16 +12,12 @@ logger = logging.getLogger("osprey.mcp_server.workspace.tools._viz_common")
 # Hex ID pattern for artifact IDs (12-char hex)
 ARTIFACT_ID_RE = re.compile(r"^[0-9a-f]{12}$")
 
-# Numeric string pattern for DataContext entry IDs (e.g., "2", "15")
-CONTEXT_ENTRY_ID_RE = re.compile(r"^\d+$")
-
 
 def resolve_data_source(data_source: str) -> str:
     """Resolve a data_source value to an absolute file path.
 
-    Handles three forms:
+    Handles two forms:
     - **Artifact ID** (12-char hex): resolved via ArtifactStore
-    - **Context entry ID** (numeric string): resolved via DataContext
     - **File path**: returned as-is
 
     Raises:
@@ -34,17 +30,6 @@ def resolve_data_source(data_source: str) -> str:
         path = store.get_file_path(data_source)
         if path is None:
             raise FileNotFoundError(f"Artifact {data_source!r} not found")
-        return str(path)
-
-    if CONTEXT_ENTRY_ID_RE.match(data_source):
-        from osprey.mcp_server.data_context import get_data_context
-
-        ctx = get_data_context()
-        path = ctx.get_file_path(int(data_source))
-        if path is None:
-            raise FileNotFoundError(
-                f"Data context entry {data_source} not found or file missing"
-            )
         return str(path)
 
     # Assume file path
@@ -74,7 +59,7 @@ def build_data_reader(data_source: str) -> str:
     automatic format detection and unwrapping:
 
     - CSV/Excel/Parquet → ``data`` is a pandas DataFrame
-    - JSON with OSPREY metadata envelope → unwrapped, then converted to DataFrame
+    - JSON with legacy OSPREY metadata envelope → unwrapped, then converted to DataFrame
     - JSON with archiver nested format → unwrapped, then converted to DataFrame
 
     After this code runs, **``data`` is always a pandas DataFrame** (for
@@ -89,8 +74,8 @@ elif _data_path.endswith('.json'):
     import json as _json
     with open(_data_path) as _f:
         data = _json.load(_f)
-    # Unwrap OSPREY metadata envelope
-    if isinstance(data, dict) and 'data' in data:
+    # Unwrap legacy OSPREY metadata envelope (if present)
+    if isinstance(data, dict) and '_osprey_metadata' in data and 'data' in data:
         data = data['data']
     # Handle archiver nested format: {query: ..., dataframe: {columns, index, data}}
     if isinstance(data, dict) and 'dataframe' in data:
@@ -125,8 +110,17 @@ def collect_and_register_artifacts(
     title: str,
     description: str,
     tool_source: str,
+    category: str = "",
+    code: str = "",
+    stdout: str = "",
+    data_source: str | None = None,
 ) -> list[str]:
-    """Save exec_result.artifacts to the artifact store, return artifact IDs."""
+    """Save exec_result.artifacts to the artifact store, return artifact IDs.
+
+    When ``category`` is provided, each artifact is tagged with it and
+    visualization metadata (code, stdout, data_source) is embedded in the
+    artifact's ``metadata`` dict — no separate JSON blob is created.
+    """
     from osprey.mcp_server.artifact_store import get_artifact_store
 
     store = get_artifact_store()
@@ -134,6 +128,14 @@ def collect_and_register_artifacts(
 
     for art in exec_result.artifacts:
         try:
+            viz_metadata: dict = {}
+            if code:
+                viz_metadata["code"] = code
+            if stdout:
+                viz_metadata["stdout"] = stdout
+            if data_source:
+                viz_metadata["data_source"] = data_source
+
             art_entry = store.save_file(
                 file_content=art["path"].read_bytes(),
                 filename=art["path"].name,
@@ -142,7 +144,14 @@ def collect_and_register_artifacts(
                 description=art["description"],
                 mime_type=art["mime_type"],
                 tool_source=tool_source,
+                metadata=viz_metadata or None,
             )
+
+            if category:
+                art_entry.category = category
+                art_entry.source_agent = "data-visualizer"
+                store._save_index()
+
             artifact_ids.append(art_entry.id)
         except Exception:
             logger.debug("Artifact save failed", exc_info=True)
@@ -150,7 +159,27 @@ def collect_and_register_artifacts(
     return artifact_ids
 
 
-def save_to_data_context(
+def build_viz_response(artifact_ids: list[str], title: str, stdout: str = "") -> dict:
+    """Build a tool response dict for visualization tools (no separate artifact)."""
+    response: dict = {
+        "status": "success",
+        "title": title,
+        "artifact_ids": artifact_ids,
+        "artifact_count": len(artifact_ids),
+    }
+    if stdout:
+        response["stdout"] = stdout
+    if artifact_ids:
+        try:
+            from osprey.mcp_server.common import gallery_url
+
+            response["gallery_url"] = gallery_url()
+        except Exception:
+            pass
+    return response
+
+
+def save_visualization_data(
     tool: str,
     title: str,
     description: str,
@@ -160,11 +189,11 @@ def save_to_data_context(
     data_source: str | None = None,
     data_type: str = "visualization",
 ) -> dict:
-    """Save visualization result to DataContext and return tool response dict."""
-    from osprey.mcp_server.data_context import get_data_context
+    """Save visualization result to ArtifactStore and return tool response dict."""
+    from osprey.mcp_server.artifact_store import get_artifact_store
 
-    ctx = get_data_context()
-    entry = ctx.save(
+    store = get_artifact_store()
+    entry = store.save_data(
         tool=tool,
         data={
             "title": title,
@@ -174,6 +203,7 @@ def save_to_data_context(
             "artifact_ids": artifact_ids,
             "stdout": stdout,
         },
+        title=f"{tool}: {title}",
         description=f"{tool}: {title}",
         summary={
             "title": title,
@@ -185,7 +215,7 @@ def save_to_data_context(
             "artifact_ids": artifact_ids,
             "data_source": data_source,
         },
-        data_type=data_type,
+        category=data_type,
     )
 
     response = entry.to_tool_response()

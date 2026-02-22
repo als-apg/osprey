@@ -17,8 +17,6 @@ from osprey.cli.config_cmd import (
     show,
 )
 
-pytestmark = pytest.mark.langgraph
-
 
 @pytest.fixture
 def cli_runner():

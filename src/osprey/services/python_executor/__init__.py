@@ -1,9 +1,7 @@
-"""Python Executor Service - Comprehensive Python Code Generation and Execution Framework.
+"""Python Executor Service - Python Code Generation and Execution Framework.
 
-This package provides a sophisticated, LangGraph-based service for Python code generation,
-static analysis, approval workflows, and secure execution with flexible deployment options.
-The service integrates seamlessly with the broader agent framework to provide Python
-execution capabilities with comprehensive safety controls, human oversight, and audit trails.
+This package provides a service for Python code generation, static analysis,
+approval workflows, and secure execution with flexible deployment options.
 
 ## **Key Features**
 
@@ -28,28 +26,24 @@ Automatic creation of rich, interactive notebooks for human evaluation and revie
 
 ### **3. Human-in-the-Loop Approval System**
 Production-ready approval workflows for high-stakes scientific and industrial environments:
-- **LangGraph-Native Interrupts**: Seamless workflow suspension for human oversight
 - **Security Analysis Integration**: Automatic detection of potentially dangerous operations
 - **Rich Approval Context**: Detailed safety assessments, code analysis, and execution plans
-- **Resumable Workflows**: Checkpoint-based execution resumption after approval
 - **Configurable Policies**: Domain-specific approval rules for different operation types
 
 ## Architecture Overview
 
-The service implements a sophisticated multi-stage pipeline with clean exception-based
-architecture and comprehensive state management:
+The service implements a multi-stage pipeline with clean exception-based
+architecture:
 
-1. **Code Generation**: LLM-based Python code generation with context awareness and iterative improvement
+1. **Code Generation**: LLM-based Python code generation with context awareness
 2. **Static Analysis**: Security and policy analysis with configurable domain-specific rules
 3. **Approval Workflows**: Human oversight system with rich context and safety assessments
 4. **Flexible Execution**: Container or local execution with unified result collection
-5. **Notebook Generation**: Comprehensive Jupyter notebook creation for human evaluation
+5. **Notebook Generation**: Jupyter notebook creation for human evaluation
 6. **Result Processing**: Structured result handling with artifact management and audit trails
 
 Core Components:
-    - :class:`PythonExecutorService`: Main LangGraph service orchestrating the pipeline
     - :class:`PythonExecutionRequest`: Type-safe execution request with context data
-    - :class:`PythonExecutionState`: LangGraph state management for service workflow
     - :class:`FileManager`: File operations and execution folder management
     - :class:`NotebookManager`: Jupyter notebook creation and management
     - :class:`ContainerExecutor`: Secure container-based Python execution engine
@@ -92,11 +86,6 @@ Security Features:
    Python code execution can perform system operations depending on the configured
    execution mode. Always review approval policies before enabling write access.
 
-.. seealso::
-   :class:`osprey.capabilities.python.PythonCapability` : Main capability interface
-   :class:`osprey.services.python_executor.PythonExecutorService` : Core service
-   :doc:`/developer-guides/python-execution` : Python execution architecture guide
-
 ## Configuration Examples
 
 ### **Execution Environment Configuration**
@@ -132,79 +121,6 @@ osprey:
     modes:
       write_access:
         requires_approval: true  # Force human approval for write operations
-```
-
-## Usage Examples
-
-### **Basic Execution with Automatic Notebook Generation**
-```python
->>> from osprey.capabilities.python import PythonCapability
->>> from osprey.state import AgentState
->>>
->>> state = AgentState()
->>> result = await PythonCapability.execute(
-...     state,
-...     task_objective="Analyze EPICS PV trends and generate plots"
-... )
->>>
->>> # Execution results with notebook access
->>> print(f"Execution successful: {result['is_successful']}")
->>> print(f"Notebook available at: {result['PYTHON_RESULTS'].notebook_link}")
->>> print(f"Generated figures: {len(result['PYTHON_RESULTS'].figure_paths)}")
-```
-
-### **Container vs Local Execution Switching**
-```python
-# Same code works with both execution methods - just change config!
-
-# Using container execution (secure, isolated)
->>> # config.yml: execution_method: "container"
->>> result = await PythonCapability.execute(state, task_objective="Process data")
->>> # Executes in secure Jupyter container
-
-# Switch to local execution (faster, direct)
->>> # config.yml: execution_method: "local"
->>> result = await PythonCapability.execute(state, task_objective="Process data")
->>> # Executes on local Python environment - same interface!
-```
-
-### **Human-in-the-Loop Approval Workflow**
-```python
->>> # Code requiring approval automatically triggers interrupt
->>> result = await PythonCapability.execute(
-...     state,
-...     task_objective="Adjust EPICS setpoints for beam optimization"
-... )
->>> # Execution pauses, user receives:
->>> # "⚠️ HUMAN APPROVAL REQUIRED ⚠️
->>> #  Task: Adjust EPICS setpoints for beam optimization
->>> #  Python code requires human approval for write_access mode
->>> #  📓 Review Code: [Open Jupyter Notebook](http://jupyter/notebook.ipynb)
->>> #  To proceed, respond with: **yes** to approve or **no** to cancel"
-
->>> # After user approves with "yes":
->>> # Execution automatically resumes and completes
->>> print(f"Approved execution result: {result['PYTHON_RESULTS'].results}")
-```
-
-### **Direct Service Usage for Advanced Integration**
-```python
->>> from osprey.services.python_executor import PythonExecutorService
->>> from osprey.services.python_executor import PythonExecutionRequest
->>>
->>> service = PythonExecutorService()
->>> request = PythonExecutionRequest(
-...     user_query="Analyze accelerator performance data",
-...     task_objective="Generate comprehensive performance report",
-...     expected_results="Statistical analysis and trend visualizations"
-... )
->>> result = await service.ainvoke(request, config=service_config)
->>>
->>> # Rich result structure with notebook access
->>> print(f"Generated code: {result.generated_code}")
->>> print(f"Execution time: {result.execution_result.execution_time}s")
->>> print(f"Notebook: {result.execution_result.notebook_link}")
->>> print(f"Results: {result.execution_result.results}")
 ```
 """
 
@@ -247,7 +163,6 @@ from .models import (
     PythonExecutionSuccess,
     PythonServiceResult,
 )
-from .service import PythonExecutorService
 from .services import (
     FileManager,
     NotebookManager,
@@ -256,8 +171,6 @@ from .services import (
 )
 
 __all__ = [
-    # Main interface
-    "PythonExecutorService",
     # Core types
     "PythonExecutionRequest",
     "PythonExecutionSuccess",

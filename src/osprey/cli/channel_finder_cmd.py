@@ -405,3 +405,34 @@ def preview(
     except Exception as e:
         console.print(f"\n{Messages.error(str(e))}")
         raise click.Abort() from None
+
+
+@channel_finder.command("web")
+@click.option("--host", default="127.0.0.1", help="Host to bind to")
+@click.option("--port", default=8092, type=int, help="Port to run on")
+@click.pass_context
+def web(ctx, host: str, port: int):
+    """Launch the Channel Finder web interface.
+
+    Opens a browser-based interface for exploring, searching, and managing
+    control system channels.
+
+    Examples:
+
+    \b
+      osprey channel-finder web
+      osprey channel-finder web --port 9000
+    """
+    project = ctx.obj.get("project")
+    try:
+        _setup_config(project)
+    except click.ClickException:
+        raise
+
+    import uvicorn
+
+    from osprey.interfaces.channel_finder.app import create_app
+
+    console.print(f"Starting Channel Finder at http://{host}:{port}", style=Styles.SUCCESS)
+    app = create_app()
+    uvicorn.run(app, host=host, port=port, log_level="info")

@@ -37,23 +37,64 @@ html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
 table { max-width: 100%; }
 </style>
 <script>
-/* OSPREY: remove Plotly's hardcoded pixel dimensions so responsive mode works */
+/* OSPREY: responsive sizing + theme-aware backgrounds */
 (function(){
-  function resizeAll() {
+  var THEMES = {
+    dark: {
+      paper_bgcolor: '#131c2e', plot_bgcolor: '#0b1120',
+      font: { color: '#8b9ab5' },
+      xaxis: { gridcolor: 'rgba(100,116,139,0.1)', linecolor: 'rgba(100,116,139,0.18)' },
+      yaxis: { gridcolor: 'rgba(100,116,139,0.1)', linecolor: 'rgba(100,116,139,0.18)' },
+      legend: { bgcolor: 'rgba(19,28,46,0.85)', bordercolor: 'rgba(100,116,139,0.18)' }
+    },
+    light: {
+      paper_bgcolor: '#ffffff', plot_bgcolor: '#ffffff',
+      font: { color: '#1a202c' },
+      xaxis: { gridcolor: 'rgba(0,0,0,0.08)', linecolor: 'rgba(0,0,0,0.12)' },
+      yaxis: { gridcolor: 'rgba(0,0,0,0.08)', linecolor: 'rgba(0,0,0,0.12)' },
+      legend: { bgcolor: 'rgba(255,255,255,0.9)', bordercolor: 'rgba(0,0,0,0.1)' }
+    }
+  };
+
+  function detectTheme() {
+    try { return window.parent.document.documentElement.getAttribute('data-theme') || 'dark'; }
+    catch(e) { return 'dark'; }
+  }
+
+  function applyTheme(theme) {
+    var t = THEMES[theme] || THEMES.dark;
+    document.body.style.background = t.paper_bgcolor;
+    if (typeof Plotly === 'undefined') return;
     document.querySelectorAll('.js-plotly-plot').forEach(function(gd) {
-      if (gd.layout) {
-        delete gd.layout.width;
-        delete gd.layout.height;
-      }
-      if (typeof Plotly !== 'undefined') {
-        Plotly.Plots.resize(gd);
-      }
+      Plotly.relayout(gd, {
+        paper_bgcolor: t.paper_bgcolor, plot_bgcolor: t.plot_bgcolor,
+        'font.color': t.font.color,
+        'xaxis.gridcolor': t.xaxis.gridcolor, 'xaxis.linecolor': t.xaxis.linecolor,
+        'yaxis.gridcolor': t.yaxis.gridcolor, 'yaxis.linecolor': t.yaxis.linecolor,
+        'legend.bgcolor': t.legend.bgcolor, 'legend.bordercolor': t.legend.bordercolor
+      });
     });
   }
-  /* Plotly CDN may still be loading; wait for it, then resize. */
-  if (document.readyState === 'complete') { setTimeout(resizeAll, 50); }
-  else { window.addEventListener('load', function(){ setTimeout(resizeAll, 50); }); }
+
+  function resizeAll() {
+    document.querySelectorAll('.js-plotly-plot').forEach(function(gd) {
+      if (gd.layout) { delete gd.layout.width; delete gd.layout.height; }
+      if (typeof Plotly !== 'undefined') { Plotly.Plots.resize(gd); }
+    });
+  }
+
+  function initAll() {
+    setTimeout(function() { resizeAll(); applyTheme(detectTheme()); }, 50);
+  }
+
+  if (document.readyState === 'complete') { initAll(); }
+  else { window.addEventListener('load', initAll); }
   window.addEventListener('resize', resizeAll);
+  window.addEventListener('message', function(e) {
+    if (e.data && e.data.type === 'osprey-theme-change' && e.data.theme) {
+      applyTheme(e.data.theme);
+    }
+  });
 })();
 </script>"""
 
@@ -96,14 +137,11 @@ def _inject_html_snippet(html_bytes: bytes, snippet: str) -> bytes:
 
 class FocusRequest(BaseModel):
     artifact_id: str
+    fullscreen: bool = False
 
 
 class PinRequest(BaseModel):
     pinned: bool = True
-
-
-class HighlightRequest(BaseModel):
-    highlighted: bool = True
 
 
 class MemoryUpdateRequest(BaseModel):
@@ -233,12 +271,6 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         register_artifact_listener,
         unregister_artifact_listener,
     )
-    from osprey.mcp_server.data_context import (
-        DataContext,
-        DataContextEntry,
-        register_context_listener,
-        unregister_context_listener,
-    )
     from osprey.mcp_server.memory_store import (
         MemoryEntry,
         MemoryStore,
@@ -249,14 +281,12 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     from osprey.interfaces.artifacts.store_watcher import StoreIndexWatcher
 
     store = ArtifactStore(workspace_root=workspace_root)
-    context_store = DataContext(workspace_root=workspace_root)
     memory_store = MemoryStore(workspace_root=workspace_root)
     broadcaster = _SSEBroadcaster()
 
     index_watcher = StoreIndexWatcher(
         workspace_root=workspace_root,
         broadcaster=broadcaster,
-        context_store=context_store,
         artifact_store=store,
         memory_store=memory_store,
     )
@@ -264,22 +294,17 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     def _on_artifact_saved(entry: ArtifactEntry) -> None:
         broadcaster.broadcast({"type": "artifact", **entry.to_dict()})
 
-    def _on_context_saved(entry: DataContextEntry) -> None:
-        broadcaster.broadcast({"type": "context", **entry.to_dict()})
-
     def _on_memory_saved(entry: MemoryEntry) -> None:
         broadcaster.broadcast({"type": "memory", **entry.to_dict()})
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         register_artifact_listener(_on_artifact_saved)
-        register_context_listener(_on_context_saved)
         register_memory_listener(_on_memory_saved)
         index_watcher.start()
         yield
         index_watcher.stop()
         unregister_artifact_listener(_on_artifact_saved)
-        unregister_context_listener(_on_context_saved)
         unregister_memory_listener(_on_memory_saved)
 
     app = FastAPI(
@@ -299,7 +324,6 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     # Store references for route handlers
     app.state.artifact_store = store
     app.state.focused_artifact_id = None  # None = show latest
-    app.state.context_store = context_store
     app.state.memory_store = memory_store
 
     focus_file = workspace_root / "focus_state.txt"
@@ -360,11 +384,12 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     async def list_artifacts(
         type: str | None = None,
         search: str | None = None,
-        highlighted: bool | None = Query(None),
         pinned: bool | None = Query(None),
+        category: str | None = None,
     ):
         entries = store.list_entries(
-            type_filter=type, search=search, highlighted=highlighted, pinned=pinned,
+            type_filter=type, search=search, pinned=pinned,
+            category_filter=category,
         )
         return {
             "count": len(entries),
@@ -387,14 +412,6 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         broadcaster.broadcast({"type": "artifact_updated", **entry.to_dict()})
         return {"status": "ok", "artifact_id": artifact_id, "pinned": entry.pinned}
 
-    @app.post("/api/artifacts/{artifact_id}/highlight")
-    async def highlight_artifact(artifact_id: str, req: HighlightRequest):
-        entry = store.set_highlighted(artifact_id, req.highlighted)
-        if not entry:
-            raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
-        broadcaster.broadcast({"type": "artifact_updated", **entry.to_dict()})
-        return {"status": "ok", "artifact_id": artifact_id, "highlighted": entry.highlighted}
-
     @app.get("/api/artifacts/{artifact_id}/data")
     async def get_artifact_data(
         artifact_id: str,
@@ -408,7 +425,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         if not entry:
             raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
 
-        data_file = entry.metadata.get("data_file")
+        data_file = entry.data_file or entry.metadata.get("data_file")
         if not data_file:
             raise HTTPException(
                 status_code=400, detail="Artifact has no associated data file"
@@ -416,7 +433,13 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
         filepath = Path(data_file)
         if not filepath.is_absolute():
-            filepath = store._workspace / filepath
+            # New unified artifacts store files in the artifacts/ subdirectory;
+            # legacy DataContext entries used absolute paths.
+            candidate = store._store_dir / filepath
+            if candidate.exists():
+                filepath = candidate
+            else:
+                filepath = store._workspace / filepath
         if not filepath.exists():
             raise HTTPException(status_code=404, detail="Data file not found on disk")
 
@@ -426,7 +449,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
         # format=chart or format=table requires timeseries data
         data_type = entry.metadata.get("data_type", "")
-        if data_type != "timeseries":
+        if data_type != "timeseries" and entry.category != "archiver_data":
             raise HTTPException(
                 status_code=400,
                 detail="format parameter is only supported for timeseries data",
@@ -501,7 +524,10 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
             )
         app.state.focused_artifact_id = req.artifact_id
         _write_focus_file()
-        broadcaster.broadcast({"type": "focus", "domain": "artifact", "id": req.artifact_id})
+        event = {"type": "focus", "domain": "artifact", "id": req.artifact_id}
+        if req.fullscreen:
+            event["fullscreen"] = True
+        broadcaster.broadcast(event)
         return {"status": "ok", "artifact_id": req.artifact_id}
 
     @app.get("/files/{artifact_id}/{filename}")

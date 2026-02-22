@@ -1,7 +1,7 @@
 """Tests for screen capture MCP tools (tool-layer delegation).
 
 Tests the thin MCP tool layer in screen_capture.py: validation, delegation to
-the backend, exception-to-make_error mapping, and DataContext integration.
+the backend, exception-to-make_error mapping, and ArtifactStore integration.
 
 All backend calls are mocked — no actual screencapture/swift/osascript execution.
 """
@@ -69,7 +69,7 @@ _BACKEND_PATCH = "osprey.mcp_server.workspace.tools.screen_capture.get_backend"
 
 @pytest.mark.unit
 async def test_screenshot_full_mode(tmp_path, monkeypatch):
-    """Full mode captures entire screen and returns DataContext entry."""
+    """Full mode captures entire screen and returns ArtifactStore entry."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text(
         "screen_capture:\n  output_dir: '" + str(tmp_path / "screenshots") + "'\n"
@@ -91,6 +91,7 @@ async def test_screenshot_full_mode(tmp_path, monkeypatch):
 
     data = json.loads(result)
     assert data["status"] == "success"
+    assert "artifact_id" in data
     assert data["summary"]["mode"] == "full"
     assert data["summary"]["dimensions"] == "2560x1440"
     assert "screenshots" in data["summary"]["filepath"]
@@ -117,6 +118,7 @@ async def test_screenshot_region_mode(tmp_path, monkeypatch):
 
     data = json.loads(result)
     assert data["status"] == "success"
+    assert "artifact_id" in data
     backend.capture_region.assert_called_once()
     call_args = backend.capture_region.call_args
     assert call_args[0][:4] == (100, 200, 800, 600)
@@ -143,6 +145,7 @@ async def test_screenshot_display_mode(tmp_path, monkeypatch):
 
     data = json.loads(result)
     assert data["status"] == "success"
+    assert "artifact_id" in data
     backend.capture_display.assert_called_once()
     assert backend.capture_display.call_args[0][0] == "2"
 
@@ -168,6 +171,7 @@ async def test_screenshot_window_by_wid(tmp_path, monkeypatch):
 
     data = json.loads(result)
     assert data["status"] == "success"
+    assert "artifact_id" in data
     backend.capture_window.assert_called_once()
     assert backend.capture_window.call_args[0][0] == "12345"
 
@@ -193,6 +197,7 @@ async def test_screenshot_window_by_name(tmp_path, monkeypatch):
 
     data = json.loads(result)
     assert data["status"] == "success"
+    assert "artifact_id" in data
     backend.capture_window.assert_called_once()
     assert backend.capture_window.call_args[0][0] == "Phoebus"
 
@@ -240,6 +245,7 @@ async def test_screenshot_custom_filename(tmp_path, monkeypatch):
 
     data = json.loads(result)
     assert data["status"] == "success"
+    assert "artifact_id" in data
     assert "my_screenshot.png" in data["summary"]["filepath"]
 
 
@@ -264,6 +270,7 @@ async def test_screenshot_default_filename(tmp_path, monkeypatch):
 
     data = json.loads(result)
     assert data["status"] == "success"
+    assert "artifact_id" in data
     assert "capture_" in data["summary"]["filepath"]
     assert data["summary"]["filepath"].endswith(".png")
 

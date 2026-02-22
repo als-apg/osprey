@@ -142,7 +142,7 @@ class TestCreateDashboard:
 
         assert result["status"] == "success"
         assert len(result["artifact_ids"]) == 1
-        assert result["context_entry_id"] is not None
+        assert result["artifact_id"] is not None
 
     async def test_preamble_includes_bokeh_imports(
         self, tool_fn, mock_execution_folder

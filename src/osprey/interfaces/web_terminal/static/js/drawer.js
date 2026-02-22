@@ -109,9 +109,16 @@ export function toggleDrawer(drawerId) {
 /**
  * Check if any tab panel has unsaved changes.
  * Returns true if safe to proceed, false if user cancelled.
+ * Supports multiple guards (array) or a single legacy guard.
  */
 function checkUnsavedChanges(drawer) {
-  // Look for a registered guard
+  if (Array.isArray(drawer._unsavedGuards)) {
+    for (const guard of drawer._unsavedGuards) {
+      if (!guard()) return false;
+    }
+    return true;
+  }
+  // Legacy single-guard fallback
   if (drawer._unsavedGuard && typeof drawer._unsavedGuard === 'function') {
     return drawer._unsavedGuard();
   }
@@ -121,10 +128,20 @@ function checkUnsavedChanges(drawer) {
 /**
  * Register an unsaved-changes guard function on a drawer.
  * The guard should return true if safe to proceed, false to cancel.
+ * Supports multiple guards — each call appends to the list.
  */
 export function registerUnsavedGuard(drawerId, guardFn) {
   const drawer = document.getElementById(drawerId);
-  if (drawer) drawer._unsavedGuard = guardFn;
+  if (!drawer) return;
+  // Migrate legacy scalar to array on first composite registration
+  if (!Array.isArray(drawer._unsavedGuards)) {
+    drawer._unsavedGuards = [];
+    if (typeof drawer._unsavedGuard === 'function') {
+      drawer._unsavedGuards.push(drawer._unsavedGuard);
+      delete drawer._unsavedGuard;
+    }
+  }
+  drawer._unsavedGuards.push(guardFn);
 }
 
 /**

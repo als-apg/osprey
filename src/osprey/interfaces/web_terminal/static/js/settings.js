@@ -103,12 +103,10 @@ function switchMode(mode) {
   if (formView) formView.style.display = mode === 'form' ? '' : 'none';
   if (rawView) rawView.classList.toggle('active', mode === 'raw');
 
-  // Sync form → raw when switching to raw
-  if (mode === 'raw' && currentConfig && isDirty) {
-    const updated = buildConfigFromForm();
-    const rawTextarea = document.getElementById('settings-raw-editor');
-    if (rawTextarea) rawTextarea.value = updated;
-  }
+  // When switching to raw, reload the raw content from disk so users see the
+  // current file (including comments).  Do NOT rebuild from the form — that
+  // would strip comments.  If the form is dirty the user is warned by the
+  // unsaved-changes guard on tab/drawer close.
 }
 
 function renderFormSections(sections) {
@@ -148,7 +146,6 @@ function renderFields(container, obj, prefix, depth = 0) {
     const fullKey = `${prefix}.${key}`;
 
     if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-      // Nested object — render as a labeled sub-group
       const group = document.createElement('div');
       group.className = 'settings-subgroup';
       group.style.setProperty('--depth', depth);
@@ -186,7 +183,6 @@ function renderFields(container, obj, prefix, depth = 0) {
 }
 
 function createInputForValue(fullKey, value) {
-  // Check enum first
   if (ENUM_FIELDS[fullKey]) {
     const select = document.createElement('select');
     select.className = 'settings-select';
@@ -202,7 +198,6 @@ function createInputForValue(fullKey, value) {
     return select;
   }
 
-  // Boolean toggle
   if (typeof value === 'boolean' || BOOLEAN_FIELDS.has(fullKey)) {
     const toggle = document.createElement('label');
     toggle.className = 'toggle-switch';
@@ -218,7 +213,6 @@ function createInputForValue(fullKey, value) {
     return toggle;
   }
 
-  // Number
   if (typeof value === 'number') {
     const input = document.createElement('input');
     input.type = 'number';
@@ -229,7 +223,6 @@ function createInputForValue(fullKey, value) {
     return input;
   }
 
-  // Array — render as comma-separated text
   if (Array.isArray(value)) {
     const input = document.createElement('input');
     input.type = 'text';
@@ -241,7 +234,6 @@ function createInputForValue(fullKey, value) {
     return input;
   }
 
-  // Default: string input
   const input = document.createElement('input');
   input.type = 'text';
   input.className = 'settings-input';
@@ -261,103 +253,63 @@ function updateSaveBar() {
   if (bar) bar.classList.toggle('visible', isDirty);
 }
 
-function buildConfigFromForm() {
-  if (!currentConfig) return '';
+/**
+ * Collect all form field values that differ from the original config into a
+ * dot-keyed updates object suitable for PATCH /api/config.
+ */
+function collectFormUpdates() {
+  const updates = {};
+  const inputs = document.querySelectorAll('#settings-form [data-key]');
 
-  // Deep clone the original full config
-  const raw = currentConfig.raw;
-  let fullConfig;
-  try {
-    fullConfig = jsyaml_parse(raw);
-  } catch {
-    return raw;
-  }
-
-  // Apply form values
-  const inputs = document.querySelectorAll(
-    '#settings-form [data-key]'
-  );
   for (const input of inputs) {
     const key = input.dataset.key;
-    const parts = key.split('.');
-    let obj = fullConfig;
-    for (let i = 0; i < parts.length - 1; i++) {
-      if (obj[parts[i]] == null) obj[parts[i]] = {};
-      obj = obj[parts[i]];
-    }
-    const lastKey = parts[parts.length - 1];
+    let newValue;
 
     if (input.type === 'checkbox') {
-      obj[lastKey] = input.checked;
+      newValue = input.checked;
     } else if (input.type === 'number') {
-      obj[lastKey] = Number(input.value);
+      newValue = Number(input.value);
     } else if (input.dataset.type === 'array') {
-      obj[lastKey] = input.value.split(',').map((s) => s.trim()).filter(Boolean);
+      newValue = input.value.split(',').map((s) => s.trim()).filter(Boolean);
     } else {
-      obj[lastKey] = input.value;
+      newValue = input.value;
+    }
+
+    // Compare against original to only send changed fields
+    const originalValue = getNestedValue(currentConfig.sections, key);
+    if (!deepEqual(originalValue, newValue)) {
+      updates[key] = newValue;
     }
   }
 
-  return jsyaml_dump(fullConfig);
+  return updates;
 }
 
-/**
- * Simple YAML parse/dump using the raw text approach:
- * We send raw YAML to the server which validates it.
- * For form→raw sync we do a basic reconstruction.
- */
-function jsyaml_parse(text) {
-  // We don't have js-yaml in the browser — parse server-side.
-  // For local form editing, we work with the sections object directly.
-  // Return a basic object from current config.
-  try {
-    return JSON.parse(JSON.stringify(currentConfig.sections));
-  } catch {
-    return {};
+function getNestedValue(obj, dottedKey) {
+  const parts = dottedKey.split('.');
+  let node = obj;
+  for (const part of parts) {
+    if (node == null || typeof node !== 'object') return undefined;
+    node = node[part];
   }
+  return node;
 }
 
-function jsyaml_dump(obj) {
-  // Reconstruct YAML from object — basic implementation
-  // The raw textarea is the source of truth for saving.
-  return yamlStringify(obj, 0);
-}
-
-function yamlStringify(obj, indent) {
-  const lines = [];
-  const prefix = '  '.repeat(indent);
-
-  for (const [key, value] of Object.entries(obj)) {
-    if (value === null || value === undefined) {
-      lines.push(`${prefix}${key}: null`);
-    } else if (typeof value === 'boolean') {
-      lines.push(`${prefix}${key}: ${value}`);
-    } else if (typeof value === 'number') {
-      lines.push(`${prefix}${key}: ${value}`);
-    } else if (Array.isArray(value)) {
-      if (value.length === 0) {
-        lines.push(`${prefix}${key}: []`);
-      } else {
-        lines.push(`${prefix}${key}:`);
-        for (const item of value) {
-          lines.push(`${prefix}  - ${item}`);
-        }
-      }
-    } else if (typeof value === 'object') {
-      lines.push(`${prefix}${key}:`);
-      lines.push(yamlStringify(value, indent + 1));
-    } else {
-      // String — quote if it contains special chars
-      const str = String(value);
-      if (str.includes(':') || str.includes('#') || str.includes('"') || str === '') {
-        lines.push(`${prefix}${key}: "${str.replace(/"/g, '\\"')}"`);
-      } else {
-        lines.push(`${prefix}${key}: ${str}`);
-      }
-    }
+function deepEqual(a, b) {
+  if (a === b) return true;
+  if (a == null || b == null) return false;
+  if (typeof a !== typeof b) return false;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    return a.every((v, i) => deepEqual(v, b[i]));
   }
-
-  return lines.join('\n');
+  if (typeof a === 'object') {
+    const keysA = Object.keys(a);
+    const keysB = Object.keys(b);
+    if (keysA.length !== keysB.length) return false;
+    return keysA.every((k) => deepEqual(a[k], b[k]));
+  }
+  return false;
 }
 
 function showConfirmDialog() {
@@ -380,29 +332,39 @@ async function applySettings() {
   if (applyBtn) applyBtn.disabled = true;
   if (status) status.textContent = 'Saving...';
 
-  // Get the raw YAML to save
-  let yamlContent;
-  if (currentMode === 'raw') {
-    const textarea = document.getElementById('settings-raw-editor');
-    yamlContent = textarea ? textarea.value : '';
-  } else {
-    // In form mode, use the original raw with form modifications
-    // The simplest correct approach: use the raw editor content if dirty,
-    // otherwise reconstruct from form
-    yamlContent = buildRawFromForm();
-  }
-
   let configSaved = false;
   try {
-    // Save config
-    const saveResp = await fetch('/api/config', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ raw: yamlContent }),
-    });
-    if (!saveResp.ok) {
-      const detail = await saveResp.json().catch(() => ({}));
-      throw new Error(detail.detail || `Save failed (HTTP ${saveResp.status})`);
+    if (currentMode === 'raw') {
+      // Raw mode: send the full YAML text as-is (user is responsible for content)
+      const textarea = document.getElementById('settings-raw-editor');
+      const yamlContent = textarea ? textarea.value : '';
+      const saveResp = await fetch('/api/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ raw: yamlContent }),
+      });
+      if (!saveResp.ok) {
+        const detail = await saveResp.json().catch(() => ({}));
+        throw new Error(detail.detail || `Save failed (HTTP ${saveResp.status})`);
+      }
+    } else {
+      // Form mode: send only changed fields via PATCH — server uses ruamel.yaml
+      // to apply them without stripping comments or reordering the file.
+      const updates = collectFormUpdates();
+      if (Object.keys(updates).length === 0) {
+        if (status) status.textContent = 'No changes to apply';
+        if (applyBtn) applyBtn.disabled = false;
+        return;
+      }
+      const patchResp = await fetch('/api/config', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates }),
+      });
+      if (!patchResp.ok) {
+        const detail = await patchResp.json().catch(() => ({}));
+        throw new Error(detail.detail || `Patch failed (HTTP ${patchResp.status})`);
+      }
     }
     configSaved = true;
 
@@ -411,7 +373,6 @@ async function applySettings() {
     if (status) status.textContent = '';
     if (applyBtn) applyBtn.disabled = false;
 
-    // Close drawer, then restart terminal (same as the Refresh button)
     closeDrawer();
     await restartTerminal();
   } catch (e) {
@@ -419,80 +380,6 @@ async function applySettings() {
     if (status) status.textContent = `${prefix}${e.message}`;
     if (applyBtn) applyBtn.disabled = false;
   }
-}
-
-function buildRawFromForm() {
-  if (!currentConfig) return '';
-
-  // Parse the original raw YAML lines
-  const lines = currentConfig.raw.split('\n');
-
-  // Collect form values by key
-  const formValues = {};
-  const inputs = document.querySelectorAll('#settings-form [data-key]');
-  for (const input of inputs) {
-    const key = input.dataset.key;
-    if (input.type === 'checkbox') {
-      formValues[key] = input.checked;
-    } else if (input.type === 'number') {
-      formValues[key] = Number(input.value);
-    } else if (input.dataset.type === 'array') {
-      formValues[key] = input.value.split(',').map((s) => s.trim()).filter(Boolean);
-    } else {
-      formValues[key] = input.value;
-    }
-  }
-
-  // For simplicity, update values in the original YAML by matching keys.
-  // This preserves comments and formatting for unchanged values.
-  // For changed values, do simple line replacement.
-  const result = [];
-  const keyStack = [];
-
-  for (const line of lines) {
-    const trimmed = line.trimStart();
-    const indent = line.length - trimmed.length;
-    const indentLevel = Math.floor(indent / 2);
-
-    // Track nesting
-    const match = trimmed.match(/^(\w[\w_]*):\s*(.*)/);
-    if (match) {
-      const [, key, rest] = match;
-
-      // Adjust key stack to current indent level
-      while (keyStack.length > indentLevel) keyStack.pop();
-      keyStack.push(key);
-
-      const fullKey = keyStack.join('.');
-      const hasValue = rest !== '' && !rest.startsWith('#');
-
-      if (hasValue && fullKey in formValues) {
-        const newVal = formValues[fullKey];
-        const formatted = formatYamlValue(newVal);
-        result.push(`${' '.repeat(indent)}${key}: ${formatted}`);
-        delete formValues[fullKey]; // consumed
-        continue;
-      }
-    }
-
-    result.push(line);
-  }
-
-  return result.join('\n');
-}
-
-function formatYamlValue(value) {
-  if (typeof value === 'boolean') return String(value);
-  if (typeof value === 'number') return String(value);
-  if (Array.isArray(value)) {
-    if (value.length === 0) return '[]';
-    return '[' + value.join(', ') + ']';
-  }
-  const str = String(value);
-  if (str.includes(':') || str.includes('#') || str === '') {
-    return `"${str.replace(/"/g, '\\"')}"`;
-  }
-  return str;
 }
 
 function formatLabel(key) {

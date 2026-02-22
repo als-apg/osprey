@@ -207,7 +207,7 @@ async def artifact_get(artifact_id: str) -> str:
                 make_error(
                     "not_found",
                     f"Artifact {artifact_id} not found.",
-                    ["Use data_context_list or check a previous artifact_save response."],
+                    ["Use data_list or check a previous artifact_save response."],
                 )
             )
 

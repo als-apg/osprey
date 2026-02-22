@@ -30,7 +30,7 @@ class TypeDef:
 # ---------------------------------------------------------------------------
 
 ARTIFACT_TYPES: dict[str, TypeDef] = {
-    "plot_html": TypeDef("plot_html", "Plotly", "#4fd1c5"),
+    "plot_html": TypeDef("plot_html", "Plotly", "#8b5cf6"),
     "plot_png": TypeDef("plot_png", "Matplotlib", "#e8c9a0"),
     "table_html": TypeDef("table_html", "Table", "#22c55e"),
     "html": TypeDef("html", "HTML", "#c084fc"),
@@ -44,7 +44,8 @@ ARTIFACT_TYPES: dict[str, TypeDef] = {
 }
 
 # ---------------------------------------------------------------------------
-# Data types (20) — verified against Python tools + documented agent types
+# Data types (20) — LEGACY, retained for backward compat with old data_context.json
+# New code should use CATEGORIES instead.
 # ---------------------------------------------------------------------------
 
 DATA_TYPES: dict[str, TypeDef] = {
@@ -71,6 +72,34 @@ DATA_TYPES: dict[str, TypeDef] = {
 }
 
 # ---------------------------------------------------------------------------
+# Categories (21) — unified from DATA_TYPES for the artifact gallery
+# ---------------------------------------------------------------------------
+
+CATEGORIES: dict[str, TypeDef] = {
+    "archiver_data": TypeDef("archiver_data", "Archiver Data", "#2563eb"),
+    "channel_values": TypeDef("channel_values", "Channel Values", "#14b8a6"),
+    "write_results": TypeDef("write_results", "Write Results", "#e8c9a0"),
+    "code_output": TypeDef("code_output", "Code Output", "#c084fc"),
+    "visualization": TypeDef("visualization", "Visualization", "#fb923c"),
+    "dashboard": TypeDef("dashboard", "Dashboard", "#06b6d4"),
+    "document": TypeDef("document", "Document", "#a3e635"),
+    "screenshot": TypeDef("screenshot", "Screenshot", "#a78bfa"),
+    "graph_extraction": TypeDef("graph_extraction", "Graph Extraction", "#38bdf8"),
+    "graph_comparison": TypeDef("graph_comparison", "Graph Comparison", "#f97316"),
+    "graph_reference": TypeDef("graph_reference", "Graph Reference", "#34d399"),
+    "agent_response": TypeDef("agent_response", "Agent Response", "#f472b6"),
+    "channel_finder": TypeDef("channel_finder", "Channel Finder", "#10b981"),
+    "logbook_research": TypeDef("logbook_research", "Logbook Research", "#e879f9"),
+    "search_results": TypeDef("search_results", "Search Results", "#fb7185"),
+    "graph_analysis": TypeDef("graph_analysis", "Graph Analysis", "#0ea5e9"),
+    "literature_research": TypeDef("literature_research", "Literature Research", "#ec4899"),
+    "wiki_research": TypeDef("wiki_research", "Wiki Research", "#fbbf24"),
+    "mml_research": TypeDef("mml_research", "MML Research", "#ff6b35"),
+    "notebook": TypeDef("notebook", "Notebook", "#d946ef"),
+    "user_artifact": TypeDef("user_artifact", "User Artifact", "#94a3b8"),
+}
+
+# ---------------------------------------------------------------------------
 # Tool types (31) — matches JS toolLabel()
 # ---------------------------------------------------------------------------
 
@@ -80,8 +109,7 @@ TOOL_TYPES: dict[str, TypeDef] = {
     "archiver_read": TypeDef("archiver_read", "Archiver Read", "#3b82f6"),
     "execute": TypeDef("execute", "Python Execute", "#c084fc"),
     "channel_find": TypeDef("channel_find", "Channel Find", "#22c55e"),
-    "memory_save": TypeDef("memory_save", "Memory Save", "#d4a574"),
-    "memory_recall": TypeDef("memory_recall", "Memory Recall", "#e8c9a0"),
+    # memory_save and memory_recall removed — replaced by Claude Code native memory
     "ariel_search": TypeDef("ariel_search", "ARIEL Search", "#e879f9"),
     "screen_capture": TypeDef("screen_capture", "Screen Capture", "#a78bfa"),
     "screenshot_capture": TypeDef("screenshot_capture", "Screenshot Capture", "#a78bfa"),
@@ -94,7 +122,7 @@ TOOL_TYPES: dict[str, TypeDef] = {
     "artifact_export": TypeDef("artifact_export", "Artifact Export", "#94a3b8"),
     "artifact_focus": TypeDef("artifact_focus", "Artifact Focus", "#60a5fa"),
     "context_focus": TypeDef("context_focus", "Context Focus", "#60a5fa"),
-    "memory_focus": TypeDef("memory_focus", "Memory Focus", "#60a5fa"),
+    "memory_focus": TypeDef("memory_focus", "Memory Focus", "#60a5fa"),  # Legacy: retained for focus pattern consistency
     "submit_response": TypeDef("submit_response", "Submit Response", "#f472b6"),
     "channel-finder": TypeDef("channel-finder", "Channel Finder", "#2dd4bf"),
     "graph-analyst": TypeDef("graph-analyst", "Graph Analyst", "#38bdf8"),
@@ -130,9 +158,19 @@ def get_tool_types() -> dict[str, TypeDef]:
     return dict(TOOL_TYPES)
 
 
+def get_categories() -> dict[str, TypeDef]:
+    """Return the canonical category definitions for the unified artifact system."""
+    return dict(CATEGORIES)
+
+
 def valid_data_type_keys() -> set[str]:
     """Return the set of valid data_type strings for validation."""
     return set(DATA_TYPES)
+
+
+def valid_category_keys() -> set[str]:
+    """Return the set of valid category strings for validation."""
+    return set(CATEGORIES)
 
 
 def _typedef_to_dict(td: TypeDef) -> dict[str, str]:
@@ -146,4 +184,5 @@ def registry_to_api_dict() -> dict[str, Any]:
         "artifact_types": {k: _typedef_to_dict(v) for k, v in ARTIFACT_TYPES.items()},
         "data_types": {k: _typedef_to_dict(v) for k, v in DATA_TYPES.items()},
         "tool_types": {k: _typedef_to_dict(v) for k, v in TOOL_TYPES.items()},
+        "categories": {k: _typedef_to_dict(v) for k, v in CATEGORIES.items()},
     }

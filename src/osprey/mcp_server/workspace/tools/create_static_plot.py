@@ -13,8 +13,8 @@ from osprey.mcp_server.common import make_error
 from osprey.mcp_server.workspace.server import mcp
 from osprey.mcp_server.workspace.tools._viz_common import (
     build_data_reader,
+    build_viz_response,
     collect_and_register_artifacts,
-    save_to_data_context,
 )
 
 logger = logging.getLogger("osprey.mcp_server.tools.create_static_plot")
@@ -116,20 +116,17 @@ async def create_static_plot(
             )
         )
 
-    # Collect artifacts from manifest (save_artifact() calls in user code)
+    # Collect artifacts with category and embedded metadata
     artifact_ids = collect_and_register_artifacts(
-        exec_result, title, description, tool_source="create_static_plot"
-    )
-
-    # Save to DataContext
-    response = save_to_data_context(
-        tool="create_static_plot",
-        title=title,
-        description=description,
+        exec_result, title, description,
+        tool_source="create_static_plot",
+        category="visualization",
         code=code,
-        artifact_ids=artifact_ids,
         stdout=exec_result.stdout,
         data_source=data_source,
-        data_type="visualization",
     )
-    return json.dumps(response, default=str)
+
+    return json.dumps(
+        build_viz_response(artifact_ids, title, exec_result.stdout),
+        default=str,
+    )

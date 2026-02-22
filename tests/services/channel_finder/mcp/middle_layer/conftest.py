@@ -2,16 +2,14 @@
 
 import pytest
 
-from osprey.mcp_server.data_context import reset_data_context
 from osprey.services.channel_finder.mcp.middle_layer.registry import reset_cf_ml_registry
 
 
 @pytest.fixture(autouse=True)
 def _reset_registry():
-    """Reset registry and data context singletons between tests."""
+    """Reset registry singletons between tests."""
     yield
     reset_cf_ml_registry()
-    reset_data_context()
 
 
 def get_tool_fn(tool_or_fn):

@@ -2,6 +2,13 @@
 
 Maps canonical model tiers (haiku/sonnet/opus) to provider-specific model IDs
 and generates the env block for settings.json. Pure Python, no I/O.
+
+Design: model IDs are owned by the provider and live in ``api.providers``
+in config.yml.  ``CLAUDE_CODE_PROVIDERS`` defines only the auth pattern,
+base URL, and default tier — never model IDs.  The resolver reads model IDs
+from ``api.providers[name].models`` at runtime, falling back to built-in
+defaults only for backward-compatibility with configs that pre-date this
+design.
 """
 
 from __future__ import annotations
@@ -9,6 +16,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 # ── Provider definitions ────────────────────────────────────────────
+# Each entry defines auth wiring and connection metadata only.
+# Model IDs are NOT here — they live in api.providers[name].models in config.yml.
 
 CLAUDE_CODE_PROVIDERS: dict[str, dict] = {
     "anthropic": {
@@ -16,6 +25,7 @@ CLAUDE_CODE_PROVIDERS: dict[str, dict] = {
         "auth_secret_env": "ANTHROPIC_API_KEY",    # Shell env var holding the actual secret
         "base_url": None,                           # No base URL for direct Anthropic
         "default_model_tier": "sonnet",
+        # Fallback model IDs (used when api.providers.anthropic.models is absent)
         "models": {
             "haiku": "claude-haiku-4-5-20251001",
             "sonnet": "claude-sonnet-4-5-20250929",
@@ -27,10 +37,23 @@ CLAUDE_CODE_PROVIDERS: dict[str, dict] = {
         "auth_secret_env": "CBORG_API_KEY",        # Shell env var holding the secret
         "base_url": "https://api.cborg.lbl.gov",   # Well-known URL (no /v1)
         "default_model_tier": "opus",
+        # Fallback model IDs (used when api.providers.cborg.models is absent)
         "models": {
             "haiku": "anthropic/claude-haiku",
             "sonnet": "anthropic/claude-sonnet",
             "opus": "anthropic/claude-opus",
+        },
+    },
+    "als-apg": {
+        "auth_env_var": "ANTHROPIC_AUTH_TOKEN",    # Bearer auth for proxy
+        "auth_secret_env": "ALS_APG_API_KEY",      # Shell env var holding the secret
+        "base_url": "https://llm.gianlucamartino.com",  # ALS-APG AWS proxy (no /v1)
+        "default_model_tier": "opus",
+        # Fallback model IDs (used when api.providers.als-apg.models is absent)
+        "models": {
+            "haiku": "claude-haiku-4-5-20251001",
+            "sonnet": "claude-sonnet-4-6",
+            "opus": "claude-opus-4-6",
         },
     },
 }
@@ -110,6 +133,15 @@ class ClaudeCodeModelResolver:
     ) -> ClaudeCodeModelSpec | None:
         """Build a ``ClaudeCodeModelSpec`` from config.
 
+        Model ID resolution order (highest to lowest priority):
+        1. ``claude_code.models`` per-tier overrides in config.yml
+        2. ``api.providers[name].models`` — the provider's own model IDs
+        3. Built-in ``models`` in CLAUDE_CODE_PROVIDERS (backward compat)
+
+        This means providers own their model naming: set models under
+        ``api.providers`` and the framework picks them up automatically.
+        No model IDs need to be hardcoded in Python.
+
         Args:
             claude_code_config: The ``claude_code`` section of config.yml.
             api_providers: The ``api.providers`` section (optional).
@@ -118,30 +150,63 @@ class ClaudeCodeModelResolver:
             Resolved spec, or ``None`` when no provider is configured.
 
         Raises:
-            ValueError: If the provider name is not in CLAUDE_CODE_PROVIDERS.
+            ValueError: If the provider name is not in CLAUDE_CODE_PROVIDERS
+                and not in api_providers.
         """
         provider_name = claude_code_config.get("provider")
         if not provider_name:
             return None
 
-        if provider_name not in CLAUDE_CODE_PROVIDERS:
-            supported = ", ".join(sorted(CLAUDE_CODE_PROVIDERS))
-            raise ValueError(
-                f"Unsupported Claude Code provider '{provider_name}'. "
-                f"Supported: {supported}"
-            )
-
-        provider_def = CLAUDE_CODE_PROVIDERS[provider_name]
         api_providers = api_providers or {}
 
-        # ── Build tier → model mapping ───────────────────────────
-        tier_to_model = dict(provider_def["models"])
+        if provider_name not in CLAUDE_CODE_PROVIDERS:
+            # Custom proxy: must be defined in api.providers
+            if provider_name not in api_providers:
+                supported = ", ".join(sorted(CLAUDE_CODE_PROVIDERS))
+                raise ValueError(
+                    f"Unknown Claude Code provider '{provider_name}'. "
+                    f"Built-in providers: {supported}. "
+                    f"To use a custom provider, add it to api.providers in config.yml."
+                )
+            provider_entry = api_providers[provider_name]
+            provider_def = {
+                "auth_env_var": "ANTHROPIC_AUTH_TOKEN",
+                "auth_secret_env": f"{provider_name.upper().replace('-', '_')}_API_KEY",
+                "base_url": provider_entry.get("base_url"),
+                "default_model_tier": "opus",
+                "models": {},
+            }
+        else:
+            provider_def = CLAUDE_CODE_PROVIDERS[provider_name]
 
-        # Apply per-tier overrides from config
+        # ── Build tier → model mapping ───────────────────────────
+        # Priority: built-in fallback < api.providers models < claude_code.models
+
+        # Start with built-in fallbacks (backward compat for old configs)
+        tier_to_model = dict(provider_def.get("models", {}))
+
+        # Override with models defined in api.providers[name].models
+        # This is the authoritative source: providers own their model naming.
+        provider_api_models = api_providers.get(provider_name, {}).get("models", {})
+        for tier, model_id in provider_api_models.items():
+            if tier in VALID_TIERS:
+                tier_to_model[tier] = model_id
+
+        # Apply explicit per-tier overrides from claude_code.models
         model_overrides = claude_code_config.get("models", {})
         for tier, model_id in (model_overrides or {}).items():
             if tier in VALID_TIERS:
                 tier_to_model[tier] = model_id
+
+        # Ensure all three tiers are present — use Anthropic direct IDs as
+        # last resort so env block generation never crashes.
+        _last_resort = {
+            "haiku": "claude-haiku-4-5-20251001",
+            "sonnet": "claude-sonnet-4-5-20250929",
+            "opus": "claude-opus-4-6",
+        }
+        for tier, fallback_id in _last_resort.items():
+            tier_to_model.setdefault(tier, fallback_id)
 
         # ── Build env block (literals only — no ${VAR} refs) ────
         # Claude Code's settings.json env block does NOT expand
@@ -191,6 +256,12 @@ class ClaudeCodeModelResolver:
         )
 
     @staticmethod
-    def validate_provider(name: str) -> bool:
-        """Check whether a provider name is supported."""
-        return name in CLAUDE_CODE_PROVIDERS
+    def validate_provider(name: str, api_providers: dict | None = None) -> bool:
+        """Check whether a provider name is supported.
+
+        Returns True for built-in providers and for any name that appears in
+        api_providers (custom proxies).
+        """
+        if name in CLAUDE_CODE_PROVIDERS:
+            return True
+        return api_providers is not None and name in api_providers

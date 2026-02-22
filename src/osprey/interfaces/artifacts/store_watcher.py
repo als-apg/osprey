@@ -1,8 +1,8 @@
 """File-system watcher for cross-process store index changes.
 
-Watches the three store index files (data_context.json, artifacts.json,
-memories.json) for modifications by external processes and broadcasts
-SSE events for any added or deleted entries.
+Watches the two store index files (artifacts.json, memories.json) for
+modifications by external processes and broadcasts SSE events for any
+added or deleted entries.
 
 Same-process saves already update the store's ``_entries`` in memory, so
 the diff naturally produces nothing — no duplicate events.
@@ -121,7 +121,6 @@ class StoreIndexWatcher:
         self,
         workspace_root: Path,
         broadcaster: Any,
-        context_store: Any,
         artifact_store: Any,
         memory_store: Any,
     ) -> None:
@@ -130,12 +129,6 @@ class StoreIndexWatcher:
         self._observer: Observer | None = None
 
         self._index_configs: dict[str, dict[str, Any]] = {
-            "data_context.json": {
-                "store": context_store,
-                "id_attr": "id",
-                "event_type": "context",
-                "delete_type": "context_deleted",
-            },
             "artifacts.json": {
                 "store": artifact_store,
                 "id_attr": "id",
@@ -152,7 +145,6 @@ class StoreIndexWatcher:
 
         # Directories to watch — each index file lives in a different dir
         self._watch_dirs: dict[str, Path] = {
-            "data_context.json": workspace_root,
             "artifacts.json": workspace_root / "artifacts",
             "memories.json": workspace_root / "memory",
         }

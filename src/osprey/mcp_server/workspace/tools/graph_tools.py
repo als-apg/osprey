@@ -93,15 +93,15 @@ async def graph_extract(
             )
         )
 
-    # Save to DataContext
-    from osprey.mcp_server.data_context import get_data_context
+    # Save to ArtifactStore (unified)
+    from osprey.mcp_server.artifact_store import get_artifact_store
 
     desc = title or f"Graph extraction from {path.name}"
     columns = result.get("columns", [])
     data = result.get("data", [])
 
-    data_ctx = get_data_context()
-    entry = data_ctx.save(
+    store = get_artifact_store()
+    entry = store.save_data(
         tool="graph_extract",
         data={
             "columns": columns,
@@ -111,6 +111,7 @@ async def graph_extract(
             "source_image": str(path),
             "preprocessed": preprocess,
         },
+        title=desc,
         description=desc,
         summary={
             "title": desc,
@@ -124,7 +125,7 @@ async def graph_extract(
             "num_points": len(data),
             "hint": "Read the data file for full extracted values.",
         },
-        data_type="graph_extraction",
+        category="graph_extraction",
     )
 
     return json.dumps(entry.to_tool_response(), default=str)
@@ -135,8 +136,8 @@ async def graph_extract(
 # ---------------------------------------------------------------------------
 @mcp.tool()
 async def graph_compare(
-    current_entry_id: int,
-    reference_entry_id: int | None = None,
+    current_entry_id: str,
+    reference_entry_id: str | None = None,
     reference_query: str | None = None,
     metrics: list[str] | None = None,
 ) -> str:
@@ -144,51 +145,51 @@ async def graph_compare(
 
     Computes RMSE, correlation, DTW distance, and peak shift between a
     current dataset and a reference. Works with data from graph_extract,
-    archiver_read, or any DataContext entry with tabular data.
+    archiver_read, or any artifact entry with tabular data.
 
     Args:
-        current_entry_id: DataContext entry ID of the current/new data.
-        reference_entry_id: DataContext entry ID of the reference data.
+        current_entry_id: Artifact ID of the current/new data.
+        reference_entry_id: Artifact ID of the reference data.
             Either this or reference_query is required.
         reference_query: Search query to find a reference dataset by name.
-            Searches entries with data_type="graph_reference".
+            Searches entries with category="graph_reference".
         metrics: Which metrics to compute. Options: rmse, correlation,
             dtw_distance, peak_shift. Default: all available.
 
     Returns:
         JSON with comparison metrics and interpretation hints.
     """
-    from osprey.mcp_server.data_context import get_data_context
+    from osprey.mcp_server.artifact_store import get_artifact_store
 
-    data_ctx = get_data_context()
+    store = get_artifact_store()
 
     # Load current data
-    current_entry = data_ctx.get_entry(current_entry_id)
+    current_entry = store.get_entry(current_entry_id)
     if current_entry is None:
         return json.dumps(
             make_error(
                 "not_found",
-                f"No data context entry found with ID {current_entry_id}.",
-                ["Use data_context_list to see available entries."],
+                f"No artifact entry found with ID {current_entry_id}.",
+                ["Use data_list to see available entries."],
             )
         )
 
     # Load reference data
     ref_entry = None
     if reference_entry_id is not None:
-        ref_entry = data_ctx.get_entry(reference_entry_id)
+        ref_entry = store.get_entry(reference_entry_id)
         if ref_entry is None:
             return json.dumps(
                 make_error(
                     "not_found",
                     f"No reference entry found with ID {reference_entry_id}.",
-                    ["Use data_context_list to see available entries."],
+                    ["Use data_list to see available entries."],
                 )
             )
     elif reference_query:
-        matches = data_ctx.list_entries(
+        matches = store.list_entries(
             search=reference_query,
-            data_type_filter="graph_reference",
+            category_filter="graph_reference",
         )
         if not matches:
             return json.dumps(
@@ -196,7 +197,7 @@ async def graph_compare(
                     "not_found",
                     f"No graph reference found matching '{reference_query}'.",
                     [
-                        "Use data_context_list(data_type_filter='graph_reference') to see saved references.",
+                        "Use data_list(category_filter='graph_reference') to see saved references.",
                         "Save a reference first with graph_save_reference.",
                     ],
                 )
@@ -216,8 +217,8 @@ async def graph_compare(
 
     # Load data from files
     try:
-        current_data = _load_entry_data(data_ctx, current_entry.id)
-        ref_data = _load_entry_data(data_ctx, ref_entry.id)
+        current_data = _load_entry_data(store, current_entry.id)
+        ref_data = _load_entry_data(store, ref_entry.id)
     except (FileNotFoundError, KeyError, json.JSONDecodeError) as exc:
         return json.dumps(
             make_error(
@@ -242,7 +243,7 @@ async def graph_compare(
             )
         )
 
-    # Save comparison result to DataContext
+    # Save comparison result to ArtifactStore (unified)
     comparison_data = {
         "current_entry_id": current_entry.id,
         "reference_entry_id": ref_entry.id,
@@ -251,9 +252,10 @@ async def graph_compare(
         **results,
     }
 
-    entry = data_ctx.save(
+    entry = store.save_data(
         tool="graph_compare",
         data=comparison_data,
+        title=f"Comparison: {current_entry.description} vs {ref_entry.description}",
         description=f"Comparison: {current_entry.description} vs {ref_entry.description}",
         summary={
             "current_id": current_entry.id,
@@ -264,7 +266,7 @@ async def graph_compare(
             "format": "comparison_result",
             "metrics_computed": list(results["metrics"].keys()),
         },
-        data_type="graph_comparison",
+        category="graph_comparison",
     )
 
     # Return inline results + context entry
@@ -278,42 +280,42 @@ async def graph_compare(
 # ---------------------------------------------------------------------------
 @mcp.tool()
 async def graph_save_reference(
-    source_entry_id: int,
+    source_entry_id: str,
     title: str = "",
     description: str = "",
 ) -> str:
     """Save a dataset as a named reference for future graph comparisons.
 
-    Copies data from an existing DataContext entry (e.g., from graph_extract
+    Copies data from an existing artifact entry (e.g., from graph_extract
     or archiver_read) into a new reference entry that can be found by
     graph_compare using reference_query.
 
     Args:
-        source_entry_id: DataContext entry ID to copy as a reference.
+        source_entry_id: Artifact ID to copy as a reference.
         title: Descriptive title for the reference (e.g., "Nominal beam current profile").
         description: Detailed description of what this reference represents.
 
     Returns:
         JSON with the new reference entry ID and details.
     """
-    from osprey.mcp_server.data_context import get_data_context
+    from osprey.mcp_server.artifact_store import get_artifact_store
 
-    data_ctx = get_data_context()
+    store = get_artifact_store()
 
     # Load source entry
-    source_entry = data_ctx.get_entry(source_entry_id)
+    source_entry = store.get_entry(source_entry_id)
     if source_entry is None:
         return json.dumps(
             make_error(
                 "not_found",
-                f"No data context entry found with ID {source_entry_id}.",
-                ["Use data_context_list to see available entries."],
+                f"No artifact entry found with ID {source_entry_id}.",
+                ["Use data_list to see available entries."],
             )
         )
 
     # Load source data
     try:
-        source_data = _load_entry_data(data_ctx, source_entry_id)
+        source_data = _load_entry_data(store, source_entry_id)
     except (FileNotFoundError, KeyError, json.JSONDecodeError) as exc:
         return json.dumps(
             make_error(
@@ -323,32 +325,32 @@ async def graph_save_reference(
             )
         )
 
-    # Load full source file for metadata preservation
-    source_path = data_ctx.get_file_path(source_entry_id)
+    # Load full source file for payload preservation
+    source_path = store.get_file_path(source_entry_id)
     if source_path:
         with open(source_path) as f:
-            source_full = json.load(f)
-        source_payload = source_full.get("data", {})
+            source_payload = json.load(f)
     else:
         source_payload = {"data": source_data}
 
     ref_title = title or f"Reference: {source_entry.description}"
     ref_desc = description or f"Saved from entry {source_entry_id}"
 
-    entry = data_ctx.save(
+    entry = store.save_data(
         tool="graph_save_reference",
         data={
             **source_payload,
             "reference_title": ref_title,
             "reference_description": ref_desc,
             "source_entry_id": source_entry_id,
-            "source_tool": source_entry.tool,
+            "source_tool": source_entry.tool_source,
         },
-        description=ref_title,
+        title=ref_title,
+        description=ref_desc,
         summary={
             "title": ref_title,
             "source_entry_id": source_entry_id,
-            "source_tool": source_entry.tool,
+            "source_tool": source_entry.tool_source,
             "num_points": len(source_data),
         },
         access_details={
@@ -356,7 +358,7 @@ async def graph_save_reference(
             "num_points": len(source_data),
             "hint": "Use graph_compare with reference_query to find and compare against this reference.",
         },
-        data_type="graph_reference",
+        category="graph_reference",
     )
 
     return json.dumps(entry.to_tool_response(), default=str)
@@ -365,10 +367,11 @@ async def graph_save_reference(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-def _load_entry_data(data_ctx, entry_id: int) -> list[list]:
-    """Load tabular data from a DataContext entry's data file.
+def _load_entry_data(store, entry_id: str) -> list[list]:
+    """Load tabular data from an artifact entry's data file.
 
     Handles different data formats stored by graph_extract, archiver_read, etc.
+    Data files are raw JSON (no envelope).
 
     Returns:
         List of [x, y] data points.
@@ -377,29 +380,31 @@ def _load_entry_data(data_ctx, entry_id: int) -> list[list]:
         FileNotFoundError: If the data file doesn't exist.
         KeyError: If the data file doesn't contain expected structure.
     """
-    file_path = data_ctx.get_file_path(entry_id)
+    file_path = store.get_file_path(entry_id)
     if file_path is None:
         raise FileNotFoundError(f"Data file not found for entry {entry_id}")
 
     with open(file_path) as f:
         payload = json.load(f)
 
-    data = payload.get("data", {})
+    # Handle legacy DataContext envelope format (migration compat)
+    if isinstance(payload, dict) and "_osprey_metadata" in payload:
+        payload = payload.get("data", {})
 
-    # graph_extract format: {"data": {"columns": [...], "data": [[x,y], ...]}}
-    if isinstance(data, dict) and "data" in data:
-        return data["data"]
+    # graph_extract format: {"columns": [...], "data": [[x,y], ...]}
+    if isinstance(payload, dict) and "data" in payload:
+        return payload["data"]
 
-    # archiver_read format: {"data": {"values": [...]}} or similar
-    if isinstance(data, dict) and "values" in data:
-        values = data["values"]
+    # archiver_read format: {"values": [...]} or similar
+    if isinstance(payload, dict) and "values" in payload:
+        values = payload["values"]
         if isinstance(values, list) and values:
             if isinstance(values[0], (int, float)):
                 return [[i, v] for i, v in enumerate(values)]
             return values
 
     # Already a list of data points
-    if isinstance(data, list):
-        return data
+    if isinstance(payload, list):
+        return payload
 
     raise KeyError(f"Could not extract tabular data from entry {entry_id}")

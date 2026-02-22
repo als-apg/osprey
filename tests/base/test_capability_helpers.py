@@ -1,4 +1,8 @@
-"""Unit tests for BaseCapability helper methods (new simplified pattern)."""
+"""Unit tests for BaseCapability helper methods (new simplified pattern).
+
+Note: Depends on osprey.base.decorators (LangGraph-only, removed).
+Tests retained for reference but skipped when the module is unavailable.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +10,10 @@ from typing import ClassVar
 from unittest.mock import Mock
 
 import pytest
+
+pytest.importorskip(
+    "osprey.base.decorators", reason="osprey.base.decorators removed (LangGraph-only)"
+)
 
 from osprey.base.capability import BaseCapability
 from osprey.base.decorators import capability_node

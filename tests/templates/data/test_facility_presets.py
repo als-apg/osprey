@@ -9,8 +9,6 @@ from osprey.templates.data.facility_presets import (
     list_facilities,
 )
 
-pytestmark = pytest.mark.langgraph
-
 
 def test_facility_presets_structure():
     """Test that facility presets have correct structure."""

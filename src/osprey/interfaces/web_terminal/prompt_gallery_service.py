@@ -1,7 +1,7 @@
 """Prompt Gallery Service — bridges PromptRegistry + TemplateManager for the web UI.
 
 Stateless service class instantiated per-request with a project directory.
-Provides list/get/diff/scaffold/save/unoverride operations that the frontend
+Provides list/get/diff/claim/save/unclaim operations that the frontend
 gallery consumes via the ``/api/prompts`` route family.
 """
 
@@ -16,12 +16,11 @@ import yaml
 
 from osprey.cli.prompt_registry import PromptArtifact, PromptRegistry
 from osprey.cli.prompts_cmd import (
-    _cleanup_empty_dirs,
-    _get_overrides,
-    _update_config_add_override,
-    _update_config_remove_override,
-    _update_manifest_add_override,
-    _update_manifest_remove_override,
+    _get_user_owned,
+    _update_config_add_user_owned,
+    _update_config_remove_user_owned,
+    _update_manifest_add_user_owned,
+    _update_manifest_remove_user_owned,
 )
 from osprey.cli.templates import TemplateManager
 
@@ -50,7 +49,7 @@ class PromptGalleryService:
         self.project_dir = project_dir
         self._registry = PromptRegistry.default()
         self._config = self._load_config()
-        self._overrides = _get_overrides(self._config)
+        self._user_owned = _get_user_owned(self._config)
         self._manager: TemplateManager | None = None
         self._ctx: dict[str, Any] | None = None
 
@@ -64,11 +63,17 @@ class PromptGalleryService:
     # ── List ──────────────────────────────────────────────────────────
 
     def list_artifacts(self) -> list[dict[str, Any]]:
-        """Return all artifacts with status and metadata."""
+        """Return all artifacts with status and metadata.
+
+        Includes both registry-defined artifacts and custom user-owned files
+        that were registered via :meth:`register_untracked`.
+        """
         result = []
+        registry_names: set[str] = set()
+
         for art in self._registry.all_artifacts():
-            override_path = self._overrides.get(art.canonical_name)
-            status = "overridden" if override_path else "framework"
+            registry_names.add(art.canonical_name)
+            is_owned = art.canonical_name in self._user_owned
             category = (
                 art.canonical_name.split("/")[0]
                 if "/" in art.canonical_name
@@ -85,22 +90,46 @@ class PromptGalleryService:
                 "summary": summary,
                 "description": description,
                 "output_path": art.output_path,
-                "status": status,
-                "override_path": override_path,
+                "status": "user-owned" if is_owned else "framework",
+                "custom": False,
                 "language": self._infer_language(art.output_path),
             })
+
+        # Include custom user-owned files not backed by a framework template
+        for name in self._user_owned:
+            if name in registry_names:
+                continue
+            output_path = self._canonical_to_path(name)
+            fm = self._extract_custom_front_matter(output_path)
+            summary = fm.get("summary", "(custom user file)")
+            description = fm.get("description", "(custom user file — no framework template)")
+            category = name.split("/")[0] if "/" in name else "other"
+            result.append({
+                "name": name,
+                "category": category,
+                "summary": summary,
+                "description": description,
+                "output_path": output_path,
+                "status": "user-owned",
+                "custom": True,
+                "language": self._infer_language(output_path),
+            })
+
         return result
 
     # ── Content retrieval ─────────────────────────────────────────────
 
     def get_content(self, name: str) -> dict[str, Any]:
-        """Get the active content for an artifact (override takes priority)."""
-        art = self._get_artifact(name)
-        override_content = self._read_override(art)
-        if override_content is not None:
+        """Get the active content for an artifact (user file takes priority)."""
+        art = self._registry.get(name)
+        if art is None:
+            return self._get_custom_content(name)
+
+        user_content = self._read_user_file(art)
+        if user_content is not None and art.canonical_name in self._user_owned:
             return {
-                "content": override_content,
-                "source": "override",
+                "content": user_content,
+                "source": "user-owned",
                 "language": self._infer_language(art.output_path),
             }
         return {
@@ -115,30 +144,37 @@ class PromptGalleryService:
         return self._render_framework(art)
 
     def get_override_content(self, name: str) -> str | None:
-        """Read the override file content, or None if not overridden."""
+        """Read the user-owned file content, or None if not user-owned."""
         art = self._get_artifact(name)
-        return self._read_override(art)
+        if art.canonical_name not in self._user_owned:
+            return None
+        return self._read_user_file(art)
 
     # ── Diff ──────────────────────────────────────────────────────────
 
     def compute_diff(self, name: str) -> dict[str, Any]:
-        """Compute unified diff between framework and override."""
+        """Compute unified diff between framework and user-owned file."""
         art = self._get_artifact(name)
-        override_content = self._read_override(art)
-        if override_content is None:
+        if art.canonical_name not in self._user_owned:
             raise FileNotFoundError(
-                f"'{name}' is not overridden — no diff available"
+                f"'{name}' is not user-owned — no diff available"
+            )
+
+        user_content = self._read_user_file(art)
+        if user_content is None:
+            raise FileNotFoundError(
+                f"User-owned file not found: {art.output_path}"
             )
 
         framework_content = self._render_framework(art)
         framework_lines = framework_content.splitlines(keepends=True)
-        override_lines = override_content.splitlines(keepends=True)
+        user_lines = user_content.splitlines(keepends=True)
 
         diff_lines = list(difflib.unified_diff(
             framework_lines,
-            override_lines,
+            user_lines,
             fromfile=f"framework:{art.template_path}",
-            tofile=f"override:{self._overrides[name]}",
+            tofile=f"yours:{art.output_path}",
         ))
 
         additions = sum(1 for ln in diff_lines if ln.startswith("+") and not ln.startswith("+++"))
@@ -151,100 +187,238 @@ class PromptGalleryService:
             "deletions": deletions,
         }
 
-    # ── Scaffold ──────────────────────────────────────────────────────
+    # ── Claim ─────────────────────────────────────────────────────────
 
     def scaffold_override(self, name: str) -> dict[str, Any]:
-        """Create an override file from the framework template."""
+        """Claim an artifact for in-place editing."""
         art = self._get_artifact(name)
 
-        if name in self._overrides:
+        if name in self._user_owned:
             raise FileExistsError(
-                f"Override for '{name}' already exists at {self._overrides[name]}"
+                f"'{name}' is already user-owned"
             )
 
-        # Render framework content
-        content = self._render_framework(art)
-
-        # Write override file
-        override_rel = f"overrides/{art.output_path}"
-        override_path = self.project_dir / override_rel
-        override_path.parent.mkdir(parents=True, exist_ok=True)
-        override_path.write_text(content, encoding="utf-8")
-        if override_path.suffix == ".py":
-            override_path.chmod(override_path.stat().st_mode | 0o755)
+        # Render framework content if file doesn't exist
+        output_file = self.project_dir / art.output_path
+        if not output_file.exists():
+            content = self._render_framework(art)
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+            output_file.write_text(content, encoding="utf-8")
+            if output_file.suffix == ".py":
+                output_file.chmod(output_file.stat().st_mode | 0o755)
+        else:
+            content = output_file.read_text(encoding="utf-8")
 
         # Update config.yml
-        _update_config_add_override(self.project_dir, name, override_rel)
+        _update_config_add_user_owned(self.project_dir, name)
 
         # Update manifest
-        manager = TemplateManager()
-        ctx = manager._build_claude_code_context(self.project_dir, self._config)
-        _update_manifest_add_override(
-            self.project_dir, manager, ctx, name, override_rel
-        )
+        manager, ctx = self._ensure_template_context()
+        _update_manifest_add_user_owned(self.project_dir, manager, ctx, name)
 
         # Refresh internal state
         self._config = self._load_config()
-        self._overrides = _get_overrides(self._config)
+        self._user_owned = _get_user_owned(self._config)
 
         return {
-            "status": "created",
-            "override_path": override_rel,
+            "status": "claimed",
+            "output_path": art.output_path,
             "content": content,
         }
 
     # ── Save ──────────────────────────────────────────────────────────
 
     def save_override(self, name: str, content: str) -> dict[str, Any]:
-        """Write content to an existing override file."""
-        self._get_artifact(name)  # validate name
-
-        if name not in self._overrides:
+        """Write content to a user-owned file."""
+        if name not in self._user_owned:
             raise FileNotFoundError(
-                f"'{name}' is not overridden — scaffold first"
+                f"'{name}' is not user-owned — claim first"
             )
 
-        override_path = self.project_dir / self._overrides[name]
-        override_path.parent.mkdir(parents=True, exist_ok=True)
-        override_path.write_text(content, encoding="utf-8")
+        art = self._registry.get(name)
+        out = art.output_path if art else self._canonical_to_path(name)
 
-        return {"status": "saved", "path": self._overrides[name]}
+        output_path = self.project_dir / out
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(content, encoding="utf-8")
 
-    # ── Unoverride ────────────────────────────────────────────────────
+        return {"status": "saved", "path": out}
+
+    # ── Unclaim ──────────────────────────────────────────────────────
 
     def unoverride(self, name: str, delete_file: bool = False) -> dict[str, Any]:
-        """Remove an override, restoring framework management."""
-        self._get_artifact(name)  # validate name
-
-        if name not in self._overrides:
+        """Release ownership, restoring framework management."""
+        if name not in self._user_owned:
             raise FileNotFoundError(
-                f"'{name}' is not overridden"
+                f"'{name}' is not user-owned"
             )
 
-        override_rel = self._overrides[name]
+        is_custom = self._registry.get(name) is None
 
         # Remove from config.yml
-        _update_config_remove_override(self.project_dir, name)
+        _update_config_remove_user_owned(self.project_dir, name)
 
-        # Remove from manifest
-        _update_manifest_remove_override(self.project_dir, name)
+        # Remove from manifest (only for registry artifacts)
+        if not is_custom:
+            _update_manifest_remove_user_owned(self.project_dir, name)
 
-        # Optionally delete the file
-        if delete_file:
-            override_path = self.project_dir / override_rel
-            if override_path.exists():
-                override_path.unlink()
-            _cleanup_empty_dirs(
-                override_path.parent, self.project_dir / "overrides"
-            )
+        deleted = False
+        if delete_file and is_custom:
+            out = self.project_dir / self._canonical_to_path(name)
+            if out.exists():
+                out.unlink()
+                deleted = True
 
         # Refresh internal state
         self._config = self._load_config()
-        self._overrides = _get_overrides(self._config)
+        self._user_owned = _get_user_owned(self._config)
 
-        return {"status": "removed", "deleted_file": delete_file}
+        return {"status": "removed", "deleted_file": deleted}
+
+    # ── Untracked file detection ─────────────────────────────────────
+
+    _SCAN_DIRS = ("rules", "agents", "commands", "skills")
+
+    def scan_untracked(self) -> list[dict[str, Any]]:
+        """Find files in .claude/ that are active in Claude Code but not managed.
+
+        Scans .claude/{rules,agents,commands,skills}/ for .md files whose
+        output path doesn't match any registered artifact and whose derived
+        canonical name isn't already in ``prompts.user_owned``.
+        """
+        claude_dir = self.project_dir / ".claude"
+        if not claude_dir.is_dir():
+            return []
+
+        registered_outputs: set[str] = {
+            a.output_path for a in self._registry.all_artifacts()
+        }
+
+        untracked: list[dict[str, Any]] = []
+        for subdir_name in self._SCAN_DIRS:
+            subdir = claude_dir / subdir_name
+            if not subdir.is_dir():
+                continue
+            for fpath in sorted(subdir.rglob("*.md")):
+                if not fpath.is_file() or fpath.name.startswith("."):
+                    continue
+                rel_path = str(fpath.relative_to(self.project_dir))
+                if rel_path in registered_outputs:
+                    continue
+                canonical = self._path_to_canonical(rel_path)
+                if canonical in self._user_owned:
+                    continue
+                preview = self._safe_preview(fpath)
+                untracked.append({
+                    "canonical_name": canonical,
+                    "output_path": rel_path,
+                    "category": canonical.split("/")[0] if "/" in canonical else "other",
+                    "preview": preview,
+                })
+        return untracked
+
+    def register_untracked(self, canonical_name: str) -> dict[str, Any]:
+        """Register an untracked file by adding it to ``prompts.user_owned``."""
+        output_path = self._canonical_to_path(canonical_name)
+        full_path = self.project_dir / output_path
+        if not full_path.exists():
+            raise FileNotFoundError(
+                f"File not found on disk: {output_path}"
+            )
+        if canonical_name in self._user_owned:
+            raise FileExistsError(
+                f"'{canonical_name}' is already registered"
+            )
+
+        _update_config_add_user_owned(self.project_dir, canonical_name)
+
+        self._config = self._load_config()
+        self._user_owned = _get_user_owned(self._config)
+
+        return {"status": "registered", "canonical_name": canonical_name}
+
+    def delete_untracked(self, canonical_name: str) -> dict[str, Any]:
+        """Delete an untracked file from disk."""
+        if self._registry.get(canonical_name) is not None:
+            raise ValueError(
+                f"'{canonical_name}' is a framework artifact — use unoverride instead"
+            )
+        output_path = self._canonical_to_path(canonical_name)
+        full_path = self.project_dir / output_path
+        if not full_path.exists():
+            raise FileNotFoundError(
+                f"File not found on disk: {output_path}"
+            )
+
+        full_path.unlink()
+        return {"status": "deleted", "output_path": output_path}
+
+    @staticmethod
+    def _path_to_canonical(rel_path: str) -> str:
+        """Derive a canonical name from a relative output path.
+
+        ``.claude/rules/test.md`` -> ``rules/test``
+        """
+        # Strip leading .claude/
+        name = rel_path
+        if name.startswith(".claude/"):
+            name = name[len(".claude/"):]
+        # Strip .md extension
+        if name.endswith(".md"):
+            name = name[: -len(".md")]
+        return name
+
+    @staticmethod
+    def _canonical_to_path(canonical_name: str) -> str:
+        """Convert a canonical name back to a relative output path."""
+        return f".claude/{canonical_name}.md"
+
+    @staticmethod
+    def _safe_preview(fpath: Path, max_chars: int = 200) -> str:
+        """Read the first ``max_chars`` characters of a file for preview."""
+        try:
+            text = fpath.read_text(encoding="utf-8")
+            if len(text) <= max_chars:
+                return text
+            return text[:max_chars] + "..."
+        except (UnicodeDecodeError, PermissionError, OSError):
+            return "(unable to read)"
 
     # ── Private helpers ───────────────────────────────────────────────
+
+    def _get_custom_content(self, name: str) -> dict[str, Any]:
+        """Read content for a custom user-owned artifact (no framework template)."""
+        if name not in self._user_owned:
+            raise KeyError(f"Unknown artifact: '{name}'")
+        output_path = self._canonical_to_path(name)
+        fpath = self.project_dir / output_path
+        if not fpath.exists():
+            raise FileNotFoundError(f"Custom file not found: {output_path}")
+        content = fpath.read_text(encoding="utf-8")
+        return {
+            "content": content,
+            "source": "user-owned",
+            "language": self._infer_language(output_path),
+        }
+
+    def _extract_custom_front_matter(self, output_path: str) -> dict[str, str]:
+        """Extract front matter from a custom user file on disk."""
+        fpath = self.project_dir / output_path
+        if not fpath.exists():
+            return {}
+        try:
+            content = fpath.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, PermissionError, OSError):
+            return {}
+        match = _FM_RE.match(content)
+        if not match:
+            return {}
+        fields: dict[str, str] = {}
+        for line in match.group(1).split("\n"):
+            kv = re.match(r'^(\w[\w-]*):\s*"?(.*?)"?\s*$', line)
+            if kv:
+                fields[kv.group(1)] = kv.group(2)
+        return fields
 
     def _get_artifact(self, name: str) -> PromptArtifact:
         """Look up an artifact by name, raising if unknown."""
@@ -296,15 +470,12 @@ class PromptGalleryService:
         else:
             return template_file.read_text(encoding="utf-8")
 
-    def _read_override(self, art: PromptArtifact) -> str | None:
-        """Read the override file if the artifact is overridden."""
-        override_rel = self._overrides.get(art.canonical_name)
-        if not override_rel:
+    def _read_user_file(self, art: PromptArtifact) -> str | None:
+        """Read the user's file at the canonical output path."""
+        output_path = self.project_dir / art.output_path
+        if not output_path.exists():
             return None
-        override_path = self.project_dir / override_rel
-        if not override_path.exists():
-            return None
-        return override_path.read_text(encoding="utf-8")
+        return output_path.read_text(encoding="utf-8")
 
     @staticmethod
     def _infer_language(output_path: str) -> str:

@@ -110,6 +110,28 @@ def _launch_deplot_server(app: FastAPI) -> None:
         app.state.deplot_server_url = None
 
 
+def _launch_channel_finder_server(app: FastAPI) -> None:
+    """Auto-launch the Channel Finder web server if configured."""
+    try:
+        from osprey.mcp_server.common import load_osprey_config
+        from osprey.mcp_server.server_launcher import ensure_channel_finder_server
+
+        config = load_osprey_config()
+        cf = config.get("channel_finder", {})
+        if not cf:
+            return
+        cf_web = cf.get("web", {})
+        host = cf_web.get("host", "127.0.0.1")
+        port = cf_web.get("port", 8092)
+
+        app.state.channel_finder_server_url = f"http://{host}:{port}"
+        ensure_channel_finder_server()
+        logger.info("Channel Finder server available at %s", app.state.channel_finder_server_url)
+    except Exception:
+        logger.warning("Could not auto-launch Channel Finder server", exc_info=True)
+        app.state.channel_finder_server_url = None
+
+
 def _launch_monitoring_stack(app: FastAPI) -> None:
     """Auto-launch the OTEL monitoring stack if configured."""
     try:
@@ -255,6 +277,9 @@ def _create_lifespan(
 
         # Auto-launch the DePlot graph extraction service
         _launch_deplot_server(app)
+
+        # Auto-launch the Channel Finder web server
+        _launch_channel_finder_server(app)
 
         # Auto-launch the OTEL monitoring stack
         _launch_monitoring_stack(app)

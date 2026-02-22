@@ -2,6 +2,8 @@
 
 This test module verifies the chat command wrapper functionality.
 The command wraps the existing direct_conversation interface.
+
+Note: chat_cmd has been removed (LangGraph-only).
 """
 
 from unittest.mock import AsyncMock, patch
@@ -9,9 +11,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from click.testing import CliRunner
 
+pytest.importorskip("osprey.cli.chat_cmd", reason="chat_cmd removed (LangGraph-only)")
 from osprey.cli.chat_cmd import chat
-
-pytestmark = pytest.mark.langgraph
 
 
 @pytest.fixture

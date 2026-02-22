@@ -33,7 +33,6 @@ import yaml
 
 from osprey.mcp_server.control_system.registry import initialize_mcp_registry, reset_mcp_registry
 from osprey.mcp_server.common import reset_config_cache
-from osprey.mcp_server.data_context import reset_data_context
 from osprey.mcp_server.artifact_store import reset_artifact_store
 from osprey.mcp_server.memory_store import reset_memory_store
 
@@ -62,7 +61,6 @@ def _reset_singletons():
     """Reset MCP singletons between tests."""
     yield
     reset_mcp_registry()
-    reset_data_context()
     reset_artifact_store()
     reset_memory_store()
     reset_config_cache()

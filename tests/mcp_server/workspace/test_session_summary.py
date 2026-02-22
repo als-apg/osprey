@@ -1,7 +1,7 @@
 """Tests for the session_summary MCP tool.
 
 Validates that session_summary produces correct inventory data from
-the data context and artifact stores.
+the unified ArtifactStore.
 """
 
 import json
@@ -10,7 +10,6 @@ from pathlib import Path
 import pytest
 
 from osprey.mcp_server.artifact_store import ArtifactStore, initialize_artifact_store
-from osprey.mcp_server.data_context import DataContext, initialize_data_context
 from tests.mcp_server.conftest import get_tool_fn
 
 
@@ -22,10 +21,9 @@ def _get_session_summary():
 
 @pytest.fixture
 def workspace(tmp_path, monkeypatch):
-    """Set up a temporary workspace with data and artifact dirs."""
+    """Set up a temporary workspace with an artifacts dir."""
     ws = tmp_path / "osprey-workspace"
     ws.mkdir()
-    (ws / "data").mkdir()
     (ws / "artifacts").mkdir()
     monkeypatch.setenv("OSPREY_WORKSPACE", str(ws))
     monkeypatch.setattr(
@@ -33,12 +31,6 @@ def workspace(tmp_path, monkeypatch):
         lambda: ws,
     )
     return ws
-
-
-@pytest.fixture
-def data_ctx(workspace):
-    """Initialize a data context in the test workspace."""
-    return initialize_data_context(workspace)
 
 
 @pytest.fixture
@@ -51,55 +43,57 @@ class TestSessionSummaryEmpty:
     """Empty workspace returns zero counts."""
 
     @pytest.mark.asyncio
-    async def test_empty_workspace(self, workspace, data_ctx, art_store):
+    async def test_empty_workspace(self, workspace, art_store):
         fn = _get_session_summary()
         raw = await fn()
         result = json.loads(raw)
 
-        assert result["totals"]["data_entry_count"] == 0
-        assert result["totals"]["artifact_count"] == 0
-        assert result["data_entries"] == []
-        assert result["artifacts"] == []
+        assert result["totals"]["entry_count"] == 0
+        assert result["entries"] == []
 
     @pytest.mark.asyncio
-    async def test_totals_keys_present(self, workspace, data_ctx, art_store):
+    async def test_totals_keys_present(self, workspace, art_store):
         fn = _get_session_summary()
         raw = await fn()
         result = json.loads(raw)
         totals = result["totals"]
 
-        assert "data_entry_count" in totals
-        assert "artifact_count" in totals
-        assert "total_data_bytes" in totals
-        assert "total_artifact_bytes" in totals
-        assert "data_types" in totals
+        assert "entry_count" in totals
+        assert "total_bytes" in totals
+        assert "categories" in totals
         assert "tools_used" in totals
         assert "artifact_types" in totals
 
 
 class TestSessionSummaryWithData:
-    """Workspace with data entries and artifacts."""
+    """Workspace with data entries and gallery artifacts."""
 
     @pytest.fixture
-    def populated_workspace(self, workspace, data_ctx, art_store):
-        """Add some entries to both stores."""
-        data_ctx.save(
+    def populated_workspace(self, workspace, art_store):
+        """Add some entries to the unified artifact store."""
+        # Data entries (via save_data, replacing old DataContext.save)
+        art_store.save_data(
             tool="archiver_read",
             data={"dataframe": {"columns": ["SR:CURRENT", "SR:VOLTAGE"], "index": [], "data": []}},
+            title="Beam current and voltage",
             description="Beam current and voltage",
             summary={"channels": ["SR:CURRENT", "SR:VOLTAGE"], "points": 100},
             access_details={"format": "split"},
-            data_type="timeseries",
+            category="archiver_data",
+            artifact_type="json",
         )
-        data_ctx.save(
+        art_store.save_data(
             tool="channel_read",
             data={"values": [{"channel": "SR:TEMP", "value": 25.3}]},
+            title="Temperature reading",
             description="Temperature reading",
             summary={"channel_count": 1},
             access_details={"format": "list"},
-            data_type="channel_values",
+            category="channel_values",
+            artifact_type="json",
         )
 
+        # Gallery artifact (via save_file, unchanged)
         art_store.save_file(
             file_content=b"<html>plot</html>",
             filename="beam_current.html",
@@ -113,53 +107,55 @@ class TestSessionSummaryWithData:
         return workspace
 
     @pytest.mark.asyncio
-    async def test_counts(self, populated_workspace):
+    async def test_entry_count(self, populated_workspace):
         fn = _get_session_summary()
         raw = await fn()
         result = json.loads(raw)
 
-        assert result["totals"]["data_entry_count"] == 2
-        assert result["totals"]["artifact_count"] == 1
+        assert result["totals"]["entry_count"] == 3
 
     @pytest.mark.asyncio
-    async def test_data_entries_structure(self, populated_workspace):
+    async def test_data_entries_in_unified_list(self, populated_workspace):
         fn = _get_session_summary()
         raw = await fn()
         result = json.loads(raw)
 
-        de = result["data_entries"]
-        assert len(de) == 2
-        # Check first entry (archiver_read)
-        archiver = de[0]
+        entries = result["entries"]
+        assert len(entries) == 3
+
+        # Check first entry (archiver_read data)
+        archiver = entries[0]
         assert archiver["tool"] == "archiver_read"
-        assert archiver["data_type"] == "timeseries"
+        assert archiver["category"] == "archiver_data"
+        assert archiver["artifact_type"] == "json"
         assert archiver["description"] == "Beam current and voltage"
         assert "size_bytes" in archiver
         assert archiver["size_bytes"] > 0
         assert set(archiver["channels"]) == {"SR:CURRENT", "SR:VOLTAGE"}
 
     @pytest.mark.asyncio
-    async def test_artifacts_structure(self, populated_workspace):
+    async def test_gallery_artifact_in_unified_list(self, populated_workspace):
         fn = _get_session_summary()
         raw = await fn()
         result = json.loads(raw)
 
-        arts = result["artifacts"]
-        assert len(arts) == 1
-        art = arts[0]
-        assert art["type"] == "plot_html"
-        assert art["title"] == "Beam Current Plot"
-        assert art["size_bytes"] > 0
+        entries = result["entries"]
+        # The gallery artifact is third (save order: archiver, channel_read, plot)
+        plot = entries[2]
+        assert plot["artifact_type"] == "plot_html"
+        assert plot["title"] == "Beam Current Plot"
+        assert plot["size_bytes"] > 0
 
     @pytest.mark.asyncio
-    async def test_data_type_counts(self, populated_workspace):
+    async def test_category_counts(self, populated_workspace):
         fn = _get_session_summary()
         raw = await fn()
         result = json.loads(raw)
 
-        dt_counts = result["totals"]["data_types"]
-        assert dt_counts["timeseries"] == 1
-        assert dt_counts["channel_values"] == 1
+        cat_counts = result["totals"]["categories"]
+        assert cat_counts["archiver_data"] == 1
+        assert cat_counts["channel_values"] == 1
+        # Gallery artifact has no category, so it doesn't appear here
 
     @pytest.mark.asyncio
     async def test_tool_counts(self, populated_workspace):
@@ -170,6 +166,7 @@ class TestSessionSummaryWithData:
         tool_counts = result["totals"]["tools_used"]
         assert tool_counts["archiver_read"] == 1
         assert tool_counts["channel_read"] == 1
+        assert tool_counts["create_static_plot"] == 1
 
     @pytest.mark.asyncio
     async def test_artifact_type_counts(self, populated_workspace):
@@ -178,55 +175,132 @@ class TestSessionSummaryWithData:
         result = json.loads(raw)
 
         art_counts = result["totals"]["artifact_types"]
+        assert art_counts["json"] == 2
         assert art_counts["plot_html"] == 1
+
+    @pytest.mark.asyncio
+    async def test_total_bytes(self, populated_workspace):
+        fn = _get_session_summary()
+        raw = await fn()
+        result = json.loads(raw)
+
+        assert result["totals"]["total_bytes"] > 0
+
+    @pytest.mark.asyncio
+    async def test_entry_structure(self, populated_workspace):
+        """Every entry has the expected keys."""
+        fn = _get_session_summary()
+        raw = await fn()
+        result = json.loads(raw)
+
+        expected_keys = {
+            "id", "tool", "category", "artifact_type",
+            "title", "description", "size_bytes", "channels", "timestamp",
+        }
+        for entry in result["entries"]:
+            assert set(entry.keys()) == expected_keys
 
 
 class TestSessionSummaryChannelExtraction:
     """Channel extraction from various entry shapes."""
 
     @pytest.mark.asyncio
-    async def test_channels_from_columns_key(self, workspace, data_ctx, art_store):
-        data_ctx.save(
+    async def test_channels_from_columns_key(self, workspace, art_store):
+        art_store.save_data(
             tool="archiver_read",
             data={},
+            title="test columns",
             description="test",
             summary={},
             access_details={"columns": ["PV:A", "PV:B"]},
-            data_type="timeseries",
+            category="archiver_data",
         )
         fn = _get_session_summary()
         raw = await fn()
         result = json.loads(raw)
-        assert result["data_entries"][0]["channels"] == ["PV:A", "PV:B"]
+        assert result["entries"][0]["channels"] == ["PV:A", "PV:B"]
 
     @pytest.mark.asyncio
-    async def test_channels_deduplication(self, workspace, data_ctx, art_store):
+    async def test_channels_deduplication(self, workspace, art_store):
         """Channels appearing in both summary and access_details are deduplicated."""
-        data_ctx.save(
+        art_store.save_data(
             tool="archiver_read",
             data={},
+            title="test dedup",
             description="test",
             summary={"channels": ["PV:A", "PV:B"]},
             access_details={"channels": ["PV:B", "PV:C"]},
-            data_type="timeseries",
+            category="archiver_data",
         )
         fn = _get_session_summary()
         raw = await fn()
         result = json.loads(raw)
-        assert result["data_entries"][0]["channels"] == ["PV:A", "PV:B", "PV:C"]
+        assert result["entries"][0]["channels"] == ["PV:A", "PV:B", "PV:C"]
 
     @pytest.mark.asyncio
-    async def test_no_channels(self, workspace, data_ctx, art_store):
+    async def test_no_channels(self, workspace, art_store):
         """Entries without channel info return empty list."""
-        data_ctx.save(
+        art_store.save_data(
             tool="execute",
             data={},
+            title="script output",
             description="script output",
             summary={"result": "ok"},
             access_details={},
-            data_type="code_output",
+            category="code_output",
         )
         fn = _get_session_summary()
         raw = await fn()
         result = json.loads(raw)
-        assert result["data_entries"][0]["channels"] == []
+        assert result["entries"][0]["channels"] == []
+
+    @pytest.mark.asyncio
+    async def test_channels_from_pvs_key(self, workspace, art_store):
+        """Channel extraction recognises the 'pvs' key."""
+        art_store.save_data(
+            tool="channel_read",
+            data={},
+            title="test pvs",
+            description="test",
+            summary={"pvs": ["PV:X", "PV:Y"]},
+            access_details={},
+            category="channel_values",
+        )
+        fn = _get_session_summary()
+        raw = await fn()
+        result = json.loads(raw)
+        assert result["entries"][0]["channels"] == ["PV:X", "PV:Y"]
+
+    @pytest.mark.asyncio
+    async def test_channels_from_channel_names_key(self, workspace, art_store):
+        """Channel extraction recognises the 'channel_names' key."""
+        art_store.save_data(
+            tool="archiver_read",
+            data={},
+            title="test channel_names",
+            description="test",
+            summary={},
+            access_details={"channel_names": ["PV:M", "PV:N"]},
+            category="archiver_data",
+        )
+        fn = _get_session_summary()
+        raw = await fn()
+        result = json.loads(raw)
+        assert result["entries"][0]["channels"] == ["PV:M", "PV:N"]
+
+    @pytest.mark.asyncio
+    async def test_gallery_artifact_no_channels(self, workspace, art_store):
+        """Gallery artifacts (save_file) have no summary/access_details, so no channels."""
+        art_store.save_file(
+            file_content=b"<html>chart</html>",
+            filename="chart.html",
+            artifact_type="plot_html",
+            title="A Chart",
+            description="Some chart",
+            mime_type="text/html",
+            tool_source="create_static_plot",
+        )
+        fn = _get_session_summary()
+        raw = await fn()
+        result = json.loads(raw)
+        assert result["entries"][0]["channels"] == []

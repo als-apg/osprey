@@ -4,66 +4,7 @@ Pytest configuration and shared test utilities.
 This module provides shared fixtures and utilities for all Osprey tests.
 """
 
-from pathlib import Path
-from typing import Any
-
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
-
-from osprey.base.planning import ExecutionPlan, PlannedStep
-from osprey.events import clear_fallback_handlers, register_fallback_handler
-from osprey.state import AgentState
-
-# ===================================================================
-# LangGraph Test Marker — applied via pytest_collection_modifyitems
-# ===================================================================
-
-# Directories whose tests are *exclusively* LangGraph orchestration.
-# Tests here get the 'langgraph' marker automatically.
-# Use -m "not langgraph" to skip them during Claude Code development.
-#
-# NOTE: Shared framework code (connectors, models, registry, services, etc.)
-# is intentionally NOT listed here — those tests validate code used by both
-# LangGraph and Claude Code and should always run.
-_LANGGRAPH_DIRS: set[str] = {
-    "tests/infrastructure",       # Graph nodes: router, classification, orchestration, gateway
-    "tests/capabilities",         # LangGraph capability wrappers
-    "tests/prompts",              # LangGraph-specific prompt builders
-    "tests/events",               # LangGraph streaming event system
-    "tests/integration",          # LangGraph integration tests
-    "tests/deployment",           # LangGraph deployment configs
-    "tests/interfaces/cui",       # CUI launcher (LangGraph chat UI)
-    "tests/interfaces/web_terminal",  # Web terminal (LangGraph chat UI)
-}
-
-# Channel finder is split: top-level files are LangGraph, mcp/ subdir is Claude Code
-_LANGGRAPH_CHANNEL_FINDER = "tests/services/channel_finder"
-_CLAUDE_CODE_CHANNEL_FINDER_MCP = "tests/services/channel_finder/mcp"
-
-
-def pytest_collection_modifyitems(items: list[pytest.Item], config: pytest.Config) -> None:
-    """Apply 'langgraph' marker to tests in LangGraph-only directories."""
-    rootdir = Path(config.rootdir)
-    langgraph_mark = pytest.mark.langgraph
-
-    for item in items:
-        try:
-            rel = Path(item.fspath).relative_to(rootdir).as_posix()
-        except (ValueError, TypeError):
-            continue
-
-        # Channel finder special case: mcp/ subdir is Claude Code
-        if rel.startswith(_CLAUDE_CODE_CHANNEL_FINDER_MCP + "/"):
-            continue
-        if rel.startswith(_LANGGRAPH_CHANNEL_FINDER + "/"):
-            item.add_marker(langgraph_mark)
-            continue
-
-        # Check against full LangGraph directories
-        for lg_dir in _LANGGRAPH_DIRS:
-            if rel.startswith(lg_dir + "/"):
-                item.add_marker(langgraph_mark)
-                break
 
 # ===================================================================
 # Auto-reset Registry and Config Between Tests
@@ -114,190 +55,6 @@ def reset_state_between_tests():
         approval_module._approval_manager = None
     except ImportError:
         pass
-
-
-# ===================================================================
-# Unified Event System — Event Capture Fixtures
-# ===================================================================
-
-
-@pytest.fixture(autouse=True, scope="function")
-def clear_event_handlers_between_tests():
-    """Clear event fallback handlers between tests to ensure isolation."""
-    clear_fallback_handlers()
-    yield
-    clear_fallback_handlers()
-
-
-@pytest.fixture
-def captured_events() -> list[dict[str, Any]]:
-    """Provide a list to capture emitted events via the unified event system."""
-    return []
-
-
-@pytest.fixture
-def fallback_handler_with_capture(captured_events):
-    """Register a fallback handler that captures events into captured_events list.
-
-    Use this with ``captured_events`` to verify event emission in tests
-    that don't run inside a LangGraph streaming context.
-
-    Example::
-
-        def test_warning_emitted(self, captured_events, fallback_handler_with_capture):
-            logger.warning("something happened")
-            assert any("something happened" in e.get("message", "") for e in captured_events)
-    """
-
-    def handler(event_dict: dict[str, Any]) -> None:
-        captured_events.append(event_dict)
-
-    unregister = register_fallback_handler(handler)
-    yield handler
-    unregister()
-
-
-# ===================================================================
-# Test State Factory
-# ===================================================================
-
-
-def create_test_state(
-    user_message: str = "test query",
-    task_objective: str = "test objective",
-    conversation_history: list[tuple[str, str]] | None = None,
-    capability: str = "test_capability",
-    context_key: str = "test_context",
-    final_objective: str = "Test objective",
-    success_criteria: str = "Task completed successfully",
-    **overrides,
-) -> AgentState:
-    """Factory function to create test states with minimal boilerplate.
-
-    This is a global test utility that can be used across all test modules
-    to create AgentState objects with sensible defaults, reducing test
-    verbosity and maintenance burden.
-
-    Args:
-        user_message: The user's message (used if no conversation_history provided)
-        task_objective: The task objective for the planned step
-        conversation_history: List of (role, content) tuples for multi-turn conversations
-                            role should be 'user' or 'ai'
-        capability: Capability name for the planned step
-        context_key: Context key for the planned step
-        final_objective: The execution plan's final objective
-        success_criteria: Success criteria for the planned step
-        **overrides: Any additional state fields to override
-
-    Returns:
-        Complete AgentState with sensible defaults for testing
-
-    Examples:
-        Simple single-message state::
-
-            state = create_test_state(
-                user_message="whats the weather?",
-                task_objective="Ask for location"
-            )
-
-        Multi-turn conversation::
-
-            state = create_test_state(
-                conversation_history=[
-                    ("user", "I need data"),
-                    ("ai", "What kind of data?"),
-                    ("user", "beam current")
-                ],
-                task_objective="Ask for time range"
-            )
-
-        With capability-specific settings::
-
-            state = create_test_state(
-                user_message="fetch data",
-                capability="data_retrieval",
-                context_key="fetch_pv_data",
-                task_depends_on_chat_history=True
-            )
-    """
-    # Build messages from conversation history or single message
-    messages = []
-    if conversation_history:
-        for role, content in conversation_history:
-            if role == "user":
-                messages.append(HumanMessage(content=content))
-            else:
-                messages.append(AIMessage(content=content))
-    else:
-        messages = [HumanMessage(content=user_message)]
-
-    # Create execution plan
-    execution_plan = ExecutionPlan(
-        steps=[
-            PlannedStep(
-                context_key=context_key,
-                capability=capability,
-                task_objective=task_objective,
-                success_criteria=success_criteria,
-                expected_output=None,
-                inputs=[],
-            )
-        ],
-        final_objective=final_objective,
-    )
-
-    # Create state with defaults
-    state: AgentState = {
-        "messages": messages,
-        "planning_execution_plan": execution_plan,
-        "planning_current_step_index": 0,
-        "capability_context_data": {},
-        "agent_control": {},
-        "status_updates": [],
-        "progress_events": [],
-        "task_current_task": "Test task",
-        "task_depends_on_chat_history": False,
-        "task_depends_on_user_memory": False,
-        "task_custom_message": None,
-        "planning_active_capabilities": [capability],
-        "execution_step_results": {},
-        "execution_last_result": None,
-        "execution_pending_approvals": {},
-        "execution_start_time": None,
-        "execution_total_time": None,
-        "approval_approved": None,
-        "approved_payload": None,
-        "control_reclassification_reason": None,
-        "control_reclassification_count": 0,
-        "control_plans_created_count": 1,
-        "control_current_step_retry_count": 0,
-        "control_retry_count": 0,
-        "control_has_error": False,
-        "control_error_info": None,
-        "control_last_error": None,
-        "control_max_retries": 3,
-        "control_is_killed": False,
-        "control_kill_reason": None,
-        "control_is_awaiting_validation": False,
-        "control_validation_context": None,
-        "control_validation_timestamp": None,
-        "ui_captured_notebooks": [],
-        "ui_captured_figures": [],
-        "ui_launchable_commands": [],
-        "ui_agent_context": None,
-        "runtime_checkpoint_metadata": None,
-        "runtime_info": None,
-        # Reactive orchestration fields
-        "react_messages": [],
-        "react_step_count": 0,
-        "react_rejection_count": 0,
-        "react_response_generated": False,
-    }
-
-    # Apply any overrides
-    state.update(overrides)
-
-    return state
 
 
 # ===================================================================
@@ -362,12 +119,6 @@ class PromptTestHelpers:
 # ===================================================================
 # Pytest Fixtures
 # ===================================================================
-
-
-@pytest.fixture
-def test_state():
-    """Fixture providing a basic test state for quick testing."""
-    return create_test_state()
 
 
 @pytest.fixture
@@ -441,21 +192,8 @@ class TestRegistryProvider(RegistryConfigProvider):
     config = {
         "project_root": str(tmp_path),
         "registry_path": str(registry_file),
-        "langgraph": {"use_postgres": False},
         "execution_control": {
             "epics": {"writes_enabled": False},
-            "agent_control": {
-                "task_extraction_bypass_enabled": False,
-                "capability_selection_bypass_enabled": False,
-            },
-            "limits": {
-                "max_reclassifications": 1,
-                "max_planning_attempts": 2,
-                "max_step_retries": 3,
-                "max_execution_time_seconds": 300,
-                "graph_recursion_limit": 100,
-                "max_concurrent_classifications": 5,
-            },
         },
         "approval": {
             "global_mode": "selective",
@@ -539,21 +277,8 @@ class TestRegistryProvider(RegistryConfigProvider):
     config = {
         "project_root": str(tmp_path),
         "registry_path": str(registry_file),
-        "langgraph": {"use_postgres": False},
         "execution_control": {
             "epics": {"writes_enabled": False},
-            "agent_control": {
-                "task_extraction_bypass_enabled": False,
-                "capability_selection_bypass_enabled": False,
-            },
-            "limits": {
-                "max_reclassifications": 1,
-                "max_planning_attempts": 2,
-                "max_step_retries": 3,
-                "max_execution_time_seconds": 300,
-                "graph_recursion_limit": 100,
-                "max_concurrent_classifications": 5,
-            },
         },
         "approval": {
             "global_mode": "selective",

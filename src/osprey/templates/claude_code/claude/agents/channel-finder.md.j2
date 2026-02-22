@@ -202,10 +202,10 @@ As your FINAL action, call `submit_response` to persist your findings:
 - `data_type`: "channel_addresses"
 - `source_agent`: "channel-finder"
 
-Include the returned `context_entry_id` in your final answer:
-**Channels found** (context_entry_id: 2):
+Include the returned `artifact_id` in your final answer:
+**Channels found** (artifact_id: 2):
 - CHANNEL:ADDRESS:ONE
 - CHANNEL:ADDRESS:TWO
 
-This allows the orchestrator to reference the data context entry for downstream tools.
+This allows the orchestrator to reference the artifact entry for downstream tools.
 {%- endif %}

@@ -21,6 +21,7 @@
 import { fetchJSON } from './api.js';
 import { registerUnsavedGuard } from './drawer.js';
 import { tokenize, computeWordDiff, groupChangeBlocks, renderWordsIntoLine } from './diff-utils.js';
+import { renderSettingsJson, renderMcpJson } from './config-renderers.js';
 
 // ---- Constants ---- //
 
@@ -133,6 +134,7 @@ class ArtifactGallery {
 
     // Instance state
     this.artifacts = [];
+    this.untrackedFiles = [];
     this.selectedArtifact = null;
     this.currentView = 'gallery';
     this.detailMode = 'preview';
@@ -141,7 +143,7 @@ class ArtifactGallery {
     this.filterProjectOwned = false;
     this.editDirty = false;
     this.loaded = false;
-    this.summary = { total: 0, framework: 0, overridden: 0 };
+    this.summary = { total: 0, framework: 0, userOwned: 0 };
 
     // DOM references (populated by _buildDOM)
     this.loadingEl = null;
@@ -150,6 +152,7 @@ class ArtifactGallery {
     this.detailView = null;
     this.searchInput = null;
     this.filterChipsEl = null;
+    this.untrackedBannerEl = null;
     this.summaryEl = null;
     this.categoriesEl = null;
     this.detailHeaderEl = null;
@@ -196,6 +199,10 @@ class ArtifactGallery {
       this.galleryView.appendChild(searchBar);
     }
 
+    this.untrackedBannerEl = _el('div', 'prompts-untracked-banner');
+    this.untrackedBannerEl.style.display = 'none';
+    this.galleryView.appendChild(this.untrackedBannerEl);
+
     if (this.showSummary) {
       this.summaryEl = _el('div', 'prompts-summary');
       this.galleryView.appendChild(this.summaryEl);
@@ -228,7 +235,10 @@ class ArtifactGallery {
     this.errorEl.style.display = 'none';
 
     try {
-      const data = await fetchArtifactsShared();
+      const [data, untrackedData] = await Promise.all([
+        fetchArtifactsShared(),
+        fetchJSON('/api/prompts/untracked').catch(() => ({ untracked: [] })),
+      ]);
       const allArtifacts = data.artifacts || [];
 
       // Filter to this gallery's domain and apply category overrides
@@ -242,10 +252,18 @@ class ArtifactGallery {
             a.category,
         }));
 
+      // Filter untracked files to this gallery's categories
+      const allUntracked = untrackedData.untracked || [];
+      this.untrackedFiles = allUntracked.filter((u) => {
+        const mapped = this.categoryRemaps[u.category] || u.category;
+        return this.categoryFilter({ category: u.category, name: u.canonical_name })
+          || this.categoryFilter({ category: mapped, name: u.canonical_name });
+      });
+
       // Compute summary for this gallery's artifacts
-      const fw = this.artifacts.filter((a) => a.status !== 'overridden').length;
-      const ov = this.artifacts.filter((a) => a.status === 'overridden').length;
-      this.summary = { total: this.artifacts.length, framework: fw, overridden: ov };
+      const fw = this.artifacts.filter((a) => a.status === 'framework').length;
+      const uo = this.artifacts.filter((a) => a.status === 'user-owned').length;
+      this.summary = { total: this.artifacts.length, framework: fw, userOwned: uo };
 
       this.loadingEl.style.display = 'none';
       this.renderGallery();
@@ -265,10 +283,147 @@ class ArtifactGallery {
 
     this.currentView = 'gallery';
 
+    this.renderUntrackedBanner();
     this.renderFilterChips();
     this.renderSummary();
     this.bindSearch();
     this.renderCategories();
+  }
+
+  renderUntrackedBanner() {
+    if (!this.untrackedBannerEl) return;
+
+    if (!this.untrackedFiles || this.untrackedFiles.length === 0) {
+      this.untrackedBannerEl.style.display = 'none';
+      return;
+    }
+
+    this.untrackedBannerEl.style.display = '';
+    this.untrackedBannerEl.innerHTML = '';
+
+    const header = _el('div', 'prompts-untracked-header');
+    const icon = _el('span', 'prompts-untracked-icon');
+    icon.textContent = '\u26A0';
+    header.appendChild(icon);
+
+    const title = _el('span', 'prompts-untracked-title');
+    const n = this.untrackedFiles.length;
+    title.textContent = `${n} file${n > 1 ? 's' : ''} active in Claude Code but not managed by OSPREY`;
+    header.appendChild(title);
+
+    this.untrackedBannerEl.appendChild(header);
+
+    const desc = _el('div', 'prompts-untracked-desc');
+    desc.textContent =
+      'These files are in .claude/ and will be loaded by Claude Code, but they are not tracked in your project config. Register them to manage through this UI, or delete them.';
+    this.untrackedBannerEl.appendChild(desc);
+
+    const list = _el('div', 'prompts-untracked-list');
+
+    for (const file of this.untrackedFiles) {
+      const row = _el('div', 'prompts-untracked-row');
+
+      const info = _el('div', 'prompts-untracked-info');
+      const nameEl = _el('span', 'prompts-untracked-name');
+      nameEl.textContent = file.canonical_name;
+      info.appendChild(nameEl);
+
+      const pathEl = _el('span', 'prompts-untracked-path');
+      pathEl.textContent = file.output_path;
+      info.appendChild(pathEl);
+
+      row.appendChild(info);
+
+      const actions = _el('div', 'prompts-untracked-actions');
+
+      const registerBtn = document.createElement('button');
+      registerBtn.className = 'prompts-untracked-btn prompts-untracked-register';
+      registerBtn.textContent = 'Register';
+      registerBtn.title = 'Add to project config so this file is managed by OSPREY';
+      registerBtn.addEventListener('click', () => this.registerUntracked(file.canonical_name));
+      actions.appendChild(registerBtn);
+
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'prompts-untracked-btn prompts-untracked-delete';
+      deleteBtn.textContent = 'Delete';
+      deleteBtn.title = 'Remove this file from disk — it will no longer affect Claude Code';
+      deleteBtn.addEventListener('click', () => this.deleteUntracked(file.canonical_name));
+      actions.appendChild(deleteBtn);
+
+      row.appendChild(actions);
+      list.appendChild(row);
+    }
+
+    this.untrackedBannerEl.appendChild(list);
+  }
+
+  async registerUntracked(canonicalName) {
+    try {
+      const resp = await fetch('/api/prompts/untracked/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: canonicalName }),
+      });
+      if (!resp.ok) {
+        const detail = await resp.json().catch(() => ({}));
+        throw new Error(detail.detail || `Register failed (HTTP ${resp.status})`);
+      }
+      await this.reloadFull();
+    } catch (e) {
+      this.errorEl.style.display = 'flex';
+      this.errorEl.textContent = `Register failed: ${e.message}`;
+    }
+  }
+
+  async deleteUntracked(canonicalName) {
+    if (!confirm(`Delete "${canonicalName}"? This file will be removed from disk.`)) return;
+
+    try {
+      const resp = await fetch(
+        `/api/prompts/untracked/${encodeURIComponent(canonicalName)}`,
+        { method: 'DELETE' }
+      );
+      if (!resp.ok) {
+        const detail = await resp.json().catch(() => ({}));
+        throw new Error(detail.detail || `Delete failed (HTTP ${resp.status})`);
+      }
+      await this.reloadFull();
+    } catch (e) {
+      this.errorEl.style.display = 'flex';
+      this.errorEl.textContent = `Delete failed: ${e.message}`;
+    }
+  }
+
+  async reloadFull() {
+    resetFetchCache();
+    const [data, untrackedData] = await Promise.all([
+      fetchArtifactsShared(),
+      fetchJSON('/api/prompts/untracked').catch(() => ({ untracked: [] })),
+    ]);
+
+    const allArtifacts = data.artifacts || [];
+    this.artifacts = allArtifacts
+      .filter(this.categoryFilter)
+      .map((a) => ({
+        ...a,
+        displayCategory:
+          this.categoryOverrides[a.name] ||
+          this.categoryRemaps[a.category] ||
+          a.category,
+      }));
+
+    const allUntracked = untrackedData.untracked || [];
+    this.untrackedFiles = allUntracked.filter((u) => {
+      const mapped = this.categoryRemaps[u.category] || u.category;
+      return this.categoryFilter({ category: u.category, name: u.canonical_name })
+        || this.categoryFilter({ category: mapped, name: u.canonical_name });
+    });
+
+    const fw = this.artifacts.filter((a) => a.status === 'framework').length;
+    const uo = this.artifacts.filter((a) => a.status === 'user-owned').length;
+    this.summary = { total: this.artifacts.length, framework: fw, userOwned: uo };
+
+    this.renderGallery();
   }
 
   renderFilterChips() {
@@ -302,8 +457,8 @@ class ArtifactGallery {
     }
 
     // "Project-owned" toggle
-    const hasOverridden = this.artifacts.some((a) => a.status === 'overridden');
-    if (hasOverridden) {
+    const hasUserOwned = this.artifacts.some((a) => a.status === 'user-owned');
+    if (hasUserOwned) {
       const sep = document.createElement('span');
       sep.className = 'prompts-chip-sep';
       this.filterChipsEl.appendChild(sep);
@@ -323,7 +478,7 @@ class ArtifactGallery {
   renderSummary() {
     if (!this.summaryEl) return;
     this.summaryEl.textContent =
-      `${this.summary.total} artifacts \u00B7 ${this.summary.framework} framework \u00B7 ${this.summary.overridden} project-owned`;
+      `${this.summary.total} artifacts \u00B7 ${this.summary.framework} framework \u00B7 ${this.summary.userOwned} project-owned`;
   }
 
   bindSearch() {
@@ -453,9 +608,9 @@ class ArtifactGallery {
     body.appendChild(descEl);
 
     const badge = document.createElement('span');
-    const badgeClass = artifact.status === 'overridden' ? 'overridden' : 'framework';
-    badge.className = `prompts-badge ${badgeClass}`;
-    badge.textContent = artifact.status === 'overridden' ? 'PROJECT-OWNED' : 'FRAMEWORK';
+    const owned = artifact.status === 'user-owned';
+    badge.className = `prompts-badge ${owned ? 'user-owned' : 'framework'}`;
+    badge.textContent = owned ? 'PROJECT-OWNED' : 'FRAMEWORK';
 
     card.appendChild(icon);
     card.appendChild(body);
@@ -517,9 +672,9 @@ class ArtifactGallery {
     body.appendChild(select);
 
     const badge = document.createElement('span');
-    const badgeClass = selectedArt.status === 'overridden' ? 'overridden' : 'framework';
-    badge.className = `prompts-badge ${badgeClass}`;
-    badge.textContent = selectedArt.status === 'overridden' ? 'PROJECT-OWNED' : 'FRAMEWORK';
+    const ownedSkill = selectedArt.status === 'user-owned';
+    badge.className = `prompts-badge ${ownedSkill ? 'user-owned' : 'framework'}`;
+    badge.textContent = ownedSkill ? 'PROJECT-OWNED' : 'FRAMEWORK';
 
     card.appendChild(icon);
     card.appendChild(body);
@@ -535,7 +690,7 @@ class ArtifactGallery {
     let result = this.artifacts;
 
     if (this.filterProjectOwned) {
-      result = result.filter((a) => a.status === 'overridden');
+      result = result.filter((a) => a.status === 'user-owned');
     }
 
     if (this.filterCategory) {
@@ -596,16 +751,16 @@ class ArtifactGallery {
     spacer.style.flex = '1';
     row1.appendChild(spacer);
 
-    const isOverridden = this.selectedArtifact.status === 'overridden';
+    const isOwned = this.selectedArtifact.status === 'user-owned';
 
     const badge = document.createElement('span');
-    badge.className = `prompts-badge ${isOverridden ? 'overridden' : 'framework'}`;
-    badge.textContent = isOverridden ? 'PROJECT-OWNED' : 'FRAMEWORK';
+    badge.className = `prompts-badge ${isOwned ? 'user-owned' : 'framework'}`;
+    badge.textContent = isOwned ? 'PROJECT-OWNED' : 'FRAMEWORK';
     row1.appendChild(badge);
 
     const ownerBtn = document.createElement('button');
     ownerBtn.className = 'prompts-ownership-btn';
-    if (isOverridden) {
+    if (isOwned) {
       ownerBtn.textContent = 'Release to Framework';
       ownerBtn.addEventListener('click', () => this.releaseToFramework());
     } else {
@@ -647,7 +802,7 @@ class ArtifactGallery {
 
     const modes = [{ key: 'preview', label: 'Preview' }];
 
-    if (this.selectedArtifact.status === 'overridden') {
+    if (this.selectedArtifact.status === 'user-owned' && !this.selectedArtifact.custom) {
       modes.push({ key: 'diff', label: 'Diff' });
     }
 
@@ -724,11 +879,33 @@ class ArtifactGallery {
     const data = await fetchJSON(`/api/prompts/${encodeURIComponent(this.selectedArtifact.name)}`);
     const content = data.content || '';
     const language = data.language || this.selectedArtifact.language || 'text';
+    const artifactName = this.selectedArtifact.name || '';
 
     this.detailContentEl.innerHTML = '';
 
     const wrapper = document.createElement('div');
     wrapper.className = 'prompts-preview-content';
+
+    // Structured renderers for config JSON files
+    if (artifactName === 'settings-json' && language === 'json') {
+      const structured = renderSettingsJson(content);
+      if (structured) {
+        wrapper.appendChild(structured);
+        wrapper.appendChild(renderSourceToggle(content, 'json'));
+        this.detailContentEl.appendChild(wrapper);
+        return;
+      }
+    }
+
+    if (artifactName === 'mcp-json' && language === 'json') {
+      const structured = renderMcpJson(content);
+      if (structured) {
+        wrapper.appendChild(structured);
+        wrapper.appendChild(renderSourceToggle(content, 'json'));
+        this.detailContentEl.appendChild(wrapper);
+        return;
+      }
+    }
 
     if (language === 'markdown') {
       const { frontMatter, body } = parseFrontMatter(content);
@@ -1178,9 +1355,9 @@ class ArtifactGallery {
       }));
 
     // Recompute summary
-    const fw = this.artifacts.filter((a) => a.status !== 'overridden').length;
-    const ov = this.artifacts.filter((a) => a.status === 'overridden').length;
-    this.summary = { total: this.artifacts.length, framework: fw, overridden: ov };
+    const fw = this.artifacts.filter((a) => a.status === 'framework').length;
+    const uo = this.artifacts.filter((a) => a.status === 'user-owned').length;
+    this.summary = { total: this.artifacts.length, framework: fw, userOwned: uo };
 
     if (name) {
       const updated = this.artifacts.find((a) => a.name === name);
@@ -1218,6 +1395,7 @@ class ArtifactGallery {
 
   reset() {
     this.artifacts = [];
+    this.untrackedFiles = [];
     this.selectedArtifact = null;
     this.currentView = 'gallery';
     this.detailMode = 'preview';
@@ -1226,7 +1404,7 @@ class ArtifactGallery {
     this.filterProjectOwned = false;
     this.editDirty = false;
     this.loaded = false;
-    this.summary = { total: 0, framework: 0, overridden: 0 };
+    this.summary = { total: 0, framework: 0, userOwned: 0 };
   }
 }
 

@@ -26,8 +26,8 @@ You have access to these workspace MCP tools:
 - `graph_compare` — Compare two datasets using mathematical similarity metrics
 - `graph_save_reference` — Save a dataset as a named reference for future comparisons
 - `screenshot_capture` — Capture a screenshot from the control room display
-- `data_context_list` — List all collected data entries (find references, extractions)
-- `data_context_read` — Read the full data content of a data context entry by ID
+- `data_list` — List all collected data entries (find references, extractions)
+- `data_read` — Read the full data content of a data context entry by ID
 - `artifact_get` — Look up an artifact by ID to get its file path and metadata
 - `artifact_export` — Convert an HTML artifact to a static image (PNG/JPEG)
 - `submit_response` — Submit your final analysis
@@ -50,7 +50,7 @@ When asked to extract data from a graph:
    The DePlot model works best on clean, single-trace line charts.
 
 3. **Review results**: Check the extracted columns and data points for
-   reasonableness. Use `data_context_read(entry_id=...)` to inspect full data
+   reasonableness. Use `data_read(entry_id=...)` to inspect full data
    when the summary isn't sufficient.
 
 4. **Save if needed**: If the user wants this as a reference baseline, use
@@ -60,7 +60,7 @@ When asked to extract data from a graph:
 
 When asked to compare a graph against a reference:
 
-1. **Find the reference**: Use `data_context_list(data_type_filter="graph_reference")`
+1. **Find the reference**: Use `data_list(category_filter="graph_reference")`
    to find saved references, or accept a reference_entry_id from the user.
 
 2. **Get current data**: Either extract from a new image with `graph_extract`,
@@ -98,7 +98,7 @@ When reporting comparison results, explain the metrics in practical terms:
 ## Rules
 
 - **NEVER fabricate data** — only report values from actual tool results
-- **Always cite entry IDs** — include context_entry_id for every dataset
+- **Always cite entry IDs** — include artifact_id for every dataset
 - **Report DePlot errors clearly** — if the service is unavailable, say so
 - **Don't guess at chart content** — if extraction fails, suggest trying
   a different screenshot or preprocessing option
@@ -113,6 +113,6 @@ As your FINAL action, call `submit_response` to persist your analysis:
 - `source_agent`: "graph-analyst"
 - `entry_ids`: All context entry IDs cited
 
-Include the returned `context_entry_id` in your final answer:
-**Results** (context_entry_id: N): ...
+Include the returned `artifact_id` in your final answer:
+**Results** (artifact_id: N): ...
 {% endif %}

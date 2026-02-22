@@ -33,18 +33,6 @@ def _make_artifact(store, title="Test Plot", artifact_type="plot_html"):
     )
 
 
-def _make_context_entry(context_store, description="Test channel read"):
-    """Create a minimal context entry for testing."""
-    return context_store.save(
-        tool="channel_read",
-        description=description,
-        summary={"channel": "PV:TEST", "value": 42.0},
-        access_details={"format": "scalar"},
-        data={"status": "ok", "value": 42},
-        data_type="scalar",
-    )
-
-
 def _llm_json_response(subject="Test Subject", details="Test details.", tags=None):
     """Build a JSON string that aget_chat_completion would return."""
     if tags is None:
@@ -144,33 +132,6 @@ class TestLogbookCompose:
         assert data["details"] == "Observed stable beam current at 500 mA."
         assert "beam" in data["tags"]
         assert entry.id in data["artifact_ids"]
-
-    @pytest.mark.unit
-    def test_compose_success_context(self, app_client):
-        """Mock aget_chat_completion with int context_id."""
-        ctx_store = app_client.app.state.context_store
-        entry = _make_context_entry(ctx_store, description="SR current readback")
-
-        mock_llm = AsyncMock(return_value=_llm_json_response(
-            subject="Channel readback logged",
-            details="Read SR current PV.",
-            tags=["readback"],
-        ))
-
-        with (
-            patch("osprey.utils.config.get_model_config", return_value=_mock_model_config()),
-            patch("osprey.models.completion.aget_chat_completion", mock_llm),
-        ):
-            resp = app_client.post(
-                "/api/logbook/compose",
-                json={"context_id": entry.id},
-            )
-
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["subject"] == "Channel readback logged"
-        assert data["artifact_ids"] == []
-
 
     @pytest.mark.unit
     def test_compose_markdown_fenced_json(self, app_client):

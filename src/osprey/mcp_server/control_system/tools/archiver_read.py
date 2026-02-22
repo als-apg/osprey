@@ -148,8 +148,7 @@ async def archiver_read(
             }
             access_details = {
                 "data_file_structure": {
-                    "root_keys": ["_osprey_metadata", "data"],
-                    "data_keys": ["query", "dataframe"],
+                    "root_keys": ["query", "dataframe"],
                     "dataframe_format": "pandas split-orient JSON",
                     "dataframe_keys": ["index", "columns", "data"],
                 },
@@ -162,9 +161,9 @@ async def archiver_read(
                     ),
                 },
                 "access_patterns": {
-                    "all_timestamps": 'json_data["data"]["dataframe"]["index"]',
-                    "channel_names": 'json_data["data"]["dataframe"]["columns"]',
-                    "all_rows": 'json_data["data"]["dataframe"]["data"]',
+                    "all_timestamps": 'json_data["dataframe"]["index"]',
+                    "channel_names": 'json_data["dataframe"]["columns"]',
+                    "all_rows": 'json_data["dataframe"]["data"]',
                     "single_channel_values": (
                         'col_idx = columns.index("CHANNEL"); [row[col_idx] for row in data]'
                     ),
@@ -181,17 +180,19 @@ async def archiver_read(
                 "bin_size": bin_size,
             }
 
-            # Save via DataContext
-            from osprey.mcp_server.data_context import get_data_context
+            # Save via ArtifactStore (unified)
+            from osprey.mcp_server.artifact_store import get_artifact_store
 
-            ctx = get_data_context()
-            entry = ctx.save(
+            store = get_artifact_store()
+            entry = store.save_data(
                 tool="archiver_read",
                 data=data_payload,
+                title=f"Archiver data for {len(channels)} channel(s)",
                 description=f"Archiver data for {len(channels)} channel(s), {len(df)} points",
                 summary=summary,
                 access_details=access_details,
-                data_type="timeseries",
+                category="archiver_data",
+                metadata={"data_type": "timeseries"},
             )
 
             return json.dumps(entry.to_tool_response(), default=str)

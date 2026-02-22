@@ -178,13 +178,14 @@
   overflow-y: auto;
 }
 
-/* ---- Tool use (collapsible with LED) ---- */
+/* ---- Tool use (collapsible with LED, category-colored) ---- */
 
 .op-tool {
   background: var(--bg-elevated);
   border-radius: 4px;
   margin: 4px 0;
   padding: 4px 8px;
+  border-left: 2px solid var(--tool-color, var(--color-accent));
 }
 
 .op-tool summary {
@@ -205,9 +206,27 @@
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: var(--color-accent-light);
+  background: var(--tool-color, var(--color-accent-light));
   animation: ledPulse 1.5s ease-in-out infinite;
   flex-shrink: 0;
+}
+
+.op-tool-name {
+  color: var(--tool-color, var(--color-accent-light));
+}
+
+/* Category badge next to tool name */
+.op-category-badge {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1px 6px;
+  border: 1px solid;
+  border-radius: 3px;
+  opacity: 0.75;
+  margin-left: 2px;
 }
 
 /* Tool completed states */
@@ -249,6 +268,110 @@
 
 .op-tool-result.op-error {
   color: var(--color-error);
+}
+
+/* ---- Artifact result (structured) ---- */
+
+.op-artifact-result {
+  white-space: normal;
+  max-height: none;
+}
+
+.op-artifact-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.op-artifact-badge {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border: 1px solid;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.op-artifact-title {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.op-artifact-summary {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin: 4px 0;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+/* ---- Archiver data — inline timeseries chart ---- */
+
+.op-archiver-result {
+  max-height: none;
+  overflow: visible;
+}
+
+.op-ts-chart-area {
+  margin-top: 8px;
+}
+
+.op-ts-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.op-ts-badge {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border: 1px solid var(--border-default);
+  border-radius: 3px;
+  color: var(--text-secondary);
+}
+
+.op-ts-badge-ch {
+  color: var(--color-accent-light);
+  border-color: rgba(79, 209, 197, 0.25);
+  background: rgba(79, 209, 197, 0.06);
+}
+
+.op-ts-badge-rows {
+  color: var(--text-muted);
+}
+
+.op-ts-badge-ds {
+  color: var(--color-amber-light);
+  border-color: rgba(212, 165, 116, 0.25);
+  background: rgba(212, 165, 116, 0.06);
+}
+
+.op-ts-plotly {
+  min-height: 250px;
+  max-height: 350px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.op-ts-fallback {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  padding: 8px 0;
+  font-style: italic;
 }
 
 /* ---- Error block ---- */

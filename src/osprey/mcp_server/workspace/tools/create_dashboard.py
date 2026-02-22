@@ -14,8 +14,8 @@ import logging
 from osprey.mcp_server.common import make_error
 from osprey.mcp_server.workspace.server import mcp
 from osprey.mcp_server.workspace.tools._viz_common import (
+    build_viz_response,
     collect_and_register_artifacts,
-    save_to_data_context,
 )
 
 logger = logging.getLogger("osprey.mcp_server.tools.create_dashboard")
@@ -111,9 +111,13 @@ async def create_dashboard(
             )
         )
 
-    # Collect artifacts from manifest (save_artifact() calls in user code)
+    # Collect artifacts with category and embedded metadata
     artifact_ids = collect_and_register_artifacts(
-        exec_result, title, description, tool_source="create_dashboard"
+        exec_result, title, description,
+        tool_source="create_dashboard",
+        category="dashboard",
+        code=code,
+        stdout=exec_result.stdout,
     )
 
     if not artifact_ids:
@@ -128,14 +132,7 @@ async def create_dashboard(
             )
         )
 
-    # Save to DataContext
-    response = save_to_data_context(
-        tool="create_dashboard",
-        title=title,
-        description=description,
-        code=code,
-        artifact_ids=artifact_ids,
-        stdout=exec_result.stdout,
-        data_type="dashboard",
+    return json.dumps(
+        build_viz_response(artifact_ids, title, exec_result.stdout),
+        default=str,
     )
-    return json.dumps(response, default=str)

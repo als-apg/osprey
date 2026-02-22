@@ -1,6 +1,6 @@
 """MCP tool: archiver_downsample.
 
-Returns chart-ready downsampled timeseries data from a data context entry.
+Returns chart-ready downsampled timeseries data from an artifact entry.
 Uses LTTB (Largest-Triangle-Three-Buckets) to preserve visual shape while
 keeping the payload small enough for inline report generation.
 """
@@ -20,20 +20,20 @@ from osprey.interfaces.artifacts.app import _extract_timeseries_frame, lttb_down
 
 @mcp.tool()
 async def archiver_downsample(
-    entry_id: int,
+    entry_id: str,
     max_points: int = 200,
     channels: list[str] | None = None,
 ) -> str:
-    """Downsample a timeseries data context entry for chart embedding.
+    """Downsample a timeseries artifact entry for chart embedding.
 
     Uses LTTB (Largest-Triangle-Three-Buckets) to reduce point count while
     preserving the visual shape of the data. Returns a chart-ready payload
     with labels and datasets that can be directly embedded in Chart.js config.
 
-    Only works on data_type="timeseries" entries.
+    Only works on category="archiver_data" entries.
 
     Args:
-        entry_id: Data context entry ID to downsample.
+        entry_id: Artifact entry ID to downsample.
         max_points: Maximum number of points to return (default 200).
         channels: Optional list of channel names to include. If omitted,
             all channels are included.
@@ -50,30 +50,31 @@ async def archiver_downsample(
             f"Could not resolve workspace root: {e}",
         ))
 
-    from osprey.mcp_server.data_context import DataContext
+    from osprey.mcp_server.artifact_store import ArtifactStore
 
-    ctx = DataContext(workspace_root=workspace_root)
-    entry = ctx.get_entry(entry_id)
+    store = ArtifactStore(workspace_root=workspace_root)
+    entry = store.get_entry(entry_id)
 
     if entry is None:
         return json.dumps(make_error(
             "validation_error",
-            f"Data context entry {entry_id} not found.",
+            f"Artifact entry '{entry_id}' not found.",
             suggestions=["Use session_summary to list available entries."],
         ))
 
-    if entry.data_type != "timeseries":
+    if entry.category != "archiver_data":
         return json.dumps(make_error(
             "validation_error",
-            f"Entry {entry_id} has data_type={entry.data_type!r}, not 'timeseries'.",
-            suggestions=["Only timeseries entries can be downsampled."],
+            f"Entry '{entry_id}' has category={entry.category!r}, "
+            f"not 'archiver_data'.",
+            suggestions=["Only archiver_data entries can be downsampled."],
         ))
 
-    filepath = ctx.get_file_path(entry_id)
+    filepath = store.get_file_path(entry_id)
     if filepath is None:
         return json.dumps(make_error(
             "internal_error",
-            f"Data file for entry {entry_id} not found on disk.",
+            f"Data file for entry '{entry_id}' not found on disk.",
         ))
 
     try:

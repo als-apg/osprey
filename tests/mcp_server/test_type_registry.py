@@ -70,7 +70,7 @@ class TestRegistryToAPIDict:
 
     def test_structure(self):
         d = registry_to_api_dict()
-        assert set(d.keys()) == {"artifact_types", "data_types", "tool_types"}
+        assert set(d.keys()) == {"artifact_types", "data_types", "tool_types", "categories"}
         for domain in d.values():
             for _key, info in domain.items():
                 assert "label" in info
