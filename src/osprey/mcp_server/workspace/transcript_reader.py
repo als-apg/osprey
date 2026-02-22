@@ -25,6 +25,7 @@ OSPREY_MCP_PREFIXES = (
 
 MAX_RESULT_LENGTH = 500
 MAX_ERROR_RESULT_LENGTH = 2000
+MAX_CHAT_MESSAGE_LENGTH = 2000
 
 
 def _is_error_response(result_str: str) -> bool:
@@ -230,6 +231,75 @@ class TranscriptReader:
         if not path:
             return []
         return self.read_session(path)
+
+    def read_chat_history(self, path: Path) -> list[dict]:
+        """Extract conversation turns (user text + assistant text) from a transcript.
+
+        Returns a chronologically ordered list of dicts with keys:
+        ``role`` ("user" | "assistant"), ``content`` (str), ``timestamp`` (str).
+
+        Only text content blocks are captured — tool_use / tool_result blocks
+        are skipped.  Individual messages are truncated to
+        ``MAX_CHAT_MESSAGE_LENGTH`` characters.
+        """
+        if not path.is_file():
+            return []
+
+        turns: list[dict] = []
+
+        for line in path.read_text().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except (json.JSONDecodeError, ValueError):
+                continue
+
+            entry_type = entry.get("type")
+            timestamp = entry.get("timestamp", "")
+
+            if entry_type == "user":
+                text = self._extract_conversation_text(entry)
+                if text:
+                    if len(text) > MAX_CHAT_MESSAGE_LENGTH:
+                        text = text[:MAX_CHAT_MESSAGE_LENGTH] + "..."
+                    turns.append({"role": "user", "content": text, "timestamp": timestamp})
+
+            elif entry_type == "assistant":
+                text = self._extract_conversation_text(entry)
+                if text:
+                    if len(text) > MAX_CHAT_MESSAGE_LENGTH:
+                        text = text[:MAX_CHAT_MESSAGE_LENGTH] + "..."
+                    turns.append(
+                        {"role": "assistant", "content": text, "timestamp": timestamp}
+                    )
+
+        return turns
+
+    def read_current_chat_history(self) -> list[dict]:
+        """Read chat history from the most recent transcript.
+
+        Returns:
+            List of conversation turn dicts, or empty list if no transcript found.
+        """
+        path = self.find_current_transcript()
+        if not path:
+            return []
+        return self.read_chat_history(path)
+
+    @staticmethod
+    def _extract_conversation_text(entry: dict) -> str:
+        """Extract only text content blocks from a user or assistant entry."""
+        message = entry.get("message", {})
+        content_blocks = message.get("content", [])
+        parts: list[str] = []
+        for block in content_blocks:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and block.get("type") == "text":
+                parts.append(block.get("text", ""))
+        return "\n".join(parts).strip()
 
     def _make_tool_event(
         self,
