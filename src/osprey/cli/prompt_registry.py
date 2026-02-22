@@ -130,6 +130,12 @@ def _get_default_artifacts() -> list[PromptArtifact]:
             description="Facility identity & context",
         ),
         PromptArtifact(
+            canonical_name="rules/workflows",
+            template_path="claude/rules/workflows.md",
+            output_path=".claude/rules/workflows.md",
+            description="Task planning, agent delegation, and parallel execution",
+        ),
+        PromptArtifact(
             canonical_name="rules/code-generation",
             template_path="claude/rules/code-generation.md.j2",
             output_path=".claude/rules/code-generation.md",
