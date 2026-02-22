@@ -422,6 +422,54 @@ document.querySelectorAll('.mermaid-wrap').forEach(function(wrap) {
 });
 ```
 
+### Mermaid Event Timeline
+
+Use the `timeline` diagram type when the session involved a sequence of events that benefit from grouping by time period or phase. This is more expressive than the CSS timeline — it shows structure and grouping, not just a flat list.
+
+```mermaid
+timeline
+    title Session Event Timeline
+    section Morning Checks
+      08:30 : Beam current check
+            : 302.1 mA observed
+      08:45 : Vacuum interlock verified
+    section Investigation
+      09:15 : Anomaly noted in SR:C03-MG:PS
+      09:30 : Archiver query 2h window
+            : Downward drift confirmed
+    section Resolution
+      10:00 : Operator notified shift lead
+      10:15 : Channel added to watch list
+```
+
+**When to use**: 5+ events, natural phase groupings, or when chronological structure matters more than a simple list. Falls back to CSS timeline for short linear sequences (3-4 items).
+
+### Mermaid State Diagram
+
+Use `stateDiagram-v2` when the session revealed state transitions in a control system — beam states, interlock chains, operational mode changes, or any finite-state-machine behavior observed during the session.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Standby
+    Standby --> Injecting : RF on
+    Injecting --> Stored : Current > 200 mA
+    Stored --> Stored : Top-up cycle
+    Stored --> Dumped : Interlock trip
+    Dumped --> Standby : Reset sequence
+    Stored --> Ramping : Energy ramp request
+    Ramping --> Stored : Target reached
+    Ramping --> Dumped : Abort
+
+    note right of Dumped
+      Observed at 09:32 —
+      vacuum interlock trigger
+    end note
+```
+
+**When to use**: Only when actual state changes were observed during the session. Never fabricate a state model — derive it from what was seen. Good for Analysis Reports documenting interlock sequences, mode transitions, or multi-step operational procedures.
+
+**Selecting between timeline and state diagram**: Timelines answer "what happened when?" — state diagrams answer "what transitions occurred and why?" If both questions are relevant, include both.
+
 ---
 
 ## Chart.js Setup
