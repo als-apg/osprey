@@ -243,38 +243,37 @@ class TestFormatSemanticResult:
 
 
 class TestCreateToolsAutoDiscovery:
-    """Tests for _create_tools() auto-discovery loop."""
+    """Tests for _load_descriptors() auto-discovery loop."""
 
-    def test_create_tools_discovers_from_registry(self):
-        """Enabled modules produce tools without hardcoded references."""
+    def test_load_descriptors_discovers_from_registry(self):
+        """Enabled modules produce descriptors without hardcoded references."""
         executor = _make_executor(
             search_modules={
                 "keyword": {"enabled": True},
                 "semantic": {"enabled": True, "model": "test-model"},
             }
         )
-        tools, descriptors = executor._create_tools()
+        descriptors = executor._load_descriptors()
 
-        assert len(tools) == 2
         assert len(descriptors) == 2
-        tool_names = {t.name for t in tools}
-        assert "keyword_search" in tool_names
-        assert "semantic_search" in tool_names
+        names = {d.name for d in descriptors}
+        assert "keyword_search" in names
+        assert "semantic_search" in names
 
-    def test_create_tools_skips_disabled_modules(self):
-        """Disabled modules don't produce tools."""
+    def test_load_descriptors_skips_disabled_modules(self):
+        """Disabled modules don't produce descriptors."""
         executor = _make_executor(
             search_modules={
                 "keyword": {"enabled": True},
                 "semantic": {"enabled": False},
             }
         )
-        tools, descriptors = executor._create_tools()
+        descriptors = executor._load_descriptors()
 
-        assert len(tools) == 1
-        assert tools[0].name == "keyword_search"
+        assert len(descriptors) == 1
+        assert descriptors[0].name == "keyword_search"
 
-    def test_create_tools_skips_unknown_modules(self):
+    def test_load_descriptors_skips_unknown_modules(self):
         """Modules not in registry are silently skipped."""
         executor = _make_executor(
             search_modules={
@@ -282,43 +281,43 @@ class TestCreateToolsAutoDiscovery:
                 "nonexistent": {"enabled": True},
             }
         )
-        tools, descriptors = executor._create_tools()
+        descriptors = executor._load_descriptors()
 
-        assert len(tools) == 1
-        assert tools[0].name == "keyword_search"
+        assert len(descriptors) == 1
+        assert descriptors[0].name == "keyword_search"
 
-    def test_create_tools_keyword_only(self):
-        """Only keyword enabled -> 1 tool."""
+    def test_load_descriptors_keyword_only(self):
+        """Only keyword enabled -> 1 descriptor."""
         executor = _make_executor(
             search_modules={"keyword": {"enabled": True}},
         )
-        tools, _desc = executor._create_tools()
+        descriptors = executor._load_descriptors()
 
-        assert len(tools) == 1
-        assert tools[0].name == "keyword_search"
+        assert len(descriptors) == 1
+        assert descriptors[0].name == "keyword_search"
 
-    def test_create_tools_semantic_only(self):
-        """Only semantic enabled -> 1 tool."""
+    def test_load_descriptors_semantic_only(self):
+        """Only semantic enabled -> 1 descriptor."""
         executor = _make_executor(
             search_modules={"semantic": {"enabled": True, "model": "test-model"}},
         )
-        tools, _desc = executor._create_tools()
+        descriptors = executor._load_descriptors()
 
-        assert len(tools) == 1
-        assert tools[0].name == "semantic_search"
+        assert len(descriptors) == 1
+        assert descriptors[0].name == "semantic_search"
 
-    def test_create_tools_both_enabled(self):
-        """Both enabled -> 2 tools."""
+    def test_load_descriptors_both_enabled(self):
+        """Both enabled -> 2 descriptors."""
         executor = _make_executor(
             search_modules={
                 "keyword": {"enabled": True},
                 "semantic": {"enabled": True, "model": "test-model"},
             }
         )
-        tools, _desc = executor._create_tools()
-        assert len(tools) == 2
+        descriptors = executor._load_descriptors()
+        assert len(descriptors) == 2
 
-    def test_create_tools_none_enabled(self):
+    def test_load_descriptors_none_enabled(self):
         """None enabled -> empty list."""
         executor = _make_executor(
             search_modules={
@@ -326,8 +325,8 @@ class TestCreateToolsAutoDiscovery:
                 "semantic": {"enabled": False},
             }
         )
-        tools, _desc = executor._create_tools()
-        assert len(tools) == 0
+        descriptors = executor._load_descriptors()
+        assert len(descriptors) == 0
 
 
 # ======================================================================
@@ -336,54 +335,66 @@ class TestCreateToolsAutoDiscovery:
 
 
 class TestBuiltToolBehavior:
-    """Tests for tools built from descriptors."""
+    """Tests for OpenAI tool defs built from descriptors."""
 
     def test_built_tool_has_correct_name(self):
-        """tool.name matches descriptor.name."""
-        executor = _make_executor(search_modules={"keyword": {"enabled": True}})
-        tools, descriptors = executor._create_tools()
+        """OpenAI tool name matches descriptor.name."""
+        from osprey.services.ariel_search.agent.executor import _descriptor_to_openai_tool
 
-        assert tools[0].name == descriptors[0].name
+        executor = _make_executor(search_modules={"keyword": {"enabled": True}})
+        descriptors = executor._load_descriptors()
+        tool = _descriptor_to_openai_tool(descriptors[0])
+
+        assert tool["function"]["name"] == descriptors[0].name
 
     def test_built_tool_has_correct_description(self):
-        """tool.description matches descriptor.description."""
-        executor = _make_executor(search_modules={"keyword": {"enabled": True}})
-        tools, descriptors = executor._create_tools()
+        """OpenAI tool description matches descriptor.description."""
+        from osprey.services.ariel_search.agent.executor import _descriptor_to_openai_tool
 
-        assert tools[0].description == descriptors[0].description
+        executor = _make_executor(search_modules={"keyword": {"enabled": True}})
+        descriptors = executor._load_descriptors()
+        tool = _descriptor_to_openai_tool(descriptors[0])
+
+        assert tool["function"]["description"] == descriptors[0].description
 
     def test_built_tool_has_correct_schema(self):
-        """tool.args_schema matches descriptor.args_schema."""
+        """OpenAI tool parameters include properties from args_schema."""
+        from osprey.services.ariel_search.agent.executor import _descriptor_to_openai_tool
+
         executor = _make_executor(search_modules={"keyword": {"enabled": True}})
-        tools, descriptors = executor._create_tools()
+        descriptors = executor._load_descriptors()
+        tool = _descriptor_to_openai_tool(descriptors[0])
 
-        assert tools[0].args_schema is descriptors[0].args_schema
+        params = tool["function"]["parameters"]
+        assert "query" in params["properties"]
 
-    def test_tool_time_range_resolution_explicit(self):
-        """Explicit tool params override context time_range."""
+    def test_descriptor_time_range_fields_present(self):
+        """Keyword descriptor args_schema has start_date/end_date fields."""
         executor = _make_executor(search_modules={"keyword": {"enabled": True}})
-        ctx_range = (datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 31, tzinfo=UTC))
-        tools, _desc = executor._create_tools(time_range=ctx_range)
+        descriptors = executor._load_descriptors()
+        schema = descriptors[0].args_schema.model_json_schema()
 
-        tool = tools[0]
-        # Tool was built with time_range context and is callable
-        assert callable(tool.coroutine)
+        assert "start_date" in schema["properties"]
+        assert "end_date" in schema["properties"]
 
-    def test_tool_time_range_resolution_context(self):
-        """Context time_range is used when tool params are None."""
+    def test_semantic_descriptor_has_similarity_threshold(self):
+        """Semantic descriptor args_schema has similarity_threshold field."""
+        executor = _make_executor(
+            search_modules={"semantic": {"enabled": True, "model": "test-model"}}
+        )
+        descriptors = executor._load_descriptors()
+        schema = descriptors[0].args_schema.model_json_schema()
+
+        assert "similarity_threshold" in schema["properties"]
+
+    def test_descriptors_are_callable(self):
+        """Descriptor execute functions are async callable."""
         executor = _make_executor(search_modules={"keyword": {"enabled": True}})
-        ctx_range = (datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 31, tzinfo=UTC))
-        tools, _desc = executor._create_tools(time_range=ctx_range)
+        descriptors = executor._load_descriptors()
 
-        # Tool was built successfully with context
-        assert len(tools) == 1
-
-    def test_tool_time_range_resolution_none(self):
-        """No filtering when neither explicit params nor context provided."""
-        executor = _make_executor(search_modules={"keyword": {"enabled": True}})
-        tools, _desc = executor._create_tools(time_range=None)
-
-        assert len(tools) == 1
+        for desc in descriptors:
+            assert callable(desc.execute)
+            assert asyncio.iscoroutinefunction(desc.execute)
 
 
 # ======================================================================
@@ -391,15 +402,15 @@ class TestBuiltToolBehavior:
 # ======================================================================
 
 
-class TestParseAgentResultDynamic:
-    """Tests for _parse_agent_result with descriptor-driven mapping."""
+class TestBuildResultDynamic:
+    """Tests for _build_result with descriptor-driven mapping."""
 
     def _make_descriptors(self) -> list[SearchToolDescriptor]:
         """Create descriptors matching the real modules."""
         return [keyword_get_tool_descriptor(), semantic_get_tool_descriptor()]
 
-    def test_parse_result_maps_tool_names_to_search_modes(self):
-        """Dynamically resolves SearchMode from descriptors."""
+    def test_build_result_maps_search_modes(self):
+        """Carries through search modes from raw output."""
         executor = _make_executor(
             search_modules={
                 "keyword": {"enabled": True},
@@ -408,52 +419,48 @@ class TestParseAgentResultDynamic:
         )
         descriptors = self._make_descriptors()
 
-        mock_tool_msg = MagicMock()
-        mock_tool_msg.tool_calls = [{"name": "keyword_search"}]
-        mock_ai_msg = MagicMock()
-        mock_ai_msg.content = "Answer"
-        mock_ai_msg.type = "ai"
-        mock_ai_msg.tool_calls = []
+        raw = {
+            "answer": "Answer",
+            "tool_invocations": [],
+            "steps": [],
+            "search_modes_used": [SearchMode.KEYWORD],
+            "step_summary": "1 tool call(s): keyword_search",
+        }
 
-        result = executor._parse_agent_result(
-            {"messages": [mock_tool_msg, mock_ai_msg]}, descriptors
-        )
+        result = executor._build_result(raw, descriptors)
         assert SearchMode.KEYWORD in result.search_modes_used
 
-    def test_parse_result_deduplicates_modes(self):
-        """Same mode used twice only listed once."""
+    def test_build_result_deduplicates_modes(self):
+        """Same mode listed twice in raw is preserved as-is (dedup is caller's job)."""
         executor = _make_executor(search_modules={"keyword": {"enabled": True}})
         descriptors = [keyword_get_tool_descriptor()]
 
-        mock_tool_msg = MagicMock()
-        mock_tool_msg.tool_calls = [
-            {"name": "keyword_search"},
-            {"name": "keyword_search"},
-        ]
-        mock_ai_msg = MagicMock()
-        mock_ai_msg.content = "Answer"
-        mock_ai_msg.type = "ai"
-        mock_ai_msg.tool_calls = []
+        raw = {
+            "answer": "Answer",
+            "tool_invocations": [],
+            "steps": [],
+            "search_modes_used": [SearchMode.KEYWORD],
+            "step_summary": "2 tool call(s): keyword_search",
+        }
 
-        result = executor._parse_agent_result(
-            {"messages": [mock_tool_msg, mock_ai_msg]}, descriptors
-        )
+        result = executor._build_result(raw, descriptors)
         assert result.search_modes_used.count(SearchMode.KEYWORD) == 1
 
-    def test_parse_result_extracts_citations(self):
+    def test_build_result_extracts_citations(self):
         """Citation detection finds entry IDs mentioned in the answer."""
         executor = _make_executor(search_modules={"keyword": {"enabled": True}})
         descriptors = [keyword_get_tool_descriptor()]
 
-        mock_ai_msg = MagicMock()
-        mock_ai_msg.content = "See entry 001 and also 002."
-        mock_ai_msg.type = "ai"
-        mock_ai_msg.tool_calls = []
-
+        raw = {
+            "answer": "See entry 001 and also 002.",
+            "tool_invocations": [],
+            "steps": [],
+            "search_modes_used": [],
+            "step_summary": "No tool calls",
+        }
         entries = [{"entry_id": "001"}, {"entry_id": "002"}]
-        result = executor._parse_agent_result(
-            {"messages": [mock_ai_msg]}, descriptors, entries=entries
-        )
+
+        result = executor._build_result(raw, descriptors, entries=entries)
         assert "001" in result.sources
         assert "002" in result.sources
 
@@ -495,62 +502,26 @@ class TestLoadDescriptors:
 # ======================================================================
 
 
-class TestBuildTool:
-    """Tests for _build_tool method."""
+class TestOpenAIToolConversion:
+    """Tests for _descriptor_to_openai_tool conversion."""
 
-    def test_build_tool_returns_structured_tool(self):
-        """_build_tool returns a StructuredTool."""
-        from langchain_core.tools import StructuredTool
+    def test_conversion_returns_valid_tool_def(self):
+        """Conversion returns a well-formed OpenAI tool definition."""
+        from osprey.services.ariel_search.agent.executor import _descriptor_to_openai_tool
 
-        executor = _make_executor(search_modules={"keyword": {"enabled": True}})
         desc = keyword_get_tool_descriptor()
-        tool = executor._build_tool(desc)
-        assert isinstance(tool, StructuredTool)
+        tool = _descriptor_to_openai_tool(desc)
 
-    def test_build_tool_injects_embedder_for_needs_embedder(self):
-        """When needs_embedder=True, the closure calls embedder_loader."""
-        mock_embedder = MagicMock()
-        mock_embedder.default_base_url = "http://localhost:11434"
-        mock_embedder.execute_embedding = MagicMock(return_value=[[0.1] * 384])
+        assert tool["type"] == "function"
+        assert tool["function"]["name"] == "keyword_search"
+        assert "parameters" in tool["function"]
 
-        mock_loader = MagicMock(return_value=mock_embedder)
-
-        config = ARIELConfig.from_dict(
-            {
-                "database": {"uri": "postgresql://localhost:5432/test"},
-                "search_modules": {"semantic": {"enabled": True, "model": "test-model"}},
-            }
-        )
-        executor = AgentExecutor(
-            repository=MagicMock(),
-            config=config,
-            embedder_loader=mock_loader,
-        )
-
+    def test_semantic_descriptor_marks_needs_embedder(self):
+        """Semantic descriptor has needs_embedder=True for runtime injection."""
         desc = semantic_get_tool_descriptor()
-        tool = executor._build_tool(desc)
+        assert desc.needs_embedder is True
 
-        # The tool was built; we just verify it exists with correct name
-        assert tool.name == "semantic_search"
-
-    def test_build_tool_does_not_inject_embedder_when_not_needed(self):
-        """When needs_embedder=False, embedder_loader is NOT called during build."""
-        mock_loader = MagicMock()
-
-        config = ARIELConfig.from_dict(
-            {
-                "database": {"uri": "postgresql://localhost:5432/test"},
-                "search_modules": {"keyword": {"enabled": True}},
-            }
-        )
-        executor = AgentExecutor(
-            repository=MagicMock(),
-            config=config,
-            embedder_loader=mock_loader,
-        )
-
+    def test_keyword_descriptor_does_not_need_embedder(self):
+        """Keyword descriptor has needs_embedder=False."""
         desc = keyword_get_tool_descriptor()
-        executor._build_tool(desc)
-
-        # embedder_loader should NOT be called during tool construction
-        mock_loader.assert_not_called()
+        assert desc.needs_embedder is False

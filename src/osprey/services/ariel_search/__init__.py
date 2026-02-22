@@ -2,12 +2,14 @@
 
 This module provides the public API for the ARIEL search service.
 
-Three execution modes:
+Four execution modes:
 - **KEYWORD / SEMANTIC**: Direct calls to search functions
 - **RAG** (deterministic): Hybrid retrieval + RRF fusion + LLM generation
+- **AGENT** (non-deterministic): ReAct agent with search tools
 
 """
 
+from osprey.services.ariel_search.agent import AgentExecutor, AgentResult
 from osprey.services.ariel_search.capability import (
     close_ariel_service,
     get_ariel_search_service,
@@ -69,6 +71,9 @@ from osprey.services.ariel_search.service import (
 __all__ = [
     # Service
     "ARIELSearchService",
+    # Agent
+    "AgentExecutor",
+    "AgentResult",
     "close_ariel_service",
     "create_ariel_service",
     "get_ariel_search_service",

@@ -458,74 +458,72 @@ class TestAgentExecutor:
         )
 
     def test_executor_creates_keyword_tool(self):
-        """Executor creates keyword_search tool when enabled."""
+        """Executor discovers keyword_search descriptor when enabled."""
         executor = self._create_mock_executor()
-        tools, _descriptors = executor._create_tools()
+        descriptors = executor._load_descriptors()
 
-        tool_names = [t.name for t in tools]
-        assert "keyword_search" in tool_names
+        names = [d.name for d in descriptors]
+        assert "keyword_search" in names
 
     def test_executor_creates_semantic_tool(self):
-        """Executor creates semantic_search tool when enabled."""
+        """Executor discovers semantic_search descriptor when enabled."""
         executor = self._create_mock_executor()
-        tools, _descriptors = executor._create_tools()
+        descriptors = executor._load_descriptors()
 
-        tool_names = [t.name for t in tools]
-        assert "semantic_search" in tool_names
+        names = [d.name for d in descriptors]
+        assert "semantic_search" in names
 
-    def test_executor_parse_agent_result_extracts_answer(self):
-        """_parse_agent_result extracts answer from messages."""
+    def test_executor_build_result_extracts_answer(self):
+        """_build_result extracts answer from raw loop output."""
         executor = self._create_mock_executor()
-        _tools, descriptors = executor._create_tools()
+        descriptors = executor._load_descriptors()
 
-        mock_ai_message = MagicMock()
-        mock_ai_message.content = "This is the answer from the agent."
-        mock_ai_message.type = "ai"
-        mock_ai_message.tool_calls = []
+        raw = {
+            "answer": "This is the answer from the agent.",
+            "tool_invocations": [],
+            "steps": [],
+            "search_modes_used": [],
+            "step_summary": "No tool calls",
+        }
 
-        result_dict = {"messages": [mock_ai_message]}
-
-        result = executor._parse_agent_result(result_dict, descriptors)
+        result = executor._build_result(raw, descriptors)
 
         assert result.answer == "This is the answer from the agent."
 
-    def test_executor_parse_agent_result_extracts_citations(self):
-        """_parse_agent_result detects entry IDs mentioned in the answer."""
+    def test_executor_build_result_extracts_citations(self):
+        """_build_result detects entry IDs mentioned in the answer."""
         executor = self._create_mock_executor()
-        _tools, descriptors = executor._create_tools()
+        descriptors = executor._load_descriptors()
 
-        mock_ai_message = MagicMock()
-        mock_ai_message.content = "Found in entry 001 and entry 002 and also 003."
-        mock_ai_message.type = "ai"
-        mock_ai_message.tool_calls = []
-
-        result_dict = {"messages": [mock_ai_message]}
+        raw = {
+            "answer": "Found in entry 001 and entry 002 and also 003.",
+            "tool_invocations": [],
+            "steps": [],
+            "search_modes_used": [],
+            "step_summary": "No tool calls",
+        }
         entries = [{"entry_id": "001"}, {"entry_id": "002"}, {"entry_id": "003"}]
 
-        result = executor._parse_agent_result(result_dict, descriptors, entries=entries)
+        result = executor._build_result(raw, descriptors, entries=entries)
 
         assert "001" in result.sources
         assert "002" in result.sources
         assert "003" in result.sources
 
-    def test_executor_parse_agent_result_identifies_search_modes(self):
-        """_parse_agent_result identifies which search modes were used."""
+    def test_executor_build_result_identifies_search_modes(self):
+        """_build_result carries through search modes from raw output."""
         executor = self._create_mock_executor()
-        _tools, descriptors = executor._create_tools()
+        descriptors = executor._load_descriptors()
 
-        mock_tool_message = MagicMock()
-        mock_tool_message.tool_calls = [
-            {"name": "keyword_search"},
-            {"name": "semantic_search"},
-        ]
-        mock_ai_message = MagicMock()
-        mock_ai_message.content = "Answer"
-        mock_ai_message.type = "ai"
-        mock_ai_message.tool_calls = []
+        raw = {
+            "answer": "Answer",
+            "tool_invocations": [],
+            "steps": [],
+            "search_modes_used": [SearchMode.KEYWORD, SearchMode.SEMANTIC],
+            "step_summary": "2 tool call(s): keyword_search, semantic_search",
+        }
 
-        result_dict = {"messages": [mock_tool_message, mock_ai_message]}
-
-        result = executor._parse_agent_result(result_dict, descriptors)
+        result = executor._build_result(raw, descriptors)
 
         assert SearchMode.KEYWORD in result.search_modes_used
         assert SearchMode.SEMANTIC in result.search_modes_used
@@ -974,11 +972,11 @@ class TestServiceState:
 
 
 class TestToolInstanceTypes:
-    """Quality assertions for tool instance types."""
+    """Quality assertions for OpenAI-format tool definitions."""
 
-    def test_executor_creates_structured_tools(self):
-        """Verify executor creates StructuredTool instances."""
-        from langchain_core.tools import StructuredTool
+    def test_executor_creates_openai_tool_defs(self):
+        """Verify executor descriptors convert to OpenAI tool format."""
+        from osprey.services.ariel_search.agent.executor import _descriptor_to_openai_tool
 
         config = ARIELConfig.from_dict(
             {
@@ -999,15 +997,18 @@ class TestToolInstanceTypes:
             embedder_loader=mock_embedder_loader,
         )
 
-        tools, _descriptors = executor._create_tools()
+        descriptors = executor._load_descriptors()
+        tools = [_descriptor_to_openai_tool(d) for d in descriptors]
 
-        # All tools should be StructuredTool instances
         assert len(tools) == 2
         for tool in tools:
-            assert isinstance(tool, StructuredTool), f"Tool {tool.name} is not a StructuredTool"
+            assert tool["type"] == "function"
+            assert "name" in tool["function"]
+            assert "description" in tool["function"]
+            assert "parameters" in tool["function"]
 
     def test_tools_have_required_attributes(self):
-        """All tools have required StructuredTool attributes."""
+        """All descriptors have required SearchToolDescriptor attributes."""
         config = ARIELConfig.from_dict(
             {
                 "database": {"uri": "postgresql://localhost:5432/test"},
@@ -1024,13 +1025,13 @@ class TestToolInstanceTypes:
             embedder_loader=mock_embedder_loader,
         )
 
-        tools, _descriptors = executor._create_tools()
+        descriptors = executor._load_descriptors()
 
-        for tool in tools:
-            assert hasattr(tool, "name")
-            assert hasattr(tool, "description")
-            assert hasattr(tool, "args_schema")
-            assert hasattr(tool, "coroutine") or hasattr(tool, "func")
+        for desc in descriptors:
+            assert hasattr(desc, "name")
+            assert hasattr(desc, "description")
+            assert hasattr(desc, "args_schema")
+            assert hasattr(desc, "execute")
 
 
 class TestToolInputSchemaDefaults:
