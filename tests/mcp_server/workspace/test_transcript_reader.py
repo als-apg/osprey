@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from osprey.mcp_server.workspace.transcript_reader import (
+    MAX_CHAT_MESSAGE_LENGTH,
     MAX_ERROR_RESULT_LENGTH,
     MAX_RESULT_LENGTH,
     TranscriptReader,
@@ -602,3 +603,151 @@ class TestAllPrefixes:
         assert len(events) == 1
         assert events[0]["server"] == expected_server
         assert events[0]["tool"] == tool_suffix
+
+
+# ---------------------------------------------------------------------------
+# read_chat_history
+# ---------------------------------------------------------------------------
+
+def _make_user_text_entry(timestamp: str, text: str) -> dict:
+    """Build a 'user' transcript entry with a plain text message."""
+    return {
+        "type": "user",
+        "timestamp": timestamp,
+        "sessionId": "test-session-123",
+        "message": {
+            "role": "user",
+            "content": [{"type": "text", "text": text}],
+        },
+    }
+
+
+def _make_assistant_text_entry(timestamp: str, text: str,
+                               tool_uses: list[dict] | None = None) -> dict:
+    """Build an 'assistant' entry with text and optional tool_use blocks."""
+    content: list[dict] = [{"type": "text", "text": text}]
+    if tool_uses:
+        content.extend({"type": "tool_use", **tu} for tu in tool_uses)
+    return {
+        "type": "assistant",
+        "timestamp": timestamp,
+        "sessionId": "test-session-123",
+        "message": {
+            "role": "assistant",
+            "content": content,
+        },
+    }
+
+
+class TestReadChatHistory:
+    def test_extracts_user_messages(self, tmp_path):
+        """User text messages are captured as conversation turns."""
+        transcript = tmp_path / "session.jsonl"
+        entries = [
+            _make_user_text_entry(_ts(0), "What is the beam current?"),
+            _make_assistant_text_entry(_ts(1), "The beam current is 500 mA."),
+        ]
+        _write_transcript(transcript, entries)
+
+        reader = TranscriptReader(tmp_path)
+        history = reader.read_chat_history(transcript)
+
+        assert len(history) == 2
+        assert history[0]["role"] == "user"
+        assert history[0]["content"] == "What is the beam current?"
+        assert history[0]["timestamp"] == _ts(0)
+        assert history[1]["role"] == "assistant"
+        assert history[1]["content"] == "The beam current is 500 mA."
+
+    def test_extracts_assistant_text_only(self, tmp_path):
+        """Assistant entries with tool_use blocks only capture text, not tool calls."""
+        transcript = tmp_path / "session.jsonl"
+        entries = [
+            _make_assistant_text_entry(
+                _ts(0),
+                "Let me read the current value.",
+                tool_uses=[{
+                    "id": "tu-1",
+                    "name": "mcp__controls__channel_read",
+                    "input": {"channels": ["SR:CURRENT"]},
+                }],
+            ),
+        ]
+        _write_transcript(transcript, entries)
+
+        reader = TranscriptReader(tmp_path)
+        history = reader.read_chat_history(transcript)
+
+        assert len(history) == 1
+        assert history[0]["role"] == "assistant"
+        assert history[0]["content"] == "Let me read the current value."
+        assert "channel_read" not in history[0]["content"]
+
+    def test_truncates_long_messages(self, tmp_path):
+        """Individual messages exceeding MAX_CHAT_MESSAGE_LENGTH are truncated."""
+        transcript = tmp_path / "session.jsonl"
+        long_text = "x" * (MAX_CHAT_MESSAGE_LENGTH + 500)
+        entries = [_make_user_text_entry(_ts(0), long_text)]
+        _write_transcript(transcript, entries)
+
+        reader = TranscriptReader(tmp_path)
+        history = reader.read_chat_history(transcript)
+
+        assert len(history) == 1
+        assert len(history[0]["content"]) == MAX_CHAT_MESSAGE_LENGTH + 3
+        assert history[0]["content"].endswith("...")
+
+    def test_skips_tool_result_only_entries(self, tmp_path):
+        """User entries containing only tool_result blocks produce no chat turn."""
+        transcript = tmp_path / "session.jsonl"
+        entries = [
+            _make_user_entry(_ts(0), [
+                {
+                    "tool_use_id": "tu-1",
+                    "content": "result value",
+                    "is_error": False,
+                },
+            ]),
+        ]
+        _write_transcript(transcript, entries)
+
+        reader = TranscriptReader(tmp_path)
+        history = reader.read_chat_history(transcript)
+
+        assert len(history) == 0
+
+    def test_empty_transcript(self, tmp_path):
+        """Empty transcript returns empty list."""
+        transcript = tmp_path / "empty.jsonl"
+        transcript.write_text("")
+
+        reader = TranscriptReader(tmp_path)
+        history = reader.read_chat_history(transcript)
+
+        assert history == []
+
+    def test_missing_file(self, tmp_path):
+        """Non-existent file returns empty list."""
+        reader = TranscriptReader(tmp_path)
+        history = reader.read_chat_history(tmp_path / "nonexistent.jsonl")
+
+        assert history == []
+
+    def test_chronological_order(self, tmp_path):
+        """Turns are returned in chronological (insertion) order."""
+        transcript = tmp_path / "session.jsonl"
+        entries = [
+            _make_user_text_entry(_ts(0), "First message"),
+            _make_assistant_text_entry(_ts(1), "First reply"),
+            _make_user_text_entry(_ts(2), "Second message"),
+            _make_assistant_text_entry(_ts(3), "Second reply"),
+        ]
+        _write_transcript(transcript, entries)
+
+        reader = TranscriptReader(tmp_path)
+        history = reader.read_chat_history(transcript)
+
+        assert len(history) == 4
+        assert [h["role"] for h in history] == ["user", "assistant", "user", "assistant"]
+        assert history[0]["content"] == "First message"
+        assert history[3]["content"] == "Second reply"
