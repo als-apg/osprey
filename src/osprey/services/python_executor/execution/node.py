@@ -758,7 +758,7 @@ def create_executor_node():
                 # Mark as permanently failed if retry limit exceeded or safety violation
                 "is_failed": retry_limit_exceeded or is_safety_violation,
                 "failure_reason": (
-                    f"Channel limits violation — write blocked for safety"
+                    "Channel limits violation — write blocked for safety"
                     if is_safety_violation
                     else (
                         f"Code execution failed after {max_retries} attempts"
