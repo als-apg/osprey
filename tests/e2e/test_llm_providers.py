@@ -111,7 +111,12 @@ def get_available_providers_raw() -> dict[str, dict[str, Any]]:
         ("openai", ["OPENAI_API_KEY"], None, "gpt-4o-mini"),
         ("google", ["GOOGLE_API_KEY"], None, "gemini-2.0-flash"),
         ("cborg", ["CBORG_API_KEY"], "https://api.cborg.lbl.gov", "anthropic/claude-haiku"),
-        ("amsc", ["AMSC_I2_API_KEY"], "https://api.i2-core.american-science-cloud.org", "claude-haiku"),
+        (
+            "amsc",
+            ["AMSC_I2_API_KEY"],
+            "https://api.i2-core.american-science-cloud.org",
+            "claude-haiku",
+        ),
     ]
 
     for provider_name, env_vars, default_base_url, default_model in providers_to_check:
