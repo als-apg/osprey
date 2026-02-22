@@ -46,9 +46,7 @@ from .templates import TemplateManager
 )
 @click.option(
     "--channel-finder-mode",
-    type=click.Choice(
-        ["in_context", "hierarchical", "middle_layer", "all"], case_sensitive=False
-    ),
+    type=click.Choice(["in_context", "hierarchical", "all"], case_sensitive=False),
     default=None,
     help="Channel finder pipeline mode (control_assistant template only)",
 )
@@ -133,9 +131,7 @@ def init(
         # Detect environment variables
         detected_env = manager._detect_environment_variables()
         if detected_env:
-            console.print(
-                f"  🔑 Detected {len(detected_env)} environment variable(s) from system:"
-            )
+            console.print(f"  🔑 Detected {len(detected_env)} environment variable(s) from system:")
             for env_var in detected_env.keys():
                 console.print(f"     • {env_var}", style=Styles.DIM)
 

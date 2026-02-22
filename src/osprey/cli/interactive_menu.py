@@ -847,11 +847,7 @@ def select_channel_finder_mode() -> str | None:
             value="hierarchical",
         ),
         Choice(
-            "middle_layer     - Functional exploration (retrieves channel address by function, scalable)",
-            value="middle_layer",
-        ),
-        Choice(
-            "all              - Include all three pipelines (maximum flexibility, comparison)",
+            "all              - Include both pipelines (maximum flexibility, comparison)",
             value="all",
         ),
     ]

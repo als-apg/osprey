@@ -2,7 +2,7 @@
 
 This module provides the foundational data structures, state management classes,
 and configuration utilities that support the Python executor service's
-LangGraph-based workflow. It implements a clean separation between request/response
+workflow. It implements a clean separation between request/response
 models, internal execution state, and configuration management.
 
 The module is organized into several key areas:
@@ -11,9 +11,8 @@ The module is organized into several key areas:
 metadata tracking. These provide type-safe interfaces for service communication
 and ensure consistent data handling across the execution pipeline.
 
-**State Management**: LangGraph-compatible state classes that track execution
-progress, approval workflows, and intermediate results throughout the service
-execution lifecycle.
+**State Management**: State classes that track execution progress, approval
+workflows, and intermediate results throughout the service execution lifecycle.
 
 **Configuration Utilities**: Factory functions and configuration classes that
 integrate with the framework's configuration system to provide execution
@@ -26,8 +25,8 @@ structured format suitable for capability integration.
 Key Design Principles:
     - **Type Safety**: All public interfaces use Pydantic models or dataclasses
       with comprehensive type annotations for IDE support and runtime validation
-    - **LangGraph Integration**: State classes implement TypedDict patterns for
-      seamless integration with LangGraph's state management and checkpointing
+    - **State Management**: State classes implement TypedDict patterns for
+      tracking execution progress and checkpointing
     - **Exception-Based Architecture**: Configuration functions raise specific
       exceptions rather than returning error states for clear error handling
     - **Immutable Results**: Result structures use frozen dataclasses to prevent
@@ -44,7 +43,7 @@ maintaining consistency in data structures and error handling.
 
 .. seealso::
    :class:`osprey.services.python_executor.PythonExecutorService` : Main service
-   :class:`osprey.services.python_executor.PythonExecutionState` : LangGraph state
+   :class:`osprey.services.python_executor.PythonExecutionState` : Execution state
    :class:`osprey.services.python_executor.PythonExecutionRequest` : Request model
 """
 
@@ -79,7 +78,7 @@ def preserve_once_set(existing: Any | None, new: Any | None) -> Any | None:
     """Preserve field value once set - never allow it to be replaced or lost.
 
     This reducer ensures that critical fields like 'request' are never lost during
-    LangGraph state updates, including checkpoint resumption with Command objects.
+    state updates, including checkpoint resumption.
 
     Args:
         existing: Current value of the field (may be None)
@@ -582,10 +581,9 @@ class PythonExecutionRequest(BaseModel):
     all necessary information for the service to understand the user's intent,
     generate appropriate code, and execute it within the proper security context.
 
-    The request model is designed to be fully serializable and compatible with
-    LangGraph's state management system. It separates serializable request data
-    from configuration objects, which are accessed through LangGraph's configurable
-    system for proper dependency injection and configuration management.
+    The request model is designed to be fully serializable. It separates
+    serializable request data from configuration objects for proper dependency
+    injection and configuration management.
 
     The model supports both fresh execution requests and continuation of existing
     execution sessions, with optional pre-approved code for bypassing the
@@ -626,7 +624,7 @@ class PythonExecutionRequest(BaseModel):
 
     .. seealso::
        :class:`PythonExecutorService` : Service that processes these requests
-       :class:`PythonExecutionState` : LangGraph state containing request data
+       :class:`PythonExecutionState` : Execution state containing request data
        :class:`PythonServiceResult` : Structured response from successful execution
 
     Examples:
@@ -816,7 +814,7 @@ class PythonServiceResult:
     The service guarantees this structure is always returned on success.
     On failure, the service raises appropriate exceptions.
 
-    Following LangGraph patterns with frozen dataclasses for immutable results.
+    Uses frozen dataclasses for immutable results.
     """
 
     execution_result: PythonExecutionSuccess
@@ -888,14 +886,14 @@ class ContainerEndpointConfig:
 def get_execution_control_config_from_configurable(
     configurable: dict[str, Any],
 ) -> ExecutionControlConfig:
-    """Get execution control configuration from LangGraph configurable - raises exceptions on failure.
+    """Get execution control configuration from configurable - raises exceptions on failure.
 
     This provides a consistent way to access control system execution control settings from the configurable
     that is passed to the Python executor service, ensuring security-critical settings like
     control_system_writes_enabled are accessed consistently.
 
     Args:
-        configurable: The LangGraph configurable dictionary
+        configurable: The configurable dictionary
 
     Returns:
         ExecutionControlConfig: Execution control configuration
@@ -949,7 +947,7 @@ def get_execution_control_config_from_configurable(
 def get_execution_mode_config_from_configurable(
     configurable: dict[str, Any], mode_name: str
 ) -> ExecutionModeConfig:
-    """Create execution mode config from LangGraph configurable - raises exceptions on failure"""
+    """Create execution mode config from configurable - raises exceptions on failure"""
     try:
         # Navigate to framework execution modes in configurable
         # This should be available through the service configs or similar structure
@@ -1016,7 +1014,7 @@ def get_execution_mode_config_from_configurable(
 def get_container_endpoint_config_from_configurable(
     configurable: dict[str, Any], execution_mode: str
 ) -> ContainerEndpointConfig:
-    """Create container endpoint config from LangGraph configurable - raises exceptions on failure"""
+    """Create container endpoint config from configurable - raises exceptions on failure"""
     try:
         # Get execution mode config first
         mode_config = get_execution_mode_config_from_configurable(configurable, execution_mode)
@@ -1077,7 +1075,7 @@ def get_container_endpoint_config_from_configurable(
 
 
 class PythonExecutionState(TypedDict):
-    """LangGraph state for Python executor service.
+    """State for Python executor service.
 
     This state is used internally by the service and includes both the
     original request and execution tracking fields.
@@ -1104,9 +1102,7 @@ class PythonExecutionState(TypedDict):
 
     # Approval state (improved pattern)
     requires_approval: bool | None
-    approval_interrupt_data: (
-        dict[str, Any] | None
-    )  # LangGraph interrupt data with all approval details
+    approval_interrupt_data: dict[str, Any] | None  # Interrupt data with all approval details
     approval_result: dict[str, Any] | None  # Response from interrupt
     approved: bool | None  # Final approval status
 

@@ -167,7 +167,6 @@ def _get_caller_info(skip_frames: int = 2) -> dict[str, Any]:
             "/concurrent/futures/",  # Thread/process pool executors
             "/threading.py",  # Threading module
             "/asyncio/",  # AsyncIO internals
-            "/langgraph/",  # LangGraph execution engine
             "/litellm/",  # LiteLLM adapter
             "/queue.py",  # Queue module
         ]

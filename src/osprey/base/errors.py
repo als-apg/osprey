@@ -23,15 +23,14 @@ Error Classification Levels:
     - **RECLASSIFICATION**: Reclassify task capabilities
     - **FATAL**: System-level failure - immediate termination required
 
-The error system integrates with LangGraph's execution model while providing
+The error system integrates with the execution model while providing
 manual retry coordination through the router system. This ensures consistent
 error handling behavior across all framework components while maintaining
-compatibility with LangGraph's checkpoint and streaming systems.
+compatibility with checkpoint and streaming systems.
 
 .. note::
-   The framework uses manual retry handling rather than LangGraph's native
-   retry policies to ensure consistent behavior and sophisticated error
-   classification across all components.
+   The framework uses manual retry handling to ensure consistent behavior
+   and sophisticated error classification across all components.
 
 .. warning::
    FATAL errors immediately terminate execution to prevent system corruption.

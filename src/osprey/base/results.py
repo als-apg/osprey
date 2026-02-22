@@ -17,17 +17,16 @@ Type Hierarchy Structure:
     - **ExecutionRecord**: Historical execution records with timing
     - **CapabilityMatch**: Task classification results for capability selection
 
-The result system integrates seamlessly with LangGraph's state management and
-checkpointing systems through pure dictionary operations and standard Python
+The result system integrates seamlessly with state management and
+serialization systems through pure dictionary operations and standard Python
 data structures. All result types support JSON serialization for persistence
 and inter-process communication.
 
 .. note::
-   All result types are designed for LangGraph compatibility with proper
-   serialization support and type safety through Pydantic models and dataclasses.
+   All result types are designed for serialization compatibility with proper
+   type safety through Pydantic models and dataclasses.
 
 .. seealso::
-   :mod:`osprey.state` : State management and agent state structure
    :mod:`osprey.base.errors` : Error classification and handling system
    :mod:`osprey.base.planning` : Execution planning and step management
 """

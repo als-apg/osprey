@@ -3,20 +3,20 @@
 This module provides the comprehensive execution planning system for the Osprey
 framework. It implements TypedDict-based execution planning that enables sophisticated
 orchestration, step sequencing, and capability coordination while maintaining full
-compatibility with LangGraph's checkpointing and serialization systems.
+compatibility with serialization systems.
 
 The planning system serves as the foundation for intelligent agent orchestration
 by providing structured representations of execution steps, complete execution
 plans, and utility functions for plan management. The TypedDict approach ensures
 type safety, JSON serialization compatibility, and seamless integration with
-LangGraph's state management and checkpointing systems.
+the state management and serialization systems.
 
 Key Planning System Components:
     1. **PlannedStep**: Individual execution step with objectives and requirements
     2. **ExecutionPlan**: Complete execution sequence with ordered capability steps
     3. **Utility Functions**: Plan persistence, loading, and management operations
     4. **Type Safety**: TypedDict-based definitions for reliable serialization
-    5. **LangGraph Integration**: Native compatibility with checkpointing and state
+    5. **State Integration**: Native compatibility with checkpointing and state
 
 Planning Architecture:
     - **Structured Steps**: Complete step definitions with context and objectives
@@ -32,7 +32,7 @@ throughout the execution lifecycle.
 
 .. note::
    All planning structures use TypedDict with total=False to support partial
-   updates in LangGraph state management. This enables incremental plan
+   updates in state management. This enables incremental plan
    construction and modification during execution.
 
 .. warning::
@@ -72,7 +72,7 @@ class PlannedStep(TypedDict, total=False):
     4. **Parameter Passing**: Flexible configuration for capability customization
     5. **Execution Tracking**: Complete context for monitoring and debugging
 
-    The structure uses total=False to support partial updates in LangGraph's
+    The structure uses total=False to support partial updates in the
     state management system, enabling incremental plan construction and
     modification during execution. All fields are optional to provide
     flexibility in plan creation and evolution.
@@ -155,12 +155,12 @@ class ExecutionPlan(TypedDict, total=False):
     ExecutionPlan serves as the primary coordination mechanism for:
     1. **Multi-Step Execution**: Ordered sequence of capability invocations
     2. **Data Flow Management**: Input/output coordination between capabilities
-    3. **State Persistence**: LangGraph-compatible structure for checkpointing
+    3. **State Persistence**: Serializable structure for checkpointing
     4. **Execution Tracking**: Foundation for monitoring and debugging
     5. **Plan Evolution**: Support for dynamic plan modification during execution
 
     The structure uses total=False to support incremental plan construction
-    and modification in LangGraph's state management system. This enables
+    and modification in the state management system. This enables
     dynamic planning where plans can be built progressively and modified
     based on execution results and changing requirements.
 
@@ -172,8 +172,8 @@ class ExecutionPlan(TypedDict, total=False):
 
     .. note::
        ExecutionPlan uses pure dictionary format for maximum compatibility with
-       LangGraph's serialization and checkpointing systems. All plan data can
-       be safely persisted and restored across execution sessions.
+       serialization and checkpointing systems. All plan data can be safely
+       persisted and restored across execution sessions.
 
     .. warning::
        Step ordering is critical for proper execution flow. Ensure dependencies

@@ -37,7 +37,7 @@ Initialization Order:
     1. Context classes (required by capabilities)
     2. Data sources (required by capabilities)
     3. Core nodes (infrastructure components)
-    4. Services (internal LangGraph service graphs)
+    4. Services (internal service graphs)
     5. Capabilities (domain-specific functionality)
     6. Framework prompt providers (application-specific prompts)
 
@@ -1028,7 +1028,7 @@ class RegistryManager:
         1. **Context Classes**: Data structures used by capabilities
         2. **Data Sources**: External data providers used by capabilities
         3. **Core Nodes**: Infrastructure components (router, orchestrator, etc.)
-        4. **Services**: Internal LangGraph service graphs
+        4. **Services**: Internal service graphs
         5. **Capabilities**: Domain-specific functionality
         6. **Framework Prompt Providers**: Application-specific prompt customizations
 
@@ -1042,7 +1042,7 @@ class RegistryManager:
         Component Loading Details:
             - **Context Classes**: Imported and registered by type identifier
             - **Data Sources**: Instantiated and optionally health-checked
-            - **Nodes**: Decorator-created functions registered for LangGraph
+            - **Nodes**: Decorator-created functions registered as capability nodes
             - **Capabilities**: Instantiated with decorator-created node functions
             - **Services**: Service graphs compiled and made available
             - **Analyzers**: Policy and domain analyzers prepared for use
@@ -1655,11 +1655,11 @@ class RegistryManager:
         logger.info(f"Registered {len(self._registries['domain_analyzers'])} domain analyzers")
 
     def _initialize_core_nodes(self) -> None:
-        """Initialize core infrastructure nodes with LangGraph-native pattern.
+        """Initialize core infrastructure nodes.
 
         Dynamically imports and registers all infrastructure nodes.
         All infrastructure nodes are expected to use the @infrastructure_node decorator
-        which creates a LangGraph-compatible function in the 'langgraph_node' attribute.
+        which creates a callable node function in the 'capability_node' attribute.
         :raises Exception: Core node initialization failures cause registry failure
         """
         logger.debug("Initializing core nodes...")
@@ -1672,19 +1672,19 @@ class RegistryManager:
                 node_class = getattr(module, reg.function_name)
 
                 if inspect.isclass(node_class):
-                    # The @infrastructure_node decorator should create langgraph_node
+                    # The @infrastructure_node decorator should create a registered node
                     if hasattr(node_class, "langgraph_node"):
                         if callable(node_class.langgraph_node):
-                            # Register the LangGraph-native function directly
+                            # Register the node function directly
                             self._registries["nodes"][reg.name] = node_class.langgraph_node
                             logger.debug(f"Registered infrastructure node: {reg.name}")
                         else:
                             logger.error(
-                                f"Infrastructure node {reg.name} has invalid langgraph_node attribute - expected callable from @infrastructure_node decorator"
+                                f"Infrastructure node {reg.name} has invalid node attribute - expected callable from @infrastructure_node decorator"
                             )
                     else:
                         logger.error(
-                            f"Infrastructure node {reg.name} missing langgraph_node attribute - ensure @infrastructure_node decorator is applied"
+                            f"Infrastructure node {reg.name} missing node attribute - ensure @infrastructure_node decorator is applied"
                         )
                 else:
                     logger.error(
@@ -1700,9 +1700,9 @@ class RegistryManager:
         logger.info(f"Registered {len(self.config.core_nodes)} core nodes")
 
     def _initialize_services(self) -> None:
-        """Initialize service registry with LangGraph service graphs.
+        """Initialize service registry with service graphs.
 
-        Services are separate LangGraph graphs that provide specialized functionality
+        Services are separate graphs that provide specialized functionality
         while maintaining their internal node flow. Services are registered as
         callable graph instances that can be invoked by capabilities.
         :raises Exception: Service initialization failures are logged but don't fail registry
@@ -1732,11 +1732,11 @@ class RegistryManager:
         logger.info(f"Registered {len(self._registries['services'])} services")
 
     def _initialize_capabilities(self) -> None:
-        """Initialize capability registry with LangGraph-native pattern.
+        """Initialize capability registry.
 
         Dynamically imports and registers all domain-specific capabilities.
         All capabilities are expected to use the @capability_node decorator which
-        creates a LangGraph-compatible function in the 'langgraph_node' attribute.
+        creates a callable node function in the 'langgraph_node' attribute.
 
         Failed capability initialization is logged as warning but does not fail
         the entire registry, allowing partial system functionality.
@@ -1753,7 +1753,7 @@ class RegistryManager:
                 capability_instance = capability_class()
                 self._registries["capabilities"][reg.name] = capability_instance
 
-                # All capabilities should have @capability_node decorator which creates langgraph_node
+                # All capabilities should have @capability_node decorator which creates a registered node
                 if hasattr(capability_class, "langgraph_node"):
                     if callable(capability_class.langgraph_node):
                         # Register the decorator-created callable function directly
@@ -1761,11 +1761,11 @@ class RegistryManager:
                         logger.debug(f"Registered capability node: {reg.name}")
                     else:
                         logger.error(
-                            f"Capability {reg.name} has invalid langgraph_node attribute - expected callable from @capability_node decorator"
+                            f"Capability {reg.name} has invalid node attribute - expected callable from @capability_node decorator"
                         )
                 else:
                     logger.error(
-                        f"Capability {reg.name} missing langgraph_node attribute - ensure @capability_node decorator is applied"
+                        f"Capability {reg.name} missing node attribute - ensure @capability_node decorator is applied"
                     )
 
                 logger.debug(f"Registered capability: {reg.name}")
@@ -2244,7 +2244,7 @@ class RegistryManager:
 
         Falls back to the lightweight ``ProviderRegistry`` when the full
         ``RegistryManager`` hasn't been initialized, so callers like
-        ``get_chat_completion()`` work without LangGraph infrastructure.
+        ``get_chat_completion()`` work without full registry infrastructure.
 
         :param name: Unique provider name from registration
         :type name: str
@@ -2413,7 +2413,7 @@ class RegistryManager:
 
         :param name: Unique service name from registration
         :type name: str
-        :return: Compiled LangGraph service instance if registered, None otherwise
+        :return: Compiled service instance if registered, None otherwise
         :rtype: Any, optional
         """
         return self._registries["services"].get(name)
@@ -2932,7 +2932,7 @@ def initialize_registry(
         - Context classes (data structures)
         - Data sources (external data providers)
         - Core nodes (infrastructure components)
-        - Services (internal LangGraph service graphs)
+        - Services (internal service graphs)
         - Capabilities (domain-specific functionality)
         - Framework prompt providers (application customizations)
 

@@ -115,20 +115,10 @@ class ComponentLogger:
         self._state = state
 
         # Lazy initialization - only when first needed
-        self._stream_writer = None
-        self._stream_writer_attempted = False
         self._step_info = None
 
         # Typed event emitter for the new event streaming system
         self._event_emitter = EventEmitter(component_name)
-
-    def _get_stream_writer(self):
-        """Lazy initialization of stream writer (not used without LangGraph)."""
-        if not self._stream_writer_attempted:
-            self._stream_writer_attempted = True
-            self._stream_writer = None
-            self._step_info = self._extract_step_info(self._state)
-        return self._stream_writer
 
     def _extract_step_info(self, state):
         """Extract step context for streaming metadata."""
@@ -144,7 +134,7 @@ class ComponentLogger:
         """Emit streaming event as typed OspreyEvent.
 
         Uses the EventEmitter to emit typed StatusEvent or ErrorEvent instances.
-        The emitter handles LangGraph streaming and fallback handlers automatically.
+        The emitter handles event streaming and fallback handlers automatically.
 
         Supports stdlib-style format args: ``logger.info("msg %s", val)``
         """
@@ -334,8 +324,8 @@ class ComponentLogger:
         """Status update - emits StatusEvent.
 
         User-facing output. Transport is automatic:
-        - During graph.astream(): LangGraph streaming
-        - Outside graph execution: fallback transport → TypedEventHandler
+        - During execution: event streaming
+        - Outside execution: fallback transport via TypedEventHandler
 
         Args:
             message: Status message
@@ -579,7 +569,7 @@ def get_logger(
     source: str = None,
 ) -> ComponentLogger:
     """
-    Get a unified logger that handles both CLI logging and LangGraph streaming.
+    Get a unified logger that handles both CLI logging and event streaming.
 
     Primary API (recommended - use via BaseCapability.get_logger()):
         component_name: Component name (e.g., 'orchestrator', 'data_analysis')

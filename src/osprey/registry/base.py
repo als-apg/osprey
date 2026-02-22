@@ -120,8 +120,8 @@ class CapabilityRegistration:
     """Registration metadata for capabilities.
 
     Defines the metadata required for lazy loading of capability classes that
-    implement specific functionality for agent systems. Enhanced for LangGraph
-    migration with support for convention-based decorators and advanced features.
+    implement specific functionality for agent systems. Supports convention-based
+    decorators and advanced features.
 
     :param name: Unique capability name for registration
     :type name: str
@@ -327,8 +327,8 @@ class FrameworkPromptProviderRegistration:
 class ServiceRegistration:
     """Registration metadata for internal service graphs.
 
-    Services are separate LangGraph graphs that can be called by capabilities
-    without interfering with the main graph routing. Each service manages its
+    Services are separate graphs that can be called by capabilities
+    without interfering with the main routing. Each service manages its
     own internal node flow and returns control to the calling capability.
 
     :param name: Unique identifier for the service in the registry
@@ -609,8 +609,8 @@ class RegistryConfig:
     """Complete registry configuration with all component metadata.
 
     Contains the complete configuration for the framework registry including
-    all component registrations and initialization ordering. Enhanced for
-    LangGraph migration with support for decorators and advanced features.
+    all component registrations and initialization ordering. Supports decorators
+    and advanced features.
 
     Most fields are optional with sensible defaults to improve UX for applications.
     Applications typically only need to define capabilities, context_classes, and
