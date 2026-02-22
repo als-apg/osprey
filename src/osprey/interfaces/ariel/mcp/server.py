@@ -35,6 +35,8 @@ def parse_date_filters(
 ) -> tuple[datetime | None, datetime | None]:
     """Parse optional ISO-8601 date strings into datetime objects.
 
+    Naive datetime inputs are assumed to be in the facility timezone.
+
     Args:
         start_date: ISO-8601 date string or None.
         end_date: ISO-8601 date string or None.
@@ -42,13 +44,26 @@ def parse_date_filters(
     Returns:
         Tuple of (parsed_start, parsed_end), either may be None.
     """
+    from osprey.utils.config import get_facility_timezone
+
     parsed_start = datetime.fromisoformat(start_date) if start_date else None
     parsed_end = datetime.fromisoformat(end_date) if end_date else None
+
+    # Localize naive datetimes to facility timezone
+    if parsed_start and parsed_start.tzinfo is None:
+        tz = get_facility_timezone()
+        parsed_start = parsed_start.replace(tzinfo=tz)
+    if parsed_end and parsed_end.tzinfo is None:
+        tz = get_facility_timezone()
+        parsed_end = parsed_end.replace(tzinfo=tz)
+
     return parsed_start, parsed_end
 
 
 def serialize_entry(entry: dict, text_limit: int = 300) -> dict:
     """Serialize an EnhancedLogbookEntry dict into a compact response dict.
+
+    Timestamps are converted to the facility timezone for agent consumption.
 
     Args:
         entry: EnhancedLogbookEntry TypedDict (plain dict).
@@ -57,9 +72,16 @@ def serialize_entry(entry: dict, text_limit: int = 300) -> dict:
     Returns:
         Serialized dict suitable for JSON response.
     """
+    from osprey.utils.config import get_facility_timezone
+
+    ts = entry["timestamp"]
+    if hasattr(ts, "astimezone"):
+        tz = get_facility_timezone()
+        ts = ts.astimezone(tz).isoformat()
+
     result = {
         "entry_id": entry["entry_id"],
-        "timestamp": entry["timestamp"],
+        "timestamp": ts,
         "author": entry.get("author", ""),
         "source_system": entry["source_system"],
         "raw_text": entry["raw_text"][:text_limit],

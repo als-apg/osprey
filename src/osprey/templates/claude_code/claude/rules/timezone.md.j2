@@ -1,0 +1,13 @@
+{% if system_timezone is defined and system_timezone %}---
+summary: Facility timezone context for timestamp interpretation
+description: Tells agents what timezone ARIEL timestamps are in
+---
+
+# Timezone
+
+All timestamps returned by ARIEL tools (logbook search, browse, entry details)
+are in **{{ system_timezone }}**.
+
+When interpreting user references to time ("today", "this morning", "last Tuesday"),
+use this timezone.
+{% endif %}

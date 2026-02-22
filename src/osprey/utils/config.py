@@ -394,6 +394,8 @@ class ConfigBuilder:
             "applications": self.get("applications", []),
             "current_application": self._get_current_application(),
             "registry_path": self.get("registry_path"),
+            # ===== FACILITY TIMEZONE =====
+            "facility_timezone": self.get("system.timezone", "UTC"),
         }
 
         return configurable
@@ -984,6 +986,18 @@ def get_config_value(path: str, default: Any = None, config_path: str | None = N
             return config.get(path, default)
 
     return value
+
+
+def get_facility_timezone():
+    """Get the facility timezone from config as a ZoneInfo object.
+
+    Returns:
+        ZoneInfo for the configured facility timezone, defaulting to UTC.
+    """
+    from zoneinfo import ZoneInfo
+
+    tz_name = get_config_value("facility_timezone", "UTC")
+    return ZoneInfo(tz_name)
 
 
 def get_classification_config() -> dict[str, Any]:
