@@ -501,6 +501,21 @@ ariel:
     total_timeout_seconds: 120
 
 # ============================================================
+# LOGBOOK COMPOSITION
+# ============================================================
+# LLM settings for the logbook compose panel in the artifact gallery.
+# provider: references api.providers for credentials (api_key, base_url)
+# default_tier: which model tier to use when operator doesn't choose one
+# The operator can override the tier (haiku/sonnet/opus) from the UI;
+# the tier is mapped to a model_id via api.providers[provider].models.
+
+logbook:
+  composition:
+    provider: {{ default_provider | default("cborg") }}
+    model_id: {{ default_model | default("anthropic/claude-haiku") }}
+    default_tier: haiku   # Options: haiku | sonnet | opus
+
+# ============================================================
 # WORKSPACE & ARTIFACT GALLERY
 # ============================================================
 # Working directory for artifacts, data context, screenshots, etc.

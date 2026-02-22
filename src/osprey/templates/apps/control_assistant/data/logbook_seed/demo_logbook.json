@@ -227,6 +227,33 @@
       "text": "Replaced thermionic cathode in the electron gun after 12,000 hours of operation (rated lifetime: 10,000 hours). Old cathode emission current had degraded to 1.8 A (nominal: 3.0 A for new cathode). New cathode (serial: CAT-2024-007) installed and conditioned over 6 hours. Final emission current: 3.1 A at nominal heater power. Beam energy from linac verified at 100 MeV +/- 0.1%.",
       "tags": ["linac", "cathode", "maintenance"],
       "categories": ["Maintenance"]
+    },
+    {
+      "id": "DEMO-026",
+      "timestamp": "2024-03-28T03:20:00Z",
+      "author": "M. Chen",
+      "title": "RF cavity C1 temperature excursion — reflected power interlock trip",
+      "text": "RF cavity C1 body temperature climbed to 34.2 deg C over approximately 2 hours starting around 01:00. Normal operating temperature for the cavities is 25-28 deg C. As the cavity detuned due to thermal expansion, reflected power from C1 increased from the normal 5 kW to over 80 kW before the reflected power interlock tripped at 03:15. Forward power dropped to zero. Cavity C2 was unaffected and continued operating normally at 26.5 deg C. Beam was lost and restored at 04:30 after C1 temperature returned below 30 deg C. This is the second thermal excursion on C1 this week — a similar event occurred a few days ago and reached 34 deg C.",
+      "tags": ["rf", "temperature", "interlock", "cavity", "beam-loss"],
+      "categories": ["Operations"]
+    },
+    {
+      "id": "DEMO-027",
+      "timestamp": "2024-03-29T10:00:00Z",
+      "author": "T. Nakamura",
+      "title": "Investigation: Recurring cavity C1 thermal excursions",
+      "text": "Completed investigation into recurring thermal excursions on RF cavity C1. Analysis of archiver data over the past 7 days shows three distinct temperature excursion events where C1 body temperature exceeded 32 deg C. The thermal interlock threshold is set at 35 deg C, and the most recent event reached 34.2 deg C — dangerously close to the trip point. Each temperature excursion was accompanied by a reflected power spike (cavity detuning) and subsequent forward power trip. Cavity C2 has remained stable at 25-28 deg C throughout the same period with no excursions. Root cause identified: partial blockage in the C1 cooling water inlet manifold reducing flow by approximately 30%. The reduced cooling capacity cannot dissipate heat during sustained high-power operation. Recommended action: flush and inspect C1 cooling water manifold during next maintenance window. Until repair, operators should monitor C1 temperature closely and consider reducing forward power if temperature exceeds 32 deg C.",
+      "tags": ["rf", "temperature", "investigation", "cooling", "cavity"],
+      "categories": ["Operations"]
+    },
+    {
+      "id": "DEMO-028",
+      "timestamp": "2024-03-30T14:00:00Z",
+      "author": "L. Johnson",
+      "title": "RF cavity C1 cooling manifold repair",
+      "text": "Performed flush and inspection of RF cavity C1 cooling water inlet manifold per recommendation from T. Nakamura's investigation (see previous entry). Found calcium carbonate deposits reducing the effective pipe diameter by approximately 40% at the manifold junction. Deposits removed by chemical flush with citric acid solution over 45 minutes. Flow rate through C1 cooling loop restored from 8 L/min to nominal 12 L/min. Post-repair, C1 body temperature has stabilized at 26.5 deg C under full forward power (450 kW). Will continue monitoring for 48 hours to confirm. Cavity C2 inspected as precaution — no deposits found, flow rate nominal at 12.5 L/min.",
+      "tags": ["rf", "cooling", "maintenance", "cavity", "repair"],
+      "categories": ["Maintenance"]
     }
   ]
 }
