@@ -1224,22 +1224,50 @@ textarea.form-input {
 
 .item-action-btn {
   background: none;
-  border: none;
+  border: 1px solid var(--border-subtle);
   cursor: pointer;
   color: var(--text-muted);
-  font-size: var(--text-xs);
-  padding: 2px 4px;
+  font-size: var(--text-sm);
+  padding: 4px 8px;
   border-radius: var(--radius-sm);
-  transition: color var(--transition-fast), background var(--transition-fast);
+  transition: color var(--transition-fast), background var(--transition-fast),
+              border-color var(--transition-fast);
   line-height: 1;
 }
 
 .item-action-btn:hover {
   background: var(--surface-hover);
+  border-color: var(--border-default);
 }
 
-.item-action-btn.action-delete:hover { color: var(--color-error); }
-.item-action-btn.action-edit:hover { color: var(--color-accent-light); }
+.item-action-btn.action-delete:hover { color: var(--color-error); border-color: var(--color-error); }
+.item-action-btn.action-edit:hover { color: var(--color-accent-light); border-color: var(--color-accent-light); }
+.item-action-btn.action-save { color: var(--color-success, #22c55e); }
+.item-action-btn.action-save:hover { border-color: var(--color-success, #22c55e); }
+.item-action-btn.action-cancel:hover { color: var(--text-secondary); }
+
+.ic-action-group {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.ic-inline-input {
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-accent-glow);
+}
+
+.ic-editing-row {
+  background: var(--surface-hover);
+}
 
 .column-add-btn {
   padding: var(--space-2) var(--space-3);

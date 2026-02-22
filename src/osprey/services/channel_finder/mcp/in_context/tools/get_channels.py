@@ -42,14 +42,17 @@ def get_channels(chunk_idx: int | None = None, chunk_size: int = 50) -> str:
                     )
                 )
 
-            formatted = db.format_chunk_for_prompt(chunks[chunk_idx])
+            chunk = chunks[chunk_idx]
+            formatted = db.format_chunk_for_prompt(chunk)
             return json.dumps(
                 {
                     "chunk_idx": chunk_idx,
                     "total_chunks": len(chunks),
-                    "chunk_size": len(chunks[chunk_idx]),
+                    "chunk_size": len(chunk),
+                    "channels": chunk,
                     "formatted": formatted,
-                }
+                },
+                default=str,
             )
         else:
             channels = db.get_all_channels()
