@@ -15,7 +15,7 @@ import os
 import re
 import shutil
 import warnings
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -300,6 +300,9 @@ class TemplateManager:
         # 6. Copy data files from template (no src/ package)
         self._copy_template_data(project_dir, package_name, template_name, ctx)
 
+        # 6b. Rebase demo logbook timestamps to current date
+        self._rebase_logbook_timestamps(project_dir)
+
         # 7. Create _agent_data directory structure
         self._create_agent_data_structure(project_dir, ctx)
 
@@ -533,6 +536,59 @@ class TemplateManager:
                     f"  [success]✓[/success] Copied template data files to [path]{dst_data}[/path]"
                 )
                 return
+
+    def _rebase_logbook_timestamps(self, project_dir: Path) -> None:
+        """Shift demo logbook timestamps so the most recent entry is near 'now'.
+
+        The bundled demo logbook has fixed timestamps (e.g. March 2024).  When a
+        user runs ``osprey init`` months or years later, the logbook entries look
+        stale and won't align with mock archiver data (which is generated relative
+        to the current time).
+
+        This method loads the copied demo logbook, finds the latest entry
+        timestamp, computes the offset needed to place it 2 days before the
+        current time, and shifts every entry by that offset.  Relative gaps
+        between entries are preserved.
+        """
+        logbook_path = project_dir / "data" / "logbook_seed" / "demo_logbook.json"
+        if not logbook_path.exists():
+            return
+
+        try:
+            data = json.loads(logbook_path.read_text())
+            entries = data.get("entries", [])
+            if not entries:
+                return
+
+            timestamps = []
+            for entry in entries:
+                ts_str = entry.get("timestamp", "")
+                if ts_str:
+                    ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                    timestamps.append(ts)
+
+            if not timestamps:
+                return
+
+            latest = max(timestamps)
+            target = datetime.now(UTC) - timedelta(days=2)
+            offset = target - latest
+
+            for entry in entries:
+                ts_str = entry.get("timestamp", "")
+                if ts_str:
+                    ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                    new_ts = ts + offset
+                    entry["timestamp"] = new_ts.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+            logbook_path.write_text(json.dumps(data, indent=2) + "\n")
+            span_days = (max(timestamps) - min(timestamps)).days
+            console.print(
+                f"  [success]✓[/success] Rebased {len(entries)} logbook entries "
+                f"(spanning {span_days} days) to current date"
+            )
+        except (json.JSONDecodeError, ValueError, KeyError):
+            pass  # Non-fatal — leave the file as-is if anything goes wrong
 
     def _create_application_code(
         self,
@@ -978,6 +1034,7 @@ proper framework operation, especially when using containerized services.
         ".claude/rules/safety.md",
         ".claude/rules/error-handling.md",
         ".claude/rules/artifacts.md",
+        ".claude/rules/workflows.md",
         ".claude/rules/facility.md",
         ".claude/hooks/osprey_memory_guard.py",
         ".claude/hooks/osprey_writes_check.py",
