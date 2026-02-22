@@ -154,7 +154,7 @@ def register_cli_commands(registry) -> None:
         console = context.console or themed_console
 
         if context.config:
-            # Handle both direct config and LangGraph base_config structure
+            # Handle both direct config and base_config structure
             config = context.config.get("configurable", context.config)
 
             # SESSION INFORMATION
@@ -220,10 +220,6 @@ def register_cli_commands(registry) -> None:
                 execution_info.append(
                     f"Max Concurrent Classifications: {limits.get('max_concurrent_classifications', 'N/A')}"
                 )
-
-            # Check recursion_limit in base config
-            if "recursion_limit" in context.config:
-                execution_info.append(f"Graph Recursion Limit: {context.config['recursion_limit']}")
 
             # AGENT CONTROL
             agent_info = []

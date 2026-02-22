@@ -370,7 +370,7 @@ def preview(
 ):
     """Preview a channel database with flexible display options.
 
-    Auto-detects database type (hierarchical, in_context, middle_layer)
+    Auto-detects database type (hierarchical, in_context)
     and shows a tree visualization with configurable depth and sections.
 
     Examples:

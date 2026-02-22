@@ -21,13 +21,13 @@ Key Infrastructure Components:
 
 The infrastructure pattern follows these principles:
 1. **Convention-based validation**: Required components enforced through reflection
-2. **LangGraph-native integration**: Full streaming, configuration, and checkpoint support
+2. **Execution integration**: Full streaming, configuration, and checkpoint support
 3. **Fast failure detection**: Conservative error handling with immediate failure
-4. **State management**: Pure dictionary operations for LangGraph compatibility
+4. **State management**: Pure dictionary operations for compatibility
 5. **Execution tracking**: Comprehensive timing and performance monitoring
 
 .. note::
-   Infrastructure nodes use the @infrastructure_node decorator for LangGraph
+   Infrastructure nodes use the @infrastructure_node decorator for execution
    integration and should focus on orchestration rather than business logic.
 
 .. warning::
@@ -35,23 +35,20 @@ The infrastructure pattern follows these principles:
    system-critical functions. Most errors are treated as critical by default.
 
 .. seealso::
-   :func:`infrastructure_node` : Decorator for LangGraph integration
+   :func:`infrastructure_node` : Decorator for execution integration
    :class:`BaseCapability` : Business logic component base class
-   :mod:`osprey.state` : State management and structure definitions
 """
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from osprey.base.errors import ErrorClassification, ErrorSeverity
 
-# Import types for type hints
-if TYPE_CHECKING:
-    from osprey.state import AgentState
+# No type-only imports needed currently
 
 
 class BaseInfrastructureNode(ABC):
-    """Base class for infrastructure nodes in the LangGraph-native architecture.
+    """Base class for infrastructure nodes in the execution architecture.
 
     This class provides the foundation for all infrastructure components in the
     Osprey Framework. Infrastructure nodes handle system-level operations
@@ -61,7 +58,7 @@ class BaseInfrastructureNode(ABC):
 
     The BaseInfrastructureNode class enforces a strict contract through
     reflection-based validation and provides standardized integration with
-    LangGraph's execution model. Infrastructure nodes are designed for fast
+    the execution model. Infrastructure nodes are designed for fast
     failure detection and minimal retry attempts since they handle system-critical
     functions.
 
@@ -86,11 +83,11 @@ class BaseInfrastructureNode(ABC):
 
     Infrastructure nodes integrate with the framework through:
 
-    1. **LangGraph Integration**: Via @infrastructure_node decorator
+    1. **Execution Integration**: Via @infrastructure_node decorator
     2. **State Management**: Pure dictionary operations for serialization
     3. **Error Handling**: Conservative policies with fast failure detection
-    4. **Streaming**: Native LangGraph streaming for real-time updates
-    5. **Configuration**: Access to LangGraph's configuration system
+    4. **Streaming**: Event-based streaming for real-time updates
+    5. **Configuration**: Access to the framework configuration system
 
     Example::
 
@@ -100,7 +97,7 @@ class BaseInfrastructureNode(ABC):
             description = "Task Extraction and Processing"
 
             @staticmethod
-            async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
+            async def execute(state: dict[str, Any], **kwargs) -> Dict[str, Any]:
                 # Get unified logger for TypedEvent emission
                 from osprey.utils.logger import get_logger
                 logger = get_logger("task_extraction")
@@ -138,7 +135,7 @@ class BaseInfrastructureNode(ABC):
 
     .. note::
        Infrastructure nodes use the @infrastructure_node decorator which handles
-       all LangGraph integration, parameter injection, and error handling.
+       all execution integration, parameter injection, and error handling.
 
     .. warning::
        The name and description class attributes are required. The execute method
@@ -151,17 +148,17 @@ class BaseInfrastructureNode(ABC):
 
     @staticmethod
     @abstractmethod
-    async def execute(state: "AgentState", **kwargs) -> dict[str, Any]:
+    async def execute(state: dict[str, Any], **kwargs) -> dict[str, Any]:
         """Execute the infrastructure operation with comprehensive system coordination.
 
         This is the core method that all infrastructure nodes must implement.
         It contains the orchestration, routing, or monitoring logic and integrates
         with the framework's state management system. The method should be
-        implemented as a static method to support LangGraph's execution model.
+        implemented as a static method to support the execution model.
 
         Infrastructure nodes should focus on system coordination rather than
         business logic. They receive the complete agent state and return updates
-        that LangGraph automatically merges. The @infrastructure_node decorator
+        that are automatically merged. The @infrastructure_node decorator
         provides timing, error handling, and execution tracking.
 
         Common Infrastructure Patterns:
@@ -172,10 +169,10 @@ class BaseInfrastructureNode(ABC):
         5. **Monitoring**: Track progress and system health metrics
 
         :param state: Current agent state containing all execution context and data
-        :type state: AgentState
+        :type state: dict[str, Any]
         :param kwargs: Additional parameters including logger and configuration
         :type kwargs: dict
-        :return: Dictionary of state updates for LangGraph to merge into agent state
+        :return: Dictionary of state updates to merge into agent state
         :rtype: Dict[str, Any]
 
         :raises NotImplementedError: This is an abstract method that must be implemented
@@ -215,7 +212,7 @@ class BaseInfrastructureNode(ABC):
         Creates a logger that:
         - Uses this infrastructure node's name automatically
         - Has access to state for streaming via self._state
-        - Streams high-level messages automatically when in LangGraph context
+        - Streams high-level messages automatically when in execution context
         - Logs to CLI with Rich formatting
 
         Returns:
@@ -238,7 +235,7 @@ class BaseInfrastructureNode(ABC):
         The default implementation prioritizes system stability by failing fast
         with clear error messages. Subclasses should override this method only
         when specific infrastructure components can benefit from retry logic
-        (e.g., LLM-based orchestrators that may encounter temporary API issues).
+        (e.g., orchestrators that may encounter temporary API issues).
 
         :param exc: The exception that occurred during infrastructure operation
         :type exc: Exception
@@ -326,7 +323,7 @@ class BaseInfrastructureNode(ABC):
         }
 
     # ===== STATE HELPER METHODS =====
-    # These helper methods provide convenient access to StateManager utilities
+    # These helper methods provide convenient access to state utilities
     # using self._state (which is injected by the @infrastructure_node decorator)
 
     def get_current_task(self) -> str | None:
@@ -342,9 +339,7 @@ class BaseInfrastructureNode(ABC):
                 if not current_task:
                     raise ValueError("No current task available")
         """
-        from osprey.state import StateManager
-
-        return StateManager.get_current_task(self._state)
+        return self._state.get("task_current_task") if self._state else None
 
     def get_user_query(self) -> str | None:
         """Get the user's query from the current conversation.
@@ -358,9 +353,13 @@ class BaseInfrastructureNode(ABC):
                 original_query = self.get_user_query()
             ```
         """
-        from osprey.state import StateManager
-
-        return StateManager.get_user_query(self._state)
+        if not self._state:
+            return None
+        messages = self._state.get("messages", [])
+        for msg in reversed(messages):
+            if isinstance(msg, dict) and msg.get("role") == "user":
+                return msg.get("content")
+        return None
 
     def get_execution_plan(self):
         """Get current execution plan from state with type validation.
@@ -376,9 +375,12 @@ class BaseInfrastructureNode(ABC):
                     # Route to orchestrator
             ```
         """
-        from osprey.state import StateManager
-
-        return StateManager.get_execution_plan(self._state)
+        if not self._state:
+            return None
+        plan = self._state.get("planning_execution_plan")
+        if isinstance(plan, dict) and "steps" in plan:
+            return plan
+        return None
 
     def get_current_step_index(self) -> int:
         """Get current step index from state.
@@ -392,9 +394,9 @@ class BaseInfrastructureNode(ABC):
                 current_index = self.get_current_step_index()
             ```
         """
-        from osprey.state import StateManager
-
-        return StateManager.get_current_step_index(self._state)
+        if not self._state:
+            return 0
+        return self._state.get("execution_current_step_index", 0)
 
     def get_current_step(self):
         """Get current execution step from state.
@@ -412,9 +414,16 @@ class BaseInfrastructureNode(ABC):
                 task_objective = step.get('task_objective')
             ```
         """
-        from osprey.state import StateManager
-
-        return StateManager.get_current_step(self._state)
+        plan = self.get_execution_plan()
+        if not plan:
+            raise RuntimeError("No execution plan available in state")
+        step_index = self.get_current_step_index()
+        steps = plan.get("steps", [])
+        if step_index >= len(steps):
+            raise RuntimeError(
+                f"Step index {step_index} out of range for plan with {len(steps)} steps"
+            )
+        return steps[step_index]
 
     def __repr__(self) -> str:
         """Return a string representation of the infrastructure node for debugging.

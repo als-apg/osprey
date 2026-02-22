@@ -188,10 +188,6 @@ from ..models import ExecutionError, PythonExecutionRequest
 
 logger = get_logger("claude_code_generator")
 
-# LangGraph streaming removed — always use fallback
-LANGGRAPH_STREAMING_AVAILABLE = False
-get_stream_writer = None
-
 
 class ClaudeCodeGenerator:
     """Claude Code SDK-based code generator.
@@ -272,15 +268,12 @@ class ClaudeCodeGenerator:
         # Load Claude-specific configuration
         self.config = self._load_claude_config()
 
-        # Track generation metadata for LangGraph state
+        # Track generation metadata
         self.generation_metadata: dict[str, Any] = {
             "thinking_blocks": [],
             "tool_uses": [],
             "total_thinking_tokens": 0,
         }
-
-        # Stream writer (set during generation if available)
-        self._stream_writer = None
 
         # Save prompts: save all prompts and responses for transparency
         self._save_prompts = self.config.get("save_prompts", False)
@@ -691,9 +684,6 @@ class ClaudeCodeGenerator:
         - robust: Multi-phase [scan → plan → implement] for complex tasks
         - capability_driven: Single-phase [implement] with pre-built plan
 
-        Supports LangGraph streaming if running within a LangGraph context.
-        Will gracefully degrade if streaming is not available.
-
         Args:
             request: Execution request with task details, context, and planning mode
             error_chain: List of previous errors from failed attempts
@@ -738,11 +728,6 @@ class ClaudeCodeGenerator:
                 f"⚠️  save_prompts=True but cannot save: has_execution_folder_path={hasattr(request, 'execution_folder_path')}, path={getattr(request, 'execution_folder_path', None)}"
             )
 
-        # Try to get LangGraph stream writer (graceful degradation if not available)
-        self._stream_writer = self._get_stream_writer()
-        if self._stream_writer:
-            logger.debug("LangGraph streaming enabled for this generation")
-
         # Determine which phases to run:
         # 1. If request has structured_plan → capability-driven mode, use [implement]
         # 2. Otherwise, use phases from profile
@@ -780,46 +765,18 @@ class ClaudeCodeGenerator:
             if self._save_prompts:
                 self._save_prompt_data()
 
-    def _get_stream_writer(self):
-        """Get LangGraph stream writer if available.
-
-        Attempts to get the stream writer from LangGraph context.
-        Returns None if LangGraph streaming is not available or if
-        we're not running in a streaming context.
-
-        Returns:
-            Stream writer function or None
-        """
-        if not LANGGRAPH_STREAMING_AVAILABLE:
-            return None
-
-        try:
-            writer = get_stream_writer()
-            return writer
-        except Exception:
-            # Not in a LangGraph streaming context
-            return None
-
     def _stream(self, data: dict[str, Any]) -> None:
-        """Stream data to LangGraph if streaming is available.
-
-        Safely streams data through LangGraph's custom streaming mechanism.
-        Fails silently if streaming is not available.
+        """No-op streaming stub.
 
         Args:
-            data: Dictionary to stream to LangGraph consumers
+            data: Dictionary that would be streamed (ignored)
         """
-        if self._stream_writer:
-            try:
-                self._stream_writer(data)
-            except Exception as e:
-                # Don't let streaming errors break generation
-                logger.debug(f"Streaming failed (non-fatal): {e}")
+        pass
 
     def get_generation_metadata(self) -> dict[str, Any]:
-        """Get metadata from the last generation for LangGraph state integration.
+        """Get metadata from the last generation.
 
-        Returns metadata that can be added to LangGraph state to track:
+        Returns metadata to track:
         - Thinking blocks: Extended reasoning from Claude's thought process
         - Tool usage: Which tools Claude used during generation
         - Cost information: API cost for the generation
@@ -838,13 +795,13 @@ class ClaudeCodeGenerator:
             - cost_usd: API cost for this generation (if available)
 
         Examples:
-            Including metadata in LangGraph state::
+            Including metadata in state::
 
                 >>> generator = ClaudeCodeGenerator()
                 >>> code = await generator.generate_code(request, [])
                 >>> metadata = generator.get_generation_metadata()
                 >>>
-                >>> # Add to LangGraph state
+                >>> # Add to state
                 >>> state['generation_metadata'] = metadata
                 >>> state['thinking_summary'] = f"{len(metadata['thinking_blocks'])} thinking blocks"
                 >>>
@@ -1072,10 +1029,9 @@ class ClaudeCodeGenerator:
         .. note::
            This method:
            - Handles all SDK message types (Text, Thinking, ToolUse)
-           - Tracks generation metadata for LangGraph state
+           - Tracks generation metadata
            - Checks for SDK-specific errors
            - Validates budget limits
-           - Streams progress to LangGraph if available
         """
         try:
             result_text = ""
@@ -1100,7 +1056,7 @@ class ClaudeCodeGenerator:
                             )
 
                         elif isinstance(block, ThinkingBlock):
-                            # Track thinking for LangGraph state and debugging
+                            # Track thinking for state and debugging
                             thinking_entry = {
                                 "content": block.thinking,
                                 "signature": block.signature,
@@ -1194,7 +1150,7 @@ class ClaudeCodeGenerator:
                         }
                     )
 
-            # Store metadata for LangGraph state integration
+            # Store metadata for state integration
             self.generation_metadata = {
                 "thinking_blocks": thinking_content,
                 "tool_uses": tool_uses,

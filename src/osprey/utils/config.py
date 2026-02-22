@@ -64,7 +64,7 @@ class ConfigBuilder:
 
         Examples:
             # Required configuration - will fail if missing
-            recursion_limit = self._require_config('execution_control.limits.graph_recursion_limit')
+            max_steps = self._require_config('execution_control.limits.max_steps')
 
             # Optional configuration with explicit default and visibility
             max_retries = self._require_config('execution_control.limits.max_step_retries', 0)
@@ -416,9 +416,6 @@ class ConfigBuilder:
         """Build execution limits"""
 
         return {
-            "graph_recursion_limit": self._require_config(
-                "execution_control.limits.graph_recursion_limit", 100
-            ),
             "max_reclassifications": self._require_config(
                 "execution_control.limits.max_reclassifications", 1
             ),
@@ -794,7 +791,7 @@ def get_execution_limits() -> dict[str, Any]:
         raise RuntimeError(
             "Execution limits configuration not found. Please ensure 'execution_limits' is properly "
             "configured in your config.yml or environment settings with the following required fields: "
-            "max_reclassifications, max_planning_attempts, max_step_retries, max_execution_time_seconds, graph_recursion_limit"
+            "max_reclassifications, max_planning_attempts, max_step_retries, max_execution_time_seconds"
         )
 
     return execution_limits

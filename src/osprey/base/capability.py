@@ -1,8 +1,8 @@
 """
-Base Capability Class - LangGraph Migration
+Base Capability Class
 
 Convention-based base class for all capabilities in the Osprey Agent framework.
-Implements the LangGraph-native architecture with configuration-driven patterns.
+Implements the execution architecture with configuration-driven patterns.
 """
 
 from __future__ import annotations
@@ -15,12 +15,11 @@ from osprey.base.errors import ErrorClassification, ErrorSeverity
 # Import types for type hints
 if TYPE_CHECKING:
     from osprey.context import CapabilityContext
-    from osprey.state import AgentState
 
 # Direct imports - no circular dependencies in practice
 
 
-def slash_command(name: str, state: AgentState) -> str | bool | None:
+def slash_command(name: str, state: dict[str, Any]) -> str | bool | None:
     """Read a capability-specific slash command from state.
 
     This is a module-level helper function for reading capability-specific slash
@@ -29,7 +28,7 @@ def slash_command(name: str, state: AgentState) -> str | bool | None:
 
     Args:
         name: Command name (without leading slash)
-        state: Current agent state
+        state: Current agent state dictionary
 
     Returns:
         - str: If command was provided with a value (/beam:diagnostic -> "diagnostic")
@@ -41,7 +40,7 @@ def slash_command(name: str, state: AgentState) -> str | bool | None:
 
             from osprey.base.capability import slash_command
 
-            async def execute(state: AgentState, **kwargs) -> dict[str, Any]:
+            async def execute(state: dict[str, Any], **kwargs) -> dict[str, Any]:
                 # Check for /beam:mode command
                 if mode := slash_command("beam", state):
                     # mode is "diagnostic" if user typed /beam:diagnostic
@@ -92,13 +91,13 @@ class BaseCapability(ABC):
 
     This class provides the foundation for all capabilities in the Osprey Agent framework.
     Capabilities are self-contained business logic components that perform specific tasks
-    and integrate seamlessly with the LangGraph execution model through convention-based
+    and integrate seamlessly with the execution model through convention-based
     patterns and automatic discovery.
 
     The BaseCapability class enforces a strict contract through reflection-based validation:
     capabilities must define required components and can optionally implement guidance
     systems for orchestration and classification. The @capability_node decorator provides
-    complete LangGraph integration including error handling, retry policies, and
+    complete execution integration including error handling, retry policies, and
     execution tracking.
 
     Required Components (enforced at initialization):
@@ -117,7 +116,7 @@ class BaseCapability(ABC):
     Architecture Integration:
         The capability integrates with multiple framework systems:
 
-        1. **Execution System**: Via @capability_node decorator for LangGraph nodes
+        1. **Execution System**: Via @capability_node decorator for registered nodes
         2. **Planning System**: Via orchestrator guides for step planning
         3. **Classification System**: Via classifier guides for capability selection
         4. **Error Handling**: Via error classification for recovery strategies
@@ -135,12 +134,12 @@ class BaseCapability(ABC):
     :raises NotImplementedError: If required class attributes or methods are missing
 
     .. note::
-       Use the @capability_node decorator to enable LangGraph integration with
+       Use the @capability_node decorator to enable execution integration with
        automatic error handling, retry policies, and execution tracking.
 
     .. warning::
        The execute method must be implemented as a static method and should
-       return a dictionary of state updates for LangGraph to merge.
+       return a dictionary of state updates to merge into agent state.
 
     Examples:
         Basic capability implementation::
@@ -153,7 +152,7 @@ class BaseCapability(ABC):
                 requires = ["LOCATION"]
 
                 @staticmethod
-                async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
+                async def execute(state: dict[str, Any], **kwargs) -> Dict[str, Any]:
                     location = state.get("location")
                     weather_data = await fetch_weather(location)
                     return {
@@ -183,12 +182,12 @@ class BaseCapability(ABC):
                     )
 
                 @staticmethod
-                async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
+                async def execute(state: dict[str, Any], **kwargs) -> Dict[str, Any]:
                     # Implementation with database operations
                     pass
 
     .. seealso::
-       :func:`capability_node` : Decorator for LangGraph integration
+       :func:`capability_node` : Decorator for execution integration
        :class:`BaseInfrastructureNode` : Infrastructure components base class
        :class:`ErrorClassification` : Error classification system
     """
@@ -203,7 +202,7 @@ class BaseCapability(ABC):
 
     # Instance attributes (injected by @capability_node decorator at runtime)
     # These are set by the decorator before calling execute() and are available within execute()
-    _state: AgentState | None = None
+    _state: dict[str, Any] | None = None
     _step: dict[str, Any] | None = None
 
     def __init__(self):
@@ -225,7 +224,7 @@ class BaseCapability(ABC):
         :raises ValueError: If requires field contains invalid format
 
         .. note::
-           This initialization performs validation only. The actual LangGraph
+           This initialization performs validation only. The actual execution
            integration happens through the @capability_node decorator.
 
         .. warning::
@@ -564,10 +563,8 @@ class BaseCapability(ABC):
         if default is not None:
             return default
 
-        # Import here to avoid circular dependencies
-        from osprey.state import StateManager
-
-        return StateManager.get_current_task(self._state)
+        # Fall back to current task from state
+        return self._state.get("task_current_task", "")
 
     def get_step_inputs(self, default: list[dict[str, str]] | None = None) -> list[dict[str, str]]:
         """
@@ -629,7 +626,7 @@ class BaseCapability(ABC):
             context_data: Context object with CONTEXT_TYPE class variable
 
         Returns:
-            State updates dict for LangGraph to merge
+            State updates dict to merge into agent state
 
         Raises:
             AttributeError: If context_data lacks CONTEXT_TYPE class variable
@@ -652,7 +649,7 @@ class BaseCapability(ABC):
             *context_objects: Context objects with CONTEXT_TYPE attributes
 
         Returns:
-            Merged state updates dict for LangGraph
+            Merged state updates dict
 
         Raises:
             AttributeError: If any context lacks CONTEXT_TYPE
@@ -735,7 +732,7 @@ class BaseCapability(ABC):
         Creates a logger that:
         - Uses this capability's name automatically
         - Has access to state for streaming via self._state
-        - Streams high-level messages automatically when in LangGraph context
+        - Streams high-level messages automatically when in execution context
         - Logs to CLI with Rich formatting
 
         The logger intelligently handles both CLI output and web UI streaming through
@@ -771,8 +768,8 @@ class BaseCapability(ABC):
 
         .. note::
            All logger methods emit TypedEvents. The transport is handled automatically
-           via LangGraph streaming (during graph execution) or fallback handlers
-           (outside graph). Downstream clients (CLI, TUI) filter and render events.
+           via event streaming (during execution) or fallback handlers. Downstream
+           clients (CLI, TUI) filter and render events.
 
         .. seealso::
            :class:`ComponentLogger` : Logger class with streaming methods
@@ -846,7 +843,7 @@ class BaseCapability(ABC):
         calling execute(), so they are always available in the new pattern.
 
         Returns:
-            Dictionary of state updates for LangGraph to merge into agent state
+            Dictionary of state updates to merge into agent state
 
         Raises:
             NotImplementedError: This is an abstract method that must be implemented
@@ -870,7 +867,7 @@ class BaseCapability(ABC):
         Example (OLD PATTERN - Still Supported):
             ```python
             @staticmethod
-            async def execute(state: AgentState) -> dict[str, Any]:
+            async def execute(state: dict[str, Any]) -> dict[str, Any]:
                 step = StateManager.get_current_step(state)
                 # ... manual extraction and storage ...
                 return state_updates
@@ -993,9 +990,9 @@ class BaseCapability(ABC):
         :rtype: Dict[str, Any]
 
         .. note::
-           The framework uses manual retry handling rather than LangGraph's
-           native retry policies to ensure consistent behavior across all
-           components and to enable sophisticated error classification.
+           The framework uses manual retry handling to ensure consistent
+           behavior across all components and to enable sophisticated error
+           classification.
 
         Examples:
             Aggressive retry for network-dependent capability::
