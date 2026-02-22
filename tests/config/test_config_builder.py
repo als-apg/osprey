@@ -150,7 +150,6 @@ execution_control:
             """
 execution_control:
   limits:
-    graph_recursion_limit: 150
     max_reclassifications: 2
     max_planning_attempts: 3
     max_step_retries: 5
@@ -161,7 +160,6 @@ execution_control:
         builder = ConfigBuilder(str(config_file))
 
         limits = builder.configurable["execution_limits"]
-        assert limits["graph_recursion_limit"] == 150
         assert limits["max_reclassifications"] == 2
         assert limits["max_planning_attempts"] == 3
         assert limits["max_step_retries"] == 5
