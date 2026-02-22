@@ -414,7 +414,7 @@ class TestAssemblePrompt:
         data = resp.json()
         assert "prompt" in data
         # Default purpose=general, detail_level=standard
-        assert "general logbook entry" in data["prompt"].lower()
+        assert "factual logbook entry" in data["prompt"].lower()
         assert "1 short paragraph" in data["prompt"]
 
     @pytest.mark.unit
