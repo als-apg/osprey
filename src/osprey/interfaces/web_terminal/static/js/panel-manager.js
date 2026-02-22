@@ -314,11 +314,20 @@ function activateTab(panelId, { userInitiated = false } = {}) {
 
 function navigatePanel(panelId, url) {
   const state = panelState[panelId];
-  if (!state?.iframe) return;
+  if (!state) return;
+
+  // Store the target URL so that createIframe() picks it up if the iframe
+  // hasn't been lazy-loaded yet (e.g. first panel_focus SSE before the user
+  // has ever clicked the tab).
+  state.pendingUrl = url;
+
+  if (!state.iframe) return;
+
   const embedUrl = new URL(url);
   embedUrl.searchParams.set('embedded', 'true');
   embedUrl.searchParams.set('theme', getTheme());
   state.iframe.src = embedUrl.toString();
+  state.pendingUrl = null;
 }
 
 // ---- Iframe Management ----
@@ -329,7 +338,10 @@ function createIframe(panelId) {
 
   const iframe = document.createElement('iframe');
   iframe.className = 'panel-iframe';
-  const embedUrl = new URL(state.url);
+  // Use pendingUrl (from navigatePanel) if available, otherwise base URL
+  const targetUrl = state.pendingUrl || state.url;
+  state.pendingUrl = null;
+  const embedUrl = new URL(targetUrl);
   embedUrl.searchParams.set('embedded', 'true');
   embedUrl.searchParams.set('theme', getTheme());
   iframe.src = embedUrl.toString();
