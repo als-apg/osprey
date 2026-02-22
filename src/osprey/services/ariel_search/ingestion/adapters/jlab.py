@@ -164,6 +164,9 @@ class JLabLogbookAdapter(BaseAdapter):
         if data.get("needsAttention") is not None:
             metadata["needs_attention"] = data["needsAttention"]
 
+        if data.get("metadata") and isinstance(data["metadata"], dict):
+            metadata.update(data["metadata"])
+
         return {
             "entry_id": str(data.get("lognumber", data.get("id", ""))),
             "source_system": self.source_system_name,

@@ -445,6 +445,9 @@ class ALSLogbookAdapter(BaseAdapter):
         if linked_to:
             metadata["linked_to"] = linked_to
 
+        if data.get("metadata") and isinstance(data["metadata"], dict):
+            metadata.update(data["metadata"])
+
         return {
             "entry_id": str(data["id"]),
             "source_system": self.source_system_name,

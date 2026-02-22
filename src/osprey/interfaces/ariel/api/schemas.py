@@ -143,6 +143,7 @@ class EntryCreateRequest(BaseModel):
     shift: str | None = None
     tags: list[str] = []
     attachment_ids: list[str] = []
+    metadata: dict | None = None
 
 
 class EntryCreateResponse(BaseModel):

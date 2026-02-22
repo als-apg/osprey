@@ -1161,6 +1161,34 @@ textarea.input {
   box-shadow: 0 0 0 3px var(--color-accent-glow);
 }
 
+/* === Session Info Panel (draft metadata) === */
+.session-info-panel {
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  border-left: 3px solid var(--border-subtle);
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.session-info-header {
+  font-weight: 600;
+  margin-bottom: 4px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.session-info-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.session-info-label {
+  opacity: 0.6;
+  margin-right: 4px;
+}
+
 /* === Responsive === */
 @media (max-width: 768px) {
   .search-options-bar {

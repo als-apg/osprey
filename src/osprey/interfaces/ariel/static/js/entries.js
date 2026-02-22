@@ -17,6 +17,9 @@ import {
 // Current entry detail
 let currentEntry = null;
 
+// Draft metadata (populated when loading a draft)
+let draftMetadata = null;
+
 /**
  * Check if an attachment is an image, inferring from filename when type is missing.
  * @param {Object} att - Attachment object with optional type and filename
@@ -327,6 +330,7 @@ async function handleCreateEntry(e) {
       logbook: formData.get('logbook'),
       shift: formData.get('shift'),
       tags,
+      metadata: draftMetadata,
     };
 
     const fileInput = document.getElementById('entry-files');
@@ -363,10 +367,15 @@ async function handleCreateEntry(e) {
       : '';
     alert(`Entry created: ${result.entry_id}${attachMsg}`);
 
-    // Reset form and file preview
+    // Reset form, file preview, and draft state
     form.reset();
     document.getElementById('entry-tags').innerHTML = '';
     if (preview) preview.innerHTML = '';
+    draftMetadata = null;
+    const sessionPanel = document.getElementById('session-info-panel');
+    if (sessionPanel) sessionPanel.remove();
+    const draftBanner = document.getElementById('draft-banner');
+    if (draftBanner) draftBanner.remove();
 
     // Navigate to entry
     window.app.showEntry(result.entry_id);
@@ -526,6 +535,42 @@ export function getCurrentEntry() {
 }
 
 /**
+ * Render a read-only panel showing session metadata from a draft.
+ * @param {Object} meta - session_metadata object
+ */
+function renderSessionInfoPanel(meta) {
+  const existing = document.getElementById('session-info-panel');
+  if (existing) existing.remove();
+
+  const fields = [
+    ['Operator', meta.operator],
+    ['Branch', meta.git_branch],
+    ['Session', meta.session_id],
+    ['Model', meta.model],
+    ['Source', meta.created_via],
+  ].filter(([, v]) => v);
+
+  if (fields.length === 0) return;
+
+  const panel = document.createElement('div');
+  panel.id = 'session-info-panel';
+  panel.className = 'session-info-panel';
+  panel.innerHTML = `
+    <div class="session-info-header">Session Context</div>
+    <div class="session-info-fields">
+      ${fields.map(([label, value]) =>
+        `<span><span class="session-info-label">${escapeHtml(label)}:</span>${escapeHtml(String(value))}</span>`
+      ).join('')}
+    </div>
+  `;
+
+  const banner = document.getElementById('draft-banner');
+  if (banner) {
+    banner.after(panel);
+  }
+}
+
+/**
  * Load a draft into the entry creation form.
  * @param {string} draftId - Draft ID to load
  */
@@ -545,6 +590,9 @@ export async function loadDraft(draftId) {
     if (authorInput) authorInput.value = draft.author || '';
     if (logbookSelect && draft.logbook) logbookSelect.value = draft.logbook;
     if (shiftSelect && draft.shift) shiftSelect.value = draft.shift;
+
+    // Store draft metadata for forwarding on submit
+    draftMetadata = draft.metadata || null;
 
     // Clear existing tags and add draft tags
     const tagsContainer = document.getElementById('entry-tags');
@@ -609,6 +657,11 @@ export async function loadDraft(draftId) {
         'padding: 8px 12px; margin-bottom: 12px; border-left: 3px solid var(--amber); font-size: 0.85rem;';
       banner.textContent = 'Draft loaded from Claude \u2014 review and submit';
       form.prepend(banner);
+    }
+
+    // Show session info panel if metadata includes session context
+    if (draftMetadata?.session_metadata) {
+      renderSessionInfoPanel(draftMetadata.session_metadata);
     }
   } catch (error) {
     console.error('Failed to load draft:', error);
