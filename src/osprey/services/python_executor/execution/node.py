@@ -740,19 +740,31 @@ def create_executor_node():
             max_retries = state["request"].retries
             retry_limit_exceeded = len(error_chain) >= max_retries
 
+            # Safety-critical errors must not be retried — the LLM should not
+            # be allowed to "work around" a channel limits violation.
+            error_str = str(e)
+            is_safety_violation = (
+                "ChannelLimitsViolationError" in error_str
+                or "CHANNEL LIMITS VIOLATION" in error_str
+            )
+
             return {
                 "is_successful": False,
                 "execution_failed": True,
-                "execution_error": str(e),
+                "execution_error": error_str,
                 "error_chain": error_chain,
                 "error_notebook_path": error_notebook,
                 "current_stage": "generation",
-                # Mark as permanently failed if retry limit exceeded
-                "is_failed": retry_limit_exceeded,
+                # Mark as permanently failed if retry limit exceeded or safety violation
+                "is_failed": retry_limit_exceeded or is_safety_violation,
                 "failure_reason": (
-                    f"Code execution failed after {max_retries} attempts"
-                    if retry_limit_exceeded
-                    else None
+                    f"Channel limits violation — write blocked for safety"
+                    if is_safety_violation
+                    else (
+                        f"Code execution failed after {max_retries} attempts"
+                        if retry_limit_exceeded
+                        else None
+                    )
                 ),
             }
 

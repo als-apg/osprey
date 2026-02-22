@@ -22,16 +22,22 @@ Configuration:
     later will use the same control system configuration it was created with.
 
 Limits Validation:
-    The control system connector automatically validates all write operations
-    against the configured limits database. This provides runtime safety for
-    control system writes without requiring application-level checks.
+    Write operations are validated at two levels:
+    1. Runtime-level: An injected LimitsValidator (set by the execution wrapper)
+       checks values before the connector is even called. This provides a safety
+       net in subprocess execution where the connector may not be fully configured.
+    2. Connector-level: The control system connector validates writes against its
+       own configured limits database as a secondary check.
 """
 
 import asyncio
 import atexit
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from osprey.utils.logger import get_logger
+
+if TYPE_CHECKING:
+    from osprey.services.python_executor.execution.limits_validator import LimitsValidator
 
 logger = get_logger("runtime")
 
@@ -47,6 +53,7 @@ __all__ = [
 _runtime_connector: Any | None = None
 _runtime_config: dict | None = None
 _connector_lock = asyncio.Lock()
+_limits_validator: "LimitsValidator | None" = None  # Injected by execution wrapper for subprocess safety
 
 
 def configure_from_context(context) -> None:
@@ -146,9 +153,15 @@ async def _get_connector():
 async def _write_channel_async(channel_address: str, value: Any, **kwargs) -> None:
     """Internal async implementation for writing to a channel.
 
-    The connector handles limits validation and verification automatically.
-    No need to validate here - connector does it all.
+    The connector handles limits validation when available.
+    The injected _limits_validator provides a safety net for subprocess execution
+    where the connector's config-based validator may not be initialized.
     """
+    # Safety net: validate against injected limits validator (set by execution wrapper)
+    # This catches violations even when the connector's own validator isn't configured
+    if _limits_validator is not None:
+        _limits_validator.validate(channel_address, value)  # Raises ChannelLimitsViolationError
+
     connector = await _get_connector()
     result = await connector.write_channel(channel_address, value, **kwargs)
 
@@ -216,6 +229,7 @@ def write_channel(channel_address: str, value: Any, **kwargs) -> None:
                   - tolerance: Tolerance for readback verification
 
     Raises:
+        ChannelLimitsViolationError: If value violates channel safety limits
         RuntimeError: If write operation fails
         TimeoutError: If operation times out
 

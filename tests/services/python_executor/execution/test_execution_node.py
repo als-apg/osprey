@@ -1,47 +1,15 @@
-"""Placeholder for Python Executor Execution Node Tests.
+"""Unit tests for executor node safety-critical error handling.
 
-NOTE: The execution node cannot be meaningfully unit tested because:
-- It requires complex infrastructure (containers, local Python env, file systems)
-- LocalCodeExecutor and ContainerCodeExecutor are 755 lines of complex logic
-- Mocking would bypass all actual execution code, providing 0% coverage
-- Testing mocks instead of real code gives false confidence
-
-EXISTING COVERAGE: The execution node is comprehensively tested via integration/e2e tests.
-
-Integration Tests (tests/integration/test_python_executor_service.py):
-- TestBasicWorkflow::test_successful_execution_flow (line 74)
-  * Complete workflow: generate → analyze → execute
-  * Verifies execution result structure and mock generator calls
-
-- TestBasicWorkflow::test_execution_with_simple_code (line 119)
-  * Tests execution with simple Python code
-  * Validates results and execution completion
-
-- TestExecutionMethods::test_local_execution_method (line 866)
-  * Tests local execution method configuration
-  * Validates local vs container execution switching
-
-- TestErrorHandling::test_syntax_error_detected (line 175)
-  * Tests execution error handling for syntax errors
-  * Validates error propagation and retry logic
-
-- TestErrorHandling::test_retry_with_improved_code (line 203)
-  * Tests retry mechanism after execution failures
-  * Validates error-aware regeneration workflow
-
-E2E Tests (tests/e2e/):
-- test_code_generator_workflows.py::test_basic_generator_simple_code_generation (line 118)
-  * End-to-end code generation and execution
-  * Validates complete workflow with LLM judge evaluation
-
-- test_runtime_limits.py (entire file, 635 lines)
-  * End-to-end tests for runtime utilities with channel limits
-  * Tests execution wrapper with limits monkeypatch
-  * Validates write_channel() safety mechanisms
-
-This file serves as documentation of why unit tests are not appropriate here,
-per COVERAGE_EXPANSION_PLAN.md guidance on "files genuinely hard to test in isolation".
+While the full execution node requires complex infrastructure (see integration/e2e tests),
+the safety-violation-prevents-retry logic in the exception handler is pure decision-making
+that can and should be unit tested to lock in safety guarantees.
 """
+
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from osprey.services.python_executor.execution.node import create_executor_node
 
 
 class TestExecutionNodeDocumentation:
@@ -67,3 +35,168 @@ class TestExecutionNodeDocumentation:
         # - Runtime utilities and safety mechanisms
         # - Complete generation → analysis → execution workflows
         assert True, "See integration/e2e tests for execution node coverage"
+
+
+def _make_mock_state(*, retries=3, error_chain=None):
+    """Create a minimal mock state dict for the executor node."""
+    mock_request = MagicMock()
+    mock_request.retries = retries
+    mock_request.execution_folder_name = "test_exec"
+
+    return {
+        "generated_code": "results = {'x': 1}",
+        "request": mock_request,
+        "generation_attempt": 1,
+        "error_chain": error_chain or [],
+        "execution_folder": None,
+    }
+
+
+class TestSafetyViolationPreventsRetry:
+    """Tests that ChannelLimitsViolationError sets is_failed=True (I-3).
+
+    These tests mock the executor to raise specific exceptions, then verify
+    the node's error-handling logic correctly classifies safety violations
+    as non-retryable.
+    """
+
+    @pytest.mark.asyncio
+    async def test_channel_limits_violation_sets_is_failed(self):
+        """ChannelLimitsViolationError in exception message marks execution as permanently failed."""
+        from osprey.services.python_executor.exceptions import ChannelLimitsViolationError
+
+        executor_node = create_executor_node()
+        state = _make_mock_state(retries=3)
+
+        # Create the actual exception that would be raised
+        safety_error = ChannelLimitsViolationError(
+            channel_address="TEST:PV",
+            value=150.0,
+            violation_type="MAX_EXCEEDED",
+            violation_reason="Value 150.0 above maximum 100.0",
+            min_value=0.0,
+            max_value=100.0,
+        )
+
+        with (
+            patch("osprey.services.python_executor.execution.node._create_execution_folder") as mock_folder,
+            patch("osprey.services.python_executor.execution.node._get_execution_method", return_value="local"),
+            patch("osprey.services.python_executor.execution.node._get_execution_mode_from_state"),
+            patch("osprey.services.python_executor.execution.node._create_error_notebook", new_callable=AsyncMock, return_value=None),
+            patch("osprey.utils.config.get_full_configuration", return_value={}),
+            patch("osprey.services.python_executor.execution.node.LocalCodeExecutor") as MockExecutor,
+        ):
+            # Set up execution folder mock
+            mock_exec_folder = MagicMock()
+            mock_exec_folder.folder_path = MagicMock()
+            mock_exec_folder.context_file_path = MagicMock()
+            mock_exec_folder.context_file_path.exists.return_value = True
+            mock_folder.return_value = mock_exec_folder
+
+            # Make executor raise the safety error
+            mock_instance = MockExecutor.return_value
+            mock_instance.execute_code = AsyncMock(side_effect=safety_error)
+
+            result = await executor_node(state)
+
+        assert result["is_failed"] is True
+        assert "Channel limits violation" in result["failure_reason"]
+        assert result["is_successful"] is False
+        assert result["execution_failed"] is True
+
+    @pytest.mark.asyncio
+    async def test_channel_limits_violation_uppercase_marker_sets_is_failed(self):
+        """Exception with 'CHANNEL LIMITS VIOLATION' also marks as permanently failed."""
+        executor_node = create_executor_node()
+        state = _make_mock_state(retries=3)
+
+        # Some error paths may produce the uppercase marker
+        error = RuntimeError("CHANNEL LIMITS VIOLATION: TEST:PV value 150.0 exceeds max 100.0")
+
+        with (
+            patch("osprey.services.python_executor.execution.node._create_execution_folder") as mock_folder,
+            patch("osprey.services.python_executor.execution.node._get_execution_method", return_value="local"),
+            patch("osprey.services.python_executor.execution.node._get_execution_mode_from_state"),
+            patch("osprey.services.python_executor.execution.node._create_error_notebook", new_callable=AsyncMock, return_value=None),
+            patch("osprey.utils.config.get_full_configuration", return_value={}),
+            patch("osprey.services.python_executor.execution.node.LocalCodeExecutor") as MockExecutor,
+        ):
+            mock_exec_folder = MagicMock()
+            mock_exec_folder.folder_path = MagicMock()
+            mock_exec_folder.context_file_path = MagicMock()
+            mock_exec_folder.context_file_path.exists.return_value = True
+            mock_folder.return_value = mock_exec_folder
+
+            mock_instance = MockExecutor.return_value
+            mock_instance.execute_code = AsyncMock(side_effect=error)
+
+            result = await executor_node(state)
+
+        assert result["is_failed"] is True
+        assert "Channel limits violation" in result["failure_reason"]
+
+    @pytest.mark.asyncio
+    async def test_non_safety_error_with_retries_remaining_is_not_failed(self):
+        """A normal runtime error with retries remaining does NOT set is_failed=True."""
+        executor_node = create_executor_node()
+        # retries=3, error_chain=[] → 1 error after this, still below 3
+        state = _make_mock_state(retries=3, error_chain=[])
+
+        error = RuntimeError("Some regular execution error")
+
+        with (
+            patch("osprey.services.python_executor.execution.node._create_execution_folder") as mock_folder,
+            patch("osprey.services.python_executor.execution.node._get_execution_method", return_value="local"),
+            patch("osprey.services.python_executor.execution.node._get_execution_mode_from_state"),
+            patch("osprey.services.python_executor.execution.node._create_error_notebook", new_callable=AsyncMock, return_value=None),
+            patch("osprey.utils.config.get_full_configuration", return_value={}),
+            patch("osprey.services.python_executor.execution.node.LocalCodeExecutor") as MockExecutor,
+        ):
+            mock_exec_folder = MagicMock()
+            mock_exec_folder.folder_path = MagicMock()
+            mock_exec_folder.context_file_path = MagicMock()
+            mock_exec_folder.context_file_path.exists.return_value = True
+            mock_folder.return_value = mock_exec_folder
+
+            mock_instance = MockExecutor.return_value
+            mock_instance.execute_code = AsyncMock(side_effect=error)
+
+            result = await executor_node(state)
+
+        # Should NOT be permanently failed — retries still available
+        assert result["is_failed"] is False
+        assert result["failure_reason"] is None
+        assert result["execution_failed"] is True
+        assert result["is_successful"] is False
+
+    @pytest.mark.asyncio
+    async def test_non_safety_error_at_retry_limit_is_failed(self):
+        """A normal error that exhausts retries DOES set is_failed=True."""
+        executor_node = create_executor_node()
+        # retries=2, error_chain has 1 existing error → after this one, len=2 >= max_retries=2
+        existing_error = MagicMock()
+        state = _make_mock_state(retries=2, error_chain=[existing_error])
+
+        error = RuntimeError("Another execution error")
+
+        with (
+            patch("osprey.services.python_executor.execution.node._create_execution_folder") as mock_folder,
+            patch("osprey.services.python_executor.execution.node._get_execution_method", return_value="local"),
+            patch("osprey.services.python_executor.execution.node._get_execution_mode_from_state"),
+            patch("osprey.services.python_executor.execution.node._create_error_notebook", new_callable=AsyncMock, return_value=None),
+            patch("osprey.utils.config.get_full_configuration", return_value={}),
+            patch("osprey.services.python_executor.execution.node.LocalCodeExecutor") as MockExecutor,
+        ):
+            mock_exec_folder = MagicMock()
+            mock_exec_folder.folder_path = MagicMock()
+            mock_exec_folder.context_file_path = MagicMock()
+            mock_exec_folder.context_file_path.exists.return_value = True
+            mock_folder.return_value = mock_exec_folder
+
+            mock_instance = MockExecutor.return_value
+            mock_instance.execute_code = AsyncMock(side_effect=error)
+
+            result = await executor_node(state)
+
+        assert result["is_failed"] is True
+        assert "failed after 2 attempts" in result["failure_reason"]
