@@ -16,10 +16,18 @@ let currentRenderer = null;
 export function mountExplore(container) {
   const pt = state.pipelineType;
 
-  const descToggle = (pt === 'hierarchical' || pt === 'middle_layer')
+  const hasSchema = (pt === 'hierarchical' || pt === 'middle_layer');
+
+  const descToggle = hasSchema
     ? `<label class="miller-toggle" style="margin-top: var(--space-1)">
          <input type="checkbox" id="show-desc-toggle"> Show full descriptions
        </label>`
+    : '';
+
+  const dbInfoToggle = hasSchema
+    ? `<span class="db-info-toggle" id="db-info-toggle" style="margin-top: var(--space-1)">
+         <span class="chevron">&#9654;</span> Database Info
+       </span>`
     : '';
 
   container.innerHTML = `
@@ -28,11 +36,7 @@ export function mountExplore(container) {
         <div class="section-title">Explore Channels</div>
         <div class="section-subtitle">Browse the channel database structure</div>
         ${descToggle}
-      </div>
-      <div>
-        <span class="db-info-toggle" id="db-info-toggle">
-          <span class="chevron">&#9654;</span> Database Info
-        </span>
+        ${dbInfoToggle}
       </div>
     </div>
     <div class="db-info-content" id="db-info-content">
