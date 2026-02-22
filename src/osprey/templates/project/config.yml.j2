@@ -417,6 +417,9 @@ api:
     cborg:
       api_key: ${CBORG_API_KEY}
       base_url: https://api.cborg.lbl.gov/v1
+    amsc:
+      api_key: ${AMSC_I2_API_KEY}
+      base_url: https://api.i2-core.american-science-cloud.org/v1
     stanford:
       api_key: ${STANFORD_API_KEY}
       base_url: https://aiapi-prod.stanford.edu/v1
@@ -444,6 +447,7 @@ api:
 # Set these in your .env file:
 #
 #   CBORG_API_KEY=your-cborg-key
+#   AMSC_I2_API_KEY=your-amsc-key
 #   STANFORD_API_KEY=...
 #   ARGO_API_KEY=your-argo-key
 #   OPENAI_API_KEY=sk-...

@@ -218,7 +218,13 @@ def init(
         console.print("  ✓ Creating project configuration...", style=Styles.SUCCESS)
 
         # Check if API keys were detected and .env was created
-        api_keys = ["CBORG_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY"]
+        api_keys = [
+            "CBORG_API_KEY",
+            "AMSC_I2_API_KEY",
+            "OPENAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "GOOGLE_API_KEY",
+        ]
         has_api_keys = any(key in detected_env for key in api_keys)
 
         if has_api_keys:

@@ -30,12 +30,12 @@ echo "Locating /usr/local/bin/start-notebook.sh: $(ls -l /usr/local/bin/start-no
 # Install project dependencies (including framework)
 if [ -f "/jupyter/repo_src/requirements.txt" ]; then
     echo "Installing project dependencies from requirements.txt..."
-    pip install --no-cache-dir -r /jupyter/repo_src/requirements.txt
+    uv pip install --system --no-cache -r /jupyter/repo_src/requirements.txt
     echo "✓ Project dependencies installed successfully"
 else
     echo "WARNING: /jupyter/repo_src/requirements.txt not found"
     echo "Installing framework directly as fallback..."
-    pip install osprey-framework>=0.8.0
+    uv pip install --system osprey-framework>=0.8.0
 fi
 
 # Development mode override - install local osprey AFTER everything else
@@ -54,7 +54,7 @@ setup(
 EOF
 
     # Install the local osprey (this will override the PyPI version)
-    pip install --no-cache-dir -e /jupyter/osprey_override
+    uv pip install --system --no-cache -e /jupyter/osprey_override
     echo "✓ Osprey overridden with local development version"
 else
     echo "📦 Using PyPI osprey version"

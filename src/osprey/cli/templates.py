@@ -100,6 +100,7 @@ class TemplateManager:
         # List of environment variables we want to detect and potentially use
         env_vars_to_check = [
             "CBORG_API_KEY",
+            "AMSC_I2_API_KEY",
             "OPENAI_API_KEY",
             "ANTHROPIC_API_KEY",
             "GOOGLE_API_KEY",
@@ -340,6 +341,7 @@ class TemplateManager:
         detected_env_vars = ctx.get("env", {})
         api_keys = [
             "CBORG_API_KEY",
+            "AMSC_I2_API_KEY",
             "OPENAI_API_KEY",
             "ANTHROPIC_API_KEY",
             "GOOGLE_API_KEY",

@@ -543,6 +543,11 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     class_name="VLLMProviderAdapter",
                     name="vllm",
                 ),
+                ProviderRegistration(
+                    module_path="osprey.models.providers.amsc",
+                    class_name="AMSCProviderAdapter",
+                    name="amsc",
+                ),
             ],
             # Framework connectors for control systems and archivers
             connectors=[

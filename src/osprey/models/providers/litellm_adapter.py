@@ -94,7 +94,7 @@ def get_litellm_model_name(
         "openai": "",  # No prefix for OpenAI
         "ollama": "ollama",
     }
-    _openai_compatible = {"cborg", "stanford", "argo", "vllm"}
+    _openai_compatible = {"cborg", "stanford", "argo", "vllm", "amsc"}
 
     if provider in _openai_compatible:
         return f"openai/{model_id}"
@@ -363,7 +363,7 @@ def _supports_native_structured_output(litellm_model: str, provider: str) -> boo
     """Check if a model supports native structured outputs.
 
     Uses LiteLLM's built-in supports_response_schema() for detection, with
-    fallback handling for OpenAI-compatible providers (CBORG, Stanford, ARGO, vLLM)
+    fallback handling for OpenAI-compatible providers (CBORG, AMSC, Stanford, ARGO, vLLM)
     that support structured outputs via their proxy but aren't recognized by LiteLLM.
 
     :param litellm_model: LiteLLM-formatted model string (e.g., "anthropic/claude-sonnet-4")
@@ -372,7 +372,7 @@ def _supports_native_structured_output(litellm_model: str, provider: str) -> boo
     """
     # OpenAI-compatible providers support structured outputs via their API
     # LiteLLM can't detect this since it sees the openai/ prefix, not the actual model
-    if provider in ("cborg", "stanford", "argo", "vllm"):
+    if provider in ("cborg", "stanford", "argo", "vllm", "amsc"):
         return True
 
     try:

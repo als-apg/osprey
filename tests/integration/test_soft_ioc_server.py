@@ -378,13 +378,22 @@ class IOCServer:
 
         Returns:
             List of call records, each with 'method' key and additional args
+
+        Note:
+            The backend subprocess rewrites the entire JSON file on each log call.
+            If we read mid-write we may get truncated or duplicate JSON, so we
+            catch JSONDecodeError and return an empty list — callers are already
+            in retry loops.
         """
         if not self.log_file.exists():
             return []
         content = self.log_file.read_text()
         if not content.strip():
             return []
-        return json.loads(content)
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            return []
 
     def get_context(self) -> Context:
         """Get or create a caproto client context.

@@ -7,17 +7,6 @@ set -e
 # Ensure we're in the project root
 cd "$(dirname "$0")/.."
 
-# Activate virtual environment if it exists
-if [ -d "venv" ]; then
-    echo "🔧 Activating virtual environment..."
-    source venv/bin/activate
-elif [ -d ".venv" ]; then
-    echo "🔧 Activating virtual environment..."
-    source .venv/bin/activate
-else
-    echo "⚠️  No virtual environment found. Continuing with system Python..."
-fi
-
 echo "🔍 Running full CI checks locally..."
 echo "===================================="
 echo ""
@@ -32,7 +21,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 echo "→ Running ruff (linting)..."
-if ! ruff check src/ tests/ --output-format=github; then
+if ! uv run ruff check src/ tests/ --output-format=github; then
     FAILED_CHECKS+=("ruff-linting")
     echo "❌ Ruff linting failed"
 else
@@ -41,7 +30,7 @@ fi
 echo ""
 
 echo "→ Running ruff (formatting)..."
-if ! ruff format --check src/ tests/; then
+if ! uv run ruff format --check src/ tests/; then
     FAILED_CHECKS+=("ruff-formatting")
     echo "❌ Ruff formatting failed"
     echo "💡 Run 'ruff format src/ tests/' to fix"
@@ -51,7 +40,7 @@ fi
 echo ""
 
 echo "→ Running mypy (type checking)..."
-if ! mypy src/ --no-error-summary; then
+if ! uv run mypy src/ --no-error-summary; then
     echo "⚠️  Mypy found type issues (not blocking)"
 else
     echo "✅ Mypy passed"
@@ -65,7 +54,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 echo "→ Running pytest with coverage..."
-if ! pytest tests/ --ignore=tests/e2e -v --tb=short --cov=src/osprey --cov-report=xml --cov-report=term; then
+if ! uv run pytest tests/ --ignore=tests/e2e -v --tb=short --cov=src/osprey --cov-report=xml --cov-report=term; then
     FAILED_CHECKS+=("pytest")
     echo "❌ Tests failed"
 else
@@ -105,7 +94,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 echo "→ Building package..."
-if ! python -m build --quiet; then
+if ! uv build --quiet; then
     FAILED_CHECKS+=("package-build")
     echo "❌ Package build failed"
 else
@@ -114,7 +103,7 @@ fi
 echo ""
 
 echo "→ Checking package with twine..."
-if ! twine check dist/* 2>&1 | grep -q "PASSED"; then
+if ! uvx twine check dist/* 2>&1 | grep -q "PASSED"; then
     FAILED_CHECKS+=("twine-check")
     echo "❌ Twine check failed"
 else
@@ -143,8 +132,8 @@ else
     echo "Please fix the issues above before pushing."
     echo ""
     echo "💡 Tips:"
-    echo "   - Run 'ruff format src/ tests/' to fix formatting"
-    echo "   - Run 'ruff check src/ tests/ --fix' to auto-fix linting"
+    echo "   - Run 'uv run ruff format src/ tests/' to fix formatting"
+    echo "   - Run 'uv run ruff check src/ tests/ --fix' to auto-fix linting"
     echo "   - Check test output above for specific failures"
     echo ""
     exit 1

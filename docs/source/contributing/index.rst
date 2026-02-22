@@ -63,20 +63,45 @@ First, fork the Osprey repository on GitHub, then clone your fork locally:
 
 We strongly recommend using a virtual environment to isolate dependencies:
 
-.. code-block:: bash
+.. tab-set::
 
-   python3.11 -m venv venv
-   source venv/bin/activate  # macOS/Linux
-   # or: venv\Scripts\activate  # Windows
+    .. tab-item:: uv (Recommended)
+
+        `uv <https://docs.astral.sh/uv/>`_ is a fast Python package manager that handles virtual environments automatically:
+
+        .. code-block:: bash
+
+           # uv creates and manages the .venv automatically
+           uv venv
+           # uv will auto-activate in commands, or:
+           source .venv/bin/activate
+
+    .. tab-item:: pip (Traditional)
+
+        .. code-block:: bash
+
+           python3.11 -m venv venv
+           source venv/bin/activate  # macOS/Linux
+           # or: venv\Scripts\activate  # Windows
 
 **3. Install Dependencies**
 
 Install Osprey in development mode with all development and documentation dependencies:
 
-.. code-block:: bash
+.. tab-set::
 
-   pip install --upgrade pip
-   pip install -e ".[dev,docs]"
+    .. tab-item:: uv (Recommended)
+
+        .. code-block:: bash
+
+           uv sync --extra dev --extra docs
+
+    .. tab-item:: pip (Traditional)
+
+        .. code-block:: bash
+
+           pip install --upgrade pip
+           pip install -e ".[dev,docs]"
 
 This installs the framework in "editable" mode, meaning changes you make to the source code are immediately available.
 
@@ -86,6 +111,8 @@ Run the test suite to make sure everything is working:
 
 .. code-block:: bash
 
+   uv run pytest tests/ --ignore=tests/e2e -v
+   # or with pip:
    pytest tests/ --ignore=tests/e2e -v
 
 If all tests pass, you're ready to start contributing!
@@ -100,16 +127,16 @@ Quick Reference
 .. code-block:: bash
 
    # Run tests
-   pytest tests/ --ignore=tests/e2e -v
+   uv run pytest tests/ --ignore=tests/e2e -v
 
    # Check code style
-   ruff check src/ tests/
+   uv run ruff check src/ tests/
 
    # Pre-commit check
    ./scripts/premerge_check.sh
 
    # Build documentation
-   cd docs && sphinx-autobuild source build
+   cd docs && uv run sphinx-autobuild source build
 
 **Before Every Commit:**
 

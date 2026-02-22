@@ -21,8 +21,11 @@ This work was presented as a contributed oral presentation at [ICALEPCS'25](http
 ## 🚀 Quick Start
 
 ```bash
-# Install the framework
-pip install osprey-framework
+# Install the framework (using uv, recommended)
+uv pip install osprey-framework
+
+# Or using pip:
+# pip install osprey-framework
 
 # Recommended: Interactive setup (guides you through everything!)
 osprey
