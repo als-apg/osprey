@@ -1430,6 +1430,13 @@
     }
   }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
+  // ---- Expose state for logbook.js ----
+
+  window._galleryState = {
+    getFocusedArtifact() { return focusedArtifact; },
+    getSelectedArtifact() { return selectedArtifact; },
+  };
+
   // ---- Init ----
 
   initSplitPaneResize(resizeHandle, sidebar);
