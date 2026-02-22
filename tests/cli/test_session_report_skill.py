@@ -120,6 +120,16 @@ class TestSessionReportSkillStructure:
     def test_references_reference_file(self, skill_text):
         assert "reference.md" in skill_text
 
+    # --- Mermaid diagram guidance ---
+
+    def test_mentions_mermaid_event_timeline(self, skill_text):
+        """Skill must mention Mermaid event timeline as a block type option."""
+        assert "Mermaid event timeline" in skill_text
+
+    def test_mentions_mermaid_state_diagram(self, skill_text):
+        """Skill must mention Mermaid state diagram as a block type option."""
+        assert "Mermaid state diagram" in skill_text
+
     # --- No hardcoded section list ---
 
     def test_no_fixed_eight_sections(self, skill_text):
@@ -210,6 +220,16 @@ class TestSessionReportReferenceStructure:
 
     def test_has_timeline_pattern(self, reference_text):
         assert "timeline" in reference_text
+
+    def test_has_mermaid_event_timeline(self, reference_text):
+        """Reference must include Mermaid timeline diagram syntax."""
+        assert "Mermaid Event Timeline" in reference_text
+        assert "timeline" in reference_text
+
+    def test_has_mermaid_state_diagram(self, reference_text):
+        """Reference must include Mermaid state diagram syntax."""
+        assert "stateDiagram-v2" in reference_text
+        assert "Mermaid State Diagram" in reference_text
 
     def test_has_diff_panels(self, reference_text):
         assert "diff-panel" in reference_text

@@ -45,7 +45,9 @@ Based on the operator's intent and the inventory, draft a report structure. Ther
 - **Chart.js line/scatter** — Natural for Analysis Report when timeseries data exists. Use `archiver_downsample` to get chart-ready data (never embed raw timeseries).
 - **Narrative paragraphs** — Observations about what was seen. Essential for Analysis Report and Executive Briefing.
 - **Card grid** — Good for Executive Briefing status overview; good for linking to artifacts
-- **Timeline** — Good for Session Log to show chronological sequence of actions
+- **CSS Timeline** — Good for Session Log to show a simple chronological list of actions (timestamps + descriptions)
+- **Mermaid event timeline** — Use when the session involved grouped or multi-phase event sequences. Mermaid's `timeline` diagram type renders events organized by time periods with grouping, making complex sequences easier to scan than a flat list. Prefer this over the CSS timeline when there are 5+ events or natural phase groupings.
+- **Mermaid state diagram** — Use when the session revealed state transitions in a control system (e.g., beam states, interlock chains, operational modes). Mermaid's `stateDiagram-v2` renders state machines with transitions and guards. Only include when actual state changes were observed — never fabricate state models.
 - **Collapsible details** — Good for Analysis Report when there's dense technical data to organize
 
 **Keep it proportional**: A 10-minute session with 2 channel reads doesn't need 8 sections. A 2-hour investigation with archiver data, plots, and multiple analyses might warrant a rich structure. Match the report's complexity to the session's complexity.
