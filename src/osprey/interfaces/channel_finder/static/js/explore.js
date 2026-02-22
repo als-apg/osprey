@@ -2,16 +2,26 @@
  * OSPREY Channel Finder — Explore View (dispatcher)
  *
  * Detects pipeline type and mounts the correct explore renderer.
- * Includes collapsible Database Info section with schema diagram.
+ * Shows database source path and schema diagram for structured pipelines.
  */
 
 import { state } from './state.js';
-import { renderSchema } from './utils.js';
+import { esc, renderSchema } from './utils.js';
 import { mountHierarchical, unmountHierarchical, setShowDescriptions as setHierDescriptions } from './explore-hierarchical.js';
 import { mountInContext, unmountInContext } from './explore-in-context.js';
 import { mountMiddleLayer, unmountMiddleLayer, setShowDescriptions as setMLDescriptions } from './explore-middle-layer.js';
 
 let currentRenderer = null;
+
+function _dbSourceBadge() {
+  const dbPath = state.dbPath;
+  if (!dbPath) return '';
+  const filename = dbPath.split('/').pop();
+  return `<div class="db-source-badge" title="${esc(dbPath)}">
+            <span class="db-source-icon">&#128193;</span>
+            <code>${esc(filename)}</code>
+          </div>`;
+}
 
 export function mountExplore(container) {
   const pt = state.pipelineType;
@@ -24,36 +34,20 @@ export function mountExplore(container) {
        </label>`
     : '';
 
-  const dbInfoToggle = hasSchema
-    ? `<span class="db-info-toggle" id="db-info-toggle" style="margin-top: var(--space-1)">
-         <span class="chevron">&#9654;</span> Database Info
-       </span>`
-    : '';
-
   container.innerHTML = `
     <div class="section-header">
       <div>
         <div class="section-title">Explore Channels</div>
         <div class="section-subtitle">Browse the channel database structure</div>
+        ${_dbSourceBadge()}
         ${descToggle}
-        ${dbInfoToggle}
       </div>
     </div>
-    <div class="db-info-content" id="db-info-content">
-      <div style="padding: var(--space-3) 0;">
-        <div class="schema-diagram" id="explore-schema"></div>
-      </div>
-    </div>
+    ${hasSchema ? `<div class="db-schema-section">
+      <div class="schema-diagram" id="explore-schema"></div>
+    </div>` : ''}
     <div id="explore-content"></div>
   `;
-
-  // Wire up Database Info toggle
-  const toggle = document.getElementById('db-info-toggle');
-  const infoContent = document.getElementById('db-info-content');
-  toggle?.addEventListener('click', () => {
-    toggle.classList.toggle('open');
-    infoContent.classList.toggle('open');
-  });
 
   // Render schema diagram
   const schemaEl = document.getElementById('explore-schema');

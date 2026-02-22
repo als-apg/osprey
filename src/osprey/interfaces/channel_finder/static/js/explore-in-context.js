@@ -142,7 +142,10 @@ function renderTable() {
               return `
                 <tr class="ic-editing-row" data-channel="${esc(name)}">
                   <td>${i + 1}</td>
-                  <td class="pv-cell">${esc(name)}</td>
+                  <td>
+                    <input type="text" class="ic-inline-input" id="ic-edit-name"
+                           value="${esc(name)}" placeholder="Channel name">
+                  </td>
                   <td>
                     <input type="text" class="ic-inline-input" id="ic-edit-addr"
                            value="${esc(addr)}" placeholder="PV address">
@@ -189,16 +192,22 @@ function renderTable() {
     btn.addEventListener('click', () => {
       editingRow = btn.dataset.channel;
       renderTable();
-      const input = document.getElementById('ic-edit-desc');
+      const input = document.getElementById('ic-edit-name');
       if (input) { input.focus(); input.select(); }
     });
   });
 
   area.querySelectorAll('.item-action-btn.action-save').forEach(btn => {
     btn.addEventListener('click', () => {
+      const nameInput = document.getElementById('ic-edit-name');
       const addrInput = document.getElementById('ic-edit-addr');
       const descInput = document.getElementById('ic-edit-desc');
-      if (descInput) handleSaveEdit(btn.dataset.channel, descInput.value.trim(), addrInput?.value.trim());
+      handleSaveEdit(
+        btn.dataset.channel,
+        nameInput?.value.trim(),
+        addrInput?.value.trim(),
+        descInput?.value.trim(),
+      );
     });
   });
 
@@ -209,16 +218,20 @@ function renderTable() {
     });
   });
 
-  const editDesc = document.getElementById('ic-edit-desc');
-  const editAddr = document.getElementById('ic-edit-addr');
-  [editAddr, editDesc].filter(Boolean).forEach(input => {
+  const editInputs = [
+    document.getElementById('ic-edit-name'),
+    document.getElementById('ic-edit-addr'),
+    document.getElementById('ic-edit-desc'),
+  ].filter(Boolean);
+  editInputs.forEach(input => {
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         const row = input.closest('tr');
-        const name = row?.dataset.channel;
+        const origName = row?.dataset.channel;
+        const newName = document.getElementById('ic-edit-name')?.value.trim();
         const addrVal = document.getElementById('ic-edit-addr')?.value.trim();
         const descVal = document.getElementById('ic-edit-desc')?.value.trim();
-        if (name) handleSaveEdit(name, descVal, addrVal);
+        if (origName) handleSaveEdit(origName, newName, addrVal, descVal);
       } else if (e.key === 'Escape') {
         editingRow = null;
         renderTable();
@@ -254,14 +267,29 @@ function renderPagination() {
 
 // ---- CRUD Handlers ----
 
-async function handleSaveEdit(channelName, newDesc, newAddr) {
+async function handleSaveEdit(origName, newName, newAddr, newDesc) {
   try {
-    const body = { description: newDesc };
-    if (newAddr !== undefined) body.address = newAddr;
-    await putJSON(`/api/channels/${encodeURIComponent(channelName)}`, body);
+    const renamed = newName && newName !== origName;
+
+    if (renamed) {
+      await deleteJSON(`/api/channels/${encodeURIComponent(origName)}`);
+      await postJSON('/api/channels', {
+        channel_name: newName,
+        address: newAddr || '',
+        description: newDesc || '',
+      });
+      showToast(`Renamed "${origName}" → "${newName}"`, 'success');
+    } else {
+      const body = {};
+      if (newAddr !== undefined) body.address = newAddr;
+      if (newDesc !== undefined) body.description = newDesc;
+      await putJSON(`/api/channels/${encodeURIComponent(origName)}`, body);
+      showToast(`Updated "${origName}"`, 'success');
+    }
+
     editingRow = null;
-    showToast(`Updated "${channelName}"`, 'success');
     await loadChunk(chunkIdx);
+    if (renamed) refreshStatsBadges();
   } catch (e) {
     showToast(`Failed to update: ${e.message}`, 'error');
   }

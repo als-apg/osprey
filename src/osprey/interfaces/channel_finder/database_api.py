@@ -168,6 +168,11 @@ async def get_info(request: Request):
     info: dict = {"pipeline_type": pt, "available_pipelines": available}
 
     try:
+        info["db_path"] = _get_db_path(request)
+    except Exception:
+        info["db_path"] = None
+
+    try:
         if pt == "hierarchical":
             from osprey.services.channel_finder.mcp.hierarchical.tools.hierarchy_info import (
                 hierarchy_info,

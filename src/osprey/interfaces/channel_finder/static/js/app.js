@@ -28,6 +28,7 @@ async function init() {
     const info = await fetchJSON('/api/info');
     state.setPipelineInfo(info.pipeline_type, info.metadata);
     state.availablePipelines = info.available_pipelines || [info.pipeline_type];
+    state.dbPath = info.db_path || null;
     updatePipelineBadge(info.pipeline_type);
     buildPipelineDropdown();
   } catch (e) {
@@ -151,6 +152,7 @@ async function switchPipeline(newType) {
     // Re-fetch pipeline info to get fresh metadata
     const info = await fetchJSON('/api/info');
     state.setPipelineInfo(info.pipeline_type, info.metadata);
+    state.dbPath = info.db_path || null;
     updatePipelineBadge(info.pipeline_type);
 
     // Update dropdown active state
