@@ -42,7 +42,6 @@ from .basic_generator import BasicLLMCodeGenerator
 from .factory import create_code_generator
 from .interface import CodeGenerator
 from .mock_generator import MockCodeGenerator
-from .node import create_generator_node
 
 # Try to import Claude Code generator (optional dependency)
 try:
@@ -61,6 +60,4 @@ __all__ = [
     "ClaudeCodeGenerator",  # Included as core dependency (v0.9.6+)
     "MockCodeGenerator",  # For testing
     "CLAUDE_SDK_AVAILABLE",
-    # Node
-    "create_generator_node",
 ]
