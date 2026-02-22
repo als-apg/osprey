@@ -5,7 +5,7 @@
  * Inline CRUD: add and delete channels.
  */
 
-import { fetchJSON, postJSON, deleteJSON } from './api.js';
+import { fetchJSON, postJSON, putJSON, deleteJSON } from './api.js';
 import { showToast } from './app.js';
 import { esc } from './utils.js';
 import { formModal, confirmModal } from './modal.js';
@@ -50,6 +50,7 @@ export function unmountInContext() {
   allChannels = [];
   filterText = '';
   chunkIdx = 0;
+  editingRow = null;
 }
 
 async function loadChunk(idx) {
@@ -93,6 +94,8 @@ function parseFormattedChannels(text) {
     });
 }
 
+let editingRow = null;
+
 function renderTable() {
   const area = document.getElementById('ic-table-area');
   const countEl = document.getElementById('ic-count');
@@ -123,20 +126,44 @@ function renderTable() {
             <th style="width: 40px">#</th>
             <th>Name</th>
             <th>Address / Description</th>
-            <th style="width: 40px"></th>
+            <th style="width: 80px"></th>
           </tr>
         </thead>
         <tbody>
           ${filtered.map((ch, i) => {
             const name = ch.name || ch.channel_name || ch.channel || '—';
             const desc = ch.description || ch.address || ch.pv_address || '';
+            const isEditing = editingRow === name;
+
+            if (isEditing) {
+              return `
+                <tr class="ic-editing-row" data-channel="${esc(name)}">
+                  <td>${i + 1}</td>
+                  <td class="pv-cell">${esc(name)}</td>
+                  <td>
+                    <input type="text" class="ic-inline-input" id="ic-edit-desc"
+                           value="${esc(desc)}" placeholder="Description / address">
+                  </td>
+                  <td>
+                    <div class="ic-action-group">
+                      <button class="item-action-btn action-save" data-channel="${esc(name)}" title="Save">&#10003;</button>
+                      <button class="item-action-btn action-cancel" title="Cancel">&#10005;</button>
+                    </div>
+                  </td>
+                </tr>
+              `;
+            }
+
             return `
               <tr>
                 <td>${i + 1}</td>
                 <td class="pv-cell">${esc(name)}</td>
                 <td>${esc(desc)}</td>
                 <td>
-                  <button class="item-action-btn action-delete" data-channel="${esc(name)}" title="Delete">&times;</button>
+                  <div class="ic-action-group">
+                    <button class="item-action-btn action-edit" data-channel="${esc(name)}" title="Edit">&#9998;</button>
+                    <button class="item-action-btn action-delete" data-channel="${esc(name)}" title="Delete">&times;</button>
+                  </div>
                 </td>
               </tr>
             `;
@@ -146,10 +173,46 @@ function renderTable() {
     </div>
   `;
 
-  // Wire up delete buttons
   area.querySelectorAll('.item-action-btn.action-delete').forEach(btn => {
     btn.addEventListener('click', () => handleDeleteChannel(btn.dataset.channel));
   });
+
+  area.querySelectorAll('.item-action-btn.action-edit').forEach(btn => {
+    btn.addEventListener('click', () => {
+      editingRow = btn.dataset.channel;
+      renderTable();
+      const input = document.getElementById('ic-edit-desc');
+      if (input) { input.focus(); input.select(); }
+    });
+  });
+
+  area.querySelectorAll('.item-action-btn.action-save').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const input = document.getElementById('ic-edit-desc');
+      if (input) handleSaveEdit(btn.dataset.channel, input.value.trim());
+    });
+  });
+
+  area.querySelectorAll('.item-action-btn.action-cancel').forEach(btn => {
+    btn.addEventListener('click', () => {
+      editingRow = null;
+      renderTable();
+    });
+  });
+
+  const editInput = document.getElementById('ic-edit-desc');
+  if (editInput) {
+    editInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const row = editInput.closest('tr');
+        const name = row?.dataset.channel;
+        if (name) handleSaveEdit(name, editInput.value.trim());
+      } else if (e.key === 'Escape') {
+        editingRow = null;
+        renderTable();
+      }
+    });
+  }
 }
 
 function renderPagination() {
@@ -178,6 +241,19 @@ function renderPagination() {
 }
 
 // ---- CRUD Handlers ----
+
+async function handleSaveEdit(channelName, newDesc) {
+  try {
+    await putJSON(`/api/channels/${encodeURIComponent(channelName)}`, {
+      description: newDesc,
+    });
+    editingRow = null;
+    showToast(`Updated "${channelName}"`, 'success');
+    await loadChunk(chunkIdx);
+  } catch (e) {
+    showToast(`Failed to update: ${e.message}`, 'error');
+  }
+}
 
 async function handleAddChannel() {
   const result = await formModal({
