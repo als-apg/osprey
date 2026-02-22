@@ -671,13 +671,16 @@ async def tree_impact(request: Request, body: DeleteNodeRequest):
     from osprey.interfaces.channel_finder.database_crud import CrudError, hier_count_descendants
 
     try:
-        count = hier_count_descendants(
+        impact = hier_count_descendants(
             db_path=_get_db_path(request),
             level=body.level,
             selections=body.selections,
             name=body.name,
         )
-        return {"affected_channels": count}
+        return {
+            "affected_channels": impact.get("channels", 0),
+            "breakdown": {k: v for k, v in impact.items() if k != "channels"},
+        }
     except CrudError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:

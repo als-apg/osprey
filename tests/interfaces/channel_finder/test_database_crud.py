@@ -325,14 +325,15 @@ class TestHierarchicalCrud:
 
     def test_hier_count_descendants(self, hier_db: Path):
         with _RELOAD_PATCH:
-            count = hier_count_descendants(
+            impact = hier_count_descendants(
                 hier_db,
                 level="device",
                 selections={"system": "SR"},
                 name="BPM",
             )
 
-        assert count >= 2  # At least X and Y
+        assert impact["channels"] >= 2  # At least X and Y
+        assert "signal" in impact  # breakdown includes child level
 
 
 # ---------------------------------------------------------------------------
@@ -657,7 +658,7 @@ class TestHierarchicalCrudWithInstances:
 
     def test_count_descendants_through_instance_level(self, hier_db_with_instances: Path):
         with _RELOAD_PATCH:
-            count = hier_count_descendants(
+            impact = hier_count_descendants(
                 hier_db_with_instances,
                 level="field",
                 selections={"system": "SR", "family": "BPM", "device": "B01"},
@@ -665,7 +666,22 @@ class TestHierarchicalCrudWithInstances:
             )
 
         # X has children Raw and Calibrated (both empty dicts = leaf nodes)
-        assert count >= 2
+        assert impact["channels"] >= 2
+
+    def test_count_descendants_expansion_aware_breakdown(self, hier_db_with_instances: Path):
+        """Deleting a family with instance expansion returns correct per-level breakdown."""
+        with _RELOAD_PATCH:
+            impact = hier_count_descendants(
+                hier_db_with_instances,
+                level="family",
+                selections={"system": "SR"},
+                name="QUAD",
+            )
+
+        # QUAD: 6 devices (expansion [1,6]), 2 fields (Setpoint, Readback)
+        assert impact["device"] == 6
+        assert impact["field"] == 2 * 6  # 2 fields per device × 6 devices
+        assert impact["channels"] == 12  # 2 leaf fields × 6 devices
 
     def test_tree_level_crud_still_works(self, hier_db_with_instances: Path):
         """Regression: tree-level CRUD unaffected by instance-level support."""

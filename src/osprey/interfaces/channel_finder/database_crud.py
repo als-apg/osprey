@@ -540,16 +540,61 @@ def hier_get_expansion(
     )
 
 
+def _hier_collect_impact(
+    node: dict,
+    remaining_levels: list[str],
+    level_types: dict[str, str],
+) -> dict[str, int]:
+    """Walk the tree and count descendants at each remaining hierarchy level.
+
+    For instance-type levels, the count reflects the expansion range.
+    The final entry ``"channels"`` is the total expanded leaf count
+    (same value as ``_hier_count_channels``).
+    """
+    counts: dict[str, int] = {}
+    if not remaining_levels or not isinstance(node, dict):
+        return counts
+
+    current_level = remaining_levels[0]
+    rest = remaining_levels[1:]
+    ltype = level_types.get(current_level, "tree")
+
+    if ltype == "instances":
+        # Instance level: count comes from expansion, not tree keys
+        for _k, child in node.items():
+            if not isinstance(child, dict) or _k.startswith("_"):
+                continue
+            if "_expansion" in child:
+                inst_count = _expansion_instance_count(child["_expansion"])
+                counts[current_level] = inst_count
+                sub = _hier_collect_impact(child, rest, level_types)
+                for lvl, c in sub.items():
+                    counts[lvl] = c * inst_count
+                break
+    else:
+        children = _hier_child_keys(node)
+        counts[current_level] = len(children)
+        for ck in children:
+            child = node[ck]
+            if isinstance(child, dict):
+                sub = _hier_collect_impact(child, rest, level_types)
+                for lvl, c in sub.items():
+                    counts[lvl] = counts.get(lvl, 0) + c
+
+    return counts
+
+
 def hier_count_descendants(
     db_path: str | Path,
     level: str,
     selections: dict[str, str],
     name: str,
-) -> int:
-    """Count channels that would be affected by deleting a node.
+) -> dict[str, int]:
+    """Compute the impact of deleting a node, broken down by hierarchy level.
 
     Returns:
-        Number of descendant channels.
+        Dict mapping each descendant level name to its count, plus
+        ``"channels"`` for the total expanded leaf channel count.
     """
     data = _load_json(Path(db_path))
     tree = data.get("tree", data)
@@ -560,7 +605,16 @@ def hier_count_descendants(
     if name not in parent:
         raise CrudError(f"Node '{name}' not found", "not_found")
 
-    return _hier_count_channels(parent[name])
+    # Determine which levels come *after* the deleted node's level
+    try:
+        lvl_idx = level_names.index(level)
+    except ValueError:
+        lvl_idx = -1
+    remaining = level_names[lvl_idx + 1:] if lvl_idx >= 0 else level_names
+
+    impact = _hier_collect_impact(parent[name], remaining, level_types)
+    impact["channels"] = _hier_count_channels(parent[name])
+    return impact
 
 
 # ---------------------------------------------------------------------------

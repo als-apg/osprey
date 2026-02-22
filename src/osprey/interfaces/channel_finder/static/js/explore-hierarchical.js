@@ -310,7 +310,7 @@ async function handleDelete(colIdx, name) {
     }
   }
 
-  // Get impact count
+  // Get impact breakdown
   let impactText = '';
   try {
     const impact = await postJSON('/api/tree/impact', {
@@ -318,8 +318,17 @@ async function handleDelete(colIdx, name) {
       selections: parentSelections,
       name,
     });
+    const parts = [];
+    if (impact.breakdown) {
+      for (const [lvl, count] of Object.entries(impact.breakdown)) {
+        if (count > 0) parts.push(`${count} ${lvl}${count !== 1 ? 's' : ''}`);
+      }
+    }
     if (impact.affected_channels > 0) {
-      impactText = `This will affect ${impact.affected_channels} channel${impact.affected_channels !== 1 ? 's' : ''}.`;
+      parts.push(`${impact.affected_channels} channel${impact.affected_channels !== 1 ? 's' : ''}`);
+    }
+    if (parts.length) {
+      impactText = `This will remove ${parts.join(', ')}.`;
     }
   } catch { /* ignore impact errors */ }
 
