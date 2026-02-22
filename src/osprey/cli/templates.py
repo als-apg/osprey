@@ -990,6 +990,7 @@ proper framework operation, especially when using containerized services.
             "current_python_env": sys.executable,
             "template_name": template_name,
             "facility_name": config.get("facility_name", project_name),
+            "system_timezone": config.get("system", {}).get("timezone", "UTC"),
         }
 
         # Derive channel finder configuration
@@ -1050,6 +1051,7 @@ proper framework operation, especially when using containerized services.
         ".claude/skills/session-report/SKILL.md",
         ".claude/skills/session-report/reference.md",
         ".claude/skills/setup-mode/SKILL.md",
+        ".claude/rules/timezone.md",
     ]
 
     def _compute_regen_summary(self, ctx: dict) -> dict:

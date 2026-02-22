@@ -83,10 +83,11 @@ async def test_keyword_search_date_filtering(tmp_path, monkeypatch):
 
     call_kwargs = mock_service.search.call_args.kwargs
     from datetime import datetime
+    from zoneinfo import ZoneInfo
 
     start, end = call_kwargs["time_range"]
-    assert start == datetime(2024, 1, 1)
-    assert end == datetime(2024, 1, 31)
+    assert start == datetime(2024, 1, 1, tzinfo=ZoneInfo("UTC"))
+    assert end == datetime(2024, 1, 31, tzinfo=ZoneInfo("UTC"))
 
 
 @pytest.mark.unit

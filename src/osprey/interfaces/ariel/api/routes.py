@@ -9,7 +9,7 @@ import json as _json
 import os
 import time
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -337,7 +337,7 @@ async def create_entry(
     try:
         # Generate entry ID
         entry_id = f"ariel-{uuid.uuid4().hex[:12]}"
-        now = datetime.now()
+        now = datetime.now(UTC)
 
         # Build entry
         entry = {
@@ -421,7 +421,7 @@ async def create_entry_with_attachments(
     try:
         # Generate entry ID
         entry_id = f"ariel-{uuid.uuid4().hex[:12]}"
-        now = datetime.now()
+        now = datetime.now(UTC)
 
         # Parse tags from comma-separated string
         tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []

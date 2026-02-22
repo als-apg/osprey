@@ -10,7 +10,7 @@ import json
 import logging
 import os
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from osprey.interfaces.ariel.mcp.registry import get_ariel_registry
@@ -363,7 +363,7 @@ async def entry_create(
         service = await registry.service()
 
         entry_id = f"ariel-{uuid.uuid4().hex[:12]}"
-        now = datetime.now()
+        now = datetime.now(UTC)
 
         entry = {
             "entry_id": entry_id,
