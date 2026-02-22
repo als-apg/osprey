@@ -231,8 +231,20 @@ def _hier_child_keys(node: dict) -> list[str]:
     return [k for k in node if k not in _HIER_META_KEYS and not k.startswith("_")]
 
 
+def _expansion_instance_count(expansion: dict) -> int:
+    """Return the number of instances defined by an ``_expansion`` descriptor."""
+    r = expansion.get("_range") or expansion.get("range", [1, 1])
+    if isinstance(r, list) and len(r) >= 2:
+        return max(0, r[1] - r[0] + 1)
+    return 1
+
+
 def _hier_count_channels(node: dict) -> int:
-    """Recursively count leaf channels under a node."""
+    """Recursively count leaf channels under a node, accounting for instance expansion.
+
+    When a child dict contains an ``_expansion`` key, its leaf count is
+    multiplied by the number of instances the expansion generates.
+    """
     if not isinstance(node, dict):
         return 0
     count = 0
@@ -240,10 +252,12 @@ def _hier_count_channels(node: dict) -> int:
         if k.startswith("_"):
             continue
         if isinstance(v, dict):
-            count += _hier_count_channels(v)
+            child_count = _hier_count_channels(v)
+            if "_expansion" in v:
+                child_count *= _expansion_instance_count(v["_expansion"])
+            count += child_count
         else:
             count += 1
-    # A dict with no non-meta children is itself a leaf node
     children = _hier_child_keys(node)
     if not children:
         count += 1
