@@ -19,7 +19,11 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from osprey.mcp_server.common import notify_panel_focus, resolve_workspace_root
+from osprey.mcp_server.common import (
+    gather_session_metadata,
+    notify_panel_focus,
+    resolve_workspace_root,
+)
 
 logger = logging.getLogger("osprey.interfaces.artifacts.logbook")
 
@@ -284,6 +288,9 @@ async def submit(req: SubmitRequest):
             "logbook": req.logbook,
             "shift": req.shift,
             "tags": req.tags or [],
+            "metadata": {
+                "session_metadata": gather_session_metadata("gallery-compose"),
+            },
         }
 
         # Resolve artifact attachments if provided

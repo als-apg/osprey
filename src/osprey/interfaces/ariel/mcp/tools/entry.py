@@ -304,6 +304,8 @@ async def entry_create(
 
             drafts_dir = _get_drafts_dir()
             drafts_dir.mkdir(parents=True, exist_ok=True)
+            from osprey.mcp_server.common import gather_session_metadata
+
             draft_data = {
                 "draft_id": draft_id,
                 "subject": subject.strip(),
@@ -312,6 +314,9 @@ async def entry_create(
                 "logbook": logbook,
                 "shift": shift,
                 "tags": tags or [],
+                "metadata": {
+                    "session_metadata": gather_session_metadata("ariel-mcp"),
+                },
             }
             if all_file_paths:
                 draft_data["attachment_paths"] = all_file_paths
@@ -352,6 +357,8 @@ async def entry_create(
     # --- Direct mode: write straight to the database ---
 
     try:
+        from osprey.mcp_server.common import gather_session_metadata
+
         registry = get_ariel_registry()
         service = await registry.service()
 
@@ -370,6 +377,7 @@ async def entry_create(
                 "shift": shift,
                 "tags": tags or [],
                 "created_via": "ariel-mcp",
+                "session_metadata": gather_session_metadata("ariel-mcp"),
             },
             "created_at": now,
             "updated_at": now,
