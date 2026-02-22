@@ -154,6 +154,7 @@ export const entriesApi = {
       logbook: data.logbook || null,
       shift: data.shift || null,
       tags: data.tags || [],
+      metadata: data.metadata || null,
     });
   },
 
@@ -171,6 +172,7 @@ export const entriesApi = {
     if (data.logbook) formData.append('logbook', data.logbook);
     if (data.shift) formData.append('shift', data.shift);
     formData.append('tags', (data.tags || []).join(','));
+    if (data.metadata) formData.append('metadata', JSON.stringify(data.metadata));
 
     for (const file of files) {
       formData.append('files', file);

@@ -5,6 +5,7 @@ REST endpoints for search, entry management, status, and settings.
 
 from __future__ import annotations
 
+import json as _json
 import os
 import time
 import uuid
@@ -37,6 +38,17 @@ if TYPE_CHECKING:
     from osprey.services.ariel_search import ARIELSearchService
 
 router = APIRouter(prefix="/api")
+
+
+def _parse_metadata_form(raw: str | None) -> dict[str, Any]:
+    """Parse a JSON metadata string from a form field, returning {} on failure."""
+    if not raw:
+        return {}
+    try:
+        parsed = _json.loads(raw)
+        return parsed if isinstance(parsed, dict) else {}
+    except (ValueError, TypeError):
+        return {}
 
 
 def _require_service(request: Request) -> ARIELSearchService:
@@ -370,6 +382,7 @@ async def create_entry(
                 "shift": entry_req.shift,
                 "tags": entry_req.tags,
                 "created_via": "ariel-web",
+                **(entry_req.metadata or {}),
             },
             "created_at": now,
             "updated_at": now,
@@ -424,6 +437,7 @@ async def create_entry_with_attachments(
     logbook: str | None = Form(None),
     shift: str | None = Form(None),
     tags: str = Form(""),
+    metadata: str | None = Form(None),
     files: list[UploadFile] = File(default=[]),
 ) -> EntryCreateResponse:
     """Create a new logbook entry with file attachments via multipart form."""
@@ -457,6 +471,7 @@ async def create_entry_with_attachments(
                 "shift": shift,
                 "tags": tag_list,
                 "created_via": "ariel-web",
+                **_parse_metadata_form(metadata),
             },
             "created_at": now,
             "updated_at": now,

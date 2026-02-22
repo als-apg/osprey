@@ -122,6 +122,9 @@ class IngestionScheduler:
         """
         from osprey.services.ariel_search.enhancement import create_enhancers_from_config
         from osprey.services.ariel_search.ingestion import get_adapter
+        from osprey.services.ariel_search.ingestion.metadata_attachment import (
+            extract_metadata_from_attachments,
+        )
 
         start_time = time.monotonic()
 
@@ -170,6 +173,7 @@ class IngestionScheduler:
         try:
             async for entry in adapter.fetch_entries(since=since):
                 try:
+                    await extract_metadata_from_attachments(entry)
                     await self.repository.upsert_entry(entry)
                     entries_added += 1
 

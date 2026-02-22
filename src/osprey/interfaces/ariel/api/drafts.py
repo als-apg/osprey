@@ -52,6 +52,7 @@ class DraftResponse(BaseModel):
     shift: str | None = None
     tags: list[str] | None = None
     attachment_paths: list[str] | None = None
+    metadata: dict | None = None
 
 
 # ---------------------------------------------------------------------------

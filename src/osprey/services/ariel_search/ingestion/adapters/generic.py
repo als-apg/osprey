@@ -262,6 +262,9 @@ class GenericJSONAdapter(FacilityAdapter):
         if data.get("needs_attention") is not None:
             metadata["needs_attention"] = data["needs_attention"]
 
+        if data.get("metadata") and isinstance(data["metadata"], dict):
+            metadata.update(data["metadata"])
+
         return {
             "entry_id": str(data["id"]),
             "source_system": self.source_system_name,
