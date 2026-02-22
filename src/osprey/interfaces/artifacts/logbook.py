@@ -34,9 +34,28 @@ logbook_router = APIRouter(prefix="/api/logbook")
 # ---------------------------------------------------------------------------
 
 
+class AssembleRequest(BaseModel):
+    purpose: str = "general"
+    detail_level: str = "standard"
+    nudge: str | None = None
+
+
+class AssembleResponse(BaseModel):
+    prompt: str
+
+
 class ComposeRequest(BaseModel):
     artifact_id: str | None = None
     context_id: int | None = None
+    purpose: str | None = None
+    detail_level: str | None = None
+    nudge: str | None = None
+    custom_prompt: str | None = None
+    # Context controls
+    include_session_log: bool = True
+    artifact_ids: list[str] | None = None  # overrides artifact_id when provided
+    # Model selection
+    model: str | None = None  # "haiku" | "sonnet" | "opus" → maps to config
 
 
 class ComposeResponse(BaseModel):
@@ -70,8 +89,10 @@ class SubmitResponse(BaseModel):
 @dataclass
 class ComposedContext:
     artifact_meta: dict[str, Any] | None
+    artifacts_meta: list[dict[str, Any]]  # multi-artifact support
     context_meta: dict[str, Any] | None
     audit_trail: list[dict[str, Any]]
+    chat_history: list[dict[str, Any]]
 
 
 async def gather_context(
@@ -80,68 +101,173 @@ async def gather_context(
     artifact_store: Any,
     context_store: Any,
     project_dir: Path,
+    *,
+    artifact_ids: list[str] | None = None,
+    include_session_log: bool = True,
 ) -> ComposedContext:
-    """Gather metadata from artifact/context stores and the session transcript."""
+    """Gather metadata from artifact/context stores and the session transcript.
+
+    If *artifact_ids* is provided, those artifacts are loaded (multi-artifact
+    mode) and *artifact_id* is ignored.  If *include_session_log* is False
+    the audit trail is skipped.
+    """
     artifact_meta: dict[str, Any] | None = None
+    artifacts_meta: list[dict[str, Any]] = []
     context_meta: dict[str, Any] | None = None
 
-    if artifact_id is not None:
+    if artifact_ids is not None:
+        # Multi-artifact mode
+        for aid in artifact_ids:
+            entry = artifact_store.get_entry(aid)
+            if entry is not None:
+                artifacts_meta.append(entry.to_dict())
+        # Set artifact_meta to first for backward compat (artifact_ids in response)
+        if artifacts_meta:
+            artifact_meta = artifacts_meta[0]
+    elif artifact_id is not None:
         entry = artifact_store.get_entry(artifact_id)
         if entry is None:
             raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
         artifact_meta = entry.to_dict()
+        artifacts_meta = [artifact_meta]
 
     if context_id is not None:
         # DataContext has been removed; context_id lookups always 404
         raise HTTPException(status_code=404, detail=f"Context entry {context_id} not found")
 
-    # Read audit trail from transcript
+    # Read audit trail and chat history from transcript
     audit_trail: list[dict[str, Any]] = []
-    try:
-        from osprey.mcp_server.workspace.transcript_reader import TranscriptReader
+    chat_history: list[dict[str, Any]] = []
+    if include_session_log:
+        try:
+            from osprey.mcp_server.workspace.transcript_reader import TranscriptReader
 
-        reader = TranscriptReader(project_dir)
-        events = reader.read_current_session()
-        audit_trail = events[-20:] if len(events) > 20 else events
-    except Exception:
-        logger.warning("Could not read session transcript", exc_info=True)
+            reader = TranscriptReader(project_dir)
+            events = reader.read_current_session()
+            audit_trail = events[-20:] if len(events) > 20 else events
+            chat_history = reader.read_current_chat_history()
+        except Exception:
+            logger.warning("Could not read session transcript", exc_info=True)
 
     return ComposedContext(
         artifact_meta=artifact_meta,
+        artifacts_meta=artifacts_meta,
         context_meta=context_meta,
         audit_trail=audit_trail,
+        chat_history=chat_history,
     )
+
+
+# ---------------------------------------------------------------------------
+# Prompt templates & assembly
+# ---------------------------------------------------------------------------
+
+JSON_FORMAT_INSTRUCTIONS = (
+    'Respond with a JSON object containing exactly these fields:\n'
+    '- "subject": a short title (max 120 chars)\n'
+    '- "details": the narrative body (1-3 paragraphs, plain text)\n'
+    '- "tags": a list of 2-5 relevant tags (lowercase, no spaces)'
+)
+
+# Legacy fixed prompt (backward compatibility when no steering fields provided)
+SYSTEM_PROMPT = (
+    "You are a logbook entry composer for a particle accelerator control room. "
+    "Write concise, technical logbook entries suitable for operator shift logs. "
+    "Focus on what was done, what was observed, and any anomalies. "
+    "Use clear, factual language. Avoid speculation.\n\n"
+    + JSON_FORMAT_INSTRUCTIONS
+)
+
+BASE_PREAMBLE = (
+    "You are a logbook entry composer for a particle accelerator control room. "
+    "Write clean, technical entries suitable for operator shift logs. "
+    "Use clear, factual language. Avoid speculation."
+)
+
+PURPOSE_FRAGMENTS = {
+    "observation": (
+        "Frame this as a factual observation report: what was seen, measured, "
+        "or noticed. Focus on data and conditions."
+    ),
+    "action_taken": (
+        "Frame this as a procedural record: what action was taken, why it was "
+        "taken, and what the result was."
+    ),
+    "anomaly": (
+        "Frame this as an anomaly or issue report: what unexpected behavior "
+        "occurred, what was affected, and what follow-up is needed."
+    ),
+    "investigation": (
+        "Frame this as investigation notes: what was examined, what evidence "
+        "was found, and what conclusions were drawn."
+    ),
+    "routine_check": (
+        "Frame this as a brief routine check: confirm normal operation, key "
+        "readings, and any items of note. Keep it short."
+    ),
+    "general": (
+        "Write a general logbook entry based on the provided context. Use the "
+        "operator's guidance below to determine the appropriate framing."
+    ),
+}
+
+DETAIL_FRAGMENTS = {
+    "brief": "Keep the entry to 1-2 sentences. Just the essential facts.",
+    "standard": "Write 1 short paragraph: context, observation/action, and outcome.",
+    "detailed": (
+        "Write 2-3 paragraphs with full narrative, supporting data references, "
+        "and any relevant context."
+    ),
+}
+
+
+def assemble_prompt(
+    purpose: str = "general",
+    detail_level: str = "standard",
+    nudge: str | None = None,
+) -> str:
+    """Deterministically assemble a system prompt from steering selections."""
+    purpose_text = PURPOSE_FRAGMENTS.get(purpose, PURPOSE_FRAGMENTS["general"])
+    detail_text = DETAIL_FRAGMENTS.get(detail_level, DETAIL_FRAGMENTS["standard"])
+
+    parts = [BASE_PREAMBLE, purpose_text, detail_text, JSON_FORMAT_INSTRUCTIONS]
+    if nudge and nudge.strip():
+        parts.append(f"Additional operator guidance: {nudge.strip()}")
+
+    return "\n\n".join(parts)
 
 
 # ---------------------------------------------------------------------------
 # LLM composition
 # ---------------------------------------------------------------------------
 
-SYSTEM_PROMPT = """\
-You are a logbook entry composer for a particle accelerator control room. \
-Write concise, technical logbook entries suitable for operator shift logs. \
-Focus on what was done, what was observed, and any anomalies. \
-Use clear, factual language. Avoid speculation.
 
-Respond with a JSON object containing exactly these fields:
-- "subject": a short title (max 120 chars)
-- "details": the narrative body (1-3 paragraphs, plain text)
-- "tags": a list of 2-5 relevant tags (lowercase, no spaces)
-"""
+def _format_artifact_section(label: str, meta: dict[str, Any]) -> str:
+    """Format a single artifact's metadata for the LLM prompt."""
+    lines = [
+        f"## {label}",
+        f"Title: {meta.get('title', 'N/A')}",
+        f"Type: {meta.get('artifact_type', 'N/A')}",
+        f"Description: {meta.get('description', 'N/A')}",
+        f"Created: {meta.get('timestamp', 'N/A')}",
+    ]
+    if meta.get("category"):
+        lines.append(f"Category: {meta['category']}")
+    if meta.get("summary"):
+        lines.append(f"Summary: {json.dumps(meta['summary'], default=str)}")
+    return "\n".join(lines)
 
 
 def _build_user_prompt(ctx: ComposedContext) -> str:
     """Build the user prompt from gathered context."""
     sections: list[str] = []
 
-    if ctx.artifact_meta:
-        sections.append(
-            "## Artifact\n"
-            f"Title: {ctx.artifact_meta.get('title', 'N/A')}\n"
-            f"Type: {ctx.artifact_meta.get('artifact_type', 'N/A')}\n"
-            f"Description: {ctx.artifact_meta.get('description', 'N/A')}\n"
-            f"Created: {ctx.artifact_meta.get('timestamp', 'N/A')}"
-        )
+    if ctx.artifacts_meta:
+        for i, meta in enumerate(ctx.artifacts_meta):
+            label = "Artifact" if len(ctx.artifacts_meta) == 1 else f"Artifact {i + 1}"
+            sections.append(_format_artifact_section(label, meta))
+    elif ctx.artifact_meta:
+        sections.append(_format_artifact_section("Artifact", ctx.artifact_meta))
 
     if ctx.context_meta:
         sections.append(
@@ -152,12 +278,28 @@ def _build_user_prompt(ctx: ComposedContext) -> str:
             f"Summary: {json.dumps(ctx.context_meta.get('summary', {}), default=str)}"
         )
 
+    if ctx.chat_history:
+        chat_lines = []
+        for turn in ctx.chat_history[-30:]:
+            role = turn.get("role", "?").upper()
+            ts = turn.get("timestamp", "")[:19]
+            content = turn.get("content", "")
+            chat_lines.append(f"[{ts}] {role}: {content}")
+        sections.append("## Conversation log\n" + "\n\n".join(chat_lines))
+
     if ctx.audit_trail:
         trail_lines = []
         for evt in ctx.audit_trail[-10:]:
             tool = evt.get("tool", evt.get("type", "?"))
             ts = evt.get("timestamp", "")[:19]
-            trail_lines.append(f"  {ts} {tool}")
+            args = evt.get("arguments", {})
+            result = evt.get("result_summary", "")
+            line = f"  {ts} {tool}"
+            if args:
+                line += f" args={json.dumps(args, default=str)}"
+            if result:
+                line += f" → {result[:200]}"
+            trail_lines.append(line)
         sections.append("## Recent session activity\n" + "\n".join(trail_lines))
 
     return "\n\n".join(sections) or "No context available."
@@ -183,40 +325,93 @@ def _clean_llm_json(text: str) -> str:
     return text
 
 
-async def compose_entry(ctx: ComposedContext) -> ComposeResponse:
-    """Call the configured LLM provider to compose a logbook entry.
+# Valid model tier names for the model selector
+VALID_TIERS = {"haiku", "sonnet", "opus"}
 
-    Uses ``aget_chat_completion()`` with model config from ``config.yml``
-    (``logbook_composition`` role, falling back to ``response``).
+# Default composition config when logbook.composition is absent from config.yml
+_DEFAULT_COMPOSITION = {
+    "provider": "cborg",
+    "model_id": "anthropic/claude-haiku",
+    "default_tier": "haiku",
+}
+
+
+def _resolve_composition_model(
+    model: str | None = None,
+) -> tuple[str, str]:
+    """Resolve provider and model_id for logbook composition.
+
+    Resolution order:
+    1. If *model* is a tier name (haiku/sonnet/opus), look up model_id
+       from ``api.providers[provider].models[tier]``.
+    2. Otherwise use ``logbook.composition.model_id`` from config.yml.
+    3. Falls back to built-in defaults (cborg / anthropic/claude-haiku).
+
+    Returns:
+        (provider, model_id) tuple
     """
-    from osprey.models.completion import aget_chat_completion
-    from osprey.models.messages import ChatCompletionRequest, ChatMessage
-    from osprey.utils.config import get_model_config
+    from osprey.utils.config import get_config_value, get_provider_config
 
-    # Resolve model config: logbook_composition → response (fallback)
-    # get_model_config returns {} (not raises) when the key is missing,
-    # so check for a non-empty dict with at least a "provider" key.
-    model_config = get_model_config("logbook_composition")
-    if not model_config or "provider" not in model_config:
-        model_config = get_model_config("response")
-    if not model_config or "provider" not in model_config:
+    # Read logbook.composition section (or fall back to defaults)
+    comp = get_config_value("logbook.composition", {})
+    if not isinstance(comp, dict):
+        comp = {}
+    provider = comp.get("provider", _DEFAULT_COMPOSITION["provider"])
+    default_model_id = comp.get("model_id", _DEFAULT_COMPOSITION["model_id"])
+    default_tier = comp.get("default_tier", _DEFAULT_COMPOSITION["default_tier"])
+
+    # Determine which tier to use
+    tier = model if model and model in VALID_TIERS else default_tier
+
+    # Look up tier → model_id from the provider's models mapping
+    provider_cfg = get_provider_config(provider)
+    if not provider_cfg:
         raise HTTPException(
             status_code=503,
             detail=(
-                "No model config for 'logbook_composition' or 'response' in config.yml. "
-                "Add a logbook_composition entry under 'models:' or set a response model."
+                f"Provider '{provider}' not found in api.providers. "
+                "Check logbook.composition.provider in config.yml."
             ),
         )
+    provider_models = provider_cfg.get("models", {})
+    model_id = provider_models.get(tier, default_model_id)
+
+    return provider, model_id
+
+
+async def compose_entry(
+    ctx: ComposedContext,
+    system_prompt: str | None = None,
+    model: str | None = None,
+) -> ComposeResponse:
+    """Call the configured LLM provider to compose a logbook entry.
+
+    Uses ``aget_chat_completion()`` with provider + model_id resolved from
+    ``logbook.composition`` in config.yml and ``api.providers`` tier mappings.
+
+    If *system_prompt* is provided it is used directly; otherwise the
+    legacy ``SYSTEM_PROMPT`` is used for backward compatibility.
+
+    If *model* is a tier name (haiku/sonnet/opus) the corresponding model_id
+    is looked up from the provider's models mapping.
+    """
+    from osprey.models.completion import aget_chat_completion
+    from osprey.models.messages import ChatCompletionRequest, ChatMessage
+
+    provider, model_id = _resolve_composition_model(model)
+
+    effective_prompt = system_prompt if system_prompt is not None else SYSTEM_PROMPT
 
     try:
         chat_request = ChatCompletionRequest(messages=[
-            ChatMessage(role="system", content=SYSTEM_PROMPT),
+            ChatMessage(role="system", content=effective_prompt),
             ChatMessage(role="user", content=_build_user_prompt(ctx)),
         ])
 
         text = await aget_chat_completion(
             chat_request=chat_request,
-            model_config=model_config,
+            provider=provider,
+            model_id=model_id,
         )
 
         # Clean markdown fences / preamble before parsing JSON
@@ -224,9 +419,12 @@ async def compose_entry(ctx: ComposedContext) -> ComposeResponse:
         raw = _clean_llm_json(raw)
         parsed = json.loads(raw)
 
+        # Collect artifact IDs from all context artifacts
         artifact_ids: list[str] = []
-        if ctx.artifact_meta:
-            artifact_ids.append(ctx.artifact_meta["id"])
+        for meta in ctx.artifacts_meta:
+            aid = meta.get("id")
+            if aid:
+                artifact_ids.append(aid)
 
         return ComposeResponse(
             subject=parsed.get("subject", "Untitled entry"),
@@ -249,17 +447,36 @@ async def compose_entry(ctx: ComposedContext) -> ComposeResponse:
 # ---------------------------------------------------------------------------
 
 
+@logbook_router.post("/assemble-prompt", response_model=AssembleResponse)
+async def assemble_prompt_endpoint(req: AssembleRequest):
+    """Assemble a system prompt from steering selections (no LLM call)."""
+    return AssembleResponse(
+        prompt=assemble_prompt(
+            purpose=req.purpose,
+            detail_level=req.detail_level,
+            nudge=req.nudge,
+        )
+    )
+
+
 @logbook_router.post("/compose", response_model=ComposeResponse)
 async def compose(req: ComposeRequest, request: Request):
     """Gather context and compose a logbook entry draft via LLM."""
-    if req.artifact_id is None and req.context_id is None:
+    # artifact_ids overrides artifact_id; at least one source required
+    has_artifacts = req.artifact_ids or req.artifact_id
+    if not has_artifacts and req.context_id is None:
         raise HTTPException(
             status_code=422,
-            detail="At least one of artifact_id or context_id is required",
+            detail="At least one of artifact_id, artifact_ids, or context_id is required",
         )
 
     store = request.app.state.artifact_store
     project_dir = Path.cwd()
+
+    # Resolve "all" sentinel → load every artifact from store
+    effective_artifact_ids = req.artifact_ids
+    if effective_artifact_ids == ["all"]:
+        effective_artifact_ids = [e.id for e in store.list_entries()]
 
     ctx = await gather_context(
         artifact_id=req.artifact_id,
@@ -267,9 +484,22 @@ async def compose(req: ComposeRequest, request: Request):
         artifact_store=store,
         context_store=None,
         project_dir=project_dir,
+        artifact_ids=effective_artifact_ids,
+        include_session_log=req.include_session_log,
     )
 
-    return await compose_entry(ctx)
+    # Resolve system prompt: custom_prompt > steering fields > legacy default
+    system_prompt: str | None = None
+    if req.custom_prompt:
+        system_prompt = req.custom_prompt
+    elif req.purpose or req.detail_level:
+        system_prompt = assemble_prompt(
+            purpose=req.purpose or "general",
+            detail_level=req.detail_level or "standard",
+            nudge=req.nudge,
+        )
+
+    return await compose_entry(ctx, system_prompt=system_prompt, model=req.model)
 
 
 @logbook_router.post("/submit", response_model=SubmitResponse)
@@ -293,13 +523,19 @@ async def submit(req: SubmitRequest):
             },
         }
 
+        # Create metadata.json attachment (belt-and-suspenders persistence)
+        metadata_json = json.dumps(draft_data["metadata"], indent=2)
+        meta_file = drafts_dir / f"{draft_id}-metadata.json"
+        meta_file.write_text(metadata_json)
+        draft_data["attachment_paths"] = [str(meta_file)]
+
         # Resolve artifact attachments if provided
         if req.artifact_ids:
             try:
                 from osprey.interfaces.ariel.mcp.tools.entry import _resolve_artifacts
 
                 artifact_paths = await _resolve_artifacts(req.artifact_ids)
-                draft_data["attachment_paths"] = artifact_paths
+                draft_data["attachment_paths"].extend(artifact_paths)
             except Exception as exc:
                 raise HTTPException(
                     status_code=500, detail=f"Failed to resolve artifacts: {exc}"

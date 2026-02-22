@@ -2453,6 +2453,247 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
   flex-shrink: 0;
 }
 
+/* ---- Steering panel (P2a) ---- */
+
+.logbook-steering-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.logbook-purpose-select {
+  background: var(--bg-input);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  outline: none;
+  width: 100%;
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+}
+
+.logbook-purpose-select:focus {
+  border-color: var(--color-accent);
+}
+
+.logbook-detail-toggle {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.logbook-detail-btn {
+  flex: 1;
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--border-default);
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  transition: all var(--transition-fast);
+}
+
+.logbook-detail-btn:last-child {
+  border-right: none;
+}
+
+.logbook-detail-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.logbook-detail-btn.active {
+  background: var(--color-accent-dark);
+  color: var(--text-primary);
+}
+
+.logbook-nudge-input {
+  background: var(--bg-input);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  outline: none;
+  width: 100%;
+  transition: border-color var(--transition-fast);
+}
+
+.logbook-nudge-input:focus {
+  border-color: var(--color-accent);
+}
+
+.logbook-nudge-input::placeholder {
+  color: var(--text-muted);
+}
+
+/* ---- Context controls ---- */
+
+.logbook-context-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.logbook-checkbox-label,
+.logbook-radio-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.logbook-checkbox-label:hover,
+.logbook-radio-label:hover {
+  color: var(--text-primary);
+}
+
+.logbook-checkbox-label input[type="checkbox"],
+.logbook-radio-label input[type="radio"] {
+  accent-color: var(--color-accent);
+  margin: 0;
+}
+
+.logbook-artifact-scope {
+  display: flex;
+  gap: var(--space-4);
+  padding-left: var(--space-1);
+}
+
+.logbook-artifact-picker {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  max-height: 160px;
+  overflow-y: auto;
+  background: var(--bg-input);
+}
+
+.logbook-artifact-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.logbook-artifact-pick-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 2px var(--space-1);
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast);
+}
+
+.logbook-artifact-pick-item:hover {
+  background: var(--surface-hover);
+}
+
+.logbook-artifact-pick-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.logbook-artifact-pick-type {
+  color: var(--text-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wider);
+  flex-shrink: 0;
+}
+
+/* ---- Prompt preview (P2b) ---- */
+
+.logbook-prompt-preview {
+  background: var(--bg-input);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3) var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  line-height: var(--leading-relaxed);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow-y: auto;
+  margin: 0;
+}
+
+/* ---- Prompt editor (P2c) ---- */
+
+.logbook-prompt-editor {
+  background: var(--bg-input);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3) var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-primary);
+  line-height: var(--leading-relaxed);
+  resize: vertical;
+  min-height: 240px;
+  max-height: 400px;
+  width: 100%;
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.logbook-prompt-editor:focus {
+  border-color: var(--color-accent);
+}
+
+/* ---- Footer button row ---- */
+
+.logbook-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  width: 100%;
+}
+
+.logbook-btn-secondary {
+  background: transparent;
+  color: var(--text-secondary);
+  border-color: var(--border-default);
+}
+
+.logbook-btn-secondary:hover {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+
+.logbook-btn-primary {
+  background: var(--color-accent-dark);
+  color: var(--text-primary);
+  border-color: var(--color-accent);
+}
+
+.logbook-btn-primary:hover {
+  background: var(--color-accent);
+}
+
+.logbook-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* ================================================================
    Rendered Markdown (inline preview for markdown artifacts)
    ================================================================ */
