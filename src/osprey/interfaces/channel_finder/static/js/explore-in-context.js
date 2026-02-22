@@ -103,9 +103,10 @@ function renderTable() {
 
   const filtered = filterText
     ? allChannels.filter(ch => {
-        const name = (ch.name || ch.channel_name || '').toLowerCase();
-        const desc = (ch.description || ch.address || '').toLowerCase();
-        return name.includes(filterText) || desc.includes(filterText);
+        const name = (ch.name || ch.channel_name || ch.channel || '').toLowerCase();
+        const addr = (ch.address || ch.pv_address || '').toLowerCase();
+        const desc = (ch.description || '').toLowerCase();
+        return name.includes(filterText) || addr.includes(filterText) || desc.includes(filterText);
       })
     : allChannels;
 
@@ -125,14 +126,16 @@ function renderTable() {
           <tr>
             <th style="width: 40px">#</th>
             <th>Name</th>
-            <th>Address / Description</th>
+            <th>Address</th>
+            <th>Description</th>
             <th style="width: 80px"></th>
           </tr>
         </thead>
         <tbody>
           ${filtered.map((ch, i) => {
             const name = ch.name || ch.channel_name || ch.channel || '—';
-            const desc = ch.description || ch.address || ch.pv_address || '';
+            const addr = ch.address || ch.pv_address || '';
+            const desc = ch.description || '';
             const isEditing = editingRow === name;
 
             if (isEditing) {
@@ -141,8 +144,12 @@ function renderTable() {
                   <td>${i + 1}</td>
                   <td class="pv-cell">${esc(name)}</td>
                   <td>
+                    <input type="text" class="ic-inline-input" id="ic-edit-addr"
+                           value="${esc(addr)}" placeholder="PV address">
+                  </td>
+                  <td>
                     <input type="text" class="ic-inline-input" id="ic-edit-desc"
-                           value="${esc(desc)}" placeholder="Description / address">
+                           value="${esc(desc)}" placeholder="Description">
                   </td>
                   <td>
                     <div class="ic-action-group">
@@ -158,6 +165,7 @@ function renderTable() {
               <tr>
                 <td>${i + 1}</td>
                 <td class="pv-cell">${esc(name)}</td>
+                <td class="pv-cell">${esc(addr)}</td>
                 <td>${esc(desc)}</td>
                 <td>
                   <div class="ic-action-group">
@@ -188,8 +196,9 @@ function renderTable() {
 
   area.querySelectorAll('.item-action-btn.action-save').forEach(btn => {
     btn.addEventListener('click', () => {
-      const input = document.getElementById('ic-edit-desc');
-      if (input) handleSaveEdit(btn.dataset.channel, input.value.trim());
+      const addrInput = document.getElementById('ic-edit-addr');
+      const descInput = document.getElementById('ic-edit-desc');
+      if (descInput) handleSaveEdit(btn.dataset.channel, descInput.value.trim(), addrInput?.value.trim());
     });
   });
 
@@ -200,19 +209,22 @@ function renderTable() {
     });
   });
 
-  const editInput = document.getElementById('ic-edit-desc');
-  if (editInput) {
-    editInput.addEventListener('keydown', (e) => {
+  const editDesc = document.getElementById('ic-edit-desc');
+  const editAddr = document.getElementById('ic-edit-addr');
+  [editAddr, editDesc].filter(Boolean).forEach(input => {
+    input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
-        const row = editInput.closest('tr');
+        const row = input.closest('tr');
         const name = row?.dataset.channel;
-        if (name) handleSaveEdit(name, editInput.value.trim());
+        const addrVal = document.getElementById('ic-edit-addr')?.value.trim();
+        const descVal = document.getElementById('ic-edit-desc')?.value.trim();
+        if (name) handleSaveEdit(name, descVal, addrVal);
       } else if (e.key === 'Escape') {
         editingRow = null;
         renderTable();
       }
     });
-  }
+  });
 }
 
 function renderPagination() {
@@ -242,11 +254,11 @@ function renderPagination() {
 
 // ---- CRUD Handlers ----
 
-async function handleSaveEdit(channelName, newDesc) {
+async function handleSaveEdit(channelName, newDesc, newAddr) {
   try {
-    await putJSON(`/api/channels/${encodeURIComponent(channelName)}`, {
-      description: newDesc,
-    });
+    const body = { description: newDesc };
+    if (newAddr !== undefined) body.address = newAddr;
+    await putJSON(`/api/channels/${encodeURIComponent(channelName)}`, body);
     editingRow = null;
     showToast(`Updated "${channelName}"`, 'success');
     await loadChunk(chunkIdx);

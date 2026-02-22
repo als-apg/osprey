@@ -126,6 +126,19 @@ def _reload_registry(pipeline_type: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _normalize_expansion(exp: dict) -> dict:
+    """Normalize expansion keys for the API layer.
+
+    The database engine uses underscore-prefixed keys (``_pattern``, ``_range``,
+    ``_type``).  The API/frontend uses clean names (``pattern``, ``range``).
+    This helper reads either format and returns the clean one.
+    """
+    return {
+        "pattern": exp.get("_pattern") or exp.get("pattern", ""),
+        "range": exp.get("_range") or exp.get("range", [1, 1]),
+    }
+
+
 def _hier_level_info(data: dict) -> tuple[list[str], dict[str, str]]:
     """Extract level names and level types from hierarchy config.
 
@@ -424,28 +437,44 @@ def hier_edit_expansion(
             break
 
     if expansion_container is None:
-        raise CrudError(
-            f"No expansion container found at level '{level}'",
-            "not_found",
-        )
+        # Auto-create the expansion container for instance-type levels
+        # (e.g. newly added families that don't yet have a device container)
+        if level_types.get(level) != "instances":
+            raise CrudError(
+                f"No expansion container found at level '{level}'",
+                "not_found",
+            )
+        container_key = level.upper()
+        parent[container_key] = {
+            "_expansion": {"_type": "range", "_pattern": "", "_range": [1, 1]},
+        }
+        expansion_container = parent[container_key]
 
     expansion = expansion_container["_expansion"]
 
     if pattern is not None:
-        expansion["pattern"] = pattern
+        expansion["_pattern"] = pattern
+        expansion.pop("pattern", None)
     if range_start is not None and range_end is not None:
-        expansion["range"] = [range_start, range_end]
+        expansion["_range"] = [range_start, range_end]
+        expansion.pop("range", None)
     elif range_start is not None:
-        r = expansion.get("range", [1, 1])
-        expansion["range"] = [range_start, r[1] if len(r) > 1 else range_start]
+        r = expansion.get("_range") or expansion.get("range", [1, 1])
+        expansion["_range"] = [range_start, r[1] if len(r) > 1 else range_start]
+        expansion.pop("range", None)
     elif range_end is not None:
-        r = expansion.get("range", [1, 1])
-        expansion["range"] = [r[0] if r else 1, range_end]
+        r = expansion.get("_range") or expansion.get("range", [1, 1])
+        expansion["_range"] = [r[0] if r else 1, range_end]
+        expansion.pop("range", None)
+
+    # Ensure _type is always set
+    if "_type" not in expansion:
+        expansion["_type"] = "range"
 
     _atomic_write(Path(db_path), data)
     _reload_registry("hierarchical")
 
-    return {"success": True, "level": level, "expansion": expansion}
+    return {"success": True, "level": level, "expansion": _normalize_expansion(expansion)}
 
 
 def hier_get_expansion(
@@ -462,6 +491,8 @@ def hier_get_expansion(
 
     Returns:
         Dict with ``expansion`` key containing the expansion config.
+        Returns a default empty expansion for instance levels that
+        don't have an expansion container yet (e.g. newly added families).
     """
     data = _load_json(Path(db_path))
     tree = data.get("tree", data)
@@ -482,7 +513,12 @@ def hier_get_expansion(
         if key.startswith("_") or not isinstance(child, dict):
             continue
         if "_expansion" in child:
-            return {"expansion": child["_expansion"]}
+            exp = child["_expansion"]
+            return {"expansion": _normalize_expansion(exp)}
+
+    # Instance-type levels without a container yet get a default
+    if level_types.get(level) == "instances":
+        return {"expansion": {"pattern": "", "range": [1, 1]}}
 
     raise CrudError(
         f"No expansion container found at level '{level}'",

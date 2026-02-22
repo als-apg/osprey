@@ -529,8 +529,9 @@ def hier_db_with_instances(tmp_path: Path) -> Path:
                     "_description": "Beam Position Monitors",
                     "DEVICE": {
                         "_expansion": {
-                            "pattern": "B{:02d}",
-                            "range": [1, 4],
+                            "_type": "range",
+                            "_pattern": "B{:02d}",
+                            "_range": [1, 4],
                         },
                         "X": {
                             "_description": "Horizontal position",
@@ -546,8 +547,9 @@ def hier_db_with_instances(tmp_path: Path) -> Path:
                     "_description": "Quadrupoles",
                     "DEVICE": {
                         "_expansion": {
-                            "pattern": "Q{:02d}",
-                            "range": [1, 6],
+                            "_type": "range",
+                            "_pattern": "Q{:02d}",
+                            "_range": [1, 6],
                         },
                         "Setpoint": {},
                         "Readback": {},
@@ -703,7 +705,7 @@ class TestHierarchicalCrudWithInstances:
         assert result["expansion"]["range"] == [1, 4]
 
     def test_edit_expansion_range(self, hier_db_with_instances: Path):
-        """Change range [1,4] to [1,8], verify JSON."""
+        """Change range [1,4] to [1,8], verify JSON uses engine-compatible keys."""
         with _RELOAD_PATCH:
             result = hier_edit_expansion(
                 hier_db_with_instances,
@@ -714,14 +716,16 @@ class TestHierarchicalCrudWithInstances:
             )
 
         assert result["success"] is True
+        assert result["expansion"]["range"] == [1, 8]
+        assert result["expansion"]["pattern"] == "B{:02d}"
+
         data = _load_json(hier_db_with_instances)
-        expansion = data["tree"]["SR"]["BPM"]["DEVICE"]["_expansion"]
-        assert expansion["range"] == [1, 8]
-        # Pattern unchanged
-        assert expansion["pattern"] == "B{:02d}"
+        raw = data["tree"]["SR"]["BPM"]["DEVICE"]["_expansion"]
+        assert raw["_range"] == [1, 8]
+        assert raw["_pattern"] == "B{:02d}"
 
     def test_edit_expansion_pattern(self, hier_db_with_instances: Path):
-        """Change pattern, verify."""
+        """Change pattern, verify JSON uses engine-compatible keys."""
         with _RELOAD_PATCH:
             result = hier_edit_expansion(
                 hier_db_with_instances,
@@ -731,11 +735,13 @@ class TestHierarchicalCrudWithInstances:
             )
 
         assert result["success"] is True
+        assert result["expansion"]["pattern"] == "BPM{:03d}"
+        assert result["expansion"]["range"] == [1, 4]
+
         data = _load_json(hier_db_with_instances)
-        expansion = data["tree"]["SR"]["BPM"]["DEVICE"]["_expansion"]
-        assert expansion["pattern"] == "BPM{:03d}"
-        # Range unchanged
-        assert expansion["range"] == [1, 4]
+        raw = data["tree"]["SR"]["BPM"]["DEVICE"]["_expansion"]
+        assert raw["_pattern"] == "BPM{:03d}"
+        assert raw["_range"] == [1, 4]
 
     def test_edit_expansion_not_found_bad_path(self, hier_db_with_instances: Path):
         """Bad parent path raises CrudError."""
@@ -754,3 +760,54 @@ class TestHierarchicalCrudWithInstances:
                 level="device",
                 selections={"system": "SR"},
             )
+
+    def test_get_expansion_new_family_no_container(self, hier_db_with_instances: Path):
+        """Newly added family with no devices returns default expansion."""
+        with _RELOAD_PATCH:
+            hier_add_node(
+                hier_db_with_instances,
+                level="family",
+                parent_selections={"system": "SR"},
+                name="NEWFAM",
+                description="Brand new family",
+            )
+            result = hier_get_expansion(
+                hier_db_with_instances,
+                level="device",
+                selections={"system": "SR", "family": "NEWFAM"},
+            )
+
+        assert "expansion" in result
+        assert result["expansion"]["pattern"] == ""
+        assert result["expansion"]["range"] == [1, 1]
+
+    def test_edit_expansion_new_family_auto_creates_container(
+        self, hier_db_with_instances: Path
+    ):
+        """Editing expansion on a new family auto-creates the device container."""
+        with _RELOAD_PATCH:
+            hier_add_node(
+                hier_db_with_instances,
+                level="family",
+                parent_selections={"system": "SR"},
+                name="SEXT",
+                description="Sextupoles",
+            )
+            result = hier_edit_expansion(
+                hier_db_with_instances,
+                level="device",
+                selections={"system": "SR", "family": "SEXT"},
+                pattern="S{:02d}",
+                range_start=1,
+                range_end=12,
+            )
+
+        assert result["success"] is True
+        assert result["expansion"]["pattern"] == "S{:02d}"
+        assert result["expansion"]["range"] == [1, 12]
+
+        data = _load_json(hier_db_with_instances)
+        raw = data["tree"]["SR"]["SEXT"]["DEVICE"]["_expansion"]
+        assert raw["_pattern"] == "S{:02d}"
+        assert raw["_range"] == [1, 12]
+        assert raw["_type"] == "range"
