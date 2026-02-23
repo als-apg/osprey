@@ -1,0 +1,27 @@
+{
+  "_comment": "Machine state channels — generated for {{ default_pipeline }} pipeline",
+  "_version": "1.0",
+
+  {% if default_pipeline == "in_context" %}
+  "TerminalVoltageReadBack": { "label": "Terminal voltage", "group": "beam" },
+  "GunPressure": { "label": "Gun pressure", "group": "vacuum" },
+  "CollectorPressure": { "label": "Collector pressure", "group": "vacuum" },
+  "IP41Pressure": { "label": "Accelerating tube end pressure", "group": "vacuum" },
+  "Terminal temperature": { "label": "Terminal temperature", "group": "thermal" },
+  "CoronaTriodCurrent": { "label": "Corona triod current", "group": "beam" }
+  {% elif default_pipeline == "middle_layer" %}
+  "SR01C:BPM1:X": { "label": "BPM 1-1 horizontal", "group": "orbit" },
+  "SR01C:BPM1:Y": { "label": "BPM 1-1 vertical", "group": "orbit" },
+  "SR01C:HCM1:Current": { "label": "Horiz. corrector 1-1", "group": "magnets" },
+  "SR01C:VCM1:Current": { "label": "Vert. corrector 1-1", "group": "magnets" },
+  "SR:DCCT:Current": { "label": "Beam current", "group": "beam" },
+  "SR:RF1:Freq": { "label": "RF cavity 1 frequency", "group": "rf" }
+  {% else %}
+  "MAG:DIPOLE[B01]:CURRENT:RB": { "label": "Dipole B01 current", "group": "magnets" },
+  "MAG:QF[QF01]:CURRENT:RB": { "label": "Quad QF01 current", "group": "magnets" },
+  "MAG:QD[QD01]:CURRENT:RB": { "label": "Quad QD01 current", "group": "magnets" },
+  "MAG:HCM[H01]:CURRENT:RB": { "label": "Horiz. corrector H01", "group": "magnets" },
+  "MAG:VCM[V01]:CURRENT:RB": { "label": "Vert. corrector V01", "group": "magnets" },
+  "RF:CAVITY[C1]:VOLTAGE:RB": { "label": "RF cavity voltage", "group": "rf" }
+  {% endif %}
+}
