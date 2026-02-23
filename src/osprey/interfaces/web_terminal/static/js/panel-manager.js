@@ -20,6 +20,13 @@ const PANELS = [
     statusBarId: null,       // no dedicated status-bar item
   },
   {
+    id: 'session',
+    label: 'ACTIVITY',
+    configEndpoint: '/api/session-server',
+    healthEndpoint: null,    // same-origin, skip health polling
+    statusBarId: null,
+  },
+  {
     id: 'ariel',
     label: 'ARIEL',
     configEndpoint: '/api/ariel-server',

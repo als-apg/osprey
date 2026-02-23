@@ -39,7 +39,12 @@ async def health(request: Request):
     from osprey import __version__
 
     session_id = getattr(request.app.state, "server_session_id", None)
-    return {"status": "healthy", "service": "web_terminal", "session_id": session_id, "version": __version__}
+    return {
+        "status": "healthy",
+        "service": "web_terminal",
+        "session_id": session_id,
+        "version": __version__,
+    }
 
 
 @router.get("/api/artifact-server")
@@ -89,7 +94,9 @@ async def wiki_url(request: Request):
         base_url = confluence.get("url")
         if base_url:
             default_page = confluence.get("default_page", "")
-            full_url = f"{base_url.rstrip('/')}/{default_page.lstrip('/')}" if default_page else base_url
+            full_url = (
+                f"{base_url.rstrip('/')}/{default_page.lstrip('/')}" if default_page else base_url
+            )
             return {"url": full_url, "available": True}
     except Exception:
         pass
@@ -156,7 +163,7 @@ async def get_panel_focus(request: Request):
 @router.post("/api/panel-focus")
 async def set_panel_focus(body: PanelFocusRequest, request: Request):
     """Set the active panel and broadcast a focus event via SSE."""
-    known = {"artifacts", "ariel", "tuning", "channel-finder", "monitoring"}
+    known = {"artifacts", "ariel", "tuning", "channel-finder", "monitoring", "session"}
     if body.panel not in known:
         raise HTTPException(status_code=422, detail=f"Unknown panel: {body.panel}")
     request.app.state.active_panel = body.panel
@@ -174,6 +181,156 @@ async def list_sessions(request: Request):
     discovery = SessionDiscovery(request.app.state.project_cwd)
     sessions = discovery.list_sessions(allowed_ids=registry.known_ids())
     return {"sessions": [asdict(s) for s in sessions]}
+
+
+# ---- Session Diagnostics Endpoints ---- #
+
+
+@router.get("/api/session-server")
+async def session_server_config(request: Request):
+    """Return the session diagnostics page URL for iframe embedding."""
+    base = str(request.base_url).rstrip("/")
+    return {"url": f"{base}/static/session.html"}
+
+
+@router.get("/api/session-agents")
+async def session_agents(request: Request):
+    """Return agent hierarchy and tool call breakdown for the current session."""
+    try:
+        from osprey.mcp_server.workspace.tools.session_log import _build_agent_summary
+        from osprey.mcp_server.workspace.transcript_reader import TranscriptReader
+
+        reader = TranscriptReader(request.app.state.project_cwd)
+        events = reader.read_current_session()
+        agents = _build_agent_summary(events)
+
+        # Group tool_call events by agent_id
+        tool_calls_by_agent: dict[str, list[dict]] = {}
+        for ev in events:
+            if ev.get("type") != "tool_call":
+                continue
+            aid = ev.get("agent_id") or "main"
+            tool_calls_by_agent.setdefault(aid, []).append(ev)
+
+        return {
+            "agents": agents,
+            "tool_calls_by_agent": tool_calls_by_agent,
+            "total_events": len(events),
+        }
+    except Exception:
+        logger.debug("session-agents: no transcript available", exc_info=True)
+        return {"agents": [], "tool_calls_by_agent": {}, "total_events": 0}
+
+
+@router.get("/api/session-log")
+async def session_log(request: Request):
+    """Return filtered tool call events from the current session."""
+    try:
+        from osprey.mcp_server.workspace.transcript_reader import TranscriptReader
+
+        reader = TranscriptReader(request.app.state.project_cwd)
+        events = reader.read_current_session()
+
+        # Parse query filters
+        agent_filter = request.query_params.get("agent")
+        agent_id_filter = request.query_params.get("agent_id")
+        tool_filter = request.query_params.get("tool")
+        errors_only = request.query_params.get("errors_only", "").lower() == "true"
+        since = request.query_params.get("since")
+        before = request.query_params.get("before")
+        last_n = min(int(request.query_params.get("last_n", "100")), 500)
+
+        # Filter to tool_call events
+        filtered = [e for e in events if e.get("type") == "tool_call"]
+
+        if agent_filter:
+            filtered = [e for e in filtered if e.get("agent_type") == agent_filter]
+        if agent_id_filter:
+            filtered = [e for e in filtered if (e.get("agent_id") or "main") == agent_id_filter]
+        if tool_filter:
+            filtered = [
+                e for e in filtered
+                if tool_filter.lower() in (e.get("tool_name") or e.get("tool") or "").lower()
+            ]
+        if errors_only:
+            filtered = [e for e in filtered if e.get("is_error")]
+        if since:
+            filtered = [e for e in filtered if e.get("timestamp", "") >= since]
+        if before:
+            filtered = [e for e in filtered if e.get("timestamp", "") < before]
+
+        total = len(filtered)
+        filtered = filtered[-last_n:]
+
+        return {"events": filtered, "total_events": total, "showing": len(filtered)}
+    except Exception:
+        logger.debug("session-log: no transcript available", exc_info=True)
+        return {"events": [], "total_events": 0, "showing": 0}
+
+
+@router.get("/api/session-summary")
+async def session_summary(request: Request):
+    """Return artifact inventory with channel extraction for the current session."""
+    try:
+        from osprey.mcp_server.artifact_store import ArtifactStore
+        from osprey.mcp_server.workspace.tools.session_summary import _extract_channels
+
+        store = ArtifactStore(request.app.state.workspace_dir)
+        entries = store.list_entries()
+
+        total_bytes = 0
+        categories: dict[str, int] = {}
+        tools_used: set[str] = set()
+        artifact_types: dict[str, int] = {}
+        entry_dicts = []
+
+        for entry in entries:
+            total_bytes += entry.size_bytes
+            cat = entry.category or "uncategorized"
+            categories[cat] = categories.get(cat, 0) + 1
+            if entry.tool_source:
+                tools_used.add(entry.tool_source)
+            artifact_types[entry.artifact_type] = artifact_types.get(entry.artifact_type, 0) + 1
+            d = entry.to_dict()
+            d["channels"] = _extract_channels(entry)
+            entry_dicts.append(d)
+
+        return {
+            "entries": entry_dicts,
+            "totals": {
+                "entry_count": len(entries),
+                "total_bytes": total_bytes,
+                "categories": categories,
+                "tools_used": sorted(tools_used),
+                "artifact_types": artifact_types,
+            },
+        }
+    except Exception:
+        logger.debug("session-summary: no artifacts available", exc_info=True)
+        return {
+            "entries": [],
+            "totals": {
+                "entry_count": 0,
+                "total_bytes": 0,
+                "categories": {},
+                "tools_used": [],
+                "artifact_types": {},
+            },
+        }
+
+
+@router.get("/api/session-chat")
+async def session_chat(request: Request):
+    """Return conversation turns from the current session transcript."""
+    try:
+        from osprey.mcp_server.workspace.transcript_reader import TranscriptReader
+
+        reader = TranscriptReader(request.app.state.project_cwd)
+        turns = reader.read_current_chat_history()
+        return {"turns": turns, "count": len(turns)}
+    except Exception:
+        logger.debug("session-chat: no transcript available", exc_info=True)
+        return {"turns": [], "count": 0}
 
 
 # ---- Workspace resolution helper ---- #
@@ -276,9 +433,7 @@ async def terminal_ws(websocket: WebSocket):
         if snapshot is None:
             return
         loop = asyncio.get_event_loop()
-        new_id = await loop.run_in_executor(
-            None, discovery.discover_new_session, snapshot
-        )
+        new_id = await loop.run_in_executor(None, discovery.discover_new_session, snapshot)
         if new_id:
             # Register in the local session registry
             reg = SessionRegistry(websocket.app.state.workspace_dir)

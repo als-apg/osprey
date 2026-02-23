@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OSPREY — Safety Guidelines</title>
+  <style>
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg: #020408;
+      --text: #7ec8a0;
+      --text-dim: #5a8a7a;
+      --text-bright: #a0e8c0;
+      --accent: #e8c05a;
+      --danger: #e85a5a;
+      --glow: 0 0 8px rgba(126, 200, 160, 0.25);
+      --glow-accent: 0 0 8px rgba(232, 192, 90, 0.3);
+      --glow-danger: 0 0 8px rgba(232, 90, 90, 0.3);
+      --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Menlo', monospace;
+      --scanline-opacity: 0.04;
+    }
+
+    html {
+      height: 100%;
+    }
+
+    body {
+      min-height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-mono);
+      font-size: 14px;
+      line-height: 1.7;
+      display: flex;
+      justify-content: center;
+      padding: 48px 24px;
+      overflow-y: auto;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0, 0, 0, 0.08) 2px,
+        rgba(0, 0, 0, 0.08) 4px
+      );
+      pointer-events: none;
+      z-index: 100;
+      opacity: var(--scanline-opacity);
+    }
+
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(ellipse at center, transparent 50%, rgba(0, 0, 0, 0.5) 100%);
+      pointer-events: none;
+      z-index: 100;
+    }
+
+    .container {
+      max-width: 680px;
+      width: 100%;
+      position: relative;
+      z-index: 1;
+    }
+
+    .header {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+
+    .header h1 {
+      font-size: 13px;
+      font-weight: normal;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      text-shadow: var(--glow);
+      margin-bottom: 8px;
+    }
+
+    .header .title {
+      font-size: 20px;
+      font-weight: bold;
+      color: var(--accent);
+      text-shadow: var(--glow-accent);
+      letter-spacing: 2px;
+    }
+
+    .divider {
+      border: none;
+      height: 1px;
+      background: linear-gradient(
+        90deg,
+        transparent 0%,
+        var(--text-dim) 20%,
+        var(--text) 50%,
+        var(--text-dim) 80%,
+        transparent 100%
+      );
+      opacity: 0.3;
+      margin: 32px 0;
+    }
+
+    .preamble {
+      color: var(--text-dim);
+      font-size: 13px;
+      margin-bottom: 32px;
+      padding: 16px;
+      border-left: 2px solid var(--accent);
+    }
+
+    .preamble strong {
+      color: var(--accent);
+      text-shadow: var(--glow-accent);
+    }
+
+    .section {
+      margin-bottom: 36px;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .section-number {
+      font-size: 11px;
+      color: var(--text-dim);
+      opacity: 0.6;
+      min-width: 32px;
+    }
+
+    .section-title {
+      font-size: 15px;
+      font-weight: bold;
+      color: var(--text-bright);
+      text-shadow: var(--glow);
+    }
+
+    .section-body {
+      padding-left: 42px;
+      color: var(--text);
+      font-size: 13px;
+    }
+
+    .section-body p {
+      margin-bottom: 12px;
+    }
+
+    .warning-box {
+      margin: 12px 0;
+      padding: 12px 16px;
+      border: 1px solid var(--danger);
+      border-radius: 2px;
+      background: rgba(232, 90, 90, 0.06);
+    }
+
+    .warning-box .label {
+      color: var(--danger);
+      text-shadow: var(--glow-danger);
+      font-size: 11px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+
+    .warning-box p {
+      color: var(--text-dim);
+      font-size: 12px;
+      margin-bottom: 0;
+    }
+
+    .rule-list {
+      list-style: none;
+      padding: 0;
+    }
+
+    .rule-list li {
+      position: relative;
+      padding-left: 20px;
+      margin-bottom: 8px;
+      color: var(--text);
+      font-size: 13px;
+    }
+
+    .rule-list li::before {
+      content: '›';
+      position: absolute;
+      left: 0;
+      color: var(--text-dim);
+    }
+
+    .highlight {
+      color: var(--accent);
+      text-shadow: var(--glow-accent);
+    }
+
+    .danger {
+      color: var(--danger);
+      text-shadow: var(--glow-danger);
+    }
+
+    .footer {
+      margin-top: 48px;
+      text-align: center;
+    }
+
+    .footer .back-link {
+      display: inline-block;
+      color: var(--text-dim);
+      text-decoration: none;
+      font-size: 12px;
+      padding: 8px 16px;
+      border: 1px solid rgba(90, 138, 122, 0.3);
+      border-radius: 2px;
+      transition: all 0.2s ease;
+    }
+
+    .footer .back-link:hover {
+      color: var(--text-bright);
+      border-color: var(--text);
+      text-shadow: var(--glow);
+    }
+
+    .footer .version {
+      display: block;
+      margin-top: 16px;
+      font-size: 11px;
+      color: var(--text-dim);
+      opacity: 0.4;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+
+  <div class="header">
+    <h1>OSPREY</h1>
+    <span class="title">Safety Guidelines</span>
+  </div>
+
+  <hr class="divider">
+
+  <div class="preamble">
+    OSPREY connects an AI agent to <strong>live control systems</strong>.
+    Every action the agent proposes can affect real hardware.
+    Read these guidelines before you begin — and revisit them often.
+  </div>
+
+  <!-- Section 1 -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-number">[01]</span>
+      <span class="section-title">Never auto-approve commands</span>
+    </div>
+    <div class="section-body">
+      <p>
+        OSPREY requires human approval before any hardware write is executed.
+        <span class="highlight">This gate exists for a reason.</span>
+        Do not configure workflows that bypass approval, and do not
+        rubber-stamp requests without reading them.
+      </p>
+      <ul class="rule-list">
+        <li>Read every proposed command in full before approving.</li>
+        <li>Verify the target channels, values, and units are correct.</li>
+        <li>If a command looks unfamiliar or unexpected, <span class="danger">reject it</span> and investigate.</li>
+        <li>Batch approvals are especially dangerous — review each item individually.</li>
+      </ul>
+      <div class="warning-box">
+        <div class="label">Warning</div>
+        <p>
+          Automatic approval defeats the entire safety model.
+          A single unreviewed write can damage equipment or
+          create unsafe conditions.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Section 2 -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-number">[02]</span>
+      <span class="section-title">Monitor the agent at all times</span>
+    </div>
+    <div class="section-body">
+      <p>
+        The agent works autonomously between approval gates. You must
+        actively watch what it is doing — not just wait for the next
+        approval prompt.
+      </p>
+      <ul class="rule-list">
+        <li>Keep the terminal visible while the agent is running.</li>
+        <li>Watch for unexpected read patterns or channel access.</li>
+        <li>If the agent appears confused or is looping, stop the session.</li>
+        <li>Review the agent's reasoning, not just its final action.</li>
+      </ul>
+      <p>
+        The agent can read values, query databases, and build execution
+        plans — all without approval. <span class="highlight">Reads are not harmless</span> if
+        they lead the agent to wrong conclusions that it then acts on.
+      </p>
+    </div>
+  </div>
+
+  <!-- Section 3 -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-number">[03]</span>
+      <span class="section-title">Reject out-of-scope requests</span>
+    </div>
+    <div class="section-body">
+      <p>
+        Every OSPREY deployment has a <span class="highlight">defined operational boundary</span> —
+        a set of systems, channels, and actions it is configured to handle.
+        Requests that fall outside this boundary are the highest-risk category.
+      </p>
+      <ul class="rule-list">
+        <li>Know your deployment's scope: which subsystems, which channels, which value ranges.</li>
+        <li>If a request touches systems outside the configured scope, reject it immediately.</li>
+        <li>Do not let the agent "try to help" with unfamiliar equipment.</li>
+        <li>Vague or open-ended prompts ("fix everything", "optimize the beam") are dangerous.</li>
+      </ul>
+      <div class="warning-box">
+        <div class="label">Critical</div>
+        <p>
+          When the agent encounters something outside its scope,
+          it may attempt corrective actions based on incomplete knowledge.
+          An agent that doesn't know a system's constraints can push
+          values into unsafe ranges while "trying to help."
+          This is the most dangerous failure mode.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <!-- Summary -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-number"> >> </span>
+      <span class="section-title">Remember</span>
+    </div>
+    <div class="section-body">
+      <p>
+        You are the operator. The agent is a tool. <span class="highlight">You are responsible
+        for every action it takes.</span> If something goes wrong, the first
+        question will be: did the operator review and approve?
+      </p>
+      <p>
+        When in doubt, <span class="danger">stop the session</span> and consult your
+        control system team.
+      </p>
+    </div>
+  </div>
+
+  <div class="footer">
+    <a class="back-link" href="/static/index.html">← Back to terminal</a>
+    <span class="version">OSPREY Web Terminal</span>
+  </div>
+
+</div>
+
+</body>
+</html>
