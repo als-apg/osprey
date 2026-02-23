@@ -194,9 +194,14 @@ ariel-proxy = [
     "aiohttp-socks>=0.8.0",
 ]
 
+# Google Sheets database backend for channel finder
+sheets = [
+    "gspread>=6.0.0",
+]
+
 # All optional dependencies for complete installation
 all = [
-    "osprey-framework[docs,dev,storage,ariel]"
+    "osprey-framework[docs,dev,storage,ariel,sheets]"
 ]
 
 [project.urls]
