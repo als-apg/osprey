@@ -79,7 +79,7 @@ def config_add_to_list(
 
     lst.append(value)
     _save(config_path, data)
-    logger.info("config_add_to_list: %s += %s in %s", ".".join(key_path), value, config_path)
+    logger.debug("config_add_to_list: %s += %s in %s", ".".join(key_path), value, config_path)
     return True
 
 
