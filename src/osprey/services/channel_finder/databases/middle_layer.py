@@ -38,7 +38,27 @@ Example structure:
 
 import json
 
-from ..core.base_database import BaseDatabase
+from ..core.base_database import BaseDatabase, DatabaseWriteError
+
+# Metadata keys to skip during tree traversal (not navigable families/fields)
+_ML_META_KEYS = frozenset(
+    {
+        "_description",
+        "setup",
+        "pyat",
+        "ChannelNames",
+        "DataType",
+        "Mode",
+        "Units",
+        "HW2PhysicsParams",
+        "Physics2HWParams",
+        "Tol",
+        "Range",
+        "Description",
+        "CommonNames",
+        "DeviceList",
+    }
+)
 
 
 class MiddleLayerDatabase(BaseDatabase):
@@ -512,3 +532,232 @@ class MiddleLayerDatabase(BaseDatabase):
         family_data = self.data[system][family]
         setup = family_data.get("setup", {})
         return setup.get("CommonNames")
+
+    # === Persistence ===
+
+    def _serialize(self) -> dict:
+        """Serialize the MML tree back to JSON-compatible dict."""
+        return self.data
+
+    def _rebuild_channel_map(self) -> None:
+        """Rebuild the flat channel map from the current MML tree."""
+        self.channel_map = self._build_channel_map()
+
+    # === Navigation helper ===
+
+    def _ml_navigate(self, system: str, family: str | None = None) -> dict:
+        """Navigate to a system or family node in the MML tree.
+
+        Args:
+            system: System name.
+            family: Optional family name.
+
+        Returns:
+            The target node dict.
+
+        Raises:
+            DatabaseWriteError: If system/family not found.
+        """
+        if system not in self.data:
+            raise DatabaseWriteError(f"System '{system}' not found", "not_found")
+        node = self.data[system]
+        if family is not None:
+            if family not in node:
+                raise DatabaseWriteError(
+                    f"Family '{family}' not found in system '{system}'", "not_found"
+                )
+            node = node[family]
+        return node
+
+    # === Write methods ===
+
+    def add_family(self, system: str, family: str, description: str = "") -> dict:
+        """Add a new family to a system.
+
+        Args:
+            system: System name (must already exist).
+            family: New family name.
+            description: Optional description.
+
+        Returns:
+            Success dict.
+
+        Raises:
+            DatabaseWriteError: If family already exists.
+        """
+        sys_node = self._ml_navigate(system)
+
+        if family in sys_node:
+            raise DatabaseWriteError(
+                f"Family '{family}' already exists in system '{system}'", "duplicate"
+            )
+
+        new_family: dict = {}
+        if description:
+            new_family["_description"] = description
+
+        sys_node[family] = new_family
+        self._rebuild_channel_map()
+        self._persist()
+
+        return {"success": True, "system": system, "family": family}
+
+    def delete_family(self, system: str, family: str) -> dict:
+        """Delete a family and all its channels.
+
+        Returns:
+            Success dict with affected channel count.
+
+        Raises:
+            DatabaseWriteError: If family not found.
+        """
+        sys_node = self._ml_navigate(system)
+
+        if family not in sys_node:
+            raise DatabaseWriteError(
+                f"Family '{family}' not found in system '{system}'", "not_found"
+            )
+
+        affected = self._count_channels_in_family(sys_node[family])
+        del sys_node[family]
+        self._rebuild_channel_map()
+        self._persist()
+
+        return {
+            "success": True,
+            "system": system,
+            "family": family,
+            "affected_channels": affected,
+        }
+
+    def add_channel(
+        self,
+        system: str,
+        family: str,
+        field: str,
+        channel_name: str,
+        subfield: str | None = None,
+    ) -> dict:
+        """Add a channel to a family's field.
+
+        Creates the field/subfield path if it doesn't exist.
+
+        Args:
+            system: System name.
+            family: Family name.
+            field: Field name (e.g., "Monitor").
+            channel_name: Channel PV name to add.
+            subfield: Optional subfield name.
+
+        Returns:
+            Success dict.
+
+        Raises:
+            DatabaseWriteError: If channel already exists.
+        """
+        fam_node = self._ml_navigate(system, family)
+
+        if field not in fam_node:
+            fam_node[field] = {}
+        target = fam_node[field]
+
+        if subfield is not None:
+            if not isinstance(target, dict):
+                raise DatabaseWriteError(
+                    f"Field '{field}' is not a dict, cannot add subfield", "invalid_path"
+                )
+            if subfield not in target:
+                target[subfield] = {}
+            target = target[subfield]
+
+        if "ChannelNames" not in target:
+            target["ChannelNames"] = []
+        names = target["ChannelNames"]
+        if isinstance(names, str):
+            names = [names]
+            target["ChannelNames"] = names
+
+        if channel_name in names:
+            raise DatabaseWriteError(
+                f"Channel '{channel_name}' already exists in this field", "duplicate"
+            )
+
+        names.append(channel_name)
+        self._rebuild_channel_map()
+        self._persist()
+
+        return {
+            "success": True,
+            "channel": channel_name,
+            "path": f"{system}:{family}:{field}",
+        }
+
+    def delete_channel(
+        self,
+        system: str,
+        family: str,
+        field: str,
+        channel_name: str,
+        subfield: str | None = None,
+    ) -> dict:
+        """Delete a channel from a family's field.
+
+        Returns:
+            Success dict.
+
+        Raises:
+            DatabaseWriteError: If channel not found.
+        """
+        fam_node = self._ml_navigate(system, family)
+
+        if field not in fam_node:
+            raise DatabaseWriteError(
+                f"Field '{field}' not found in family '{family}'", "not_found"
+            )
+
+        target = fam_node[field]
+        if subfield is not None:
+            if not isinstance(target, dict) or subfield not in target:
+                raise DatabaseWriteError(f"Subfield '{subfield}' not found", "not_found")
+            target = target[subfield]
+
+        names = target.get("ChannelNames", [])
+        if isinstance(names, str):
+            names = [names]
+
+        if channel_name not in names:
+            raise DatabaseWriteError(f"Channel '{channel_name}' not found", "not_found")
+
+        names.remove(channel_name)
+        target["ChannelNames"] = names
+        self._rebuild_channel_map()
+        self._persist()
+
+        return {"success": True, "channel": channel_name}
+
+    def count_family_channels(self, system: str, family: str) -> int:
+        """Count channels in a family (for delete impact preview).
+
+        Returns:
+            Number of channels.
+        """
+        fam_node = self._ml_navigate(system, family)
+        return self._count_channels_in_family(fam_node)
+
+    @staticmethod
+    def _count_channels_in_family(family_node: dict) -> int:
+        """Count total channels in a middle layer family."""
+        count = 0
+        for key, val in family_node.items():
+            if key in _ML_META_KEYS or key.startswith("_"):
+                continue
+            if isinstance(val, dict):
+                if "ChannelNames" in val:
+                    ch = val["ChannelNames"]
+                    count += len(ch) if isinstance(ch, list) else 1
+                else:
+                    for _sk, sv in val.items():
+                        if isinstance(sv, dict) and "ChannelNames" in sv:
+                            ch = sv["ChannelNames"]
+                            count += len(ch) if isinstance(ch, list) else 1
+        return count

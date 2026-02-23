@@ -9,6 +9,7 @@ Extends the flat ChannelDatabase to support:
 
 import json
 
+from ..core.base_database import DatabaseWriteError
 from .flat import ChannelDatabase as FlatChannelDatabase
 
 
@@ -38,6 +39,8 @@ class ChannelDatabase(FlatChannelDatabase):
         else:
             entries = raw_data
             self.metadata = {}
+
+        self._original_entries = list(entries)
 
         # Expand templates into explicit channels
         self.channels = []
@@ -351,3 +354,133 @@ class ChannelDatabase(FlatChannelDatabase):
         base_stats["template_entries"] = self.template_entry_count
         base_stats["standalone_entries"] = self.standalone_entry_count
         return base_stats
+
+    # ------------------------------------------------------------------
+    # Serialization
+    # ------------------------------------------------------------------
+
+    def _serialize(self) -> dict | list:
+        """Serialize in-memory state back to JSON-compatible structure."""
+        if self.metadata:
+            return {**self.metadata, "channels": self._original_entries}
+        return self._original_entries
+
+    # ------------------------------------------------------------------
+    # Write methods (standalone entries only)
+    # ------------------------------------------------------------------
+
+    def add_channel(
+        self, channel: str, address: str = "", description: str = ""
+    ) -> dict:
+        """Add a standalone channel entry.
+
+        Args:
+            channel: Channel name.
+            address: PV address (defaults to channel name).
+            description: Human-readable description.
+
+        Returns:
+            Success dict.
+
+        Raises:
+            DatabaseWriteError: If channel already exists (including expanded).
+        """
+        if channel in self.channel_map:
+            raise DatabaseWriteError(
+                f"Channel '{channel}' already exists", "duplicate"
+            )
+
+        new_entry = {"channel": channel, "address": address or channel}
+        if description:
+            new_entry["description"] = description
+
+        self._original_entries.append(new_entry)
+        self._persist()
+        self.load_database()
+
+        return {"success": True, "channel": channel}
+
+    def delete_channel(self, channel: str) -> dict:
+        """Delete a standalone channel entry.
+
+        Template-generated channels cannot be deleted individually.
+
+        Args:
+            channel: Channel name to delete.
+
+        Returns:
+            Success dict.
+
+        Raises:
+            DatabaseWriteError: If channel is template-generated or not found.
+        """
+        if channel in self.template_map:
+            raise DatabaseWriteError(
+                f"Cannot delete template-generated channel '{channel}'. "
+                f"Modify the template instead.",
+                "template_channel",
+            )
+
+        original_len = len(self._original_entries)
+        self._original_entries = [
+            e for e in self._original_entries
+            if e.get("channel") != channel
+        ]
+
+        if len(self._original_entries) == original_len:
+            raise DatabaseWriteError(
+                f"Channel '{channel}' not found", "not_found"
+            )
+
+        self._persist()
+        self.load_database()
+
+        return {"success": True, "channel": channel}
+
+    def update_channel(
+        self,
+        channel: str,
+        new_description: str | None = None,
+        new_address: str | None = None,
+    ) -> dict:
+        """Update a standalone channel's description and/or address.
+
+        Template-generated channels cannot be updated individually.
+
+        Args:
+            channel: Channel name to update.
+            new_description: New description (if not None).
+            new_address: New PV address (if not None).
+
+        Returns:
+            Success dict.
+
+        Raises:
+            DatabaseWriteError: If channel is template-generated or not found.
+        """
+        if channel in self.template_map:
+            raise DatabaseWriteError(
+                f"Cannot update template-generated channel '{channel}'. "
+                f"Modify the template instead.",
+                "template_channel",
+            )
+
+        found = False
+        for entry in self._original_entries:
+            if entry.get("channel") == channel:
+                if new_description is not None:
+                    entry["description"] = new_description
+                if new_address is not None:
+                    entry["address"] = new_address
+                found = True
+                break
+
+        if not found:
+            raise DatabaseWriteError(
+                f"Channel '{channel}' not found", "not_found"
+            )
+
+        self._persist()
+        self.load_database()
+
+        return {"success": True, "channel": channel}
