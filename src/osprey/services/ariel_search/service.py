@@ -24,8 +24,11 @@ from osprey.services.ariel_search.models import (
     ARIELStatusResult,
     DiagnosticLevel,
     EmbeddingTableInfo,
+    FacilityEntryCreateRequest,
+    FacilityEntryCreateResult,
     SearchDiagnostic,
     SearchMode,
+    SyncStatus,
 )
 from osprey.utils.logger import get_logger
 
@@ -458,6 +461,91 @@ class ARIELSearchService:
             reasoning=agent_result.reasoning,
             diagnostics=agent_result.diagnostics,
             pipeline_details=agent_result.pipeline_details,
+        )
+
+    async def create_entry(
+        self,
+        request: FacilityEntryCreateRequest,
+    ) -> FacilityEntryCreateResult:
+        """Create a logbook entry through the facility adapter.
+
+        Flow:
+        1. Get the configured adapter
+        2. Write to facility logbook via adapter.create_entry()
+        3. Optimistic local upsert into ARIEL database
+        4. For non-local adapters, attempt re-ingestion to sync
+
+        Args:
+            request: Entry creation request
+
+        Returns:
+            FacilityEntryCreateResult with entry ID and sync status
+
+        Raises:
+            NotImplementedError: If the adapter doesn't support writes
+        """
+        from datetime import UTC, datetime, timedelta
+
+        from osprey.services.ariel_search.ingestion import get_adapter
+
+        adapter = get_adapter(self.config)
+
+        if not adapter.supports_write:
+            raise NotImplementedError(
+                f"{adapter.source_system_name} adapter does not support creating entries"
+            )
+
+        # Write to facility logbook
+        facility_entry_id = await adapter.create_entry(request)
+
+        now = datetime.now(UTC)
+        source_system = adapter.source_system_name
+
+        # Determine sync status based on adapter type
+        is_local = source_system == "Generic JSON"
+        sync_status = SyncStatus.LOCAL_ONLY if is_local else SyncStatus.PENDING_SYNC
+
+        # Optimistic local upsert
+        raw_text = f"{request.subject}\n\n{request.details}" if request.details else request.subject
+        entry = {
+            "entry_id": facility_entry_id,
+            "source_system": source_system,
+            "timestamp": now,
+            "author": request.author or "",
+            "raw_text": raw_text,
+            "attachments": [],
+            "metadata": {
+                "logbook": request.logbook,
+                "shift": request.shift,
+                "tags": request.tags,
+                "sync_status": sync_status.value,
+            },
+            "created_at": now,
+            "updated_at": now,
+        }
+
+        await self.repository.upsert_entry(entry)
+
+        # For non-local adapters, try to re-ingest the new entry to sync
+        if not is_local:
+            try:
+                since = now - timedelta(minutes=5)
+                async for fetched_entry in adapter.fetch_entries(since=since):
+                    if fetched_entry["entry_id"] == facility_entry_id:
+                        await self.repository.upsert_entry(fetched_entry)
+                        sync_status = SyncStatus.SYNCED
+                        break
+            except Exception as e:
+                logger.warning(
+                    f"Re-ingestion after write failed for {facility_entry_id}: {e}. "
+                    f"Entry will sync on next poll."
+                )
+
+        return FacilityEntryCreateResult(
+            entry_id=facility_entry_id,
+            source_system=source_system,
+            sync_status=sync_status,
+            message=f"Entry {facility_entry_id} created in {source_system}",
         )
 
     async def health_check(self) -> tuple[bool, str]:

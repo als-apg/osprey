@@ -156,6 +156,33 @@ class WatchConfig:
 
 
 @dataclass
+class WriteConfig:
+    """Configuration for facility logbook write operations.
+
+    Attributes:
+        enabled: Whether writing to the facility logbook is enabled
+        write_url: URL for the facility write API (if different from source_url)
+        auth_user: Username for write authentication
+        auth_password: Password for write authentication
+    """
+
+    enabled: bool = False
+    write_url: str | None = None
+    auth_user: str | None = None
+    auth_password: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "WriteConfig":
+        """Create WriteConfig from dictionary."""
+        return cls(
+            enabled=data.get("enabled", False),
+            write_url=data.get("write_url"),
+            auth_user=data.get("auth_user") or os.environ.get("ARIEL_WRITE_USER"),
+            auth_password=data.get("auth_password") or os.environ.get("ARIEL_WRITE_PASSWORD"),
+        )
+
+
+@dataclass
 class IngestionConfig:
     """Configuration for logbook ingestion.
 
@@ -170,6 +197,7 @@ class IngestionConfig:
         max_retries: Maximum retry attempts for failed requests (default: 3)
         retry_delay_seconds: Base delay between retries (default: 5)
         watch: Watch mode configuration
+        write: Write operation configuration
     """
 
     adapter: str
@@ -182,6 +210,7 @@ class IngestionConfig:
     max_retries: int = 3
     retry_delay_seconds: int = 5
     watch: WatchConfig = field(default_factory=WatchConfig)
+    write: WriteConfig = field(default_factory=WriteConfig)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "IngestionConfig":
@@ -191,6 +220,10 @@ class IngestionConfig:
         watch = WatchConfig()
         if "watch" in data:
             watch = WatchConfig.from_dict(data["watch"])
+
+        write = WriteConfig()
+        if "write" in data:
+            write = WriteConfig.from_dict(data["write"])
 
         return cls(
             adapter=data.get("adapter", "generic"),
@@ -203,6 +236,7 @@ class IngestionConfig:
             max_retries=data.get("max_retries", 3),
             retry_delay_seconds=data.get("retry_delay_seconds", 5),
             watch=watch,
+            write=write,
         )
 
 

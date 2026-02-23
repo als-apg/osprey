@@ -10,14 +10,18 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.config import ARIELConfig
-    from osprey.services.ariel_search.models import EnhancedLogbookEntry
+    from osprey.services.ariel_search.models import (
+        EnhancedLogbookEntry,
+        FacilityEntryCreateRequest,
+    )
 
 
-class BaseAdapter(ABC):
+class FacilityAdapter(ABC):
     """Abstract base class for ingestion adapters.
 
     Each facility implements their own adapter to convert facility-specific
-    logbook formats into the ARIEL schema.
+    logbook formats into the ARIEL schema. Adapters support both reading
+    (fetch_entries) and optionally writing (create_entry) to facility logbooks.
 
     Attributes:
         config: ARIEL configuration
@@ -38,6 +42,14 @@ class BaseAdapter(ABC):
 
         Examples: 'ALS eLog', 'JLab Logbook', 'ORNL Logbook'
         """
+
+    @property
+    def supports_write(self) -> bool:
+        """Whether this adapter supports creating entries in the facility logbook.
+
+        Override in subclasses that implement write support.
+        """
+        return False
 
     @abstractmethod
     def fetch_entries(
@@ -61,6 +73,23 @@ class BaseAdapter(ABC):
             IngestionError: If connection to source system fails
         """
 
+    async def create_entry(self, request: "FacilityEntryCreateRequest") -> str:
+        """Create an entry in the facility logbook.
+
+        Args:
+            request: Entry creation request with subject, details, etc.
+
+        Returns:
+            The facility-assigned entry ID.
+
+        Raises:
+            NotImplementedError: If this adapter does not support writes.
+            IngestionError: If the write fails.
+        """
+        raise NotImplementedError(
+            f"{self.source_system_name} adapter does not support creating entries"
+        )
+
     async def count_entries(
         self,
         since: datetime | None = None,
@@ -79,3 +108,7 @@ class BaseAdapter(ABC):
             Total count of entries, or None if not available
         """
         return None
+
+
+# Backwards-compatible alias
+BaseAdapter = FacilityAdapter

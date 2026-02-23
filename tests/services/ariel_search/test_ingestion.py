@@ -5,6 +5,7 @@ Tests adapter functionality for ALS, JLab, ORNL, and generic JSON formats.
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -1138,3 +1139,283 @@ class TestALSLogbookAdapterHTTPConfigParsing:
             )
 
             assert config.proxy_url == "socks5://explicit:9999"
+
+
+class TestGenericJSONAdapterWrite:
+    """Tests for GenericJSONAdapter write support."""
+
+    def _make_config(self, source_url: str) -> ARIELConfig:
+        """Create config with generic ingestion settings."""
+        return ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://test"},
+                "ingestion": {"adapter": "generic_json", "source_url": source_url},
+            }
+        )
+
+    def test_supports_write_local_file(self):
+        """Local file source supports write."""
+        config = self._make_config("/tmp/test.json")
+        adapter = GenericJSONAdapter(config)
+        assert adapter.supports_write is True
+
+    def test_supports_write_http_false(self):
+        """HTTP source does not support write."""
+        config = self._make_config("https://example.com/data.json")
+        adapter = GenericJSONAdapter(config)
+        assert adapter.supports_write is False
+
+    @pytest.mark.asyncio
+    async def test_create_entry_appends_to_json_file(self, tmp_path):
+        """create_entry appends to existing JSON file."""
+        from osprey.services.ariel_search.models import FacilityEntryCreateRequest
+
+        json_file = tmp_path / "entries.json"
+        json_file.write_text('{"entries": []}')
+
+        config = self._make_config(str(json_file))
+        adapter = GenericJSONAdapter(config)
+
+        request = FacilityEntryCreateRequest(
+            subject="Test entry",
+            details="Test details",
+            author="tester",
+            tags=["test"],
+        )
+
+        entry_id = await adapter.create_entry(request)
+
+        assert entry_id.startswith("local-")
+        assert len(entry_id) == 18  # "local-" + 12 hex chars
+
+        # Verify file contents
+        import json
+
+        with open(json_file) as f:
+            data = json.load(f)
+
+        assert len(data["entries"]) == 1
+        assert data["entries"][0]["id"] == entry_id
+        assert data["entries"][0]["title"] == "Test entry"
+        assert data["entries"][0]["text"] == "Test details"
+        assert data["entries"][0]["author"] == "tester"
+        assert data["entries"][0]["tags"] == ["test"]
+
+    @pytest.mark.asyncio
+    async def test_create_entry_http_source_raises(self):
+        """HTTP source raises NotImplementedError on write."""
+        from osprey.services.ariel_search.models import FacilityEntryCreateRequest
+
+        config = self._make_config("https://example.com/data.json")
+        adapter = GenericJSONAdapter(config)
+
+        request = FacilityEntryCreateRequest(
+            subject="Test",
+            details="Details",
+        )
+
+        with pytest.raises(NotImplementedError):
+            await adapter.create_entry(request)
+
+    @pytest.mark.asyncio
+    async def test_create_entry_creates_file_if_missing(self, tmp_path):
+        """create_entry creates the JSON file if it doesn't exist."""
+        from osprey.services.ariel_search.models import FacilityEntryCreateRequest
+
+        json_file = tmp_path / "new_entries.json"
+        assert not json_file.exists()
+
+        config = self._make_config(str(json_file))
+        adapter = GenericJSONAdapter(config)
+
+        request = FacilityEntryCreateRequest(
+            subject="First entry",
+            details="First details",
+        )
+
+        entry_id = await adapter.create_entry(request)
+
+        assert json_file.exists()
+
+        import json
+
+        with open(json_file) as f:
+            data = json.load(f)
+
+        assert len(data["entries"]) == 1
+        assert data["entries"][0]["id"] == entry_id
+
+    @pytest.mark.asyncio
+    async def test_create_entry_with_logbook(self, tmp_path):
+        """create_entry includes logbook as books array."""
+        from osprey.services.ariel_search.models import FacilityEntryCreateRequest
+
+        json_file = tmp_path / "entries.json"
+        json_file.write_text('{"entries": []}')
+
+        config = self._make_config(str(json_file))
+        adapter = GenericJSONAdapter(config)
+
+        request = FacilityEntryCreateRequest(
+            subject="Test",
+            details="Details",
+            logbook="Operations",
+        )
+
+        await adapter.create_entry(request)
+
+        import json
+
+        with open(json_file) as f:
+            data = json.load(f)
+
+        assert data["entries"][0]["books"] == ["Operations"]
+
+
+class TestALSLogbookAdapterWrite:
+    """Tests for ALS adapter write support."""
+
+    def _make_config(
+        self,
+        source_url: str = "https://web7.als.lbl.gov/olog/rpc.php",
+        write_enabled: bool = False,
+        write_url: str | None = None,
+        auth_user: str | None = None,
+        auth_password: str | None = None,
+    ) -> ARIELConfig:
+        """Create config with ALS ingestion + write settings."""
+        write_dict: dict[str, Any] = {"enabled": write_enabled}
+        if write_url:
+            write_dict["write_url"] = write_url
+        if auth_user:
+            write_dict["auth_user"] = auth_user
+        if auth_password:
+            write_dict["auth_password"] = auth_password
+
+        return ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://test"},
+                "ingestion": {
+                    "adapter": "als_logbook",
+                    "source_url": source_url,
+                    "write": write_dict,
+                },
+            }
+        )
+
+    def test_supports_write_without_config(self):
+        """Returns False when write not configured."""
+        config = self._make_config()
+        adapter = ALSLogbookAdapter(config)
+        assert adapter.supports_write is False
+
+    def test_supports_write_with_config(self):
+        """Returns True when write enabled and URL set."""
+        config = self._make_config(
+            write_enabled=True,
+            write_url="https://elog.als.lbl.gov/olog/rpc.php",
+        )
+        adapter = ALSLogbookAdapter(config)
+        assert adapter.supports_write is True
+
+    def test_supports_write_enabled_but_no_url(self):
+        """Returns False when enabled but no write_url."""
+        config = self._make_config(write_enabled=True)
+        adapter = ALSLogbookAdapter(config)
+        assert adapter.supports_write is False
+
+    def test_build_xml_payload(self):
+        """XML payload has correct structure."""
+        import xml.etree.ElementTree as ET
+
+        config = self._make_config(
+            write_enabled=True,
+            write_url="https://example.com/olog",
+            auth_user="testuser",
+            auth_password="testpass",
+        )
+        adapter = ALSLogbookAdapter(config)
+
+        xml_str = adapter._build_xml_payload(
+            author="testuser",
+            password="testpass",
+            subject="Test subject",
+            details="Test details",
+            logbook="Operations",
+            categories=["RF Systems", "Maintenance"],
+        )
+
+        root = ET.fromstring(xml_str)
+        assert root.tag == "entry"
+        assert root.find("author").text == "testuser"
+        assert root.find("password").text == "testpass"
+        assert root.find("subject").text == "Test subject"
+        assert root.find("details").text == "Test details"
+        assert root.find("level").text == "Info"
+        assert root.find("logbooks/logbook").text == "Operations"
+
+        categories = [c.text for c in root.findall("categories/category")]
+        assert categories == ["RF Systems", "Maintenance"]
+
+    @pytest.mark.asyncio
+    async def test_create_entry_mocked_http(self):
+        """create_entry posts XML and parses response."""
+        from osprey.services.ariel_search.models import FacilityEntryCreateRequest
+
+        config = self._make_config(
+            write_enabled=True,
+            write_url="https://elog.als.lbl.gov/olog/rpc.php",
+            auth_user="testuser",
+            auth_password="testpass",
+        )
+        adapter = ALSLogbookAdapter(config)
+
+        # Mock the HTTP POST response
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.text = AsyncMock(return_value="<response><id>99999</id></response>")
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+
+        mock_session = MagicMock()
+        mock_session.post = MagicMock(return_value=mock_response)
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("aiohttp.ClientSession", return_value=mock_session):
+            request = FacilityEntryCreateRequest(
+                subject="Test entry",
+                details="Test details",
+                author="operator",
+                logbook="Operations",
+                tags=["test"],
+            )
+
+            entry_id = await adapter.create_entry(request)
+
+        assert entry_id == "99999"
+
+        # Verify POST was called with XML content type
+        mock_session.post.assert_called_once()
+        call_kwargs = mock_session.post.call_args
+        assert call_kwargs.kwargs["headers"]["Content-Type"] == "application/xml"
+
+    @pytest.mark.asyncio
+    async def test_create_entry_missing_credentials(self):
+        """create_entry raises when credentials not set."""
+        from osprey.services.ariel_search.models import FacilityEntryCreateRequest
+
+        config = self._make_config(
+            write_enabled=True,
+            write_url="https://elog.als.lbl.gov/olog/rpc.php",
+            # No auth_user or auth_password
+        )
+        adapter = ALSLogbookAdapter(config)
+
+        request = FacilityEntryCreateRequest(
+            subject="Test",
+            details="Details",
+        )
+
+        with pytest.raises(IngestionError, match="auth_user and auth_password"):
+            await adapter.create_entry(request)

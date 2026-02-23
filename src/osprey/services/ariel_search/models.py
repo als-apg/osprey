@@ -15,6 +15,39 @@ from enum import Enum
 from typing import Any, NotRequired, TypedDict
 
 
+class SyncStatus(Enum):
+    """Synchronization status for facility-written entries."""
+
+    SYNCED = "synced"
+    PENDING_SYNC = "pending_sync"
+    LOCAL_ONLY = "local_only"
+
+
+@dataclass
+class FacilityEntryCreateRequest:
+    """Request to create a logbook entry through a facility adapter."""
+
+    subject: str
+    details: str
+    author: str | None = None
+    logbook: str | None = None
+    shift: str | None = None
+    tags: list[str] = field(default_factory=list)
+    attachment_paths: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class FacilityEntryCreateResult:
+    """Result from creating a logbook entry through a facility adapter."""
+
+    entry_id: str
+    source_system: str
+    sync_status: SyncStatus
+    message: str
+    attachment_count: int = 0
+
+
 class AttachmentInfo(TypedDict):
     """Normalized attachment metadata.
 

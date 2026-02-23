@@ -1,13 +1,15 @@
 """ALS Logbook ingestion adapter.
 
 This module provides the adapter for ALS eLog system.
-Supports both file-based (JSONL) and HTTP-based sources.
+Supports both file-based (JSONL) and HTTP-based sources, and writing
+to the ALS olog RPC API.
 """
 
 import asyncio
 import json
 import os
 import ssl
+import xml.etree.ElementTree as ET
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -16,12 +18,13 @@ from typing import TYPE_CHECKING, Any, Literal
 import aiohttp
 
 from osprey.services.ariel_search.exceptions import IngestionError
-from osprey.services.ariel_search.ingestion.base import BaseAdapter
+from osprey.services.ariel_search.ingestion.base import FacilityAdapter
 from osprey.services.ariel_search.models import AttachmentInfo, EnhancedLogbookEntry
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.config import ARIELConfig
+    from osprey.services.ariel_search.models import FacilityEntryCreateRequest
 
 logger = get_logger("ariel")
 
@@ -71,11 +74,12 @@ def transform_als_attachments(
     return result
 
 
-class ALSLogbookAdapter(BaseAdapter):
+class ALSLogbookAdapter(FacilityAdapter):
     """Adapter for ALS eLog system.
 
     Handles both file-based (JSONL) and HTTP-based sources.
     HTTP mode supports SOCKS proxy for access through SSH tunnels.
+    Supports writing to the ALS olog RPC API when write config is enabled.
     """
 
     def __init__(self, config: "ARIELConfig") -> None:
@@ -106,6 +110,14 @@ class ALSLogbookAdapter(BaseAdapter):
     def source_system_name(self) -> str:
         """Return the source system identifier."""
         return "ALS eLog"
+
+    @property
+    def supports_write(self) -> bool:
+        """Write is supported when write config is enabled and write_url is set."""
+        if not self.config.ingestion or not self.config.ingestion.write:
+            return False
+        write_cfg = self.config.ingestion.write
+        return write_cfg.enabled and bool(write_cfg.write_url)
 
     def _detect_source_type(self, source_url: str) -> Literal["file", "http"]:
         """Detect source type from URL scheme."""
@@ -172,6 +184,172 @@ class ALSLogbookAdapter(BaseAdapter):
                 except Exception as e:
                     logger.warning(f"Failed to convert entry at line {line_num}: {e}")
                     continue
+
+    async def create_entry(self, request: "FacilityEntryCreateRequest") -> str:
+        """Create an entry in the ALS olog system via RPC.
+
+        Args:
+            request: Entry creation request.
+
+        Returns:
+            The facility-assigned entry ID from the olog response.
+
+        Raises:
+            NotImplementedError: If write config is not enabled.
+            IngestionError: If the write fails.
+        """
+        if not self.supports_write:
+            raise NotImplementedError(
+                "ALS write support requires write.enabled=true and write.write_url in config"
+            )
+
+        write_cfg = self.config.ingestion.write  # type: ignore[union-attr]
+
+        if not write_cfg.auth_user or not write_cfg.auth_password:
+            raise IngestionError(
+                "ALS write requires auth_user and auth_password in write config "
+                "or ARIEL_WRITE_USER/ARIEL_WRITE_PASSWORD environment variables",
+                source_system=self.source_system_name,
+            )
+
+        xml_payload = self._build_xml_payload(
+            author=write_cfg.auth_user,
+            password=write_cfg.auth_password,
+            subject=request.subject,
+            details=request.details,
+            logbook=request.logbook,
+            categories=request.tags,
+        )
+
+        entry_id = await self._post_entry(write_cfg.write_url, xml_payload)  # type: ignore[arg-type]
+
+        logger.info(f"Created ALS olog entry {entry_id}")
+        return entry_id
+
+    def _build_xml_payload(
+        self,
+        *,
+        author: str,
+        password: str,
+        subject: str,
+        details: str,
+        logbook: str | None = None,
+        categories: list[str] | None = None,
+        level: str = "Info",
+    ) -> str:
+        """Build XML payload for the ALS olog RPC API.
+
+        Args:
+            author: Username for authentication
+            password: Password for authentication
+            subject: Entry subject line
+            details: Entry details/body
+            logbook: Target logbook name
+            categories: List of category names
+            level: Entry level (default: "Info")
+
+        Returns:
+            XML string for the RPC request.
+        """
+        root = ET.Element("entry")
+
+        ET.SubElement(root, "author").text = author
+        ET.SubElement(root, "password").text = password
+        ET.SubElement(root, "subject").text = subject
+        ET.SubElement(root, "details").text = details
+        ET.SubElement(root, "level").text = level
+
+        if logbook:
+            logbooks_elem = ET.SubElement(root, "logbooks")
+            ET.SubElement(logbooks_elem, "logbook").text = logbook
+
+        if categories:
+            cats_elem = ET.SubElement(root, "categories")
+            for cat in categories:
+                ET.SubElement(cats_elem, "category").text = cat
+
+        return ET.tostring(root, encoding="unicode", xml_declaration=True)
+
+    async def _post_entry(self, write_url: str, xml_payload: str) -> str:
+        """POST the XML payload to the ALS olog RPC endpoint.
+
+        Args:
+            write_url: The olog RPC write URL.
+            xml_payload: XML body to POST.
+
+        Returns:
+            Entry ID from the response.
+
+        Raises:
+            IngestionError: If the POST fails after retries.
+        """
+        connector = self._create_connector()
+
+        ssl_context: ssl.SSLContext | bool
+        if self.verify_ssl:
+            ssl_context = True
+        else:
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+
+        timeout = aiohttp.ClientTimeout(total=self.request_timeout)
+        last_error: Exception | None = None
+
+        async with aiohttp.ClientSession(
+            connector=connector,
+            timeout=timeout,
+        ) as session:
+            for attempt in range(self.max_retries):
+                try:
+                    async with session.post(
+                        write_url,
+                        data=xml_payload,
+                        headers={"Content-Type": "application/xml"},
+                        ssl=ssl_context,
+                    ) as response:
+                        if response.status >= 400:
+                            body = await response.text()
+                            raise IngestionError(
+                                f"ALS olog write failed with HTTP {response.status}: {body}",
+                                source_system=self.source_system_name,
+                            )
+
+                        response_text = await response.text()
+
+                        # Parse entry ID from olog response
+                        try:
+                            resp_root = ET.fromstring(response_text)
+                            entry_id_elem = resp_root.find(".//id")
+                            if entry_id_elem is not None and entry_id_elem.text:
+                                return entry_id_elem.text
+                            # Fallback: look for entry_id attribute or text
+                            entry_id_attr = resp_root.get("id")
+                            if entry_id_attr:
+                                return entry_id_attr
+                        except ET.ParseError:
+                            pass
+
+                        # If we can't parse an ID but got a success response,
+                        # use the response text as a fallback
+                        return response_text.strip() or f"als-{datetime.now(UTC).timestamp():.0f}"
+
+                except IngestionError:
+                    raise
+                except (aiohttp.ClientError, TimeoutError) as e:
+                    last_error = e
+                    if attempt < self.max_retries - 1:
+                        delay = self.retry_delay * (2**attempt)
+                        logger.warning(
+                            f"ALS write attempt {attempt + 1}/{self.max_retries} failed, "
+                            f"retrying in {delay}s: {e}"
+                        )
+                        await asyncio.sleep(delay)
+
+        raise IngestionError(
+            f"Max retries ({self.max_retries}) exceeded writing to ALS olog: {last_error}",
+            source_system=self.source_system_name,
+        )
 
     async def _fetch_entries_http(
         self,

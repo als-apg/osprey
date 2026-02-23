@@ -240,8 +240,49 @@ def test_get_entry_not_found(client, mock_ariel_service):
     assert "not found" in response.json()["detail"]
 
 
-def test_create_entry_endpoint(client, mock_ariel_service):
-    """Test create entry endpoint."""
+def test_create_entry_endpoint_via_service(client, mock_ariel_service):
+    """Test create entry delegates to service.create_entry()."""
+    from osprey.services.ariel_search.models import (
+        FacilityEntryCreateResult,
+        SyncStatus,
+    )
+
+    mock_ariel_service.create_entry = AsyncMock(
+        return_value=FacilityEntryCreateResult(
+            entry_id="local-abc123def456",
+            source_system="Generic JSON",
+            sync_status=SyncStatus.LOCAL_ONLY,
+            message="Entry local-abc123def456 created in Generic JSON",
+        )
+    )
+
+    response = client.post(
+        "/api/entries",
+        json={
+            "subject": "Test Entry",
+            "details": "Test details",
+            "author": "Test Author",
+            "logbook": "Test Logbook",
+            "tags": ["test", "example"],
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["entry_id"] == "local-abc123def456"
+    assert data["sync_status"] == "local_only"
+    assert data["source_system"] == "Generic JSON"
+    assert "message" in data
+
+    # Verify service.create_entry was called (not repository directly)
+    mock_ariel_service.create_entry.assert_called_once()
+
+
+def test_create_entry_endpoint_fallback(client, mock_ariel_service):
+    """Test create entry falls back to direct DB insert when adapter doesn't support writes."""
+    mock_ariel_service.create_entry = AsyncMock(
+        side_effect=NotImplementedError("Adapter does not support writes")
+    )
     mock_ariel_service.repository.upsert_entry = AsyncMock()
 
     response = client.post(
@@ -257,11 +298,12 @@ def test_create_entry_endpoint(client, mock_ariel_service):
 
     assert response.status_code == 200
     data = response.json()
-    assert "entry_id" in data
     assert data["entry_id"].startswith("ariel-")
-    assert "message" in data
+    assert data["sync_status"] == "local_only"
+    assert data["source_system"] == "ARIEL Web"
+    assert "local only" in data["message"]
 
-    # Verify repository was called
+    # Verify fallback path used repository directly
     mock_ariel_service.repository.upsert_entry.assert_called_once()
 
 
