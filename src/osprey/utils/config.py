@@ -716,6 +716,24 @@ def get_provider_config(provider_name: str, config_path: str | None = None) -> d
     return provider_configs.get(provider_name, {})
 
 
+def resolve_model_id(
+    provider: str, model_id_or_tier: str, config_path: str | None = None
+) -> str:
+    """Resolve a tier name to a provider-specific model ID.
+
+    If model_id_or_tier is a tier (haiku/sonnet/opus), looks up the concrete
+    model ID from api.providers[provider].models[tier]. Non-tier values pass
+    through unchanged for backward compatibility.
+    """
+    from osprey.cli.claude_code_resolver import VALID_TIERS
+
+    if model_id_or_tier not in VALID_TIERS:
+        return model_id_or_tier
+    provider_cfg = get_provider_config(provider, config_path)
+    models = provider_cfg.get("models", {})
+    return models.get(model_id_or_tier, model_id_or_tier)
+
+
 def get_framework_service_config(
     service_name: str, config_path: str | None = None
 ) -> dict[str, Any]:

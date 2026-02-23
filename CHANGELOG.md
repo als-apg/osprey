@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `GoogleSheetsChannelDatabase` reads/writes channel data from a Google Sheets spreadsheet via `gspread`
   - Integrates with the `in_context` pipeline via `source: google_sheets` config option
   - Optional dependency: `pip install osprey[sheets]`
+- **Config**: `resolve_model_id()` utility to resolve tier names (haiku/sonnet/opus) to provider-specific model IDs
 
 ### Fixed
 - **CI**: Make E2E test failures non-blocking in gate job — E2E tests are LLM-dependent and fail due to API rate limits, not code issues
