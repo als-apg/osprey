@@ -360,7 +360,7 @@ VALID_TIERS = {"haiku", "sonnet", "opus"}
 # Default composition config when logbook.composition is absent from config.yml
 _DEFAULT_COMPOSITION = {
     "provider": "cborg",
-    "model_id": "anthropic/claude-haiku",
+    "model_id": "haiku",
     "default_tier": "haiku",
 }
 

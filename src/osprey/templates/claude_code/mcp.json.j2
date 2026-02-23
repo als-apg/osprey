@@ -45,7 +45,9 @@
       "command": "' ~ current_python_env ~ '",
       "args": ["-m", "osprey.mcp_server.accelpapers", "serve"],
       "env": {
-        "ACCELPAPERS_DB": "${ACCELPAPERS_DB:-}"
+        "ACCELPAPERS_TYPESENSE_HOST": "${ACCELPAPERS_TYPESENSE_HOST:-localhost}",
+        "ACCELPAPERS_TYPESENSE_PORT": "${ACCELPAPERS_TYPESENSE_PORT:-8108}",
+        "ACCELPAPERS_TYPESENSE_API_KEY": "${ACCELPAPERS_TYPESENSE_API_KEY:-accelpapers-dev}"
       }
     }') -%}
 {%- endif -%}

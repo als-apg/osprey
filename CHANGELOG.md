@@ -32,6 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Optional dependency: `pip install osprey[sheets]`
 - **Config**: `resolve_model_id()` utility to resolve tier names (haiku/sonnet/opus) to provider-specific model IDs
 
+### Changed
+- **Init**: Config now uses tier names (haiku/sonnet/opus) instead of provider-specific model IDs; default tier changed to haiku
+
 ### Fixed
 - **CI**: Make E2E test failures non-blocking in gate job — E2E tests are LLM-dependent and fail due to API rate limits, not code issues
 - **Tests**: Mark flaky `test_first_order_backend_multiple_setpoint_changes` as `xfail` on macOS CI runners due to intermittent caproto server timeouts

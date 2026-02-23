@@ -79,8 +79,9 @@ def _clear_claude_code_project_state(project_path: Path) -> None:
 )
 @click.option(
     "--model",
+    type=click.Choice(["haiku", "sonnet", "opus"], case_sensitive=False),
     default=None,
-    help="Model identifier (e.g., claude-3-sonnet, gpt-4, anthropic/claude-haiku)",
+    help="Model tier to use (haiku, sonnet, opus)",
 )
 @click.option(
     "--channel-finder-mode",
@@ -219,7 +220,7 @@ def init(
         # Generate manifest for migration support
         manifest_context = {
             "default_provider": context.get("default_provider", "cborg"),
-            "default_model": context.get("default_model", "anthropic/claude-haiku"),
+            "default_model": context.get("default_model", "haiku"),
         }
         if channel_finder_mode:
             manifest_context["channel_finder_mode"] = channel_finder_mode
