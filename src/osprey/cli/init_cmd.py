@@ -40,9 +40,11 @@ from .templates import TemplateManager
 )
 @click.option(
     "--provider",
-    type=click.Choice(["anthropic", "openai", "google", "cborg", "ollama"], case_sensitive=False),
+    type=click.Choice(
+        ["anthropic", "openai", "google", "cborg", "ollama", "amsc"], case_sensitive=False
+    ),
     default=None,
-    help="AI provider to configure (anthropic, openai, google, cborg, ollama)",
+    help="AI provider to configure (anthropic, openai, google, cborg, ollama, amsc)",
 )
 @click.option(
     "--model",

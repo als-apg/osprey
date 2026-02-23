@@ -31,6 +31,12 @@ def get_available_providers() -> dict[str, dict]:
 
     providers_to_check = [
         ("cborg", ["CBORG_API_KEY"], "https://api.cborg.lbl.gov", "anthropic/claude-haiku"),
+        (
+            "amsc",
+            ["AMSC_I2_API_KEY"],
+            "https://api.i2-core.american-science-cloud.org",
+            "claude-haiku",
+        ),
         ("anthropic", ["ANTHROPIC_API_KEY"], None, "claude-haiku-4-5-20251001"),
     ]
 

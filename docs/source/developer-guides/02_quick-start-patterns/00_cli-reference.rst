@@ -568,7 +568,7 @@ Options
 ~~~~~~~
 
 ``--provider PROVIDER``
-   AI provider: ``anthropic``, ``openai``, ``google``, ``cborg``, or ``ollama``
+   AI provider: ``anthropic``, ``openai``, ``google``, ``cborg``, ``ollama``, or ``amsc``
 
 ``--model MODEL``
    Model identifier (e.g., ``claude-sonnet-4``, ``gpt-4``, ``anthropic/claude-haiku``)
@@ -1075,7 +1075,7 @@ Generate a complete Osprey capability from an MCP server with automatic ReAct ag
    Output file path (default: ``./capabilities/<name>.py``)
 
 ``--provider <provider>``
-   LLM provider override for guide generation (e.g., ``anthropic``, ``openai``, ``cborg``)
+   LLM provider override for guide generation (e.g., ``anthropic``, ``openai``, ``cborg``, ``amsc``)
 
 ``--model <model_id>``
    Model ID override for guide generation (e.g., ``claude-sonnet-4-20250514``, ``gpt-4o``)

@@ -4,7 +4,7 @@ Tests the LiteLLM-based provider system with real API calls across a
 provider × model matrix. Tests are conditionally run based on available API keys.
 
 Test Matrix:
-- Providers: anthropic, openai, google, ollama, cborg
+- Providers: anthropic, openai, google, ollama, cborg, amsc
 - Models: Multiple tiers per provider (haiku/sonnet, mini/4o, mistral/gptoss)
 - Tasks: completion, structured output, ReAct agent with tools
 
@@ -38,6 +38,10 @@ MODEL_MATRIX: dict[str, list[tuple[str, str]]] = {
         ("anthropic/claude-haiku", "haiku"),
         ("anthropic/claude-sonnet", "sonnet"),
     ],
+    "amsc": [
+        ("claude-haiku", "haiku"),
+        ("claude-sonnet", "sonnet"),
+    ],
     "ollama": [
         ("ministral-3:8b", "ministral"),
         ("mistral:7b", "mistral7b"),
@@ -51,7 +55,7 @@ MODEL_MATRIX: dict[str, list[tuple[str, str]]] = {
 
 # Providers that support structured output
 # Ollama uses direct API call to bypass LiteLLM bug #15463
-STRUCTURED_OUTPUT_PROVIDERS = ["anthropic", "openai", "google", "cborg", "vllm", "ollama"]
+STRUCTURED_OUTPUT_PROVIDERS = ["anthropic", "openai", "google", "cborg", "amsc", "vllm", "ollama"]
 
 # =============================================================================
 # PYDANTIC MODELS FOR STRUCTURED OUTPUT
@@ -107,6 +111,12 @@ def get_available_providers_raw() -> dict[str, dict[str, Any]]:
         ("openai", ["OPENAI_API_KEY"], None, "gpt-4o-mini"),
         ("google", ["GOOGLE_API_KEY"], None, "gemini-2.0-flash"),
         ("cborg", ["CBORG_API_KEY"], "https://api.cborg.lbl.gov", "anthropic/claude-haiku"),
+        (
+            "amsc",
+            ["AMSC_I2_API_KEY"],
+            "https://api.i2-core.american-science-cloud.org",
+            "claude-haiku",
+        ),
     ]
 
     for provider_name, env_vars, default_base_url, default_model in providers_to_check:

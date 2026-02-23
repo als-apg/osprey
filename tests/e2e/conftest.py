@@ -391,7 +391,7 @@ async def e2e_project_factory(tmp_path, request):
             name: Project name
             template: Template to use (minimal, hello_world_weather, control_assistant)
             registry_style: Registry style (extend/standalone)
-            provider: AI provider (anthropic, openai, google, cborg, ollama)
+            provider: AI provider (anthropic, openai, google, cborg, ollama, amsc)
             model: Model identifier
             output_dir: Where to create project (defaults to tmp_path)
 

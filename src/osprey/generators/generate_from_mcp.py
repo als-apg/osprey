@@ -428,7 +428,7 @@ NEXT STEPS:
    ```yaml
    models:
      {self.capability_name}_react:  # Optional - dedicated model for {self.capability_name} tool execution
-       provider: anthropic  # or openai, cborg, etc.
+       provider: anthropic  # or openai, cborg, amsc, etc.
        model_id: claude-sonnet-4
        max_tokens: 4096
    ```

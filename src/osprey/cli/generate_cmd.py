@@ -165,7 +165,7 @@ def generate():
     help="Output file path (default: ./capabilities/<name>.py)",
 )
 @click.option(
-    "--provider", default=None, help="LLM provider override (e.g., anthropic, openai, cborg)"
+    "--provider", default=None, help="LLM provider override (e.g., anthropic, openai, cborg, amsc)"
 )
 @click.option(
     "--model",

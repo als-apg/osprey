@@ -685,7 +685,7 @@ def update_all_models(
 
     Args:
         config_path: Path to config.yml
-        provider: Provider name (e.g., 'openai', 'anthropic', 'cborg')
+        provider: Provider name (e.g., 'openai', 'anthropic', 'cborg', 'amsc')
         model_id: Model ID (e.g., 'gpt-4', 'claude-sonnet-4')
         create_backup: If True, creates a .bak file before modifying
 

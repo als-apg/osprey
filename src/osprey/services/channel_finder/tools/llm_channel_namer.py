@@ -44,7 +44,7 @@ class LLMChannelNamer:
         """Initialize the LLM channel namer.
 
         Args:
-            provider: LLM provider ('cborg', 'anthropic', 'openai')
+            provider: LLM provider ('cborg', 'amsc', 'anthropic', 'openai')
             model_id: Model identifier
             max_tokens: Maximum tokens per request
             batch_size: Number of channels to process per batch
