@@ -314,19 +314,17 @@ jobs:
           echo "❌ Package build failed"
           exit 1
         fi
-        # E2E tests: required on PRs, skipped on pushes
+        # E2E tests: advisory (LLM-dependent, may fail due to rate limits)
         if [[ "${{ needs.e2e-tests.result }}" == "failure" ]]; then
-          echo "❌ E2E tests failed"
-          exit 1
+          echo "⚠️  E2E tests failed (non-blocking, LLM-dependent)"
         elif [[ "${{ needs.e2e-tests.result }}" == "skipped" ]]; then
           echo "⏭️  E2E tests skipped (only run on PRs)"
         else
           echo "✅ E2E tests passed"
         fi
-        # Deploy E2E: required on PRs, skipped on pushes
+        # Deploy E2E: advisory (LLM-dependent, may fail due to rate limits)
         if [[ "${{ needs.deploy-e2e.result }}" == "failure" ]]; then
-          echo "❌ Deploy E2E test failed"
-          exit 1
+          echo "⚠️  Deploy E2E test failed (non-blocking, LLM-dependent)"
         elif [[ "${{ needs.deploy-e2e.result }}" == "skipped" ]]; then
           echo "⏭️  Deploy E2E test skipped (only run on PRs)"
         else
