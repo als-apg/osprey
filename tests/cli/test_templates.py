@@ -492,8 +492,9 @@ class TestGitIsolation:
         assert git_root.returncode == 0
         assert Path(git_root.stdout.strip()).resolve() == project_dir.resolve()
 
-    def test_force_clears_claude_code_project_state(self, tmp_path, monkeypatch):
-        """Test that --force removes Claude Code's cached project state."""
+    def test_force_clears_claude_code_trust_state(self, tmp_path):
+        """Test that --force removes Claude Code's trust entry from ~/.claude.json."""
+        import json
         from pathlib import Path
 
         runner = CliRunner()
@@ -502,11 +503,57 @@ class TestGitIsolation:
         result = runner.invoke(init, ["trust-test", "--output-dir", str(tmp_path)])
         assert result.exit_code == 0
 
-        project_path = tmp_path / "trust-test"
+        project_path = (tmp_path / "trust-test").resolve()
 
-        # Simulate Claude Code's project state directory
-        claude_project_key = str(project_path.resolve()).replace("/", "-")
-        claude_project_dir = Path.home() / ".claude" / "projects" / claude_project_key
+        # Simulate Claude Code's trust state in ~/.claude.json
+        claude_json = Path.home() / ".claude.json"
+        backup_data = None
+        if claude_json.exists():
+            backup_data = claude_json.read_text()
+
+        try:
+            # Read current data, inject a fake trust entry for our project
+            data = json.loads(claude_json.read_text()) if claude_json.exists() else {}
+            data.setdefault("projects", {})[str(project_path)] = {
+                "hasTrustDialogAccepted": True,
+            }
+            claude_json.write_text(json.dumps(data, indent=2) + "\n")
+
+            # Verify the entry exists
+            check = json.loads(claude_json.read_text())
+            assert str(project_path) in check["projects"]
+
+            # Re-create with --force
+            result = runner.invoke(
+                init, ["trust-test", "--output-dir", str(tmp_path), "--force"]
+            )
+            assert result.exit_code == 0
+
+            # Trust entry should be gone
+            after = json.loads(claude_json.read_text())
+            assert str(project_path) not in after.get("projects", {}), (
+                "Trust entry should be removed from ~/.claude.json on --force"
+            )
+        finally:
+            # Restore original ~/.claude.json
+            if backup_data is not None:
+                claude_json.write_text(backup_data)
+
+    def test_force_clears_claude_code_session_state(self, tmp_path):
+        """Test that --force removes Claude Code's session directory."""
+        from pathlib import Path
+
+        runner = CliRunner()
+
+        # Create project first time
+        result = runner.invoke(init, ["session-test", "--output-dir", str(tmp_path)])
+        assert result.exit_code == 0
+
+        project_path = (tmp_path / "session-test").resolve()
+
+        # Simulate Claude Code's session directory
+        encoded_key = str(project_path).replace("/", "-")
+        claude_project_dir = Path.home() / ".claude" / "projects" / encoded_key
         claude_project_dir.mkdir(parents=True, exist_ok=True)
         (claude_project_dir / "sessions-index.json").write_text("{}")
 
@@ -514,13 +561,13 @@ class TestGitIsolation:
 
         # Re-create with --force
         result = runner.invoke(
-            init, ["trust-test", "--output-dir", str(tmp_path), "--force"]
+            init, ["session-test", "--output-dir", str(tmp_path), "--force"]
         )
         assert result.exit_code == 0
 
-        # Claude Code project state should be gone
+        # Session directory should be gone
         assert not claude_project_dir.exists(), (
-            "Claude Code project state should be removed on --force"
+            "Session directory should be removed on --force"
         )
 
 
