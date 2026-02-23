@@ -8,7 +8,7 @@ import asyncio
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 # Use Osprey's config system
 from osprey.utils.config import get_config_builder
@@ -21,6 +21,13 @@ from ...utils.prompt_loader import load_prompts
 from .models import NOTHING_FOUND_MARKER, create_selection_model
 
 logger = logging.getLogger(__name__)
+
+
+class ChannelWithPath(NamedTuple):
+    """A channel name paired with the hierarchy selections that produced it."""
+
+    channel: str
+    selections: dict[str, Any]
 
 
 def _save_prompt_to_file(prompt: str, stage: str, level: str = "", query: str = ""):
@@ -93,6 +100,8 @@ class HierarchicalPipeline(BasePipeline):
         facility_name: str = "control system",
         facility_description: str = "",
         query_splitting: bool = True,
+        feedback_store=None,  # FeedbackStore | None
+        tree_preview_config: dict | None = None,
         **kwargs,
     ):
         """
@@ -104,12 +113,21 @@ class HierarchicalPipeline(BasePipeline):
             facility_name: Name of facility
             facility_description: Facility description for context
             query_splitting: Whether to split multi-part queries (disable for facility-specific lingo)
+            feedback_store: Optional FeedbackStore for recording/retrieving navigation hints
+            tree_preview_config: Optional tree preview settings (enabled, max_depth, max_children)
             **kwargs: Additional pipeline arguments
         """
         super().__init__(database, model_config, **kwargs)
         self.facility_name = facility_name
         self.facility_description = facility_description
         self.query_splitting = query_splitting
+        self.feedback_store = feedback_store
+
+        # Tree preview configuration
+        tp = tree_preview_config or {}
+        self._tree_preview_enabled = tp.get("enabled", True)
+        self._tree_preview_max_depth = tp.get("max_depth", 3)
+        self._tree_preview_max_children = tp.get("max_children", 5)
 
         # Load query splitter from shared prompts (only if query splitting is enabled)
         config_builder = get_config_builder()
@@ -213,6 +231,7 @@ class HierarchicalPipeline(BasePipeline):
 
         # Stage 2: Navigate hierarchy for each atomic query
         all_channels = []
+        all_selections_paths: list[dict[str, Any]] = []
         for i, atomic_query in enumerate(atomic_queries, 1):
             # For single query, keep it concise since we already know the task from capability logs
             if len(atomic_queries) == 1:
@@ -222,8 +241,9 @@ class HierarchicalPipeline(BasePipeline):
                     f"[bold cyan]Stage 2 - Query {i}/{len(atomic_queries)}:[/bold cyan] {atomic_query}"
                 )
             try:
-                channels = await self._navigate_hierarchy(atomic_query)
+                channels, selections_paths = await self._navigate_hierarchy(atomic_query)
                 all_channels.extend(channels)
+                all_selections_paths.extend(selections_paths)
                 logger.info(f"  → Found {len(channels)} channel(s)")
             except HierarchicalNavigationError as e:
                 logger.warning(f"  [yellow]⚠[/yellow] Navigation failed: {e}")
@@ -236,8 +256,21 @@ class HierarchicalPipeline(BasePipeline):
         all_channels.extend(explicit_channels)
         unique_channels = list(set(all_channels))
 
+        # Auto-record feedback for future queries
+        if self.feedback_store is not None and unique_channels:
+            for sp in all_selections_paths:
+                try:
+                    self.feedback_store.record_success(
+                        query=query,
+                        facility=self.facility_name,
+                        selections=sp,
+                        channel_count=len(unique_channels),
+                    )
+                except Exception as e:
+                    logger.debug(f"Failed to record feedback: {e}")
+
         # Build result (detailed display happens in capability layer)
-        return self._build_result(query, unique_channels)
+        return self._build_result(query, unique_channels, all_selections_paths)
 
     async def _split_query(self, query: str) -> list[str]:
         """Split query into atomic sub-queries (reuse from in-context)."""
@@ -266,19 +299,22 @@ class HierarchicalPipeline(BasePipeline):
 
         return response.queries
 
-    async def _navigate_hierarchy(self, query: str) -> list[str]:
+    async def _navigate_hierarchy(
+        self, query: str
+    ) -> tuple[list[str], list[dict[str, Any]]]:
         """
         Navigate through hierarchy levels for a single atomic query.
 
         Uses recursive branching to handle multiple selections at system/family/field levels.
 
         Returns:
-            List of fully-qualified channel names
+            Tuple of (valid_channels, selections_paths) where selections_paths
+            are the distinct hierarchy selections dicts that produced channels.
         """
         levels = self.database.get_hierarchy_definition()
 
         # Start recursive navigation from root
-        all_channels = await self._navigate_recursive(
+        results = await self._navigate_recursive(
             query=query,
             remaining_levels=levels,
             selections={},
@@ -287,15 +323,26 @@ class HierarchicalPipeline(BasePipeline):
             total_branches=1,
         )
 
-        # Validate all channels exist
-        valid_channels = [ch for ch in all_channels if self.database.validate_channel(ch)]
+        # Validate all channels exist and collect selections paths
+        valid_channels = []
+        selections_paths = []
+        seen_paths: set[str] = set()
 
-        if len(valid_channels) != len(all_channels):
+        for cwp in results:
+            if self.database.validate_channel(cwp.channel):
+                valid_channels.append(cwp.channel)
+                # Deduplicate selections paths by their string repr
+                path_key = str(sorted(cwp.selections.items()))
+                if path_key not in seen_paths:
+                    seen_paths.add(path_key)
+                    selections_paths.append(cwp.selections)
+
+        if len(valid_channels) != len(results):
             logger.warning(
-                f"  [yellow]⚠[/yellow] {len(all_channels) - len(valid_channels)} invalid channels discarded"
+                f"  [yellow]⚠[/yellow] {len(results) - len(valid_channels)} invalid channels discarded"
             )
 
-        return valid_channels
+        return valid_channels, selections_paths
 
     async def _navigate_recursive(
         self,
@@ -305,7 +352,7 @@ class HierarchicalPipeline(BasePipeline):
         branch_path: list[str],
         branch_num: int,
         total_branches: int,
-    ) -> list[str]:
+    ) -> list[ChannelWithPath]:
         """
         Recursively navigate hierarchy with automatic branching.
 
@@ -321,13 +368,13 @@ class HierarchicalPipeline(BasePipeline):
             total_branches: Total number of branches at this level (for visualization)
 
         Returns:
-            List of channel names found in this branch and all sub-branches
+            List of ChannelWithPath found in this branch and all sub-branches
         """
         # Base case: no more levels to navigate
         if not remaining_levels:
             # Build channels from this complete path
             channels = self.database.build_channels_from_selections(selections)
-            return channels
+            return [ChannelWithPath(ch, dict(selections)) for ch in channels]
 
         # Get current level and remaining
         level = remaining_levels[0]
@@ -352,7 +399,8 @@ class HierarchicalPipeline(BasePipeline):
                 )
                 # If no more levels, build channels from current selections
                 if not next_levels:
-                    return self.database.build_channels_from_selections(selections)
+                    channels = self.database.build_channels_from_selections(selections)
+                    return [ChannelWithPath(ch, dict(selections)) for ch in channels]
                 # Otherwise continue to next level
                 return await self._navigate_recursive(
                     query=query,
@@ -693,9 +741,12 @@ should select '{NOTHING_FOUND_MARKER}' to skip this level.
         if level == "system" and self.facility_description:
             facility_context = f"\nFACILITY CONTEXT:\n{self.facility_description}\n\n"
 
+        # Tree preview and feedback hints
+        look_ahead_context = self._build_look_ahead_context(level, previous_selections, query)
+
         # Build prompt
         prompt = f"""You are navigating a hierarchical channel database for {self.facility_name}.
-{facility_context}
+{facility_context}{look_ahead_context}
 User Query: "{query}"
 
 Current Level: {level}
@@ -721,6 +772,63 @@ If no options are relevant, use '{NOTHING_FOUND_MARKER}'."""
 
         return prompt
 
+    def _build_look_ahead_context(
+        self, level: str, previous_selections: dict, query: str
+    ) -> str:
+        """Build tree preview and feedback hints section for prompt injection."""
+        sections: list[str] = []
+
+        # Tree preview: full overview at first level, subtree at deeper levels
+        if self._tree_preview_enabled and hasattr(self.database, "generate_tree_preview"):
+            first_level = self.database.hierarchy_levels[0]
+            if level == first_level:
+                # Root-level: inject full tree preview
+                preview = self.database.generate_tree_preview(
+                    max_depth=self._tree_preview_max_depth,
+                    max_children=self._tree_preview_max_children,
+                )
+                sections.append(
+                    f"DATABASE OVERVIEW (look-ahead):\n{preview}"
+                )
+            elif previous_selections:
+                # Deeper level: inject subtree preview from current position
+                subtree = self.database.generate_subtree_preview(
+                    previous_selections,
+                    max_depth=max(1, self._tree_preview_max_depth - 1),
+                    max_children=self._tree_preview_max_children,
+                )
+                if subtree:
+                    sections.append(
+                        f"SUBTREE PREVIEW (look-ahead from current position):\n{subtree}"
+                    )
+
+        # Feedback hints from prior successful navigations
+        if self.feedback_store is not None:
+            hints = self.feedback_store.get_hints(
+                query=query,
+                facility=self.facility_name,
+                max_hints=3,
+            )
+            if hints:
+                hint_lines = ["PRIOR SUCCESSFUL PATHS (hints from previous queries):"]
+                for i, hint in enumerate(hints, 1):
+                    sel_str = " → ".join(
+                        f"{k}: {v}" for k, v in hint["selections"].items()
+                    )
+                    hint_lines.append(
+                        f"  {i}. {sel_str} ({hint['channel_count']} channels)"
+                    )
+                hint_lines.append(
+                    "These paths worked before for this query. "
+                    "Consider following similar selections, but use your own judgment."
+                )
+                sections.append("\n".join(hint_lines))
+
+        if not sections:
+            return ""
+
+        return "\n\n".join(sections) + "\n\n"
+
     def _get_single_selection(self, selections: dict, key: str) -> str | None:
         """Get single selection value (handle lists by taking first element)."""
         value = selections.get(key)
@@ -728,7 +836,12 @@ If no options are relevant, use '{NOTHING_FOUND_MARKER}'."""
             return value[0] if value else None
         return value
 
-    def _build_result(self, query: str, channels: list[str]) -> ChannelFinderResult:
+    def _build_result(
+        self,
+        query: str,
+        channels: list[str],
+        selections_paths: list[dict[str, Any]] | None = None,
+    ) -> ChannelFinderResult:
         """
         Build final result object.
 
@@ -755,6 +868,7 @@ If no options are relevant, use '{NOTHING_FOUND_MARKER}'."""
             channels=channel_infos,
             total_channels=len(channel_infos),
             processing_notes=notes,
+            selections_paths=selections_paths or [],
         )
 
     def get_statistics(self) -> dict[str, Any]:

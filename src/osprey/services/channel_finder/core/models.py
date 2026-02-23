@@ -5,6 +5,8 @@ Defines all Pydantic models used throughout the multi-stage processing pipeline.
 These models are shared across all pipeline implementations.
 """
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -79,3 +81,7 @@ class ChannelFinderResult(BaseModel):
     channels: list[ChannelInfo] = Field(description="Found channels with addresses")
     total_channels: int = Field(description="Total number of unique channels found")
     processing_notes: str = Field(description="Notes about query processing and results")
+    selections_paths: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Distinct hierarchy selections paths that produced channels",
+    )

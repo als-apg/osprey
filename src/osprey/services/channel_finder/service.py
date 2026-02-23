@@ -449,14 +449,62 @@ class ChannelFinderService:
                     f"[dim]✓ Loaded facility context from prompts ({len(facility_description)} chars)[/dim]"
                 )
 
+        # Initialize feedback store (if enabled)
+        feedback_store = None
+        feedback_config = hierarchical_config.get("feedback", {})
+        if feedback_config.get("enabled", False):
+            from .feedback.store import FeedbackStore
+
+            store_path = feedback_config.get(
+                "store_path", "data/feedback/hierarchical_feedback.json"
+            )
+            store_path = self._resolve_path(store_path)
+            feedback_store = FeedbackStore(store_path)
+            logger.info(f"[dim]✓ Feedback store enabled: {store_path}[/dim]")
+
+        # Tree preview configuration
+        tree_preview_config = hierarchical_config.get("tree_preview", {})
+
         # Initialize pipeline
         return HierarchicalPipeline(
             database=database,
             model_config=model_config,
             facility_name=facility_name,
             facility_description=facility_description,
+            feedback_store=feedback_store,
+            tree_preview_config=tree_preview_config if tree_preview_config else None,
             **kwargs,
         )
+
+    def record_feedback(
+        self,
+        query: str,
+        success: bool,
+        selections_paths: list[dict] | None = None,
+        channel_count: int = 0,
+        reason: str = "",
+    ) -> None:
+        """
+        Record feedback for a query from external callers.
+
+        Args:
+            query: The original user query
+            success: Whether the navigation succeeded
+            selections_paths: Navigation paths (for successes)
+            channel_count: Number of channels found
+            reason: Failure reason (for failures)
+        """
+        if not hasattr(self.pipeline, "feedback_store") or self.pipeline.feedback_store is None:
+            return
+
+        store = self.pipeline.feedback_store
+        facility = getattr(self.pipeline, "facility_name", "control system")
+
+        if success and selections_paths:
+            for sp in selections_paths:
+                store.record_success(query, facility, sp, channel_count)
+        elif not success:
+            store.record_failure(query, facility, selections_paths[0] if selections_paths else {}, reason)
 
     def _init_custom_pipeline(
         self, pipeline_name: str, config: dict, db_path: str, model_config: dict, **kwargs

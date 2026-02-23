@@ -533,6 +533,49 @@ class MiddleLayerDatabase(BaseDatabase):
         setup = family_data.get("setup", {})
         return setup.get("CommonNames")
 
+    def get_device_info(self, system: str, family: str) -> dict:
+        """Get device arrangement info for a family.
+
+        Args:
+            system: System name.
+            family: Family name.
+
+        Returns:
+            Dict with common_names, device_list, sectors, devices_per_sector,
+            and total_devices.
+        """
+        empty = {
+            "common_names": None,
+            "device_list": None,
+            "sectors": [],
+            "devices_per_sector": {},
+            "total_devices": 0,
+        }
+        if system not in self.data or family not in self.data[system]:
+            return empty
+
+        setup = self.data[system][family].get("setup", {})
+        common_names = setup.get("CommonNames")
+        device_list = setup.get("DeviceList")
+
+        if not device_list:
+            return {**empty, "common_names": common_names}
+
+        from collections import Counter
+
+        sector_counts = Counter(
+            entry[0] for entry in device_list if len(entry) >= 2
+        )
+        sectors = sorted(sector_counts.keys())
+
+        return {
+            "common_names": common_names,
+            "device_list": device_list,
+            "sectors": sectors,
+            "devices_per_sector": dict(sector_counts),
+            "total_devices": len(device_list),
+        }
+
     # === Persistence ===
 
     def _serialize(self) -> dict:
