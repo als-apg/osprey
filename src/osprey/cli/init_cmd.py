@@ -194,6 +194,69 @@ def init(
         console.print("  ✓ Creating project configuration...", style=Styles.SUCCESS)
         console.print("  ✓ Creating Claude Code integration...", style=Styles.SUCCESS)
 
+        # Initialize git repo for Claude Code project isolation
+        import os
+        import subprocess
+
+        # Check if project is inside an existing git repo
+        inside_existing_repo = False
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "--show-toplevel"],
+                cwd=project_path,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                parent_root = Path(result.stdout.strip()).resolve()
+                if parent_root != project_path.resolve():
+                    inside_existing_repo = True
+        except FileNotFoundError:
+            pass  # git not installed — handled below
+
+        try:
+            subprocess.run(
+                ["git", "init"], cwd=project_path, check=True, capture_output=True
+            )
+            subprocess.run(
+                ["git", "add", "."], cwd=project_path, check=True, capture_output=True
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "Initial project from osprey init"],
+                cwd=project_path,
+                check=True,
+                capture_output=True,
+                env={
+                    **os.environ,
+                    "GIT_AUTHOR_NAME": "osprey",
+                    "GIT_AUTHOR_EMAIL": "osprey@init",
+                    "GIT_COMMITTER_NAME": "osprey",
+                    "GIT_COMMITTER_EMAIL": "osprey@init",
+                },
+            )
+            console.print("  ✓ Initialized git repository", style=Styles.SUCCESS)
+            if inside_existing_repo:
+                console.print(
+                    f"  ⚠️  Note: created a nested git repo inside {parent_root}.\n"
+                    "     This is required for Claude Code project isolation (it uses\n"
+                    "     the git root to discover .claude/ settings). The parent repo\n"
+                    "     will treat this directory as opaque.",
+                    style=Styles.WARNING,
+                )
+        except FileNotFoundError:
+            console.print(
+                "  ⚠️  git not found — project created but not initialized as a git repo.\n"
+                "     Claude Code requires git. Run 'git init && git add . && git commit'"
+                " manually.",
+                style=Styles.WARNING,
+            )
+        except subprocess.CalledProcessError:
+            console.print(
+                "  ⚠️  git init succeeded but initial commit failed.\n"
+                "     Run 'git add . && git commit' manually.",
+                style=Styles.WARNING,
+            )
+
         # Check if API keys were detected and .env was created
         api_keys = [
             "CBORG_API_KEY",
@@ -233,6 +296,11 @@ def init(
             console.print(f"  2. {Messages.command('cp .env.example .env')}")
             console.print("  3. # Edit .env with your API keys")
             console.print(f"  4. {Messages.command('claude')}")
+
+        console.print(
+            "\n[dim]Your project is a standalone git repo. Claude Code will use"
+            " project-local settings only.[/dim]"
+        )
 
     except ValueError as e:
         console.print(f"❌ Error: {e}", style=Styles.ERROR)

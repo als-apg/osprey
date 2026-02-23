@@ -312,5 +312,186 @@ class TestGeneratorConfigRendering:
         assert (project_dir / "basic_generator_config.yml").exists()
 
 
+class TestGitIsolation:
+    """Test that osprey init creates a self-contained git repo."""
+
+    def test_init_creates_git_repo(self, tmp_path):
+        """Test that osprey init creates a .git directory."""
+        runner = CliRunner()
+
+        result = runner.invoke(init, ["git-test", "--output-dir", str(tmp_path)])
+
+        assert result.exit_code == 0
+        project_dir = tmp_path / "git-test"
+        assert (project_dir / ".git").exists(), ".git directory should be created"
+
+    def test_init_initial_commit(self, tmp_path):
+        """Test that osprey init creates an initial commit with expected files."""
+        import subprocess
+
+        runner = CliRunner()
+
+        result = runner.invoke(init, ["commit-test", "--output-dir", str(tmp_path)])
+
+        assert result.exit_code == 0
+        project_dir = tmp_path / "commit-test"
+
+        # Verify there is exactly one commit
+        log = subprocess.run(
+            ["git", "log", "--oneline"],
+            cwd=project_dir,
+            capture_output=True,
+            text=True,
+        )
+        assert log.returncode == 0
+        commits = log.stdout.strip().splitlines()
+        assert len(commits) == 1
+        assert "Initial project from osprey init" in commits[0]
+
+        # Verify key files are tracked
+        tracked = subprocess.run(
+            ["git", "ls-files"],
+            cwd=project_dir,
+            capture_output=True,
+            text=True,
+        )
+        tracked_files = tracked.stdout.strip().splitlines()
+        assert "config.yml" in tracked_files
+        assert "CLAUDE.md" in tracked_files
+        assert ".mcp.json" in tracked_files
+
+    def test_gitignore_tracks_claude_dir(self, tmp_path):
+        """Test that .claude/ is NOT in .gitignore (should be tracked)."""
+        runner = CliRunner()
+
+        result = runner.invoke(init, ["track-test", "--output-dir", str(tmp_path)])
+
+        assert result.exit_code == 0
+        project_dir = tmp_path / "track-test"
+
+        gitignore_content = (project_dir / ".gitignore").read_text()
+        # .claude/ should NOT appear as a top-level ignore pattern
+        lines = [line.strip() for line in gitignore_content.splitlines()]
+        assert ".claude/" not in lines, ".claude/ should not be ignored"
+        assert "CLAUDE.md" not in lines, "CLAUDE.md should not be ignored"
+        assert ".mcp.json" not in lines, ".mcp.json should not be ignored"
+
+    def test_gitignore_ignores_local_settings(self, tmp_path):
+        """Test that personal local settings are ignored."""
+        runner = CliRunner()
+
+        result = runner.invoke(init, ["local-test", "--output-dir", str(tmp_path)])
+
+        assert result.exit_code == 0
+        project_dir = tmp_path / "local-test"
+
+        gitignore_content = (project_dir / ".gitignore").read_text()
+        assert ".claude/settings.local.json" in gitignore_content
+        assert "CLAUDE.local.md" in gitignore_content
+
+    def test_init_output_mentions_git(self, tmp_path):
+        """Test that init output confirms git initialization."""
+        runner = CliRunner()
+
+        result = runner.invoke(init, ["msg-test", "--output-dir", str(tmp_path)])
+
+        assert result.exit_code == 0
+        assert "Initialized git repository" in result.output
+        assert "standalone git repo" in result.output
+
+    def test_claude_dir_in_initial_commit(self, tmp_path):
+        """Test that .claude/ files are included in the initial commit."""
+        import subprocess
+
+        runner = CliRunner()
+
+        result = runner.invoke(init, ["claude-track-test", "--output-dir", str(tmp_path)])
+
+        assert result.exit_code == 0
+        project_dir = tmp_path / "claude-track-test"
+
+        tracked = subprocess.run(
+            ["git", "ls-files"],
+            cwd=project_dir,
+            capture_output=True,
+            text=True,
+        )
+        tracked_files = tracked.stdout.strip().splitlines()
+        # At least some .claude/ files should be tracked
+        claude_files = [f for f in tracked_files if f.startswith(".claude/")]
+        assert len(claude_files) > 0, ".claude/ files should be tracked in git"
+
+    def test_init_inside_existing_repo_warns(self, tmp_path):
+        """Test that creating a project inside an existing git repo shows a warning."""
+        import subprocess
+
+        # Create a parent git repo
+        subprocess.run(
+            ["git", "init"], cwd=tmp_path, check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "commit", "--allow-empty", "-m", "parent init"],
+            cwd=tmp_path,
+            check=True,
+            capture_output=True,
+            env={
+                **__import__("os").environ,
+                "GIT_AUTHOR_NAME": "test",
+                "GIT_AUTHOR_EMAIL": "test@test",
+                "GIT_COMMITTER_NAME": "test",
+                "GIT_COMMITTER_EMAIL": "test@test",
+            },
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(init, ["nested-test", "--output-dir", str(tmp_path)])
+
+        assert result.exit_code == 0
+        # Should still create the git repo (for isolation)
+        project_dir = tmp_path / "nested-test"
+        assert (project_dir / ".git").exists()
+        # Should warn about nested repo
+        assert "nested git repo" in result.output
+
+    def test_init_inside_existing_repo_still_isolates(self, tmp_path):
+        """Test that nested repo has its own independent git root."""
+        import subprocess
+        from pathlib import Path
+
+        # Create a parent git repo
+        subprocess.run(
+            ["git", "init"], cwd=tmp_path, check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "commit", "--allow-empty", "-m", "parent init"],
+            cwd=tmp_path,
+            check=True,
+            capture_output=True,
+            env={
+                **__import__("os").environ,
+                "GIT_AUTHOR_NAME": "test",
+                "GIT_AUTHOR_EMAIL": "test@test",
+                "GIT_COMMITTER_NAME": "test",
+                "GIT_COMMITTER_EMAIL": "test@test",
+            },
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(init, ["isolated-test", "--output-dir", str(tmp_path)])
+
+        assert result.exit_code == 0
+        project_dir = tmp_path / "isolated-test"
+
+        # The nested project's git root should be itself, not the parent
+        git_root = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=project_dir,
+            capture_output=True,
+            text=True,
+        )
+        assert git_root.returncode == 0
+        assert Path(git_root.stdout.strip()).resolve() == project_dir.resolve()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

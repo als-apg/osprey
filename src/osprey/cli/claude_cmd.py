@@ -504,6 +504,16 @@ def regen(project, dry_run):
         else:
             console.print(f"\n[dim]Backup saved to: {result['backup_dir']}[/dim]")
 
+        if result["changed"]:
+            console.print(
+                "\n[dim]Tip: commit the regenerated files so Claude Code"
+                " picks up the changes:[/dim]"
+            )
+            console.print(
+                '  [dim]git add .claude/ CLAUDE.md .mcp.json && git commit -m'
+                ' "regen: update Claude Code artifacts"[/dim]'
+            )
+
     # Display active/disabled summary
     _print_regen_summary(result)
     console.print()
