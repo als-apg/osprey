@@ -524,6 +524,19 @@ async def explore_channels(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@router.get("/explore/device-info")
+async def explore_device_info(request: Request, system: str, family: str):
+    """Get device arrangement info for a middle-layer family."""
+    if _pipeline_type(request) != "middle_layer":
+        raise HTTPException(status_code=404, detail="Not available for this pipeline type")
+    try:
+        db = _get_database(request)
+        return db.get_device_info(system, family)
+    except Exception as exc:
+        logger.exception("Failed to get device info")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 # ---------------------------------------------------------------------------
 # In-context pipeline endpoints
 # ---------------------------------------------------------------------------

@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Integrates with the `in_context` pipeline via `source: google_sheets` config option
   - Optional dependency: `pip install osprey[sheets]`
 - **Config**: `resolve_model_id()` utility to resolve tier names (haiku/sonnet/opus) to provider-specific model IDs
+- **Channel Finder**: Tree preview, hierarchy selections paths tracking, feedback store for successful runs, hint injection, and device info endpoint
 
 ### Changed
 - **Init**: Config now uses tier names (haiku/sonnet/opus) instead of provider-specific model IDs; default tier changed to haiku
