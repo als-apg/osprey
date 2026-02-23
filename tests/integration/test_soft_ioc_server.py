@@ -1410,15 +1410,15 @@ class TestDocumentationBackends:
         rb1 = rb_pv.read().data[0]
         assert rb1 == pytest.approx(50.0, abs=5.0), f"RB should approach SP=50, got {rb1}"
 
-        # Change SP = 150
+        # Change SP = 150 (step of 100 from 50)
         sp_pv.write(150.0, wait=True)
-        time.sleep(0.8)
+        time.sleep(1.2)
         rb2 = rb_pv.read().data[0]
         assert rb2 == pytest.approx(150.0, abs=15.0), f"RB should approach SP=150, got {rb2}"
 
-        # Change SP = 0
+        # Change SP = 0 (large step from 150, needs more settling time)
         sp_pv.write(0.0, wait=True)
-        time.sleep(0.8)
+        time.sleep(1.2)
         rb3 = rb_pv.read().data[0]
         assert rb3 == pytest.approx(0.0, abs=15.0), f"RB should approach SP=0, got {rb3}"
 
