@@ -430,12 +430,7 @@ async function initWelcomeModal() {
     btn.style.visibility = 'visible';
   }, promptDelay);
 
-  // Point safety link at wiki if available, otherwise keep default
-  if (safetyLink) {
-    fetchJSON('/api/wiki-url').then(data => {
-      if (data.available && data.url) safetyLink.href = data.url;
-    }).catch(() => {});
-  }
+  // Safety link always points to the local safety guidelines page
 
   // Dismiss handlers
   const dismiss = async () => {
