@@ -568,11 +568,91 @@ class TestSubagentReading:
         reader = TranscriptReader(tmp_path)
         events = reader.read_session(main_transcript)
 
-        assert len(events) == 2
-        main_event = [e for e in events if e["tool"] == "channel_read"][0]
-        sub_event = [e for e in events if e["tool"] == "create_static_plot"][0]
+        tool_events = [e for e in events if e["type"] == "tool_call"]
+        assert len(tool_events) == 2
+        main_event = [e for e in tool_events if e["tool"] == "channel_read"][0]
+        sub_event = [e for e in tool_events if e["tool"] == "create_static_plot"][0]
         assert main_event["agent_id"] is None
         assert sub_event["agent_id"] == "agent-abc"
+
+        # Lifecycle events are created for the subagent
+        starts = [e for e in events if e["type"] == "agent_start"]
+        stops = [e for e in events if e["type"] == "agent_stop"]
+        assert len(starts) == 1
+        assert starts[0]["agent_id"] == "agent-abc"
+        assert len(stops) == 1
+        assert stops[0]["agent_id"] == "agent-abc"
+
+    def test_lifecycle_ids_match_tool_call_ids(self, tmp_path):
+        """Agent lifecycle events use the same agent_id as tool_call events."""
+        main_transcript = tmp_path / "main-session.jsonl"
+        main_entries = [
+            # Task tool_use in parent — result is NOT JSON so agentId
+            # extraction fails and the old code would fall back to the
+            # tool_use block id ("task-1"), causing a mismatch.
+            _make_assistant_entry(_ts(0), [
+                {
+                    "id": "task-1",
+                    "name": "Task",
+                    "input": {
+                        "subagent_type": "logbook-search",
+                        "description": "Search the logbook",
+                        "prompt": "Find RF trips",
+                    },
+                },
+            ]),
+            _make_user_entry(_ts(1), [
+                {
+                    "tool_use_id": "task-1",
+                    "content": "I found 3 RF cavity trips in the logbook.",
+                    "is_error": False,
+                },
+            ]),
+        ]
+        _write_transcript(main_transcript, main_entries)
+
+        # Subagent transcript with OSPREY tool calls
+        subagent_dir = tmp_path / "main-session" / "subagents"
+        subagent_dir.mkdir(parents=True)
+        sub_transcript = subagent_dir / "sub-xyz-123.jsonl"
+        sub_entries = [
+            _make_assistant_entry(_ts(2), [
+                {
+                    "id": "tu-sub1",
+                    "name": "mcp__ariel__keyword_search",
+                    "input": {"query": "RF trip"},
+                },
+            ]),
+            _make_user_entry(_ts(3), [
+                {
+                    "tool_use_id": "tu-sub1",
+                    "content": "Found 3 entries",
+                    "is_error": False,
+                },
+            ]),
+        ]
+        _write_transcript(sub_transcript, sub_entries)
+
+        reader = TranscriptReader(tmp_path)
+        events = reader.read_session(main_transcript)
+
+        # The lifecycle events must use the same agent_id as the tool_call
+        tool_calls = [e for e in events if e["type"] == "tool_call"]
+        starts = [e for e in events if e["type"] == "agent_start"]
+        stops = [e for e in events if e["type"] == "agent_stop"]
+
+        assert len(tool_calls) == 1
+        assert len(starts) == 1
+        assert len(stops) == 1
+
+        # All share the subagent transcript filename as agent_id
+        assert tool_calls[0]["agent_id"] == "sub-xyz-123"
+        assert starts[0]["agent_id"] == "sub-xyz-123"
+        assert stops[0]["agent_id"] == "sub-xyz-123"
+
+        # agent_type comes from the Task input
+        assert starts[0]["agent_type"] == "logbook-search"
+        assert stops[0]["agent_type"] == "logbook-search"
 
 
 # ---------------------------------------------------------------------------
@@ -771,3 +851,30 @@ class TestReadChatHistory:
         assert [h["role"] for h in history] == ["user", "assistant", "user", "assistant"]
         assert history[0]["content"] == "First message"
         assert history[3]["content"] == "Second reply"
+
+    def test_string_content_not_iterated_as_chars(self, tmp_path):
+        """Content stored as a plain string (not list) must not be split per-char."""
+        transcript = tmp_path / "session.jsonl"
+        entries = [
+            {
+                "type": "user",
+                "timestamp": _ts(0),
+                "sessionId": "test-session-123",
+                "message": {"role": "user", "content": "Search the logbook"},
+            },
+            {
+                "type": "assistant",
+                "timestamp": _ts(1),
+                "sessionId": "test-session-123",
+                "message": {"role": "assistant", "content": "Here are the results."},
+            },
+        ]
+        _write_transcript(transcript, entries)
+
+        reader = TranscriptReader(tmp_path)
+        history = reader.read_chat_history(transcript)
+
+        assert len(history) == 2
+        assert history[0]["content"] == "Search the logbook"
+        assert history[1]["content"] == "Here are the results."
+        assert "\n" not in history[0]["content"]
