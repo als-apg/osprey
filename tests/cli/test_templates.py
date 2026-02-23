@@ -492,50 +492,41 @@ class TestGitIsolation:
         assert git_root.returncode == 0
         assert Path(git_root.stdout.strip()).resolve() == project_dir.resolve()
 
-    def test_force_clears_claude_code_trust_state(self, tmp_path):
-        """Test that --force removes Claude Code's trust entry from ~/.claude.json."""
+    def test_init_clears_stale_trust_state(self, tmp_path):
+        """Test that init clears trust state even when directory was already deleted."""
         import json
         from pathlib import Path
 
-        runner = CliRunner()
+        project_path = (tmp_path / "stale-test").resolve()
 
-        # Create project first time
-        result = runner.invoke(init, ["trust-test", "--output-dir", str(tmp_path)])
-        assert result.exit_code == 0
-
-        project_path = (tmp_path / "trust-test").resolve()
-
-        # Simulate Claude Code's trust state in ~/.claude.json
+        # Simulate stale Claude Code trust state (project was deleted but
+        # ~/.claude.json still has the entry)
         claude_json = Path.home() / ".claude.json"
         backup_data = None
         if claude_json.exists():
             backup_data = claude_json.read_text()
 
         try:
-            # Read current data, inject a fake trust entry for our project
             data = json.loads(claude_json.read_text()) if claude_json.exists() else {}
             data.setdefault("projects", {})[str(project_path)] = {
                 "hasTrustDialogAccepted": True,
             }
             claude_json.write_text(json.dumps(data, indent=2) + "\n")
 
-            # Verify the entry exists
-            check = json.loads(claude_json.read_text())
-            assert str(project_path) in check["projects"]
+            # Directory does NOT exist — simulates rm -rf before osprey init
+            assert not project_path.exists()
 
-            # Re-create with --force
-            result = runner.invoke(
-                init, ["trust-test", "--output-dir", str(tmp_path), "--force"]
-            )
+            # Create project (no --force needed, directory is gone)
+            runner = CliRunner()
+            result = runner.invoke(init, ["stale-test", "--output-dir", str(tmp_path)])
             assert result.exit_code == 0
 
             # Trust entry should be gone
             after = json.loads(claude_json.read_text())
             assert str(project_path) not in after.get("projects", {}), (
-                "Trust entry should be removed from ~/.claude.json on --force"
+                "Stale trust entry should be cleared on init"
             )
         finally:
-            # Restore original ~/.claude.json
             if backup_data is not None:
                 claude_json.write_text(backup_data)
 
