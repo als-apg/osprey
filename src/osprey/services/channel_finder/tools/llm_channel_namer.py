@@ -353,9 +353,13 @@ def create_namer_from_config(config_path: str | None = None) -> LLMChannelNamer:
     base_url = api_config.get("base_url")
     api_key = api_config.get("api_key")
 
+    from osprey.utils.config import resolve_model_id
+
+    model_id = resolve_model_id(provider, llm_config.get("model_id", "haiku"))
+
     return LLMChannelNamer(
         provider=provider,
-        model_id=llm_config.get("model_id", "anthropic/claude-haiku"),
+        model_id=model_id,
         max_tokens=llm_config.get("max_tokens", 1000),
         batch_size=name_gen_config.get("llm_batch_size", 10),
         base_url=base_url,

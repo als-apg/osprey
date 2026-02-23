@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **Init**: Config now uses tier names (haiku/sonnet/opus) instead of provider-specific model IDs; default tier changed to haiku
+- **Services**: Services now resolve tier names to provider-specific model IDs via `resolve_model_id`
 
 ## [0.11.3] - 2026-02-22
 

@@ -264,9 +264,13 @@ class ReasoningConfig:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ReasoningConfig":
         """Create ReasoningConfig from dictionary."""
+        from osprey.utils.config import resolve_model_id
+
+        provider = data.get("provider", "openai")
+        model_id = resolve_model_id(provider, data.get("model_id", "gpt-4o-mini"))
         return cls(
-            provider=data.get("provider", "openai"),
-            model_id=data.get("model_id", "gpt-4o-mini"),
+            provider=provider,
+            model_id=model_id,
             max_iterations=data.get("max_iterations", 5),
             temperature=data.get("temperature", 0.1),
             tool_timeout_seconds=data.get("tool_timeout_seconds", 30),
