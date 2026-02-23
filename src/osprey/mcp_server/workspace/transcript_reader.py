@@ -84,9 +84,6 @@ class TranscriptReader:
         and stores transcripts in ``~/.claude/projects/<encoded>/``.
         """
         encoded = str(self.project_dir).replace("/", "-")
-        # Strip leading dash from the encoding
-        if encoded.startswith("-"):
-            encoded = encoded[1:]
         transcript_dir = Path.home() / ".claude" / "projects" / encoded
         if transcript_dir.is_dir():
             return transcript_dir

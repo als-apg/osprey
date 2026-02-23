@@ -77,10 +77,8 @@ def transcript_dir(tmp_path):
     """Create a project dir with Claude Code transcript directory structure."""
     project_dir = tmp_path / "my-project"
     project_dir.mkdir()
-    # Claude Code encodes path: /tmp/xxx/my-project → tmp-xxx-my-project
+    # Claude Code encodes path: /tmp/xxx/my-project → -tmp-xxx-my-project
     encoded = str(project_dir).replace("/", "-")
-    if encoded.startswith("-"):
-        encoded = encoded[1:]
     claude_dir = tmp_path / ".claude" / "projects" / encoded
     claude_dir.mkdir(parents=True)
     return project_dir, claude_dir
@@ -125,6 +123,28 @@ class TestFindTranscriptDir:
             mp.setattr(Path, "home", lambda: tmp_path)
             result = reader.find_transcript_dir()
         assert result is None
+
+    def test_preserves_leading_dash_for_absolute_paths(self, tmp_path):
+        """Encoding of absolute paths must keep the leading dash.
+
+        Claude Code directories always start with '-' because absolute
+        paths start with '/' which becomes '-'. Stripping it causes
+        find_transcript_dir() to never find the directory.
+        """
+        project_dir = tmp_path / "my-project"
+        project_dir.mkdir()
+        # The encoded name MUST start with '-' for absolute paths
+        encoded = str(project_dir).replace("/", "-")
+        assert encoded.startswith("-"), "Absolute path encoding must start with '-'"
+        claude_dir = tmp_path / ".claude" / "projects" / encoded
+        claude_dir.mkdir(parents=True)
+
+        reader = TranscriptReader(project_dir)
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(Path, "home", lambda: tmp_path)
+            result = reader.find_transcript_dir()
+        assert result is not None
+        assert result == claude_dir
 
 
 # ---------------------------------------------------------------------------

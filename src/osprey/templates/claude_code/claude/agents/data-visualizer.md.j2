@@ -4,7 +4,7 @@ description: "Creates data visualizations (plots, charts, dashboards), compiles 
 summary: Creates plots, charts, dashboards, and compiles LaTeX reports
 model: {{ claude_code_model_spec.agent_tier("data-visualizer") if claude_code_model_spec is defined and claude_code_model_spec else "sonnet" }}
 maxTurns: 30
-disallowedTools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, NotebookEdit, Task
+disallowedTools: Bash, Write, Edit, Glob, Grep, WebFetch, WebSearch, NotebookEdit, Task
 ---
 
 # Data Visualizer Agent
