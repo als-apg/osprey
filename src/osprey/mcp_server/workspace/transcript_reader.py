@@ -127,6 +127,7 @@ class TranscriptReader:
         task_uses: dict[str, tuple[dict, str]] = {}
 
         session_id: str | None = None
+        task_meta: list[dict] = []
 
         for line in path.read_text().splitlines():
             line = line.strip()
@@ -174,8 +175,10 @@ class TranscriptReader:
                     events.append(self._make_tool_event(block, content, is_err, ts, sid, agent_id))
                 elif tool_use_id in task_uses:
                     block, ts = task_uses.pop(tool_use_id)
-                    task_events = self._make_task_events(block, content, is_err, ts)
-                    events.extend(task_events)
+                    if include_subagents:
+                        self._collect_task_meta(task_meta, block, content, ts)
+                    else:
+                        events.extend(self._make_task_events(block, content, is_err, ts))
 
             elif entry_type == "user":
                 message = entry.get("message", {})
@@ -194,25 +197,76 @@ class TranscriptReader:
                         )
                     elif tool_use_id in task_uses:
                         tu_block, ts = task_uses.pop(tool_use_id)
-                        task_events = self._make_task_events(tu_block, content, is_err, ts)
-                        events.extend(task_events)
+                        if include_subagents:
+                            self._collect_task_meta(task_meta, tu_block, content, ts)
+                        else:
+                            events.extend(
+                                self._make_task_events(tu_block, content, is_err, ts)
+                            )
 
-        # Read subagent transcripts
+        # In-flight Tasks (tool_use seen but no result yet) still carry
+        # subagent_type in their input, so include them in task_meta so the
+        # agent shows its proper name while the subagent is still running.
+        for _tid, (block, ts) in task_uses.items():
+            task_input = block.get("input", {})
+            agent_type = task_input.get("subagent_type", task_input.get("description", ""))
+            task_meta.append({
+                "timestamp": ts,
+                "agent_type": agent_type,
+                "tool_use_id": block.get("id", ""),
+            })
+
+        # Read subagent transcripts and create lifecycle events with matching IDs
         if include_subagents:
-            # Subagent transcripts are in <session-uuid>/subagents/
-            # The session dir shares the stem of the transcript file
-            session_stem = path.stem  # e.g., "abc-123"
+            matched_task_indices: set[int] = set()
+            session_stem = path.stem
             subagent_dir = path.parent / session_stem / "subagents"
+
             if subagent_dir and subagent_dir.is_dir():
                 for agent_file in sorted(subagent_dir.glob("*.jsonl")):
-                    # Extract agent_id from filename: agent-<id>.jsonl
                     agent_fname = agent_file.stem
                     sub_events = self.read_session(
                         agent_file,
                         include_subagents=False,
                         agent_id=agent_fname,
                     )
+
+                    agent_type = self._match_subagent_to_task(
+                        agent_fname, sub_events, task_meta, matched_task_indices,
+                    )
+                    start_ts = sub_events[0].get("timestamp", "") if sub_events else ""
+                    stop_ts = sub_events[-1].get("timestamp", "") if sub_events else ""
+
+                    events.append({
+                        "type": "agent_start",
+                        "timestamp": start_ts,
+                        "agent_id": agent_fname,
+                        "agent_type": agent_type,
+                    })
                     events.extend(sub_events)
+                    events.append({
+                        "type": "agent_stop",
+                        "timestamp": stop_ts,
+                        "agent_id": agent_fname,
+                        "agent_type": agent_type,
+                    })
+
+            # Create lifecycle events for tasks with no subagent transcript
+            for i, meta in enumerate(task_meta):
+                if i not in matched_task_indices:
+                    fallback_id = meta.get("result_agent_id") or meta["tool_use_id"]
+                    events.append({
+                        "type": "agent_start",
+                        "timestamp": meta["timestamp"],
+                        "agent_id": fallback_id,
+                        "agent_type": meta["agent_type"],
+                    })
+                    events.append({
+                        "type": "agent_stop",
+                        "timestamp": meta["timestamp"],
+                        "agent_id": fallback_id,
+                        "agent_type": meta["agent_type"],
+                    })
 
         # Sort by timestamp
         events.sort(key=lambda e: e.get("timestamp", ""))
@@ -290,6 +344,8 @@ class TranscriptReader:
         """Extract only text content blocks from a user or assistant entry."""
         message = entry.get("message", {})
         content_blocks = message.get("content", [])
+        if isinstance(content_blocks, str):
+            return content_blocks.strip()
         parts: list[str] = []
         for block in content_blocks:
             if isinstance(block, str):
@@ -297,6 +353,68 @@ class TranscriptReader:
             elif isinstance(block, dict) and block.get("type") == "text":
                 parts.append(block.get("text", ""))
         return "\n".join(parts).strip()
+
+    @staticmethod
+    def _collect_task_meta(
+        task_meta: list[dict],
+        task_use_block: dict,
+        content: str | list,
+        timestamp: str,
+    ) -> None:
+        """Store Task metadata for deferred lifecycle event creation."""
+        task_input = task_use_block.get("input", {})
+        agent_type = task_input.get("subagent_type", task_input.get("description", ""))
+        meta: dict = {
+            "timestamp": timestamp,
+            "agent_type": agent_type,
+            "tool_use_id": task_use_block.get("id", ""),
+        }
+
+        text = content
+        if isinstance(content, list):
+            text = _extract_text(content)
+        if isinstance(text, str):
+            try:
+                parsed = json.loads(text)
+                if isinstance(parsed, dict):
+                    if parsed.get("agentId"):
+                        meta["result_agent_id"] = parsed["agentId"]
+                    if parsed.get("transcriptPath"):
+                        meta["transcript_path"] = parsed["transcriptPath"]
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        task_meta.append(meta)
+
+    @staticmethod
+    def _match_subagent_to_task(
+        agent_fname: str,
+        sub_events: list[dict],
+        task_meta: list[dict],
+        matched: set[int],
+    ) -> str:
+        """Match a subagent transcript to a Task metadata entry by ID or order."""
+        for i, meta in enumerate(task_meta):
+            if i in matched:
+                continue
+            if meta.get("result_agent_id") == agent_fname:
+                matched.add(i)
+                return meta["agent_type"]
+
+        for i, meta in enumerate(task_meta):
+            if i in matched:
+                continue
+            tp = meta.get("transcript_path", "")
+            if tp and agent_fname in tp:
+                matched.add(i)
+                return meta["agent_type"]
+
+        for i, meta in enumerate(task_meta):
+            if i not in matched:
+                matched.add(i)
+                return meta["agent_type"]
+
+        return ""
 
     def _make_tool_event(
         self,
@@ -333,8 +451,10 @@ class TranscriptReader:
             "type": "tool_call",
             "timestamp": timestamp,
             "tool": short_name,
+            "tool_name": short_name,
             "full_tool_name": full_name,
             "server": server,
+            "server_name": server,
             "is_error": is_error,
             "session_id": session_id,
             "agent_id": agent_id,
