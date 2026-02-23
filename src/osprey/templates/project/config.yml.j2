@@ -177,9 +177,7 @@ claude_code:
   #   (must have base_url set; uses ANTHROPIC_AUTH_TOKEN + cborg-style model IDs)
   # When set, `osprey claude regen` injects env vars into .claude/settings.json.
   provider: {{ default_provider | default("cborg") }}
-  #
-  # Default model tier for Claude Code (optional):
-  # default_model: opus   # Options: haiku, sonnet, opus
+  default_model: {{ default_model | default("haiku") }}   # Options: haiku, sonnet, opus
   #
   # Override model IDs per tier (optional):
   # models:

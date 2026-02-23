@@ -6,7 +6,7 @@
     "{{ key }}": "{{ value }}"{% if not loop.last %},{% endif %}
 {%- endfor %}
   },
-  "model": "{{ claude_code_model_spec.tier_to_model[claude_code_model_spec.default_model_tier] }}",
+  "model": "{{ claude_code_model_spec.default_model_tier }}",
 {%- endif %}
   "_PROMPT_PROVIDER_NOTE": "PROMPT-PROVIDER: section=permissions_policy. Future: source from FrameworkPromptProvider.get_permissions_policy(). Facility-customizable: allow/deny/ask tool lists, file access paths, additional facility-specific tools or restrictions.",
   "permissions": {

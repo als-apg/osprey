@@ -112,9 +112,9 @@ class TestAlsApgProvider:
         assert spec.tier_to_model["sonnet"] == "claude-sonnet-4-6"
         assert spec.tier_to_model["opus"] == "claude-opus-4-6"
 
-    def test_default_model_tier_is_opus(self):
+    def test_default_model_tier_is_haiku(self):
         spec = ClaudeCodeModelResolver.resolve({"provider": "als-apg"})
-        assert spec.default_model_tier == "opus"
+        assert spec.default_model_tier == "haiku"
 
 
 class TestUnsupportedProvider:
@@ -428,9 +428,9 @@ class TestEnvBlockTierModels:
 class TestDefaultModelTier:
     """ClaudeCodeModelSpec.default_model_tier field."""
 
-    def test_cborg_defaults_to_opus(self):
+    def test_cborg_defaults_to_haiku(self):
         spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"})
-        assert spec.default_model_tier == "opus"
+        assert spec.default_model_tier == "haiku"
 
     def test_anthropic_defaults_to_sonnet(self):
         spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
@@ -446,7 +446,7 @@ class TestDefaultModelTier:
         spec = ClaudeCodeModelResolver.resolve(
             {"provider": "cborg", "default_model": "gpt-4"}
         )
-        assert spec.default_model_tier == "opus"
+        assert spec.default_model_tier == "haiku"
 
     def test_field_present_on_spec(self):
         spec = ClaudeCodeModelSpec(provider="test")

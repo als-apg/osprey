@@ -307,6 +307,19 @@ channel_finder:
         path: data/channel_databases/hierarchical.json
                                       # Database must follow nested structure: system → family → device → field → subfield
 
+      # Tree preview: compact database overview injected into LLM prompts
+      # Helps the model reason about where channels live before navigating
+      tree_preview:
+        enabled: true
+        max_depth: 3                  # How deep to render the tree (0 = root only)
+        max_children: 5               # Max children per node before truncating
+
+      # Feedback loop: records successful navigation paths for identical future queries
+      # Injects prior paths as hints so the LLM can resolve repeated queries faster
+      feedback:
+        enabled: true
+        store_path: data/feedback/hierarchical_feedback.json
+
       # Benchmark dataset for this pipeline
       benchmark:
         dataset_path: data/benchmarks/datasets/hierarchical_benchmark.json
@@ -490,7 +503,7 @@ ariel:
   # provider: references api.providers for credentials (api_key, base_url)
   reasoning:
     provider: cborg  # References api.providers.cborg for credentials
-    model_id: anthropic/claude-haiku
+    model_id: haiku
     max_iterations: 5
     temperature: 0.1
     total_timeout_seconds: 120
@@ -507,7 +520,7 @@ ariel:
 logbook:
   composition:
     provider: {{ default_provider | default("cborg") }}
-    model_id: {{ default_model | default("anthropic/claude-haiku") }}
+    model_id: {{ default_model | default("haiku") }}
     default_tier: haiku   # Options: haiku | sonnet | opus
 
 # ============================================================
@@ -622,6 +635,7 @@ claude_code:
   #   (must have base_url set; uses ANTHROPIC_AUTH_TOKEN + provider model IDs)
   # When set, `osprey claude regen` injects env vars into .claude/settings.json.
   provider: {{ default_provider | default("cborg") }}
+  default_model: {{ default_model | default("haiku") }}   # Options: haiku, sonnet, opus
   #
   # Override model IDs per tier (optional):
   # models:

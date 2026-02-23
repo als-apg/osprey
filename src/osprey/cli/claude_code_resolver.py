@@ -36,7 +36,7 @@ CLAUDE_CODE_PROVIDERS: dict[str, dict] = {
         "auth_env_var": "ANTHROPIC_AUTH_TOKEN",    # Bearer auth for proxy
         "auth_secret_env": "CBORG_API_KEY",        # Shell env var holding the secret
         "base_url": "https://api.cborg.lbl.gov",   # Well-known URL (no /v1)
-        "default_model_tier": "opus",
+        "default_model_tier": "haiku",
         # Fallback model IDs (used when api.providers.cborg.models is absent)
         "models": {
             "haiku": "anthropic/claude-haiku",
@@ -48,7 +48,7 @@ CLAUDE_CODE_PROVIDERS: dict[str, dict] = {
         "auth_env_var": "ANTHROPIC_AUTH_TOKEN",    # Bearer auth for proxy
         "auth_secret_env": "ALS_APG_API_KEY",      # Shell env var holding the secret
         "base_url": "https://llm.gianlucamartino.com",  # ALS-APG AWS proxy (no /v1)
-        "default_model_tier": "opus",
+        "default_model_tier": "haiku",
         # Fallback model IDs (used when api.providers.als-apg.models is absent)
         "models": {
             "haiku": "claude-haiku-4-5-20251001",
@@ -242,6 +242,10 @@ class ClaudeCodeModelResolver:
         )
         if default_tier not in VALID_TIERS:
             default_tier = provider_def["default_model_tier"]
+
+        # ANTHROPIC_MODEL: override any shell-level value so the
+        # project's chosen tier is authoritative.
+        env_block["ANTHROPIC_MODEL"] = tier_to_model[default_tier]
 
         # ── Agent overrides ──────────────────────────────────────
         agent_overrides = dict(claude_code_config.get("agent_models", {}) or {})
