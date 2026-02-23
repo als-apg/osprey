@@ -146,6 +146,17 @@ def init(
                 import shutil
 
                 shutil.rmtree(project_path)
+
+                # Remove Claude Code's cached project state so the trust
+                # prompt appears again on first launch.
+                claude_project_key = str(project_path).replace("/", "-")
+                claude_project_dir = Path.home() / ".claude" / "projects" / claude_project_key
+                if claude_project_dir.exists():
+                    shutil.rmtree(claude_project_dir)
+                    console.print(
+                        f"  {Messages.success('Cleared Claude Code project state')}"
+                    )
+
                 console.print(f"  {Messages.success('Removed existing directory')}")
             else:
                 console.print(
