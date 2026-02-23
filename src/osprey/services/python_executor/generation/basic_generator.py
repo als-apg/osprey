@@ -222,6 +222,15 @@ Analyze what went wrong and fix the root cause, not just symptoms."""
                         "Please set models.python_code_generator in config.yml."
                     )
                 self._model_config = cfg
+        # Resolve tier names to provider-specific model IDs
+        if self._model_config.get("provider") and self._model_config.get("model_id"):
+            from osprey.utils.config import resolve_model_id
+
+            resolved = resolve_model_id(
+                self._model_config["provider"], self._model_config["model_id"]
+            )
+            if resolved != self._model_config["model_id"]:
+                self._model_config = {**self._model_config, "model_id": resolved}
         return self._model_config
 
     async def generate_code(
