@@ -1,82 +1,60 @@
-"""JSON → SQLite FTS5 indexer for AccelPapers.
+"""JSON → Typesense indexer for AccelPapers.
 
 Reads structured JSON files from INSPIRE downloads and builds a searchable
-SQLite database with full-text search via FTS5.
+Typesense collection with BM25 full-text search and vector embeddings via
+auto-embedding (Ollama nomic-embed-text).
 """
 
 import json
 import logging
-import os
-import sqlite3
 import time
 from pathlib import Path
 
-from osprey.mcp_server.accelpapers.db import get_connection
-
 logger = logging.getLogger("osprey.mcp_server.accelpapers.indexer")
 
-# --- Schema -------------------------------------------------------------------
+# --- Collection schema -------------------------------------------------------
 
-SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS papers (
-    texkey TEXT PRIMARY KEY,
-    title TEXT NOT NULL,
-    abstract TEXT,
-    year INTEGER,
-    earliest_date TEXT,
-    conference TEXT,
-    first_author TEXT,
-    all_authors TEXT,
-    affiliations TEXT,
-    keywords TEXT,
-    doi TEXT,
-    citation_count INTEGER DEFAULT 0,
-    paper_id TEXT,
-    document_type TEXT,
-    inspire_url TEXT,
-    pdf_url TEXT,
-    arxiv_id TEXT,
-    journal_title TEXT,
-    publisher TEXT,
-    num_pages INTEGER,
-    full_text TEXT,
-    json_path TEXT NOT NULL
-);
-
-CREATE VIRTUAL TABLE IF NOT EXISTS papers_fts USING fts5(
-    title, abstract, all_authors, keywords, full_text,
-    content=papers, content_rowid=rowid,
-    tokenize='porter unicode61'
-);
-
-CREATE INDEX IF NOT EXISTS idx_conference ON papers(conference);
-CREATE INDEX IF NOT EXISTS idx_year ON papers(year);
-CREATE INDEX IF NOT EXISTS idx_first_author ON papers(first_author);
-CREATE INDEX IF NOT EXISTS idx_citation_count ON papers(citation_count);
-CREATE INDEX IF NOT EXISTS idx_document_type ON papers(document_type);
-
-CREATE TABLE IF NOT EXISTS stats (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-"""
-
-# FTS triggers for keeping the index in sync with the content table
-FTS_TRIGGERS_SQL = """
-CREATE TRIGGER IF NOT EXISTS papers_ai AFTER INSERT ON papers BEGIN
-    INSERT INTO papers_fts(rowid, title, abstract, all_authors, keywords, full_text)
-    VALUES (new.rowid, new.title, new.abstract, new.all_authors, new.keywords, new.full_text);
-END;
-
-CREATE TRIGGER IF NOT EXISTS papers_ad AFTER DELETE ON papers BEGIN
-    INSERT INTO papers_fts(papers_fts, rowid, title, abstract, all_authors, keywords, full_text)
-    VALUES ('delete', old.rowid, old.title, old.abstract, old.all_authors, old.keywords, old.full_text);
-END;
-
-CREATE TRIGGER IF NOT EXISTS papers_au AFTER UPDATE ON papers BEGIN
-    INSERT INTO papers_fts(papers_fts, rowid, title, abstract, all_authors, keywords, full_text)
-    VALUES ('delete', old.rowid, old.title, old.abstract, old.all_authors, old.keywords, old.full_text);
-    INSERT INTO papers_fts(rowid, title, abstract, all_authors, keywords, full_text)
-    VALUES (new.rowid, new.title, new.abstract, new.all_authors, new.keywords, new.full_text);
-END;
-"""
+PAPERS_SCHEMA = {
+    "name": "papers",  # overridden at create time with get_collection_name()
+    "fields": [
+        # texkey is stored as the Typesense `id` field — not a separate field
+        {"name": "title", "type": "string"},
+        {"name": "abstract", "type": "string", "optional": True},
+        {"name": "year", "type": "int32", "optional": True, "facet": True},
+        {"name": "conference", "type": "string", "optional": True, "facet": True},
+        {"name": "first_author", "type": "string", "optional": True, "facet": True},
+        {"name": "all_authors", "type": "string", "optional": True},
+        {"name": "affiliations", "type": "string", "optional": True},
+        {"name": "keywords", "type": "string", "optional": True},
+        {"name": "doi", "type": "string", "optional": True},
+        {"name": "citation_count", "type": "int32", "facet": True},
+        {"name": "document_type", "type": "string", "optional": True, "facet": True},
+        {"name": "inspire_url", "type": "string", "optional": True},
+        {"name": "pdf_url", "type": "string", "optional": True},
+        {"name": "arxiv_id", "type": "string", "optional": True},
+        {"name": "journal_title", "type": "string", "optional": True, "facet": True},
+        {"name": "publisher", "type": "string", "optional": True},
+        {"name": "num_pages", "type": "int32", "optional": True},
+        {"name": "full_text", "type": "string", "optional": True},
+        {"name": "json_path", "type": "string"},
+        {"name": "earliest_date", "type": "string", "optional": True},
+        {"name": "paper_id", "type": "string", "optional": True},
+        {
+            "name": "embedding",
+            "type": "float[]",
+            "num_dim": 768,
+            "embed": {
+                "from": ["title", "abstract", "keywords"],
+                "model_config": {
+                    "model_name": "openai/nomic-embed-text",
+                    "api_key": "ollama",
+                    "url": "http://localhost:11434/v1/embeddings",
+                },
+            },
+        },
+    ],
+    "default_sorting_field": "citation_count",
+}
 
 
 # --- Helpers ------------------------------------------------------------------
@@ -176,7 +154,7 @@ def _extract_affiliations(data: dict) -> str:
 
 
 def _parse_paper(data: dict, json_path: str, subdir_name: str) -> dict | None:
-    """Parse a single paper JSON into a row dict. Returns None if unusable."""
+    """Parse a single paper JSON into a document dict. Returns None if unusable."""
     texkey = data.get("texkey", "").strip()
     title = data.get("title", "").strip()
     if not texkey or not title:
@@ -186,48 +164,32 @@ def _parse_paper(data: dict, json_path: str, subdir_name: str) -> dict | None:
     kw_str = "; ".join(str(k) for k in keywords) if isinstance(keywords, list) else ""
 
     return {
-        "texkey": texkey,
+        "id": texkey,  # Typesense id field = texkey
         "title": title,
-        "abstract": data.get("abstract_value", ""),
+        "abstract": data.get("abstract_value", "") or "",
         "year": normalize_year(data.get("year")),
-        "earliest_date": data.get("earliest_date", ""),
+        "earliest_date": data.get("earliest_date", "") or "",
         "conference": get_conference(data, subdir_name),
-        "first_author": data.get("first_author_full_name", ""),
+        "first_author": data.get("first_author_full_name", "") or "",
         "all_authors": build_all_authors(data),
         "affiliations": _extract_affiliations(data),
         "keywords": kw_str,
-        "doi": data.get("doi", ""),
+        "doi": data.get("doi", "") or "",
         "citation_count": data.get("citation_count", 0) or 0,
-        "paper_id": data.get("paper_id", ""),
-        "document_type": data.get("document_type", ""),
-        "inspire_url": data.get("inspireHEP_url", ""),
-        "pdf_url": data.get("pdf_url", ""),
-        "arxiv_id": data.get("arxiv_eprints", ""),
-        "journal_title": data.get("journal_title", ""),
-        "publisher": data.get("publisher", ""),
+        "paper_id": data.get("paper_id", "") or "",
+        "document_type": data.get("document_type", "") or "",
+        "inspire_url": data.get("inspireHEP_url", "") or "",
+        "pdf_url": data.get("pdf_url", "") or "",
+        "arxiv_id": data.get("arxiv_eprints", "") or "",
+        "journal_title": data.get("journal_title", "") or "",
+        "publisher": data.get("publisher", "") or "",
         "num_pages": normalize_num_pages(data.get("number_of_pages")),
-        "full_text": extract_full_text(data.get("content")),
+        "full_text": extract_full_text(data.get("content")) or "",
         "json_path": json_path,
     }
 
 
 # --- Main indexer -------------------------------------------------------------
-
-INSERT_SQL = """
-INSERT OR REPLACE INTO papers (
-    texkey, title, abstract, year, earliest_date, conference,
-    first_author, all_authors, affiliations, keywords, doi,
-    citation_count, paper_id, document_type, inspire_url,
-    pdf_url, arxiv_id, journal_title, publisher, num_pages,
-    full_text, json_path
-) VALUES (
-    :texkey, :title, :abstract, :year, :earliest_date, :conference,
-    :first_author, :all_authors, :affiliations, :keywords, :doi,
-    :citation_count, :paper_id, :document_type, :inspire_url,
-    :pdf_url, :arxiv_id, :journal_title, :publisher, :num_pages,
-    :full_text, :json_path
-)
-"""
 
 
 def _collect_json_files(data_dir: Path) -> list[tuple[Path, str]]:
@@ -244,76 +206,45 @@ def _collect_json_files(data_dir: Path) -> list[tuple[Path, str]]:
     return files
 
 
-def _materialize_stats(conn: sqlite3.Connection) -> None:
-    """Compute and store aggregate statistics."""
-    stats = {}
-
-    row = conn.execute("SELECT COUNT(*) as c FROM papers").fetchone()
-    stats["total_papers"] = str(row["c"])
-
-    row = conn.execute(
-        "SELECT MIN(year) as mn, MAX(year) as mx FROM papers WHERE year IS NOT NULL"
-    ).fetchone()
-    stats["year_min"] = str(row["mn"]) if row["mn"] else ""
-    stats["year_max"] = str(row["mx"]) if row["mx"] else ""
-
-    row = conn.execute("SELECT COUNT(DISTINCT conference) as c FROM papers WHERE conference != ''").fetchone()
-    stats["num_conferences"] = str(row["c"])
-
-    row = conn.execute("SELECT COUNT(DISTINCT first_author) as c FROM papers WHERE first_author != ''").fetchone()
-    stats["num_authors"] = str(row["c"])
-
-    row = conn.execute(
-        "SELECT SUM(citation_count) as s FROM papers WHERE citation_count > 0"
-    ).fetchone()
-    stats["total_citations"] = str(row["s"]) if row["s"] else "0"
-
-    # Document type breakdown
-    rows = conn.execute(
-        "SELECT document_type, COUNT(*) as c FROM papers GROUP BY document_type ORDER BY c DESC"
-    ).fetchall()
-    stats["document_types"] = json.dumps({r["document_type"]: r["c"] for r in rows})
-
-    # Top 10 conferences
-    rows = conn.execute(
-        "SELECT conference, COUNT(*) as c FROM papers WHERE conference != '' "
-        "GROUP BY conference ORDER BY c DESC LIMIT 10"
-    ).fetchall()
-    stats["top_conferences"] = json.dumps({r["conference"]: r["c"] for r in rows})
-
-    for key, value in stats.items():
-        conn.execute(
-            "INSERT OR REPLACE INTO stats (key, value) VALUES (?, ?)",
-            (key, value),
-        )
-    conn.commit()
-
-
-def build_index(data_dir: str | Path, db_path: str | Path | None = None, batch_size: int = 500) -> Path:
-    """Build the SQLite FTS5 index from INSPIRE JSON files.
+def build_index(
+    data_dir: str | Path,
+    batch_size: int = 200,
+    recreate: bool = True,
+) -> str:
+    """Build the Typesense collection from INSPIRE JSON files.
 
     Args:
         data_dir: Directory containing JSON files (possibly in subdirectories).
-        db_path: Output database path. Defaults to ``get_db_path()``.
-        batch_size: Number of rows per INSERT batch.
+        batch_size: Documents per import batch (default: 200).
+        recreate: Drop and recreate the collection if it exists (default: True).
 
     Returns:
-        Path to the created database.
+        The collection name.
     """
-    from osprey.mcp_server.accelpapers.db import get_db_path
+    from osprey.mcp_server.accelpapers.db import get_client, get_collection_name
 
     data_dir = Path(data_dir)
     if not data_dir.is_dir():
         raise FileNotFoundError(f"Data directory not found: {data_dir}")
 
-    db_path = Path(db_path) if db_path else get_db_path()
-    db_path.parent.mkdir(parents=True, exist_ok=True)
+    client = get_client()
+    collection_name = get_collection_name()
 
-    logger.info("Building index: %s → %s", data_dir, db_path)
+    logger.info("Building index: %s → Typesense collection '%s'", data_dir, collection_name)
 
-    conn = get_connection(db_path)
-    conn.executescript(SCHEMA_SQL)
-    conn.executescript(FTS_TRIGGERS_SQL)
+    # Create or recreate collection
+    if recreate:
+        try:
+            client.collections[collection_name].delete()
+            logger.info("Deleted existing collection '%s'", collection_name)
+        except Exception:
+            pass  # Collection doesn't exist yet
+
+    schema = {**PAPERS_SCHEMA, "name": collection_name}
+    client.collections.create(schema)
+    logger.info("Created collection '%s'", collection_name)
+
+    collection = client.collections[collection_name]
 
     json_files = _collect_json_files(data_dir)
     total = len(json_files)
@@ -322,6 +253,7 @@ def build_index(data_dir: str | Path, db_path: str | Path | None = None, batch_s
     indexed = 0
     skipped = 0
     errors = 0
+    failed_imports = 0
     batch: list[dict] = []
     t0 = time.time()
 
@@ -338,16 +270,19 @@ def build_index(data_dir: str | Path, db_path: str | Path | None = None, batch_s
             skipped += 1
             continue
 
-        row = _parse_paper(data, str(fpath), subdir_name)
-        if row is None:
+        doc = _parse_paper(data, str(fpath), subdir_name)
+        if doc is None:
             skipped += 1
             continue
 
-        batch.append(row)
+        batch.append(doc)
         if len(batch) >= batch_size:
-            conn.executemany(INSERT_SQL, batch)
-            conn.commit()
-            indexed += len(batch)
+            results = collection.documents.import_(batch, {"action": "upsert"})
+            failures = [r for r in results if not r.get("success", True)]
+            failed_imports += len(failures)
+            indexed += len(batch) - len(failures)
+            if failures:
+                logger.warning("Batch import: %d failures", len(failures))
             batch.clear()
 
         if (i + 1) % 1000 == 0:
@@ -360,28 +295,18 @@ def build_index(data_dir: str | Path, db_path: str | Path | None = None, batch_s
 
     # Flush remaining batch
     if batch:
-        conn.executemany(INSERT_SQL, batch)
-        conn.commit()
-        indexed += len(batch)
-
-    # Rebuild FTS index for optimal ranking
-    logger.info("Rebuilding FTS index...")
-    conn.execute("INSERT INTO papers_fts(papers_fts) VALUES ('rebuild')")
-    conn.commit()
-
-    # Materialize stats
-    logger.info("Computing statistics...")
-    _materialize_stats(conn)
+        results = collection.documents.import_(batch, {"action": "upsert"})
+        failures = [r for r in results if not r.get("success", True)]
+        failed_imports += len(failures)
+        indexed += len(batch) - len(failures)
+        if failures:
+            logger.warning("Final batch import: %d failures", len(failures))
 
     elapsed = time.time() - t0
     logger.info(
-        "Indexing complete in %.1fs: %d indexed, %d skipped, %d errors (DB: %s)",
-        elapsed, indexed, skipped, errors, db_path,
+        "Indexing complete in %.1fs: %d indexed, %d skipped, %d errors, "
+        "%d import failures (collection: %s)",
+        elapsed, indexed, skipped, errors, failed_imports, collection_name,
     )
 
-    # Log DB size
-    db_size_mb = os.path.getsize(db_path) / (1024 * 1024)
-    logger.info("Database size: %.1f MB", db_size_mb)
-
-    conn.close()
-    return db_path
+    return collection_name

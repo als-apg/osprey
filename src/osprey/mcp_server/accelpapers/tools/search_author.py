@@ -1,10 +1,11 @@
-"""MCP tool: papers_search_author — author-focused FTS5 search."""
+"""MCP tool: papers_search_author — author-focused search via Typesense."""
 
 import json
 import logging
 
-from osprey.mcp_server.accelpapers.db import get_connection
+from osprey.mcp_server.accelpapers import db
 from osprey.mcp_server.accelpapers.server import mcp
+from osprey.mcp_server.accelpapers.tools._filters import build_filter_string
 from osprey.mcp_server.common import make_error
 
 logger = logging.getLogger("osprey.mcp_server.accelpapers.tools.search_author")
@@ -17,10 +18,10 @@ async def papers_search_author(
     year_min: int | None = None,
     year_max: int | None = None,
 ) -> str:
-    """Search for papers by a specific author using full-text search.
+    """Search for papers by a specific author.
 
-    Searches the author names field using FTS5 column filtering for precise
-    author matching. Results are ranked by citation count.
+    Searches the author names field for matching authors.
+    Results are ranked by citation count.
 
     Args:
         author: Author name to search for (e.g. "Wiedemann", "Chao, Alexander").
@@ -39,58 +40,40 @@ async def papers_search_author(
     max_results = max(1, min(100, max_results))
 
     try:
-        conn = get_connection()
+        client = db.get_client()
+        collection = db.get_collection_name()
 
-        # FTS5 column filter: search only the all_authors column
-        safe_author = author.strip()
-        fts_query = f"all_authors:{safe_author}"
+        search_params: dict = {
+            "q": author.strip(),
+            "query_by": "all_authors",
+            "sort_by": "citation_count:desc",
+            "per_page": max_results,
+            "exclude_fields": "embedding,full_text",
+        }
 
-        where_parts = []
-        params: list = []
+        filter_str = build_filter_string(year_min=year_min, year_max=year_max)
+        if filter_str:
+            search_params["filter_by"] = filter_str
 
-        if year_min is not None:
-            where_parts.append("p.year >= ?")
-            params.append(year_min)
-        if year_max is not None:
-            where_parts.append("p.year <= ?")
-            params.append(year_max)
-
-        where_clause = ""
-        if where_parts:
-            where_clause = "AND " + " AND ".join(where_parts)
-
-        sql = f"""
-            SELECT p.texkey, p.title, p.first_author, p.all_authors, p.year,
-                   p.conference, p.citation_count, p.document_type, p.doi,
-                   p.inspire_url, p.journal_title, p.arxiv_id
-            FROM papers_fts fts
-            JOIN papers p ON p.rowid = fts.rowid
-            WHERE papers_fts MATCH ?
-            {where_clause}
-            ORDER BY p.citation_count DESC
-            LIMIT ?
-        """
-
-        rows = conn.execute(sql, [fts_query] + params + [max_results]).fetchall()
+        result = client.collections[collection].documents.search(search_params)
 
         results = []
-        for row in rows:
+        for hit in result.get("hits", []):
+            doc = hit["document"]
             results.append({
-                "texkey": row["texkey"],
-                "title": row["title"],
-                "first_author": row["first_author"],
-                "all_authors": row["all_authors"],
-                "year": row["year"],
-                "conference": row["conference"],
-                "citation_count": row["citation_count"],
-                "document_type": row["document_type"],
-                "doi": row["doi"],
-                "inspire_url": row["inspire_url"],
-                "journal_title": row["journal_title"],
-                "arxiv_id": row["arxiv_id"],
+                "texkey": doc.get("id", ""),
+                "title": doc.get("title", ""),
+                "first_author": doc.get("first_author", ""),
+                "all_authors": doc.get("all_authors", ""),
+                "year": doc.get("year"),
+                "conference": doc.get("conference", ""),
+                "citation_count": doc.get("citation_count", 0),
+                "document_type": doc.get("document_type", ""),
+                "doi": doc.get("doi", ""),
+                "inspire_url": doc.get("inspire_url", ""),
+                "journal_title": doc.get("journal_title", ""),
+                "arxiv_id": doc.get("arxiv_id", ""),
             })
-
-        conn.close()
 
         return json.dumps({
             "author_query": author,
@@ -110,6 +93,6 @@ async def papers_search_author(
             make_error(
                 "internal_error",
                 f"Author search failed: {exc}",
-                ["Check that the AccelPapers database has been indexed."],
+                ["Check that the Typesense server is running and the collection is indexed."],
             )
         )

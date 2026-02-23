@@ -127,6 +127,9 @@ dependencies = [
 
     # Async HTTP client for tuning panel reverse proxy
     "httpx>=0.27.0",
+
+    # Typesense search engine (AccelPapers hybrid BM25 + vector search)
+    "typesense>=2.0.0",
 ]
 
 [project.optional-dependencies]
