@@ -659,6 +659,109 @@ body.embedded .app-main { padding-top: 0; }
   display: block;
 }
 
+/* Device filter bar with chip groups */
+.device-filter-bar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-card);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.filter-chip-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+
+.filter-chip-label {
+  font-size: 0.55rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-accent-light);
+  min-width: 52px;
+  user-select: none;
+}
+
+.filter-chip-action {
+  font-size: 0.5rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  padding: 0 3px;
+  transition: color var(--transition-fast);
+}
+
+.filter-chip-action:hover {
+  color: var(--text-secondary);
+}
+
+.filter-chip-action-sep {
+  color: var(--border-default);
+  font-size: 0.5rem;
+  user-select: none;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  padding: 1px 7px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-default);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  user-select: none;
+}
+
+.filter-chip:hover {
+  border-color: var(--text-secondary);
+  color: var(--text-secondary);
+}
+
+.filter-chip.active {
+  background: var(--color-accent-subtle);
+  border-color: rgba(79, 209, 197, 0.35);
+  color: var(--color-accent-light);
+  box-shadow: 0 0 0 1px var(--color-accent-glow);
+}
+
+.filter-chip.active:hover {
+  background: rgba(79, 209, 197, 0.15);
+}
+
+/* Sector group headers (nested inside field groups) */
+.sector-group-header {
+  padding: var(--space-1) var(--space-3);
+  padding-left: var(--space-5);
+  background: var(--surface-subtle, var(--surface-raised));
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-subtle);
+  letter-spacing: 0.03em;
+}
+
+/* Common name label next to PV name */
+.common-name {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  margin-left: var(--space-2);
+  opacity: 0.8;
+}
+
 /* ================================================================
    Forms
    ================================================================ */
