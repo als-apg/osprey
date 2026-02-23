@@ -97,12 +97,30 @@
   }
 
   function thumbnailHtml(a) {
+    const url = fileUrl(a);
     switch (a.artifact_type) {
       case "plot_png":
       case "image":
-        return `<img src="${fileUrl(a)}" alt="" loading="lazy" />`;
+        return `<img src="${url}" alt="" loading="lazy"
+                 onerror="this.parentElement.classList.add('img-error')" />`;
+      case "plot_html":
+      case "table_html":
+      case "dashboard_html":
+      case "html":
+        return `<iframe src="${url}" sandbox="allow-scripts allow-same-origin"
+                 loading="lazy" tabindex="-1"></iframe>`;
+      case "notebook":
+        return `<iframe src="/api/notebooks/${a.id}/rendered"
+                 sandbox="allow-scripts allow-same-origin"
+                 loading="lazy" tabindex="-1"></iframe>`;
       default:
-        return `<div class="gallery-card-thumb-icon">${typeIcon(a.artifact_type)}</div>`;
+        if (a.summary && Object.keys(a.summary).length > 0) {
+          const text = Object.entries(a.summary)
+            .map(([k, v]) => `${k}: ${v}`)
+            .join("\n");
+          return `<div class="thumb-summary">${escapeHtml(text)}</div>`;
+        }
+        return `<div class="thumb-placeholder">${typeIcon(a.artifact_type)}<span>${typeBadge(a.artifact_type)}</span></div>`;
     }
   }
 
