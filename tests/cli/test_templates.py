@@ -492,6 +492,37 @@ class TestGitIsolation:
         assert git_root.returncode == 0
         assert Path(git_root.stdout.strip()).resolve() == project_dir.resolve()
 
+    def test_force_clears_claude_code_project_state(self, tmp_path, monkeypatch):
+        """Test that --force removes Claude Code's cached project state."""
+        from pathlib import Path
+
+        runner = CliRunner()
+
+        # Create project first time
+        result = runner.invoke(init, ["trust-test", "--output-dir", str(tmp_path)])
+        assert result.exit_code == 0
+
+        project_path = tmp_path / "trust-test"
+
+        # Simulate Claude Code's project state directory
+        claude_project_key = str(project_path.resolve()).replace("/", "-")
+        claude_project_dir = Path.home() / ".claude" / "projects" / claude_project_key
+        claude_project_dir.mkdir(parents=True, exist_ok=True)
+        (claude_project_dir / "sessions-index.json").write_text("{}")
+
+        assert claude_project_dir.exists()
+
+        # Re-create with --force
+        result = runner.invoke(
+            init, ["trust-test", "--output-dir", str(tmp_path), "--force"]
+        )
+        assert result.exit_code == 0
+
+        # Claude Code project state should be gone
+        assert not claude_project_dir.exists(), (
+            "Claude Code project state should be removed on --force"
+        )
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
