@@ -1,7 +1,7 @@
 """AccelPapers MCP Server.
 
-FastMCP server exposing search and retrieval tools for ~63K INSPIRE
-accelerator physics papers stored in a local SQLite FTS5 database.
+FastMCP server exposing hybrid BM25 + vector search tools for ~63K INSPIRE
+accelerator physics papers stored in a local Typesense collection.
 
 Usage:
     python -m osprey.mcp_server.accelpapers serve

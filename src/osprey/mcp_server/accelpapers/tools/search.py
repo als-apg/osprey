@@ -1,10 +1,11 @@
-"""MCP tool: papers_search — FTS5 BM25-ranked search of accelerator physics papers."""
+"""MCP tool: papers_search — hybrid BM25 + vector search of accelerator physics papers."""
 
 import json
 import logging
 
-from osprey.mcp_server.accelpapers.db import get_connection
+from osprey.mcp_server.accelpapers import db
 from osprey.mcp_server.accelpapers.server import mcp
+from osprey.mcp_server.accelpapers.tools._filters import build_filter_string
 from osprey.mcp_server.common import make_error
 
 logger = logging.getLogger("osprey.mcp_server.accelpapers.tools.search")
@@ -20,10 +21,10 @@ async def papers_search(
     author: str | None = None,
     document_type: str | None = None,
 ) -> str:
-    """Search accelerator physics papers using full-text search (BM25 ranking).
+    """Search accelerator physics papers using hybrid BM25 + vector search.
 
     Searches across titles, abstracts, author names, keywords, and full paper text.
-    Returns results ranked by relevance with text snippets showing matching context.
+    Results are ranked by a blend of keyword relevance (BM25) and semantic similarity.
 
     Args:
         query: Search terms (e.g. "beam position monitor", "RF cavity design").
@@ -35,7 +36,7 @@ async def papers_search(
         document_type: Filter by type (e.g. "article", "conference paper").
 
     Returns:
-        JSON with matching papers, BM25 scores, and text snippets.
+        JSON with matching papers, relevance scores, and text snippets.
     """
     if not query or not query.strip():
         return json.dumps(
@@ -45,70 +46,60 @@ async def papers_search(
     max_results = max(1, min(100, max_results))
 
     try:
-        conn = get_connection()
-        # Build FTS5 MATCH query
-        # Escape special FTS5 characters to prevent syntax errors
-        safe_query = query.strip()
+        client = db.get_client()
+        collection = db.get_collection_name()
 
-        # Build WHERE clauses for filters
-        where_parts = []
-        params: list = []
+        search_params: dict = {
+            "q": query.strip(),
+            "query_by": "title,abstract,all_authors,keywords,full_text",
+            "vector_query": "embedding:([], alpha: 0.3)",
+            "highlight_full_fields": "abstract",
+            "highlight_start_tag": ">>>",
+            "highlight_end_tag": "<<<",
+            "per_page": max_results,
+            "exclude_fields": "embedding,full_text",
+        }
 
-        if conference:
-            where_parts.append("p.conference = ?")
-            params.append(conference)
-        if year_min is not None:
-            where_parts.append("p.year >= ?")
-            params.append(year_min)
-        if year_max is not None:
-            where_parts.append("p.year <= ?")
-            params.append(year_max)
-        if author:
-            where_parts.append("p.all_authors LIKE ?")
-            params.append(f"%{author}%")
-        if document_type:
-            where_parts.append("p.document_type = ?")
-            params.append(document_type)
+        filter_str = build_filter_string(
+            conference=conference,
+            year_min=year_min,
+            year_max=year_max,
+            author=author,
+            document_type=document_type,
+        )
+        if filter_str:
+            search_params["filter_by"] = filter_str
 
-        where_clause = ""
-        if where_parts:
-            where_clause = "AND " + " AND ".join(where_parts)
-
-        sql = f"""
-            SELECT p.texkey, p.title, p.first_author, p.year, p.conference,
-                   p.citation_count, p.document_type, p.doi, p.inspire_url,
-                   p.journal_title, p.arxiv_id,
-                   snippet(papers_fts, 1, '>>>', '<<<', '...', 40) as abstract_snippet,
-                   rank
-            FROM papers_fts fts
-            JOIN papers p ON p.rowid = fts.rowid
-            WHERE papers_fts MATCH ?
-            {where_clause}
-            ORDER BY rank
-            LIMIT ?
-        """
-
-        rows = conn.execute(sql, [safe_query] + params + [max_results]).fetchall()
+        result = client.collections[collection].documents.search(search_params)
 
         results = []
-        for row in rows:
-            results.append({
-                "texkey": row["texkey"],
-                "title": row["title"],
-                "first_author": row["first_author"],
-                "year": row["year"],
-                "conference": row["conference"],
-                "citation_count": row["citation_count"],
-                "document_type": row["document_type"],
-                "doi": row["doi"],
-                "inspire_url": row["inspire_url"],
-                "journal_title": row["journal_title"],
-                "arxiv_id": row["arxiv_id"],
-                "snippet": row["abstract_snippet"],
-                "bm25_score": round(row["rank"], 4),
-            })
+        for hit in result.get("hits", []):
+            doc = hit["document"]
+            # Extract highlighted abstract snippet if available
+            highlight = hit.get("highlight", {})
+            snippet = ""
+            if "abstract" in highlight:
+                abs_highlight = highlight["abstract"]
+                if isinstance(abs_highlight, dict):
+                    snippet = abs_highlight.get("snippet", "")
+                elif isinstance(abs_highlight, list) and abs_highlight:
+                    snippet = abs_highlight[0].get("snippet", "")
 
-        conn.close()
+            results.append({
+                "texkey": doc.get("id", ""),
+                "title": doc.get("title", ""),
+                "first_author": doc.get("first_author", ""),
+                "year": doc.get("year"),
+                "conference": doc.get("conference", ""),
+                "citation_count": doc.get("citation_count", 0),
+                "document_type": doc.get("document_type", ""),
+                "doi": doc.get("doi", ""),
+                "inspire_url": doc.get("inspire_url", ""),
+                "journal_title": doc.get("journal_title", ""),
+                "arxiv_id": doc.get("arxiv_id", ""),
+                "snippet": snippet,
+                "text_match_score": hit.get("text_match_info", {}).get("score", 0),
+            })
 
         return json.dumps({
             "query": query,
@@ -131,6 +122,6 @@ async def papers_search(
             make_error(
                 "internal_error",
                 f"Search failed: {exc}",
-                ["Check that the AccelPapers database has been indexed."],
+                ["Check that the Typesense server is running and the collection is indexed."],
             )
         )

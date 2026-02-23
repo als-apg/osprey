@@ -3329,6 +3329,7 @@ dependencies = [
     { name = "scikit-learn" },
     { name = "scipy" },
     { name = "seaborn" },
+    { name = "typesense" },
     { name = "unique-namer" },
     { name = "urllib3" },
     { name = "uvicorn", extra = ["standard"] },
@@ -3535,6 +3536,7 @@ requires-dist = [
     { name = "testcontainers", extras = ["postgres"], marker = "extra == 'dev'", specifier = ">=4.0.0" },
     { name = "torch", marker = "extra == 'graph'", specifier = ">=2.0.0" },
     { name = "transformers", marker = "extra == 'graph'", specifier = ">=4.35.0" },
+    { name = "typesense", specifier = ">=2.0.0" },
     { name = "unique-namer", specifier = ">=0.1.0" },
     { name = "urllib3", specifier = ">=2.4.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.27.0" },
@@ -6024,6 +6026,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/da/22/b9c47b8655937b6877d40791b937931702ba9c5f9d28753199266aa96f50/typer_slim-0.23.1.tar.gz", hash = "sha256:dfe92a6317030ee2380f65bf92e540d7c77fefcc689e10d585b4925b45b5e06a", size = 4762, upload-time = "2026-02-13T10:04:26.416Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ad/8a/5764b851659345f34787f1b6eb30b9d308bbd6c294825cbe38b6b869c97a/typer_slim-0.23.1-py3-none-any.whl", hash = "sha256:8146d5df1eb89f628191c4c604c8464fa841885d0733c58e6e700ff0228adac5", size = 3397, upload-time = "2026-02-13T10:04:27.132Z" },
+]
+
+[[package]]
+name = "typesense"
+version = "2.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/69/92/ca06da7ad7e771804fe21fdcfbc99d24079bedb9ab0ceaedac7ea1001263/typesense-2.0.0.tar.gz", hash = "sha256:9a306e328bf0c0030679c154730ec142efbf07fd0c33845b3efae10291e983e7", size = 79292, upload-time = "2026-02-16T16:37:56.647Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b6/a5/a392604f3eeed45d3d72f8f10b45a80082a826338609e62187d9e3614001/typesense-2.0.0-py3-none-any.whl", hash = "sha256:7eecc672e4049f7b5777e1cf1e7900d2d1ae2d28a670eda6545b568d1cde1700", size = 140736, upload-time = "2026-02-16T16:37:55.256Z" },
 ]
 
 [[package]]

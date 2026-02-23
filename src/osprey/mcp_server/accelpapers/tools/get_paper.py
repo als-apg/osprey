@@ -4,7 +4,7 @@ import json
 import logging
 from pathlib import Path
 
-from osprey.mcp_server.accelpapers.db import get_connection
+from osprey.mcp_server.accelpapers import db
 from osprey.mcp_server.accelpapers.server import mcp
 from osprey.mcp_server.common import make_error
 
@@ -19,7 +19,7 @@ async def papers_get(
 ) -> str:
     """Get full details for a specific paper by its texkey identifier.
 
-    Returns metadata from the database. Optionally includes the full text
+    Returns metadata from Typesense. Optionally includes the full text
     and/or the raw JSON content (figures, tables, sections) from the source file.
 
     Args:
@@ -36,11 +36,12 @@ async def papers_get(
         )
 
     try:
-        conn = get_connection()
-        row = conn.execute("SELECT * FROM papers WHERE texkey = ?", [texkey.strip()]).fetchone()
+        client = db.get_client()
+        collection = db.get_collection_name()
 
-        if row is None:
-            conn.close()
+        try:
+            doc = client.collections[collection].documents[texkey.strip()].retrieve()
+        except Exception:
             return json.dumps(
                 make_error(
                     "not_found",
@@ -50,34 +51,34 @@ async def papers_get(
             )
 
         paper = {
-            "texkey": row["texkey"],
-            "title": row["title"],
-            "abstract": row["abstract"],
-            "year": row["year"],
-            "earliest_date": row["earliest_date"],
-            "conference": row["conference"],
-            "first_author": row["first_author"],
-            "all_authors": row["all_authors"],
-            "affiliations": row["affiliations"],
-            "keywords": row["keywords"],
-            "doi": row["doi"],
-            "citation_count": row["citation_count"],
-            "paper_id": row["paper_id"],
-            "document_type": row["document_type"],
-            "inspire_url": row["inspire_url"],
-            "pdf_url": row["pdf_url"],
-            "arxiv_id": row["arxiv_id"],
-            "journal_title": row["journal_title"],
-            "publisher": row["publisher"],
-            "num_pages": row["num_pages"],
+            "texkey": doc.get("id", ""),
+            "title": doc.get("title", ""),
+            "abstract": doc.get("abstract", ""),
+            "year": doc.get("year"),
+            "earliest_date": doc.get("earliest_date", ""),
+            "conference": doc.get("conference", ""),
+            "first_author": doc.get("first_author", ""),
+            "all_authors": doc.get("all_authors", ""),
+            "affiliations": doc.get("affiliations", ""),
+            "keywords": doc.get("keywords", ""),
+            "doi": doc.get("doi", ""),
+            "citation_count": doc.get("citation_count", 0),
+            "paper_id": doc.get("paper_id", ""),
+            "document_type": doc.get("document_type", ""),
+            "inspire_url": doc.get("inspire_url", ""),
+            "pdf_url": doc.get("pdf_url", ""),
+            "arxiv_id": doc.get("arxiv_id", ""),
+            "journal_title": doc.get("journal_title", ""),
+            "publisher": doc.get("publisher", ""),
+            "num_pages": doc.get("num_pages"),
         }
 
         if include_full_text:
-            paper["full_text"] = row["full_text"]
+            paper["full_text"] = doc.get("full_text", "")
 
         # Optionally load raw content from JSON file
         if include_content:
-            json_path = row["json_path"]
+            json_path = doc.get("json_path", "")
             if json_path and Path(json_path).exists():
                 try:
                     with open(json_path) as f:
@@ -88,8 +89,6 @@ async def papers_get(
             else:
                 paper["content_error"] = "Source JSON file not found on disk"
 
-        conn.close()
-
         return json.dumps(paper, default=str)
 
     except Exception as exc:
@@ -98,6 +97,6 @@ async def papers_get(
             make_error(
                 "internal_error",
                 f"Failed to retrieve paper: {exc}",
-                ["Check that the AccelPapers database has been indexed."],
+                ["Check that the Typesense server is running and the collection is indexed."],
             )
         )

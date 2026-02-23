@@ -1,11 +1,13 @@
 """Tests for the AccelPapers indexer — helpers and batch indexing."""
 
 import json
-import sqlite3
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from osprey.mcp_server.accelpapers.indexer import (
+    PAPERS_SCHEMA,
+    _parse_paper,
     build_all_authors,
     build_index,
     extract_full_text,
@@ -13,7 +15,6 @@ from osprey.mcp_server.accelpapers.indexer import (
     normalize_num_pages,
     normalize_year,
 )
-
 
 # --- Helper function tests ---------------------------------------------------
 
@@ -129,52 +130,66 @@ class TestBuildAllAuthors:
         assert build_all_authors(data) == ""
 
 
+# --- _parse_paper tests -------------------------------------------------------
+
+
+class TestParsePaper:
+    def test_maps_texkey_to_id(self):
+        data = {"texkey": "Test:2020abc", "title": "A paper", "content": None}
+        doc = _parse_paper(data, "/tmp/test.json", "")
+        assert doc is not None
+        assert doc["id"] == "Test:2020abc"
+        assert "texkey" not in doc
+
+    def test_missing_texkey_returns_none(self):
+        data = {"title": "No texkey", "content": None}
+        assert _parse_paper(data, "/tmp/test.json", "") is None
+
+    def test_missing_title_returns_none(self):
+        data = {"texkey": "Test:2020abc", "content": None}
+        assert _parse_paper(data, "/tmp/test.json", "") is None
+
+
 # --- Indexer integration tests ------------------------------------------------
 
 
 class TestBuildIndex:
-    def test_builds_db(self, tmp_path, sample_json_dir):
-        db_path = tmp_path / "test.db"
-        result = build_index(data_dir=sample_json_dir, db_path=db_path)
-        assert result == db_path
-        assert db_path.exists()
+    def test_builds_collection(self, tmp_path, sample_json_dir):
+        """Test that build_index creates a collection and imports documents."""
+        mock_docs = MagicMock()
+        mock_docs.import_ = MagicMock(
+            return_value=[{"success": True} for _ in range(5)]
+        )
+        mock_collection = MagicMock()
+        mock_collection.documents = mock_docs
 
-    def test_correct_row_count(self, indexed_db):
-        conn = sqlite3.connect(str(indexed_db))
-        conn.row_factory = sqlite3.Row
-        row = conn.execute("SELECT COUNT(*) as c FROM papers").fetchone()
-        assert row["c"] == 5
-        conn.close()
+        mock_collections = MagicMock()
+        mock_collections.__getitem__ = MagicMock(return_value=mock_collection)
+        mock_collections.create = MagicMock(return_value={})
 
-    def test_fts_populated(self, indexed_db):
-        conn = sqlite3.connect(str(indexed_db))
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT * FROM papers_fts WHERE papers_fts MATCH 'beam position monitor'"
-        ).fetchall()
-        assert len(rows) >= 2  # Smith and Jones papers
-        conn.close()
+        mock_client = MagicMock()
+        mock_client.collections = mock_collections
 
-    def test_stats_materialized(self, indexed_db):
-        conn = sqlite3.connect(str(indexed_db))
-        conn.row_factory = sqlite3.Row
-        row = conn.execute("SELECT value FROM stats WHERE key='total_papers'").fetchone()
-        assert row is not None
-        assert int(row["value"]) == 5
-        conn.close()
+        with (
+            patch(
+                "osprey.mcp_server.accelpapers.db.get_client",
+                return_value=mock_client,
+            ),
+            patch(
+                "osprey.mcp_server.accelpapers.db.get_collection_name",
+                return_value="test_papers",
+            ),
+        ):
+            result = build_index(data_dir=sample_json_dir)
 
-    def test_conference_indexed(self, indexed_db):
-        conn = sqlite3.connect(str(indexed_db))
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT texkey FROM papers WHERE conference = 'IPAC2020'"
-        ).fetchall()
-        assert len(rows) >= 1
-        conn.close()
+        assert result == "test_papers"
+        mock_collections.create.assert_called_once()
+        # At least one import_ call should have been made
+        assert mock_docs.import_.call_count >= 1
 
     def test_missing_data_dir_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError):
-            build_index(data_dir=tmp_path / "nonexistent", db_path=tmp_path / "test.db")
+            build_index(data_dir=tmp_path / "nonexistent")
 
     def test_invalid_json_skipped(self, tmp_path):
         """Files that aren't valid JSON should be skipped without crashing."""
@@ -188,10 +203,43 @@ class TestBuildIndex:
             "content": None,
         }))
 
-        db_path = tmp_path / "test.db"
-        build_index(data_dir=data_dir, db_path=db_path)
+        mock_docs = MagicMock()
+        mock_docs.import_ = MagicMock(return_value=[{"success": True}])
+        mock_collection = MagicMock()
+        mock_collection.documents = mock_docs
 
-        conn = sqlite3.connect(str(db_path))
-        row = conn.execute("SELECT COUNT(*) as c FROM papers").fetchone()
-        assert row[0] == 1
-        conn.close()
+        mock_collections = MagicMock()
+        mock_collections.__getitem__ = MagicMock(return_value=mock_collection)
+        mock_collections.create = MagicMock(return_value={})
+
+        mock_client = MagicMock()
+        mock_client.collections = mock_collections
+
+        with (
+            patch(
+                "osprey.mcp_server.accelpapers.db.get_client",
+                return_value=mock_client,
+            ),
+            patch(
+                "osprey.mcp_server.accelpapers.db.get_collection_name",
+                return_value="test_papers",
+            ),
+        ):
+            result = build_index(data_dir=data_dir)
+
+        assert result == "test_papers"
+        # Should have imported 1 valid document
+        assert mock_docs.import_.call_count == 1
+
+    def test_schema_has_embedding_field(self):
+        """Verify the schema includes auto-embedding config."""
+        embedding_field = None
+        for field in PAPERS_SCHEMA["fields"]:
+            if field["name"] == "embedding":
+                embedding_field = field
+                break
+        assert embedding_field is not None
+        assert embedding_field["type"] == "float[]"
+        assert embedding_field["num_dim"] == 768
+        assert "embed" in embedding_field
+        assert embedding_field["embed"]["from"] == ["title", "abstract", "keywords"]

@@ -3,7 +3,7 @@
 import json
 import logging
 
-from osprey.mcp_server.accelpapers.db import get_connection
+from osprey.mcp_server.accelpapers import db
 from osprey.mcp_server.accelpapers.server import mcp
 from osprey.mcp_server.common import make_error
 
@@ -22,7 +22,7 @@ async def papers_list_conferences(
     Use pattern to filter by conference name (e.g. "IPAC" to find all IPAC conferences).
 
     Args:
-        pattern: Optional filter pattern for conference names (case-insensitive LIKE match).
+        pattern: Optional filter pattern for conference names (case-insensitive substring match).
         min_papers: Minimum number of papers to include a conference (default 1).
         max_results: Maximum conferences to return (1-500, default 50).
 
@@ -33,37 +33,35 @@ async def papers_list_conferences(
     min_papers = max(1, min_papers)
 
     try:
-        conn = get_connection()
+        client = db.get_client()
+        collection = db.get_collection_name()
 
+        search_params: dict = {
+            "q": "*",
+            "facet_by": "conference",
+            "max_facet_values": 500,
+            "per_page": 0,
+        }
+
+        result = client.collections[collection].documents.search(search_params)
+
+        facet_counts = result.get("facet_counts", [])
+        facets: list[dict] = []
+        if facet_counts:
+            facets = facet_counts[0].get("counts", [])
+
+        # Post-filter: pattern (substring match) and min_papers (count threshold)
         if pattern:
-            sql = """
-                SELECT conference, COUNT(*) as paper_count
-                FROM papers
-                WHERE conference != '' AND conference LIKE ?
-                GROUP BY conference
-                HAVING paper_count >= ?
-                ORDER BY paper_count DESC
-                LIMIT ?
-            """
-            rows = conn.execute(sql, [f"%{pattern}%", min_papers, max_results]).fetchall()
-        else:
-            sql = """
-                SELECT conference, COUNT(*) as paper_count
-                FROM papers
-                WHERE conference != ''
-                GROUP BY conference
-                HAVING paper_count >= ?
-                ORDER BY paper_count DESC
-                LIMIT ?
-            """
-            rows = conn.execute(sql, [min_papers, max_results]).fetchall()
+            pattern_upper = pattern.upper()
+            facets = [f for f in facets if pattern_upper in f["value"].upper()]
+
+        facets = [f for f in facets if f["count"] >= min_papers]
+        facets = facets[:max_results]
 
         conferences = [
-            {"conference": row["conference"], "paper_count": row["paper_count"]}
-            for row in rows
+            {"conference": f["value"], "paper_count": f["count"]}
+            for f in facets
         ]
-
-        conn.close()
 
         return json.dumps({
             "pattern": pattern,
@@ -78,6 +76,6 @@ async def papers_list_conferences(
             make_error(
                 "internal_error",
                 f"List conferences failed: {exc}",
-                ["Check that the AccelPapers database has been indexed."],
+                ["Check that the Typesense server is running and the collection is indexed."],
             )
         )

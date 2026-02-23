@@ -1,40 +1,33 @@
-"""Database connection and path management for AccelPapers."""
+"""Typesense client factory and collection name resolution for AccelPapers."""
 
 import os
-import sqlite3
-from pathlib import Path
 
-DEFAULT_DB_DIR = Path.home() / ".accelpapers"
-DEFAULT_DB_NAME = "papers.db"
+import typesense
 
 
-def get_db_path() -> Path:
-    """Return the SQLite database path.
+def get_client() -> typesense.Client:
+    """Create a Typesense client from environment config.
 
-    Resolution order:
-      1. ``ACCELPAPERS_DB`` environment variable
-      2. ``~/.accelpapers/papers.db``
+    Environment variables:
+        ACCELPAPERS_TYPESENSE_HOST: Server host (default: localhost).
+        ACCELPAPERS_TYPESENSE_PORT: Server port (default: 8108).
+        ACCELPAPERS_TYPESENSE_API_KEY: API key (default: accelpapers-dev).
     """
-    env = os.environ.get("ACCELPAPERS_DB")
-    if env:
-        return Path(env)
-    return DEFAULT_DB_DIR / DEFAULT_DB_NAME
+    return typesense.Client({
+        "api_key": os.environ.get("ACCELPAPERS_TYPESENSE_API_KEY", "accelpapers-dev"),
+        "nodes": [{
+            "host": os.environ.get("ACCELPAPERS_TYPESENSE_HOST", "localhost"),
+            "port": os.environ.get("ACCELPAPERS_TYPESENSE_PORT", "8108"),
+            "protocol": "http",
+        }],
+        "connection_timeout_seconds": 5,
+    })
 
 
-def get_connection(db_path: Path | None = None) -> sqlite3.Connection:
-    """Open a SQLite connection with WAL mode and Row factory.
+def get_collection_name() -> str:
+    """Return the Typesense collection name.
 
-    Args:
-        db_path: Explicit path. Falls back to ``get_db_path()`` if None.
-
-    Returns:
-        Configured sqlite3.Connection.
+    Environment variables:
+        ACCELPAPERS_COLLECTION: Collection name (default: papers).
     """
-    path = db_path or get_db_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    conn = sqlite3.connect(str(path))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+    return os.environ.get("ACCELPAPERS_COLLECTION", "papers")

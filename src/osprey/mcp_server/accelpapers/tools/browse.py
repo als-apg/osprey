@@ -3,8 +3,9 @@
 import json
 import logging
 
-from osprey.mcp_server.accelpapers.db import get_connection
+from osprey.mcp_server.accelpapers import db
 from osprey.mcp_server.accelpapers.server import mcp
+from osprey.mcp_server.accelpapers.tools._filters import build_filter_string
 from osprey.mcp_server.common import make_error
 
 logger = logging.getLogger("osprey.mcp_server.accelpapers.tools.browse")
@@ -28,7 +29,7 @@ async def papers_browse(
     """Browse accelerator physics papers by conference, year, or document type.
 
     Unlike papers_search, this does NOT use full-text search — it filters on
-    indexed columns for fast, structured browsing. At least one filter is required.
+    faceted fields for fast, structured browsing. At least one filter is required.
 
     Args:
         conference: Filter by conference name (e.g. "IPAC2023").
@@ -65,71 +66,50 @@ async def papers_browse(
     offset = max(0, offset)
 
     try:
-        conn = get_connection()
+        client = db.get_client()
+        collection = db.get_collection_name()
 
-        where_parts = []
-        params: list = []
+        search_params: dict = {
+            "q": "*",
+            "sort_by": f"{sort_by}:{sort_order}",
+            "per_page": max_results,
+            "page": (offset // max_results) + 1,
+            "exclude_fields": "embedding,full_text",
+        }
 
-        if conference:
-            where_parts.append("conference = ?")
-            params.append(conference)
-        if year is not None:
-            where_parts.append("year = ?")
-            params.append(year)
-        if year_min is not None:
-            where_parts.append("year >= ?")
-            params.append(year_min)
-        if year_max is not None:
-            where_parts.append("year <= ?")
-            params.append(year_max)
-        if document_type:
-            where_parts.append("document_type = ?")
-            params.append(document_type)
+        filter_str = build_filter_string(
+            conference=conference,
+            year=year,
+            year_min=year_min,
+            year_max=year_max,
+            document_type=document_type,
+        )
+        if filter_str:
+            search_params["filter_by"] = filter_str
 
-        where_clause = "WHERE " + " AND ".join(where_parts)
-
-        # Get total count
-        count_row = conn.execute(
-            f"SELECT COUNT(*) as c FROM papers {where_clause}", params
-        ).fetchone()
-        total = count_row["c"]
-
-        # Get results
-        sql = f"""
-            SELECT texkey, title, first_author, year, conference,
-                   citation_count, document_type, doi, inspire_url,
-                   journal_title, arxiv_id, abstract
-            FROM papers
-            {where_clause}
-            ORDER BY {sort_by} {sort_order}
-            LIMIT ? OFFSET ?
-        """
-
-        rows = conn.execute(sql, params + [max_results, offset]).fetchall()
+        result = client.collections[collection].documents.search(search_params)
+        total = result.get("found", 0)
 
         results = []
-        for row in rows:
-            r = {
-                "texkey": row["texkey"],
-                "title": row["title"],
-                "first_author": row["first_author"],
-                "year": row["year"],
-                "conference": row["conference"],
-                "citation_count": row["citation_count"],
-                "document_type": row["document_type"],
-                "doi": row["doi"],
-                "inspire_url": row["inspire_url"],
-                "journal_title": row["journal_title"],
-                "arxiv_id": row["arxiv_id"],
-            }
-            # Include truncated abstract for browse
-            abstract = row["abstract"] or ""
+        for hit in result.get("hits", []):
+            doc = hit["document"]
+            abstract = doc.get("abstract", "") or ""
             if len(abstract) > 300:
                 abstract = abstract[:300] + "..."
-            r["abstract"] = abstract
-            results.append(r)
-
-        conn.close()
+            results.append({
+                "texkey": doc.get("id", ""),
+                "title": doc.get("title", ""),
+                "first_author": doc.get("first_author", ""),
+                "year": doc.get("year"),
+                "conference": doc.get("conference", ""),
+                "citation_count": doc.get("citation_count", 0),
+                "document_type": doc.get("document_type", ""),
+                "doi": doc.get("doi", ""),
+                "inspire_url": doc.get("inspire_url", ""),
+                "journal_title": doc.get("journal_title", ""),
+                "arxiv_id": doc.get("arxiv_id", ""),
+                "abstract": abstract,
+            })
 
         return json.dumps({
             "filters": {
@@ -155,6 +135,6 @@ async def papers_browse(
             make_error(
                 "internal_error",
                 f"Browse failed: {exc}",
-                ["Check that the AccelPapers database has been indexed."],
+                ["Check that the Typesense server is running and the collection is indexed."],
             )
         )
