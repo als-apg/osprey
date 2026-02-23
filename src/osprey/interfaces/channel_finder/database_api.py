@@ -588,6 +588,29 @@ def _get_db_path(request: Request) -> str:
         return get_cf_ic_registry().database.db_path
 
 
+def _get_database(request: Request):
+    """Get the database instance for the active pipeline type."""
+    pt = _pipeline_type(request)
+    if pt == "hierarchical":
+        from osprey.services.channel_finder.mcp.hierarchical.registry import (
+            get_cf_hier_registry,
+        )
+
+        return get_cf_hier_registry().database
+    elif pt == "middle_layer":
+        from osprey.services.channel_finder.mcp.middle_layer.registry import (
+            get_cf_ml_registry,
+        )
+
+        return get_cf_ml_registry().database
+    else:
+        from osprey.services.channel_finder.mcp.in_context.registry import (
+            get_cf_ic_registry,
+        )
+
+        return get_cf_ic_registry().database
+
+
 # ---------------------------------------------------------------------------
 # Hierarchical CRUD endpoints
 # ---------------------------------------------------------------------------
@@ -599,17 +622,17 @@ async def add_tree_node(request: Request, body: AddNodeRequest):
     if _pipeline_type(request) != "hierarchical":
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
 
-    from osprey.interfaces.channel_finder.database_crud import CrudError, hier_add_node
+    from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
-        return hier_add_node(
-            db_path=_get_db_path(request),
+        db = _get_database(request)
+        return db.add_node(
             level=body.level,
             parent_selections=body.parent_selections,
             name=body.name,
             description=body.description,
         )
-    except CrudError as exc:
+    except DatabaseWriteError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Failed to add tree node")
@@ -622,18 +645,18 @@ async def edit_tree_node(request: Request, body: EditNodeRequest):
     if _pipeline_type(request) != "hierarchical":
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
 
-    from osprey.interfaces.channel_finder.database_crud import CrudError, hier_edit_node
+    from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
-        return hier_edit_node(
-            db_path=_get_db_path(request),
+        db = _get_database(request)
+        return db.edit_node(
             level=body.level,
             selections=body.selections,
             old_name=body.old_name,
             new_name=body.new_name,
             description=body.description,
         )
-    except CrudError as exc:
+    except DatabaseWriteError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Failed to edit tree node")
@@ -646,16 +669,16 @@ async def delete_tree_node(request: Request, body: DeleteNodeRequest):
     if _pipeline_type(request) != "hierarchical":
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
 
-    from osprey.interfaces.channel_finder.database_crud import CrudError, hier_delete_node
+    from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
-        return hier_delete_node(
-            db_path=_get_db_path(request),
+        db = _get_database(request)
+        return db.delete_node(
             level=body.level,
             selections=body.selections,
             name=body.name,
         )
-    except CrudError as exc:
+    except DatabaseWriteError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Failed to delete tree node")
@@ -668,11 +691,11 @@ async def tree_impact(request: Request, body: DeleteNodeRequest):
     if _pipeline_type(request) != "hierarchical":
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
 
-    from osprey.interfaces.channel_finder.database_crud import CrudError, hier_count_descendants
+    from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
-        impact = hier_count_descendants(
-            db_path=_get_db_path(request),
+        db = _get_database(request)
+        impact = db.count_descendants(
             level=body.level,
             selections=body.selections,
             name=body.name,
@@ -681,7 +704,7 @@ async def tree_impact(request: Request, body: DeleteNodeRequest):
             "affected_channels": impact.get("channels", 0),
             "breakdown": {k: v for k, v in impact.items() if k != "channels"},
         }
-    except CrudError as exc:
+    except DatabaseWriteError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Failed to compute tree impact")
@@ -694,18 +717,18 @@ async def get_tree_expansion(request: Request, level: str, selections: str | Non
     if _pipeline_type(request) != "hierarchical":
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
 
-    from osprey.interfaces.channel_finder.database_crud import CrudError, hier_get_expansion
+    from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
         parsed_selections = json.loads(selections) if selections else {}
-        return hier_get_expansion(
-            db_path=_get_db_path(request),
+        db = _get_database(request)
+        return db.get_expansion(
             level=level,
             selections=parsed_selections,
         )
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=422, detail=f"Invalid selections JSON: {exc}") from exc
-    except CrudError as exc:
+    except DatabaseWriteError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Failed to get expansion config")
@@ -718,18 +741,18 @@ async def edit_tree_expansion(request: Request, body: EditExpansionRequest):
     if _pipeline_type(request) != "hierarchical":
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
 
-    from osprey.interfaces.channel_finder.database_crud import CrudError, hier_edit_expansion
+    from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
-        return hier_edit_expansion(
-            db_path=_get_db_path(request),
+        db = _get_database(request)
+        return db.edit_expansion(
             level=body.level,
             selections=body.selections,
             pattern=body.pattern,
             range_start=body.range_start,
             range_end=body.range_end,
         )
-    except CrudError as exc:
+    except DatabaseWriteError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Failed to edit expansion config")
@@ -747,16 +770,16 @@ async def add_family(request: Request, body: AddFamilyRequest):
     if _pipeline_type(request) != "middle_layer":
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
 
-    from osprey.interfaces.channel_finder.database_crud import CrudError, ml_add_family
+    from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
-        return ml_add_family(
-            db_path=_get_db_path(request),
+        db = _get_database(request)
+        return db.add_family(
             system=body.system,
             family=body.family,
             description=body.description,
         )
-    except CrudError as exc:
+    except DatabaseWriteError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Failed to add family")
@@ -769,15 +792,15 @@ async def delete_family(request: Request, body: DeleteFamilyRequest):
     if _pipeline_type(request) != "middle_layer":
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
 
-    from osprey.interfaces.channel_finder.database_crud import CrudError, ml_delete_family
+    from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
-        return ml_delete_family(
-            db_path=_get_db_path(request),
+        db = _get_database(request)
+        return db.delete_family(
             system=body.system,
             family=body.family,
         )
-    except CrudError as exc:
+    except DatabaseWriteError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Failed to delete family")
@@ -790,18 +813,18 @@ async def add_ml_channel(request: Request, body: AddMLChannelRequest):
     if _pipeline_type(request) != "middle_layer":
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
 
-    from osprey.interfaces.channel_finder.database_crud import CrudError, ml_add_channel
+    from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
-        return ml_add_channel(
-            db_path=_get_db_path(request),
+        db = _get_database(request)
+        return db.add_channel(
             system=body.system,
             family=body.family,
             field=body.field,
             channel_name=body.channel_name,
             subfield=body.subfield,
         )
-    except CrudError as exc:
+    except DatabaseWriteError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Failed to add ML channel")
@@ -814,18 +837,18 @@ async def delete_ml_channel(request: Request, body: DeleteMLChannelRequest):
     if _pipeline_type(request) != "middle_layer":
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
 
-    from osprey.interfaces.channel_finder.database_crud import CrudError, ml_delete_channel
+    from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
-        return ml_delete_channel(
-            db_path=_get_db_path(request),
+        db = _get_database(request)
+        return db.delete_channel(
             system=body.system,
             family=body.family,
             field=body.field,
             channel_name=body.channel_name,
             subfield=body.subfield,
         )
-    except CrudError as exc:
+    except DatabaseWriteError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Failed to delete ML channel")
@@ -838,16 +861,16 @@ async def structure_impact(request: Request, body: DeleteFamilyRequest):
     if _pipeline_type(request) != "middle_layer":
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
 
-    from osprey.interfaces.channel_finder.database_crud import CrudError, ml_count_family_channels
+    from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
-        count = ml_count_family_channels(
-            db_path=_get_db_path(request),
+        db = _get_database(request)
+        count = db.count_family_channels(
             system=body.system,
             family=body.family,
         )
         return {"affected_channels": count}
-    except CrudError as exc:
+    except DatabaseWriteError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Failed to compute structure impact")
@@ -865,16 +888,16 @@ async def create_channel(request: Request, body: AddICChannelRequest):
     if _pipeline_type(request) != "in_context":
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
 
-    from osprey.interfaces.channel_finder.database_crud import CrudError, ic_add_channel
+    from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
-        return ic_add_channel(
-            db_path=_get_db_path(request),
+        db = _get_database(request)
+        return db.add_channel(
             channel=body.channel_name,
             address=body.address,
             description=body.description,
         )
-    except CrudError as exc:
+    except DatabaseWriteError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Failed to create channel")
@@ -893,16 +916,16 @@ async def update_channel(channel_id: str, request: Request, body: UpdateICChanne
     if _pipeline_type(request) != "in_context":
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
 
-    from osprey.interfaces.channel_finder.database_crud import CrudError, ic_update_channel
+    from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
-        return ic_update_channel(
-            db_path=_get_db_path(request),
+        db = _get_database(request)
+        return db.update_channel(
             channel=channel_id,
             new_description=body.description,
             new_address=body.address,
         )
-    except CrudError as exc:
+    except DatabaseWriteError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Failed to update channel")
@@ -920,14 +943,14 @@ async def delete_channel(channel_id: str, request: Request):
     if _pipeline_type(request) != "in_context":
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
 
-    from osprey.interfaces.channel_finder.database_crud import CrudError, ic_delete_channel
+    from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
-        return ic_delete_channel(
-            db_path=_get_db_path(request),
+        db = _get_database(request)
+        return db.delete_channel(
             channel=channel_id,
         )
-    except CrudError as exc:
+    except DatabaseWriteError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Failed to delete channel")

@@ -7,7 +7,7 @@ This is the base implementation for in-context channel databases.
 
 import json
 
-from ..core.base_database import BaseDatabase
+from ..core.base_database import BaseDatabase, DatabaseWriteError
 
 
 class ChannelDatabase(BaseDatabase):
@@ -137,3 +137,98 @@ class ChannelDatabase(BaseDatabase):
             formatted.append(entry)
 
         return "\n".join(formatted)
+
+    # === Persistence ===
+
+    def _serialize(self) -> list:
+        """Serialize channels to JSON-compatible list."""
+        return self.channels
+
+    # === Write methods ===
+
+    def add_channel(
+        self, channel: str, address: str = "", description: str = ""
+    ) -> dict:
+        """Add a new channel to the database.
+
+        Args:
+            channel: Channel name.
+            address: PV address (defaults to channel name).
+            description: Human-readable description.
+
+        Returns:
+            Success dict.
+
+        Raises:
+            DatabaseWriteError: If channel already exists.
+        """
+        if channel in self.channel_map:
+            raise DatabaseWriteError(
+                f"Channel '{channel}' already exists", "duplicate"
+            )
+
+        new_entry = {"channel": channel, "address": address or channel}
+        if description:
+            new_entry["description"] = description
+
+        self.channels.append(new_entry)
+        self.channel_map[channel] = new_entry
+        self._persist()
+
+        return {"success": True, "channel": channel}
+
+    def delete_channel(self, channel: str) -> dict:
+        """Delete a channel from the database.
+
+        Args:
+            channel: Channel name to delete.
+
+        Returns:
+            Success dict.
+
+        Raises:
+            DatabaseWriteError: If channel not found.
+        """
+        if channel not in self.channel_map:
+            raise DatabaseWriteError(
+                f"Channel '{channel}' not found", "not_found"
+            )
+
+        entry = self.channel_map.pop(channel)
+        self.channels.remove(entry)
+        self._persist()
+
+        return {"success": True, "channel": channel}
+
+    def update_channel(
+        self,
+        channel: str,
+        new_description: str | None = None,
+        new_address: str | None = None,
+    ) -> dict:
+        """Update a channel's description and/or address.
+
+        Args:
+            channel: Channel name to update.
+            new_description: New description (if not None).
+            new_address: New PV address (if not None).
+
+        Returns:
+            Success dict.
+
+        Raises:
+            DatabaseWriteError: If channel not found.
+        """
+        if channel not in self.channel_map:
+            raise DatabaseWriteError(
+                f"Channel '{channel}' not found", "not_found"
+            )
+
+        entry = self.channel_map[channel]
+        if new_description is not None:
+            entry["description"] = new_description
+        if new_address is not None:
+            entry["address"] = new_address
+        self._persist()
+
+        return {"success": True, "channel": channel}

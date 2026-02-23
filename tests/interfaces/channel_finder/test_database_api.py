@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 
 class TestInfoEndpoint:
@@ -134,55 +134,39 @@ class TestPipelineGating:
 
 
 class TestCrudEndpoints:
-    """Tests for CRUD endpoints with mocked database_crud functions."""
+    """Tests for CRUD endpoints with mocked database instances."""
 
     def test_ic_create_channel(self, client):
-        with (
-            patch(
-                "osprey.interfaces.channel_finder.database_crud.ic_add_channel",
-                return_value={"success": True, "channel": "TEST:CH"},
-            ),
-            patch(
-                "osprey.interfaces.channel_finder.database_crud._reload_registry",
-            ),
+        mock_db = MagicMock()
+        mock_db.add_channel.return_value = {"success": True, "channel": "TEST:CH"}
+        with patch(
+            "osprey.interfaces.channel_finder.database_api._get_database",
+            return_value=mock_db,
         ):
-            # Mock _get_db_path
-            with patch(
-                "osprey.interfaces.channel_finder.database_api._get_db_path",
-                return_value="/tmp/test.json",
-            ):
-                resp = client.post(
-                    "/api/channels",
-                    json={"channel_name": "TEST:CH", "address": "TEST:CH"},
-                )
+            resp = client.post(
+                "/api/channels",
+                json={"channel_name": "TEST:CH", "address": "TEST:CH"},
+            )
         assert resp.status_code == 200
         assert resp.json()["success"] is True
 
     def test_ic_delete_channel(self, client):
-        with (
-            patch(
-                "osprey.interfaces.channel_finder.database_crud.ic_delete_channel",
-                return_value={"success": True, "channel": "TEST:CH"},
-            ),
-            patch(
-                "osprey.interfaces.channel_finder.database_api._get_db_path",
-                return_value="/tmp/test.json",
-            ),
+        mock_db = MagicMock()
+        mock_db.delete_channel.return_value = {"success": True, "channel": "TEST:CH"}
+        with patch(
+            "osprey.interfaces.channel_finder.database_api._get_database",
+            return_value=mock_db,
         ):
             resp = client.delete("/api/channels/TEST:CH")
         assert resp.status_code == 200
         assert resp.json()["success"] is True
 
     def test_ic_update_channel(self, client):
-        with (
-            patch(
-                "osprey.interfaces.channel_finder.database_crud.ic_update_channel",
-                return_value={"success": True, "channel": "TEST:CH"},
-            ),
-            patch(
-                "osprey.interfaces.channel_finder.database_api._get_db_path",
-                return_value="/tmp/test.json",
-            ),
+        mock_db = MagicMock()
+        mock_db.update_channel.return_value = {"success": True, "channel": "TEST:CH"}
+        with patch(
+            "osprey.interfaces.channel_finder.database_api._get_database",
+            return_value=mock_db,
         ):
             resp = client.put(
                 "/api/channels/TEST:CH",
@@ -191,17 +175,15 @@ class TestCrudEndpoints:
         assert resp.status_code == 200
 
     def test_ic_create_crud_error_returns_400(self, client):
-        from osprey.interfaces.channel_finder.database_crud import CrudError
+        from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
-        with (
-            patch(
-                "osprey.interfaces.channel_finder.database_crud.ic_add_channel",
-                side_effect=CrudError("Channel already exists", "duplicate"),
-            ),
-            patch(
-                "osprey.interfaces.channel_finder.database_api._get_db_path",
-                return_value="/tmp/test.json",
-            ),
+        mock_db = MagicMock()
+        mock_db.add_channel.side_effect = DatabaseWriteError(
+            "Channel already exists", "duplicate"
+        )
+        with patch(
+            "osprey.interfaces.channel_finder.database_api._get_database",
+            return_value=mock_db,
         ):
             resp = client.post(
                 "/api/channels",
@@ -210,15 +192,11 @@ class TestCrudEndpoints:
         assert resp.status_code == 400
 
     def test_ic_create_unexpected_error_returns_500(self, client):
-        with (
-            patch(
-                "osprey.interfaces.channel_finder.database_crud.ic_add_channel",
-                side_effect=RuntimeError("Unexpected"),
-            ),
-            patch(
-                "osprey.interfaces.channel_finder.database_api._get_db_path",
-                return_value="/tmp/test.json",
-            ),
+        mock_db = MagicMock()
+        mock_db.add_channel.side_effect = RuntimeError("Unexpected")
+        with patch(
+            "osprey.interfaces.channel_finder.database_api._get_database",
+            return_value=mock_db,
         ):
             resp = client.post(
                 "/api/channels",
