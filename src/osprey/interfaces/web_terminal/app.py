@@ -245,6 +245,18 @@ def _create_lifespan(
         app.state.broadcaster = FileEventBroadcaster()
         app.state.active_panel = None
 
+        # Ensure OSPREY_CONFIG is set before any load_osprey_config() call
+        if "OSPREY_CONFIG" not in os.environ:
+            candidate = Path(app.state.project_cwd) / "config.yml"
+            if candidate.exists():
+                os.environ["OSPREY_CONFIG"] = str(candidate)
+                logger.debug("Auto-set OSPREY_CONFIG=%s", candidate)
+
+        # Clear any stale config cache (e.g. from web_cmd.py pre-lifespan call)
+        from osprey.mcp_server.common import reset_config_cache
+
+        reset_config_cache()
+
         # Resolve and store config_path for the settings API
         resolved_config_path = None
         for candidate in [
@@ -283,6 +295,18 @@ def _create_lifespan(
 
         # Auto-launch the OTEL monitoring stack
         _launch_monitoring_stack(app)
+
+        # Hook debug env — propagated to PTY/SDK sessions like OTEL
+        app.state.hooks_env = {}
+        try:
+            from osprey.mcp_server.common import load_osprey_config
+
+            hooks_config = load_osprey_config().get("hooks", {})
+            if hooks_config.get("debug"):
+                app.state.hooks_env["OSPREY_HOOK_DEBUG"] = "1"
+                logger.info("Hook debugging enabled (OSPREY_HOOK_DEBUG=1)")
+        except Exception:
+            logger.warning("Failed to read hooks config", exc_info=True)
 
         yield
 

@@ -150,6 +150,24 @@ def build_clean_env(project_cwd: str | None = None) -> dict[str, str]:
         if config_path.exists():
             env["OSPREY_CONFIG"] = str(config_path)
 
+    # Propagate hooks.debug from config
+    if "OSPREY_HOOK_DEBUG" not in env:
+        config_file = env.get("OSPREY_CONFIG") or (
+            str(Path(project_cwd) / "config.yml") if project_cwd else ""
+        )
+        if config_file:
+            try:
+                import yaml
+
+                cfg_path = Path(config_file)
+                if cfg_path.exists():
+                    with open(cfg_path) as f:
+                        cfg = yaml.safe_load(f) or {}
+                    if cfg.get("hooks", {}).get("debug"):
+                        env["OSPREY_HOOK_DEBUG"] = "1"
+            except Exception:
+                logger.warning("Failed to read hooks.debug from %s", config_file, exc_info=True)
+
     return env
 
 
