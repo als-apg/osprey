@@ -4,7 +4,6 @@ import json
 import os
 import sys
 from datetime import UTC, datetime
-from pathlib import Path
 
 
 def get_hook_input():
@@ -21,21 +20,12 @@ def get_project_dir(hook_input):
 
 
 def log_hook(hook_name, hook_input, status="ok", detail=""):
-    """Append one line to data/hooks/activity.log if OSPREY_HOOK_DEBUG is set."""
+    """Print one debug line to stderr if OSPREY_HOOK_DEBUG is set."""
     if not os.environ.get("OSPREY_HOOK_DEBUG"):
         return
-    cwd = get_project_dir(hook_input)
-    if not cwd:
-        return
-    log_dir = Path(cwd) / "data" / "hooks"
-    log_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S")
     tool = hook_input.get("tool_name", "-")
     line = f"{ts} [{hook_name}] tool={tool} status={status}"
     if detail:
         line += f" {detail}"
-    try:
-        with open(log_dir / "activity.log", "a") as f:
-            f.write(line + "\n")
-    except OSError:
-        pass
+    print(line, file=sys.stderr)
