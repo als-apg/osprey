@@ -120,6 +120,12 @@ approval:
     memory:
       enabled: true
 
+# ── Hook observability ──────────────────────────────────────────────
+# Set debug: true to enable hook activity logging to stderr.
+# Visible in the terminal where Claude Code runs.
+hooks:
+  debug: true
+
 # Execution limits and safety controls
 execution_control:
   agent_control:
@@ -602,6 +608,30 @@ confluence:
 
 matlab:
   db_path: ~/.matlab-mml/mml.db
+
+# ============================================================
+# ACCELPAPERS — Literature Search (Typesense)
+# ============================================================
+# AccelPapers uses Typesense for hybrid BM25 + vector search over
+# accelerator physics papers from INSPIRE. Configuration is env-var driven;
+# this section is for reference only.
+#
+# Setup:
+#   1. Install Typesense 27.1:  brew install typesense/tap/typesense-server@27.1
+#      (28.0+ has a regression with OpenAI-compatible auto-embedding)
+#   2. Start server:            ./scripts/start_typesense.sh
+#   3. Start Ollama:            ollama serve && ollama pull nomic-embed-text
+#   4. Index papers:            uv run python -m osprey.mcp_server.accelpapers index \
+#                                 --data-dir /path/to/inspire/downloads
+#
+# Environment variables (set in .env):
+#   ACCELPAPERS_TYPESENSE_HOST       (default: localhost)
+#   ACCELPAPERS_TYPESENSE_PORT       (default: 8108)
+#   ACCELPAPERS_TYPESENSE_API_KEY    (default: accelpapers-dev)
+#   ACCELPAPERS_COLLECTION           (default: papers)
+#   ACCELPAPERS_DATA_DIR             (default data dir for indexing CLI)
+#   ACCELPAPERS_OLLAMA_URL           (default: http://localhost:11434)
+#   ACCELPAPERS_EMBEDDING_MODEL      (default: openai/nomic-embed-text)
 
 # ============================================================
 # CLAUDE CODE INTEGRATION
