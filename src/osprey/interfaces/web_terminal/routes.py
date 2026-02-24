@@ -26,7 +26,7 @@ from osprey.interfaces.web_terminal.claude_memory_service import (
 )
 from osprey.interfaces.web_terminal.operator_session import build_clean_env
 from osprey.interfaces.web_terminal.prompt_gallery_service import PromptGalleryService
-from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery, SessionRegistry
+from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 
 logger = logging.getLogger(__name__)
 
@@ -177,9 +177,8 @@ async def set_panel_focus(body: PanelFocusRequest, request: Request):
 @router.get("/api/sessions")
 async def list_sessions(request: Request):
     """Return Claude Code sessions registered for this project."""
-    registry = SessionRegistry(request.app.state.workspace_dir)
     discovery = SessionDiscovery(request.app.state.project_cwd)
-    sessions = discovery.list_sessions(allowed_ids=registry.known_ids())
+    sessions = discovery.list_sessions()
     return {"sessions": [asdict(s) for s in sessions]}
 
 
@@ -193,6 +192,14 @@ async def session_server_config(request: Request):
     return {"url": f"{base}/static/session.html"}
 
 
+def _read_session_events(request: Request, reader) -> list[dict]:
+    """Read session events, scoped to a session_id if provided."""
+    session_id = request.query_params.get("session_id")
+    if session_id:
+        return reader.read_session_by_id(session_id)
+    return reader.read_current_session()
+
+
 @router.get("/api/session-agents")
 async def session_agents(request: Request):
     """Return agent hierarchy and tool call breakdown for the current session."""
@@ -201,7 +208,7 @@ async def session_agents(request: Request):
         from osprey.mcp_server.workspace.transcript_reader import TranscriptReader
 
         reader = TranscriptReader(request.app.state.project_cwd)
-        events = reader.read_current_session()
+        events = _read_session_events(request, reader)
         agents = _build_agent_summary(events)
 
         # Group tool_call events by agent_id
@@ -222,6 +229,24 @@ async def session_agents(request: Request):
         return {"agents": [], "tool_calls_by_agent": {}, "total_events": 0}
 
 
+@router.get("/api/session-agent-timeline")
+async def session_agent_timeline(request: Request):
+    """Return the full internal timeline of a subagent."""
+    agent_id = request.query_params.get("agent_id", "")
+    if not agent_id:
+        return {"timeline": [], "error": "agent_id required"}
+    try:
+        from osprey.mcp_server.workspace.transcript_reader import TranscriptReader
+
+        reader = TranscriptReader(request.app.state.project_cwd)
+        session_id = request.query_params.get("session_id")
+        timeline = reader.read_agent_timeline(agent_id, session_id=session_id)
+        return {"agent_id": agent_id, "timeline": timeline, "count": len(timeline)}
+    except Exception:
+        logger.debug("session-agent-timeline: failed", exc_info=True)
+        return {"agent_id": agent_id, "timeline": [], "count": 0}
+
+
 @router.get("/api/session-log")
 async def session_log(request: Request):
     """Return filtered tool call events from the current session."""
@@ -229,7 +254,7 @@ async def session_log(request: Request):
         from osprey.mcp_server.workspace.transcript_reader import TranscriptReader
 
         reader = TranscriptReader(request.app.state.project_cwd)
-        events = reader.read_current_session()
+        events = _read_session_events(request, reader)
 
         # Parse query filters
         agent_filter = request.query_params.get("agent")
@@ -326,7 +351,11 @@ async def session_chat(request: Request):
         from osprey.mcp_server.workspace.transcript_reader import TranscriptReader
 
         reader = TranscriptReader(request.app.state.project_cwd)
-        turns = reader.read_current_chat_history()
+        session_id = request.query_params.get("session_id")
+        if session_id:
+            turns = reader.read_chat_history_by_id(session_id)
+        else:
+            turns = reader.read_current_chat_history()
         return {"turns": turns, "count": len(turns)}
     except Exception:
         logger.debug("session-chat: no transcript available", exc_info=True)
@@ -375,8 +404,6 @@ async def terminal_ws(websocket: WebSocket):
         # Resume existing session — pass --resume flag
         command: str | list[str] = [base_shell_command, "--resume", req_session_id]
         claude_session_id = req_session_id
-        # Ensure resumed session is in the local registry
-        SessionRegistry(websocket.app.state.workspace_dir).register(req_session_id)
     else:
         # New session — Claude auto-generates a UUID
         command = base_shell_command
@@ -435,9 +462,6 @@ async def terminal_ws(websocket: WebSocket):
         loop = asyncio.get_event_loop()
         new_id = await loop.run_in_executor(None, discovery.discover_new_session, snapshot)
         if new_id:
-            # Register in the local session registry
-            reg = SessionRegistry(websocket.app.state.workspace_dir)
-            reg.register(new_id)
             try:
                 await websocket.send_text(
                     json.dumps({"type": "session_info", "session_id": new_id})

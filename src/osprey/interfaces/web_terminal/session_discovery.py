@@ -3,12 +3,6 @@
 Scans ``~/.claude/projects/<encoded-path>/`` for JSONL session files,
 extracting metadata (first message, modification time, message count)
 for the session picker UI.
-
-A :class:`SessionRegistry` keeps a lightweight local index at
-``osprey-workspace/.sessions.json`` so that only sessions belonging to
-*this* incarnation of the project appear in the dropdown.  When the
-project directory is deleted and recreated the registry is gone and the
-session list starts fresh.
 """
 
 from __future__ import annotations
@@ -31,45 +25,6 @@ class SessionInfo:
     first_message: str
     last_modified: datetime
     message_count: int
-
-
-class SessionRegistry:
-    """Lightweight local index of session IDs for this project.
-
-    Stores ``{session_id: created_at_iso}`` in a JSON file inside the
-    workspace directory.  When the workspace is deleted (e.g. project
-    recreated from templates) the registry disappears, giving a clean
-    session list.
-    """
-
-    def __init__(self, workspace_dir: str | Path) -> None:
-        self._path = Path(workspace_dir) / ".sessions.json"
-
-    def register(self, session_id: str) -> None:
-        """Add a session ID to the registry."""
-        data = self._load()
-        if session_id not in data:
-            data[session_id] = datetime.now(UTC).isoformat()
-            self._save(data)
-
-    def known_ids(self) -> set[str]:
-        """Return all registered session IDs."""
-        return set(self._load().keys())
-
-    def _load(self) -> dict[str, str]:
-        if not self._path.exists():
-            return {}
-        try:
-            return json.loads(self._path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            return {}
-
-    def _save(self, data: dict[str, str]) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(
-            json.dumps(data, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
 
 
 class SessionDiscovery:
