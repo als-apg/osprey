@@ -49,7 +49,11 @@ and falls back to keyword detection for non-JSON responses.
 """
 
 import json
+import os
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from osprey_hook_log import get_hook_input, log_hook
 
 OSPREY_PREFIXES = (
     "mcp__controls__",
@@ -111,9 +115,8 @@ def _detect_error(tool_response: str | dict | None) -> tuple[str | None, str | N
 
 
 def main():
-    try:
-        hook_input = json.load(sys.stdin)
-    except (json.JSONDecodeError, EOFError):
+    hook_input = get_hook_input()
+    if not hook_input:
         sys.exit(0)
 
     tool_name = hook_input.get("tool_name", "")
@@ -126,7 +129,7 @@ def main():
     error_class, error_message = _detect_error(tool_response)
 
     if error_class is None:
-        # No error — silent exit, no output
+        log_hook("error-guidance", hook_input, status="no-error")
         sys.exit(0)
 
     # Inject guidance reminder
@@ -137,6 +140,8 @@ def main():
         "- Do NOT debug infrastructure, write mock data, or work around the failure.\n"
         "- Do NOT retry unless the error explicitly indicates a transient condition."
     )
+
+    log_hook("error-guidance", hook_input, status="error", detail=f"class={error_class}")
 
     output = {
         "hookSpecificOutput": {

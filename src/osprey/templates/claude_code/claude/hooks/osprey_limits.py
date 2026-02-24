@@ -61,13 +61,16 @@ PROMPT-PROVIDER: This hook contains facility-customizable static text:
 """
 
 import json
+import os
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from osprey_hook_log import get_hook_input, log_hook
 
 
 def main():
-    try:
-        hook_input = json.load(sys.stdin)
-    except (json.JSONDecodeError, EOFError):
+    hook_input = get_hook_input()
+    if not hook_input:
         sys.exit(0)
 
     tool_name = hook_input.get("tool_name", "")
@@ -114,9 +117,11 @@ def main():
             violations.append(f"  {channel}={value}: {exc}")
 
     if not violations:
+        log_hook("limits", hook_input, status="allow")
         sys.exit(0)
 
     # Deny — limits violated
+    log_hook("limits", hook_input, status="deny", detail=f"violations={len(violations)}")
     # PROMPT-PROVIDER: section=limits_violation_message
     # Future: source from FrameworkPromptProvider.get_limits_violation_message()
     # Facility-customizable: header, detail format, footer instructions

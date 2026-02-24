@@ -42,14 +42,17 @@ stale. This hook deletes it so the next gallery view triggers a fresh render.
 """
 
 import json
+import os
 import sys
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from osprey_hook_log import get_hook_input, log_hook
+
 
 def main():
-    try:
-        hook_input = json.load(sys.stdin)
-    except (json.JSONDecodeError, EOFError):
+    hook_input = get_hook_input()
+    if not hook_input:
         sys.exit(0)
 
     tool_input = hook_input.get("tool_input", {})
@@ -66,6 +69,9 @@ def main():
         cached_html = cache_dir / f"{nb_path.stem}_rendered.html"
         if cached_html.exists():
             cached_html.unlink()
+            log_hook("notebook-update", hook_input, status="invalidated", detail=f"path={notebook_path}")
+        else:
+            log_hook("notebook-update", hook_input, status="no-cache", detail=f"path={notebook_path}")
     except Exception:
         pass  # Never block on cache invalidation failure
 

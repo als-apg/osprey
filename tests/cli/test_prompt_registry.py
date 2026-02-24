@@ -81,6 +81,8 @@ class TestPromptRegistryDefault:
             "hooks/error-guidance",
             "hooks/limits",
             "hooks/notebook-update",
+            "hooks/cf-feedback-capture",
+            "hooks/hook-log",
             "skills/session-report",
             "skills/session-report/reference",
         ],

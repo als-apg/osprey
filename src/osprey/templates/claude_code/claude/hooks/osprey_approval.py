@@ -74,6 +74,9 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from osprey_hook_log import get_hook_input, get_project_dir, log_hook
+
 OSPREY_PREFIXES = (
     "mcp__controls__",
     "mcp__python__",
@@ -99,10 +102,9 @@ except ImportError:
         return any(p in code for p in _FALLBACK_WRITE_PATTERNS)
 
 
-def load_osprey_config():
-    config_path = Path(
-        os.path.expandvars(os.environ.get("OSPREY_CONFIG", str(Path.cwd() / "config.yml")))
-    )
+def load_osprey_config(project_dir=""):
+    default = str(Path(project_dir) / "config.yml") if project_dir else str(Path.cwd() / "config.yml")
+    config_path = Path(os.path.expandvars(os.environ.get("OSPREY_CONFIG", default)))
     if config_path.exists():
         with open(config_path) as f:
             return yaml.safe_load(f) or {}
@@ -183,9 +185,8 @@ def _create_pre_execution_notebook(code: str, exec_mode: str, config: dict) -> s
 
 
 def main():
-    try:
-        hook_input = json.load(sys.stdin)
-    except (json.JSONDecodeError, EOFError):
+    hook_input = get_hook_input()
+    if not hook_input:
         sys.exit(0)
 
     tool_name = hook_input.get("tool_name", "")
@@ -202,18 +203,21 @@ def main():
     tool_input = hook_input.get("tool_input", {})
     short_name = tool_name[len(matched_prefix) :]
 
-    config = load_osprey_config()
+    project_dir = get_project_dir(hook_input)
+    config = load_osprey_config(project_dir)
     approval_config = config.get("approval", {})
     mode = approval_config.get("global_mode", "selective")
 
     # Disabled — explicitly allow everything
     if mode == "disabled":
+        log_hook("approval", hook_input, status="allow", detail="mode=disabled")
         json.dump(build_allow_output(), sys.stdout)
         sys.exit(0)
 
     # All-capabilities — approve every OSPREY tool
     if mode == "all_capabilities":
         reason = f"Tool: {short_name}\nApproval mode: all_capabilities\nAll OSPREY tool calls require approval."
+        log_hook("approval", hook_input, status="ask", detail=f"mode=all_capabilities tool={short_name}")
         json.dump(build_approval_output(reason), sys.stdout)
         sys.exit(0)
 
@@ -229,6 +233,7 @@ def main():
                     channels = [{"channel": ch, "value": val}]
             channel_list = ", ".join(f"{op.get('channel')}={op.get('value')}" for op in channels)
             reason = f"Channel write: {channel_list or 'unknown'}"
+            log_hook("approval", hook_input, status="ask", detail="channel_write")
             json.dump(build_approval_output(reason), sys.stdout)
             sys.exit(0)
 
@@ -249,10 +254,12 @@ def main():
                     reason_parts.append(f"\nReview notebook: {gallery_link}")
 
                 reason = "\n".join(reason_parts)
+                log_hook("approval", hook_input, status="ask", detail="execute_write")
                 json.dump(build_approval_output(reason), sys.stdout)
                 sys.exit(0)
 
     # No approval needed — explicitly allow so hook decision overrides static lists
+    log_hook("approval", hook_input, status="allow")
     json.dump(build_allow_output(), sys.stdout)
     sys.exit(0)
 
