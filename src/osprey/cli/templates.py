@@ -1048,6 +1048,7 @@ proper framework operation, especially when using containerized services.
         ".claude/hooks/osprey_error_guidance.py",
         ".claude/hooks/osprey_notebook_update.py",
         ".claude/hooks/osprey_cf_feedback_capture.py",
+        ".claude/hooks/osprey_hook_log.py",
         ".claude/rules/code-generation.md",
         ".claude/commands/diagnose.md",
         ".claude/skills/session-report/SKILL.md",

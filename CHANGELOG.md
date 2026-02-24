@@ -10,13 +10,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Config**: `resolve_model_id()` utility to resolve tier names (haiku/sonnet/opus) to provider-specific model IDs
 - **Channel Finder**: Tree preview, hierarchy selections paths tracking, feedback store for successful runs, hint injection, and device info endpoint
+- **Hooks**: Shared `osprey_hook_log.py` utility with `OSPREY_HOOK_DEBUG` gated activity logging
 - **Transcript Reader**: Agent start/stop lifecycle events and string content handling
 - **Web Terminal**: Session diagnostics panel (Activity tab) with agent, log, summary, and chat views; local safety guidelines page
+
+### Fixed
+- **AccelPapers**: Fix double-path 404 in Typesense auto-embedding — URL was `http://localhost:11434/v1/embeddings` but Typesense appends `/v1/embeddings` itself
+- **Hooks**: Deterministic project dir resolution via `hook_input["cwd"]` (replaces inconsistent env var fallback chains)
 
 ### Changed
 - **Init**: Config now uses tier names (haiku/sonnet/opus) instead of provider-specific model IDs; default tier changed to haiku
 - **Services**: Services now resolve tier names to provider-specific model IDs via `resolve_model_id`
 - **AccelPapers**: Migrated search backend from SQLite FTS5 to Typesense for hybrid BM25 + vector search
+- **AccelPapers**: Embedding URL, model, and API key now configurable via `ACCELPAPERS_OLLAMA_URL`, `ACCELPAPERS_EMBEDDING_MODEL`, `ACCELPAPERS_EMBEDDING_API_KEY` env vars; `--data-dir` falls back to `ACCELPAPERS_DATA_DIR`; added `--ollama-url` CLI flag
 
 ## [0.11.3] - 2026-02-22
 

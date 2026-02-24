@@ -56,11 +56,13 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from osprey_hook_log import get_hook_input, get_project_dir, log_hook
 
-def load_osprey_config():
-    config_path = Path(
-        os.path.expandvars(os.environ.get("OSPREY_CONFIG", str(Path.cwd() / "config.yml")))
-    )
+
+def load_osprey_config(project_dir=""):
+    default = str(Path(project_dir) / "config.yml") if project_dir else str(Path.cwd() / "config.yml")
+    config_path = Path(os.path.expandvars(os.environ.get("OSPREY_CONFIG", default)))
     if config_path.exists():
         with open(config_path) as f:
             return yaml.safe_load(f) or {}
@@ -74,9 +76,8 @@ WRITE_TOOLS = {
 
 
 def main():
-    try:
-        hook_input = json.load(sys.stdin)
-    except (json.JSONDecodeError, EOFError):
+    hook_input = get_hook_input()
+    if not hook_input:
         sys.exit(0)
 
     tool_name = hook_input.get("tool_name", "")
@@ -92,13 +93,16 @@ def main():
         if tool_input.get("execution_mode") == "readonly":
             sys.exit(0)
 
-    config = load_osprey_config()
+    project_dir = get_project_dir(hook_input)
+    config = load_osprey_config(project_dir)
     writes_enabled = config.get("control_system", {}).get("writes_enabled", False)
 
     if writes_enabled:
+        log_hook("writes-check", hook_input, status="allow")
         sys.exit(0)
 
     # Deny — writes are disabled
+    log_hook("writes-check", hook_input, status="deny")
     # PROMPT-PROVIDER: section=writes_disabled_message
     # Future: source from FrameworkPromptProvider.get_writes_disabled_message()
     # Facility-customizable: header, instructions, who to contact

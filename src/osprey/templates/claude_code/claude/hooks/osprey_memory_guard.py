@@ -55,6 +55,9 @@ import os
 import sys
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from osprey_hook_log import get_hook_input, get_project_dir, log_hook
+
 
 def resolve_memory_dir(project_dir: str) -> Path:
     """Compute the Claude Code memory directory for a project.
@@ -96,9 +99,8 @@ def is_allowed_memory_write(file_path: str, memory_dir: Path) -> bool:
 
 
 def main():
-    try:
-        hook_input = json.load(sys.stdin)
-    except (json.JSONDecodeError, EOFError):
+    hook_input = get_hook_input()
+    if not hook_input:
         sys.exit(0)
 
     tool_name = hook_input.get("tool_name", "")
@@ -109,6 +111,7 @@ def main():
     file_path = tool_input.get("file_path", "")
 
     if not file_path:
+        log_hook("memory-guard", hook_input, status="deny", detail="no-path")
         output = {
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
@@ -122,10 +125,11 @@ def main():
         json.dump(output, sys.stdout)
         sys.exit(0)
 
-    project_dir = os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd())
+    project_dir = get_project_dir(hook_input) or os.getcwd()
     memory_dir = resolve_memory_dir(project_dir)
 
     if is_allowed_memory_write(file_path, memory_dir):
+        log_hook("memory-guard", hook_input, status="allow")
         output = {
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
@@ -133,6 +137,7 @@ def main():
             }
         }
     else:
+        log_hook("memory-guard", hook_input, status="deny", detail=f"path={file_path}")
         output = {
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",

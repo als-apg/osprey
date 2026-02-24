@@ -141,6 +141,12 @@ def _get_default_artifacts() -> list[PromptArtifact]:
             output_path=".claude/rules/code-generation.md",
             description="Code generation safety rules (control_assistant only)",
         ),
+        PromptArtifact(
+            canonical_name="rules/timezone",
+            template_path="claude/rules/timezone.md.j2",
+            output_path=".claude/rules/timezone.md",
+            description="Facility timezone context for timestamp interpretation",
+        ),
         # ── Hooks ────────────────────────────────────────────────────
         PromptArtifact(
             canonical_name="hooks/approval",
@@ -171,6 +177,24 @@ def _get_default_artifacts() -> list[PromptArtifact]:
             template_path="claude/hooks/osprey_notebook_update.py",
             output_path=".claude/hooks/osprey_notebook_update.py",
             description="Notebook artifact update hook",
+        ),
+        PromptArtifact(
+            canonical_name="hooks/memory-guard",
+            template_path="claude/hooks/osprey_memory_guard.py",
+            output_path=".claude/hooks/osprey_memory_guard.py",
+            description="Memory guard hook",
+        ),
+        PromptArtifact(
+            canonical_name="hooks/cf-feedback-capture",
+            template_path="claude/hooks/osprey_cf_feedback_capture.py",
+            output_path=".claude/hooks/osprey_cf_feedback_capture.py",
+            description="Channel finder feedback capture hook",
+        ),
+        PromptArtifact(
+            canonical_name="hooks/hook-log",
+            template_path="claude/hooks/osprey_hook_log.py",
+            output_path=".claude/hooks/osprey_hook_log.py",
+            description="Shared hook logging utility",
         ),
         # ── Skills ──────────────────────────────────────────────────
         PromptArtifact(

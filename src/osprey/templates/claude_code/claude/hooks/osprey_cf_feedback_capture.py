@@ -1,0 +1,196 @@
+#!/usr/bin/env python3
+"""
+---
+name: Channel Finder Feedback Capture
+description: Silently captures channel finder search results into pending review store
+summary: Captures CF tool results for operator review
+event: PostToolUse
+tools: mcp__channel-finder__build_channels, mcp__channel-finder__get_channels
+---
+
+## Flow
+
+```
+stdin --> Parse JSON
+              |
+              v
+         Is CF tool?  --NO--> EXIT (silent)
+              |
+             YES
+              v
+         Parse tool_response
+              |
+              v
+         total > 0?  --NO--> EXIT (silent)
+              |
+             YES
+              v
+         Resolve store path
+              |
+              v
+         Try import PendingReviewStore
+              |
+         +----+----+
+         |         |
+     installed  not installed
+         |         |
+         v         v
+     Use store   Inline JSON append
+         |         |
+         v         v
+         EXIT(0)
+```
+
+COMPLETELY SILENT: never writes to stdout. Always exits 0.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+import tempfile
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from osprey_hook_log import get_hook_input, get_project_dir, log_hook
+
+# Top-level guard: never crash the agent
+try:
+    # ----------------------------------------------------------------
+    # 1. Read hook input from stdin
+    # ----------------------------------------------------------------
+    hook_input = get_hook_input()
+    if not hook_input:
+        sys.exit(0)
+
+    # ----------------------------------------------------------------
+    # 2. Gate on tool name
+    # ----------------------------------------------------------------
+    tool_name = hook_input.get("tool_name", "")
+    CAPTURE_TOOLS = {
+        "mcp__channel-finder__build_channels",
+        "mcp__channel-finder__get_channels",
+    }
+    if tool_name not in CAPTURE_TOOLS:
+        sys.exit(0)
+
+    # ----------------------------------------------------------------
+    # 3. Parse tool_response, skip if total <= 0
+    # ----------------------------------------------------------------
+    tool_response_raw = hook_input.get("tool_response", "")
+    try:
+        tool_response = (
+            json.loads(tool_response_raw)
+            if isinstance(tool_response_raw, str)
+            else tool_response_raw
+        )
+    except (json.JSONDecodeError, ValueError):
+        sys.exit(0)
+
+    total = 0
+    if isinstance(tool_response, dict):
+        total = tool_response.get("total", 0)
+    if not total or total <= 0:
+        sys.exit(0)
+
+    # ----------------------------------------------------------------
+    # 4. Resolve store path
+    # ----------------------------------------------------------------
+    project_dir = get_project_dir(hook_input)
+    if not project_dir:
+        sys.exit(0)
+
+    store_path = os.path.join(project_dir, "data", "feedback", "pending_reviews.json")
+
+    # ----------------------------------------------------------------
+    # 5. Extract fields from hook input
+    # ----------------------------------------------------------------
+    tool_input = hook_input.get("tool_input", {})
+    if isinstance(tool_input, str):
+        try:
+            tool_input = json.loads(tool_input)
+        except (json.JSONDecodeError, ValueError):
+            tool_input = {}
+
+    item = {
+        "query": tool_input.get("query", ""),
+        "facility": tool_input.get("facility", ""),
+        "tool_name": tool_name,
+        "tool_response": tool_response_raw
+        if isinstance(tool_response_raw, str)
+        else json.dumps(tool_response_raw),
+        "channel_count": total,
+        "selections": tool_input.get("selections", {}),
+        "session_id": hook_input.get("session_id", ""),
+        "transcript_path": hook_input.get("transcript_path", ""),
+    }
+
+    # ----------------------------------------------------------------
+    # 6. Try importing PendingReviewStore; fallback to inline append
+    # ----------------------------------------------------------------
+    try:
+        from osprey.services.channel_finder.feedback.pending_store import PendingReviewStore
+
+        store = PendingReviewStore(store_path)
+        store.capture(item)
+    except ImportError:
+        # Inline fallback when osprey is not installed
+        import fcntl
+        import uuid
+        from datetime import UTC, datetime
+
+        os.makedirs(os.path.dirname(store_path), exist_ok=True)
+        lock_path = store_path + ".lock"
+
+        with open(lock_path, "w") as lf:
+            fcntl.flock(lf, fcntl.LOCK_EX)
+            try:
+                # Load existing data
+                data = {"version": 1, "items": {}}
+                if os.path.exists(store_path):
+                    try:
+                        with open(store_path) as f:
+                            data = json.load(f)
+                    except (json.JSONDecodeError, OSError):
+                        data = {"version": 1, "items": {}}
+
+                # Add new item
+                item_id = str(uuid.uuid4())
+                item["id"] = item_id
+                item["captured_at"] = datetime.now(UTC).isoformat()
+                data.setdefault("items", {})[item_id] = item
+
+                # Evict if over 500
+                items = data["items"]
+                if len(items) > 500:
+                    sorted_ids = sorted(
+                        items.keys(),
+                        key=lambda k: items[k].get("captured_at", ""),
+                    )
+                    for evict_id in sorted_ids[: len(items) - 500]:
+                        del items[evict_id]
+
+                # Atomic write via tmp + replace
+                fd_num, tmp_path = tempfile.mkstemp(dir=os.path.dirname(store_path), suffix=".tmp")
+                try:
+                    with os.fdopen(fd_num, "w") as tmp_f:
+                        json.dump(data, tmp_f, indent=2)
+                    os.replace(tmp_path, store_path)
+                except BaseException:
+                    try:
+                        os.unlink(tmp_path)
+                    except OSError:
+                        pass
+                    raise
+            finally:
+                fcntl.flock(lf, fcntl.LOCK_UN)
+
+    log_hook("cf-feedback-capture", hook_input, status="captured", detail=f"channels={total}")
+
+except SystemExit:
+    raise
+except BaseException:
+    # Never crash the agent
+    pass
+
+sys.exit(0)
