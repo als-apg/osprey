@@ -24,6 +24,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from osprey.cli.prompt_registry import PromptRegistry
 from osprey.cli.styles import console
+from osprey.utils.config import resolve_env_vars
 
 # Manifest schema version for future compatibility
 MANIFEST_SCHEMA_VERSION = "1.1.0"
@@ -1046,6 +1047,7 @@ proper framework operation, especially when using containerized services.
         ".claude/hooks/osprey_approval.py",
         ".claude/hooks/osprey_error_guidance.py",
         ".claude/hooks/osprey_notebook_update.py",
+        ".claude/hooks/osprey_cf_feedback_capture.py",
         ".claude/rules/code-generation.md",
         ".claude/commands/diagnose.md",
         ".claude/skills/session-report/SKILL.md",
@@ -1139,6 +1141,8 @@ proper framework operation, especially when using containerized services.
 
         with open(config_file, encoding="utf-8") as f:
             config = yaml.safe_load(f) or {}
+
+        config = resolve_env_vars(config)
 
         ctx = self._build_claude_code_context(project_dir, config)
 
