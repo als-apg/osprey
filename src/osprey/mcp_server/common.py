@@ -6,12 +6,40 @@ without depending on each other.
 """
 
 import logging
+import sys
+import time
+from contextlib import contextmanager
 from pathlib import Path
 
 from rich.console import Console
 from rich.logging import RichHandler
 
 logger = logging.getLogger("osprey.mcp_server.common")
+
+# ---------------------------------------------------------------------------
+# Startup timing instrumentation
+# ---------------------------------------------------------------------------
+_server_label: str = "unknown"
+
+
+@contextmanager
+def startup_timer(label: str):
+    """Context manager that logs ``[STARTUP-TIMING] <server> | <label>: <ms>ms`` to stderr.
+
+    Uses ``time.perf_counter()`` for sub-millisecond precision.
+    Output goes directly to stderr so it is visible even before the logging
+    subsystem is fully configured.
+    """
+    t0 = time.perf_counter()
+    try:
+        yield
+    finally:
+        elapsed_ms = (time.perf_counter() - t0) * 1000
+        print(
+            f"[STARTUP-TIMING] {_server_label} | {label}: {elapsed_ms:.0f}ms",
+            file=sys.stderr,
+            flush=True,
+        )
 
 
 def redirect_logging_to_stderr() -> None:
@@ -173,9 +201,10 @@ def make_error(
 def prime_config_builder() -> None:
     """Prime the main ConfigBuilder with config.yml from OSPREY_CONFIG.
 
-    Also initializes the main OSPREY registry (providers, connectors, etc.)
-    so downstream services (ChannelFinderService, LimitsValidator,
-    pattern_detection, ARIEL) find their config.
+    Sets the global ConfigBuilder singleton so that ``get_config_value()``
+    works throughout MCP tool code. Does NOT initialize the full framework
+    registry — MCP servers don't need it (they use their own lightweight
+    registries for connectors, ARIEL, channel-finder, etc.).
     """
     import os
 
@@ -185,19 +214,11 @@ def prime_config_builder() -> None:
         try:
             from osprey.utils.config import get_config_builder
 
-            get_config_builder(config_path=osprey_config, set_as_default=True)
+            with startup_timer("config_builder"):
+                get_config_builder(config_path=osprey_config, set_as_default=True)
             logger.info("Main ConfigBuilder primed from OSPREY_CONFIG: %s", osprey_config)
         except Exception as exc:
             logger.warning("ConfigBuilder priming failed (non-fatal): %s", exc)
-
-    # Initialize the main OSPREY registry (providers, connectors, etc.)
-    try:
-        from osprey.registry import initialize_registry
-
-        initialize_registry(auto_export=False, silent=True, config_path=osprey_config)
-        logger.info("Main OSPREY registry initialized")
-    except Exception as exc:
-        logger.warning("OSPREY registry initialization failed (non-fatal): %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -208,8 +229,9 @@ def initialize_workspace_singletons(workspace_root: Path) -> None:
     from osprey.mcp_server.artifact_store import initialize_artifact_store
     from osprey.mcp_server.memory_store import initialize_memory_store
 
-    initialize_artifact_store(workspace_root=workspace_root)
-    initialize_memory_store(workspace_root=workspace_root)
+    with startup_timer("workspace_singletons"):
+        initialize_artifact_store(workspace_root=workspace_root)
+        initialize_memory_store(workspace_root=workspace_root)
 
 
 # ---------------------------------------------------------------------------
@@ -383,13 +405,35 @@ def run_mcp_server(server_module: str) -> None:
     Args:
         server_module: Dotted path to the module containing ``create_server()``.
     """
+    global _server_label
+
     from importlib import import_module
+
+    # Derive a human-readable label from the module path
+    # e.g. "osprey.mcp_server.workspace.server" -> "workspace"
+    parts = server_module.split(".")
+    _server_label = parts[-2] if len(parts) >= 2 else server_module
+
+    t_total = time.perf_counter()
 
     from osprey.mcp_env import load_dotenv_from_project
 
-    load_dotenv_from_project()
+    with startup_timer("dotenv_load"):
+        load_dotenv_from_project()
+
     redirect_logging_to_stderr()
 
-    mod = import_module(server_module)
-    server = mod.create_server()
+    with startup_timer("import_server_module"):
+        mod = import_module(server_module)
+
+    with startup_timer("create_server"):
+        server = mod.create_server()
+
+    elapsed_total_ms = (time.perf_counter() - t_total) * 1000
+    print(
+        f"[STARTUP-TIMING] {_server_label} | total_startup: {elapsed_total_ms:.0f}ms",
+        file=sys.stderr,
+        flush=True,
+    )
+
     server.run()
