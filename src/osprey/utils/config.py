@@ -26,6 +26,50 @@ get_config = None
 logger = logging.getLogger("CONFIG")
 
 
+def resolve_env_vars(data: Any) -> Any:
+    """Recursively resolve environment variables in configuration data.
+
+    Supports both simple and bash-style default value syntax:
+    - ${VAR_NAME} - simple substitution
+    - ${VAR_NAME:-default_value} - with default value
+    - $VAR_NAME - simple substitution without braces
+
+    This is the public, standalone version of ConfigBuilder._resolve_env_vars.
+    Use it when you need env-var resolution without a full ConfigBuilder instance
+    (e.g., after a raw yaml.safe_load).
+    """
+    if isinstance(data, dict):
+        return {key: resolve_env_vars(value) for key, value in data.items()}
+    elif isinstance(data, list):
+        return [resolve_env_vars(item) for item in data]
+    elif isinstance(data, str):
+
+        def replace_env_var(match):
+            if match.group(1):  # ${VAR_NAME:-default} or ${VAR_NAME}
+                var_name = match.group(1)
+                default_value = match.group(2) if match.group(2) is not None else None
+            else:  # $VAR_NAME (simple form)
+                var_name = match.group(3)
+                default_value = None
+
+            env_value = os.environ.get(var_name)
+            if env_value is None:
+                if default_value is not None:
+                    return default_value
+                else:
+                    if not os.environ.get("OSPREY_QUIET"):
+                        logger.info(
+                            f"Environment variable '{var_name}' not found, keeping original value"
+                        )
+                    return match.group(0)
+            return env_value
+
+        pattern = r"\$\{([^}:]+)(?::-(.*?))?\}|\$([A-Za-z_][A-Za-z0-9_]*)"
+        return re.sub(pattern, replace_env_var, data)
+    else:
+        return data
+
+
 class ConfigBuilder:
     """
     Configuration builder with clean, modern architecture.
@@ -156,45 +200,9 @@ class ConfigBuilder:
     def _resolve_env_vars(self, data: Any) -> Any:
         """Recursively resolve environment variables in configuration data.
 
-        Supports both simple and bash-style default value syntax:
-        - ${VAR_NAME} - simple substitution
-        - ${VAR_NAME:-default_value} - with default value
-        - $VAR_NAME - simple substitution without braces
+        Delegates to the module-level :func:`resolve_env_vars` function.
         """
-        if isinstance(data, dict):
-            return {key: self._resolve_env_vars(value) for key, value in data.items()}
-        elif isinstance(data, list):
-            return [self._resolve_env_vars(item) for item in data]
-        elif isinstance(data, str):
-
-            def replace_env_var(match):
-                # Pattern matches: ${VAR_NAME:-default} or ${VAR_NAME} or $VAR_NAME
-                if match.group(1):  # ${VAR_NAME:-default} or ${VAR_NAME}
-                    var_name = match.group(1)
-                    default_value = match.group(2) if match.group(2) is not None else None
-                else:  # $VAR_NAME (simple form)
-                    var_name = match.group(3)
-                    default_value = None
-
-                env_value = os.environ.get(var_name)
-                if env_value is None:
-                    if default_value is not None:
-                        # Use default value from ${VAR:-default} syntax
-                        return default_value
-                    else:
-                        # Only log warning if not in quiet mode (e.g., from interactive menu subprocess)
-                        if not os.environ.get("OSPREY_QUIET"):
-                            logger.info(
-                                f"Environment variable '{var_name}' not found, keeping original value"
-                            )
-                        return match.group(0)
-                return env_value
-
-            # Pattern matches ${VAR_NAME:-default}, ${VAR_NAME}, or $VAR_NAME
-            pattern = r"\$\{([^}:]+)(?::-(.*?))?\}|\$([A-Za-z_][A-Za-z0-9_]*)"
-            return re.sub(pattern, replace_env_var, data)
-        else:
-            return data
+        return resolve_env_vars(data)
 
     def _load_config(self) -> tuple[dict[str, Any], dict[str, Any]]:
         """Load configuration from single file.

@@ -206,6 +206,50 @@ class TestRegenerationCorrectness:
         content = (project_dir / "CLAUDE.md").read_text()
         assert "wiki-search" in content
 
+    def test_regen_resolves_env_var_in_timezone(self, tmp_path, monkeypatch):
+        """${TZ:-America/Los_Angeles} in config.yml is resolved in timezone.md."""
+        monkeypatch.delenv("TZ", raising=False)
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="regen-tz",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+
+        # Set timezone to an env-var pattern in config.yml
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        config.setdefault("system", {})["timezone"] = "${TZ:-America/Los_Angeles}"
+        (project_dir / "config.yml").write_text(yaml.dump(config))
+
+        manager.regenerate_claude_code(project_dir)
+
+        timezone_file = project_dir / ".claude" / "rules" / "timezone.md"
+        assert timezone_file.exists(), "timezone.md should be created when timezone is set"
+        content = timezone_file.read_text()
+        assert "America/Los_Angeles" in content
+        assert "${TZ" not in content, "Env var pattern should be resolved, not literal"
+
+    def test_regen_resolves_env_var_in_timezone_with_env_set(self, tmp_path, monkeypatch):
+        """${TZ:-...} resolves to actual TZ env value when set."""
+        monkeypatch.setenv("TZ", "Europe/Berlin")
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="regen-tz-env",
+            output_dir=tmp_path,
+            template_name="minimal",
+        )
+
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        config.setdefault("system", {})["timezone"] = "${TZ:-America/Los_Angeles}"
+        (project_dir / "config.yml").write_text(yaml.dump(config))
+
+        manager.regenerate_claude_code(project_dir)
+
+        timezone_file = project_dir / ".claude" / "rules" / "timezone.md"
+        assert timezone_file.exists()
+        content = timezone_file.read_text()
+        assert "Europe/Berlin" in content
+
     def test_regen_removes_features_when_config_section_removed(self, tmp_path):
         """Init with confluence → remove section → regen → confluence gone."""
         manager = TemplateManager()
