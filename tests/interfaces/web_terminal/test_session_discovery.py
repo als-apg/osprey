@@ -6,7 +6,7 @@ import json
 import threading
 import time
 
-from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery, SessionRegistry
+from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 
 
 class TestResolveSessionsDir:
@@ -246,47 +246,3 @@ class TestAllowedIdsFilter:
         assert len(result) == 1
 
 
-class TestSessionRegistry:
-    def test_register_and_known_ids(self, tmp_path):
-        """Register adds IDs, known_ids retrieves them."""
-        registry = SessionRegistry(tmp_path)
-        assert registry.known_ids() == set()
-
-        registry.register("aaa-bbb-ccc")
-        registry.register("ddd-eee-fff")
-        assert registry.known_ids() == {"aaa-bbb-ccc", "ddd-eee-fff"}
-
-    def test_register_idempotent(self, tmp_path):
-        """Registering the same ID twice doesn't duplicate."""
-        registry = SessionRegistry(tmp_path)
-        registry.register("aaa-bbb-ccc")
-        registry.register("aaa-bbb-ccc")
-        assert registry.known_ids() == {"aaa-bbb-ccc"}
-
-    def test_persists_to_disk(self, tmp_path):
-        """Registry survives across instances."""
-        reg1 = SessionRegistry(tmp_path)
-        reg1.register("aaa-bbb-ccc")
-
-        reg2 = SessionRegistry(tmp_path)
-        assert "aaa-bbb-ccc" in reg2.known_ids()
-
-    def test_missing_file_returns_empty(self, tmp_path):
-        """No .sessions.json file → empty set."""
-        registry = SessionRegistry(tmp_path / "nonexistent")
-        assert registry.known_ids() == set()
-
-    def test_corrupt_file_returns_empty(self, tmp_path):
-        """Corrupt JSON file handled gracefully."""
-        sessions_file = tmp_path / ".sessions.json"
-        sessions_file.write_text("{bad json")
-
-        registry = SessionRegistry(tmp_path)
-        assert registry.known_ids() == set()
-
-    def test_creates_parent_dirs(self, tmp_path):
-        """Register creates workspace dir if missing."""
-        workspace = tmp_path / "workspace" / "nested"
-        registry = SessionRegistry(workspace)
-        registry.register("aaa-bbb-ccc")
-        assert registry.known_ids() == {"aaa-bbb-ccc"}

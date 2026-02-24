@@ -32,16 +32,10 @@ def client(workspace_dir):
 
 class TestListSessionsEndpoint:
     def test_returns_empty_list(self, client):
-        """GET /api/sessions returns empty list when registry is empty."""
-        with (
-            patch(
-                "osprey.interfaces.web_terminal.routes.SessionRegistry.known_ids",
-                return_value=set(),
-            ),
-            patch(
-                "osprey.interfaces.web_terminal.routes.SessionDiscovery.list_sessions",
-                return_value=[],
-            ),
+        """GET /api/sessions returns empty list when no sessions exist."""
+        with patch(
+            "osprey.interfaces.web_terminal.routes.SessionDiscovery.list_sessions",
+            return_value=[],
         ):
             resp = client.get("/api/sessions")
         assert resp.status_code == 200
@@ -65,16 +59,9 @@ class TestListSessionsEndpoint:
             ),
         ]
 
-        known = {"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "11111111-2222-3333-4444-555555555555"}
-        with (
-            patch(
-                "osprey.interfaces.web_terminal.routes.SessionRegistry.known_ids",
-                return_value=known,
-            ),
-            patch(
-                "osprey.interfaces.web_terminal.routes.SessionDiscovery.list_sessions",
-                return_value=mock_sessions,
-            ),
+        with patch(
+            "osprey.interfaces.web_terminal.routes.SessionDiscovery.list_sessions",
+            return_value=mock_sessions,
         ):
             resp = client.get("/api/sessions")
 
@@ -135,3 +122,103 @@ class TestResolveWorkspace:
         # Should not have traversed — uses base workspace
         names = [c["name"] for c in data.get("children", [])]
         assert "base_file.txt" in names
+
+
+class TestSessionScopedDiagnostics:
+    """Verify session diagnostics endpoints accept ?session_id= param."""
+
+    # TranscriptReader is imported inside the endpoint functions (lazy import),
+    # so we patch at its canonical module location.
+    _TR = "osprey.mcp_server.workspace.transcript_reader.TranscriptReader"
+
+    def test_session_agents_with_session_id(self, client):
+        """GET /api/session-agents?session_id=<id> uses read_session_by_id."""
+        mock_events = [
+            {"type": "tool_call", "tool": "channel_read", "agent_id": None,
+             "timestamp": "2026-02-19T12:00:00Z"},
+        ]
+        with patch(self._TR) as MockReader:
+            instance = MockReader.return_value
+            instance.read_session_by_id.return_value = mock_events
+            resp = client.get("/api/session-agents?session_id=abc-123")
+
+        assert resp.status_code == 200
+        instance.read_session_by_id.assert_called_once_with("abc-123")
+        instance.read_current_session.assert_not_called()
+
+    def test_session_agents_without_session_id(self, client):
+        """GET /api/session-agents falls back to read_current_session."""
+        with patch(self._TR) as MockReader:
+            instance = MockReader.return_value
+            instance.read_current_session.return_value = []
+            resp = client.get("/api/session-agents")
+
+        assert resp.status_code == 200
+        instance.read_current_session.assert_called_once()
+
+    def test_session_log_with_session_id(self, client):
+        """GET /api/session-log?session_id=<id> uses read_session_by_id."""
+        mock_events = [
+            {"type": "tool_call", "tool_name": "channel_read", "server_name": "controls",
+             "agent_id": None, "is_error": False, "timestamp": "2026-02-19T12:00:00Z"},
+        ]
+        with patch(self._TR) as MockReader:
+            instance = MockReader.return_value
+            instance.read_session_by_id.return_value = mock_events
+            resp = client.get("/api/session-log?session_id=abc-123")
+
+        assert resp.status_code == 200
+        instance.read_session_by_id.assert_called_once_with("abc-123")
+
+    def test_session_chat_with_session_id(self, client):
+        """GET /api/session-chat?session_id=<id> uses read_chat_history_by_id."""
+        mock_turns = [
+            {"role": "user", "content": "Hello", "timestamp": "2026-02-19T12:00:00Z"},
+        ]
+        with patch(self._TR) as MockReader:
+            instance = MockReader.return_value
+            instance.read_chat_history_by_id.return_value = mock_turns
+            resp = client.get("/api/session-chat?session_id=abc-123")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["count"] == 1
+        instance.read_chat_history_by_id.assert_called_once_with("abc-123")
+        instance.read_current_chat_history.assert_not_called()
+
+    def test_session_chat_without_session_id(self, client):
+        """GET /api/session-chat falls back to read_current_chat_history."""
+        with patch(self._TR) as MockReader:
+            instance = MockReader.return_value
+            instance.read_current_chat_history.return_value = []
+            resp = client.get("/api/session-chat")
+
+        assert resp.status_code == 200
+        instance.read_current_chat_history.assert_called_once()
+
+    def test_session_agent_timeline_with_session_id(self, client):
+        """GET /api/session-agent-timeline?session_id=<id> passes to reader."""
+        mock_timeline = [{"kind": "prompt", "timestamp": "t", "text": "hi"}]
+        with patch(self._TR) as MockReader:
+            instance = MockReader.return_value
+            instance.read_agent_timeline.return_value = mock_timeline
+            resp = client.get(
+                "/api/session-agent-timeline?agent_id=agent-xyz&session_id=abc-123"
+            )
+
+        assert resp.status_code == 200
+        instance.read_agent_timeline.assert_called_once_with(
+            "agent-xyz", session_id="abc-123"
+        )
+
+    def test_session_agent_timeline_without_session_id(self, client):
+        """GET /api/session-agent-timeline without session_id passes None."""
+        with patch(self._TR) as MockReader:
+            instance = MockReader.return_value
+            instance.read_agent_timeline.return_value = []
+            resp = client.get("/api/session-agent-timeline?agent_id=agent-xyz")
+
+        assert resp.status_code == 200
+        instance.read_agent_timeline.assert_called_once_with(
+            "agent-xyz", session_id=None
+        )
