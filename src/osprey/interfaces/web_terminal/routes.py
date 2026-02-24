@@ -148,6 +148,13 @@ async def monitoring_server_config(request: Request):
     return {"url": url, "available": url is not None}
 
 
+@router.get("/api/agentsview-server")
+async def agentsview_server_config(request: Request):
+    """Return the agentsview session analytics server URL for iframe embedding."""
+    url = getattr(request.app.state, "agentsview_server_url", None)
+    return {"url": url, "available": url is not None}
+
+
 class PanelFocusRequest(BaseModel):
     panel: str
     url: str | None = None
@@ -163,7 +170,7 @@ async def get_panel_focus(request: Request):
 @router.post("/api/panel-focus")
 async def set_panel_focus(body: PanelFocusRequest, request: Request):
     """Set the active panel and broadcast a focus event via SSE."""
-    known = {"artifacts", "ariel", "tuning", "channel-finder", "monitoring", "session"}
+    known = {"artifacts", "ariel", "tuning", "channel-finder", "monitoring", "session", "session-analytics"}
     if body.panel not in known:
         raise HTTPException(status_code=422, detail=f"Unknown panel: {body.panel}")
     request.app.state.active_panel = body.panel
@@ -301,7 +308,10 @@ async def session_summary(request: Request):
         from osprey.mcp_server.workspace.tools.session_summary import _extract_channels
 
         store = ArtifactStore(request.app.state.workspace_dir)
-        entries = store.list_entries()
+        session_id = request.query_params.get("session_id")
+        entries = store.list_entries(
+            session_filter=session_id if session_id else None,
+        )
 
         total_bytes = 0
         categories: dict[str, int] = {}
@@ -446,6 +456,11 @@ async def terminal_ws(websocket: WebSocket):
     otel_env = getattr(websocket.app.state, "otel_env", {})
     if otel_env:
         extra_env.update(otel_env)
+
+    # Inject hook debug env
+    hooks_env = getattr(websocket.app.state, "hooks_env", {})
+    if hooks_env:
+        extra_env.update(hooks_env)
 
     session = registry.create_session(
         pty_key,

@@ -584,6 +584,19 @@ monitoring:
     port: 8091
 
 # ============================================================
+# AGENTSVIEW — Session Analytics UI
+# ============================================================
+# Provides a web UI for browsing Claude Code session transcripts,
+# analytics dashboards, and full-text search over session history.
+# Install: go install github.com/wesm/agentsview@latest
+# Sessions are automatically scoped to this project directory.
+
+agentsview:
+  host: "127.0.0.1"
+  port: 8096
+  auto_launch: true
+
+# ============================================================
 # CONFLUENCE WIKI
 # ============================================================
 # Confluence wiki URL for the external link button in the web terminal

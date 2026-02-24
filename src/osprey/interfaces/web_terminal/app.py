@@ -184,6 +184,27 @@ def _launch_monitoring_stack(app: FastAPI) -> None:
         app.state.otel_env = {}
 
 
+def _launch_agentsview_server(app: FastAPI) -> None:
+    """Auto-launch the agentsview session analytics server if configured."""
+    try:
+        from osprey.mcp_server.common import load_osprey_config
+
+        config = load_osprey_config()
+        av_config = config.get("agentsview", {})
+        host = av_config.get("host", "127.0.0.1")
+        port = av_config.get("port", 8096)
+
+        app.state.agentsview_server_url = f"http://{host}:{port}"
+
+        from osprey.interfaces.agentsview.launcher import ensure_agentsview
+
+        ensure_agentsview()
+        logger.info("agentsview available at %s", app.state.agentsview_server_url)
+    except Exception:
+        logger.warning("Could not auto-launch agentsview", exc_info=True)
+        app.state.agentsview_server_url = None
+
+
 def _launch_cui_server(app: FastAPI) -> None:
     """Auto-launch the CUI server subprocess if configured."""
     try:
@@ -296,6 +317,9 @@ def _create_lifespan(
         # Auto-launch the OTEL monitoring stack
         _launch_monitoring_stack(app)
 
+        # Auto-launch the agentsview session analytics server
+        _launch_agentsview_server(app)
+
         # Hook debug env — propagated to PTY/SDK sessions like OTEL
         app.state.hooks_env = {}
         try:
@@ -327,6 +351,14 @@ def _create_lifespan(
             from osprey.interfaces.monitoring.launcher import stop_monitoring_stack
 
             stop_monitoring_stack()
+        except Exception:
+            pass
+
+        # Stop agentsview subprocess
+        try:
+            from osprey.interfaces.agentsview.launcher import stop_agentsview
+
+            stop_agentsview()
         except Exception:
             pass
 

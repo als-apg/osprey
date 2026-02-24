@@ -8,6 +8,7 @@
 
 import { fetchJSON } from './api.js';
 import { getTheme } from './theme.js';
+import { getCurrentSessionId } from './terminal.js';
 
 // ---- Panel Registry ----
 
@@ -18,13 +19,6 @@ const PANELS = [
     configEndpoint: '/api/artifact-server',
     healthEndpoint: null,    // embedded same-origin — skip health polling
     statusBarId: null,       // no dedicated status-bar item
-  },
-  {
-    id: 'session',
-    label: 'ACTIVITY',
-    configEndpoint: '/api/session-server',
-    healthEndpoint: null,    // same-origin, skip health polling
-    statusBarId: null,
   },
   {
     id: 'ariel',
@@ -45,11 +39,25 @@ const PANELS = [
     statusBarId: 'channel-finder-status',
   },
   {
+    id: 'session',
+    label: 'ACTIVITY',
+    configEndpoint: '/api/session-server',
+    healthEndpoint: null,    // same-origin, skip health polling
+    statusBarId: null,
+  },
+  {
     id: 'monitoring',
     label: 'MONITORING',
     configEndpoint: '/api/monitoring-server',
     healthEndpoint: null,    // backend verifies Grafana health before advertising URL
     statusBarId: 'monitoring-status',
+  },
+  {
+    id: 'session-analytics',
+    label: 'SESSION ANALYTICS',
+    configEndpoint: '/api/agentsview-server',
+    healthEndpoint: null,    // backend verifies health before advertising URL
+    statusBarId: null,
   },
 ];
 
@@ -296,14 +304,21 @@ function activateTab(panelId, { userInitiated = false } = {}) {
     createIframe(panelId);
   }
 
-  // Re-send current theme to the newly visible iframe (handles edge cases
-  // where a postMessage was missed while the iframe was hidden or loading)
+  // Re-send current theme and session ID to the newly visible iframe
+  // (handles edge cases where a postMessage was missed while hidden/loading)
   if (state.iframe?.contentWindow) {
     try {
       state.iframe.contentWindow.postMessage(
         { type: 'osprey-theme-change', theme: getTheme() },
         '*'
       );
+      const sid = getCurrentSessionId();
+      if (sid) {
+        state.iframe.contentWindow.postMessage(
+          { type: 'osprey-session-change', session_id: sid },
+          '*'
+        );
+      }
     } catch { /* cross-origin */ }
   }
 
@@ -356,6 +371,16 @@ function createIframe(panelId) {
 
   iframe.addEventListener('load', () => {
     iframe.classList.add('loaded');
+    // Forward the current session ID so the iframe can scope its API calls
+    const sid = getCurrentSessionId();
+    if (sid && iframe.contentWindow) {
+      try {
+        iframe.contentWindow.postMessage(
+          { type: 'osprey-session-change', session_id: sid },
+          '*'
+        );
+      } catch { /* cross-origin */ }
+    }
   });
 
   contentEl.appendChild(iframe);
