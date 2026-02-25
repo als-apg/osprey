@@ -214,6 +214,7 @@ class TranscriptReader:
                 "timestamp": ts,
                 "agent_type": agent_type,
                 "tool_use_id": block.get("id", ""),
+                "prompt": task_input.get("prompt", ""),
             })
 
         # Read subagent transcripts and create lifecycle events with matching IDs
@@ -231,8 +232,10 @@ class TranscriptReader:
                         agent_id=agent_fname,
                     )
 
+                    sub_prompt = self._read_first_user_text(agent_file)
                     agent_type = self._match_subagent_to_task(
                         agent_fname, sub_events, task_meta, matched_task_indices,
+                        subagent_prompt=sub_prompt,
                     )
                     start_ts = sub_events[0].get("timestamp", "") if sub_events else ""
                     stop_ts = sub_events[-1].get("timestamp", "") if sub_events else ""
@@ -282,6 +285,210 @@ class TranscriptReader:
         if not path:
             return []
         return self.read_session(path)
+
+    def find_transcript_by_id(self, session_id: str) -> Path | None:
+        """Find the transcript file for a specific session ID.
+
+        Claude Code uses session UUIDs as filenames, so this constructs
+        the expected path directly without scanning.
+
+        Returns:
+            Path to the ``.jsonl`` file, or None if not found.
+        """
+        transcript_dir = self.find_transcript_dir()
+        if not transcript_dir:
+            return None
+        path = transcript_dir / f"{session_id}.jsonl"
+        if path.is_file():
+            return path
+        return None
+
+    def read_session_by_id(self, session_id: str, **kwargs) -> list[dict]:
+        """Read a specific session's events by session ID.
+
+        Args:
+            session_id: The Claude Code session UUID.
+            **kwargs: Passed through to :meth:`read_session`
+                (e.g. ``include_subagents``).
+
+        Returns:
+            List of event dicts, or empty list if session not found.
+        """
+        path = self.find_transcript_by_id(session_id)
+        if not path:
+            return []
+        return self.read_session(path, **kwargs)
+
+    def read_chat_history_by_id(self, session_id: str) -> list[dict]:
+        """Read chat history for a specific session by ID.
+
+        Returns:
+            List of conversation turn dicts, or empty list if not found.
+        """
+        path = self.find_transcript_by_id(session_id)
+        if not path:
+            return []
+        return self.read_chat_history(path)
+
+    def read_agent_timeline(self, agent_id: str, *, session_id: str | None = None) -> list[dict]:
+        """Read the full internal timeline of a subagent.
+
+        Extracts every reasoning step, tool call, and result from the
+        subagent's transcript — everything the agent "said to itself".
+
+        Args:
+            agent_id: The subagent filename stem.
+            session_id: If provided, look up the parent transcript by
+                session ID instead of using the most recent transcript.
+
+        Returns a chronological list of timeline entries with ``kind``
+        values: ``prompt``, ``reasoning``, ``tool_call``, ``tool_result``.
+        """
+        if session_id:
+            transcript = self.find_transcript_by_id(session_id)
+        else:
+            transcript = self.find_current_transcript()
+        if not transcript:
+            return []
+
+        subagent_dir = transcript.parent / transcript.stem / "subagents"
+        agent_file = subagent_dir / f"{agent_id}.jsonl"
+        if not agent_file.is_file():
+            return []
+
+        return self._parse_agent_timeline(agent_file)
+
+    @staticmethod
+    def _parse_agent_timeline(path: Path) -> list[dict]:
+        """Parse a subagent transcript into a flat timeline."""
+        timeline: list[dict] = []
+        pending_tools: dict[str, dict] = {}
+        is_first_user = True
+
+        for line in path.read_text().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except (json.JSONDecodeError, ValueError):
+                continue
+
+            etype = entry.get("type")
+            timestamp = entry.get("timestamp", "")
+
+            if etype == "assistant":
+                msg = entry.get("message", {})
+                content = msg.get("content", [])
+                if isinstance(content, str):
+                    timeline.append({
+                        "kind": "reasoning",
+                        "timestamp": timestamp,
+                        "text": content,
+                    })
+                    continue
+                if not isinstance(content, list):
+                    continue
+                for block in content:
+                    if not isinstance(block, dict):
+                        continue
+                    bt = block.get("type", "")
+                    if bt == "text":
+                        text = block.get("text", "").strip()
+                        if text:
+                            timeline.append({
+                                "kind": "reasoning",
+                                "timestamp": timestamp,
+                                "text": text,
+                            })
+                    elif bt == "thinking":
+                        text = block.get("thinking", "").strip()
+                        if text:
+                            timeline.append({
+                                "kind": "thinking",
+                                "timestamp": timestamp,
+                                "text": text,
+                            })
+                    elif bt == "tool_use":
+                        tool_id = block.get("id", "")
+                        tool_entry = {
+                            "kind": "tool_call",
+                            "timestamp": timestamp,
+                            "tool": block.get("name", ""),
+                            "arguments": block.get("input", {}),
+                        }
+                        timeline.append(tool_entry)
+                        if tool_id:
+                            pending_tools[tool_id] = tool_entry
+
+            elif etype == "user":
+                msg = entry.get("message", {})
+                content = msg.get("content", "")
+
+                if is_first_user:
+                    is_first_user = False
+                    text = ""
+                    if isinstance(content, str):
+                        text = content.strip()
+                    elif isinstance(content, list):
+                        parts = []
+                        for block in content:
+                            if isinstance(block, str):
+                                parts.append(block)
+                            elif isinstance(block, dict) and block.get("type") == "text":
+                                parts.append(block.get("text", ""))
+                        text = "\n".join(parts).strip()
+                    if text:
+                        timeline.append({
+                            "kind": "prompt",
+                            "timestamp": timestamp,
+                            "text": text,
+                        })
+                    # First user entry may also contain tool_results
+                    # (fall through to process them)
+
+                if isinstance(content, list):
+                    for block in content:
+                        if not isinstance(block, dict):
+                            continue
+                        if block.get("type") != "tool_result":
+                            continue
+                        tool_use_id = block.get("tool_use_id", "")
+                        result_content = block.get("content", "")
+                        is_error = block.get("is_error", False)
+                        result_text = ""
+                        if isinstance(result_content, str):
+                            result_text = result_content
+                        elif isinstance(result_content, list):
+                            result_text = _extract_text(result_content)
+
+                        timeline.append({
+                            "kind": "tool_result",
+                            "timestamp": timestamp,
+                            "tool_use_id": tool_use_id,
+                            "text": result_text[:2000],
+                            "is_error": is_error,
+                        })
+
+            elif etype == "tool_result":
+                tool_use_id = entry.get("tool_use_id", "")
+                result_content = entry.get("content", "")
+                is_error = entry.get("is_error", False)
+                result_text = ""
+                if isinstance(result_content, str):
+                    result_text = result_content
+                elif isinstance(result_content, list):
+                    result_text = _extract_text(result_content)
+
+                timeline.append({
+                    "kind": "tool_result",
+                    "timestamp": timestamp,
+                    "tool_use_id": tool_use_id,
+                    "text": result_text[:2000],
+                    "is_error": is_error,
+                })
+
+        return timeline
 
     def read_chat_history(self, path: Path) -> list[dict]:
         """Extract conversation turns (user text + assistant text) from a transcript.
@@ -368,6 +575,7 @@ class TranscriptReader:
             "timestamp": timestamp,
             "agent_type": agent_type,
             "tool_use_id": task_use_block.get("id", ""),
+            "prompt": task_input.get("prompt", ""),
         }
 
         text = content
@@ -387,13 +595,58 @@ class TranscriptReader:
         task_meta.append(meta)
 
     @staticmethod
+    def _read_first_user_text(path: Path) -> str:
+        """Read the first user message from a transcript (the Task prompt)."""
+        try:
+            for line in path.read_text().splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                entry = json.loads(line)
+                if entry.get("type") != "user":
+                    continue
+                msg = entry.get("message", {})
+                content = msg.get("content", "")
+                if isinstance(content, str):
+                    return content.strip()
+                if isinstance(content, list):
+                    parts: list[str] = []
+                    for block in content:
+                        if isinstance(block, str):
+                            parts.append(block)
+                        elif isinstance(block, dict) and block.get("type") == "text":
+                            parts.append(block.get("text", ""))
+                    return "\n".join(parts).strip()
+                return ""
+        except Exception:
+            return ""
+
+    @staticmethod
     def _match_subagent_to_task(
         agent_fname: str,
         sub_events: list[dict],
         task_meta: list[dict],
         matched: set[int],
+        *,
+        subagent_prompt: str = "",
     ) -> str:
-        """Match a subagent transcript to a Task metadata entry by ID or order."""
+        """Match a subagent transcript to a Task metadata entry.
+
+        Matching strategies (in priority order):
+        1. Prompt comparison — the Task's prompt field should be the subagent's
+           first user message.  This is deterministic and handles concurrent agents.
+        2. Explicit result_agent_id / transcript_path from Task result JSON.
+        3. Chronological order fallback.
+        """
+        if subagent_prompt:
+            for i, meta in enumerate(task_meta):
+                if i in matched:
+                    continue
+                task_prompt = meta.get("prompt", "")
+                if task_prompt and task_prompt.strip() == subagent_prompt:
+                    matched.add(i)
+                    return meta["agent_type"]
+
         for i, meta in enumerate(task_meta):
             if i in matched:
                 continue
