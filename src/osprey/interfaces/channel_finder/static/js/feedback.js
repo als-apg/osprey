@@ -140,20 +140,39 @@ async function _renderList() {
           <span>Pending Reviews <span class="fb-pending-badge">${pendingItems.length}</span></span>
           <span class="fb-pending-subtitle">Agent-captured searches awaiting review</span>
         </div>
-        ${pendingItems.map(item => `
+        ${pendingItems.map(item => {
+          const summary = _buildCardSummary(item);
+          const label = _toolLabel(item.tool_name);
+          const channels = _parseChannelsFromResponse(item.tool_response);
+          const selHtml = item.selections && Object.keys(item.selections).length > 0
+            ? `<div class="fb-selections">${_renderSelections(item.selections)}</div>` : '';
+          const chHtml = _renderChannelList(channels);
+          const taskHtml = item.agent_task && item.agent_task !== summary
+            ? `<div class="fb-pending-agent-task">${esc(item.agent_task)}</div>` : '';
+          const artifactHtml = item.artifact && item.artifact.filename
+            ? `<a class="fb-pending-artifact-link" href="/api/artifacts/${esc(item.artifact.filename)}" target="_blank">View Result</a>` : '';
+          return `
           <div class="fb-pending-card" data-id="${esc(item.id)}">
-            <div class="fb-pending-query">${esc(item.query || '(no query)')}</div>
-            <div class="fb-selections">${_renderSelections(item.selections)}</div>
-            <div class="fb-pending-meta">
-              <span>${item.channel_count || 0} channels</span>
-              <span>${_formatTime(item.captured_at)}</span>
+            ${taskHtml}
+            <div class="fb-pending-header">
+              <div class="fb-pending-summary">${esc(summary)}</div>
+              ${label ? `<span class="fb-pending-tool-badge">${esc(label)}</span>` : ''}
             </div>
-            <div class="fb-pending-actions">
-              <button class="btn btn-sm btn-primary fb-pending-approve" data-id="${esc(item.id)}">Approve</button>
-              <button class="btn btn-sm btn-danger fb-pending-dismiss" data-id="${esc(item.id)}">Dismiss</button>
+            ${selHtml}
+            ${chHtml}
+            <div class="fb-pending-footer">
+              <div class="fb-pending-meta">
+                <span>${item.channel_count || 0} channels</span>
+                <span>${_formatTime(item.captured_at)}</span>
+              </div>
+              ${artifactHtml}
+              <div class="fb-pending-actions">
+                <button class="btn btn-sm btn-primary fb-pending-approve" data-id="${esc(item.id)}">Approve &amp; Update Prompt</button>
+                <button class="btn btn-sm btn-danger fb-pending-dismiss" data-id="${esc(item.id)}">Dismiss</button>
+              </div>
             </div>
-          </div>
-        `).join('')}
+          </div>`;
+        }).join('')}
       </div>
     `;
   } else {
@@ -220,37 +239,12 @@ function _bindListEvents() {
 }
 
 function _bindPendingEvents() {
-  // Approve buttons
+  // Approve buttons — directly promote to feedback store (no modal)
   _container.querySelectorAll('.fb-pending-approve').forEach(btn => {
     btn.addEventListener('click', async () => {
       const id = btn.dataset.id;
-      // Find the card to get pre-fill data
-      const card = btn.closest('.fb-pending-card');
-      const query = card?.querySelector('.fb-pending-query')?.textContent || '';
-
-      const result = await formModal({
-        title: 'Approve Pending Review',
-        fields: [
-          { name: 'query', label: 'Query', type: 'text', value: query, required: true },
-          { name: 'facility', label: 'Facility', type: 'text', placeholder: 'e.g. ALS' },
-          { name: 'entry_type', label: 'Type', type: 'select', options: [
-            { value: 'success', label: 'Success' },
-            { value: 'failure', label: 'Failure' },
-          ], value: 'success' },
-          { name: 'reason', label: 'Notes / Reason (if failure)', type: 'text', placeholder: 'optional' },
-        ],
-        submitLabel: 'Approve',
-      });
-
-      if (!result) return;
-
       try {
-        await postJSON(`/api/pending-reviews/${id}/approve`, {
-          query: result.query,
-          facility: result.facility || '',
-          entry_type: result.entry_type,
-          reason: result.reason || '',
-        });
+        await postJSON(`/api/pending-reviews/${id}/approve`);
         showToast('Review approved and recorded', 'success');
         _render();
       } catch (err) {
@@ -278,6 +272,18 @@ function _bindPendingEvents() {
       } catch (err) {
         showToast(`Dismiss failed: ${err.message}`, 'error');
       }
+    });
+  });
+
+  // Expand/collapse channel list toggles
+  _container.querySelectorAll('.fb-pending-channels-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const overflow = btn.previousElementSibling;
+      if (!overflow) return;
+      const isHidden = overflow.style.display === 'none';
+      overflow.style.display = isHidden ? 'contents' : 'none';
+      const count = btn.dataset.full;
+      btn.textContent = isHidden ? 'show less' : `+${count} more`;
     });
   });
 }
@@ -361,6 +367,98 @@ function _renderFailureCard(record, index) {
       </div>
     </div>
   `;
+}
+
+function _toolLabel(toolName) {
+  if (!toolName) return '';
+  if (toolName.includes('build_channels')) return 'build';
+  if (toolName.includes('get_channels')) return 'get';
+  return '';
+}
+
+function _buildSelectionPath(selections) {
+  if (!selections || Object.keys(selections).length === 0) return '';
+  const order = ['system', 'family', 'device', 'field', 'subfield'];
+  const parts = [];
+  const used = new Set();
+
+  for (const key of order) {
+    if (!(key in selections)) continue;
+    used.add(key);
+    const val = selections[key];
+    if (key === 'subfield') {
+      // Merge with previous field part if field was present
+      if (parts.length > 0 && 'field' in selections) {
+        parts[parts.length - 1] += ':' + (Array.isArray(val) ? val.join(', ') : String(val));
+        continue;
+      }
+    }
+    if (Array.isArray(val)) {
+      if (val.length <= 2) {
+        parts.push(val.join(', '));
+      } else {
+        parts.push(`${val[0]}, ${val[1]} +${val.length - 2}`);
+      }
+    } else {
+      parts.push(String(val));
+    }
+  }
+
+  // Append non-standard keys
+  for (const [k, v] of Object.entries(selections)) {
+    if (used.has(k)) continue;
+    const vs = Array.isArray(v) ? v.join(', ') : String(v);
+    parts.push(`${k}:${vs}`);
+  }
+
+  return parts.join(' / ');
+}
+
+function _buildCardSummary(item) {
+  if (item.query && item.query.trim()) return item.query.trim();
+  const path = _buildSelectionPath(item.selections);
+  if (path) return path;
+  const label = _toolLabel(item.tool_name);
+  if (label) return label;
+  return 'Agent-captured search';
+}
+
+function _parseChannelsFromResponse(toolResponse) {
+  if (!toolResponse) return [];
+  try {
+    let parsed = typeof toolResponse === 'string' ? JSON.parse(toolResponse) : toolResponse;
+    // Double-encoded: {result: "..."} envelope
+    if (parsed.result && typeof parsed.result === 'string') {
+      try { parsed = JSON.parse(parsed.result); } catch { /* use as-is */ }
+    }
+    const channels = parsed.channels;
+    if (!Array.isArray(channels)) return [];
+    return channels.map(ch => {
+      if (typeof ch === 'string') return ch;
+      if (ch && typeof ch === 'object') return ch.name || ch.pv || JSON.stringify(ch);
+      return String(ch);
+    });
+  } catch {
+    return [];
+  }
+}
+
+function _renderChannelList(channels, visibleCount = 3) {
+  if (!channels || channels.length === 0) return '';
+  const visible = channels.slice(0, visibleCount);
+  const overflow = channels.slice(visibleCount);
+  let html = '<div class="fb-pending-channels">';
+  html += '<div class="fb-pending-channels-label">Channels</div>';
+  html += '<div class="fb-pending-channels-list">';
+  html += visible.map(ch => `<span class="fb-pending-pv">${esc(ch)}</span>`).join('');
+  if (overflow.length > 0) {
+    html += '<div class="fb-pending-channels-overflow" style="display:none">';
+    html += overflow.map(ch => `<span class="fb-pending-pv">${esc(ch)}</span>`).join('');
+    html += '</div>';
+    html += `<button type="button" class="fb-pending-channels-toggle" data-full="${overflow.length}">+${overflow.length} more</button>`;
+  }
+  html += '</div></div>';
+  return html;
 }
 
 function _renderSelections(selections) {
