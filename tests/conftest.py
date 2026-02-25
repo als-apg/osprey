@@ -16,21 +16,34 @@ def reset_state_between_tests():
     """Auto-reset registry and config before each test to ensure isolation.
 
     This prevents state leakage between tests by:
+    - Clearing OSPREY_CONFIG and CONFIG_FILE env vars
     - Resetting the registry
-    - Clearing config caches
+    - Clearing config caches (utils.config and mcp_server.common)
     - Resetting approval manager singleton
-
-    Note: Does NOT clear CONFIG_FILE env var since test fixtures may set it.
-    Tests that need a clean CONFIG_FILE state should handle it explicitly.
     """
     # Reset before test
+    import os as _os
     from osprey.registry import reset_registry
     from osprey.utils import config as config_module
+
+    # Clear config-related env vars that may leak between tests.
+    # The web terminal lifespan sets OSPREY_CONFIG directly via os.environ,
+    # and monkeypatch undo ordering can leave it set between tests.
+    _os.environ.pop("OSPREY_CONFIG", None)
+    _os.environ.pop("CONFIG_FILE", None)
 
     reset_registry()
     config_module._default_config = None
     config_module._default_configurable = None
     config_module._config_cache.clear()
+
+    # Reset MCP server config cache (separate from utils.config)
+    try:
+        from osprey.mcp_server.common import reset_config_cache
+
+        reset_config_cache()
+    except ImportError:
+        pass
 
     # Reset approval manager singleton to prevent approval state pollution
     try:
@@ -43,10 +56,19 @@ def reset_state_between_tests():
     yield
 
     # Reset after test
+    _os.environ.pop("OSPREY_CONFIG", None)
+    _os.environ.pop("CONFIG_FILE", None)
     reset_registry()
     config_module._default_config = None
     config_module._default_configurable = None
     config_module._config_cache.clear()
+
+    try:
+        from osprey.mcp_server.common import reset_config_cache
+
+        reset_config_cache()
+    except ImportError:
+        pass
 
     # Reset approval manager singleton again
     try:
