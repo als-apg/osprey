@@ -45,9 +45,7 @@ class CUIProcessLauncher:
         if npx_bin:
             return [npx_bin, "cui-server", "--port", str(port), "--host", host, "--skip-auth-token"]
 
-        raise FileNotFoundError(
-            "cui-server not found. Install with: npm install -g cui-server"
-        )
+        raise FileNotFoundError("cui-server not found. Install with: npm install -g cui-server")
 
     @staticmethod
     def _is_running(host: str, port: int) -> bool:

@@ -44,9 +44,7 @@ class TestExtractMetadataFromAttachments:
     @pytest.mark.asyncio
     async def test_no_metadata_json_attachment(self):
         """Attachments that are not metadata.json are ignored."""
-        entry = _make_entry(
-            attachments=[{"url": "/files/plot.png", "filename": "plot.png"}]
-        )
+        entry = _make_entry(attachments=[{"url": "/files/plot.png", "filename": "plot.png"}])
         await extract_metadata_from_attachments(entry)
         assert entry["metadata"] == {}
 
@@ -84,9 +82,7 @@ class TestExtractMetadataFromAttachments:
         mock_session.__aexit__ = AsyncMock(return_value=False)
 
         entry = _make_entry(
-            attachments=[
-                {"url": "https://example.com/metadata.json", "filename": "metadata.json"}
-            ],
+            attachments=[{"url": "https://example.com/metadata.json", "filename": "metadata.json"}],
         )
 
         with patch("aiohttp.ClientSession", return_value=mock_session):
@@ -125,9 +121,7 @@ class TestExtractMetadataFromAttachments:
     async def test_missing_local_file_is_skipped(self):
         """Missing local file is skipped gracefully."""
         entry = _make_entry(
-            attachments=[
-                {"url": "/nonexistent/metadata.json", "filename": "metadata.json"}
-            ],
+            attachments=[{"url": "/nonexistent/metadata.json", "filename": "metadata.json"}],
         )
 
         await extract_metadata_from_attachments(entry)

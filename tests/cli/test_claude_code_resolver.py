@@ -290,11 +290,16 @@ class TestApiProvidersModelAuthority:
         """api.providers.cborg.models overrides the built-in cborg fallback."""
         spec = ClaudeCodeModelResolver.resolve(
             {"provider": "cborg"},
-            api_providers={"cborg": {"base_url": "https://api.cborg.lbl.gov/v1", "models": {
-                "haiku": "anthropic/claude-haiku-4",
-                "sonnet": "anthropic/claude-sonnet-4",
-                "opus": "anthropic/claude-opus-4",
-            }}},
+            api_providers={
+                "cborg": {
+                    "base_url": "https://api.cborg.lbl.gov/v1",
+                    "models": {
+                        "haiku": "anthropic/claude-haiku-4",
+                        "sonnet": "anthropic/claude-sonnet-4",
+                        "opus": "anthropic/claude-opus-4",
+                    },
+                }
+            },
         )
         assert spec.tier_to_model["haiku"] == "anthropic/claude-haiku-4"
         assert spec.tier_to_model["sonnet"] == "anthropic/claude-sonnet-4"
@@ -304,11 +309,16 @@ class TestApiProvidersModelAuthority:
         """api.providers.als-apg.models overrides the built-in als-apg fallback."""
         spec = ClaudeCodeModelResolver.resolve(
             {"provider": "als-apg"},
-            api_providers={"als-apg": {"base_url": "https://llm.gianlucamartino.com/v1", "models": {
-                "haiku": "claude-haiku-4-5-20251001",
-                "sonnet": "claude-sonnet-4-6",
-                "opus": "claude-opus-4-6",
-            }}},
+            api_providers={
+                "als-apg": {
+                    "base_url": "https://llm.gianlucamartino.com/v1",
+                    "models": {
+                        "haiku": "claude-haiku-4-5-20251001",
+                        "sonnet": "claude-sonnet-4-6",
+                        "opus": "claude-opus-4-6",
+                    },
+                }
+            },
         )
         assert spec.tier_to_model["haiku"] == "claude-haiku-4-5-20251001"
         assert spec.tier_to_model["sonnet"] == "claude-sonnet-4-6"
@@ -330,22 +340,24 @@ class TestApiProvidersModelAuthority:
             {"provider": "cborg", "models": {"opus": "override-opus"}},
             api_providers={"cborg": {"models": {"sonnet": "api-sonnet"}}},
         )
-        assert spec.tier_to_model["opus"] == "override-opus"   # claude_code.models
-        assert spec.tier_to_model["sonnet"] == "api-sonnet"    # api.providers.models
+        assert spec.tier_to_model["opus"] == "override-opus"  # claude_code.models
+        assert spec.tier_to_model["sonnet"] == "api-sonnet"  # api.providers.models
         assert spec.tier_to_model["haiku"] == "anthropic/claude-haiku"  # builtin fallback
 
     def test_custom_proxy_uses_api_providers_models(self):
         """Custom proxy reads model IDs from api.providers, not from hardcoded fallback."""
         spec = ClaudeCodeModelResolver.resolve(
             {"provider": "my-proxy"},
-            api_providers={"my-proxy": {
-                "base_url": "https://my-proxy.example.com",
-                "models": {
-                    "haiku": "my-haiku-model",
-                    "sonnet": "my-sonnet-model",
-                    "opus": "my-opus-model",
-                },
-            }},
+            api_providers={
+                "my-proxy": {
+                    "base_url": "https://my-proxy.example.com",
+                    "models": {
+                        "haiku": "my-haiku-model",
+                        "sonnet": "my-sonnet-model",
+                        "opus": "my-opus-model",
+                    },
+                }
+            },
         )
         assert spec.tier_to_model["haiku"] == "my-haiku-model"
         assert spec.tier_to_model["sonnet"] == "my-sonnet-model"
@@ -363,14 +375,18 @@ class TestValidateProvider:
         assert ClaudeCodeModelResolver.validate_provider("openai") is False
 
     def test_custom_provider_in_api_providers(self):
-        assert ClaudeCodeModelResolver.validate_provider(
-            "my-proxy", api_providers={"my-proxy": {"base_url": "https://x.example.com"}}
-        ) is True
+        assert (
+            ClaudeCodeModelResolver.validate_provider(
+                "my-proxy", api_providers={"my-proxy": {"base_url": "https://x.example.com"}}
+            )
+            is True
+        )
 
     def test_custom_provider_not_in_api_providers(self):
-        assert ClaudeCodeModelResolver.validate_provider(
-            "my-proxy", api_providers={"other": {}}
-        ) is False
+        assert (
+            ClaudeCodeModelResolver.validate_provider("my-proxy", api_providers={"other": {}})
+            is False
+        )
 
 
 class TestAgentDefaultTiersConsistency:
@@ -437,15 +453,11 @@ class TestDefaultModelTier:
         assert spec.default_model_tier == "sonnet"
 
     def test_config_override_via_default_model(self):
-        spec = ClaudeCodeModelResolver.resolve(
-            {"provider": "cborg", "default_model": "haiku"}
-        )
+        spec = ClaudeCodeModelResolver.resolve({"provider": "cborg", "default_model": "haiku"})
         assert spec.default_model_tier == "haiku"
 
     def test_invalid_tier_falls_back_to_provider_default(self):
-        spec = ClaudeCodeModelResolver.resolve(
-            {"provider": "cborg", "default_model": "gpt-4"}
-        )
+        spec = ClaudeCodeModelResolver.resolve({"provider": "cborg", "default_model": "gpt-4"})
         assert spec.default_model_tier == "haiku"
 
     def test_field_present_on_spec(self):

@@ -64,7 +64,6 @@ def create_server() -> FastMCP:
         get_channels,
         resolve_addresses,
         statistics,
-        validate,
     )
 
     logger.info("Channel Finder IC MCP server initialised with all tools registered")

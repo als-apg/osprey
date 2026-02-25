@@ -31,9 +31,7 @@ def test_darwin_returns_macos_backend():
 
     # After reload with darwin, calling get_backend should return MacOSBackend
     reset_backend()
-    with patch(
-        "osprey.mcp_server.workspace.tools.screen_capture_backends.sys"
-    ) as mock_sys:
+    with patch("osprey.mcp_server.workspace.tools.screen_capture_backends.sys") as mock_sys:
         mock_sys.platform = "darwin"
         from osprey.mcp_server.workspace.tools.screen_capture_backends import get_backend
         from osprey.mcp_server.workspace.tools.screen_capture_backends.macos import (
@@ -49,9 +47,7 @@ def test_singleton_caching():
     """get_backend() returns the same instance on repeated calls."""
     reset_backend()
 
-    with patch(
-        "osprey.mcp_server.workspace.tools.screen_capture_backends.sys"
-    ) as mock_sys:
+    with patch("osprey.mcp_server.workspace.tools.screen_capture_backends.sys") as mock_sys:
         mock_sys.platform = "darwin"
         from osprey.mcp_server.workspace.tools.screen_capture_backends import get_backend
 
@@ -65,9 +61,7 @@ def test_reset_clears_cache():
     """reset_backend() clears the singleton so next call creates a new one."""
     reset_backend()
 
-    with patch(
-        "osprey.mcp_server.workspace.tools.screen_capture_backends.sys"
-    ) as mock_sys:
+    with patch("osprey.mcp_server.workspace.tools.screen_capture_backends.sys") as mock_sys:
         mock_sys.platform = "darwin"
         from osprey.mcp_server.workspace.tools.screen_capture_backends import get_backend
 
@@ -83,9 +77,7 @@ def test_linux_no_display():
     reset_backend()
 
     with (
-        patch(
-            "osprey.mcp_server.workspace.tools.screen_capture_backends.sys"
-        ) as mock_sys,
+        patch("osprey.mcp_server.workspace.tools.screen_capture_backends.sys") as mock_sys,
         patch.dict("os.environ", {}, clear=True),
     ):
         mock_sys.platform = "linux"
@@ -110,9 +102,7 @@ def test_linux_missing_mss():
         return real_import(name, *args, **kwargs)
 
     with (
-        patch(
-            "osprey.mcp_server.workspace.tools.screen_capture_backends.sys"
-        ) as mock_sys,
+        patch("osprey.mcp_server.workspace.tools.screen_capture_backends.sys") as mock_sys,
         patch.dict("os.environ", {"DISPLAY": ":0"}),
         patch("builtins.__import__", side_effect=mock_import),
     ):
@@ -138,9 +128,7 @@ def test_linux_missing_xlib():
         return real_import(name, *args, **kwargs)
 
     with (
-        patch(
-            "osprey.mcp_server.workspace.tools.screen_capture_backends.sys"
-        ) as mock_sys,
+        patch("osprey.mcp_server.workspace.tools.screen_capture_backends.sys") as mock_sys,
         patch.dict("os.environ", {"DISPLAY": ":0"}),
         patch("builtins.__import__", side_effect=mock_import),
     ):
@@ -156,9 +144,7 @@ def test_unsupported_platform():
     """Unsupported platform raises BackendUnavailableError."""
     reset_backend()
 
-    with patch(
-        "osprey.mcp_server.workspace.tools.screen_capture_backends.sys"
-    ) as mock_sys:
+    with patch("osprey.mcp_server.workspace.tools.screen_capture_backends.sys") as mock_sys:
         mock_sys.platform = "win32"
         from osprey.mcp_server.workspace.tools.screen_capture_backends import get_backend
 
@@ -171,9 +157,7 @@ def test_error_carries_suggestions():
     """BackendUnavailableError includes helpful suggestions."""
     reset_backend()
 
-    with patch(
-        "osprey.mcp_server.workspace.tools.screen_capture_backends.sys"
-    ) as mock_sys:
+    with patch("osprey.mcp_server.workspace.tools.screen_capture_backends.sys") as mock_sys:
         mock_sys.platform = "win32"
         from osprey.mcp_server.workspace.tools.screen_capture_backends import get_backend
 

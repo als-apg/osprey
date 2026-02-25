@@ -72,7 +72,8 @@ def _clear_claude_code_project_state(project_path: Path) -> None:
 @click.option(
     "--provider",
     type=click.Choice(
-        ["anthropic", "openai", "google", "cborg", "ollama", "amsc", "als-apg"], case_sensitive=False
+        ["anthropic", "openai", "google", "cborg", "ollama", "amsc", "als-apg"],
+        case_sensitive=False,
     ),
     default=None,
     help="AI provider to configure (anthropic, openai, google, cborg, ollama, amsc, als-apg)",
@@ -258,12 +259,8 @@ def init(
             pass  # git not installed — handled below
 
         try:
-            subprocess.run(
-                ["git", "init"], cwd=project_path, check=True, capture_output=True
-            )
-            subprocess.run(
-                ["git", "add", "."], cwd=project_path, check=True, capture_output=True
-            )
+            subprocess.run(["git", "init"], cwd=project_path, check=True, capture_output=True)
+            subprocess.run(["git", "add", "."], cwd=project_path, check=True, capture_output=True)
             subprocess.run(
                 ["git", "commit", "-m", "Initial project from osprey init"],
                 cwd=project_path,

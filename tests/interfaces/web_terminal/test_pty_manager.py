@@ -114,9 +114,9 @@ class TestPtySession:
         session._shell_command = sys.executable
         # We need to pass -c and the script.  PtySession wraps the command
         # in a list, so we'll temporarily monkey-patch start() to pass args.
-        import subprocess
         import fcntl
         import struct
+        import subprocess
         import termios
 
         master_fd, slave_fd = __import__("pty").openpty()

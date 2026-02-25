@@ -10,7 +10,6 @@ from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.app import create_app
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

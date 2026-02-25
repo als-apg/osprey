@@ -99,7 +99,9 @@ async def create_interactive_plot(
 
     # Collect artifacts with category and embedded metadata
     artifact_ids = collect_and_register_artifacts(
-        exec_result, title, description,
+        exec_result,
+        title,
+        description,
         tool_source="create_interactive_plot",
         category="visualization",
         code=code,

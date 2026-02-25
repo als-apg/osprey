@@ -18,7 +18,6 @@ import pytest
 from osprey.mcp_server.memory_store import (
     MemoryStore,
     get_memory_store,
-    initialize_memory_store,
     register_memory_listener,
     reset_memory_store,
     unregister_memory_listener,

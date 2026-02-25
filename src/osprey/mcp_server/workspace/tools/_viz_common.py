@@ -66,7 +66,9 @@ def build_data_reader(data_source: str) -> str:
     tabular sources) or a raw string (for unrecognized formats).
     """
     loading = build_data_loading_code(data_source)
-    return loading + """\
+    return (
+        loading
+        + """\
 # Auto-detect format and load into `data` (pandas DataFrame for tabular sources)
 if _data_path.endswith('.csv'):
     data = pd.read_csv(_data_path)
@@ -103,6 +105,7 @@ else:
 if hasattr(data, 'shape'):
     print(f"data_source loaded: {type(data).__name__} with shape {data.shape}, columns: {list(data.columns)}")
 """
+    )
 
 
 def collect_and_register_artifacts(

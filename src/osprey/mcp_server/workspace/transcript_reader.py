@@ -200,9 +200,7 @@ class TranscriptReader:
                         if include_subagents:
                             self._collect_task_meta(task_meta, tu_block, content, ts)
                         else:
-                            events.extend(
-                                self._make_task_events(tu_block, content, is_err, ts)
-                            )
+                            events.extend(self._make_task_events(tu_block, content, is_err, ts))
 
         # In-flight Tasks (tool_use seen but no result yet) still carry
         # subagent_type in their input, so include them in task_meta so the
@@ -210,12 +208,14 @@ class TranscriptReader:
         for _tid, (block, ts) in task_uses.items():
             task_input = block.get("input", {})
             agent_type = task_input.get("subagent_type", task_input.get("description", ""))
-            task_meta.append({
-                "timestamp": ts,
-                "agent_type": agent_type,
-                "tool_use_id": block.get("id", ""),
-                "prompt": task_input.get("prompt", ""),
-            })
+            task_meta.append(
+                {
+                    "timestamp": ts,
+                    "agent_type": agent_type,
+                    "tool_use_id": block.get("id", ""),
+                    "prompt": task_input.get("prompt", ""),
+                }
+            )
 
         # Read subagent transcripts and create lifecycle events with matching IDs
         if include_subagents:
@@ -234,42 +234,53 @@ class TranscriptReader:
 
                     sub_prompt = self._read_first_user_text(agent_file)
                     agent_type = self._match_subagent_to_task(
-                        agent_fname, sub_events, task_meta, matched_task_indices,
+                        agent_fname,
+                        sub_events,
+                        task_meta,
+                        matched_task_indices,
                         subagent_prompt=sub_prompt,
                     )
                     start_ts = sub_events[0].get("timestamp", "") if sub_events else ""
                     stop_ts = sub_events[-1].get("timestamp", "") if sub_events else ""
 
-                    events.append({
-                        "type": "agent_start",
-                        "timestamp": start_ts,
-                        "agent_id": agent_fname,
-                        "agent_type": agent_type,
-                    })
+                    events.append(
+                        {
+                            "type": "agent_start",
+                            "timestamp": start_ts,
+                            "agent_id": agent_fname,
+                            "agent_type": agent_type,
+                        }
+                    )
                     events.extend(sub_events)
-                    events.append({
-                        "type": "agent_stop",
-                        "timestamp": stop_ts,
-                        "agent_id": agent_fname,
-                        "agent_type": agent_type,
-                    })
+                    events.append(
+                        {
+                            "type": "agent_stop",
+                            "timestamp": stop_ts,
+                            "agent_id": agent_fname,
+                            "agent_type": agent_type,
+                        }
+                    )
 
             # Create lifecycle events for tasks with no subagent transcript
             for i, meta in enumerate(task_meta):
                 if i not in matched_task_indices:
                     fallback_id = meta.get("result_agent_id") or meta["tool_use_id"]
-                    events.append({
-                        "type": "agent_start",
-                        "timestamp": meta["timestamp"],
-                        "agent_id": fallback_id,
-                        "agent_type": meta["agent_type"],
-                    })
-                    events.append({
-                        "type": "agent_stop",
-                        "timestamp": meta["timestamp"],
-                        "agent_id": fallback_id,
-                        "agent_type": meta["agent_type"],
-                    })
+                    events.append(
+                        {
+                            "type": "agent_start",
+                            "timestamp": meta["timestamp"],
+                            "agent_id": fallback_id,
+                            "agent_type": meta["agent_type"],
+                        }
+                    )
+                    events.append(
+                        {
+                            "type": "agent_stop",
+                            "timestamp": meta["timestamp"],
+                            "agent_id": fallback_id,
+                            "agent_type": meta["agent_type"],
+                        }
+                    )
 
         # Sort by timestamp
         events.sort(key=lambda e: e.get("timestamp", ""))
@@ -381,11 +392,13 @@ class TranscriptReader:
                 msg = entry.get("message", {})
                 content = msg.get("content", [])
                 if isinstance(content, str):
-                    timeline.append({
-                        "kind": "reasoning",
-                        "timestamp": timestamp,
-                        "text": content,
-                    })
+                    timeline.append(
+                        {
+                            "kind": "reasoning",
+                            "timestamp": timestamp,
+                            "text": content,
+                        }
+                    )
                     continue
                 if not isinstance(content, list):
                     continue
@@ -396,19 +409,23 @@ class TranscriptReader:
                     if bt == "text":
                         text = block.get("text", "").strip()
                         if text:
-                            timeline.append({
-                                "kind": "reasoning",
-                                "timestamp": timestamp,
-                                "text": text,
-                            })
+                            timeline.append(
+                                {
+                                    "kind": "reasoning",
+                                    "timestamp": timestamp,
+                                    "text": text,
+                                }
+                            )
                     elif bt == "thinking":
                         text = block.get("thinking", "").strip()
                         if text:
-                            timeline.append({
-                                "kind": "thinking",
-                                "timestamp": timestamp,
-                                "text": text,
-                            })
+                            timeline.append(
+                                {
+                                    "kind": "thinking",
+                                    "timestamp": timestamp,
+                                    "text": text,
+                                }
+                            )
                     elif bt == "tool_use":
                         tool_id = block.get("id", "")
                         tool_entry = {
@@ -439,11 +456,13 @@ class TranscriptReader:
                                 parts.append(block.get("text", ""))
                         text = "\n".join(parts).strip()
                     if text:
-                        timeline.append({
-                            "kind": "prompt",
-                            "timestamp": timestamp,
-                            "text": text,
-                        })
+                        timeline.append(
+                            {
+                                "kind": "prompt",
+                                "timestamp": timestamp,
+                                "text": text,
+                            }
+                        )
                     # First user entry may also contain tool_results
                     # (fall through to process them)
 
@@ -462,13 +481,15 @@ class TranscriptReader:
                         elif isinstance(result_content, list):
                             result_text = _extract_text(result_content)
 
-                        timeline.append({
-                            "kind": "tool_result",
-                            "timestamp": timestamp,
-                            "tool_use_id": tool_use_id,
-                            "text": result_text[:2000],
-                            "is_error": is_error,
-                        })
+                        timeline.append(
+                            {
+                                "kind": "tool_result",
+                                "timestamp": timestamp,
+                                "tool_use_id": tool_use_id,
+                                "text": result_text[:2000],
+                                "is_error": is_error,
+                            }
+                        )
 
             elif etype == "tool_result":
                 tool_use_id = entry.get("tool_use_id", "")
@@ -480,13 +501,15 @@ class TranscriptReader:
                 elif isinstance(result_content, list):
                     result_text = _extract_text(result_content)
 
-                timeline.append({
-                    "kind": "tool_result",
-                    "timestamp": timestamp,
-                    "tool_use_id": tool_use_id,
-                    "text": result_text[:2000],
-                    "is_error": is_error,
-                })
+                timeline.append(
+                    {
+                        "kind": "tool_result",
+                        "timestamp": timestamp,
+                        "tool_use_id": tool_use_id,
+                        "text": result_text[:2000],
+                        "is_error": is_error,
+                    }
+                )
 
         return timeline
 
@@ -529,9 +552,7 @@ class TranscriptReader:
                 if text:
                     if len(text) > MAX_CHAT_MESSAGE_LENGTH:
                         text = text[:MAX_CHAT_MESSAGE_LENGTH] + "..."
-                    turns.append(
-                        {"role": "assistant", "content": text, "timestamp": timestamp}
-                    )
+                    turns.append({"role": "assistant", "content": text, "timestamp": timestamp})
 
         return turns
 

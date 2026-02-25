@@ -33,16 +33,17 @@ async def mml_list_groups() -> str:
         ).fetchall()
 
         groups = [
-            {"group": row["group_name"], "function_count": row["function_count"]}
-            for row in rows
+            {"group": row["group_name"], "function_count": row["function_count"]} for row in rows
         ]
 
         conn.close()
 
-        return json.dumps({
-            "groups_found": len(groups),
-            "groups": groups,
-        })
+        return json.dumps(
+            {
+                "groups_found": len(groups),
+                "groups": groups,
+            }
+        )
 
     except Exception as exc:
         logger.exception("mml_list_groups failed")

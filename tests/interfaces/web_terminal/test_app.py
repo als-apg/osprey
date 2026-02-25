@@ -72,7 +72,7 @@ class TestProjectDir:
             return_value={"watch_dir": str(workspace_dir)},
         ):
             app = create_app(shell_command="echo", project_dir=str(project))
-            with TestClient(app) as c:
+            with TestClient(app):
                 assert app.state.project_cwd == str(project.resolve())
 
     def test_default_project_cwd_is_cwd(self, workspace_dir):

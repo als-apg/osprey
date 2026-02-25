@@ -55,9 +55,7 @@ class TestSerialize:
         assert "channels" in result
         assert len(result["channels"]) == 2  # 1 template + 1 standalone
 
-    def test_serialize_list_format_round_trips(
-        self, template_db_list_format: ChannelDatabase
-    ):
+    def test_serialize_list_format_round_trips(self, template_db_list_format: ChannelDatabase):
         result = template_db_list_format._serialize()
         assert isinstance(result, list)
         assert len(result) == 1
@@ -66,17 +64,13 @@ class TestSerialize:
 
 class TestAddChannel:
     def test_add_standalone_channel(self, template_db: ChannelDatabase):
-        result = template_db.add_channel(
-            "NEW:CH", address="NEW:CH", description="New channel"
-        )
+        result = template_db.add_channel("NEW:CH", address="NEW:CH", description="New channel")
 
         assert result["success"] is True
         assert template_db.validate_channel("NEW:CH")
         # Persisted to disk
         on_disk = json.loads(Path(template_db.db_path).read_text())
-        standalone_names = [
-            e["channel"] for e in on_disk["channels"] if not e.get("template")
-        ]
+        standalone_names = [e["channel"] for e in on_disk["channels"] if not e.get("template")]
         assert "NEW:CH" in standalone_names
 
     def test_add_duplicate_raises(self, template_db: ChannelDatabase):

@@ -18,9 +18,7 @@ from osprey.mcp_server.workspace.server import mcp
 logger = logging.getLogger("osprey.mcp_server.tools.create_document")
 
 
-def _resolve_artifacts_to_build_dir(
-    artifact_ids: list[str], build_dir: Path
-) -> list[str]:
+def _resolve_artifacts_to_build_dir(artifact_ids: list[str], build_dir: Path) -> list[str]:
     """Copy artifact files into the build directory for LaTeX \\includegraphics.
 
     Returns list of filenames available in build_dir (sans ID prefix).
@@ -144,8 +142,7 @@ async def create_document(
                 make_error(
                     "compilation_error",
                     "LaTeX compilation failed — no PDF produced.",
-                    compile_errors[:5]
-                    or ["Check the LaTeX source for syntax errors."],
+                    compile_errors[:5] or ["Check the LaTeX source for syntax errors."],
                 )
             )
 

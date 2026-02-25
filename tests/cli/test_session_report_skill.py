@@ -6,13 +6,7 @@ import pytest
 
 from osprey.cli.prompt_registry import PromptRegistry
 
-TEMPLATE_ROOT = (
-    Path(__file__).parent.parent.parent
-    / "src"
-    / "osprey"
-    / "templates"
-    / "claude_code"
-)
+TEMPLATE_ROOT = Path(__file__).parent.parent.parent / "src" / "osprey" / "templates" / "claude_code"
 
 
 class TestSessionReportRegistry:
@@ -91,8 +85,10 @@ class TestSessionReportSkillStructure:
 
     def test_has_observation_only_rule(self, skill_text):
         """Must contain the safety rule about observation-only reporting."""
-        assert "never generate recommendations" in skill_text.lower() or \
-            "observation-only" in skill_text.lower()
+        assert (
+            "never generate recommendations" in skill_text.lower()
+            or "observation-only" in skill_text.lower()
+        )
 
     def test_has_forbidden_examples(self, skill_text):
         """Must give examples of forbidden recommendation language."""

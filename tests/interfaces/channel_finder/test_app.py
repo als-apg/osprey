@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 
 class TestHealthEndpoint:
     """Tests for the /health endpoint."""

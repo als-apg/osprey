@@ -104,7 +104,9 @@ class TestRegistryMatchesTemplateDirectory:
     def test_all_template_paths_exist(self):
         """Every artifact's template_path must exist in the template directory."""
         registry = PromptRegistry.default()
-        template_root = Path(__file__).parent.parent.parent / "src" / "osprey" / "templates" / "claude_code"
+        template_root = (
+            Path(__file__).parent.parent.parent / "src" / "osprey" / "templates" / "claude_code"
+        )
 
         for art in registry.all_artifacts():
             template_file = template_root / art.template_path
@@ -119,7 +121,9 @@ class TestRegistryMatchesTemplateDirectory:
         Exemptions: __pycache__, .pyc, directories-only, __init__.py
         """
         registry = PromptRegistry.default()
-        template_root = Path(__file__).parent.parent.parent / "src" / "osprey" / "templates" / "claude_code"
+        template_root = (
+            Path(__file__).parent.parent.parent / "src" / "osprey" / "templates" / "claude_code"
+        )
 
         registered_templates = {a.template_path for a in registry.all_artifacts()}
 
@@ -129,6 +133,8 @@ class TestRegistryMatchesTemplateDirectory:
             if "__pycache__" in str(template_file):
                 continue
             if template_file.name == "__init__.py":
+                continue
+            if "_terminology" in template_file.parts:
                 continue
 
             rel = str(template_file.relative_to(template_root))

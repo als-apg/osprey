@@ -13,8 +13,20 @@ import pytest
 from tests.e2e.sdk_helpers import combined_text, run_sdk_query_with_hooks
 
 # Keywords that indicate a hook denied the tool call
-DENY_KEYWORDS = ["deny", "denied", "violation", "blocked", "exceed", "limit", "not writable",
-                  "read-only", "read only", "cannot write", "not allowed", "refused"]
+DENY_KEYWORDS = [
+    "deny",
+    "denied",
+    "violation",
+    "blocked",
+    "exceed",
+    "limit",
+    "not writable",
+    "read-only",
+    "read only",
+    "cannot write",
+    "not allowed",
+    "refused",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -67,14 +79,10 @@ async def test_write_within_limits_succeeds(safety_project):
 
     # channel_write should have been called
     write_calls = result.tools_matching("channel_write")
-    assert len(write_calls) >= 1, (
-        f"Expected channel_write call but got: {result.tool_names}"
-    )
+    assert len(write_calls) >= 1, f"Expected channel_write call but got: {result.tool_names}"
 
     # The write should have succeeded (not errored by limits hook)
-    assert not write_calls[0].is_error, (
-        f"channel_write returned error: {write_calls[0].result}"
-    )
+    assert not write_calls[0].is_error, f"channel_write returned error: {write_calls[0].result}"
 
     # Hook should have fired for channel_write (approval callback)
     write_events = [e for e in result.hook_events if "channel_write" in e.tool_name]
@@ -139,10 +147,7 @@ async def test_write_over_limits_denied(safety_project):
     combined = combined_text(result)
     write_calls = result.tools_matching("channel_write")
 
-    denied = (
-        any(t.is_error for t in write_calls)
-        or any(kw in combined for kw in DENY_KEYWORDS)
-    )
+    denied = any(t.is_error for t in write_calls) or any(kw in combined for kw in DENY_KEYWORDS)
     assert denied, (
         f"Expected write to be denied but it wasn't.\n"
         f"  Tools: {result.tool_names}\n"
@@ -207,10 +212,7 @@ async def test_write_to_readonly_denied(safety_project):
     combined = combined_text(result)
     write_calls = result.tools_matching("channel_write")
 
-    denied = (
-        any(t.is_error for t in write_calls)
-        or any(kw in combined for kw in DENY_KEYWORDS)
-    )
+    denied = any(t.is_error for t in write_calls) or any(kw in combined for kw in DENY_KEYWORDS)
     assert denied, (
         f"Expected write to read-only channel to be denied.\n"
         f"  Tools: {result.tool_names}\n"
@@ -273,9 +275,7 @@ async def test_write_to_unlisted_channel_succeeds(safety_project):
 
     # channel_write should have been called
     write_calls = result.tools_matching("channel_write")
-    assert len(write_calls) >= 1, (
-        f"Expected channel_write call but got: {result.tool_names}"
-    )
+    assert len(write_calls) >= 1, f"Expected channel_write call but got: {result.tool_names}"
 
     # The write should have succeeded (unlisted = permissive mode allows it)
     assert not write_calls[0].is_error, (

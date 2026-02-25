@@ -165,7 +165,8 @@ class AgentExecutor:
         results = await descriptor.execute(**call_kwargs)
 
         formatted = [
-            descriptor.format_result(*item) if isinstance(item, tuple)
+            descriptor.format_result(*item)
+            if isinstance(item, tuple)
             else descriptor.format_result(item)
             for item in results
         ]
@@ -206,7 +207,10 @@ class AgentExecutor:
                 )
 
             result = await self._run_react_loop(
-                query, descriptors, time_range, collected_ids,
+                query,
+                descriptors,
+                time_range,
+                collected_ids,
             )
 
             unique_ids = list(dict.fromkeys(collected_ids))
@@ -216,7 +220,8 @@ class AgentExecutor:
                     entries = await self.repository.get_entries_by_ids(unique_ids)
                 except Exception:
                     logger.warning(
-                        "Failed to fetch full entries for agent results", exc_info=True,
+                        "Failed to fetch full entries for agent results",
+                        exc_info=True,
                     )
 
             return self._build_result(result, descriptors, entries)
@@ -244,10 +249,12 @@ class AgentExecutor:
         descriptor_map = {d.name: d for d in descriptors}
         openai_tools = [_descriptor_to_openai_tool(d) for d in descriptors]
 
-        messages = ChatCompletionRequest(messages=[
-            ChatMessage(role="system", content=self._system_prompt),
-            ChatMessage(role="user", content=query),
-        ])
+        messages = ChatCompletionRequest(
+            messages=[
+                ChatMessage(role="system", content=self._system_prompt),
+                ChatMessage(role="user", content=query),
+            ]
+        )
 
         tool_invocations: list[AgentToolInvocation] = []
         steps: list[AgentStep] = [
@@ -288,14 +295,16 @@ class AgentExecutor:
                 for tc in tool_calls:
                     tc_id = tc.get("id", f"call_{uuid.uuid4().hex[:8]}")
                     fn = tc.get("function", {})
-                    assistant_tool_calls.append({
-                        "id": tc_id,
-                        "type": "function",
-                        "function": {
-                            "name": fn.get("name", ""),
-                            "arguments": fn.get("arguments", "{}"),
-                        },
-                    })
+                    assistant_tool_calls.append(
+                        {
+                            "id": tc_id,
+                            "type": "function",
+                            "function": {
+                                "name": fn.get("name", ""),
+                                "arguments": fn.get("arguments", "{}"),
+                            },
+                        }
+                    )
 
                 messages.messages.append(
                     ChatMessage(role="assistant", tool_calls=assistant_tool_calls)
@@ -311,12 +320,14 @@ class AgentExecutor:
                     except json.JSONDecodeError:
                         tool_args = {}
 
-                    steps.append(AgentStep(
-                        step_type="tool_call",
-                        content=str(tool_args)[:200],
-                        tool_name=tool_name,
-                        order=step_order,
-                    ))
+                    steps.append(
+                        AgentStep(
+                            step_type="tool_call",
+                            content=str(tool_args)[:200],
+                            tool_name=tool_name,
+                            order=step_order,
+                        )
+                    )
                     step_order += 1
 
                     desc = descriptor_map.get(tool_name)
@@ -325,7 +336,10 @@ class AgentExecutor:
                     else:
                         try:
                             results = await self._call_tool(
-                                desc, dict(tool_args), time_range, collected_ids,
+                                desc,
+                                dict(tool_args),
+                                time_range,
+                                collected_ids,
                             )
                             result_text = json.dumps(results, default=str)[:4000]
                         except Exception as exc:
@@ -345,12 +359,14 @@ class AgentExecutor:
                     tool_invocations.append(inv)
                     tool_call_order += 1
 
-                    steps.append(AgentStep(
-                        step_type="tool_result",
-                        content=result_text[:200],
-                        tool_name=tool_name,
-                        order=step_order,
-                    ))
+                    steps.append(
+                        AgentStep(
+                            step_type="tool_result",
+                            content=result_text[:200],
+                            tool_name=tool_name,
+                            order=step_order,
+                        )
+                    )
                     step_order += 1
 
                     messages.messages.append(
@@ -366,11 +382,13 @@ class AgentExecutor:
 
             # Plain text response — final answer
             answer = str(response)
-            steps.append(AgentStep(
-                step_type="final_answer",
-                content=answer[:200],
-                order=step_order,
-            ))
+            steps.append(
+                AgentStep(
+                    step_type="final_answer",
+                    content=answer[:200],
+                    order=step_order,
+                )
+            )
             step_order += 1
 
             messages.messages.append(ChatMessage(role="assistant", content=answer))
@@ -397,11 +415,13 @@ class AgentExecutor:
                     max_tokens=4096,
                 )
                 answer = str(final_response)
-                steps.append(AgentStep(
-                    step_type="final_answer",
-                    content=answer[:200],
-                    order=step_order,
-                ))
+                steps.append(
+                    AgentStep(
+                        step_type="final_answer",
+                        content=answer[:200],
+                        order=step_order,
+                    )
+                )
 
         except TimeoutError as err:
             raise SearchTimeoutError(
@@ -414,7 +434,8 @@ class AgentExecutor:
         unique_tools = list(dict.fromkeys(tool_names))
         step_summary = (
             f"{len(tool_invocations)} tool call(s): {', '.join(unique_tools)}"
-            if tool_invocations else "No tool calls"
+            if tool_invocations
+            else "No tool calls"
         )
 
         return {
@@ -441,8 +462,7 @@ class AgentExecutor:
         sources: list[str] = []
         if answer and entries:
             sources = [
-                e["entry_id"] for e in entries
-                if e.get("entry_id") and e["entry_id"] in answer
+                e["entry_id"] for e in entries if e.get("entry_id") and e["entry_id"] in answer
             ]
 
         pd = PipelineDetails(

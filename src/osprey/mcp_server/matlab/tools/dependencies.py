@@ -90,9 +90,7 @@ async def mml_dependencies(
                 GROUP BY fn ORDER BY depth, fn
             """
             rows = conn.execute(callees_sql, [fn, depth]).fetchall()
-            result["callees"] = [
-                {"function_name": r["fn"], "depth": r["depth"]} for r in rows
-            ]
+            result["callees"] = [{"function_name": r["fn"], "depth": r["depth"]} for r in rows]
 
         if direction in ("callers", "both"):
             callers_sql = """
@@ -108,9 +106,7 @@ async def mml_dependencies(
                 GROUP BY fn ORDER BY depth, fn
             """
             rows = conn.execute(callers_sql, [fn, depth]).fetchall()
-            result["callers"] = [
-                {"function_name": r["fn"], "depth": r["depth"]} for r in rows
-            ]
+            result["callers"] = [{"function_name": r["fn"], "depth": r["depth"]} for r in rows]
 
         conn.close()
 

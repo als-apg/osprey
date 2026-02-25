@@ -13,8 +13,6 @@ Requires:
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from tests.e2e.sdk_helpers import (
@@ -80,9 +78,7 @@ class TestDataVisualizerAgent:
         for trace in result.tool_traces:
             error_flag = " [ERROR]" if trace.is_error else ""
             parent_flag = (
-                f" (sub-agent: {trace.parent_tool_use_id})"
-                if trace.parent_tool_use_id
-                else ""
+                f" (sub-agent: {trace.parent_tool_use_id})" if trace.parent_tool_use_id else ""
             )
             print(f"  tool: {trace.name}{error_flag}{parent_flag}")
             if trace.is_error and trace.result:
@@ -90,15 +86,11 @@ class TestDataVisualizerAgent:
 
         # -- Assertions --
         assert result.result is not None, "No ResultMessage received"
-        assert not result.result.is_error, (
-            f"SDK query ended in error: {result.result.result}"
-        )
+        assert not result.result.is_error, f"SDK query ended in error: {result.result.result}"
 
         # archiver_read was called
         archiver_calls = result.tools_matching("archiver_read")
-        assert len(archiver_calls) > 0, (
-            f"archiver_read not called. Tools used: {result.tool_names}"
-        )
+        assert len(archiver_calls) > 0, f"archiver_read not called. Tools used: {result.tool_names}"
 
         # create_interactive_plot was called (not static)
         viz_calls = result.tools_matching("create_interactive_plot")
@@ -199,15 +191,11 @@ class TestDataVisualizerAgent:
 
         # -- Assertions --
         assert result.result is not None, "No ResultMessage received"
-        assert not result.result.is_error, (
-            f"SDK query ended in error: {result.result.result}"
-        )
+        assert not result.result.is_error, f"SDK query ended in error: {result.result.result}"
 
         # archiver_read was called
         archiver_calls = result.tools_matching("archiver_read")
-        assert len(archiver_calls) > 0, (
-            f"archiver_read not called. Tools used: {result.tool_names}"
-        )
+        assert len(archiver_calls) > 0, f"archiver_read not called. Tools used: {result.tool_names}"
 
         # A visualization tool was called
         viz_calls = result.tools_matching("create_interactive_plot")
@@ -231,9 +219,7 @@ class TestDataVisualizerAgent:
 
         # HTML artifact produced
         html_files = find_html_files(project_dir / "osprey-workspace")
-        assert len(html_files) > 0, (
-            "No HTML artifact found — interactive plot not produced."
-        )
+        assert len(html_files) > 0, "No HTML artifact found — interactive plot not produced."
 
         if result.cost_usd is not None:
             assert result.cost_usd < 2.0, (

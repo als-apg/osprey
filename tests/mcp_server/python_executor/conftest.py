@@ -1,7 +1,5 @@
 """Fixtures for MCP python_executor adapter tests."""
 
-from dataclasses import dataclass, field
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest

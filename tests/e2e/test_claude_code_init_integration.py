@@ -37,6 +37,7 @@ from osprey.cli.init_cmd import init
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def is_claude_code_available() -> bool:
     """Check if Claude Code CLI is installed and functional."""
     try:
@@ -74,10 +75,14 @@ def init_project(
     runner = CliRunner()
     args = [
         name,
-        "--template", template,
-        "--output-dir", str(tmp_path),
-        "--provider", provider,
-        "--model", model,
+        "--template",
+        template,
+        "--output-dir",
+        str(tmp_path),
+        "--provider",
+        provider,
+        "--model",
+        model,
     ]
     result = runner.invoke(init, args)
     assert result.exit_code == 0, f"osprey init failed: {result.output}"
@@ -107,8 +112,10 @@ def run_claude(
         "claude",
         "--print",
         "--dangerously-skip-permissions",
-        "--permission-mode", "bypassPermissions",
-        "--max-budget-usd", max_budget,
+        "--permission-mode",
+        "bypassPermissions",
+        "--max-budget-usd",
+        max_budget,
         prompt,
     ]
     try:
@@ -171,9 +178,7 @@ def find_png_files(root: Path) -> list[Path]:
     and therefore don't prove that ``execute`` created a plot.
     """
     template_names = {"ALS_assistant_logo.png"}
-    return sorted(
-        p for p in root.rglob("*.png") if p.name not in template_names
-    )
+    return sorted(p for p in root.rglob("*.png") if p.name not in template_names)
 
 
 def diagnose_workspace(project_dir: Path, max_depth: int = 3) -> str:
@@ -231,14 +236,8 @@ def diagnose_python_execute(project_dir: Path) -> str:
         for run in runs:
             parts.append(f"  run: {run.name}")
             # Layer 1b: figures in execution folder
-            figures = (
-                list((run / "figures").glob("*.png"))
-                if (run / "figures").exists()
-                else []
-            )
-            parts.append(
-                f"    figures/: {[f.name for f in figures] if figures else 'empty'}"
-            )
+            figures = list((run / "figures").glob("*.png")) if (run / "figures").exists() else []
+            parts.append(f"    figures/: {[f.name for f in figures] if figures else 'empty'}")
             # Layer 2: Execution metadata
             metadata_path = run / "execution_metadata.json"
             if metadata_path.exists():
@@ -264,14 +263,8 @@ def diagnose_python_execute(project_dir: Path) -> str:
         try:
             index_data = json.loads(artifacts_json.read_text())
             entries = index_data.get("entries", [])
-            image_entries = [
-                a for a in entries
-                if a.get("artifact_type", "").startswith("image")
-            ]
-            parts.append(
-                f"artifacts.json: {len(entries)} entries, "
-                f"{len(image_entries)} image(s)"
-            )
+            image_entries = [a for a in entries if a.get("artifact_type", "").startswith("image")]
+            parts.append(f"artifacts.json: {len(entries)} entries, {len(image_entries)} image(s)")
             for entry in image_entries[:5]:
                 parts.append(
                     f"  artifact: {entry.get('id', '?')} "
@@ -312,6 +305,7 @@ pytestmark = [
 # ===========================================================================
 # Test 1 — Smoke test (no API key required)
 # ===========================================================================
+
 
 class TestInitProjectClaudeCodeFilesSmoke:
     """Quick sanity check that ``osprey init`` produces valid Claude Code files.
@@ -369,6 +363,7 @@ class TestInitProjectClaudeCodeFilesSmoke:
 # ===========================================================================
 # Test 2 — archiver_read + execute (API required)
 # ===========================================================================
+
 
 class TestClaudeExecutesArchiverAndPlots:
     """Verify Claude can call archiver_read then execute to plot data.
@@ -447,17 +442,14 @@ class TestClaudeExecutesArchiverAndPlots:
         if artifacts_json.exists():
             index_data = json.loads(artifacts_json.read_text())
             entries = index_data.get("entries", [])
-            image_artifacts = [
-                a for a in entries
-                if a.get("artifact_type", "").startswith("image")
-            ]
+            image_artifacts = [a for a in entries if a.get("artifact_type", "").startswith("image")]
             print(f"  artifact store: {len(entries)} entries, {len(image_artifacts)} images")
 
         # Output mentions relevant terms (belt-and-suspenders)
         output_lower = result.stdout.lower()
-        assert any(
-            term in output_lower for term in ["archiver", "data", "retrieved", "channel"]
-        ), f"Output doesn't mention archiver/data terms. Output: {result.stdout[:500]}"
+        assert any(term in output_lower for term in ["archiver", "data", "retrieved", "channel"]), (
+            f"Output doesn't mention archiver/data terms. Output: {result.stdout[:500]}"
+        )
 
         assert any(
             term in output_lower for term in ["plot", "figure", "png", "image", "chart", "saved"]
@@ -470,6 +462,7 @@ class TestClaudeExecutesArchiverAndPlots:
 # ===========================================================================
 # Test 3 — Full BPM analysis pipeline (API required)
 # ===========================================================================
+
 
 class TestClaudeFullBpmAnalysisPipeline:
     """Full multi-tool pipeline: channel_find -> archiver_read -> execute.
@@ -549,17 +542,14 @@ class TestClaudeFullBpmAnalysisPipeline:
         if artifacts_json.exists():
             index_data = json.loads(artifacts_json.read_text())
             entries = index_data.get("entries", [])
-            image_artifacts = [
-                a for a in entries
-                if a.get("artifact_type", "").startswith("image")
-            ]
+            image_artifacts = [a for a in entries if a.get("artifact_type", "").startswith("image")]
             print(f"  artifact store: {len(entries)} entries, {len(image_artifacts)} images")
 
         # Output contains BPM-related terms
         output_lower = result.stdout.lower()
-        assert any(
-            term in output_lower for term in ["bpm", "channel", "position", "beam"]
-        ), f"Output doesn't mention BPM terms. Output: {result.stdout[:500]}"
+        assert any(term in output_lower for term in ["bpm", "channel", "position", "beam"]), (
+            f"Output doesn't mention BPM terms. Output: {result.stdout[:500]}"
+        )
 
         # Output mentions plotting
         assert any(

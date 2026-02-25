@@ -1,7 +1,6 @@
 """Tests for _viz_common data reader code generation."""
 
 import json
-import tempfile
 from pathlib import Path
 
 import pandas as pd

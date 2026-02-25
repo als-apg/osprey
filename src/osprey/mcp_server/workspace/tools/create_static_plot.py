@@ -118,7 +118,9 @@ async def create_static_plot(
 
     # Collect artifacts with category and embedded metadata
     artifact_ids = collect_and_register_artifacts(
-        exec_result, title, description,
+        exec_result,
+        title,
+        description,
         tool_source="create_static_plot",
         category="visualization",
         code=code,

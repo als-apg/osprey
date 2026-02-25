@@ -315,7 +315,12 @@ def build_index(
             rate = (i + 1) / elapsed if elapsed > 0 else 0
             logger.info(
                 "Progress: %d/%d (%.0f files/sec) — indexed=%d skipped=%d errors=%d",
-                i + 1, total, rate, indexed, skipped, errors,
+                i + 1,
+                total,
+                rate,
+                indexed,
+                skipped,
+                errors,
             )
 
     # Flush remaining batch
@@ -331,7 +336,12 @@ def build_index(
     logger.info(
         "Indexing complete in %.1fs: %d indexed, %d skipped, %d errors, "
         "%d import failures (collection: %s)",
-        elapsed, indexed, skipped, errors, failed_imports, collection_name,
+        elapsed,
+        indexed,
+        skipped,
+        errors,
+        failed_imports,
+        collection_name,
     )
 
     return collection_name

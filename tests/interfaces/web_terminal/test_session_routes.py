@@ -94,9 +94,7 @@ class TestResolveWorkspace:
         session_dir.mkdir(parents=True)
         (session_dir / "test.txt").write_text("scoped content")
 
-        resp = client.get(
-            "/api/files/tree?session_id=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-        )
+        resp = client.get("/api/files/tree?session_id=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
         assert resp.status_code == 200
         data = resp.json()
         names = [c["name"] for c in data.get("children", [])]
@@ -134,8 +132,12 @@ class TestSessionScopedDiagnostics:
     def test_session_agents_with_session_id(self, client):
         """GET /api/session-agents?session_id=<id> uses read_session_by_id."""
         mock_events = [
-            {"type": "tool_call", "tool": "channel_read", "agent_id": None,
-             "timestamp": "2026-02-19T12:00:00Z"},
+            {
+                "type": "tool_call",
+                "tool": "channel_read",
+                "agent_id": None,
+                "timestamp": "2026-02-19T12:00:00Z",
+            },
         ]
         with patch(self._TR) as MockReader:
             instance = MockReader.return_value
@@ -159,8 +161,14 @@ class TestSessionScopedDiagnostics:
     def test_session_log_with_session_id(self, client):
         """GET /api/session-log?session_id=<id> uses read_session_by_id."""
         mock_events = [
-            {"type": "tool_call", "tool_name": "channel_read", "server_name": "controls",
-             "agent_id": None, "is_error": False, "timestamp": "2026-02-19T12:00:00Z"},
+            {
+                "type": "tool_call",
+                "tool_name": "channel_read",
+                "server_name": "controls",
+                "agent_id": None,
+                "is_error": False,
+                "timestamp": "2026-02-19T12:00:00Z",
+            },
         ]
         with patch(self._TR) as MockReader:
             instance = MockReader.return_value
@@ -202,14 +210,10 @@ class TestSessionScopedDiagnostics:
         with patch(self._TR) as MockReader:
             instance = MockReader.return_value
             instance.read_agent_timeline.return_value = mock_timeline
-            resp = client.get(
-                "/api/session-agent-timeline?agent_id=agent-xyz&session_id=abc-123"
-            )
+            resp = client.get("/api/session-agent-timeline?agent_id=agent-xyz&session_id=abc-123")
 
         assert resp.status_code == 200
-        instance.read_agent_timeline.assert_called_once_with(
-            "agent-xyz", session_id="abc-123"
-        )
+        instance.read_agent_timeline.assert_called_once_with("agent-xyz", session_id="abc-123")
 
     def test_session_agent_timeline_without_session_id(self, client):
         """GET /api/session-agent-timeline without session_id passes None."""
@@ -219,6 +223,4 @@ class TestSessionScopedDiagnostics:
             resp = client.get("/api/session-agent-timeline?agent_id=agent-xyz")
 
         assert resp.status_code == 200
-        instance.read_agent_timeline.assert_called_once_with(
-            "agent-xyz", session_id=None
-        )
+        instance.read_agent_timeline.assert_called_once_with("agent-xyz", session_id=None)

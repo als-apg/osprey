@@ -50,13 +50,15 @@ class ClaudeCodeFileService:
             except (UnicodeDecodeError, PermissionError):
                 continue
 
-            files.append({
-                "name": fpath.name,
-                "path": rel_path,
-                "category": self.categorize(fpath.name, rel_path),
-                "content": content,
-                "language": self.detect_language(fpath.name),
-            })
+            files.append(
+                {
+                    "name": fpath.name,
+                    "path": rel_path,
+                    "category": self.categorize(fpath.name, rel_path),
+                    "content": content,
+                    "language": self.detect_language(fpath.name),
+                }
+            )
 
         return files
 

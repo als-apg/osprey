@@ -14,7 +14,6 @@ from osprey.mcp_server.workspace.tools.screen_capture_backends.base import (
     WindowNotFoundError,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures: mock mss and Xlib modules
 # ---------------------------------------------------------------------------

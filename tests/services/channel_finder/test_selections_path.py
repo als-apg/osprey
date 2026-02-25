@@ -1,7 +1,6 @@
 """Tests for selections path provenance through hierarchical pipeline."""
 
 import json
-from typing import Any
 
 import pytest
 
@@ -49,9 +48,7 @@ def test_channel_finder_result_selections_paths_populated():
 
 def test_channel_finder_result_backward_compatible():
     """Existing code that doesn't pass selections_paths still works."""
-    result = ChannelFinderResult(
-        query="q", channels=[], total_channels=0, processing_notes="n"
-    )
+    result = ChannelFinderResult(query="q", channels=[], total_channels=0, processing_notes="n")
     # Can serialize without error
     d = result.model_dump()
     assert "selections_paths" in d

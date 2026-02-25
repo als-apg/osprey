@@ -137,9 +137,7 @@ class ChannelFinderICRegistry:
     def _resolve_path(path_str: str) -> str:
         """Resolve path relative to config file directory."""
         config_path = Path(
-            os.path.expandvars(
-                os.environ.get("OSPREY_CONFIG", str(Path.cwd() / "config.yml"))
-            )
+            os.path.expandvars(os.environ.get("OSPREY_CONFIG", str(Path.cwd() / "config.yml")))
         )
         p = Path(path_str)
         if not p.is_absolute():

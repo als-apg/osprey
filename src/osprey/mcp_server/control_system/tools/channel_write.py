@@ -132,12 +132,6 @@ async def channel_write(
                     result_entry["notes"] = op["notes"]
                 results_serialised.append(result_entry)
 
-            payload = {
-                "operations_completed": len(results_serialised),
-                "all_successful": all(r["success"] for r in results_serialised),
-                "results": results_serialised,
-            }
-
             # Build compact summary inline
             successful = sum(1 for r in results_serialised if r["success"])
             summary = {

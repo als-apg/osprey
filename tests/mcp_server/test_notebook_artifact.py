@@ -128,9 +128,7 @@ def test_gallery_notebook_render_endpoint(tmp_path):
     from osprey.mcp_server.notebook_renderer import create_notebook_from_code
 
     store = ArtifactStore(workspace_root=tmp_path)
-    nb = create_notebook_from_code(
-        code="GALLERY_RENDER_MARKER_XYZ", description="Gallery test"
-    )
+    nb = create_notebook_from_code(code="GALLERY_RENDER_MARKER_XYZ", description="Gallery test")
     nb_bytes = nbformat.writes(nb).encode()
 
     entry = store.save_file(

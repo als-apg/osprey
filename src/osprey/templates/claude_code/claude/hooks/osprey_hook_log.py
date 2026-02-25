@@ -40,8 +40,9 @@ def _is_debug_enabled(hook_input):
     if not project_dir:
         return False
     try:
-        import yaml
         from pathlib import Path
+
+        import yaml
 
         default = str(Path(project_dir) / "config.yml")
         config_path = Path(os.path.expandvars(os.environ.get("OSPREY_CONFIG", default)))

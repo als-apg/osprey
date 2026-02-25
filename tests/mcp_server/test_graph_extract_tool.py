@@ -22,9 +22,8 @@ class TestGraphExtract:
     @pytest.fixture
     def tool_fn(self):
         """Get the raw tool function."""
-        from tests.mcp_server.conftest import get_tool_fn
-
         from osprey.mcp_server.workspace.tools.graph_tools import graph_extract
+        from tests.mcp_server.conftest import get_tool_fn
 
         return get_tool_fn(graph_extract)
 
@@ -44,9 +43,7 @@ class TestGraphExtract:
         img = tmp_path / "chart.png"
         img.write_bytes(b"fake-png")
 
-        with patch(
-            "osprey.mcp_server.workspace.tools.graph_client.DePlotClient"
-        ) as MockClient:
+        with patch("osprey.mcp_server.workspace.tools.graph_client.DePlotClient") as MockClient:
             mock_instance = AsyncMock()
             mock_instance.is_available.return_value = False
             MockClient.return_value = mock_instance
@@ -68,9 +65,7 @@ class TestGraphExtract:
             "title": "Beam Current",
         }
 
-        with patch(
-            "osprey.mcp_server.workspace.tools.graph_client.DePlotClient"
-        ) as MockClient:
+        with patch("osprey.mcp_server.workspace.tools.graph_client.DePlotClient") as MockClient:
             mock_instance = AsyncMock()
             mock_instance.is_available.return_value = True
             mock_instance.extract.return_value = mock_result
@@ -87,9 +82,7 @@ class TestGraphExtract:
         img = tmp_path / "chart.png"
         img.write_bytes(b"fake-png")
 
-        with patch(
-            "osprey.mcp_server.workspace.tools.graph_client.DePlotClient"
-        ) as MockClient:
+        with patch("osprey.mcp_server.workspace.tools.graph_client.DePlotClient") as MockClient:
             mock_instance = AsyncMock()
             mock_instance.is_available.return_value = True
             mock_instance.extract.side_effect = RuntimeError("Model crashed")

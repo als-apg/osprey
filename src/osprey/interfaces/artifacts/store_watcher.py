@@ -10,7 +10,6 @@ the diff naturally produces nothing — no duplicate events.
 
 from __future__ import annotations
 
-import json
 import logging
 import time
 from pathlib import Path
@@ -49,9 +48,7 @@ class _IndexFileHandler(FileSystemEventHandler):
         for filename, cfg in index_configs.items():
             store = cfg["store"]
             id_attr = cfg["id_attr"]
-            self._known_ids[filename] = {
-                getattr(e, id_attr) for e in store._entries
-            }
+            self._known_ids[filename] = {getattr(e, id_attr) for e in store._entries}
 
     def on_modified(self, event: FileSystemEvent) -> None:
         if event.is_directory:
@@ -98,18 +95,22 @@ class _IndexFileHandler(FileSystemEventHandler):
         added = new_ids - old_ids
         for entry in store._entries:
             if getattr(entry, id_attr) in added:
-                self._broadcaster.broadcast({
-                    "type": event_type,
-                    **entry.to_dict(),
-                })
+                self._broadcaster.broadcast(
+                    {
+                        "type": event_type,
+                        **entry.to_dict(),
+                    }
+                )
 
         # Broadcast deletions
         removed = old_ids - new_ids
         for entry_id in removed:
-            self._broadcaster.broadcast({
-                "type": delete_type,
-                "id": entry_id,
-            })
+            self._broadcaster.broadcast(
+                {
+                    "type": delete_type,
+                    "id": entry_id,
+                }
+            )
 
         self._known_ids[filename] = new_ids
 
@@ -156,7 +157,7 @@ class StoreIndexWatcher:
 
         # Schedule a watch on each directory that contains an index file
         watched = set()
-        for filename, dir_path in self._watch_dirs.items():
+        for _filename, dir_path in self._watch_dirs.items():
             dir_str = str(dir_path)
             if dir_str not in watched:
                 dir_path.mkdir(parents=True, exist_ok=True)

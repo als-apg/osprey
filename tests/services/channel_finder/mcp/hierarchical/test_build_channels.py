@@ -27,6 +27,7 @@ def test_build_channels_happy_path(tmp_path, monkeypatch):
         "SR:BPM:01:Y",
         "SR:BPM:02:X",
     ]
+    mock_db.validate_channel.return_value = True
     with patch(
         "osprey.services.channel_finder.mcp.hierarchical.registry."
         "ChannelFinderHierRegistry.database",
@@ -44,7 +45,42 @@ def test_build_channels_happy_path(tmp_path, monkeypatch):
     assert data["total"] == 3
     assert "SR:BPM:01:X" in data["channels"]
     assert "SR:BPM:02:X" in data["channels"]
+    assert data["valid_count"] == 3
+    assert data["invalid_count"] == 0
+    assert data["valid"] == ["SR:BPM:01:X", "SR:BPM:01:Y", "SR:BPM:02:X"]
+    assert data["invalid"] == []
     mock_db.build_channels_from_selections.assert_called_once_with(selections)
+
+
+@pytest.mark.unit
+def test_build_channels_with_invalid_channels(tmp_path, monkeypatch):
+    """Inline validation separates valid and invalid channels."""
+    _setup(tmp_path, monkeypatch)
+    mock_db = MagicMock()
+    mock_db.build_channels_from_selections.return_value = [
+        "SR:BPM:01:X",
+        "SR:BPM:99:X",
+        "SR:BPM:01:Y",
+    ]
+    mock_db.validate_channel.side_effect = lambda ch: ch != "SR:BPM:99:X"
+    with patch(
+        "osprey.services.channel_finder.mcp.hierarchical.registry."
+        "ChannelFinderHierRegistry.database",
+        new_callable=PropertyMock,
+        return_value=mock_db,
+    ):
+        from osprey.services.channel_finder.mcp.hierarchical.tools.build_channels import (
+            build_channels,
+        )
+
+        fn = get_tool_fn(build_channels)
+        result = fn(selections={"system": "SR", "family": "BPM"})
+    data = json.loads(result)
+    assert data["total"] == 3
+    assert data["valid_count"] == 2
+    assert data["invalid_count"] == 1
+    assert data["valid"] == ["SR:BPM:01:X", "SR:BPM:01:Y"]
+    assert data["invalid"] == ["SR:BPM:99:X"]
 
 
 @pytest.mark.unit

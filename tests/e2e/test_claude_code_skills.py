@@ -249,8 +249,7 @@ class TestOspreySkillInstallationWorkflow:
         # Verify skill files exist before invoking Claude
         skill_dir = project_dir / ".claude" / "skills" / "test-verification"
         assert (skill_dir / "instructions.md").exists(), (
-            f"instructions.md not found at {skill_dir}. "
-            f"Contents: {list(project_dir.rglob('*'))}"
+            f"instructions.md not found at {skill_dir}. Contents: {list(project_dir.rglob('*'))}"
         )
 
         # Step 2: Invoke Claude Code to read the installed skill
@@ -275,8 +274,10 @@ class TestOspreySkillInstallationWorkflow:
                 "claude",
                 "--print",
                 "--dangerously-skip-permissions",
-                "--permission-mode", "bypassPermissions",
-                "--max-budget-usd", "0.50",
+                "--permission-mode",
+                "bypassPermissions",
+                "--max-budget-usd",
+                "0.50",
                 prompt,
             ],
             capture_output=True,

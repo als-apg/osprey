@@ -246,9 +246,7 @@ class TestDeleteNode:
         assert "BR" not in _disk_data(hier_db)["tree"]
 
     def test_delete_node_cascades(self, hier_db: HierarchicalChannelDatabase):
-        result = hier_db.delete_node(
-            level="device", selections={"system": "SR"}, name="BPM"
-        )
+        result = hier_db.delete_node(level="device", selections={"system": "SR"}, name="BPM")
 
         assert result["success"] is True
         assert result["affected_channels"] > 0
@@ -261,9 +259,7 @@ class TestDeleteNode:
 
 class TestCountDescendants:
     def test_count_descendants(self, hier_db: HierarchicalChannelDatabase):
-        impact = hier_db.count_descendants(
-            level="device", selections={"system": "SR"}, name="BPM"
-        )
+        impact = hier_db.count_descendants(level="device", selections={"system": "SR"}, name="BPM")
 
         assert impact["channels"] >= 2  # At least X and Y
         assert "signal" in impact
@@ -334,9 +330,7 @@ class TestInstanceLevelAddNode:
                 name="X",
             )
 
-    def test_tree_level_crud_still_works(
-        self, hier_db_with_instances: HierarchicalChannelDatabase
-    ):
+    def test_tree_level_crud_still_works(self, hier_db_with_instances: HierarchicalChannelDatabase):
         result = hier_db_with_instances.add_node(
             level="family",
             parent_selections={"system": "SR"},
@@ -393,9 +387,7 @@ class TestInstanceLevelCountDescendants:
         # X has children Raw and Calibrated
         assert impact["channels"] >= 2
 
-    def test_expansion_aware_breakdown(
-        self, hier_db_with_instances: HierarchicalChannelDatabase
-    ):
+    def test_expansion_aware_breakdown(self, hier_db_with_instances: HierarchicalChannelDatabase):
         impact = hier_db_with_instances.count_descendants(
             level="family",
             selections={"system": "SR"},
@@ -414,9 +406,7 @@ class TestInstanceLevelCountDescendants:
 
 
 class TestGetExpansion:
-    def test_get_expansion(
-        self, hier_db_with_instances: HierarchicalChannelDatabase
-    ):
+    def test_get_expansion(self, hier_db_with_instances: HierarchicalChannelDatabase):
         result = hier_db_with_instances.get_expansion(
             level="device",
             selections={"system": "SR", "family": "BPM"},
@@ -444,9 +434,7 @@ class TestGetExpansion:
 
 
 class TestEditExpansion:
-    def test_edit_expansion_range(
-        self, hier_db_with_instances: HierarchicalChannelDatabase
-    ):
+    def test_edit_expansion_range(self, hier_db_with_instances: HierarchicalChannelDatabase):
         result = hier_db_with_instances.edit_expansion(
             level="device",
             selections={"system": "SR", "family": "BPM"},
@@ -461,9 +449,7 @@ class TestEditExpansion:
         raw = on_disk["tree"]["SR"]["BPM"]["DEVICE"]["_expansion"]
         assert raw["_range"] == [1, 8]
 
-    def test_edit_expansion_pattern(
-        self, hier_db_with_instances: HierarchicalChannelDatabase
-    ):
+    def test_edit_expansion_pattern(self, hier_db_with_instances: HierarchicalChannelDatabase):
         result = hier_db_with_instances.edit_expansion(
             level="device",
             selections={"system": "SR", "family": "BPM"},
@@ -485,9 +471,7 @@ class TestEditExpansion:
                 selections={"system": "SR", "family": "NONEXISTENT"},
             )
 
-    def test_edit_expansion_no_container_tree_only(
-        self, hier_db: HierarchicalChannelDatabase
-    ):
+    def test_edit_expansion_no_container_tree_only(self, hier_db: HierarchicalChannelDatabase):
         with pytest.raises(DatabaseWriteError, match="No expansion container"):
             hier_db.edit_expansion(
                 level="device",
@@ -527,9 +511,7 @@ class TestEditExpansion:
 
 
 class TestChannelMapRebuild:
-    def test_add_node_updates_channel_map(
-        self, hier_db: HierarchicalChannelDatabase
-    ):
+    def test_add_node_updates_channel_map(self, hier_db: HierarchicalChannelDatabase):
         assert not hier_db.validate_channel("SR:CORR:")
         hier_db.add_node(
             level="signal",
@@ -538,9 +520,7 @@ class TestChannelMapRebuild:
         )
         assert hier_db.validate_channel("SR:BPM:Z")
 
-    def test_delete_node_updates_channel_map(
-        self, hier_db: HierarchicalChannelDatabase
-    ):
+    def test_delete_node_updates_channel_map(self, hier_db: HierarchicalChannelDatabase):
         assert hier_db.validate_channel("SR:BPM:X")
         hier_db.delete_node(
             level="signal",

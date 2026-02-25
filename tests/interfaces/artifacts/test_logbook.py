@@ -43,11 +43,13 @@ def _llm_json_response(subject="Test Subject", details="Test details.", tags=Non
     """Build a JSON string that aget_chat_completion would return."""
     if tags is None:
         tags = ["beam", "current"]
-    return json.dumps({
-        "subject": subject,
-        "details": details,
-        "tags": tags,
-    })
+    return json.dumps(
+        {
+            "subject": subject,
+            "details": details,
+            "tags": tags,
+        }
+    )
 
 
 # Default provider config returned by get_provider_config("cborg")
@@ -143,11 +145,13 @@ class TestLogbookCompose:
         store = app_client.app.state.artifact_store
         entry = _make_artifact(store, title="Beam Current Plot")
 
-        mock_llm = AsyncMock(return_value=_llm_json_response(
-            subject="Beam current analysis",
-            details="Observed stable beam current at 500 mA.",
-            tags=["beam", "current", "analysis"],
-        ))
+        mock_llm = AsyncMock(
+            return_value=_llm_json_response(
+                subject="Beam current analysis",
+                details="Observed stable beam current at 500 mA.",
+                tags=["beam", "current", "analysis"],
+            )
+        )
 
         p1, p2 = _patch_model_resolution()
         with p1, p2, patch("osprey.models.completion.aget_chat_completion", mock_llm):
@@ -241,8 +245,7 @@ class TestLogbookSubmit:
         # Verify draft file exists (exclude the -metadata.json companion)
         drafts_dir = tmp_path / "drafts"
         draft_files = [
-            f for f in drafts_dir.glob("draft-*.json")
-            if not f.name.endswith("-metadata.json")
+            f for f in drafts_dir.glob("draft-*.json") if not f.name.endswith("-metadata.json")
         ]
         assert len(draft_files) == 1
 
@@ -286,7 +289,6 @@ class TestLogbookSubmit:
         assert call_args[0][0] == "ariel"
         assert "/#create?draft=" in call_args[1]["url"]
 
-
     @pytest.mark.unit
     def test_submit_creates_metadata_json_attachment(self, app_client, tmp_path):
         """Submit creates a metadata.json file and includes it in attachment_paths."""
@@ -319,8 +321,7 @@ class TestLogbookSubmit:
         draft_file = tmp_path / "drafts" / f"{draft_id}.json"
         draft_data = json.loads(draft_file.read_text())
         assert any(
-            path.endswith(f"{draft_id}-metadata.json")
-            for path in draft_data["attachment_paths"]
+            path.endswith(f"{draft_id}-metadata.json") for path in draft_data["attachment_paths"]
         ), "metadata.json not in attachment_paths"
 
 
@@ -546,7 +547,8 @@ class TestComposeWithSteering:
 
         p1, p2 = _patch_model_resolution()
         with (
-            p1, p2,
+            p1,
+            p2,
             patch("osprey.models.completion.aget_chat_completion", mock_llm),
             patch(
                 "osprey.mcp_server.workspace.transcript_reader.TranscriptReader"
@@ -762,13 +764,22 @@ class TestUserPromptContent:
 
         mock_llm = AsyncMock(return_value=_llm_json_response())
         mock_chat = [
-            {"role": "user", "content": "What is the beam current?", "timestamp": "2026-02-22T10:00:00"},
-            {"role": "assistant", "content": "The beam current is 500 mA.", "timestamp": "2026-02-22T10:00:05"},
+            {
+                "role": "user",
+                "content": "What is the beam current?",
+                "timestamp": "2026-02-22T10:00:00",
+            },
+            {
+                "role": "assistant",
+                "content": "The beam current is 500 mA.",
+                "timestamp": "2026-02-22T10:00:05",
+            },
         ]
 
         p1, p2 = _patch_model_resolution()
         with (
-            p1, p2,
+            p1,
+            p2,
             patch("osprey.models.completion.aget_chat_completion", mock_llm),
             patch(
                 "osprey.mcp_server.workspace.transcript_reader.TranscriptReader"
@@ -806,7 +817,8 @@ class TestUserPromptContent:
 
         p1, p2 = _patch_model_resolution()
         with (
-            p1, p2,
+            p1,
+            p2,
             patch("osprey.models.completion.aget_chat_completion", mock_llm),
             patch(
                 "osprey.mcp_server.workspace.transcript_reader.TranscriptReader"
@@ -836,7 +848,8 @@ class TestUserPromptContent:
 
         p1, p2 = _patch_model_resolution()
         with (
-            p1, p2,
+            p1,
+            p2,
             patch("osprey.models.completion.aget_chat_completion", mock_llm),
             patch(
                 "osprey.mcp_server.workspace.transcript_reader.TranscriptReader"

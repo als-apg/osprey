@@ -7,15 +7,12 @@ keeping the payload small enough for inline report generation.
 
 import json
 import logging
-from pathlib import Path
 
+from osprey.interfaces.artifacts.app import _extract_timeseries_frame, lttb_downsample
 from osprey.mcp_server.common import make_error, resolve_workspace_root
 from osprey.mcp_server.workspace.server import mcp
 
 logger = logging.getLogger("osprey.mcp_server.tools.archiver_downsample")
-
-# Import LTTB and frame extractor from the artifacts app (shared logic)
-from osprey.interfaces.artifacts.app import _extract_timeseries_frame, lttb_downsample
 
 
 @mcp.tool()
@@ -45,10 +42,12 @@ async def archiver_downsample(
     try:
         workspace_root = resolve_workspace_root()
     except Exception as e:
-        return json.dumps(make_error(
-            "internal_error",
-            f"Could not resolve workspace root: {e}",
-        ))
+        return json.dumps(
+            make_error(
+                "internal_error",
+                f"Could not resolve workspace root: {e}",
+            )
+        )
 
     from osprey.mcp_server.artifact_store import ArtifactStore
 
@@ -56,34 +55,41 @@ async def archiver_downsample(
     entry = store.get_entry(entry_id)
 
     if entry is None:
-        return json.dumps(make_error(
-            "validation_error",
-            f"Artifact entry '{entry_id}' not found.",
-            suggestions=["Use session_summary to list available entries."],
-        ))
+        return json.dumps(
+            make_error(
+                "validation_error",
+                f"Artifact entry '{entry_id}' not found.",
+                suggestions=["Use session_summary to list available entries."],
+            )
+        )
 
     if entry.category != "archiver_data":
-        return json.dumps(make_error(
-            "validation_error",
-            f"Entry '{entry_id}' has category={entry.category!r}, "
-            f"not 'archiver_data'.",
-            suggestions=["Only archiver_data entries can be downsampled."],
-        ))
+        return json.dumps(
+            make_error(
+                "validation_error",
+                f"Entry '{entry_id}' has category={entry.category!r}, not 'archiver_data'.",
+                suggestions=["Only archiver_data entries can be downsampled."],
+            )
+        )
 
     filepath = store.get_file_path(entry_id)
     if filepath is None:
-        return json.dumps(make_error(
-            "internal_error",
-            f"Data file for entry '{entry_id}' not found on disk.",
-        ))
+        return json.dumps(
+            make_error(
+                "internal_error",
+                f"Data file for entry '{entry_id}' not found on disk.",
+            )
+        )
 
     try:
         raw = json.loads(filepath.read_text())
     except (json.JSONDecodeError, OSError) as e:
-        return json.dumps(make_error(
-            "internal_error",
-            f"Could not read data file: {e}",
-        ))
+        return json.dumps(
+            make_error(
+                "internal_error",
+                f"Could not read data file: {e}",
+            )
+        )
 
     frame, query_meta = _extract_timeseries_frame(raw)
     all_columns = frame.get("columns", [])
@@ -92,23 +98,27 @@ async def archiver_downsample(
     original_points = len(index)
 
     if original_points == 0:
-        return json.dumps({
-            "labels": [],
-            "datasets": [],
-            "original_points": 0,
-            "downsampled_points": 0,
-            "time_range": {"start": None, "end": None},
-        })
+        return json.dumps(
+            {
+                "labels": [],
+                "datasets": [],
+                "original_points": 0,
+                "downsampled_points": 0,
+                "time_range": {"start": None, "end": None},
+            }
+        )
 
     # Filter channels if requested
     if channels:
         col_indices = [i for i, c in enumerate(all_columns) if c in channels]
         if not col_indices:
-            return json.dumps(make_error(
-                "validation_error",
-                f"None of the requested channels {channels} found in "
-                f"entry columns {all_columns}.",
-            ))
+            return json.dumps(
+                make_error(
+                    "validation_error",
+                    f"None of the requested channels {channels} found in "
+                    f"entry columns {all_columns}.",
+                )
+            )
         selected_columns = [all_columns[i] for i in col_indices]
         filtered_rows = [[row[i] for i in col_indices] for row in rows]
     else:
@@ -124,10 +134,12 @@ async def archiver_downsample(
     datasets = []
     for col_idx, col_name in enumerate(selected_columns):
         values = [row[col_idx] if col_idx < len(row) else None for row in ds_rows]
-        datasets.append({
-            "channel": col_name,
-            "values": values,
-        })
+        datasets.append(
+            {
+                "channel": col_name,
+                "values": values,
+            }
+        )
 
     time_range = {
         "start": ds_index[0] if ds_index else None,

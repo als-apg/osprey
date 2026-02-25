@@ -9,7 +9,6 @@ import json
 
 import pytest
 
-
 # -- Structured error envelope (matches common.make_error) --
 
 
@@ -141,9 +140,7 @@ def test_success_response_no_output(hook_runner, make_config):
         "mcp__controls__channel_read",
         {"channels": ["SR:CURRENT:RB"]},
         config_path=config,
-        tool_response=json.dumps(
-            {"channels": [{"name": "SR:CURRENT:RB", "value": 500.1}]}
-        ),
+        tool_response=json.dumps({"channels": [{"name": "SR:CURRENT:RB", "value": 500.1}]}),
     )
 
     assert result is None

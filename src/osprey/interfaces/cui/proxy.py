@@ -126,6 +126,7 @@ def _rewrite_html(html_bytes: bytes) -> bytes:
 
     return html.encode("utf-8")
 
+
 # Timeout for upstream requests (generous for npx cold-start)
 _TIMEOUT = httpx.Timeout(30.0, connect=10.0)
 
@@ -182,12 +183,14 @@ async def _proxy(request: Request) -> Response:
             if not filtered:
                 import os
 
-                filtered = [{
-                    "path": project_cwd,
-                    "shortname": os.path.basename(project_cwd),
-                    "lastDate": "",
-                    "conversationCount": 0,
-                }]
+                filtered = [
+                    {
+                        "path": project_cwd,
+                        "shortname": os.path.basename(project_cwd),
+                        "lastDate": "",
+                        "conversationCount": 0,
+                    }
+                ]
             data["directories"] = filtered
             data["totalCount"] = len(filtered)
             import json
@@ -270,14 +273,14 @@ def _forward_headers(request: Request) -> dict[str, str]:
     with un-rewritten absolute asset paths.
     """
     skip = {
-        "host", "connection", "transfer-encoding", "content-length",
-        "if-none-match", "if-modified-since",
+        "host",
+        "connection",
+        "transfer-encoding",
+        "content-length",
+        "if-none-match",
+        "if-modified-since",
     }
-    return {
-        k: v
-        for k, v in request.headers.items()
-        if k.lower() not in skip
-    }
+    return {k: v for k, v in request.headers.items() if k.lower() not in skip}
 
 
 def create_cui_proxy_mount() -> Mount:

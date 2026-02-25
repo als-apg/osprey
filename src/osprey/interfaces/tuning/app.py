@@ -124,11 +124,7 @@ def create_app(tuning_api_url: str | None = None) -> FastAPI:
 
         # Forward headers (skip hop-by-hop)
         skip_headers = {"host", "connection", "transfer-encoding"}
-        headers = {
-            k: v
-            for k, v in request.headers.items()
-            if k.lower() not in skip_headers
-        }
+        headers = {k: v for k, v in request.headers.items() if k.lower() not in skip_headers}
 
         body = await request.body()
 

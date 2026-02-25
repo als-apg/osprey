@@ -129,7 +129,6 @@ async def test_archiver_read_file_persistence(tmp_path, monkeypatch):
     assert "data_file" in data
 
     # Data file is a relative filename within the artifacts dir
-    from pathlib import Path
 
     artifacts_dir = tmp_path / "osprey-workspace" / "artifacts"
     data_file = artifacts_dir / data["data_file"]

@@ -62,15 +62,11 @@ async def papers_stats() -> str:
         num_authors = len(facet_data.get("first_author", []))
 
         # Document type breakdown
-        document_types = {
-            f["value"]: f["count"] for f in facet_data.get("document_type", [])
-        }
+        document_types = {f["value"]: f["count"] for f in facet_data.get("document_type", [])}
 
         # Top 10 conferences by paper count
         conference_facets = facet_data.get("conference", [])
-        top_conferences = {
-            f["value"]: f["count"] for f in conference_facets[:10]
-        }
+        top_conferences = {f["value"]: f["count"] for f in conference_facets[:10]}
 
         stats = {
             "total_papers": total_papers,

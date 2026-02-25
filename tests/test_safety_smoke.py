@@ -31,9 +31,9 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import yaml
 
-from osprey.mcp_server.control_system.registry import initialize_mcp_registry, reset_mcp_registry
-from osprey.mcp_server.common import reset_config_cache
 from osprey.mcp_server.artifact_store import reset_artifact_store
+from osprey.mcp_server.common import reset_config_cache
+from osprey.mcp_server.control_system.registry import initialize_mcp_registry, reset_mcp_registry
 from osprey.mcp_server.memory_store import reset_memory_store
 
 # ---------------------------------------------------------------------------
@@ -162,7 +162,9 @@ def _run_hook(hook_name, tool_name, tool_input, config_path, cwd):
         env=env,
         cwd=str(cwd),
     )
-    assert result.returncode == 0, f"Hook {hook_name} failed (exit {result.returncode}): {result.stderr}"
+    assert result.returncode == 0, (
+        f"Hook {hook_name} failed (exit {result.returncode}): {result.stderr}"
+    )
     stdout = result.stdout.strip()
     if not stdout:
         return None

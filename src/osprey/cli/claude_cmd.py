@@ -475,7 +475,7 @@ def regen(project, dry_run):
         result = manager.regenerate_claude_code(project_dir, dry_run=dry_run)
     except FileNotFoundError as e:
         console.print(f"[error]Error:[/error] {e}", style="red")
-        raise SystemExit(1)
+        raise SystemExit(1) from e
 
     if dry_run:
         console.print("\n[bold]Dry run — no files modified[/bold]\n")
@@ -510,7 +510,7 @@ def regen(project, dry_run):
                 " picks up the changes:[/dim]"
             )
             console.print(
-                '  [dim]git add .claude/ CLAUDE.md .mcp.json && git commit -m'
+                "  [dim]git add .claude/ CLAUDE.md .mcp.json && git commit -m"
                 ' "regen: update Claude Code artifacts"[/dim]'
             )
 
@@ -606,7 +606,7 @@ def status(project):
             spec = ClaudeCodeModelResolver.resolve(claude_code_config, api_providers)
         except ValueError as exc:
             console.print(f"[error]Provider error:[/error] {exc}")
-            raise SystemExit(1)
+            raise SystemExit(1) from exc
 
         console.print(f"[dim]Provider:[/dim]  {spec.provider}")
 
@@ -708,7 +708,7 @@ def chat_claude(project, resume, print_mode):
             console.print()
     except FileNotFoundError as e:
         console.print(f"[error]Error:[/error] {e}", style="red")
-        raise SystemExit(1)
+        raise SystemExit(1) from e
 
     # Build claude CLI args
     args = ["claude", "--project-dir", str(project_dir)]

@@ -61,7 +61,9 @@ from osprey_hook_log import get_hook_input, get_project_dir, log_hook
 
 
 def load_osprey_config(project_dir=""):
-    default = str(Path(project_dir) / "config.yml") if project_dir else str(Path.cwd() / "config.yml")
+    default = (
+        str(Path(project_dir) / "config.yml") if project_dir else str(Path.cwd() / "config.yml")
+    )
     config_path = Path(os.path.expandvars(os.environ.get("OSPREY_CONFIG", default)))
     if config_path.exists():
         with open(config_path) as f:

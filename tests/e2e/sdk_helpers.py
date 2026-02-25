@@ -8,7 +8,6 @@ Extracted from test_claude_code_sdk_e2e.py to avoid circular imports.
 
 from __future__ import annotations
 
-import json
 import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -354,7 +353,9 @@ async def run_sdk_query_with_hooks(
             tool_name=tool_name,
             tool_input=tool_input,
             decision=decision,
-            reason=f"approval_policy={approval_policy!r}" if isinstance(approval_policy, str) else "custom_policy",
+            reason=f"approval_policy={approval_policy!r}"
+            if isinstance(approval_policy, str)
+            else "custom_policy",
         )
         hook_events.append(event)
 
@@ -421,9 +422,7 @@ async def run_sdk_query_with_hooks(
                     workflow.result = message
     except Exception as exc:
         stderr_output = "\n".join(stderr_lines) if stderr_lines else "(no stderr captured)"
-        raise RuntimeError(
-            f"SDK query failed: {exc}\n\nCLI stderr:\n{stderr_output}"
-        ) from exc
+        raise RuntimeError(f"SDK query failed: {exc}\n\nCLI stderr:\n{stderr_output}") from exc
 
     workflow.hook_events = hook_events
     return workflow

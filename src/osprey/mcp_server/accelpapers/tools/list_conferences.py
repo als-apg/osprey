@@ -58,17 +58,16 @@ async def papers_list_conferences(
         facets = [f for f in facets if f["count"] >= min_papers]
         facets = facets[:max_results]
 
-        conferences = [
-            {"conference": f["value"], "paper_count": f["count"]}
-            for f in facets
-        ]
+        conferences = [{"conference": f["value"], "paper_count": f["count"]} for f in facets]
 
-        return json.dumps({
-            "pattern": pattern,
-            "min_papers": min_papers,
-            "conferences_found": len(conferences),
-            "conferences": conferences,
-        })
+        return json.dumps(
+            {
+                "pattern": pattern,
+                "min_papers": min_papers,
+                "conferences_found": len(conferences),
+                "conferences": conferences,
+            }
+        )
 
     except Exception as exc:
         logger.exception("papers_list_conferences failed")

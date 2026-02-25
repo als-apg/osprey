@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -16,7 +15,6 @@ from osprey.interfaces.web_terminal.operator_session import (
     build_clean_env,
     validate_project_directory,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers — lightweight fakes for SDK message types
@@ -154,9 +152,9 @@ class TestMessageToEvents:
         assert events[0] == {"type": "thinking", "content": "pondering..."}
 
     def test_tool_use_block(self):
-        msg = FakeAssistantMessage([
-            FakeToolUseBlock("mcp__osprey__channel_read", "tu_1", {"channels": ["X"]})
-        ])
+        msg = FakeAssistantMessage(
+            [FakeToolUseBlock("mcp__osprey__channel_read", "tu_1", {"channels": ["X"]})]
+        )
         events = _message_to_events(msg)
         assert len(events) == 1
         ev = events[0]
@@ -167,9 +165,7 @@ class TestMessageToEvents:
         assert ev["input"] == {"channels": ["X"]}
 
     def test_tool_result_block(self):
-        msg = FakeAssistantMessage([
-            FakeToolResultBlock("tu_1", "42.0", is_error=False)
-        ])
+        msg = FakeAssistantMessage([FakeToolResultBlock("tu_1", "42.0", is_error=False)])
         events = _message_to_events(msg)
         assert len(events) == 1
         ev = events[0]
@@ -179,9 +175,7 @@ class TestMessageToEvents:
         assert ev["is_error"] is False
 
     def test_tool_result_error(self):
-        msg = FakeAssistantMessage([
-            FakeToolResultBlock("tu_2", "timeout", is_error=True)
-        ])
+        msg = FakeAssistantMessage([FakeToolResultBlock("tu_2", "timeout", is_error=True)])
         events = _message_to_events(msg)
         assert events[0]["is_error"] is True
 
@@ -193,9 +187,7 @@ class TestMessageToEvents:
         assert "API error" in events[0]["message"]
 
     def test_result_message(self):
-        msg = FakeResultMessage(
-            is_error=False, total_cost_usd=0.05, duration_ms=3000, num_turns=2
-        )
+        msg = FakeResultMessage(is_error=False, total_cost_usd=0.05, duration_ms=3000, num_turns=2)
         events = _message_to_events(msg)
         assert len(events) == 1
         ev = events[0]
@@ -216,11 +208,13 @@ class TestMessageToEvents:
         assert events == []
 
     def test_multiple_blocks(self):
-        msg = FakeAssistantMessage([
-            FakeThinkingBlock("think"),
-            FakeTextBlock("answer"),
-            FakeToolUseBlock("Read", "tu_x", {"file": "a.py"}),
-        ])
+        msg = FakeAssistantMessage(
+            [
+                FakeThinkingBlock("think"),
+                FakeTextBlock("answer"),
+                FakeToolUseBlock("Read", "tu_x", {"file": "a.py"}),
+            ]
+        )
         events = _message_to_events(msg)
         assert len(events) == 3
         assert [e["type"] for e in events] == ["thinking", "text", "tool_use"]
@@ -278,9 +272,7 @@ class TestOperatorSession:
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
 
         with (
-            patch(
-                "osprey.interfaces.web_terminal.operator_session.CLAUDE_SDK_AVAILABLE", True
-            ),
+            patch("osprey.interfaces.web_terminal.operator_session.CLAUDE_SDK_AVAILABLE", True),
             patch(
                 "osprey.interfaces.web_terminal.operator_session.ClaudeAgentOptions",
                 side_effect=capture_options,
@@ -301,9 +293,7 @@ class TestOperatorSession:
 
     @pytest.mark.asyncio
     async def test_start_requires_sdk(self):
-        with patch(
-            "osprey.interfaces.web_terminal.operator_session.CLAUDE_SDK_AVAILABLE", False
-        ):
+        with patch("osprey.interfaces.web_terminal.operator_session.CLAUDE_SDK_AVAILABLE", False):
             session = OperatorSession(cwd="/tmp")
             with pytest.raises(RuntimeError, match="not installed"):
                 await session.start()
@@ -318,9 +308,7 @@ class TestOperatorSession:
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
         with (
-            patch(
-                "osprey.interfaces.web_terminal.operator_session.CLAUDE_SDK_AVAILABLE", True
-            ),
+            patch("osprey.interfaces.web_terminal.operator_session.CLAUDE_SDK_AVAILABLE", True),
             patch(
                 "osprey.interfaces.web_terminal.operator_session.ClaudeSDKClient",
                 return_value=mock_client,
@@ -354,9 +342,7 @@ class TestOperatorSession:
         mock_client.receive_response = fake_receive
 
         with (
-            patch(
-                "osprey.interfaces.web_terminal.operator_session.CLAUDE_SDK_AVAILABLE", True
-            ),
+            patch("osprey.interfaces.web_terminal.operator_session.CLAUDE_SDK_AVAILABLE", True),
             patch(
                 "osprey.interfaces.web_terminal.operator_session.ClaudeSDKClient",
                 return_value=mock_client,

@@ -21,9 +21,9 @@ from dataclasses import dataclass, field
 
 CLAUDE_CODE_PROVIDERS: dict[str, dict] = {
     "anthropic": {
-        "auth_env_var": "ANTHROPIC_API_KEY",      # Claude Code env var that receives the key
-        "auth_secret_env": "ANTHROPIC_API_KEY",    # Shell env var holding the actual secret
-        "base_url": None,                           # No base URL for direct Anthropic
+        "auth_env_var": "ANTHROPIC_API_KEY",  # Claude Code env var that receives the key
+        "auth_secret_env": "ANTHROPIC_API_KEY",  # Shell env var holding the actual secret
+        "base_url": None,  # No base URL for direct Anthropic
         "default_model_tier": "sonnet",
         # Fallback model IDs (used when api.providers.anthropic.models is absent)
         "models": {
@@ -33,9 +33,9 @@ CLAUDE_CODE_PROVIDERS: dict[str, dict] = {
         },
     },
     "cborg": {
-        "auth_env_var": "ANTHROPIC_AUTH_TOKEN",    # Bearer auth for proxy
-        "auth_secret_env": "CBORG_API_KEY",        # Shell env var holding the secret
-        "base_url": "https://api.cborg.lbl.gov",   # Well-known URL (no /v1)
+        "auth_env_var": "ANTHROPIC_AUTH_TOKEN",  # Bearer auth for proxy
+        "auth_secret_env": "CBORG_API_KEY",  # Shell env var holding the secret
+        "base_url": "https://api.cborg.lbl.gov",  # Well-known URL (no /v1)
         "default_model_tier": "haiku",
         # Fallback model IDs (used when api.providers.cborg.models is absent)
         "models": {
@@ -45,8 +45,8 @@ CLAUDE_CODE_PROVIDERS: dict[str, dict] = {
         },
     },
     "als-apg": {
-        "auth_env_var": "ANTHROPIC_AUTH_TOKEN",    # Bearer auth for proxy
-        "auth_secret_env": "ALS_APG_API_KEY",      # Shell env var holding the secret
+        "auth_env_var": "ANTHROPIC_AUTH_TOKEN",  # Bearer auth for proxy
+        "auth_secret_env": "ALS_APG_API_KEY",  # Shell env var holding the secret
         "base_url": "https://llm.gianlucamartino.com",  # ALS-APG AWS proxy (no /v1)
         "default_model_tier": "haiku",
         # Fallback model IDs (used when api.providers.als-apg.models is absent)
@@ -227,19 +227,13 @@ class ClaudeCodeModelResolver:
         auth_secret_env = provider_def["auth_secret_env"]
         if auth_env_var == auth_secret_env:
             # Direct provider (e.g. anthropic): just needs the var set
-            shell_exports = (
-                f'export {auth_env_var}="<your-api-key>"',
-            )
+            shell_exports = (f'export {auth_env_var}="<your-api-key>"',)
         else:
             # Proxy provider (e.g. cborg): alias one var to another
-            shell_exports = (
-                f'export {auth_env_var}="${auth_secret_env}"',
-            )
+            shell_exports = (f'export {auth_env_var}="${auth_secret_env}"',)
 
         # ── Default model tier ───────────────────────────────────
-        default_tier = claude_code_config.get(
-            "default_model", provider_def["default_model_tier"]
-        )
+        default_tier = claude_code_config.get("default_model", provider_def["default_model_tier"])
         if default_tier not in VALID_TIERS:
             default_tier = provider_def["default_model_tier"]
 

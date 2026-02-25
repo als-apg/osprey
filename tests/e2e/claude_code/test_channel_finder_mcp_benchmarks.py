@@ -263,9 +263,7 @@ def extract_channels_from_result(result: SDKWorkflowResult) -> list[str]:
     return []
 
 
-def compute_f1(
-    predicted: list[str], expected: list[str]
-) -> tuple[float, float, float]:
+def compute_f1(predicted: list[str], expected: list[str]) -> tuple[float, float, float]:
     """Compute precision, recall, F1 from predicted and expected channel lists."""
     pred_set = set(predicted)
     exp_set = set(expected)
@@ -324,9 +322,7 @@ _results_cache: dict[str, dict] = {}
 # ---------------------------------------------------------------------------
 
 
-async def _run_single_query(
-    project_dir, query_entry: dict, *, use_cache: bool = False
-) -> dict:
+async def _run_single_query(project_dir, query_entry: dict, *, use_cache: bool = False) -> dict:
     """Run a single channel-finder query and return scored result.
 
     When *use_cache* is True, return a previously cached result if available

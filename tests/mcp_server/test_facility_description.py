@@ -5,7 +5,6 @@ and returns its content, or a proper error envelope if the file is missing.
 """
 
 import json
-import os
 
 import pytest
 import yaml
@@ -15,9 +14,7 @@ import yaml
 def facility_config(tmp_path):
     """Create minimal config.yml and .claude/rules/facility.md for testing."""
     config = tmp_path / "config.yml"
-    config.write_text(
-        yaml.dump({"control_system": {"type": "mock", "writes_enabled": False}})
-    )
+    config.write_text(yaml.dump({"control_system": {"type": "mock", "writes_enabled": False}}))
 
     rules_dir = tmp_path / ".claude" / "rules"
     rules_dir.mkdir(parents=True)
@@ -36,9 +33,7 @@ def facility_config(tmp_path):
 def missing_facility_config(tmp_path):
     """Create config.yml but no facility.md."""
     config = tmp_path / "config.yml"
-    config.write_text(
-        yaml.dump({"control_system": {"type": "mock", "writes_enabled": False}})
-    )
+    config.write_text(yaml.dump({"control_system": {"type": "mock", "writes_enabled": False}}))
     return tmp_path
 
 
@@ -83,9 +78,7 @@ class TestFacilityDescription:
     async def test_utf8_content(self, tmp_path, monkeypatch):
         """Handles UTF-8 special characters correctly."""
         config = tmp_path / "config.yml"
-        config.write_text(
-            yaml.dump({"control_system": {"type": "mock"}})
-        )
+        config.write_text(yaml.dump({"control_system": {"type": "mock"}}))
 
         rules_dir = tmp_path / ".claude" / "rules"
         rules_dir.mkdir(parents=True)

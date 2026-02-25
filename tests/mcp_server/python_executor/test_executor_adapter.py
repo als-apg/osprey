@@ -56,6 +56,7 @@ def _reset_all_config_caches(monkeypatch):
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _write_config(tmp_path, overrides=None):
     """Write a config.yml with execution infrastructure settings."""
     config = {
@@ -198,19 +199,22 @@ def test_limits_validator_loaded_and_passed(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     # Write config with limits enabled + a limits database
     limits_db = tmp_path / "channel_limits.json"
-    limits_db.write_text(json.dumps({
-        "TEST:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}
-    }))
-    _write_config(tmp_path, {
-        "control_system": {
-            "limits_checking": {
-                "enabled": True,
-                "database_path": str(limits_db),
-                "allow_unlisted_channels": False,
-                "on_violation": "error",
+    limits_db.write_text(
+        json.dumps({"TEST:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}})
+    )
+    _write_config(
+        tmp_path,
+        {
+            "control_system": {
+                "limits_checking": {
+                    "enabled": True,
+                    "database_path": str(limits_db),
+                    "allow_unlisted_channels": False,
+                    "on_violation": "error",
+                }
             }
-        }
-    })
+        },
+    )
     # Force ConfigBuilder to use this test's config.yml
     from osprey.utils.config import get_config_builder
 
@@ -240,19 +244,22 @@ def test_wrapper_includes_monkeypatch_when_validator_present(tmp_path, monkeypat
     """ExecutionWrapper.create_wrapper() output contains monkeypatch code when validator present."""
     monkeypatch.chdir(tmp_path)
     limits_db = tmp_path / "channel_limits.json"
-    limits_db.write_text(json.dumps({
-        "TEST:PV": {"min_value": 0, "max_value": 100, "writable": True}
-    }))
-    _write_config(tmp_path, {
-        "control_system": {
-            "limits_checking": {
-                "enabled": True,
-                "database_path": str(limits_db),
-                "allow_unlisted_channels": False,
-                "on_violation": "error",
+    limits_db.write_text(
+        json.dumps({"TEST:PV": {"min_value": 0, "max_value": 100, "writable": True}})
+    )
+    _write_config(
+        tmp_path,
+        {
+            "control_system": {
+                "limits_checking": {
+                    "enabled": True,
+                    "database_path": str(limits_db),
+                    "allow_unlisted_channels": False,
+                    "on_violation": "error",
+                }
             }
-        }
-    })
+        },
+    )
     # Force ConfigBuilder to use this test's config.yml
     from osprey.utils.config import get_config_builder
 

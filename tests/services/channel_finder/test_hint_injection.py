@@ -24,9 +24,7 @@ def mock_database():
         "MAG (50 ch)\nRF (50 ch)"
     )
     db.generate_subtree_preview.return_value = (
-        "Subtree at: system=MAG\n"
-        "(50 channels below this point)\n"
-        "BPM (25 ch)\nCOR (25 ch)"
+        "Subtree at: system=MAG\n(50 channels below this point)\nBPM (25 ch)\nCOR (25 ch)"
     )
     return db
 

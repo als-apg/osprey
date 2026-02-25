@@ -33,8 +33,7 @@ def _load_docstring(hook_filename: str) -> str:
     path = HOOKS_DIR / hook_filename
     assert path.exists(), f"Hook file not found: {path}"
 
-    spec = importlib.util.spec_from_file_location(hook_filename.removesuffix(".py"), path)
-    module = importlib.util.module_from_spec(spec)
+    importlib.util.spec_from_file_location(hook_filename.removesuffix(".py"), path)
     # Don't actually execute the module (it calls sys.exit) — just compile it
     # and extract the docstring from the AST
     import ast
@@ -115,6 +114,7 @@ class TestHookFrontMatter:
 
 
 # Individual hook-specific tests
+
 
 class TestMemoryGuardHook:
     def test_safety_layer_is_0(self):

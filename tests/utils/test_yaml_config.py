@@ -129,11 +129,14 @@ class TestCommentPreservation:
 
     def test_section_headers_preserved(self, config_file):
         """The ===== section banners must survive."""
-        config_update_fields(config_file, {
-            "control_system.writes_enabled": True,
-            "approval.global_mode": "all_capabilities",
-            "artifact_server.port": 9999,
-        })
+        config_update_fields(
+            config_file,
+            {
+                "control_system.writes_enabled": True,
+                "approval.global_mode": "all_capabilities",
+                "artifact_server.port": 9999,
+            },
+        )
         text = config_file.read_text()
         assert "# ============================================================" in text
         assert "# SAFETY CONTROLS" in text
@@ -164,10 +167,13 @@ class TestBooleanUpdates:
         assert data["approval"]["capabilities"]["memory"]["enabled"] is False
 
     def test_nested_boolean(self, config_file):
-        config_update_fields(config_file, {
-            "control_system.limits_checking.enabled": True,
-            "control_system.write_verification.fail_on_mismatch": True,
-        })
+        config_update_fields(
+            config_file,
+            {
+                "control_system.limits_checking.enabled": True,
+                "control_system.write_verification.fail_on_mismatch": True,
+            },
+        )
         data = config_read(config_file)
         assert data["control_system"]["limits_checking"]["enabled"] is True
         assert data["control_system"]["write_verification"]["fail_on_mismatch"] is True
@@ -185,23 +191,32 @@ class TestNumericUpdates:
         assert data["artifact_server"]["port"] == 9999
 
     def test_float_update(self, config_file):
-        config_update_fields(config_file, {
-            "control_system.write_verification.timeout": 10.0,
-        })
+        config_update_fields(
+            config_file,
+            {
+                "control_system.write_verification.timeout": 10.0,
+            },
+        )
         data = config_read(config_file)
         assert data["control_system"]["write_verification"]["timeout"] == 10.0
 
     def test_float_tolerance(self, config_file):
-        config_update_fields(config_file, {
-            "control_system.write_verification.default_tolerance_percent": 0.5,
-        })
+        config_update_fields(
+            config_file,
+            {
+                "control_system.write_verification.default_tolerance_percent": 0.5,
+            },
+        )
         data = config_read(config_file)
         assert data["control_system"]["write_verification"]["default_tolerance_percent"] == 0.5
 
     def test_deeply_nested_integer(self, config_file):
-        config_update_fields(config_file, {
-            "execution_control.limits.max_execution_time_seconds": 600,
-        })
+        config_update_fields(
+            config_file,
+            {
+                "execution_control.limits.max_execution_time_seconds": 600,
+            },
+        )
         data = config_read(config_file)
         assert data["execution_control"]["limits"]["max_execution_time_seconds"] == 600
 
@@ -223,16 +238,22 @@ class TestStringUpdates:
         assert data["artifact_server"]["host"] == "0.0.0.0"
 
     def test_null_to_string(self, config_file):
-        config_update_fields(config_file, {
-            "control_system.limits_checking.database_path": "data/limits.json",
-        })
+        config_update_fields(
+            config_file,
+            {
+                "control_system.limits_checking.database_path": "data/limits.json",
+            },
+        )
         data = config_read(config_file)
         assert data["control_system"]["limits_checking"]["database_path"] == "data/limits.json"
 
     def test_string_to_null(self, config_file):
-        config_update_fields(config_file, {
-            "control_system.limits_checking.database_path": None,
-        })
+        config_update_fields(
+            config_file,
+            {
+                "control_system.limits_checking.database_path": None,
+            },
+        )
         data = config_read(config_file)
         assert data["control_system"]["limits_checking"]["database_path"] is None
 
@@ -244,19 +265,28 @@ class TestStringUpdates:
 
 class TestArrayUpdates:
     def test_create_new_list(self, config_file):
-        config_update_fields(config_file, {
-            "control_system.limits_checking.exclude_channels": ["CH:01", "CH:02"],
-        })
+        config_update_fields(
+            config_file,
+            {
+                "control_system.limits_checking.exclude_channels": ["CH:01", "CH:02"],
+            },
+        )
         data = config_read(config_file)
         assert data["control_system"]["limits_checking"]["exclude_channels"] == ["CH:01", "CH:02"]
 
     def test_replace_list(self, config_file):
-        config_update_fields(config_file, {
-            "control_system.limits_checking.exclude_channels": ["A", "B", "C"],
-        })
-        config_update_fields(config_file, {
-            "control_system.limits_checking.exclude_channels": ["X"],
-        })
+        config_update_fields(
+            config_file,
+            {
+                "control_system.limits_checking.exclude_channels": ["A", "B", "C"],
+            },
+        )
+        config_update_fields(
+            config_file,
+            {
+                "control_system.limits_checking.exclude_channels": ["X"],
+            },
+        )
         data = config_read(config_file)
         assert data["control_system"]["limits_checking"]["exclude_channels"] == ["X"]
 
@@ -268,13 +298,16 @@ class TestArrayUpdates:
 
 class TestBatchUpdates:
     def test_multiple_types_at_once(self, config_file):
-        config_update_fields(config_file, {
-            "control_system.writes_enabled": True,
-            "control_system.type": "epics",
-            "artifact_server.port": 7777,
-            "approval.global_mode": "disabled",
-            "control_system.write_verification.timeout": 15.0,
-        })
+        config_update_fields(
+            config_file,
+            {
+                "control_system.writes_enabled": True,
+                "control_system.type": "epics",
+                "artifact_server.port": 7777,
+                "approval.global_mode": "disabled",
+                "control_system.write_verification.timeout": 15.0,
+            },
+        )
         data = config_read(config_file)
         assert data["control_system"]["writes_enabled"] is True
         assert data["control_system"]["type"] == "epics"
@@ -286,11 +319,14 @@ class TestBatchUpdates:
         text_before = config_file.read_text()
         comment_count_before = text_before.count("#")
 
-        config_update_fields(config_file, {
-            "control_system.writes_enabled": True,
-            "artifact_server.port": 9999,
-            "approval.global_mode": "disabled",
-        })
+        config_update_fields(
+            config_file,
+            {
+                "control_system.writes_enabled": True,
+                "artifact_server.port": 9999,
+                "approval.global_mode": "disabled",
+            },
+        )
 
         text_after = config_file.read_text()
         comment_count_after = text_after.count("#")
@@ -372,9 +408,7 @@ class TestListOperations:
         assert data["prompts"]["user_owned"] == []
 
     def test_remove_from_nonexistent_path(self, config_file):
-        removed = config_remove_from_list(
-            config_file, ["nonexistent", "path"], "value"
-        )
+        removed = config_remove_from_list(config_file, ["nonexistent", "path"], "value")
         assert removed is False
 
 

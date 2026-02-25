@@ -43,9 +43,7 @@ class SessionDiscovery:
         encoded = str(self._project_dir).replace("/", "-")
         return Path.home() / ".claude" / "projects" / encoded
 
-    def list_sessions(
-        self, allowed_ids: set[str] | None = None
-    ) -> list[SessionInfo]:
+    def list_sessions(self, allowed_ids: set[str] | None = None) -> list[SessionInfo]:
         """Return sessions sorted newest-first.
 
         Args:
@@ -84,9 +82,7 @@ class SessionDiscovery:
             return set()
         return {p.stem for p in sessions_dir.glob("*.jsonl")}
 
-    def discover_new_session(
-        self, before: set[str], timeout: float = 15.0
-    ) -> str | None:
+    def discover_new_session(self, before: set[str], timeout: float = 15.0) -> str | None:
         """Poll for a new JSONL file not in *before*.
 
         Args:

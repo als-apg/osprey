@@ -85,36 +85,42 @@ async def papers_search(
                 elif isinstance(abs_highlight, list) and abs_highlight:
                     snippet = abs_highlight[0].get("snippet", "")
 
-            results.append({
-                "texkey": doc.get("id", ""),
-                "title": doc.get("title", ""),
-                "first_author": doc.get("first_author", ""),
-                "year": doc.get("year"),
-                "conference": doc.get("conference", ""),
-                "citation_count": doc.get("citation_count", 0),
-                "document_type": doc.get("document_type", ""),
-                "doi": doc.get("doi", ""),
-                "inspire_url": doc.get("inspire_url", ""),
-                "journal_title": doc.get("journal_title", ""),
-                "arxiv_id": doc.get("arxiv_id", ""),
-                "snippet": snippet,
-                "text_match_score": hit.get("text_match_info", {}).get("score", 0),
-            })
+            results.append(
+                {
+                    "texkey": doc.get("id", ""),
+                    "title": doc.get("title", ""),
+                    "first_author": doc.get("first_author", ""),
+                    "year": doc.get("year"),
+                    "conference": doc.get("conference", ""),
+                    "citation_count": doc.get("citation_count", 0),
+                    "document_type": doc.get("document_type", ""),
+                    "doi": doc.get("doi", ""),
+                    "inspire_url": doc.get("inspire_url", ""),
+                    "journal_title": doc.get("journal_title", ""),
+                    "arxiv_id": doc.get("arxiv_id", ""),
+                    "snippet": snippet,
+                    "text_match_score": hit.get("text_match_info", {}).get("score", 0),
+                }
+            )
 
-        return json.dumps({
-            "query": query,
-            "filters": {
-                k: v for k, v in {
-                    "conference": conference,
-                    "year_min": year_min,
-                    "year_max": year_max,
-                    "author": author,
-                    "document_type": document_type,
-                }.items() if v is not None
-            },
-            "results_found": len(results),
-            "papers": results,
-        })
+        return json.dumps(
+            {
+                "query": query,
+                "filters": {
+                    k: v
+                    for k, v in {
+                        "conference": conference,
+                        "year_min": year_min,
+                        "year_max": year_max,
+                        "author": author,
+                        "document_type": document_type,
+                    }.items()
+                    if v is not None
+                },
+                "results_found": len(results),
+                "papers": results,
+            }
+        )
 
     except Exception as exc:
         logger.exception("papers_search failed")

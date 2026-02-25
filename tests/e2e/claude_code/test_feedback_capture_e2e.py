@@ -38,8 +38,7 @@ async def test_feedback_hook_captures_search_results(feedback_project):
     Cost budget: $0.50
     """
     prompt = (
-        "Use the channel finder to search for BPM channels. "
-        "Report how many channels were found."
+        "Use the channel finder to search for BPM channels. Report how many channels were found."
     )
 
     result = await run_sdk_query_with_hooks(
@@ -60,15 +59,11 @@ async def test_feedback_hook_captures_search_results(feedback_project):
 
     # Channel-finder tool should have been called
     cf_calls = result.tools_matching("channel-finder")
-    assert len(cf_calls) >= 1, (
-        f"Expected channel-finder tool call but got: {result.tool_names}"
-    )
+    assert len(cf_calls) >= 1, f"Expected channel-finder tool call but got: {result.tool_names}"
 
     # pending_reviews.json should exist with captured items
     store_path = feedback_project / "data" / "feedback" / "pending_reviews.json"
-    assert store_path.exists(), (
-        f"Expected {store_path} to exist after channel-finder search"
-    )
+    assert store_path.exists(), f"Expected {store_path} to exist after channel-finder search"
 
     data = json.loads(store_path.read_text())
     assert "items" in data, f"Expected 'items' key in pending_reviews.json: {data.keys()}"
@@ -99,10 +94,7 @@ async def test_feedback_hook_is_silent(feedback_project):
 
     Cost budget: $0.50
     """
-    prompt = (
-        "Use the channel finder to search for quadrupole channels. "
-        "Report what you found."
-    )
+    prompt = "Use the channel finder to search for quadrupole channels. Report what you found."
 
     result = await run_sdk_query_with_hooks(
         feedback_project,

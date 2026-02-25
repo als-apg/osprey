@@ -48,6 +48,9 @@ def resolve_addresses(channels: list[str]) -> str:
                 "resolved": resolved,
                 "addresses": [r["address"] for r in resolved],
                 "unresolved": unresolved,
+                "total": len(channels),
+                "valid_count": len(resolved),
+                "invalid_count": len(unresolved),
             }
         )
 

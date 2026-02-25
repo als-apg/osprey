@@ -49,7 +49,6 @@ from .parser import (
     is_osprey_event,
     parse_event,
 )
-
 from .types import (
     ApprovalReceivedEvent,
     ApprovalRequiredEvent,

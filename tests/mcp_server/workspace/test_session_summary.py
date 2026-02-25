@@ -5,11 +5,10 @@ the unified ArtifactStore.
 """
 
 import json
-from pathlib import Path
 
 import pytest
 
-from osprey.mcp_server.artifact_store import ArtifactStore, initialize_artifact_store
+from osprey.mcp_server.artifact_store import initialize_artifact_store
 from tests.mcp_server.conftest import get_tool_fn
 
 
@@ -194,8 +193,15 @@ class TestSessionSummaryWithData:
         result = json.loads(raw)
 
         expected_keys = {
-            "id", "tool", "category", "artifact_type",
-            "title", "description", "size_bytes", "channels", "timestamp",
+            "id",
+            "tool",
+            "category",
+            "artifact_type",
+            "title",
+            "description",
+            "size_bytes",
+            "channels",
+            "timestamp",
         }
         for entry in result["entries"]:
             assert set(entry.keys()) == expected_keys

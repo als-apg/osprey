@@ -241,9 +241,7 @@ class HierarchicalPipeline(BasePipeline):
                     f"[bold cyan]Stage 2 - Query {i}/{len(atomic_queries)}:[/bold cyan] {atomic_query}"
                 )
             try:
-                channels, selections_paths, _ = await self._navigate_hierarchy(
-                    atomic_query
-                )
+                channels, selections_paths, _ = await self._navigate_hierarchy(atomic_query)
                 all_channels.extend(channels)
                 all_selections_paths.extend(selections_paths)
                 logger.info(f"  → Found {len(channels)} channel(s)")

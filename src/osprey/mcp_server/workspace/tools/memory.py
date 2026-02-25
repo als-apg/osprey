@@ -197,12 +197,6 @@ async def memory_recall(
 
         memories_data = [m.to_dict() for m in matches]
 
-        recall_result = {
-            "query": query,
-            "matches_found": len(matches),
-            "memories": memories_data,
-        }
-
         # Build compact summary inline
         summary = {
             "operation": "recall",

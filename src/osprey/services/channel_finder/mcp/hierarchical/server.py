@@ -63,9 +63,7 @@ def create_server() -> FastMCP:
     from osprey.services.channel_finder.mcp.hierarchical.tools import (  # noqa: F401
         build_channels,
         get_options,
-        hierarchy_info,
-        statistics,
-        validate,
+        view_examples,
     )
 
     logger.info("Channel Finder Hierarchical MCP server initialised with all tools registered")

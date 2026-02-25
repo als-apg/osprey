@@ -369,9 +369,7 @@ class ChannelDatabase(FlatChannelDatabase):
     # Write methods (standalone entries only)
     # ------------------------------------------------------------------
 
-    def add_channel(
-        self, channel: str, address: str = "", description: str = ""
-    ) -> dict:
+    def add_channel(self, channel: str, address: str = "", description: str = "") -> dict:
         """Add a standalone channel entry.
 
         Args:
@@ -386,9 +384,7 @@ class ChannelDatabase(FlatChannelDatabase):
             DatabaseWriteError: If channel already exists (including expanded).
         """
         if channel in self.channel_map:
-            raise DatabaseWriteError(
-                f"Channel '{channel}' already exists", "duplicate"
-            )
+            raise DatabaseWriteError(f"Channel '{channel}' already exists", "duplicate")
 
         new_entry = {"channel": channel, "address": address or channel}
         if description:
@@ -422,15 +418,10 @@ class ChannelDatabase(FlatChannelDatabase):
             )
 
         original_len = len(self._original_entries)
-        self._original_entries = [
-            e for e in self._original_entries
-            if e.get("channel") != channel
-        ]
+        self._original_entries = [e for e in self._original_entries if e.get("channel") != channel]
 
         if len(self._original_entries) == original_len:
-            raise DatabaseWriteError(
-                f"Channel '{channel}' not found", "not_found"
-            )
+            raise DatabaseWriteError(f"Channel '{channel}' not found", "not_found")
 
         self._persist()
         self.load_database()
@@ -476,9 +467,7 @@ class ChannelDatabase(FlatChannelDatabase):
                 break
 
         if not found:
-            raise DatabaseWriteError(
-                f"Channel '{channel}' not found", "not_found"
-            )
+            raise DatabaseWriteError(f"Channel '{channel}' not found", "not_found")
 
         self._persist()
         self.load_database()

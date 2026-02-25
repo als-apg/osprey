@@ -4,7 +4,6 @@ import numpy as np
 import pytest
 
 from osprey.mcp_server.workspace.tools.graph_comparison import (
-    AVAILABLE_METRICS,
     _align_lengths,
     compare_datasets,
     compute_correlation,

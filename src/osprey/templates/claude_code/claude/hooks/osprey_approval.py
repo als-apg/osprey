@@ -103,7 +103,9 @@ except ImportError:
 
 
 def load_osprey_config(project_dir=""):
-    default = str(Path(project_dir) / "config.yml") if project_dir else str(Path.cwd() / "config.yml")
+    default = (
+        str(Path(project_dir) / "config.yml") if project_dir else str(Path.cwd() / "config.yml")
+    )
     config_path = Path(os.path.expandvars(os.environ.get("OSPREY_CONFIG", default)))
     if config_path.exists():
         with open(config_path) as f:
@@ -217,7 +219,9 @@ def main():
     # All-capabilities — approve every OSPREY tool
     if mode == "all_capabilities":
         reason = f"Tool: {short_name}\nApproval mode: all_capabilities\nAll OSPREY tool calls require approval."
-        log_hook("approval", hook_input, status="ask", detail=f"mode=all_capabilities tool={short_name}")
+        log_hook(
+            "approval", hook_input, status="ask", detail=f"mode=all_capabilities tool={short_name}"
+        )
         json.dump(build_approval_output(reason), sys.stdout)
         sys.exit(0)
 

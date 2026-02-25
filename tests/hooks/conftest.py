@@ -27,8 +27,13 @@ def hook_runner():
     """
 
     def run(
-        hook_name, tool_name, tool_input, config_path=None, cwd=None,
-        tool_response=None, hook_input_extra=None,
+        hook_name,
+        tool_name,
+        tool_input,
+        config_path=None,
+        cwd=None,
+        tool_response=None,
+        hook_input_extra=None,
     ):
         hook_script = HOOKS_DIR / hook_name
         payload = {
@@ -76,7 +81,6 @@ def hook_runner():
     return run
 
 
-
 @pytest.fixture
 def hook_runner_raw():
     """Factory to run hook scripts without asserting returncode.
@@ -86,8 +90,14 @@ def hook_runner_raw():
     """
 
     def run(
-        hook_name, tool_name, tool_input, config_path=None, cwd=None,
-        tool_response=None, hook_input_extra=None, stdin_override=None,
+        hook_name,
+        tool_name,
+        tool_input,
+        config_path=None,
+        cwd=None,
+        tool_response=None,
+        hook_input_extra=None,
+        stdin_override=None,
     ):
         hook_script = HOOKS_DIR / hook_name
         if stdin_override is not None:

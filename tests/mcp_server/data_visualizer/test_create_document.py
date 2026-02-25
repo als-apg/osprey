@@ -1,7 +1,6 @@
 """Tests for the create_document MCP tool."""
 
 import json
-import shutil
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -16,9 +15,8 @@ class TestCreateDocument:
     @pytest.fixture
     def tool_fn(self):
         """Get the raw tool function."""
-        from tests.mcp_server.conftest import get_tool_fn
-
         from osprey.mcp_server.workspace.tools.create_document import create_document
+        from tests.mcp_server.conftest import get_tool_fn
 
         return get_tool_fn(create_document)
 
@@ -50,9 +48,7 @@ Welcome to the presentation.
 
     async def test_pdflatex_not_installed(self, tool_fn, simple_latex):
         with patch("shutil.which", return_value=None):
-            result = json.loads(
-                await tool_fn(latex_source=simple_latex, title="Test Doc")
-            )
+            result = json.loads(await tool_fn(latex_source=simple_latex, title="Test Doc"))
 
         assert result["error"] is True
         assert result["error_type"] == "dependency_missing"
@@ -73,9 +69,7 @@ Welcome to the presentation.
             patch("shutil.which", return_value="/usr/bin/pdflatex"),
             patch("subprocess.run", side_effect=mock_run),
         ):
-            result = json.loads(
-                await tool_fn(latex_source=bad_latex, title="Bad Doc")
-            )
+            result = json.loads(await tool_fn(latex_source=bad_latex, title="Bad Doc"))
 
         assert result["error"] is True
         assert result["error_type"] == "compilation_error"
@@ -87,9 +81,7 @@ Welcome to the presentation.
             patch("shutil.which", return_value="/usr/bin/pdflatex"),
             patch("subprocess.run", side_effect=subprocess.TimeoutExpired("pdflatex", 60)),
         ):
-            result = json.loads(
-                await tool_fn(latex_source=simple_latex, title="Timeout Doc")
-            )
+            result = json.loads(await tool_fn(latex_source=simple_latex, title="Timeout Doc"))
 
         assert result["error"] is True
         assert result["error_type"] == "execution_error"
@@ -147,9 +139,7 @@ Welcome to the presentation.
             patch("shutil.which", return_value="/usr/bin/pdflatex"),
             patch("subprocess.run", side_effect=mock_run),
         ):
-            result = json.loads(
-                await tool_fn(latex_source=simple_latex, title="Artifacts Test")
-            )
+            result = json.loads(await tool_fn(latex_source=simple_latex, title="Artifacts Test"))
 
         assert result["status"] == "success"
         store = get_artifact_store()

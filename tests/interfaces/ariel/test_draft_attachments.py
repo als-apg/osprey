@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import json
-
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import osprey.interfaces.ariel.api.drafts as drafts_mod
-from osprey.interfaces.ariel.api.drafts import draft_router, read_draft, write_draft
+from osprey.interfaces.ariel.api.drafts import draft_router, write_draft
 
 
 @pytest.fixture

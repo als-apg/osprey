@@ -44,8 +44,7 @@ def _ensure_chromium_installed() -> None:
             logger.info("Chromium installed successfully.")
         except (subprocess.CalledProcessError, FileNotFoundError) as exc:
             raise PlaywrightNotInstalledError(
-                "Failed to auto-install Chromium. "
-                "Run manually: playwright install chromium"
+                "Failed to auto-install Chromium. Run manually: playwright install chromium"
             ) from exc
 
 
