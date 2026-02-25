@@ -29,6 +29,15 @@ export function formModal({ title, fields, submitLabel = 'Save' }) {
                     ${req} rows="3">${val}</textarea>
         </div>`;
       }
+      if (f.type === 'select') {
+        const options = (f.options || []).map(o =>
+          `<option value="${esc(o.value)}"${o.value === f.value ? ' selected' : ''}>${esc(o.label)}</option>`
+        ).join('');
+        return `<div class="form-group">
+          <label class="form-label" for="${id}">${esc(f.label)}</label>
+          <select class="form-input modal-field" id="${id}" data-name="${esc(f.name)}" ${req}>${options}</select>
+        </div>`;
+      }
       return `<div class="form-group">
         <label class="form-label" for="${id}">${esc(f.label)}</label>
         <input class="form-input modal-field" id="${id}" data-name="${esc(f.name)}"

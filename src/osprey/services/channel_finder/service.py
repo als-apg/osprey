@@ -476,36 +476,6 @@ class ChannelFinderService:
             **kwargs,
         )
 
-    def record_feedback(
-        self,
-        query: str,
-        success: bool,
-        selections_paths: list[dict] | None = None,
-        channel_count: int = 0,
-        reason: str = "",
-    ) -> None:
-        """
-        Record feedback for a query from external callers.
-
-        Args:
-            query: The original user query
-            success: Whether the navigation succeeded
-            selections_paths: Navigation paths (for successes)
-            channel_count: Number of channels found
-            reason: Failure reason (for failures)
-        """
-        if not hasattr(self.pipeline, "feedback_store") or self.pipeline.feedback_store is None:
-            return
-
-        store = self.pipeline.feedback_store
-        facility = getattr(self.pipeline, "facility_name", "control system")
-
-        if success and selections_paths:
-            for sp in selections_paths:
-                store.record_success(query, facility, sp, channel_count)
-        elif not success:
-            store.record_failure(query, facility, selections_paths[0] if selections_paths else {}, reason)
-
     def _init_custom_pipeline(
         self, pipeline_name: str, config: dict, db_path: str, model_config: dict, **kwargs
     ):
