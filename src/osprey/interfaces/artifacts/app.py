@@ -33,11 +33,17 @@ _RESPONSIVE_PLOTLY = """<style>
 /* OSPREY: fill iframe viewport */
 html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
 .plotly-graph-div { width: 100% !important; height: 100vh !important; }
-.js-plotly-plot { width: 100% !important; height: 100vh !important; }
+.js-plotly-plot { width: 100% !important; height: 100vh !important; visibility: hidden; }
 table { max-width: 100%; }
 </style>
 <script>
-/* OSPREY: responsive sizing + theme-aware backgrounds */
+/* OSPREY: responsive sizing + theme-aware backgrounds
+ *
+ * Anti-flash strategy: Plotly renders with its original colors before we can
+ * re-theme it.  We hide charts via CSS (visibility:hidden) and only reveal
+ * them after Plotly.relayout() applies the correct theme.  The page background
+ * is set immediately from a <style> injected before any body content paints.
+ */
 (function(){
   var THEMES = {
     dark: {
@@ -65,11 +71,27 @@ table { max-width: 100%; }
     catch(e) { return 'dark'; }
   }
 
+  /* Set page background immediately (runs in <head>, before body paints) */
+  var _bgTheme = THEMES[detectTheme()] || THEMES.dark;
+  var _bgStyle = document.createElement('style');
+  _bgStyle.textContent = 'html, body { background: ' + _bgTheme.paper_bgcolor + ' !important; }';
+  document.head.appendChild(_bgStyle);
+
+  function revealCharts() {
+    document.querySelectorAll('.js-plotly-plot').forEach(function(gd) {
+      gd.style.visibility = 'visible';
+    });
+  }
+
   function applyTheme(theme) {
     var t = THEMES[theme] || THEMES.dark;
-    document.body.style.background = t.paper_bgcolor;
-    if (typeof Plotly === 'undefined') return;
-    document.querySelectorAll('.js-plotly-plot').forEach(function(gd) {
+    _bgStyle.textContent = 'html, body { background: ' + t.paper_bgcolor + ' !important; }';
+    if (document.body) document.body.style.background = t.paper_bgcolor;
+    if (typeof Plotly === 'undefined') { revealCharts(); return; }
+    var plots = document.querySelectorAll('.js-plotly-plot');
+    if (!plots.length) { return; }
+    var pending = plots.length;
+    plots.forEach(function(gd) {
       var update = {
         paper_bgcolor: t.paper_bgcolor, plot_bgcolor: t.plot_bgcolor,
         'font.color': t.font.color,
@@ -92,7 +114,15 @@ table { max-width: 100%; }
           }
         });
       }
-      Plotly.relayout(gd, update);
+      try {
+        Plotly.relayout(gd, update).then(function() {
+          gd.style.visibility = 'visible';
+        }).catch(function() {
+          gd.style.visibility = 'visible';
+        });
+      } catch(e) {
+        gd.style.visibility = 'visible';
+      }
     });
   }
 
@@ -104,7 +134,10 @@ table { max-width: 100%; }
   }
 
   function initAll() {
-    setTimeout(function() { resizeAll(); applyTheme(detectTheme()); }, 50);
+    resizeAll();
+    applyTheme(detectTheme());
+    /* Safety net: if relayout somehow fails to reveal, force-show after 400ms */
+    setTimeout(revealCharts, 400);
   }
 
   if (document.readyState === 'complete') { initAll(); }
@@ -414,10 +447,12 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         search: str | None = None,
         pinned: bool | None = Query(None),
         category: str | None = None,
+        session_id: str | None = None,
     ):
         entries = store.list_entries(
             type_filter=type, search=search, pinned=pinned,
             category_filter=category,
+            session_filter=session_id,
         )
         return {
             "count": len(entries),

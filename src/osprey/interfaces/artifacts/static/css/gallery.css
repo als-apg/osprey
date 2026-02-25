@@ -1539,6 +1539,28 @@ body.resizing iframe {
   height: 28px;
 }
 
+.btn-session-toggle {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 3px 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+.btn-session-toggle:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+.btn-session-toggle.active {
+  background: var(--color-accent-bg, rgba(56, 189, 248, 0.12));
+  color: var(--color-accent-light, #38bdf8);
+  border-color: var(--color-accent-light, #38bdf8);
+}
+
 .btn-header-refresh {
   background: transparent;
   color: var(--text-muted);

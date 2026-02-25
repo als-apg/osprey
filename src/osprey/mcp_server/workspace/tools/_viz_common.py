@@ -165,6 +165,7 @@ def build_viz_response(artifact_ids: list[str], title: str, stdout: str = "") ->
         "status": "success",
         "title": title,
         "artifact_ids": artifact_ids,
+        "artifact_id": artifact_ids[0] if artifact_ids else None,
         "artifact_count": len(artifact_ids),
     }
     if stdout:

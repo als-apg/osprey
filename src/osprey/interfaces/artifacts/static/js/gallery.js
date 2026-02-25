@@ -32,6 +32,8 @@
   let _sessionStart = new Date().toISOString();
   let isFullscreen = false;
   let _newArtifactsSinceFullscreen = 0;
+  let currentSessionId = null;
+  let showAllSessions = false;
 
   // ---- Type Registry ----
 
@@ -324,7 +326,11 @@
 
   async function fetchArtifacts() {
     try {
-      const resp = await fetch("/api/artifacts");
+      let url = "/api/artifacts";
+      if (currentSessionId && !showAllSessions) {
+        url += "?session_id=" + encodeURIComponent(currentSessionId);
+      }
+      const resp = await fetch(url);
       const data = await resp.json();
       artifacts = data.artifacts || [];
       updateHealth(true);
@@ -573,11 +579,12 @@
         const id = el.dataset.id;
         const a = artifacts.find((x) => x.id === id);
         if (a) {
+          const alreadySelected = selectedArtifact?.id === a.id;
           selectedArtifact = a;
-          setAsFocus(a);  // Update focus_state.txt for agent awareness
+          setAsFocus(a);
           sidebarBody.querySelectorAll(clickables).forEach((item) => item.classList.remove("selected"));
           el.classList.add("selected");
-          renderPreview();
+          if (!alreadySelected) renderPreview();
         }
       });
 
@@ -1437,6 +1444,13 @@
     if (e.data && e.data.type === "osprey-theme-change" && e.data.theme) {
       _onThemeChange(e.data.theme);
     }
+    if (e.data && e.data.type === "osprey-session-change" && e.data.session_id) {
+      currentSessionId = e.data.session_id;
+      const btn = document.getElementById("all-sessions-btn");
+      if (btn) btn.classList.remove("active");
+      showAllSessions = false;
+      fetchArtifacts();
+    }
   });
 
   // Also observe data-theme attribute changes (covers non-postMessage scenarios)
@@ -1459,6 +1473,15 @@
 
   initSplitPaneResize(resizeHandle, sidebar);
   refreshBtn.addEventListener("click", doRefresh);
+
+  const allSessionsBtn = document.getElementById("all-sessions-btn");
+  if (allSessionsBtn) {
+    allSessionsBtn.addEventListener("click", () => {
+      showAllSessions = !showAllSessions;
+      allSessionsBtn.classList.toggle("active", showAllSessions);
+      fetchArtifacts();
+    });
+  }
   initTypeRegistry().then(() => {
     initFilterBar();
     fetchArtifacts();
