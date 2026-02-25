@@ -174,12 +174,18 @@ async def get_info(request: Request):
 
     try:
         if pt == "hierarchical":
-            from osprey.services.channel_finder.mcp.hierarchical.tools.hierarchy_info import (
-                hierarchy_info,
+            from osprey.services.channel_finder.mcp.hierarchical.registry import (
+                get_cf_hier_registry,
             )
 
-            result = hierarchy_info.fn()
-            info["metadata"] = json.loads(result)
+            registry = get_cf_hier_registry()
+            db = registry.database
+            info["metadata"] = {
+                "hierarchy_levels": db.hierarchy_levels,
+                "hierarchy_config": db.hierarchy_config,
+                "naming_pattern": db.naming_pattern,
+                "facility_name": registry.facility_name,
+            }
 
         elif pt == "middle_layer":
             from osprey.services.channel_finder.mcp.middle_layer.tools.list_systems import (
@@ -221,8 +227,7 @@ async def switch_pipeline(request: Request, body: SwitchPipelineRequest):
     if body.pipeline_type not in available:
         raise HTTPException(
             status_code=400,
-            detail=f"Pipeline '{body.pipeline_type}' not available. "
-            f"Available: {available}",
+            detail=f"Pipeline '{body.pipeline_type}' not available. Available: {available}",
         )
     request.app.state.pipeline_type = body.pipeline_type
     logger.info("Switched active pipeline to %s", body.pipeline_type)
@@ -236,11 +241,12 @@ async def get_statistics(request: Request):
 
     try:
         if pt == "hierarchical":
-            from osprey.services.channel_finder.mcp.hierarchical.tools.statistics import (
-                statistics,
+            from osprey.services.channel_finder.mcp.hierarchical.registry import (
+                get_cf_hier_registry,
             )
 
-            result = statistics.fn()
+            db = get_cf_hier_registry().database
+            return db.get_statistics()
 
         elif pt == "middle_layer":
             from osprey.services.channel_finder.mcp.middle_layer.tools.statistics import (
@@ -272,11 +278,23 @@ async def validate_channels(request: Request, body: ValidateRequest):
 
     try:
         if pt == "hierarchical":
-            from osprey.services.channel_finder.mcp.hierarchical.tools.validate import (
-                validate,
+            from osprey.services.channel_finder.mcp.hierarchical.registry import (
+                get_cf_hier_registry,
             )
 
-            result = validate.fn(channels=body.channels)
+            db = get_cf_hier_registry().database
+            results = []
+            valid_count = 0
+            for ch in body.channels:
+                is_valid = db.validate_channel(ch)
+                results.append({"channel": ch, "valid": is_valid})
+                valid_count += is_valid
+            return {
+                "results": results,
+                "valid_count": valid_count,
+                "invalid_count": len(body.channels) - valid_count,
+                "total": len(body.channels),
+            }
 
         elif pt == "middle_layer":
             from osprey.services.channel_finder.mcp.middle_layer.tools.validate import (
@@ -284,15 +302,25 @@ async def validate_channels(request: Request, body: ValidateRequest):
             )
 
             result = validate.fn(channels=body.channels)
+            return _parse_tool_result(result)
 
         else:  # in_context
-            from osprey.services.channel_finder.mcp.in_context.tools.validate import (
-                validate,
+            from osprey.services.channel_finder.mcp.in_context.registry import (
+                get_cf_ic_registry,
             )
 
-            result = validate.fn(channels=body.channels)
-
-        return _parse_tool_result(result)
+            db = get_cf_ic_registry().database
+            validation_results = db.validate_channels(body.channels)
+            valid = db.get_valid_channels(validation_results)
+            invalid = db.get_invalid_channels(validation_results)
+            return {
+                "total": len(body.channels),
+                "valid_count": len(valid),
+                "invalid_count": len(invalid),
+                "valid_channels": valid,
+                "invalid_channels": invalid,
+                "results": validation_results,
+            }
 
     except HTTPException:
         raise
@@ -372,12 +400,18 @@ async def explore_hierarchy_info(request: Request):
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
 
     try:
-        from osprey.services.channel_finder.mcp.hierarchical.tools.hierarchy_info import (
-            hierarchy_info,
+        from osprey.services.channel_finder.mcp.hierarchical.registry import (
+            get_cf_hier_registry,
         )
 
-        result = hierarchy_info.fn()
-        return _parse_tool_result(result)
+        registry = get_cf_hier_registry()
+        db = registry.database
+        return {
+            "hierarchy_levels": db.hierarchy_levels,
+            "hierarchy_config": db.hierarchy_config,
+            "naming_pattern": db.naming_pattern,
+            "facility_name": registry.facility_name,
+        }
 
     except HTTPException:
         raise

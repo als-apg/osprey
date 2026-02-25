@@ -1592,10 +1592,6 @@ textarea.form-input {
   margin-bottom: var(--space-2);
 }
 
-.fb-pending-query {
-  font-weight: 500;
-}
-
 .fb-pending-meta {
   font-size: var(--text-xs);
   color: var(--text-muted);
@@ -1618,6 +1614,133 @@ textarea.form-input {
   padding: var(--space-4);
 }
 
+/* Pending card: agent task (delegation prompt) */
+.fb-pending-agent-task {
+  font-style: italic;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: var(--space-1);
+}
+
+/* Pending card: artifact link */
+.fb-pending-artifact-link {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-accent);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 1px 8px;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.fb-pending-artifact-link:hover {
+  background: var(--color-accent-subtle);
+  border-color: var(--border-accent);
+}
+
+/* Pending card: header row */
+.fb-pending-card > .fb-pending-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  border-bottom: none;
+  padding-bottom: 0;
+  margin-bottom: 0;
+}
+
+.fb-pending-summary {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fb-pending-tool-badge {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  padding: 1px 8px;
+  flex-shrink: 0;
+}
+
+/* Pending card: channels section */
+.fb-pending-channels {
+  margin-top: var(--space-2);
+}
+
+.fb-pending-channels-label {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.fb-pending-channels-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.fb-pending-pv {
+  font-family: var(--font-pv);
+  font-size: var(--text-xs);
+  color: var(--color-amber);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+}
+
+.fb-pending-channels-overflow {
+  display: contents;
+}
+
+.fb-pending-channels-toggle {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-accent);
+  background: none;
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.fb-pending-channels-toggle:hover {
+  background: var(--color-accent-subtle);
+}
+
+/* Pending card: footer row */
+.fb-pending-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--space-3);
+}
+
+.fb-pending-footer .fb-pending-meta {
+  margin-top: 0;
+}
+
+.fb-pending-footer .fb-pending-actions {
+  margin-top: 0;
+}
+
 /* Light theme overrides */
 [data-theme="light"] .fb-success-header {
   background: rgba(22, 163, 74, 0.06);
@@ -1634,6 +1757,7 @@ textarea.form-input {
 [data-theme="light"] .modal-backdrop { background: rgba(200, 210, 220, 0.6); }
 [data-theme="light"] .stats-badge { background: rgba(10, 143, 140, 0.08); }
 [data-theme="light"] .modal-impact { background: rgba(176, 122, 58, 0.08); color: var(--color-amber); }
+[data-theme="light"] .fb-pending-tool-badge { background: rgba(100, 116, 139, 0.08); }
 
 @media (max-width: 768px) {
   .stats-badges { display: none; }
@@ -1665,6 +1789,11 @@ textarea.form-input {
   .fb-toolbar-left,
   .fb-toolbar-right {
     justify-content: center;
+  }
+  .fb-pending-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-2);
   }
   .fb-detail-grid {
     grid-template-columns: 1fr;

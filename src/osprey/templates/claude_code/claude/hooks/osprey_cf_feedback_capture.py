@@ -95,11 +95,23 @@ try:
         )
     except (json.JSONDecodeError, ValueError):
         log_hook(
-            "cf-feedback-capture", hook_input,
+            "cf-feedback-capture",
+            hook_input,
             status="parse-error",
             detail=f"type={type(tool_response_raw).__name__}",
         )
         sys.exit(0)
+
+    # Unwrap {"result": "..."} wrapping from Claude Code's PostToolUse format
+    if isinstance(tool_response, dict) and "result" in tool_response and len(tool_response) == 1:
+        inner = tool_response["result"]
+        if isinstance(inner, str):
+            try:
+                tool_response = json.loads(inner)
+            except (json.JSONDecodeError, ValueError):
+                tool_response = inner  # keep as-is if not JSON
+        else:
+            tool_response = inner  # already a dict/list
 
     total = 0
     if isinstance(tool_response, dict):
@@ -108,7 +120,8 @@ try:
         resp_type = type(tool_response).__name__
         resp_keys = list(tool_response.keys()) if isinstance(tool_response, dict) else None
         log_hook(
-            "cf-feedback-capture", hook_input,
+            "cf-feedback-capture",
+            hook_input,
             status="no-total",
             detail=f"type={resp_type} keys={resp_keys}",
         )
@@ -146,6 +159,50 @@ try:
         "session_id": hook_input.get("session_id", ""),
         "transcript_path": hook_input.get("transcript_path", ""),
     }
+
+    # ----------------------------------------------------------------
+    # 5b. Extract agent task from sub-agent transcript (delegation prompt)
+    #
+    # transcript_path points to the MAIN session transcript.
+    # The channel-finder sub-agent's transcript lives at:
+    #   <session_stem>/subagents/<agent>.jsonl
+    # We find the most recently modified .jsonl there (the active
+    # sub-agent) and read its first user message — that's the
+    # delegation prompt the main agent sent to channel-finder.
+    # ----------------------------------------------------------------
+    agent_task = ""
+    transcript = item.get("transcript_path", "")
+    if transcript and os.path.isfile(transcript):
+        try:
+            stem = os.path.splitext(transcript)[0]  # strip .jsonl
+            subagent_dir = os.path.join(stem, "subagents")
+            subagent_transcript = ""
+            if os.path.isdir(subagent_dir):
+                # Find the most recently modified .jsonl (the active sub-agent)
+                candidates = [
+                    os.path.join(subagent_dir, f)
+                    for f in os.listdir(subagent_dir)
+                    if f.endswith(".jsonl")
+                ]
+                if candidates:
+                    subagent_transcript = max(candidates, key=os.path.getmtime)
+
+            if subagent_transcript and os.path.isfile(subagent_transcript):
+                with open(subagent_transcript) as tf:
+                    for line in tf:
+                        try:
+                            entry = json.loads(line)
+                        except (json.JSONDecodeError, ValueError):
+                            continue
+                        if entry.get("type") == "user":
+                            msg = entry.get("message", {})
+                            content = msg.get("content", "")
+                            if isinstance(content, str) and content.strip():
+                                agent_task = content.strip()
+                                break
+        except OSError:
+            pass
+    item["agent_task"] = agent_task
 
     # ----------------------------------------------------------------
     # 6. Try importing PendingReviewStore; fallback to inline append
