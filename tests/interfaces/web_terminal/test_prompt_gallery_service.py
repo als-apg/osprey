@@ -280,9 +280,7 @@ class TestDescriptionExtraction:
         result = service.list_artifacts()
         by_name = {a["name"]: a for a in result}
         art = by_name["agents/data-visualizer"]
-        assert art["summary"] == (
-            "Creates plots, charts, dashboards, and compiles LaTeX reports"
-        )
+        assert art["summary"] == ("Creates plots, charts, dashboards, and compiles LaTeX reports")
         # Summary should differ from the full description
         assert art["summary"] != art["description"]
 
@@ -291,9 +289,7 @@ class TestDescriptionExtraction:
         result = service.list_artifacts()
         by_name = {a["name"]: a for a in result}
         art = by_name["hooks/limits"]
-        assert art["summary"] == (
-            "Validates channel write values against the limits database"
-        )
+        assert art["summary"] == ("Validates channel write values against the limits database")
 
     def test_config_falls_back_to_registry(self, service):
         """Config artifacts (JSON templates) fall back to registry description."""
@@ -526,3 +522,66 @@ class TestCustomArtifacts:
 
         user_owned = _get_user_owned(project_dir)
         assert "rules/removable" not in user_owned
+
+
+# ===========================================================================
+# Unoverride framework restore
+# ===========================================================================
+
+
+class TestUnoverrideFrameworkRestore:
+    """Tests for unoverride restoring framework file content on disk."""
+
+    def test_unoverride_restores_framework_file(self, service, project_dir):
+        """Claim, customize, release → get_content returns framework content."""
+        # Claim the artifact
+        service.scaffold_override(SAFE_ARTIFACT)
+
+        # Customize it with user content
+        custom_text = "# My custom safety rules\nUser wrote this.\n"
+        service.save_override(SAFE_ARTIFACT, custom_text)
+
+        # Release to framework with delete_file=True (what the web UI sends)
+        svc = PromptGalleryService(project_dir)
+        svc.unoverride(SAFE_ARTIFACT, delete_file=True)
+
+        # After release, get_content should return framework content, not custom
+        svc2 = PromptGalleryService(project_dir)
+        result = svc2.get_content(SAFE_ARTIFACT)
+        assert result["source"] == "framework"
+        assert result["content"] != custom_text
+
+    def test_unoverride_restored_content_matches_render(self, service, project_dir):
+        """After release, disk file matches _render_framework() output exactly."""
+        # Get expected framework content before any changes
+        expected = service.get_framework_content(SAFE_ARTIFACT)
+
+        # Claim and customize
+        service.scaffold_override(SAFE_ARTIFACT)
+        service.save_override(SAFE_ARTIFACT, "# Totally different content\n")
+
+        # Release to framework
+        svc = PromptGalleryService(project_dir)
+        result = svc.unoverride(SAFE_ARTIFACT, delete_file=True)
+        assert result["restored_file"] is True
+
+        # Verify disk matches rendered template exactly
+        art = svc._registry.get(SAFE_ARTIFACT)
+        disk_path = project_dir / art.output_path
+        assert disk_path.read_text(encoding="utf-8") == expected
+
+    def test_unoverride_without_delete_file_preserves_disk(self, service, project_dir):
+        """delete_file=False does NOT touch the file (CLI deferred-regen contract)."""
+        # Claim and customize
+        service.scaffold_override(SAFE_ARTIFACT)
+        custom_text = "# My custom rules — should persist\n"
+        service.save_override(SAFE_ARTIFACT, custom_text)
+
+        # Release WITHOUT delete_file (CLI semantics)
+        svc = PromptGalleryService(project_dir)
+        svc.unoverride(SAFE_ARTIFACT, delete_file=False)
+
+        # File on disk should still be the user's customized version
+        art = svc._registry.get(SAFE_ARTIFACT)
+        disk_path = project_dir / art.output_path
+        assert disk_path.read_text(encoding="utf-8") == custom_text
