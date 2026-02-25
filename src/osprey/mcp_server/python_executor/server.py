@@ -21,6 +21,7 @@ def create_server() -> FastMCP:
         initialize_workspace_singletons,
         prime_config_builder,
         resolve_workspace_root,
+        startup_timer,
     )
 
     prime_config_builder()
@@ -30,7 +31,8 @@ def create_server() -> FastMCP:
     initialize_workspace_singletons(workspace_root)
 
     # Import tool modules (each registers itself via @mcp.tool())
-    from osprey.mcp_server.python_executor.tools import python_execute  # noqa: F401
+    with startup_timer("tool_imports"):
+        from osprey.mcp_server.python_executor.tools import python_execute  # noqa: F401
 
     logger.info("Python Executor MCP server initialised with all tools registered")
     return mcp

@@ -21,22 +21,26 @@ def create_server() -> FastMCP:
         initialize_workspace_singletons,
         prime_config_builder,
         resolve_workspace_root,
+        startup_timer,
     )
     from osprey.mcp_server.control_system.registry import initialize_mcp_registry
 
     prime_config_builder()
-    initialize_mcp_registry()
+
+    with startup_timer("mcp_registry"):
+        initialize_mcp_registry()
 
     workspace_root = resolve_workspace_root()
     logger.info("Workspace root: %s", workspace_root)
     initialize_workspace_singletons(workspace_root)
 
     # Import tool modules (each registers itself via @mcp.tool())
-    from osprey.mcp_server.control_system.tools import (  # noqa: F401
-        archiver_read,
-        channel_read,
-        channel_write,
-    )
+    with startup_timer("tool_imports"):
+        from osprey.mcp_server.control_system.tools import (  # noqa: F401
+            archiver_read,
+            channel_read,
+            channel_write,
+        )
 
     logger.info("Control System MCP server initialised with all tools registered")
     return mcp
