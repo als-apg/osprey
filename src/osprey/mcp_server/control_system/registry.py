@@ -224,28 +224,9 @@ class MCPRegistry:
     @staticmethod
     def _register_connector_types() -> None:
         """Register all connector types with ConnectorFactory."""
-        from osprey.connectors.factory import ConnectorFactory
+        from osprey.connectors.factory import register_builtin_connectors
 
-        # Skip if already registered (e.g., by initialize_registry() in prime_config_builder)
-        if ConnectorFactory._control_system_connectors:
-            logger.debug("Connector types already registered, skipping")
-            return
-
-        from osprey.connectors.control_system.epics_connector import EPICSConnector
-        from osprey.connectors.control_system.mock_connector import MockConnector
-
-        ConnectorFactory.register_control_system("mock", MockConnector)
-        ConnectorFactory.register_control_system("epics", EPICSConnector)
-
-        from osprey.connectors.archiver.epics_archiver_connector import (
-            EPICSArchiverConnector,
-        )
-        from osprey.connectors.archiver.mock_archiver_connector import (
-            MockArchiverConnector,
-        )
-
-        ConnectorFactory.register_archiver("mock_archiver", MockArchiverConnector)
-        ConnectorFactory.register_archiver("epics_archiver", EPICSArchiverConnector)
+        register_builtin_connectors()
 
     def _validate(self) -> None:
         """Emit warnings for common misconfigurations."""

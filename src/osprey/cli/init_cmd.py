@@ -301,15 +301,10 @@ def init(
             )
 
         # Check if API keys were detected and .env was created
-        api_keys = [
-            "CBORG_API_KEY",
-            "AMSC_I2_API_KEY",
-            "OPENAI_API_KEY",
-            "ANTHROPIC_API_KEY",
-            "GOOGLE_API_KEY",
-            "ALS_APG_API_KEY",
-        ]
-        has_api_keys = any(key in detected_env for key in api_keys)
+        from osprey.models.provider_registry import PROVIDER_API_KEYS
+
+        api_key_names = {v for v in PROVIDER_API_KEYS.values() if v is not None}
+        has_api_keys = any(key in detected_env for key in api_key_names)
 
         if has_api_keys:
             console.print("  ✓ Created .env with detected API keys", style=Styles.SUCCESS)

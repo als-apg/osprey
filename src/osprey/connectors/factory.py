@@ -195,3 +195,23 @@ class ConnectorFactory:
     def list_archivers(cls) -> list:
         """List available archiver connector types."""
         return list(cls._archiver_connectors.keys())
+
+
+def register_builtin_connectors() -> None:
+    """Register all built-in control system and archiver connectors.
+
+    Safe to call multiple times — skips registration if connectors are
+    already present (e.g., from ``initialize_registry()``).
+    """
+    if ConnectorFactory._control_system_connectors:
+        return  # Already registered
+
+    from osprey.connectors.archiver.epics_archiver_connector import EPICSArchiverConnector
+    from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
+    from osprey.connectors.control_system.epics_connector import EPICSConnector
+    from osprey.connectors.control_system.mock_connector import MockConnector
+
+    ConnectorFactory.register_control_system("mock", MockConnector)
+    ConnectorFactory.register_control_system("epics", EPICSConnector)
+    ConnectorFactory.register_archiver("mock_archiver", MockArchiverConnector)
+    ConnectorFactory.register_archiver("epics_archiver", EPICSArchiverConnector)
