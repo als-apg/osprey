@@ -53,7 +53,8 @@ def resolve_env_vars(data: Any) -> Any:
                 default_value = None
 
             env_value = os.environ.get(var_name)
-            if env_value is None:
+            # Match bash :- semantics: empty string triggers default too
+            if env_value is None or (not env_value and default_value is not None):
                 if default_value is not None:
                     return default_value
                 else:
@@ -724,9 +725,7 @@ def get_provider_config(provider_name: str, config_path: str | None = None) -> d
     return provider_configs.get(provider_name, {})
 
 
-def resolve_model_id(
-    provider: str, model_id_or_tier: str, config_path: str | None = None
-) -> str:
+def resolve_model_id(provider: str, model_id_or_tier: str, config_path: str | None = None) -> str:
     """Resolve a tier name to a provider-specific model ID.
 
     If model_id_or_tier is a tier (haiku/sonnet/opus), looks up the concrete

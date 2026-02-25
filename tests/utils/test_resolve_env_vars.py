@@ -1,9 +1,5 @@
 """Tests for the public resolve_env_vars() function."""
 
-import os
-
-import pytest
-
 from osprey.utils.config import resolve_env_vars
 
 
@@ -70,6 +66,24 @@ class TestResolveEnvVars:
         assert result["servers"][0]["enabled"] is True
         assert result["servers"][1]["port"] == 9090
         assert result["count"] == 2
+
+    def test_empty_string_with_default_uses_default(self, monkeypatch):
+        """${VAR:-default} with VAR="" uses default (bash :- semantics)."""
+        monkeypatch.setenv("TZ", "")
+        result = resolve_env_vars("${TZ:-America/Los_Angeles}")
+        assert result == "America/Los_Angeles"
+
+    def test_empty_string_without_default_returns_empty(self, monkeypatch):
+        """${VAR} with VAR="" returns empty string (var is set, no default)."""
+        monkeypatch.setenv("EMPTY_VAR", "")
+        result = resolve_env_vars("${EMPTY_VAR}")
+        assert result == ""
+
+    def test_empty_string_with_empty_default_returns_empty(self, monkeypatch):
+        """${VAR:-} with VAR="" returns empty string (empty default = empty)."""
+        monkeypatch.setenv("EMPTY_VAR", "")
+        result = resolve_env_vars("${EMPTY_VAR:-}")
+        assert result == ""
 
     def test_unset_var_no_default_preserves_original(self, monkeypatch):
         """${VAR} with no default and VAR unset keeps the original placeholder."""
