@@ -7,12 +7,12 @@
 import { fetchJSON, putJSON } from './api.js';
 import { state } from './state.js';
 import { mountExplore, unmountExplore } from './explore.js';
-import { mountSearch, unmountSearch } from './search.js';
+import { mountFeedback, unmountFeedback } from './feedback.js';
 import { refreshStatsBadges } from './stats-badges.js';
 
 const VIEWS = {
-  explore: { mount: mountExplore, unmount: unmountExplore },
-  search:  { mount: mountSearch,  unmount: unmountSearch },
+  explore:  { mount: mountExplore,  unmount: unmountExplore },
+  feedback: { mount: mountFeedback, unmount: unmountFeedback },
 };
 
 let currentView = null;

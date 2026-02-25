@@ -36,10 +36,6 @@ def _create_lifespan(project_cwd: str | None = None):
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         import httpx
 
-        from osprey.interfaces.channel_finder.agent_session import (
-            cleanup_search_registry,
-            init_search_registry,
-        )
         from osprey.mcp_server.common import load_osprey_config
 
         # Load config and determine pipeline type
@@ -86,6 +82,42 @@ def _create_lifespan(project_cwd: str | None = None):
 
         app.state.available_pipelines = available
 
+        # Initialize feedback store if hierarchical pipeline has feedback enabled
+        app.state.feedback_store = None
+        if "hierarchical" in available:
+            feedback_config = (
+                config.get("channel_finder", {})
+                .get("pipelines", {})
+                .get("hierarchical", {})
+                .get("feedback", {})
+            )
+            if feedback_config.get("enabled", False):
+                from osprey.services.channel_finder.feedback.store import FeedbackStore
+
+                store_path = feedback_config.get(
+                    "store_path", "data/feedback/hierarchical_feedback.json"
+                )
+                resolved = Path(store_path)
+                if not resolved.is_absolute():
+                    resolved = Path(app.state.project_cwd) / store_path
+                app.state.feedback_store = FeedbackStore(str(resolved))
+                logger.info("Initialized feedback store at %s", resolved)
+
+        # Initialize pending review store (unconditional — captures come from hook)
+        app.state.pending_review_store = None
+        try:
+            from osprey.services.channel_finder.feedback.pending_store import (
+                PendingReviewStore,
+            )
+
+            pr_path = Path("data/feedback/pending_reviews.json")
+            if not pr_path.is_absolute():
+                pr_path = Path(app.state.project_cwd) / pr_path
+            app.state.pending_review_store = PendingReviewStore(str(pr_path))
+            logger.info("Initialized pending review store at %s", pr_path)
+        except Exception:
+            logger.debug("Could not initialize pending review store", exc_info=True)
+
         # Fall back if the configured pipeline didn't initialize
         if pipeline_type not in available and available:
             pipeline_type = available[0]
@@ -93,7 +125,6 @@ def _create_lifespan(project_cwd: str | None = None):
             logger.warning("Configured pipeline unavailable, falling back to %s", pipeline_type)
 
         app.state.http_client = httpx.AsyncClient(timeout=30.0)
-        init_search_registry()
         logger.info(
             "Channel Finder started (pipeline=%s, cwd=%s)",
             pipeline_type,
@@ -102,7 +133,6 @@ def _create_lifespan(project_cwd: str | None = None):
 
         yield
 
-        await cleanup_search_registry()
         await app.state.http_client.aclose()
 
     return lifespan
@@ -118,7 +148,11 @@ def create_app(project_cwd: str | None = None) -> FastAPI:
     Returns:
         Configured FastAPI application.
     """
-    from osprey.interfaces.channel_finder import agent_session, database_api
+    from osprey.interfaces.channel_finder import (
+        database_api,
+        feedback_api,
+        pending_review_api,
+    )
 
     app = FastAPI(
         title="OSPREY Channel Finder",
@@ -163,8 +197,11 @@ def create_app(project_cwd: str | None = None) -> FastAPI:
     # Database REST API
     app.include_router(database_api.router, prefix="/api")
 
-    # AI search routes (REST + WebSocket)
-    app.include_router(agent_session.router)
+    # Feedback management API
+    app.include_router(feedback_api.router, prefix="/api")
+
+    # Pending review API
+    app.include_router(pending_review_api.router, prefix="/api")
 
     # Static files (must come last so it doesn't shadow API routes)
     if STATIC_DIR.exists():

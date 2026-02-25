@@ -69,11 +69,11 @@ def test_different_facilities_are_isolated(store):
 @pytest.mark.parametrize(
     "variant",
     [
-        "Show Me Magnets",        # case
-        "  show  me   magnets  ", # whitespace
-        "show me magnets!",       # punctuation
-        "SHOW ME MAGNETS???",     # case + punctuation
-        "show, me: magnets.",     # mixed punctuation
+        "Show Me Magnets",  # case
+        "  show  me   magnets  ",  # whitespace
+        "show me magnets!",  # punctuation
+        "SHOW ME MAGNETS???",  # case + punctuation
+        "show, me: magnets.",  # mixed punctuation
     ],
 )
 def test_query_normalization(store, variant):
@@ -209,7 +209,7 @@ def test_file_format_on_disk(store):
     )
 
     raw = json.loads(store._path.read_text())
-    assert raw["version"] == 1
+    assert raw["version"] == 2
     assert isinstance(raw["entries"], dict)
 
     key = FeedbackStore._make_key("magnets", "ALS")
@@ -227,9 +227,7 @@ def test_clear_wipes_all_data(store):
     store.record_success(
         query="magnets", facility="ALS", selections={"system": "MAG"}, channel_count=10
     )
-    store.record_failure(
-        query="bpms", facility="ALS", partial_selections={}, reason="not found"
-    )
+    store.record_failure(query="bpms", facility="ALS", partial_selections={}, reason="not found")
 
     store.clear()
 
@@ -239,7 +237,7 @@ def test_clear_wipes_all_data(store):
     # File should still exist but be empty of entries
     raw = json.loads(store._path.read_text())
     assert raw["entries"] == {}
-    assert raw["version"] == 1
+    assert raw["version"] == 2
 
 
 # ------------------------------------------------------------------
@@ -318,6 +316,41 @@ def test_record_multiple_failures(store):
     assert len(raw["entries"][key]["failures"]) == 3
 
 
+def test_failure_deduplication(store):
+    """Identical (selections, reason) pairs should be deduplicated."""
+    for _ in range(5):
+        store.record_failure(
+            query="bad query",
+            facility="ALS",
+            partial_selections={"system": "MAG"},
+            reason="no options at family level",
+        )
+
+    raw = json.loads(store._path.read_text())
+    key = FeedbackStore._make_key("bad query", "ALS")
+    assert len(raw["entries"][key]["failures"]) == 1
+
+
+def test_failure_different_reasons_not_deduplicated(store):
+    """Same selections but different reasons are separate failures."""
+    store.record_failure(
+        query="bad query",
+        facility="ALS",
+        partial_selections={"system": "MAG"},
+        reason="no options at family level",
+    )
+    store.record_failure(
+        query="bad query",
+        facility="ALS",
+        partial_selections={"system": "MAG"},
+        reason="timeout at device level",
+    )
+
+    raw = json.loads(store._path.read_text())
+    key = FeedbackStore._make_key("bad query", "ALS")
+    assert len(raw["entries"][key]["failures"]) == 2
+
+
 # ------------------------------------------------------------------
 # 10. Empty store returns empty hints
 # ------------------------------------------------------------------
@@ -377,10 +410,267 @@ def test_store_created_in_nonexistent_subdirectory(tmp_path):
     """Store should create parent directories as needed."""
     deep_path = tmp_path / "a" / "b" / "c" / "feedback.json"
     store = FeedbackStore(deep_path)
-    store.record_success(
-        query="test", facility="ALS", selections={"x": "y"}, channel_count=1
-    )
+    store.record_success(query="test", facility="ALS", selections={"x": "y"}, channel_count=1)
 
     assert deep_path.exists()
     hints = store.get_hints("test", "ALS")
     assert len(hints) == 1
+
+
+# ------------------------------------------------------------------
+# 12. list_keys returns metadata
+# ------------------------------------------------------------------
+
+
+def test_list_keys_returns_metadata(store):
+    store.record_success(
+        query="show me magnets", facility="ALS", selections={"system": "MAG"}, channel_count=10
+    )
+    store.record_failure(
+        query="show me magnets",
+        facility="ALS",
+        partial_selections={"system": "X"},
+        reason="bad",
+    )
+
+    keys = store.list_keys()
+    assert len(keys) == 1
+    entry = keys[0]
+    assert entry["query"] == "show me magnets"
+    assert entry["facility"] == "ALS"
+    assert entry["success_count"] == 1
+    assert entry["failure_count"] == 1
+    assert entry["last_activity"] != ""
+    assert len(entry["key"]) == 64
+
+
+# ------------------------------------------------------------------
+# 13. get_entry / get_entry missing
+# ------------------------------------------------------------------
+
+
+def test_get_entry_returns_bucket(store):
+    store.record_success(
+        query="magnets", facility="ALS", selections={"system": "MAG"}, channel_count=5
+    )
+    key = FeedbackStore._make_key("magnets", "ALS")
+    entry = store.get_entry(key)
+    assert entry is not None
+    assert len(entry["successes"]) == 1
+    assert entry["_meta"]["query"] == "magnets"
+
+
+def test_get_entry_missing_returns_none(store):
+    assert store.get_entry("nonexistent_key") is None
+
+
+# ------------------------------------------------------------------
+# 14. delete_entry
+# ------------------------------------------------------------------
+
+
+def test_delete_entry_removes_bucket(store):
+    store.record_success(
+        query="magnets", facility="ALS", selections={"system": "MAG"}, channel_count=5
+    )
+    key = FeedbackStore._make_key("magnets", "ALS")
+    assert store.delete_entry(key) is True
+    assert store.get_entry(key) is None
+
+
+def test_delete_entry_missing_returns_false(store):
+    assert store.delete_entry("nonexistent") is False
+
+
+# ------------------------------------------------------------------
+# 15. delete_record with stale check
+# ------------------------------------------------------------------
+
+
+def test_delete_record_with_matching_timestamp(store):
+    store.record_success(
+        query="magnets", facility="ALS", selections={"system": "MAG"}, channel_count=5
+    )
+    key = FeedbackStore._make_key("magnets", "ALS")
+    entry = store.get_entry(key)
+    ts = entry["successes"][0]["timestamp"]
+
+    assert store.delete_record(key, "successes", 0, ts) is True
+    assert store.get_entry(key) is None  # Empty bucket cleaned up
+
+
+def test_delete_record_stale_timestamp_raises(store):
+    store.record_success(
+        query="magnets", facility="ALS", selections={"system": "MAG"}, channel_count=5
+    )
+    key = FeedbackStore._make_key("magnets", "ALS")
+
+    with pytest.raises(ValueError, match="Stale timestamp"):
+        store.delete_record(key, "successes", 0, "wrong-timestamp")
+
+
+# ------------------------------------------------------------------
+# 16. update_record
+# ------------------------------------------------------------------
+
+
+def test_update_record_success(store):
+    store.record_success(
+        query="magnets", facility="ALS", selections={"system": "MAG"}, channel_count=5
+    )
+    key = FeedbackStore._make_key("magnets", "ALS")
+    entry = store.get_entry(key)
+    ts = entry["successes"][0]["timestamp"]
+
+    store.update_record(
+        key, "successes", 0, ts, selections={"system": "QUAD"}, channel_count=99
+    )
+
+    updated = store.get_entry(key)
+    assert updated["successes"][0]["selections"] == {"system": "QUAD"}
+    assert updated["successes"][0]["channel_count"] == 99
+    assert updated["successes"][0]["timestamp"] != ts  # Timestamp updated
+
+
+def test_update_record_failure(store):
+    store.record_failure(
+        query="bad", facility="ALS", partial_selections={"system": "MAG"}, reason="no options"
+    )
+    key = FeedbackStore._make_key("bad", "ALS")
+    entry = store.get_entry(key)
+    ts = entry["failures"][0]["timestamp"]
+
+    store.update_record(
+        key, "failures", 0, ts, partial_selections={"system": "QUAD"}, reason="timeout"
+    )
+
+    updated = store.get_entry(key)
+    assert updated["failures"][0]["partial_selections"] == {"system": "QUAD"}
+    assert updated["failures"][0]["reason"] == "timeout"
+
+
+def test_update_record_stale_timestamp_raises(store):
+    store.record_success(
+        query="magnets", facility="ALS", selections={"system": "MAG"}, channel_count=5
+    )
+    key = FeedbackStore._make_key("magnets", "ALS")
+
+    with pytest.raises(ValueError, match="Stale timestamp"):
+        store.update_record(key, "successes", 0, "wrong", selections={"system": "X"})
+
+
+# ------------------------------------------------------------------
+# 17. add_manual_entry
+# ------------------------------------------------------------------
+
+
+def test_add_manual_entry_success(store):
+    key = store.add_manual_entry(
+        query="magnets", facility="ALS", entry_type="success",
+        selections={"system": "MAG"}, channel_count=42,
+    )
+    hints = store.get_hints("magnets", "ALS")
+    assert len(hints) == 1
+    assert hints[0]["channel_count"] == 42
+    assert len(key) == 64
+
+
+def test_add_manual_entry_failure(store):
+    key = store.add_manual_entry(
+        query="bad", facility="ALS", entry_type="failure",
+        selections={"system": "MAG"}, reason="not found",
+    )
+    entry = store.get_entry(key)
+    assert len(entry["failures"]) == 1
+    assert entry["failures"][0]["reason"] == "not found"
+
+
+def test_add_manual_entry_dedup(store):
+    """Manual add of duplicate is silently ignored (existing dedup)."""
+    store.add_manual_entry(
+        query="magnets", facility="ALS", entry_type="success",
+        selections={"system": "MAG"}, channel_count=10,
+    )
+    store.add_manual_entry(
+        query="magnets", facility="ALS", entry_type="success",
+        selections={"system": "MAG"}, channel_count=20,
+    )
+    hints = store.get_hints("magnets", "ALS")
+    assert len(hints) == 1  # Dedup kept only the first
+
+
+# ------------------------------------------------------------------
+# 18. export_data
+# ------------------------------------------------------------------
+
+
+def test_export_data_returns_complete_store(store):
+    store.record_success(
+        query="magnets", facility="ALS", selections={"system": "MAG"}, channel_count=5
+    )
+    store.record_failure(
+        query="bad", facility="ALS", partial_selections={}, reason="fail"
+    )
+
+    exported = store.export_data()
+    assert exported["version"] == 2
+    assert len(exported["entries"]) == 2
+
+    # Verify it's a deep copy
+    exported["entries"].clear()
+    assert len(store.export_data()["entries"]) == 2
+
+
+# ------------------------------------------------------------------
+# 19. v1 to v2 migration
+# ------------------------------------------------------------------
+
+
+def test_v1_to_v2_migration(tmp_path):
+    """v1 format data should get _meta backfilled on load."""
+    path = tmp_path / "feedback.json"
+    v1_data = {
+        "version": 1,
+        "entries": {
+            "abc123": {
+                "successes": [
+                    {"selections": {"system": "MAG"}, "channel_count": 5, "timestamp": "2026-01-01"}
+                ],
+                "failures": [],
+            }
+        },
+    }
+    path.write_text(json.dumps(v1_data))
+
+    store = FeedbackStore(path)
+    entry = store.get_entry("abc123")
+    assert entry is not None
+    assert entry["_meta"] == {"query": "(unknown)", "facility": "(unknown)"}
+
+    # Version should now be 2 in memory
+    exported = store.export_data()
+    assert exported["version"] == 2
+
+
+# ------------------------------------------------------------------
+# 20. _meta populated on new records
+# ------------------------------------------------------------------
+
+
+def test_meta_populated_on_new_records(store):
+    """_meta is set after record_success() and record_failure()."""
+    store.record_success(
+        query="Show Me Magnets", facility="ALS", selections={"system": "MAG"}, channel_count=5
+    )
+    key = FeedbackStore._make_key("Show Me Magnets", "ALS")
+    entry = store.get_entry(key)
+    assert entry["_meta"]["query"] == "Show Me Magnets"
+    assert entry["_meta"]["facility"] == "ALS"
+
+    store.record_failure(
+        query="bad query", facility="LCLS", partial_selections={}, reason="fail"
+    )
+    key2 = FeedbackStore._make_key("bad query", "LCLS")
+    entry2 = store.get_entry(key2)
+    assert entry2["_meta"]["query"] == "bad query"
+    assert entry2["_meta"]["facility"] == "LCLS"
