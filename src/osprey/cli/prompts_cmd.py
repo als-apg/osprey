@@ -19,6 +19,7 @@ import yaml
 from osprey.cli.prompt_registry import PromptRegistry
 from osprey.cli.styles import console
 from osprey.cli.templates import MANIFEST_FILENAME, TemplateManager
+from osprey.utils.config import resolve_env_vars
 
 
 def _load_config(project_dir: Path) -> dict[str, Any]:
@@ -26,11 +27,10 @@ def _load_config(project_dir: Path) -> dict[str, Any]:
     config_file = project_dir / "config.yml"
     if not config_file.exists():
         raise click.ClickException(
-            f"No config.yml found in {project_dir}. "
-            "Are you in an OSPREY project directory?"
+            f"No config.yml found in {project_dir}. Are you in an OSPREY project directory?"
         )
     with open(config_file, encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+        return resolve_env_vars(yaml.safe_load(f) or {})
 
 
 def _get_user_owned(config: dict) -> list[str]:
@@ -100,9 +100,7 @@ def list_artifacts(project):
     if owned:
         console.print("\n  [dim]User-owned:[/dim]")
         for art in owned:
-            console.print(
-                f"    [bold]\u2605[/bold] {art.canonical_name:<35s} {art.output_path}"
-            )
+            console.print(f"    [bold]\u2605[/bold] {art.canonical_name:<35s} {art.output_path}")
 
     console.print()
 
@@ -135,17 +133,14 @@ def claim(name, project):
 
     if artifact is None:
         known = ", ".join(registry.all_names())
-        raise click.ClickException(
-            f"Unknown artifact '{name}'. Known artifacts:\n  {known}"
-        )
+        raise click.ClickException(f"Unknown artifact '{name}'. Known artifacts:\n  {known}")
 
     config = _load_config(project_dir)
     user_owned = _get_user_owned(config)
 
     if name in user_owned:
         raise click.ClickException(
-            f"'{name}' is already user-owned. "
-            f"Edit it directly at {artifact.output_path}."
+            f"'{name}' is already user-owned. Edit it directly at {artifact.output_path}."
         )
 
     # Build template context
@@ -159,9 +154,7 @@ def claim(name, project):
         template_file = claude_code_dir / artifact.template_path
 
         if not template_file.exists():
-            raise click.ClickException(
-                f"Template file not found: {artifact.template_path}"
-            )
+            raise click.ClickException(f"Template file not found: {artifact.template_path}")
 
         if template_file.suffix == ".j2":
             template_rel = f"claude_code/{artifact.template_path}"
@@ -184,13 +177,9 @@ def claim(name, project):
         if output_file.suffix == ".py":
             output_file.chmod(output_file.stat().st_mode | 0o755)
 
-        console.print(
-            f"  [success]\u2713[/success] Rendered {name} \u2192 {artifact.output_path}"
-        )
+        console.print(f"  [success]\u2713[/success] Rendered {name} \u2192 {artifact.output_path}")
     else:
-        console.print(
-            f"  [success]\u2713[/success] File already exists at {artifact.output_path}"
-        )
+        console.print(f"  [success]\u2713[/success] File already exists at {artifact.output_path}")
 
     # Update config.yml
     _update_config_add_user_owned(project_dir, name)
@@ -198,9 +187,7 @@ def claim(name, project):
     # Update manifest
     _update_manifest_add_user_owned(project_dir, manager, ctx, name)
 
-    console.print(
-        f"\n  Edit [path]{artifact.output_path}[/path] — regen will skip it.\n"
-    )
+    console.print(f"\n  Edit [path]{artifact.output_path}[/path] — regen will skip it.\n")
 
 
 @prompts.command(name="diff")
@@ -230,8 +217,7 @@ def diff(name, project):
 
     if name not in user_owned:
         raise click.ClickException(
-            f"'{name}' is not user-owned in config.yml. "
-            f"Run `osprey prompts claim {name}` first."
+            f"'{name}' is not user-owned in config.yml. Run `osprey prompts claim {name}` first."
         )
 
     registry = PromptRegistry.default()
@@ -304,9 +290,7 @@ def unclaim(name, project):
     user_owned = _get_user_owned(config)
 
     if name not in user_owned:
-        raise click.ClickException(
-            f"'{name}' is not user-owned in config.yml."
-        )
+        raise click.ClickException(f"'{name}' is not user-owned in config.yml.")
 
     # Remove from config.yml
     _update_config_remove_user_owned(project_dir, name)
@@ -314,12 +298,8 @@ def unclaim(name, project):
     # Remove from manifest
     _update_manifest_remove_user_owned(project_dir, name)
 
-    console.print(
-        f"  [success]\u2713[/success] Released ownership of {name}"
-    )
-    console.print(
-        "\n  Next `osprey claude regen` will overwrite with the framework template.\n"
-    )
+    console.print(f"  [success]\u2713[/success] Released ownership of {name}")
+    console.print("\n  Next `osprey claude regen` will overwrite with the framework template.\n")
 
 
 # ── Config.yml helpers ───────────────────────────────────────────────
@@ -333,8 +313,7 @@ def _update_config_add_user_owned(project_dir: Path, name: str):
     added = config_add_to_list(config_path, ["prompts", "user_owned"], name)
     if added:
         console.print(
-            f"  [success]\u2713[/success] Updated config.yml — "
-            f"prompts.user_owned += {name}"
+            f"  [success]\u2713[/success] Updated config.yml — prompts.user_owned += {name}"
         )
 
 
