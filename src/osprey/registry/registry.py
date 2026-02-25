@@ -52,11 +52,12 @@ from .base import (
     ArielIngestionAdapterRegistration,
     ArielPipelineRegistration,
     ArielSearchModuleRegistration,
+    CapabilityRegistration,
     CodeGeneratorRegistration,
     ConnectorRegistration,
-    ProviderRegistration,
     RegistryConfig,
     RegistryConfigProvider,
+    ServiceRegistration,
 )
 
 
@@ -133,10 +134,60 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
         """
         return RegistryConfig(
             core_nodes=[],
-            capabilities=[],
+            capabilities=[
+                CapabilityRegistration(
+                    name="channel_finding",
+                    module_path="osprey.capabilities.channel_finding",
+                    class_name="ChannelFindingCapability",
+                    description="Resolve natural-language queries to control system channel addresses",
+                    provides=["CHANNEL_ADDRESSES"],
+                    requires=[],
+                ),
+                CapabilityRegistration(
+                    name="channel_read",
+                    module_path="osprey.capabilities.channel_read",
+                    class_name="ChannelReadCapability",
+                    description="Read current values from control system channels",
+                    provides=["CHANNEL_VALUES"],
+                    requires=["CHANNEL_ADDRESSES"],
+                ),
+                CapabilityRegistration(
+                    name="channel_write",
+                    module_path="osprey.capabilities.channel_write",
+                    class_name="ChannelWriteCapability",
+                    description="Write values to control system channels (requires approval)",
+                    provides=["CHANNEL_WRITE_RESULTS"],
+                    requires=["CHANNEL_ADDRESSES"],
+                ),
+                CapabilityRegistration(
+                    name="archiver_retrieval",
+                    module_path="osprey.capabilities.archiver_retrieval",
+                    class_name="ArchiverRetrievalCapability",
+                    description="Retrieve historical time-series data from archiver systems",
+                    provides=["ARCHIVER_DATA"],
+                    requires=["CHANNEL_ADDRESSES", "TIME_RANGE"],
+                ),
+            ],
             context_classes=[],
             data_sources=[],
-            services=[],
+            services=[
+                ServiceRegistration(
+                    name="python_executor",
+                    module_path="osprey.services.python_executor",
+                    class_name="PythonExecutionRequest",
+                    description="Python code generation and secure execution service",
+                    provides=["EXECUTION_RESULTS"],
+                    requires=[],
+                ),
+                ServiceRegistration(
+                    name="channel_finder",
+                    module_path="osprey.services.channel_finder",
+                    class_name="ChannelFinderService",
+                    description="Natural-language channel address resolution service",
+                    provides=["CHANNEL_ADDRESSES"],
+                    requires=[],
+                ),
+            ],
             framework_prompt_providers=[],
             # Framework AI model providers — built-in table now lives in
             # osprey.models.provider_registry (single source of truth).
