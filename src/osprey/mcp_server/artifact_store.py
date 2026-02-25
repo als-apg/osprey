@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import mimetypes
+import os
 import uuid
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
@@ -69,6 +70,7 @@ class ArtifactEntry:
     access_details: dict[str, Any] = field(default_factory=dict)
     data_file: str = ""
     source_agent: str = ""
+    session_id: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -221,6 +223,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         d.setdefault("access_details", {})
         d.setdefault("data_file", "")
         d.setdefault("source_agent", "")
+        d.setdefault("session_id", "")
         return ArtifactEntry(**d)
 
     def _entry_to_dict(self, entry: ArtifactEntry) -> dict:
@@ -265,6 +268,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
                 timestamp=datetime.now(UTC).isoformat(),
                 tool_source=tool_source,
                 metadata=metadata or {},
+                session_id=os.environ.get("OSPREY_SESSION_ID", ""),
             )
             self._entries.append(entry)
             self._save_index()
@@ -384,6 +388,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
                 access_details=access_details or {},
                 data_file=safe_filename,
                 source_agent=source_agent,
+                session_id=os.environ.get("OSPREY_SESSION_ID", ""),
             )
             self._entries.append(entry)
             self._save_index()
@@ -407,6 +412,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         category_filter: str | None = None,
         tool_filter: str | None = None,
         source_agent_filter: str | None = None,
+        session_filter: str | None = None,
         last_n: int | None = None,
     ) -> list[ArtifactEntry]:
         """Return artifact entries, optionally filtered."""
@@ -420,6 +426,10 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             entries = [e for e in entries if e.tool_source == tool_filter]
         if source_agent_filter:
             entries = [e for e in entries if e.source_agent == source_agent_filter]
+        if session_filter:
+            entries = [
+                e for e in entries if e.session_id == session_filter or not e.session_id
+            ]
         if pinned is not None:
             entries = [e for e in entries if e.pinned == pinned]
         if search:
