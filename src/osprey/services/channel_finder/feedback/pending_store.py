@@ -65,7 +65,7 @@ class PendingReviewStore:
         Args:
             item: Dict with keys like query, facility, tool_name,
                   tool_response, channel_count, selections, session_id,
-                  transcript_path.
+                  transcript_path, user_prompt.
 
         Returns:
             UUID string for the new item.
@@ -83,6 +83,7 @@ class PendingReviewStore:
                 "selections": item.get("selections", {}),
                 "session_id": item.get("session_id", ""),
                 "transcript_path": item.get("transcript_path", ""),
+                "agent_task": item.get("agent_task", ""),
                 "captured_at": datetime.now(UTC).isoformat(),
             }
 
