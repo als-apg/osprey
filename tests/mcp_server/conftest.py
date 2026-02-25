@@ -32,14 +32,26 @@ def get_tool_fn(tool_or_fn):
 
 
 @pytest.fixture(autouse=True)
-def _reset_singletons():
+def _reset_singletons(monkeypatch):
     """Reset the MCP registry and DataContext singletons between tests."""
+    # Reset config caches BEFORE each test to prevent cross-contamination
+    reset_config_cache()
+    import osprey.utils.config as _cfg
+
+    monkeypatch.setattr(_cfg, "_default_config", None)
+    monkeypatch.setattr(_cfg, "_default_configurable", None)
+    saved_cache = _cfg._config_cache.copy()
+    _cfg._config_cache.clear()
+
     yield
+
     reset_mcp_registry()
     reset_artifact_store()
     reset_memory_store()
     reset_backend()
     reset_config_cache()
+    _cfg._config_cache.clear()
+    _cfg._config_cache.update(saved_cache)
 
 
 @pytest.fixture

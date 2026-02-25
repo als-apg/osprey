@@ -77,12 +77,14 @@ class TestMonitoringStackLauncher:
         assert launcher._is_healthy("http://127.0.0.1:99999") is False
 
     @patch("osprey.interfaces.monitoring.launcher.generate_configs")
-    def test_health_check_url_otel_collector(self, mock_gen_configs, launcher):
+    @patch("urllib.request.urlopen", side_effect=ConnectionRefusedError)
+    def test_health_check_url_otel_collector(self, mock_urlopen, mock_gen_configs, launcher):
         """Test health check URL construction for OTEL Collector."""
         assert launcher._is_healthy("http://127.0.0.1:13133") is False
 
     @patch("osprey.interfaces.monitoring.launcher.generate_configs")
-    def test_health_check_url_grafana(self, mock_gen_configs, launcher):
+    @patch("urllib.request.urlopen", side_effect=ConnectionRefusedError)
+    def test_health_check_url_grafana(self, mock_urlopen, mock_gen_configs, launcher):
         """Test health check URL construction for Grafana."""
         assert launcher._is_healthy("http://127.0.0.1:8091/api/health") is False
 
@@ -115,7 +117,8 @@ class TestMonitoringStackLauncher:
         mock_proc.kill.assert_called_once()
 
     @patch("osprey.interfaces.monitoring.launcher.load_osprey_config")
-    def test_status_returns_dict(self, mock_config, launcher):
+    @patch("urllib.request.urlopen", side_effect=ConnectionRefusedError)
+    def test_status_returns_dict(self, mock_urlopen, mock_config, launcher):
         """Status returns a dict with all 3 service keys."""
         mock_config.return_value = {"monitoring": {}}
         result = launcher.status()
