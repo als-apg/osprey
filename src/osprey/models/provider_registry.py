@@ -31,6 +31,24 @@ class _ProviderEntry:
     class_name: str
 
 
+# ── Provider → API key env var (single source of truth) ───────────────
+# Maps each provider name to the environment variable holding its API key.
+# ``None`` means the provider does not require an API key.
+PROVIDER_API_KEYS: dict[str, str | None] = {
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "google": "GOOGLE_API_KEY",
+    "cborg": "CBORG_API_KEY",
+    "amsc": "AMSC_I2_API_KEY",
+    "argo": "ARGO_API_KEY",
+    "stanford": "STANFORD_API_KEY",
+    "als-apg": "ALS_APG_API_KEY",
+    "ollama": None,
+    "asksage": None,  # uses different auth
+    "vllm": None,  # local, no key
+}
+
+
 # ── Built-in provider table (single source of truth) ──────────────────
 _BUILTIN_PROVIDERS: dict[str, _ProviderEntry] = {
     "anthropic": _ProviderEntry("osprey.models.providers.anthropic", "AnthropicProviderAdapter"),

@@ -102,16 +102,10 @@ class TemplateManager:
             >>> env_vars = manager._detect_environment_variables()
             >>> env_vars.get('OPENAI_API_KEY')  # Returns key if set, None otherwise
         """
-        # List of environment variables we want to detect and potentially use
-        env_vars_to_check = [
-            "CBORG_API_KEY",
-            "AMSC_I2_API_KEY",
-            "OPENAI_API_KEY",
-            "ANTHROPIC_API_KEY",
-            "GOOGLE_API_KEY",
-            "ARGO_API_KEY",
-            "STANFORD_API_KEY",
-            "ALS_APG_API_KEY",
+        # API key env vars from canonical registry + non-API env vars
+        from osprey.models.provider_registry import PROVIDER_API_KEYS
+
+        env_vars_to_check = [v for v in PROVIDER_API_KEYS.values() if v is not None] + [
             "PROJECT_ROOT",
             "LOCAL_PYTHON_VENV",
             "CONFLUENCE_ACCESS_TOKEN",
@@ -384,18 +378,11 @@ class TemplateManager:
                 self.render_template(f"project/{template_file}", ctx, project_dir / output_file)
 
         # Create .env file only if API keys are detected
+        from osprey.models.provider_registry import PROVIDER_API_KEYS
+
         detected_env_vars = ctx.get("env", {})
-        api_keys = [
-            "CBORG_API_KEY",
-            "AMSC_I2_API_KEY",
-            "OPENAI_API_KEY",
-            "ANTHROPIC_API_KEY",
-            "GOOGLE_API_KEY",
-            "ARGO_API_KEY",
-            "STANFORD_API_KEY",
-            "ALS_APG_API_KEY",
-        ]
-        has_api_keys = any(key in detected_env_vars for key in api_keys)
+        api_key_names = {v for v in PROVIDER_API_KEYS.values() if v is not None}
+        has_api_keys = any(key in detected_env_vars for key in api_key_names)
 
         if has_api_keys:
             env_template = project_template_dir / "env.j2"

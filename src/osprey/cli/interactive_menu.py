@@ -1009,17 +1009,11 @@ def get_api_key_name(provider: str) -> str | None:
     Returns:
         Environment variable name, or None if provider doesn't need API key
     """
-    key_names = {
-        "cborg": "CBORG_API_KEY",
-        "amsc": "AMSC_I2_API_KEY",
-        "stanford": "STANFORD_API_KEY",
-        "argo": "ARGO_API_KEY",
-        "anthropic": "ANTHROPIC_API_KEY",
-        "google": "GOOGLE_API_KEY",
-        "openai": "OPENAI_API_KEY",
-        "ollama": None,  # Ollama doesn't need API key
-    }
-    return key_names.get(provider, f"{provider.upper()}_API_KEY")
+    from osprey.models.provider_registry import PROVIDER_API_KEYS
+
+    if provider in PROVIDER_API_KEYS:
+        return PROVIDER_API_KEYS[provider]
+    return f"{provider.upper()}_API_KEY"
 
 
 def configure_api_key(
@@ -1544,22 +1538,17 @@ def run_interactive_init() -> str:
         console.print(f"\n{msg} {path}\n")
 
         # Check if API keys were detected and .env was created
+        from osprey.models.provider_registry import PROVIDER_API_KEYS
+
         detected_env = manager._detect_environment_variables()
-        api_keys = [
-            "CBORG_API_KEY",
-            "AMSC_I2_API_KEY",
-            "OPENAI_API_KEY",
-            "ANTHROPIC_API_KEY",
-            "GOOGLE_API_KEY",
-            "STANFORD_API_KEY",
-        ]
-        has_api_keys = any(key in detected_env for key in api_keys)
+        api_key_names = {v for v in PROVIDER_API_KEYS.values() if v is not None}
+        has_api_keys = any(key in detected_env for key in api_key_names)
 
         if has_api_keys:
             env_file = project_path / ".env"
             if env_file.exists():
                 console.print(Messages.success("Created .env with detected API keys"))
-                detected_keys = [key for key in api_keys if key in detected_env]
+                detected_keys = [key for key in api_key_names if key in detected_env]
                 console.print(f"[dim]  Detected: {', '.join(detected_keys)}[/dim]\n")
 
         # API key configuration
