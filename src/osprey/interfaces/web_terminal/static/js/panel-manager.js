@@ -46,13 +46,6 @@ const PANELS = [
     statusBarId: null,
   },
   {
-    id: 'monitoring',
-    label: 'MONITORING',
-    configEndpoint: '/api/monitoring-server',
-    healthEndpoint: null,    // backend verifies Grafana health before advertising URL
-    statusBarId: 'monitoring-status',
-  },
-  {
     id: 'session-analytics',
     label: 'SESSION ANALYTICS',
     configEndpoint: '/api/agentsview-server',

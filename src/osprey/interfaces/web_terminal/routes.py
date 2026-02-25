@@ -132,22 +132,6 @@ async def cui_server_config(request: Request):
     return {"url": url, "available": healthy, "authToken": auth_token}
 
 
-@router.get("/api/monitoring-server")
-async def monitoring_server_config(request: Request):
-    """Return the Grafana monitoring server URL for iframe embedding.
-
-    Returns the dashboard URL in kiosk mode so the embedded view shows
-    only the OSPREY dashboard without Grafana's sidebar/nav chrome.
-    """
-    base_url = getattr(request.app.state, "monitoring_server_url", None)
-    if base_url:
-        # Navigate directly to the provisioned OSPREY dashboard in kiosk mode
-        url = f"{base_url}/d/osprey-claude-code/claude-code-overview?kiosk"
-    else:
-        url = None
-    return {"url": url, "available": url is not None}
-
-
 @router.get("/api/agentsview-server")
 async def agentsview_server_config(request: Request):
     """Return the agentsview session analytics server URL for iframe embedding."""
@@ -175,7 +159,6 @@ async def set_panel_focus(body: PanelFocusRequest, request: Request):
         "ariel",
         "tuning",
         "channel-finder",
-        "monitoring",
         "session",
         "session-analytics",
     }
@@ -451,9 +434,6 @@ def _build_extra_env(
     extra_env: dict[str, str] = {}
     if claude_session_id:
         extra_env["OSPREY_SESSION_ID"] = claude_session_id
-    otel_env = getattr(websocket.app.state, "otel_env", {})
-    if otel_env:
-        extra_env.update(otel_env)
     hooks_env = getattr(websocket.app.state, "hooks_env", {})
     if hooks_env:
         extra_env.update(hooks_env)
