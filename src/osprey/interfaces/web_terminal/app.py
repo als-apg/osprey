@@ -258,7 +258,8 @@ def _create_lifespan(
 
         app.state.server_session_id = uuid.uuid4().hex[:12]
         app.state.shell_command = shell_command or config.get("shell") or "claude"
-        app.state.pty_registry = PtyRegistry()
+        max_bg = int(config.get("max_background_sessions", 5))
+        app.state.pty_registry = PtyRegistry(max_background=max_bg)
         app.state.operator_registry = OperatorRegistry()
         app.state.project_cwd = str(
             Path(project_dir).resolve() if project_dir else Path.cwd().resolve()
